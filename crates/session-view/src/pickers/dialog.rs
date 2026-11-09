@@ -13,7 +13,6 @@ use opencode_kit::model::capitalize;
 use rune::{El, Span, Spring, Transition, Tx, col, el, icon, rich, row, text};
 use rune_theme_opencode::icons as ic;
 
-use super::hover::ModelHover as _;
 use super::{Item, Kind, ModelAction, PickerHost, flyout, hover};
 use crate::palette::{Elevate as _, Pal};
 use crate::popover::{self as pop, LIST};
@@ -112,7 +111,7 @@ fn list<S: PickerHost>(s: &S, p: &Pal) -> El {
 /// and on the lit row the effort it would run with and a chevron. A press picks it.
 fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bool, query: &str) -> El {
     let key = item.key.clone();
-    let (enter, pick) = (key.clone(), key.clone());
+    let pick = key.clone();
     let name = match search_match(&item.label, query) {
         Some(r) => rich(item.label.clone(), vec![Span::new(r.start, r.end).color(p.accent)]),
         None => text(item.label.clone()),
@@ -141,18 +140,12 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .gap(LIST.gap)
         .center_y()
         .radius(LIST.row_radius)
-        // Not `on_hover`: its commit would animate the highlight from row to row.
-        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
-            if inside {
-                tx.instant();
-                pop::jump_highlight();
-                s.model_row_entered(&enter);
-            }
-        })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
         .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
         .child(words)
         .children(variant);
+    // The pointer on it, and its hover change (not `on_hover`: its commit would animate the
+    // highlight from row to row), are the flyout's (`hover::row`).
     hover::row::<S>(r, &key).children(flyout::anchor(s, &key))
 }
 

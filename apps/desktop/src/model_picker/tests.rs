@@ -62,7 +62,7 @@ fn point(rt: &mut Runtime<App>, [x, y]: [f32; 2]) {
 }
 
 fn flyout(rt: &Runtime<App>) -> Option<String> {
-    rt.state.pickers.flyout.as_ref().map(|f| f.model.clone())
+    rt.state.pickers.hover.flyout_model().map(str::to_owned)
 }
 
 fn lit(rt: &Runtime<App>) -> String {

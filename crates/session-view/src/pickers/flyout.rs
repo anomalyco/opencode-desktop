@@ -15,13 +15,6 @@ use crate::palette::Pal;
 use crate::popover::{self as pop, MENU};
 use crate::style::UI;
 
-/// The open flyout: the model it belongs to, and the option the pointer lights in it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Flyout {
-    pub model: String,
-    pub lit: Option<String>,
-}
-
 /// `FLYOUT_WIDTH_PX`.
 const W: f32 = 160.0;
 /// `FLYOUT_GAP_PX`: from the row's end.
@@ -32,43 +25,37 @@ const STATS: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0);
 const KEYCAP: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
 
 /// The flyout's actions, for any [`PickerHost`].
-pub trait EffortFlyout: PickerHost {
+pub trait EffortFlyout: PickerHost + Sized + 'static {
     /// Opens the model `key`'s flyout beside its row, or closes it when it's open.
     fn toggle_effort_flyout(&mut self, key: &str) {
-        if self.pickers().flyout.as_ref().is_some_and(|f| f.model == key) {
-            self.pickers_mut().flyout = None;
-            return;
-        }
-        self.pickers_mut().activate(key.to_owned());
-        self.pickers_mut().hover.cancel_wait();
-        self.open_effort_flyout(key);
+        self.pin_effort_flyout(key, &mut Tx::default());
         self.pickers_mut().search.focused = true;
     }
 
     /// Picks the model `key` with `effort` ("" for its default).
     fn choose_effort(&mut self, key: &str, effort: &str, tx: &mut Tx) {
         self.pickers_mut().stage_effort(key, effort);
-        self.pickers_mut().flyout = None;
         self.choose_picker_tx(key, tx);
     }
 }
 
-impl<S: PickerHost> EffortFlyout for S {}
+impl<S: PickerHost + 'static> EffortFlyout for S {}
 
 /// What the flyout hangs from, inside the model row `key` while its flyout is open: a line
 /// across the row 2 pt above it, so the flyout's first option, 2 pt into it, lands level with
 /// the row.
 pub fn anchor<S: PickerHost>(s: &S, key: &str) -> Option<El> {
-    s.pickers().flyout.as_ref().filter(|f| f.model == key && s.pickers().open == Some(Kind::Model))?;
+    (s.pickers().hover.flyout_model() == Some(key) && s.pickers().open == Some(Kind::Model)).then_some(())?;
     Some(el().key("effort-anchor").pin(Some(0.0), Some(-MENU.inset), Some(0.0), None).h(0.0).transition(Transition::none()))
 }
 
 /// The flyout, when one is open.
 pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let pk = s.pickers();
-    let f = pk.flyout.as_ref().filter(|_| pk.open == Some(Kind::Model))?;
-    let model = pk.models.iter().find(|m| m.key == f.model)?;
-    let now = s.model_effort(&f.model).unwrap_or_default();
+    let flyout = pk.hover.flyout_model().filter(|_| pk.open == Some(Kind::Model))?;
+    let model = pk.models.iter().find(|m| m.key == flyout)?;
+    let lit = pk.hover.lit();
+    let now = s.model_effort(flyout).unwrap_or_default();
     let mut list = col().key("effort-options").w_full().py(MENU.inset);
     // A model without efforts still lists Default, its only option.
     for effort in std::iter::once(String::new()).chain(model.variants.iter().cloned()) {
@@ -76,17 +63,17 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
         let id = format!("effort-{}", if effort.is_empty() { "default" } else { effort.as_str() });
         let check = icon(&ic::CHECK, 14.0).color(p.icon);
         let indicator = row().key("indicator").size(pop::SLOT, pop::SLOT).center().children((effort == now).then_some(check));
-        let key = f.model.clone();
-        list = list.child(item::<S>(p, f, &id, "menuitemradio", &label, indicator, move |s: &mut S, tx: &mut Tx| s.choose_effort(&key, &effort, tx)));
+        let key = flyout.to_owned();
+        list = list.child(item::<S>(p, lit, &id, "menuitemradio", &label, indicator, move |s: &mut S, tx: &mut Tx| s.choose_effort(&key, &effort, tx)));
     }
     list = list.child(separator(p, "effort-separator"));
-    let favorite = if pk.prefs.is_favorite(&f.model) { opencode_i18n::t!("dialog.model.unfavorite") } else { opencode_i18n::t!("dialog.model.favorite") };
-    let key = f.model.clone();
-    list = list.child(item::<S>(p, f, "effort-favorite", "menuitem", favorite, keycaps(p), move |s: &mut S, tx: &mut Tx| {
+    let favorite = if pk.prefs.is_favorite(flyout) { opencode_i18n::t!("dialog.model.unfavorite") } else { opencode_i18n::t!("dialog.model.favorite") };
+    let key = flyout.to_owned();
+    list = list.child(item::<S>(p, lit, "effort-favorite", "menuitem", favorite, keycaps(p), move |s: &mut S, tx: &mut Tx| {
         tx.instant();
         // The row moves between Favorites and its group, so the flyout would be left beside nothing.
         s.toggle_favorite(&key);
-        s.pickers_mut().flyout = None;
+        s.model_flyout_dismissed(tx);
     }));
     list = list.child(separator(p, "details-separator"));
     list = list.child(details(p, &model.group, pk.limits.get(&model.key).copied().unwrap_or(0), &model.inputs, model.tools));
@@ -96,20 +83,15 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
 
 /// A `menu-v2-item` (`menu.css:35-161`): 28 pt, 12 pt before its words and 6 after, 4 pt
 /// corners, on the hover overlay while the pointer is on it, inside the flyout's 2 pt inset.
-fn item<S: PickerHost>(p: &Pal, f: &Flyout, id: &str, role: &'static str, label: &str, end: El, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    let (enter, leave) = (id.to_owned(), id.to_owned());
-    let lit = f.lit.as_deref() == Some(id);
+fn item<S: PickerHost>(p: &Pal, lit: Option<&str>, id: &str, role: &'static str, label: &str, end: El, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    let option = id.to_owned();
+    let lit = lit == Some(id);
     let r = row().key(id.to_owned()).role(role).label(label.to_owned()).h(MENU.row_h).w_full().pl(MENU.pad_l).pr(MENU.pad_r).gap(8.0).center_y().radius(MENU.row_radius)
         .fill(if lit { p.hover } else { Color::TRANSPARENT })
         .transition(Transition::none())
         .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
             tx.instant();
-            let Some(f) = &mut s.pickers_mut().flyout else { return };
-            if inside {
-                f.lit = Some(enter.clone());
-            } else if f.lit.as_deref() == Some(leave.as_str()) {
-                f.lit = None;
-            }
+            super::hover::option_hovered(s, &option, inside);
         })
         .on_press_tx(press)
         .child(text(label.to_owned()).key("label").font(UI).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())

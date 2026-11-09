@@ -154,9 +154,8 @@ pub struct Pickers {
     /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
     /// (Desktop's staged variant). Opening the list clears them.
     pub(crate) staged: HashMap<String, String>,
-    /// The lit model's efforts, open beside its row.
-    pub flyout: Option<flyout::Flyout>,
-    /// When the flyout opens on hover.
+    /// The lit model's efforts beside its row: when they open on hover, and which option the
+    /// pointer lights in them.
     pub hover: hover::Hover,
     pub prefs: ModelPrefs,
     /// Manage models, while it's open.
@@ -287,9 +286,8 @@ impl Pickers {
         }
     }
 
-    /// Lights the row `key`; another row's efforts close.
+    /// Lights the row `key` (Desktop's `list.setActive`).
     pub fn activate(&mut self, key: String) {
-        if self.flyout.as_ref().is_some_and(|f| f.model != key) { self.flyout = None; }
         self.active.set(key, self.search.text.clone());
     }
 

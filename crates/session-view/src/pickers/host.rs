@@ -184,7 +184,6 @@ pub trait PickerHost: ComposerHost {
         pk.search = TextEdit::new("");
         pk.search.focused = kind == Kind::Model;
         pk.staged.clear();
-        pk.flyout = None;
         pk.hover = hover::Hover::fresh();
         // The model list starts on its first row, as Desktop's `SearchList` does
         // (`typeahead/controller.ts:22`); a menu starts on what's picked.
@@ -200,7 +199,7 @@ pub trait PickerHost: ComposerHost {
     fn close_picker(&mut self, restore: bool) {
         let pk = self.pickers_mut();
         pk.open = None;
-        pk.flyout = None;
+        pk.hover = hover::Hover::fresh();
         pk.search.focused = false;
         pk.search.preedit = None;
         pk.search.break_history_group();
@@ -335,7 +334,6 @@ pub(super) fn provider_rank(m: &Model) -> (usize, String) {
 fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(open) = s.pickers().open {
         match nav(ev) {
-            Some(Nav::Close) if s.pickers().flyout.is_some() => s.pickers_mut().flyout = None,
             Some(Nav::Close) => s.close_picker(true),
             // In the model dialog Tab moves on to Connect and Manage, as Desktop's does.
             Some(Nav::Leave) if open == Kind::Model => return false,
@@ -363,6 +361,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             }
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
                 if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
+                s.model_list_keyed();
             }
             // As in Desktop's list: ← → change the lit model's effort, or while searching edit
             // the query until the arrows have moved through the results (`select-dialog.tsx:897-908`).
@@ -375,7 +374,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                     (false, opencode_i18n::Direction::Ltr) | (true, opencode_i18n::Direction::Rtl) => -1,
                 };
                 if !s.step_effort(&key, step) { return false; }
-                s.pickers_mut().flyout = None;
+                s.model_list_keyed();
             }
             None => return open != Kind::Model,
         }

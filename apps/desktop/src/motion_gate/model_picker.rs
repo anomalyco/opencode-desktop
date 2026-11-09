@@ -41,7 +41,7 @@ pub fn run(r: &mut Run) {
     let (x, y) = on(rows[1]);
     r.act("rest on a row", |rt| rt.pointer_move(x, y));
     r.play(0.3);
-    assert!(r.rt.state.pickers.flyout.is_some(), "its efforts open");
+    assert!(r.rt.state.pickers.hover.flyout_model().is_some(), "its efforts open");
     let (x2, y2) = on(rows[2]);
     r.act("the next row", |rt| rt.pointer_move(x2, y2));
     r.play(0.2);
@@ -52,7 +52,7 @@ pub fn run(r: &mut Run) {
         let (x, y) = (x2 + (to.0 - x2) * t, y2 + (to.1 - y2) * t);
         r.act("toward the efforts", |rt| rt.pointer_move(x, y));
     }
-    assert!(r.rt.state.pickers.flyout.is_some(), "the efforts stay open on the way in");
+    assert!(r.rt.state.pickers.hover.flyout_model().is_some(), "the efforts stay open on the way in");
     r.play(0.3);
     r.act("back on the row", |rt| rt.pointer_move(x2, y2));
     r.play(0.2);
@@ -63,7 +63,7 @@ pub fn run(r: &mut Run) {
     r.play(0.3);
     r.act("↓", |rt| rt.key(KeyEvent { key: Key::Down, mods: Mods::default() }));
     r.play(0.4);
-    assert!(r.rt.state.pickers.flyout.is_none(), "the keys close the efforts");
+    assert!(r.rt.state.pickers.hover.flyout_model().is_none(), "the keys close the efforts");
     r.act("Esc", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
     r.play(0.5);
 }
