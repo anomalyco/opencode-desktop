@@ -7,9 +7,9 @@
   "events": [
     {"t": 0.3, "type": "key", "name": "k", "cmd": true, "expect": "instant"},
     {"t": 0.6, "type": "type", "text": "ios", "every": 0.12, "expect": "instant"},
-    {"t": 1.6, "type": "key", "name": "Backspace"},
-    {"t": 1.72, "type": "key", "name": "Backspace"},
-    {"t": 1.84, "type": "key", "name": "Backspace"},
+    {"t": 1.6, "type": "key", "name": "Backspace", "expect": "instant"},
+    {"t": 1.72, "type": "key", "name": "Backspace", "expect": "instant"},
+    {"t": 1.84, "type": "key", "name": "Backspace", "expect": "instant"},
     {"t": 2.2, "type": "type", "text": "ioeuaoe", "every": 0.12, "expect": "instant"}
   ]
 }

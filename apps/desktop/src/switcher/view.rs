@@ -6,6 +6,7 @@ use rune::{Color, Cx, El, PointerEvent, ScrollSpec, Span, Spring, TextStyle, Tra
 use rune_kit::ScrollBar as _;
 use rune_theme_opencode::{file_icons, icons as ic};
 
+use super::shown::Empty;
 use super::{Action, Entry, SwitcherMode};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
@@ -125,15 +126,20 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         i = end;
     }
     if entries.is_empty() {
-        let state = if s.switcher.loading() {
-            t!("common.loading")
-        } else if s.switcher.failed() == Some(q) {
-            t!("common.requestFailed")
-        } else {
-            t!("palette.empty")
-        };
-        results = col().key("switcher-results").w_full().child(col().key("switcher-empty").w_full().h(EMPTY_H).center().child(text(state).font(UI).color(p.muted)));
-        content_h = EMPTY_H;
+        match s.switcher_empty() {
+            // Still searching with nothing to show: a quiet line where the first section's
+            // header goes, blank until the wait is long enough to say so.
+            waiting @ (Empty::Blank | Empty::Loading) => {
+                let said = (waiting == Empty::Loading).then(|| text(t!("common.loading")).font(UI).color(p.muted));
+                results = results.child(row().key("switcher-loading").w_full().h(ROW_H).px(6.0).center_y().children(said));
+                content_h = ROW_H + 6.0;
+            }
+            done => {
+                let said = if done == Empty::Failed { t!("common.requestFailed") } else { t!("palette.empty") };
+                results = col().key("switcher-results").w_full().child(col().key("switcher-empty").w_full().h(EMPTY_H).center().child(text(said).font(UI).color(p.muted)));
+                content_h = EMPTY_H;
+            }
+        }
     } else {
         content_h += 6.0;
     }
