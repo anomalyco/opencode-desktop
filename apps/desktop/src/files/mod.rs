@@ -20,31 +20,22 @@ mod stories;
 #[cfg(test)]
 mod tests;
 pub mod view;
-mod viewer;
+pub(crate) mod viewer;
 
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 use rune_kit::{FileNode, TreeModel};
-use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
 use crate::code_view::CodeDocState;
-use crate::panels::{
-    PanelLauncherDesc, PanelRegistration, PanelSessionCtx, PanelTabDesc,
-    SessionPane, panel_key,
-};
+use crate::panels::SessionPane;
 use crate::{App, Source};
 use data::{
     FilePayload, OPEN_TAB_ID, OPEN_TAB_KEY, build_workspace_tree, fetch_live_dir, fetch_live_file_payload,
     fetch_live_find, file_tab_key, file_tab_path, load_fixture_workspace, rank_file_query,
 };
-
-/// The tree's width until dragged: the same sidebar as Review's.
-pub const FILES_SIDEBAR_DEFAULT_W: f32 = crate::review::SIDEBAR_DEFAULT_W;
-pub const FILES_SIDEBAR_MIN_W: f32 = crate::review::SIDEBAR_MIN_W;
-pub const FILES_SIDEBAR_MAX_W: f32 = crate::review::SIDEBAR_MAX_W;
 
 pub struct SessionFiles {
     pub docs: HashMap<String, CodeDocState>,
@@ -115,10 +106,6 @@ impl SessionFiles {
 pub struct FilesPane {
     pub sessions: HashMap<String, SessionFiles>,
     pub empty_doc: CodeDocState,
-    pub sidebar_open: bool,
-    pub sidebar_w: f32,
-    pub sidebar_resized: bool,
-    pub sidebar_drag: Option<f32>,
     pub filter: TextEdit,
     pub dirty: bool,
     pub wrap: markdown::WrapPrefs,
@@ -139,10 +126,6 @@ impl Default for FilesPane {
         Self {
             sessions: HashMap::new(),
             empty_doc: CodeDocState::default(),
-            sidebar_open: true,
-            sidebar_w: FILES_SIDEBAR_DEFAULT_W,
-            sidebar_resized: false,
-            sidebar_drag: None,
             filter: TextEdit::new(""),
             dirty: false,
             wrap: markdown::WrapPrefs::default(),
@@ -172,100 +155,8 @@ impl FilesPane {
     }
 }
 
-rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::new("file", list_tabs, view::render)
-        .order(15)
-        .legacy(&[("open-file", OPEN_TAB_ID)])
-        .command(opencode_i18n::key!("command.file.open"), Bind::FileOpen)
-        // `palette.search.placeholder`, as Desktop's `file.open` says (`use-session-commands.tsx:515-522`).
-        .describe(opencode_i18n::key!("palette.search.placeholder"))
-        .shortcuts(&[(Bind::FileBrowse, browse_files)])
-        .slash("open")
-        .launcher(launcher_desc, open_files_launcher)
-        .on_focus(on_focus_file)
-        .on_restore(on_restore_file)
-        .poll(poll_files)
-        .on_key(key_files),
-]);
-
-fn launcher_desc(_s: &App, ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
-    if ctx.project_id.is_empty() {
-        return None;
-    }
-    Some(PanelLauncherDesc::new(OPEN_TAB_ID, opencode_i18n::t!("plugin.file.command.open"), &ic::FILE_TREE, 30).shortcut(&[Bind::FileBrowse, Bind::FileOpen]))
-}
-
-/// Desktop's `file.browse`: the Files tab, as its launcher card opens it.
-fn browse_files(s: &mut App, tx: &mut Tx) {
-    open_files_launcher(s, SessionPane::Side, tx);
-}
-
-fn open_files_launcher(s: &mut App, pane: SessionPane, tx: &mut Tx) {
-    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    s.ensure_workspace_files(&sid);
-    s.open_side_tab(OPEN_TAB_KEY, Some(pane), true, false, tx);
-    s.files.filter.focused = true;
-}
-
-fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
-    let mut out = Vec::new();
-    let ws = s.files.sessions.get(ctx.session_id);
-    for id in ctx.open_ids {
-        if id == OPEN_TAB_ID {
-            out.push(
-                PanelTabDesc::new(OPEN_TAB_ID, opencode_i18n::t!("plugin.file.command.open"))
-                    .icon(&ic::FILE_TREE)
-                    .group("browser")
-                    .transient()
-                    .undraggable(),
-            );
-            continue;
-        }
-        let Some(path) = file_tab_path(id) else { continue };
-        let name = opencode_kit::path::basename(&path);
-        let missing = ws
-            .and_then(|w| w.docs.get(&path))
-            .is_some_and(|d| d.missing);
-        let title = if missing {
-            opencode_i18n::t!("plugin.file.tab.notFound", name = name)
-        } else {
-            name.to_owned()
-        };
-        let mut desc = PanelTabDesc::new(id.clone(), title)
-            .icon(rune_theme_opencode::file_icons::file(name))
-            .file(path)
-            .group("browser")
-            .fallback();
-        if missing {
-            desc = desc.missing(true);
-        }
-        out.push(desc);
-    }
-    out
-}
-
-fn on_focus_file(s: &mut App, session_id: &str, tab_id: &str, _restored: bool) {
-    s.ensure_workspace_files(session_id);
-    if let Some(path) = file_tab_path(tab_id) {
-        s.ensure_file_loaded(session_id, &path);
-    }
-}
-
-fn on_restore_file(
-    s: &mut App,
-    session_id: &str,
-    tab_id: &str,
-    _data: Option<&str>,
-    _tx: &mut Tx,
-) {
-    let key = panel_key("file", tab_id);
-    s.open_side_tab_for_session(session_id, &key, Some(SessionPane::Side), false, false);
-    if let Some(path) = file_tab_path(tab_id) {
-        s.ensure_file_loaded(session_id, &path);
-    }
-}
-
-fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
+/// Lands the folder listings, file loads and finds the panel asked for.
+pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
     if let Some((session_id, rel_dir, entries)) = s.files.dir_fetch.take() {
         tx.instant();
@@ -343,18 +234,11 @@ fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
-fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+/// Keys for the open file while a Files tab shows: its find, selection and copy.
+pub(crate) fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some((sid, active_path)) = s.active_file_tab() else {
         return false;
     };
-
-    // `⌘\` toggles the workspace file tree sidebar.
-    let is_cmd_backslash = Bind::TreeToggle.matches_tx(ev, tx);
-    if is_cmd_backslash && active_path.is_some() {
-        tx.instant();
-        s.files.sidebar_open = !s.files.sidebar_open;
-        return true;
-    }
 
     if s.files.filter.focused {
         let q = s.files.filter.text.clone();
@@ -633,7 +517,13 @@ impl App {
     }
 
     pub fn filtered_sidebar_files(&self, session_id: &str) -> Vec<String> {
-        let q = self.files.filter.text.trim();
+        self.filtered_files(session_id, &self.files.filter.text)
+    }
+
+    /// The files of `session_id`'s workspace whose path holds `query`, best first: the server's
+    /// finds, then the files the tree has listed.
+    pub fn filtered_files(&self, session_id: &str, query: &str) -> Vec<String> {
+        let q = query.trim();
         let Some(ws) = self.files.sessions.get(session_id) else {
             return Vec::new();
         };
@@ -664,7 +554,13 @@ impl App {
 
     pub fn request_sidebar_file_search(&mut self) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        let q = self.files.filter.text.trim().to_owned();
+        let q = self.files.filter.text.clone();
+        self.request_file_search(&sid, &q);
+    }
+
+    /// Asks the server for `session_id`'s files that match `query`, once per query.
+    pub fn request_file_search(&mut self, session_id: &str, query: &str) {
+        let (sid, q) = (session_id.to_owned(), query.trim().to_owned());
         if q.is_empty() {
             return;
         }

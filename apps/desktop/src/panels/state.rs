@@ -633,9 +633,8 @@ impl App {
         if !key.starts_with("browser:") {
             self.browser.address.focused = false;
         }
-        if key != crate::review::REVIEW_KEY {
-            self.review.filter.focused = false;
-        }
+        // A plugin's field in the tab left behind gives up the keyboard, as the app's own do.
+        crate::plugin_host::luau::blur_fields(self);
         if !key.starts_with("file:") {
             self.files.filter.focused = false;
         }

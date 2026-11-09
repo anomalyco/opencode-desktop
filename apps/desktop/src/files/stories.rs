@@ -25,7 +25,7 @@ const FILES_KEYS: &[Trigger] = &[
         key: 't',
         label: "Toggle file tree",
         run: |s, _| {
-            s.files.sidebar_open = !s.files.sidebar_open;
+            s.panel_sidebar.opened = !s.panel_sidebar.opened;
         },
     },
 ];

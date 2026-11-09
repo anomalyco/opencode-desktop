@@ -73,8 +73,6 @@ impl NarrowReview {
     }
 }
 
-/// `select-v2-value-text`: 13 / 16 at 530.
-const SCOPE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 /// `DiffChanges` standard: the mono face at 14 / 21, regular.
 const COUNT: TextStyle = TextStyle::new(14.0, 440.0).mono().lh(21.0);
 /// `button-v2` small: 13 / 20 at 530.
@@ -89,7 +87,8 @@ static GRABBER: Icon = Icon {
     body: r#"<path d="M6.66675 12.4998L10.0001 15.8332L13.3334 12.4998M6.66675 7.49984L10.0001 4.1665L13.3334 7.49984" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
 };
 
-pub fn view(s: &App, p: &Pal, id: &str) -> El {
+/// The narrow Changes view of session `id`, `title` (the plugin's source picker) at its header's start.
+pub fn view(s: &App, p: &Pal, id: &str, title: El) -> El {
     let empty = SessionReview::default();
     let sr = s.review.sessions.get(id).unwrap_or(&empty);
     let (adds, dels) = sr.totals();
@@ -100,33 +99,13 @@ pub fn view(s: &App, p: &Pal, id: &str) -> El {
         .grow(1.0)
         .min_h(0.0)
         .fill(p.bg_base)
-        .child(header(p, id, sr, has, adds, dels))
+        .child(header(p, id, sr, has, adds, dels, title))
         .child(if has { list(s, p, id, sr) } else { empty_state(p, sr) })
-        .children(s.review.mode_menu_open.then(|| super::view::mode_popover(p, sr)))
 }
 
 /// `session-review-header` (`!px-2 !h-10 !pb-0`, a 1 px `border-base` rule along its foot):
 /// three columns, the middle one the totals.
-fn header(p: &Pal, id: &str, sr: &SessionReview, has: bool, adds: u32, dels: u32) -> El {
-    let scope = row()
-        .key("narrow-review-scope")
-        .role("button")
-        .label(t!("rune.review.scope"))
-        .h(24.0)
-        .py(4.0)
-        .pl(8.0)
-        .pr(4.0)
-        .gap(4.0)
-        .center_y()
-        .radius(4.0)
-        .hover(p.hover)
-        .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.review.mode_menu_open = !s.review.mode_menu_open;
-        })
-        .child(text(sr.mode.label()).font(SCOPE).color(p.text))
-        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
+fn header(p: &Pal, id: &str, sr: &SessionReview, has: bool, adds: u32, dels: u32, scope: El) -> El {
     let side = |e: El| row().grow(1.0).w(0.0).min_w(0.0).center_y().child(e);
     let toggle = has.then(|| {
         let sid = id.to_owned();

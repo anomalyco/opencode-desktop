@@ -1,4 +1,8 @@
-//! Changes / Review panel (`packages/gui-extensions/src/review/`), registered on `panels::PANELS`.
+//! The changes engine behind Desktop's review plugin (`packages/gui-plugins/src/review/`), which
+//! now runs as Luau (`plugins/review`): each session's diffs for the current source (`git`,
+//! `branch` or `turn`) read from the server, parsed off the UI thread into the diff view's state,
+//! and the file the preview shows. The plugin reaches it through the `Diff` service and draws it
+//! with `ui.diffView` and `ui.fileTree` (`plugin_host::luau::native`).
 
 pub mod chrome;
 pub mod data;
@@ -6,29 +10,19 @@ pub mod mobile;
 mod stories;
 #[cfg(test)]
 mod tests;
-pub mod view;
 
 use std::collections::HashMap;
 
-use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
+use rune::{Latest, Tx, Waker};
 use rune_kit::diff::DiffMode;
 use rune_kit::{FileNode, TreeModel};
-use rune_theme_opencode::icons as ic;
 
-use crate::keymap::Bind;
 use crate::code_view::{DiffDocState, ExpandMode, FoldEvent};
-use crate::panels::{PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane};
 use crate::{App, Route, Source};
-use data::{
-    FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs,
-    fetch_live_file_text, filter_review_files, fixture_diff_count, load_fixture_diffs, parse_diff_list,
-};
+use data::{FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs, parse_diff_list};
 
+/// The review panel's one tab (Desktop's `review:changes`).
 pub const REVIEW_KEY: &str = "review:changes";
-/// The file tree's width until dragged (`SESSION_REVIEW_V2_SIDEBAR_WIDTH_*`).
-pub const SIDEBAR_DEFAULT_W: f32 = 240.0;
-pub const SIDEBAR_MIN_W: f32 = 200.0;
-pub const SIDEBAR_MAX_W: f32 = 480.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ChangeMode {
@@ -54,15 +48,35 @@ impl ChangeMode {
             Self::Turn => opencode_i18n::t!("plugin.review.noChanges"),
         }
     }
+
+    /// The contract's name for it (`DiffSource`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Git => "git",
+            Self::Branch => "branch",
+            Self::Turn => "turn",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "git" => Some(Self::Git),
+            "branch" => Some(Self::Branch),
+            "turn" => Some(Self::Turn),
+            _ => None,
+        }
+    }
 }
 
 pub struct SessionReview {
     pub mode: ChangeMode,
     pub diffs: DiffDocState,
     pub meta: Vec<ReviewFileMeta>,
+    /// The changed files as the server listed them, newest change first.
+    pub listed: Vec<String>,
     pub tree: TreeModel<FileNode<ReviewFileMeta>>,
+    /// The file the preview shows: the one picked, else the server's first.
     pub active_path: Option<String>,
-    pub highlighted_filter_path: Option<String>,
     pub ready: bool,
     pub no_git: bool,
     pub branch_current: Option<String>,
@@ -72,6 +86,8 @@ pub struct SessionReview {
     pub pending_focus: Option<(String, Option<crate::tool_open::Anchor>)>,
     /// The narrow window's Changes view: its open files (`mobile`).
     pub narrow: mobile::NarrowReview,
+    /// Moves with every change a reader can see: the plugin's renders read it.
+    pub stamp: u64,
 }
 
 impl Default for SessionReview {
@@ -80,9 +96,9 @@ impl Default for SessionReview {
             mode: ChangeMode::Git,
             diffs: DiffDocState::default(),
             meta: Vec::new(),
+            listed: Vec::new(),
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
-            highlighted_filter_path: None,
             ready: false,
             no_git: false,
             branch_current: None,
@@ -90,6 +106,7 @@ impl Default for SessionReview {
             loaded_revision: None,
             pending_focus: None,
             narrow: mobile::NarrowReview::default(),
+            stamp: 0,
         }
     }
 }
@@ -109,23 +126,26 @@ impl SessionReview {
     }
 
     pub fn totals(&self) -> (u32, u32) {
-        self.meta
-            .iter()
-            .fold((0, 0), |(a, d), m| (a + m.additions, d + m.deletions))
+        self.meta.iter().fold((0, 0), |(a, d), m| (a + m.additions, d + m.deletions))
+    }
+
+    /// Shows `path` in the preview, alone (Desktop's `SessionReviewFilePreviewV2`), and selects it
+    /// in the tree.
+    pub fn show(&mut self, path: &str) {
+        if self.active_path.as_deref() != Some(path) || self.diffs.only().is_none() {
+            self.active_path = Some(path.to_owned());
+            self.diffs.show_only(self.diffs.file_index(path));
+            self.tree.select(path);
+            self.stamp += 1;
+        }
     }
 }
 
 pub struct ReviewPane {
     pub sessions: HashMap<String, SessionReview>,
     pub empty_diffs: DiffDocState,
-    pub sidebar_open: bool,
-    pub sidebar_w: f32,
-    pub sidebar_resized: bool,
-    pub sidebar_drag: Option<f32>,
-    pub mode_menu_open: bool,
     pub diff_mode: DiffMode,
     pub expand_mode: ExpandMode,
-    pub filter: TextEdit,
     pub dirty: bool,
     pub revision: u64,
     diff_fetch: Latest<FetchedDiffs>,
@@ -138,15 +158,9 @@ impl Default for ReviewPane {
         Self {
             sessions: HashMap::new(),
             empty_diffs: DiffDocState::default(),
-            sidebar_open: true,
-            sidebar_w: SIDEBAR_DEFAULT_W,
-            sidebar_resized: false,
-            sidebar_drag: None,
-            mode_menu_open: false,
             // Desktop's `review.diffStyle` starts split.
             diff_mode: DiffMode::Split,
             expand_mode: ExpandMode::Collapse,
-            filter: TextEdit::new(""),
             dirty: false,
             revision: 1,
             // No debounce: opening the panel asks at once, as Desktop does, and a burst of file
@@ -165,77 +179,8 @@ impl ReviewPane {
     }
 }
 
-rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::new("review", list_tabs, view::render)
-        .order(5)
-        .legacy(&[("review", "changes")])
-        .wide(is_split_wide)
-        .command(opencode_i18n::key!("plugin.review.command.open"), Bind::ReviewOpen)
-        .launcher(launcher, open_review_command)
-        .closed(closed_tab)
-        .on_enter(on_enter_review)
-        .on_focus(on_focus_review)
-        .poll(poll_review)
-        .on_key(key_review),
-]);
-
-/// The `+` menu's and New tab's Review row (order 10): its change count once there are any,
-/// marked opened while the strip holds the tab.
-fn launcher(s: &App, ctx: &PanelSessionCtx) -> Option<crate::panels::PanelLauncherDesc> {
-    if ctx.project_id.is_empty() {
-        return None;
-    }
-    let count = change_count(s, ctx.session_id);
-    Some(
-        crate::panels::PanelLauncherDesc::new("open", opencode_i18n::t!("plugin.review.tab.title"), &ic::REVIEW, 10)
-            .description((count > 0).then(|| opencode_i18n::plural!("plugin.review.menu.count", count)))
-            .shortcut(&[Bind::ReviewOpen])
-            .opened(!ctx.open_ids.is_empty()),
-    )
-}
-
-/// Closed, the tab lists as "Review" rather than its change count.
-fn closed_tab(_s: &App, _sid: &str, _tab: &PanelTabDesc) -> crate::panels::ClosedTabInfo {
-    crate::panels::ClosedTabInfo::Allow(crate::panels::ClosedPanelTab { title: Some(opencode_i18n::t!("plugin.review.tab.title").into()), icon_name: Some("review".into()), ..Default::default() })
-}
-
-fn open_review_command(s: &mut App, _pane: SessionPane, tx: &mut Tx) {
-    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    s.show_review(&sid, tx);
-}
-
-fn change_count(s: &App, session_id: &str) -> usize {
-    match s.review.sessions.get(session_id) {
-        Some(r) => r.meta.len(),
-        None if matches!(s.source, Source::Fixture) => fixture_diff_count(&s.fixture, session_id),
-        None => 0,
-    }
-}
-
-fn is_split_wide(s: &App) -> bool {
-    s.review.diff_mode == DiffMode::Split
-}
-
-fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
-    if ctx.project_id.is_empty() {
-        return Vec::new();
-    }
-    // Listed for every session with a project, but in the strip only once opened, as Desktop's
-    // review tab is: neither pinned nor a fallback.
-    let count = change_count(s, ctx.session_id);
-    let title = if count > 0 { opencode_i18n::plural!("plugin.review.tab.count", count) } else { opencode_i18n::t!("plugin.review.tab.title").to_owned() };
-    vec![PanelTabDesc::new("changes", title).icon(&ic::REVIEW)]
-}
-
-fn on_enter_review(s: &mut App, session_id: &str, _tab_id: &str) {
-    s.ensure_session_review(session_id);
-}
-
-fn on_focus_review(s: &mut App, session_id: &str, _tab_id: &str, _restored: bool) {
-    s.ensure_session_review(session_id);
-}
-
-fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
+/// Lands the reads in flight; reads again after file events while the changes show.
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
     if let Some(fetched) = s.review.diff_fetch.take() {
         tx.instant();
@@ -255,6 +200,7 @@ fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
             }
             None => sr.diffs.text_failed(&path),
         }
+        sr.stamp += 1;
         changed = true;
     }
     if s.review.dirty {
@@ -267,103 +213,6 @@ fn poll_review(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     changed
-}
-
-fn key_review(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !s.is_review_active() {
-        return false;
-    }
-    // `⌘\` toggles the file tree sidebar inside the Review panel (`fileTree.toggle`).
-    let is_cmd_backslash = Bind::TreeToggle.matches_tx(ev, tx);
-    if is_cmd_backslash {
-        tx.instant();
-        s.review.sidebar_open = !s.review.sidebar_open;
-        return true;
-    }
-
-    if s.review.filter.focused {
-        let Some(sid) = s.active_session_id().map(str::to_owned) else {
-            return false;
-        };
-        let query = s.review.filter.text.clone();
-        if ev.key == Key::Escape {
-            tx.instant();
-            if !query.is_empty() {
-                s.review.filter = TextEdit::new("");
-                s.review.filter.focused = true;
-            } else {
-                s.review.filter.focused = false;
-            }
-            return true;
-        }
-        let all_paths: Vec<String> = s
-            .review
-            .sessions
-            .get(&sid)
-            .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
-            .unwrap_or_default();
-        let filtered = filter_review_files(&all_paths, &query);
-        if !query.trim().is_empty() && !filtered.is_empty() {
-            match &ev.key {
-                Key::Down | Key::Up => {
-                    tx.instant();
-                    let cur = s
-                        .review
-                        .sessions
-                        .get(&sid)
-                        .and_then(|r| r.highlighted_filter_path.as_deref())
-                        .and_then(|p| filtered.iter().position(|x| x == p));
-                    let delta: isize = if ev.key == Key::Down { 1 } else { -1 };
-                    let next_idx = match cur {
-                        Some(i) => (i as isize + delta).clamp(0, filtered.len() as isize - 1) as usize,
-                        None => 0,
-                    };
-                    if let Some(sr) = s.review.sessions.get_mut(&sid) {
-                        sr.highlighted_filter_path = Some(filtered[next_idx].clone());
-                    }
-                    return true;
-                }
-                Key::Enter => {
-                    let pick = s
-                        .review
-                        .sessions
-                        .get(&sid)
-                        .and_then(|r| r.highlighted_filter_path.clone())
-                        .filter(|p| filtered.contains(p))
-                        .or_else(|| filtered.first().cloned());
-                    if let Some(path) = pick {
-                        s.focus_review_file(&path, tx);
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        return false;
-    }
-
-    if s.composer.focused || !s.side.focused {
-        return false;
-    }
-
-    if ev.key == Key::Escape && s.review.mode_menu_open {
-        tx.instant();
-        s.review.mode_menu_open = false;
-        return true;
-    }
-
-    let Some(sid) = s.active_session_id().map(str::to_owned) else {
-        return false;
-    };
-    let handled = s
-        .review
-        .sessions
-        .get_mut(&sid)
-        .is_some_and(|sr| sr.diffs.handle_key(ev, tx));
-    if handled {
-        s.sync_review_tree_to_diff(&sid, tx);
-    }
-    handled
 }
 
 impl App {
@@ -379,27 +228,18 @@ impl App {
 
     /// The changes show somewhere: the side region open, or a narrow window's Changes view.
     pub fn review_shown(&self) -> bool {
-        self.side_open() || (self.narrow() && self.narrow_view() == "review")
+        self.side_open() || (self.narrow() && self.narrow_view().starts_with("review"))
     }
 
     pub fn is_review_active(&self) -> bool {
         if !(self.side_open() || self.stage.is_some()) {
             return false;
         }
-        self.resolve_side_region()
-            .and_then(|r| r.active)
-            .as_deref()
-            == Some(REVIEW_KEY)
+        self.resolve_side_region().and_then(|r| r.active).as_deref() == Some(REVIEW_KEY)
     }
 
     pub fn note_review_event(&mut self, ty: &str) -> bool {
-        if matches!(
-            ty,
-            "filesystem.changed"
-                | "session.execution.succeeded"
-                | "session.step.ended"
-                | "session.revert.committed"
-        ) {
+        if matches!(ty, "filesystem.changed" | "session.execution.succeeded" | "session.step.ended" | "session.revert.committed") {
             self.review.revision += 1;
             if self.review_shown() {
                 self.review.dirty = true;
@@ -413,23 +253,10 @@ impl App {
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
         let rev = self.review.revision;
-        let directory = self
-            .session(session_id)
-            .map(|i| i.directory.clone())
-            .unwrap_or_default();
-        let mode = self
-            .review
-            .sessions
-            .entry(session_id.to_owned())
-            .or_default()
-            .mode;
+        let directory = self.session(session_id).map(|i| i.directory.clone()).unwrap_or_default();
+        let mode = self.review.sessions.entry(session_id.to_owned()).or_default().mode;
 
-        if self
-            .review
-            .sessions
-            .get(session_id)
-            .is_some_and(|sr| sr.loaded_revision == Some((mode, rev)))
-        {
+        if self.review.sessions.get(session_id).is_some_and(|sr| sr.loaded_revision == Some((mode, rev))) {
             if let Some(sr) = self.review.sessions.get_mut(session_id) {
                 sr.diffs.set_mode(diff_mode);
                 sr.diffs.set_expand_mode(expand_mode);
@@ -439,21 +266,14 @@ impl App {
 
         match &self.source {
             Source::Fixture => {
-                let (files, meta, cur_b, def_b, texts) =
-                    load_fixture_diffs(&self.fixture, session_id, mode);
+                let (files, meta, listed, cur_b, def_b, texts) = load_fixture_diffs(&self.fixture, session_id, mode);
                 let sr = self.review.sessions.entry(session_id.to_owned()).or_default();
                 sr.branch_current = cur_b;
                 sr.branch_default = def_b;
-                sr.meta = meta.clone();
-                sr.tree = build_change_tree(&meta, &collapsed_folders(&sr.tree));
-                sr.active_path = meta.first().map(|m| m.path.clone());
-                sr.diffs.set_mode(diff_mode);
-                sr.diffs.set_files(files);
-                sr.narrow.refresh(sr.diffs.files());
+                sr.land(files, meta, listed, diff_mode, expand_mode);
                 for (path, text) in texts {
                     sr.diffs.attach_file_text(&path, &text);
                 }
-                sr.diffs.set_expand_mode(expand_mode);
                 sr.ready = true;
                 sr.no_git = false;
                 sr.loaded_revision = Some((mode, rev));
@@ -466,11 +286,7 @@ impl App {
                 self.review.asked = Some(ask);
                 let srv = server.clone();
                 let sid = session_id.to_owned();
-                self.review
-                    .diff_fetch
-                    .request((sid, directory, mode, rev), move |(sid, dir, mode, rev)| {
-                        fetch_live_diffs(&srv, sid, dir, mode, rev)
-                    });
+                self.review.diff_fetch.request((sid, directory, mode, rev), move |(sid, dir, mode, rev)| fetch_live_diffs(&srv, sid, dir, mode, rev));
             }
         }
     }
@@ -479,46 +295,35 @@ impl App {
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
         let (files, meta) = parse_diff_list(&fetched.raw_diff);
-        let sr = self
-            .review
-            .sessions
-            .entry(fetched.session_id.clone())
-            .or_default();
+        let listed = data::listed_paths(&fetched.raw_diff);
+        let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
             return;
         }
-        let prev_active = sr.active_path.clone();
         sr.branch_current = fetched.branch_current;
         sr.branch_default = fetched.branch_default;
         sr.no_git = fetched.no_git;
-        sr.meta = meta.clone();
-        sr.tree = build_change_tree(&meta, &collapsed_folders(&sr.tree));
-        sr.diffs.set_mode(diff_mode);
-        sr.diffs.set_files(files);
-        sr.narrow.refresh(sr.diffs.files());
-        sr.diffs.set_expand_mode(expand_mode);
-        sr.active_path = prev_active
-            .filter(|p| sr.meta.iter().any(|m| &m.path == p))
-            .or_else(|| sr.meta.first().map(|m| m.path.clone()));
-        if let Some(act) = &sr.active_path {
-            sr.tree.select(act);
-        }
+        sr.land(files, meta, listed, diff_mode, expand_mode);
         sr.ready = true;
         sr.loaded_revision = Some((fetched.mode, fetched.revision));
     }
 
+    /// Compares `mode` in the routed session's review.
     pub fn set_review_change_mode(&mut self, mode: ChangeMode) {
-        self.review.mode_menu_open = false;
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        if let Some(sr) = self.review.sessions.get_mut(&sid)
-            && sr.mode != mode
-        {
+        self.set_session_change_mode(&sid, mode);
+    }
+
+    pub fn set_session_change_mode(&mut self, sid: &str, mode: ChangeMode) {
+        let sr = self.review.sessions.entry(sid.to_owned()).or_default();
+        if sr.mode != mode {
             sr.mode = mode;
             sr.loaded_revision = None;
             sr.ready = false;
+            sr.stamp += 1;
             self.review.asked = None;
         }
-        self.ensure_session_review(&sid);
+        self.ensure_session_review(sid);
     }
 
     pub fn set_review_diff_mode(&mut self, mode: DiffMode) {
@@ -528,6 +333,7 @@ impl App {
         self.review.diff_mode = mode;
         for sr in self.review.sessions.values_mut() {
             sr.diffs.set_mode(mode);
+            sr.stamp += 1;
         }
     }
 
@@ -542,28 +348,23 @@ impl App {
         }
         for sr in self.review.sessions.values_mut() {
             sr.diffs.set_expand_mode(next);
+            sr.stamp += 1;
         }
     }
 
     fn request_missing_review_texts(&mut self, session_id: &str) {
         let Source::Live { server, .. } = &self.source else { return };
-        let directory = self
-            .session(session_id)
-            .map(|i| i.directory.clone())
-            .unwrap_or_default();
+        let directory = self.session(session_id).map(|i| i.directory.clone()).unwrap_or_default();
         let Some(sr) = self.review.sessions.get(session_id) else { return };
-        let missing = (0..sr.diffs.files().len())
-            .find(|&f| !sr.diffs.has_full_text(f))
-            .map(|f| sr.diffs.files()[f].path().to_owned());
+        let shown = sr.diffs.only().map_or_else(|| (0..sr.diffs.files().len()).collect::<Vec<_>>(), |f| vec![f]);
+        let missing = shown.into_iter().find(|&f| !sr.diffs.has_full_text(f)).map(|f| sr.diffs.files()[f].path().to_owned());
         if let Some(path) = missing {
             let srv = server.clone();
             let sid = session_id.to_owned();
-            self.review
-                .file_fetch
-                .request((sid, directory, path), move |(sid, dir, path)| {
-                    let content = fetch_live_file_text(&srv, &dir, &path);
-                    (sid, path, content)
-                });
+            self.review.file_fetch.request((sid, directory, path), move |(sid, dir, path)| {
+                let content = fetch_live_file_text(&srv, &dir, &path);
+                (sid, path, content)
+            });
         }
     }
 
@@ -578,83 +379,21 @@ impl App {
             }
             return;
         };
-        let directory = self
-            .session(&sid)
-            .map(|i| i.directory.clone())
-            .unwrap_or_default();
+        let directory = self.session(&sid).map(|i| i.directory.clone()).unwrap_or_default();
         let srv = server.clone();
-        self.review
-            .file_fetch
-            .request((sid, directory, path), move |(sid, dir, path)| {
-                let content = fetch_live_file_text(&srv, &dir, &path);
-                (sid, path, content)
-            });
-    }
-    pub fn submit_review_filter(&mut self, tx: &mut Tx) {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        let query = self.review.filter.text.clone();
-        if query.trim().is_empty() {
-            return;
-        }
-        let all_paths: Vec<String> = self
-            .review
-            .sessions
-            .get(&sid)
-            .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
-            .unwrap_or_default();
-        let filtered = filter_review_files(&all_paths, &query);
-        let pick = self
-            .review
-            .sessions
-            .get(&sid)
-            .and_then(|r| r.highlighted_filter_path.clone())
-            .filter(|p| filtered.contains(p))
-            .or_else(|| filtered.first().cloned());
-        if let Some(path) = pick {
-            self.focus_review_file(&path, tx);
-        }
-    }
-
-    pub fn focus_review_file(&mut self, path: &str, tx: &mut Tx) {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
-        let Some(sr) = self.review.sessions.get_mut(&sid) else { return };
-        sr.active_path = Some(path.to_owned());
-        sr.tree.reveal(path, tx);
-        if let Some(idx) = sr.diffs.file_index(path) {
-            sr.diffs.scroll_to_file(idx, tx);
-        }
-    }
-
-    pub fn sync_review_tree_to_diff(&mut self, session_id: &str, tx: &mut Tx) {
-        let Some(sr) = self.review.sessions.get_mut(session_id) else { return };
-        let idx = sr.diffs.visible_file();
-        if let Some(fd) = sr.diffs.files().get(idx) {
-            let path = fd.path().to_owned();
-            if sr.active_path.as_deref() != Some(path.as_str()) {
-                sr.active_path = Some(path.clone());
-                // Scrolling follows in the tree without opening folders the user closed.
-                if sr.tree.visible_row(&path).is_some() {
-                    sr.tree.reveal(&path, tx);
-                } else {
-                    sr.tree.select(&path);
-                }
-            }
-        }
+        self.review.file_fetch.request((sid, directory, path), move |(sid, dir, path)| {
+            let content = fetch_live_file_text(&srv, &dir, &path);
+            (sid, path, content)
+        });
     }
 
     pub fn route_supports_review(&self) -> bool {
         matches!(self.route, Route::Session(_))
     }
 
-    pub fn open_review_for_session(
-        &mut self,
-        sid: &str,
-        mode: Option<ChangeMode>,
-        view: Option<DiffMode>,
-        path: Option<&str>,
-        line: Option<u32>,
-        tx: &mut Tx,
-    ) {
+    /// Opens the review of `sid` (the MCP `open_diff` tool, a tool step's change), in `mode` and
+    /// `view` when given, at `path` near `line`.
+    pub fn open_review_for_session(&mut self, sid: &str, mode: Option<ChangeMode>, view: Option<DiffMode>, path: Option<&str>, line: Option<u32>, tx: &mut Tx) {
         let saved_focus = (self.composer.focused, self.side.focused);
         if let Some(v) = view {
             self.set_review_diff_mode(v);
@@ -665,17 +404,14 @@ impl App {
                 sr.mode = m;
                 sr.loaded_revision = None;
                 sr.ready = false;
+                sr.stamp += 1;
                 self.review.asked = None;
             }
         }
         self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.ensure_session_review(sid);
         if let Some(p) = path {
-            let anchor = line.map(|n| crate::tool_open::Anchor {
-                side: rune_kit::diff::Side::New,
-                text: String::new(),
-                near: Some(n.max(1)),
-            });
+            let anchor = line.map(|n| crate::tool_open::Anchor { side: rune_kit::diff::Side::New, text: String::new(), near: Some(n.max(1)) });
             if self.review.sessions.get(sid).is_some_and(|sr| !sr.ready) {
                 if let Some(sr) = self.review.sessions.get_mut(sid) {
                     sr.pending_focus = Some((p.to_owned(), anchor));
@@ -685,5 +421,27 @@ impl App {
             }
         }
         (self.composer.focused, self.side.focused) = saved_focus;
+    }
+}
+
+impl SessionReview {
+    /// Takes a new list of changes: the tree keeps the folders the user closed, the preview keeps
+    /// its file while it still changed, else shows the server's first (Desktop's `activeFile`).
+    fn land(&mut self, files: Vec<rune_kit::diff::FileDiff>, meta: Vec<ReviewFileMeta>, listed: Vec<String>, diff_mode: DiffMode, expand_mode: ExpandMode) {
+        let prev = self.active_path.take();
+        self.meta = meta;
+        self.tree = build_change_tree(&self.meta, &collapsed_folders(&self.tree));
+        self.diffs.set_mode(diff_mode);
+        self.diffs.set_files(files);
+        self.narrow.refresh(self.diffs.files());
+        self.diffs.set_expand_mode(expand_mode);
+        self.listed = listed.into_iter().filter(|p| self.meta.iter().any(|m| &m.path == p)).collect();
+        let next = prev.filter(|p| self.meta.iter().any(|m| &m.path == p)).or_else(|| self.listed.first().cloned()).or_else(|| self.meta.first().map(|m| m.path.clone()));
+        self.diffs.show_only(None);
+        match next {
+            Some(path) => self.show(&path),
+            None => self.stamp += 1,
+        }
+        self.stamp += 1;
     }
 }

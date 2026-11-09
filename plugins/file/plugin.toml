@@ -1,0 +1,6 @@
+#:schema ../plugin.schema.json
+id = "file"
+name = "Files"
+version = "1.0.0"
+contract = "1.0"
+description = "A session's workspace files: the Files tabs with the folder tree and the open file, Open file, and the narrow Files view"

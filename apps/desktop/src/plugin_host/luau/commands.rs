@@ -117,22 +117,22 @@ pub fn menu_items(app: &App, menu: &str) -> Vec<(&'static str, String, Option<St
 /// `opened` and with its `detail` as that session answers them.
 pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels::PanelLauncherDesc> {
     let p = &app.plugins.luau.plugins[i];
-    let Some(script) = p.script() else { return Vec::new() };
     let items: Vec<_> = p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu == opencode_plugin_spec::MenuName::SessionPanel).map(|c| (c.key, c.spec.clone(), c.f("when").cloned(), c.f("opened").cloned(), c.f("detail").cloned())).collect();
-    let ask = |f: &Function| cx::with_app(app, || script.eval_fn::<Data>(f, session.to_owned()).ok());
     items
         .into_iter()
-        .filter(|(_, _, when, _, _)| when.as_ref().is_none_or(|f| ask(f) == Some(Data::Bool(true))))
+        .filter(|(key, _, when, _, _)| when.as_ref().is_none_or(|f| super::panels::answer(app, i, &format!("when:{key}:{session}"), f, session.to_owned()) == Some(Data::Bool(true))))
         .map(|(key, s, _, opened, detail)| {
-            let detail = match detail.as_ref().and_then(|f| ask(f)) {
+            let ask = |what: &str, f: &Function| super::panels::answer(app, i, &format!("{what}:{key}:{session}"), f, session.to_owned());
+            let opened = opened.as_ref().and_then(|f| ask("opened", f));
+            let detail = match detail.as_ref().and_then(|f| ask("detail", f)) {
                 Some(Data::String(d)) => Some(d),
                 _ => s.description.clone(),
             };
             let icon = crate::plugin_host::icons::resolve("", s.icon.as_deref().unwrap_or("plus"));
-            crate::panels::PanelLauncherDesc::new(intern(&format!("menu:{key}")), s.title, icon, s.order.unwrap_or(0) as i32)
+            crate::panels::PanelLauncherDesc::new(intern(&s.id), s.title, icon, s.order.unwrap_or(0) as i32)
                 .description(detail)
                 .command(s.keybind.as_deref().map(intern))
-                .opened(opened.as_ref().and_then(|f| ask(f)) == Some(Data::Bool(true)))
+                .opened(opened == Some(Data::Bool(true)))
         })
         .collect()
 }
@@ -192,12 +192,16 @@ fn tools(half: &super::Half) -> Vec<(String, String, serde_json::Value)> {
     half.contribs.borrow().mcp_tools.iter().map(|c| (c.spec.name.clone(), c.spec.description.clone(), serde_json::Value::Object(c.spec.input_schema.clone().into_iter().collect()))).collect()
 }
 
-/// Calls Luau MCP tool `name` with `args`; `None` when no plugin has it.
-pub fn mcp_call(app: &App, name: &str, args: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
+/// Calls Luau MCP tool `name` with `args` for the call of session `session` (in `directory`),
+/// then carries out what it asked for; `None` when no plugin has it.
+pub fn mcp_call(app: &mut App, name: &str, args: &serde_json::Value, session: &str, directory: &str, tx: &mut Tx) -> Option<Result<serde_json::Value, String>> {
     let found = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().mcp_tools.iter().find(|c| c.spec.name == name)?.f("call")?.clone())))?;
     let script = app.plugins.luau.plugins[found.0].script()?;
     let input = super::services::json_to_data(args);
-    Some(cx::with_app(app, || script.eval_fn::<Data>(&found.1, input)).map(|d| d.to_json()).map_err(|e| e.message))
+    let context = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
+    let out = cx::with_app(app, || script.eval_fn::<Data>(&found.1, (input, context))).map(|d| d.to_json()).map_err(|e| e.message);
+    super::requests::carry_out(app, tx);
+    Some(out)
 }
 
 /// App menu items Luau app halves add, as `(key, menu, label, order)`.

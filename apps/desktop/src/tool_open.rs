@@ -361,7 +361,7 @@ impl App {
     pub fn focus_review_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> bool {
         let Some(sr) = self.review.sessions.get_mut(sid) else { return false };
         let Some(file) = sr.diffs.file_index(path) else { return false };
-        sr.active_path = Some(path.to_owned());
+        sr.show(path);
         sr.tree.reveal(path, tx);
         let found = anchor.and_then(|a| locate(&sr.diffs.files()[file], a));
         match found {

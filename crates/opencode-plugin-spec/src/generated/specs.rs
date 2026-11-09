@@ -125,7 +125,7 @@ pub struct PanelSpec {
     /// What Recently closed lists for its closed tab.
     pub closed: Option<ClosedTab>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "pane", "closed"], ["isWide", "list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "pane", "closed"], ["isWide", "tabTitle", "list", "render", "label", "onClose", "onFocus"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

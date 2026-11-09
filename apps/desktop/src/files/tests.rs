@@ -11,6 +11,7 @@ fn test_runtime() -> Runtime<App> {
         a.load_fixture(FIXTURE);
         open_scene(&mut a);
         a.finish_stream();
+        crate::plugin_host::setup(&mut a, std::sync::Arc::new(|| {}));
         a
     });
     let mut rt = Runtime::new((s.init)(), s.view, (1440.0, 900.0), Env::new(true, 2.0));

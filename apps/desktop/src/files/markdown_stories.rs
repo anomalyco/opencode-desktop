@@ -41,7 +41,7 @@ pub fn init(s: &mut App) {
     s.files = Default::default();
     let mut tx = Tx::default();
     s.open_workspace_file(PROPOSAL, false, None, &mut tx);
-    s.files.sidebar_open = false;
+    s.panel_sidebar.opened = false;
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     match s.variant {
         1 => s.toggle_rendered(&sid, PROPOSAL, &mut tx),

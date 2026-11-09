@@ -115,6 +115,12 @@ pub enum Dep {
     Dev(String),
     /// The console's lines.
     Console,
+    /// A session's changes (`Diff`).
+    Diff(String),
+    /// A session's workspace files: its tree, finds and open files (`Workspace`).
+    Files(String),
+    /// The shared panel sidebar.
+    Sidebar,
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

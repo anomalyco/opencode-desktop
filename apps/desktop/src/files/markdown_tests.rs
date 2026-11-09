@@ -14,6 +14,7 @@ fn runtime() -> Runtime<App> {
         a.load_fixture(FIXTURE);
         a.route = Route::Session(THIRD.into());
         a.finish_stream();
+        crate::plugin_host::setup(&mut a, std::sync::Arc::new(|| {}));
         a
     });
     let mut rt = Runtime::new((s.init)(), s.view, (1440.0, 900.0), Env::new(true, 2.0));
@@ -71,7 +72,8 @@ fn opened_files_wrap_by_kind_and_a_flip_carries_to_the_kind() {
     assert!(!docs(&rt, "src/net/stream.ts"));
 
     // Kit turns wrap on for one code file: every code file wraps from then on, prose untouched.
-    click(&mut rt, "files-wrap-btn");
+    rt.update(|s, _| s.set_file_wrap(THIRD, "src/net/stream.ts", true));
+    settle(&mut rt);
     assert!(docs(&rt, "src/net/stream.ts") && docs(&rt, "src/net/backoff.ts"));
     assert_eq!(rt.state.files.wrap, WrapPrefs { prose: None, code: Some(true) });
     open(&mut rt, "src/sidebar/store.ts");
@@ -157,12 +159,10 @@ fn the_toggle_switches_between_rendered_and_source_per_file() {
     open(&mut rt, PROPOSAL);
     let md_key = super::markdown::scroll_key(THIRD, PROPOSAL);
     assert!(rt.find(&md_key).is_some());
-    assert!(rt.find("files-wrap-btn").is_none(), "rendered prose always wraps");
 
     click(&mut rt, "files-render-btn");
     assert!(!shows_rendered(&rt.state.files.sessions[THIRD], PROPOSAL));
     assert!(rt.find(&md_key).is_none());
-    assert!(rt.find("files-wrap-btn").is_some());
 
     // Another file keeps its own view; coming back keeps this one's.
     open(&mut rt, PRINCIPLES);

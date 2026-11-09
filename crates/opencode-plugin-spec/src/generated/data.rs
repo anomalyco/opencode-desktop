@@ -28,6 +28,8 @@ pub struct UiEvent {
     pub checked: Option<bool>,
     /// A `select` event: the picked path.
     pub path: Option<String>,
+    /// A `change` event of `ui.segmented`: the picked item's id.
+    pub value: Option<String>,
     /// A `visible-rows` event: the first visible row, from 1.
     pub first: Option<i64>,
     /// A `visible-rows` event: the last visible row.
@@ -39,7 +41,7 @@ pub struct UiEvent {
     /// The platform's command key was held: Ctrl, or Cmd on macOS.
     pub r#mod: Option<bool>,
 }
-impl_record!(UiEvent, ["kind", "key", "entered", "text", "checked", "path", "first", "last", "shift", "alt", "mod"], [], []);
+impl_record!(UiEvent, ["kind", "key", "entered", "text", "checked", "path", "value", "first", "last", "shift", "alt", "mod"], [], []);
 
 /// Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -56,6 +58,34 @@ pub struct UiPin {
     pub bottom: Option<f64>,
 }
 impl_record!(UiPin, ["left", "top", "right", "bottom"], [], []);
+
+/// One item of `ui.segmented`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct UiSegmentedItem {
+    /// What `onChange` receives.
+    pub id: String,
+    /// Its icon.
+    pub icon: String,
+    /// Its accessible name and tooltip.
+    pub label: String,
+    /// Its element's key. Defaults to `id`.
+    pub key: Option<String>,
+}
+impl_record!(UiSegmentedItem, ["id", "icon", "label", "key"], [], []);
+
+/// The panels' shared file sidebar.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct PanelSidebarInfo {
+    /// It shows.
+    pub opened: bool,
+    /// Its width in points.
+    pub width: f64,
+}
+impl_record!(PanelSidebarInfo, ["opened", "width"], [], []);
 
 /// The interface language.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -858,3 +888,15 @@ pub struct ComposerPillView {
     pub rows: Option<Vec<ComposerPillRow>>,
 }
 impl_record!(ComposerPillView, ["label", "icon", "tone", "title", "rows"], [], []);
+
+/// Where an MCP tool call comes from.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct McpCallContext {
+    /// The session whose agent called it.
+    pub session_id: String,
+    /// That session's workspace folder.
+    pub directory: String,
+}
+impl_record!(McpCallContext, ["sessionId", "directory"], [], []);

@@ -283,6 +283,8 @@ Panels, settings and drafts in this window. Halves: window.
 | `:OpenSettings` | `(pageId: string?) -> ()` | Opens Settings at one of this plugin's pages, or at the top. |
 | `:NewDraft` | `(directory: string, prompt: string?) -> ()` | Opens a new session's draft in a folder, with a prompt typed in. |
 | `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
+| `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
+| `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
 
 ### Links
 
@@ -363,6 +365,7 @@ Files in the workspace and the apps that open them. Halves: window, app.
 | `:OpenTree` | `(directory: string) -> FileTreeModel` | Opens a folder for `ui.fileTree`. |
 | `:OpenInApps` | `() -> { OpenInApp }` | The installed apps that can open a path. |
 | `:OpenIn` | `(appId: string, path: string) -> ()` | Opens a path in one of those apps. |
+| `:Relative` | `(path: string, directory: string) -> string?` | A path inside a workspace folder, relative to it with `/` between parts; nil for a path outside it. A relative path stays as it is. |
 | `.FileChanged` | `Signal<string>` | Fires with a workspace path after it changes on disk. |
 
 ### Diff
@@ -372,6 +375,8 @@ Session changes for `ui.diffView`. Halves: window.
 | Member | Type | Description |
 |---|---|---|
 | `:Open` | `(spec: DiffOpenSpec) -> DiffDocument` | Opens a set of changes. |
+| `:Mode` | `() -> DiffMode` | The mode diffs draw in now. A `SetMode` or `ui.diffView` `mode` change lands with a later frame, so what sizes around the diff reads this to change with it. |
+| `:SetMode` | `(mode: DiffMode) -> ()` | Draws every diff in `mode`. |
 
 ### Terminal
 
@@ -500,6 +505,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.switch(props: UiSwitchProps) -> UiNode` | control | [`UiSwitchProps`](#uiswitchprops) | The app's own switch. |
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
+| `ui.segmented(props: UiSegmentedProps) -> UiNode` | control | [`UiSegmentedProps`](#uisegmentedprops) | The app's segmented control. |
 | `ui.loader(props: UiLoaderProps?) -> UiNode` | control | [`UiLoaderProps`](#uiloaderprops) | The app's spinner. |
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
 | `ui.serverIndicator(props: UiServerIndicatorProps) -> UiNode` | control | [`UiServerIndicatorProps`](#uiserverindicatorprops) | A server's health indicator, for a server source's row. |
@@ -1167,7 +1173,7 @@ A semantic token, or a literal color from `ui.hex`.
 
 ### IconName
 
-The name of one of the app's icons, such as `"circle-check"`. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
+The name of one of the app's icons, such as `"circle-check"`, or `file:<name>` for the type icon of a file so named. A plugin's own `icons/<name>.svg` files go by their file name and win over the app's in that plugin.
 
 `type IconName = string`
 
@@ -1279,6 +1285,7 @@ What a handler receives.
 | `text` | `string?` | A `submit` event: the field's text. |
 | `checked` | `boolean?` | A `change` event: the new state. |
 | `path` | `string?` | A `select` event: the picked path. |
+| `value` | `string?` | A `change` event of `ui.segmented`: the picked item's id. |
 | `first` | `number?` | A `visible-rows` event: the first visible row, from 1. |
 | `last` | `number?` | A `visible-rows` event: the last visible row. |
 | `shift` | `boolean?` | Shift was held. |
@@ -1543,6 +1550,29 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
+### UiSegmentedItem
+
+One item of `ui.segmented`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | What `onChange` receives. |
+| `icon` | `IconName` | Its icon. |
+| `label` | `string` | Its accessible name and tooltip. |
+| `key` | `string?` | Its element's key. Defaults to `id`. |
+
+### UiSegmentedProps
+
+`ui.segmented` props: the app's segmented control of icon items.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `items` | `{ UiSegmentedItem }` | Its items, in order. |
+| `value` | `string` | The picked item's id. |
+| `onChange` | `UiHandler?` | Runs as the user picks another, with its id in `event.value`. |
+
 ### UiLoaderProps
 
 `ui.loader` props: the app's spinner.
@@ -1709,6 +1739,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `expand` | `boolean?` | Shows unchanged lines in full. |
 | `file` | `string?` | Shows only this file's changes, under its header. |
 | `revealLine` | `number?` | Scrolls to this line of the new side, from 1, once it shows. |
+| `list` | `boolean?` | Every file as a row that opens to its unified diff, under a header with the totals and Expand all: the narrow Changes view. Its children sit at the header's start. |
 
 ### UiFileTreeProps
 
@@ -1721,23 +1752,36 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `tree` | `FileTreeModel` | The tree, from `Workspace:OpenTree`. |
 | `allowed` | `{ string }?` | Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing. |
 | `kinds` | `{ [string]: ChangeKind }?` | A change letter at the end of these paths' rows: `A`, `D` or `M`. |
+| `filter` | `string?` | Lists only the files whose path holds this text, flat, with their counts, instead of the tree. The first is highlighted. |
 | `selectedPath` | `string?` | The selected row. |
 | `highlightedPath` | `string?` | A row to highlight, such as the open file. |
 | `onSelect` | `UiHandler?` | Runs as the user picks a file, with `event.path`. |
 | `onContextMenu` | `UiHandler?` | Runs on a secondary click, with `event.path`, instead of the host's menu. |
+| `narrow` | `boolean?` | A workspace tree as the narrow Files view: All files and the open files' tabs over the tree, or the open file. |
+| `width` | `number?` | The narrow Files view's width. |
 
 ### UiPanelSidebarProps
 
-`ui.panelSidebar` props: a sidebar at a panel's start that the user resizes by its end edge. The host keeps its width per `id`; a double click on the edge resets it.
+`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | `string` | Whose width it keeps, such as the panel's id. |
+| `id` | `string` | Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`. |
 | `width` | `number?` | Its width until the user drags it. Defaults to 240. |
 | `minWidth` | `number?` | The narrowest it gets. Defaults to 200. |
-| `maxWidth` | `number?` | The widest it gets, also at most 60% of the panel. Defaults to 480. |
+| `maxWidth` | `number?` | The widest it gets. Defaults to 480; give 60% of the panel's width when that is less. |
+| `locked` | `boolean?` | Shows the sidebar however the user left it, its toggle disabled (Files' Open file launcher). |
+
+### PanelSidebarInfo
+
+The panels' shared file sidebar.
+
+| Field | Type | Description |
+|---|---|---|
+| `opened` | `boolean` | It shows. |
+| `width` | `number` | Its width in points. |
 
 ### UiOpenInButtonProps
 
@@ -2216,6 +2260,7 @@ A folder's tree for `ui.fileTree`.
 | `:Expand` | `(path: string) -> ()` | Expands a folder. |
 | `:Collapse` | `(path: string) -> ()` | Collapses a folder. |
 | `:SetFilter` | `(query: string) -> ()` | Shows only paths that match a fuzzy query. An empty query shows all. |
+| `:Find` | `(query: string) -> { string }` | The files whose path holds `query`, best first: what `ui.fileTree`'s `filter` lists for it. |
 | `:Reveal` | `(path: string) -> ()` | Expands the folders above a path and scrolls its row into view. |
 | `:Refresh` | `() -> ()` | Reads the folder again. |
 | `:Version` | `() -> number` | Changes when the tree does. |
@@ -2266,6 +2311,9 @@ A set of changes for `ui.diffView`.
 | `:Sources` | `() -> { DiffSource }` | What it can compare in this folder: `branch` only on a branch other than the default one. |
 | `:Status` | `() -> DiffStatus` | How the read went. |
 | `:Retry` | `() -> ()` | Reads again after a failure. |
+| `:Active` | `() -> string?` | The file the preview shows: the one focused last while it still changed, else the first the server lists. |
+| `:Focus` | `(path: string) -> ()` | Shows a changed file in the preview, and selects it in the tree. |
+| `:Tree` | `() -> FileTreeModel` | Its changed files as a tree for `ui.fileTree`, every folder open until the user shuts it. |
 | `:Loading` | `() -> boolean` | A read is in flight. |
 | `:Version` | `() -> number` | Changes when the changes do. |
 | `:Close` | `() -> ()` | Releases it. |
@@ -2547,6 +2595,7 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `pane` | `PanelPane?` | The pane a new tab opens in beside none of the plugin's others. Defaults to `side`. |
 | `closed` | `ClosedTab?` | What Recently closed lists for its closed tab. |
 | `isWide` | `(() -> boolean)?` | Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield. |
+| `tabTitle` | `((sessionId: string) -> string)?` | Its tab's title in a session, instead of `title`, such as a count that changes. Keep it cheap, and don't yield. |
 | `list` | `((sessionId: string, open: { string }) -> { PanelTab })?` | Makes it an instance panel: lists the session's tabs from the stored instance ids in `open`. A tab's key is `<plugin>:<instance>`; a panel without `list` has one tab, `<plugin>:<id>`. |
 | `render` | `(view: View, props: PanelProps) -> UiNode?` | Draws a tab's content. |
 | `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |
@@ -2907,7 +2956,16 @@ A tool on the app's client MCP server, named `<plugin>_<name>`. Desktop's plugin
 | `name` | `string` | Its name within the plugin. |
 | `description` | `string` | What it does, for the model. |
 | `inputSchema` | `{ [string]: any }` | Its arguments' JSON Schema. |
-| `call` | `(args: { [string]: any }) -> any` | Runs it as a coroutine and returns its result: a string, or a table sent as JSON. Raise an error to fail. |
+| `call` | `(args: { [string]: any }, context: McpCallContext) -> any` | Runs it and returns its result: a string, or a table sent as JSON. Raise an error to fail. It must not yield. |
+
+### McpCallContext
+
+Where an MCP tool call comes from.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string` | The session whose agent called it. |
+| `directory` | `string` | That session's workspace folder. |
 
 ## plugin.toml
 

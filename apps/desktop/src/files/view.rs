@@ -1,90 +1,25 @@
-//! UI for the Files panel (`SessionFileBrowserTab`): the file tree beside the open file
-//! ([`super::viewer`]).
+//! The Files panel's tree (`SessionFileBrowserTab`'s sidebar): the workspace's folders, or the
+//! files a filter finds. The Luau file plugin places it (`ui.fileTree`); the narrow Files view
+//! draws it under its own filter.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::rc::Rc;
 
-use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, TextEdit, Tx, col,
-    el, icon, row, text,
-};
+use rune::{Anim, Color, Cursor, El, GrowthSpec, ScrollSpec, TextEdit, Tx, col, el, icon, row, text};
+use rune_kit::diff::FileStatus;
 use rune_theme_opencode::tree_icons;
 
-use super::data::{OPEN_TAB_ID, file_tab_path};
-use super::{
-    FILES_SIDEBAR_DEFAULT_W, FILES_SIDEBAR_MAX_W, FILES_SIDEBAR_MIN_W, SessionFiles,
-};
+use super::SessionFiles;
 use crate::App;
 use crate::palette::Pal;
-use crate::panels::PanelViewCtx;
 use crate::review::chrome;
 use crate::view::{UI_MED, UI_SMALL};
 
 const INSTANT: Anim = Anim::INSTANT;
 const TREE_ROW_H: f32 = chrome::ROW_H;
 const LIST_ROW_H: f32 = 28.0;
-
-pub fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
-    if !ctx.visible && !s.side.mounted && s.stage.is_none() {
-        return col().key("files-idle").w_full().grow(1.0);
-    }
-
-    let sid = ctx.session_id.to_owned();
-    let placeholder = ctx.tab.id == OPEN_TAB_ID;
-    let active_path = if placeholder {
-        None
-    } else {
-        file_tab_path(&ctx.tab.id)
-    };
-    let sidebar_open = placeholder || s.files.sidebar_open;
-    let max_sb_w = (ctx.pane_size.0 * 0.6).clamp(FILES_SIDEBAR_MIN_W, FILES_SIDEBAR_MAX_W);
-    let sb_w = if s.files.sidebar_resized { s.files.sidebar_w } else { FILES_SIDEBAR_DEFAULT_W }.clamp(FILES_SIDEBAR_MIN_W, max_sb_w);
-
-    let proj_title = s
-        .project(ctx.project_id)
-        .map(|pr| Some(opencode_kit::path::basename(&pr.directory)).filter(|n| !n.is_empty()).unwrap_or(opencode_i18n::t!("rune.files.workspace")).to_owned())
-        .unwrap_or_else(|| opencode_i18n::t!("rune.files.workspace").into());
-
-    let empty = SessionFiles::default();
-    let ws = s.files.sessions.get(&sid).unwrap_or(&empty);
-
-    let mut body_row = row().key("files-body").w_full().grow(1.0).min_h(0.0);
-    if sidebar_open {
-        body_row = body_row
-            .child(files_sidebar(
-                s,
-                p,
-                &sid,
-                &proj_title,
-                ws,
-                active_path.as_deref(),
-                sb_w,
-            ))
-            .child(sidebar_resize_handle(s, p, sb_w, max_sb_w));
-    }
-    body_row = body_row.child(super::viewer::files_main(
-        s,
-        p,
-        &sid,
-        &proj_title,
-        ws,
-        active_path.as_deref(),
-        placeholder,
-        sidebar_open,
-    ));
-
-    col()
-        .key("files-panel")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .fill(p.bg_base)
-        .child(body_row)
-        // While browsing ("Open file"), the tree stays open and its toggle is disabled.
-        .child(chrome::sidebar_toggle(p, "files-tree-toggle", sidebar_open, placeholder, |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.files.sidebar_open = !s.files.sidebar_open;
-        }))
-}
+const LIST_LABEL: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(16.0);
 
 pub(super) fn files_sidebar(
     s: &App,
@@ -107,6 +42,7 @@ pub(super) fn files_sidebar(
         "files-filter",
         &s.files.filter,
         "files-filter-inner",
+        opencode_i18n::t!("ui.sessionReviewV2.filterFiles"),
         |s: &mut App| {
             s.request_sidebar_file_search();
             &mut s.files.filter
@@ -119,6 +55,7 @@ pub(super) fn files_sidebar(
             s.files.filter.focused = f;
         },
         s.settings.spellcheck,
+        |_: &mut App, _: &rune::KeyEvent, _: &mut Tx| false,
     );
 
     let list_area = if !ws.ready {
@@ -130,9 +67,9 @@ pub(super) fn files_sidebar(
             .pt(8.0)
             .child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted))
     } else if s.files.filter.text.trim().is_empty() {
-        workspace_tree_view(p, session_id, ws, active_path)
+        workspace_tree_view(p, session_id, ws, active_path, None)
     } else {
-        filtered_files_view(s, p, session_id, active_path)
+        filtered_files_view(s, p, session_id, active_path, &s.files.filter.text, None)
     };
 
     col()
@@ -145,11 +82,15 @@ pub(super) fn files_sidebar(
         .child(list_area.pt(4.0))
 }
 
-fn workspace_tree_view(
+/// The workspace's folders and files, its folders opening as they're pressed. A file's row opens
+/// it in a preview tab, a double press keeps it. `kinds` are the change letters (`add`, `del`,
+/// `mix`) to end rows with; without them, the session's review says.
+pub(crate) fn workspace_tree_view(
     p: &Pal,
     session_id: &str,
     ws: &SessionFiles,
     active_path: Option<&str>,
+    kinds: Option<Rc<HashMap<String, String>>>,
 ) -> El {
     // Filter out internal `__placeholder__` sentinel leaves kept for empty collapsed directories.
     let visible_indices: Vec<usize> = (0..ws.tree.visible_len())
@@ -189,12 +130,11 @@ fn workspace_tree_view(
                 let Some((node, tr)) = w.tree.row(raw) else {
                     return el().h(TREE_ROW_H);
                 };
-                let status = s
-                    .review
-                    .sessions
-                    .get(&sid_rows)
-                    .and_then(|sr| sr.meta.iter().find(|m| m.path == tr.id))
-                    .map(|m| m.status);
+                let status = match &kinds {
+                    // A folder holding changes shows no letter (Pierre hides its git lane).
+                    Some(k) => k.get(tr.id).filter(|_| !node.dir).and_then(|k| kind_status(k)),
+                    None => s.review.sessions.get(&sid_rows).and_then(|sr| sr.meta.iter().find(|m| m.path == tr.id)).map(|m| m.status),
+                };
                 let active = act_owned.as_deref() == Some(tr.id);
                 let is_dir = node.dir;
                 let id_click = tr.id.to_owned();
@@ -202,7 +142,7 @@ fn workspace_tree_view(
                 let id_ctx = tr.id.to_owned();
                 let glyph = (!is_dir).then(|| tree_icons::file(&node.name));
                 let expanded = if is_dir { Some(tr.expanded.unwrap_or(false)) } else { None };
-                let mut r = chrome::tree_row(&pal, &node.name, tr.depth, expanded, glyph, active)
+                let mut r = chrome::tree_row_in(&pal, &node.name, tr.depth, expanded, glyph, active, chrome::PIERRE)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
                         if is_dir {
@@ -229,13 +169,17 @@ fn workspace_tree_view(
         .child(list)
 }
 
-fn filtered_files_view(
+/// The files whose path holds `query`, flat, best first; the highlighted one (else the first)
+/// is what Enter opens. `kinds` end the rows with their change letters.
+pub(crate) fn filtered_files_view(
     s: &App,
     p: &Pal,
     session_id: &str,
     active_path: Option<&str>,
+    query: &str,
+    kinds: Option<Rc<HashMap<String, String>>>,
 ) -> El {
-    let filtered = s.filtered_sidebar_files(session_id);
+    let filtered = s.filtered_files(session_id, query);
     if filtered.is_empty() {
         return col()
             .key("files-filter-empty")
@@ -253,7 +197,7 @@ fn filtered_files_view(
     let list = col()
         .key("files-filter-rows")
         .w_full()
-        .px(4.0)
+        .px(8.0)
         .pb(8.0)
         .growth(GrowthSpec::default())
         .role("listbox")
@@ -270,52 +214,37 @@ fn filtered_files_view(
                     .and_then(|w| w.highlighted_filter_path.as_deref())
                     .map_or(i == 0, |hp| hp == path);
                 let active = act_owned.as_deref() == Some(path.as_str());
-                let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
-                let click_p = path.clone();
-                let dbl_p = path.clone();
-                let mut r = row()
+                let on = active || highlighted;
+                let name = opencode_kit::path::basename(path);
+                let dir = &path[..path.len() - name.len()];
+                let (click_p, dbl_p) = (path.clone(), path.clone());
+                let t = tree_icons::file(name);
+                // `file-tree-v2-row`: 28 tall, 8 in, 6 apart, 6 round; its folder (with its slash) then its
+                // name, both 13 at 530, the folder darker as Desktop draws them.
+                let label = row()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .mr(12.0)
+                    .children((!dir.is_empty()).then(|| text(dir.to_owned()).font(LIST_LABEL).color(pal.text)))
+                    .child(text(name.to_owned()).font(LIST_LABEL).color(pal.muted).shrink().min_w(0.0).truncate_fade());
+                let r = row()
                     .w_full()
                     .h(LIST_ROW_H)
-                    .px(6.0)
-                    .gap(5.0)
+                    .px(8.0)
+                    .gap(6.0)
                     .center_y()
-                    .radius(5.0)
-                    .fill(if active || highlighted { pal.row_active } else { Color::TRANSPARENT })
-                    .hover(pal.hover)
+                    .radius(6.0)
+                    .fill(if on { pal.pressed } else { Color::TRANSPARENT })
+                    .hover(if on { pal.pressed } else { pal.hover })
                     .hover_motion(INSTANT, INSTANT)
                     .cursor(Cursor::Pointer)
                     .role("option")
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        s.open_workspace_file(&click_p, true, None, tx);
-                    })
-                    .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        s.open_workspace_file(&dbl_p, false, None, tx);
-                    })
-                    .child({
-                        let t = tree_icons::file(name);
-                        icon(t.icon(), 16.0).color(if active || highlighted { t.color(pal.dark) } else { pal.icon_muted })
-                    })
-                    .child(
-                        text(name.to_owned())
-                            .font(UI_SMALL)
-                            .color(pal.text)
-                            .shrink()
-                            .min_w(0.0)
-                            .truncate_fade(),
-                    );
-                if let Some(d) = dir {
-                    r = r.child(
-                        text(d.to_owned())
-                            .font(UI_SMALL)
-                            .color(pal.faint)
-                            .grow(1.0)
-                            .shrink()
-                            .min_w(0.0)
-                            .truncate_fade(),
-                    );
-                } else {
-                    r = r.child(el().grow(1.0));
-                }
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_workspace_file(&click_p, true, None, tx))
+                    .on_double_press_tx(move |s: &mut App, tx: &mut Tx| s.open_workspace_file(&dbl_p, false, None, tx))
+                    .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))
+                    .child(label);
+                let status = kinds.as_ref().and_then(|k| k.get(path.as_str())).and_then(|k| kind_status(k));
+                let r = r.children(status.map(|st| chrome::change_letter(&pal, st)));
                 crate::open_in::context(r, path.clone())
             },
         );
@@ -328,39 +257,12 @@ fn filtered_files_view(
         .child(list)
 }
 
-fn sidebar_resize_handle(s: &App, p: &Pal, cur_w: f32, max_w: f32) -> El {
-    let dragging = s.files.sidebar_drag.is_some();
-    el().key("files-sidebar-resize")
-        .w(5.0)
-        .h_full()
-        .center()
-        .cursor(Cursor::ResizeColumn)
-        .hover_group()
-        .hover_motion(INSTANT, INSTANT)
-        .on_double_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.files.sidebar_resized = false;
-            s.files.sidebar_w = FILES_SIDEBAR_DEFAULT_W;
-        })
-        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
-            tx.instant();
-            match d.phase {
-                Phase::Down => s.files.sidebar_drag = Some(cur_w),
-                Phase::Move => {
-                    if let Some(orig) = s.files.sidebar_drag {
-                        s.files.sidebar_resized = true;
-                        s.files.sidebar_w = (orig + d.dx / s.zoom).clamp(FILES_SIDEBAR_MIN_W, max_w);
-                    }
-                }
-                Phase::Up => {
-                    if d.cancelled()
-                        && let Some(orig) = s.files.sidebar_drag
-                    {
-                        s.files.sidebar_w = orig;
-                    }
-                    s.files.sidebar_drag = None;
-                }
-            }
-        })
-        .child(el().w(0.5).h_full().fill(if dragging { p.border } else { p.border_muted }))
+/// The change letter a `review.changes` kind (`add`, `del`, `mix`) ends a row with.
+fn kind_status(kind: &str) -> Option<FileStatus> {
+    match kind {
+        "add" => Some(FileStatus::Added),
+        "del" => Some(FileStatus::Deleted),
+        "mix" => Some(FileStatus::Modified),
+        _ => None,
+    }
 }

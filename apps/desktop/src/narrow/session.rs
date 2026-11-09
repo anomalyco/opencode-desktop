@@ -38,11 +38,9 @@ pub enum Kind {
     Drawer,
 }
 
-/// The app's own panels' narrow views (`review`, `file` and `terminal` renderers' `mobile`).
+/// The app's own panels' narrow views (the `terminal` renderer's `mobile`).
 /// Luau plugins' panels declare theirs in the contract (`PanelSpec.mobile`); [`views`] has both.
 pub const VIEWS: &[MobileView] = &[
-    MobileView { plugin: "review", title: || t!("plugin.review.mobile.title.other"), order: 10, kind: Kind::Tab, icon: &ic::REVIEW },
-    MobileView { plugin: "file", title: || t!("plugin.file.mobile.title"), order: 20, kind: Kind::Menu, icon: &ic::FOLDER },
     MobileView { plugin: "terminal", title: || t!("plugin.terminal.tab.title"), order: 30, kind: Kind::Menu, icon: &crate::terminal::grid::TERMINAL_ICON },
 ];
 
@@ -158,8 +156,6 @@ fn tab(p: &Pal, key: &str, label: &str, selected: bool, press: impl Fn(&mut App,
 fn enter(s: &mut App, id: &str, view: &str, tx: &mut Tx) {
     s.select_narrow_view(id, view, tx);
     match view {
-        "review" => s.ensure_session_review(id),
-        "file" => s.ensure_workspace_files(id),
         // The narrow Terminal view starts the first terminal of a session that has none.
         "terminal" => {
             let wk = s.terminal_workspace_key_for_session(id);
@@ -197,8 +193,6 @@ fn location_bar(s: &App, p: &Pal, id: &str) -> El {
 /// The picked panel's narrow view, filling the rest of the panel.
 fn view(s: &App, p: &Pal, id: &str, shown: &str) -> El {
     let body = match shown {
-        "review" => crate::review::mobile::view(s, p, id),
-        "file" => crate::files::narrow::view(s, p, id, s.session(id).map_or("", |i| i.project.as_str()), s.layout.narrow.width() - 2.0),
         "terminal" => crate::terminal::narrow::view(s, p, id),
         plugin => panel(s, p, id, plugin),
     };
@@ -222,7 +216,7 @@ fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
                 Some(e) => (e.provider, &e.tab),
                 None => {
                     let Some(provider) = s.find_panel(view) else { return el() };
-                    fallback = PanelTabDesc::new(if view == "file" { crate::files::data::OPEN_TAB_ID } else { "" }, "");
+                    fallback = PanelTabDesc::new("", "");
                     (provider, &fallback)
                 }
             }

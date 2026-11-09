@@ -101,9 +101,6 @@ fn take<S: Clone>(list: &[Contrib<S>], f: &str) -> Vec<(&'static str, S, Option<
 
 /// What Luau plugins put in shell slot `name` for session `session`, by `order`.
 pub fn slot(app: &App, p: &Pal, name: &str, session: &str, active: bool, compact: bool) -> Vec<(i64, El)> {
-    if name == "session.header" {
-        app.plugins.luau.narrow.set(compact);
-    }
     let directory = app.session(session).map_or("", |s| s.directory.as_str()).to_owned();
     each::<(), _>(app, |c| c.slots.iter().filter(|s| s.spec.at.as_str() == name).map(|s| (s.spec.clone(), s.f("render").cloned())).collect())
         .into_iter()

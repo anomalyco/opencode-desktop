@@ -16,6 +16,7 @@ fn test_runtime() -> Runtime<App> {
         a.load_fixture(FIXTURE);
         open_scene(&mut a);
         a.finish_stream();
+        crate::plugin_host::setup(&mut a, std::sync::Arc::new(|| {}));
         a
     });
     let mut rt = Runtime::new((s.init)(), s.view, s.size, Env::new(true, 2.0));
@@ -46,7 +47,7 @@ fn side_region_toggles_on_spring_and_launches_browser() {
     let mut rt = test_runtime();
     assert!(!rt.state.side_open());
 
-    // ⌥⌘B opens the side region on its spring onto the pinned Review tab; `+` opens New tab.
+    // ⌥⌘B opens the side region on its spring onto New tab; `+` opens New tab.
     rt.key(KeyEvent {
         key: Key::Command('b'),
         mods: Mods { cmd: true, alt: true, logo: true, ..Default::default() },
@@ -113,9 +114,10 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
     assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active), Some(b_key.clone()));
     assert!(rt.find("browser-address").is_some());
 
-    // ⌘3 jumps straight back to the third side tab (`notes:1`; ⌘1 is pinned Review, ⌘2 is Browser).
+    // ⌘2 jumps straight back to the second side tab (`notes:1`; ⌘1 is Browser: Changes isn't
+    // pinned, as in Desktop).
     rt.key(KeyEvent {
-        key: Key::Command('3'),
+        key: Key::Command('2'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
     rt.frame(1.0 / 120.0);
@@ -135,19 +137,7 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
     assert!(rt.state.side_open());
     assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active), Some(b_key));
 
-    // Second ⌘W closes `browser:1`, falling back to pinned `review:changes`.
-    rt.key(KeyEvent {
-        key: Key::Command('w'),
-        mods: Mods { cmd: true, logo: true, ..Default::default() },
-    });
-    rt.frame(1.0 / 60.0);
-    assert!(rt.state.side_open());
-    assert_eq!(
-        rt.state.resolve_side_region().and_then(|r| r.active).as_deref(),
-        Some("review:changes")
-    );
-
-    // Third ⌘W on pinned `review:changes` collapses the side region and arms `emptied_guard`.
+    // Second ⌘W closes the last tab, `browser:1`: the side region collapses and arms `emptied_guard`.
     rt.key(KeyEvent {
         key: Key::Command('w'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
@@ -217,7 +207,8 @@ fn closing_last_side_tab_keeps_its_contents_until_the_region_lands() {
         rt.frame(1.0 / 60.0);
     }
     assert!(rt.find("panel-review:changes").is_none());
-    assert!(rt.find("side-launch-review-open").is_some());
+    let launchers: Vec<String> = rt.state.resolve_side_region().map_or_else(Vec::new, |r| r.launchers.iter().map(|(p, d, _)| format!("{p}-{} opened={}", d.id, d.opened)).collect());
+    assert!(rt.find("side-launch-review-open").is_some(), "Changes is a New tab row again: {launchers:?}");
 }
 
 #[test]
@@ -243,7 +234,8 @@ fn reopening_mid_slide_lets_go_of_the_closing_tab_at_once() {
         rt.frame(1.0 / 60.0);
     }
     assert!(rt.find("panel-review:changes").is_none());
-    assert!(rt.find("side-launch-review-open").is_some());
+    let launchers: Vec<String> = rt.state.resolve_side_region().map_or_else(Vec::new, |r| r.launchers.iter().map(|(p, d, _)| format!("{p}-{} opened={}", d.id, d.opened)).collect());
+    assert!(rt.find("side-launch-review-open").is_some(), "Changes is a New tab row again: {launchers:?}");
 }
 
 #[test]

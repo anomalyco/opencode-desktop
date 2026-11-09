@@ -38,6 +38,8 @@ string_enum! {
         Radio = "radio",
         /// The app's own text field.
         Field = "field",
+        /// The app's segmented control.
+        Segmented = "segmented",
         /// The app's spinner.
         Loader = "loader",
         /// The app's progress ring: a track and an arc from twelve o'clock, clockwise.
@@ -94,7 +96,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -120,6 +122,7 @@ impl NodeKind {
             Self::Switch => &UI_SWITCH_PROPS,
             Self::Radio => &UI_RADIO_PROPS,
             Self::Field => &UI_FIELD_PROPS,
+            Self::Segmented => &UI_SEGMENTED_PROPS,
             Self::Loader => &UI_LOADER_PROPS,
             Self::ProgressCircle => &UI_PROGRESS_CIRCLE_PROPS,
             Self::ServerIndicator => &UI_SERVER_INDICATOR_PROPS,
@@ -204,6 +207,7 @@ pub static UI_DIFF_VIEW_PROPS: PropsSpec = PropsSpec::new("UiDiffViewProps", Som
     PropSpec::new("expand", PropType::Bool, false),
     PropSpec::new("file", PropType::String, false),
     PropSpec::new("revealLine", PropType::Integer, false),
+    PropSpec::new("list", PropType::Bool, false),
 ]);
 
 /// `UiDividerProps`.
@@ -230,10 +234,13 @@ pub static UI_FILE_TREE_PROPS: PropsSpec = PropsSpec::new("UiFileTreeProps", Som
     PropSpec::new("tree", PropType::Handle("FileTreeModel"), true),
     PropSpec::new("allowed", PropType::List("string"), false),
     PropSpec::new("kinds", PropType::Map, false),
+    PropSpec::new("filter", PropType::String, false),
     PropSpec::new("selectedPath", PropType::String, false),
     PropSpec::new("highlightedPath", PropType::String, false),
     PropSpec::new("onSelect", PropType::Handler, false),
     PropSpec::new("onContextMenu", PropType::Handler, false),
+    PropSpec::new("narrow", PropType::Bool, false),
+    PropSpec::new("width", PropType::Number, false),
 ]);
 
 /// `UiFlyoutRowProps`.
@@ -357,6 +364,7 @@ pub static UI_PANEL_SIDEBAR_PROPS: PropsSpec = PropsSpec::new("UiPanelSidebarPro
     PropSpec::new("width", PropType::Number, false),
     PropSpec::new("minWidth", PropType::Number, false),
     PropSpec::new("maxWidth", PropType::Number, false),
+    PropSpec::new("locked", PropType::Bool, false),
 ]);
 
 /// `UiPillProps`.
@@ -387,6 +395,13 @@ pub static UI_RADIO_PROPS: PropsSpec = PropsSpec::new("UiRadioProps", Some(&UI_L
     PropSpec::new("tone", PropType::Enum("Tone"), false),
     PropSpec::new("lineHeight", PropType::Number, false),
     PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onChange", PropType::Handler, false),
+]);
+
+/// `UiSegmentedProps`.
+pub static UI_SEGMENTED_PROPS: PropsSpec = PropsSpec::new("UiSegmentedProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("items", PropType::List("UiSegmentedItem"), true),
+    PropSpec::new("value", PropType::String, true),
     PropSpec::new("onChange", PropType::Handler, false),
 ]);
 

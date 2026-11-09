@@ -39,7 +39,6 @@ pub use watch::fire_watched;
 
 /// Services later packages bring, and which.
 const PENDING: &[(&str, &str)] = &[
-    ("Diff", "LU-6"),
     ("Terminal", "LU-6"),
     ("Browser", "LU-7"),
     ("Office", "LU-5"),
@@ -102,7 +101,11 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
     let t = lua.create_table()?;
     match name {
         "Sessions" | "Models" | "Server" | "Servers" | "Theme" => session::build(lua, vmx, name, &t)?,
-        "Http" | "Workspace" => net::build(lua, vmx, name, &t)?,
+        "Http" => net::build(lua, vmx, name, &t)?,
+        "Workspace" => {
+            net::build(lua, vmx, name, &t)?;
+            super::native::build(lua, vmx, name, &t)?;
+        }
         "Process" => process::build(lua, vmx, &t)?,
         "Store" | "Contracts" | "Console" => store::build(lua, vmx, name, &t)?,
         "Diagnostics" => diag::build(lua, vmx, &t)?,
@@ -112,6 +115,7 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "Toast" | "Popover" | "Dialog" | "Menu" | "Layout" | "Links" | "Commands" | "Notifications" => ui::build(lua, vmx, name, &t)?,
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
+        "Diff" => super::native::build(lua, vmx, name, &t)?,
         _ => {
             let why = PENDING.iter().find(|(n, _)| *n == name).map_or_else(|| format!("there is no service {name:?}"), |(_, pkg)| format!("{name} isn't in this app yet ({pkg} brings it)"));
             return Err(mlua::Error::runtime(why));
@@ -251,6 +255,9 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Contract(id) => store::contract_generation(id).hash(&mut h),
         Dep::Dev(name) => format!("{:?}", diag::get(app, name)).hash(&mut h),
         Dep::Console => super::console::version().hash(&mut h),
+        Dep::Diff(session) => super::native::diff::version(app, session).hash(&mut h),
+        Dep::Files(session) => super::native::files::version(app, session).hash(&mut h),
+        Dep::Sidebar => (app.panel_sidebar.opened, app.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
     }
     h.finish()
 }

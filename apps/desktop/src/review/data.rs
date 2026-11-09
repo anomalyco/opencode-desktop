@@ -236,6 +236,12 @@ pub fn parse_diff_list(v: &Value) -> (Vec<FileDiff>, Vec<ReviewFileMeta>) {
     (files, metas)
 }
 
+/// The changed files' paths in the order the server listed them (newest change first).
+pub fn listed_paths(v: &Value) -> Vec<String> {
+    let items = v["data"].as_array().or_else(|| v.as_array()).map_or(&[][..], Vec::as_slice);
+    items.iter().filter_map(|i| i["file"].as_str()).map(normalize_path).filter(|p| !p.is_empty()).collect()
+}
+
 /// Builds the change tree with every folder open except those in `collapsed`, so a refetch keeps
 /// the folders the user closed (`collapsed_folders` of the old tree).
 pub fn build_change_tree(
@@ -328,21 +334,14 @@ pub fn fetch_live_file_text(server: &Server, directory: &str, path: &str) -> Opt
     String::from_utf8(bytes).ok()
 }
 
-pub fn fixture_diff_count(fixture: &Value, session_id: &str) -> usize {
-    fixture["diffs"]
-        .get(session_id)
-        .and_then(|s| s.get("git"))
-        .or_else(|| fixture["diffs"].get("git"))
-        .or_else(|| fixture["diffs"].get("default"))
-        .and_then(|v| v["data"].as_array().or_else(|| v.as_array()))
-        .map_or(0, Vec::len)
-}
-
+/// A fixture's changes for mode: the parsed files, their facts, the paths as listed, the
+/// branches, and the fixture's file texts.
+#[allow(clippy::type_complexity)]
 pub fn load_fixture_diffs(
     fixture: &Value,
     session_id: &str,
     mode: ChangeMode,
-) -> (Vec<FileDiff>, Vec<ReviewFileMeta>, Option<String>, Option<String>, HashMap<String, String>) {
+) -> (Vec<FileDiff>, Vec<ReviewFileMeta>, Vec<String>, Option<String>, Option<String>, HashMap<String, String>) {
     let branch_cur = fixture["vcs"]["branch"]["current"]
         .as_str()
         .map(str::to_owned)
@@ -367,6 +366,7 @@ pub fn load_fixture_diffs(
         Some(v) => parse_diff_list(v),
         None => (Vec::new(), Vec::new()),
     };
+    let listed = diff_val.map(listed_paths).unwrap_or_default();
 
     let mut texts = HashMap::new();
     if let Some(obj) = fixture["file_contents"].as_object() {
@@ -376,5 +376,5 @@ pub fn load_fixture_diffs(
             }
         }
     }
-    (files, meta, branch_cur, branch_def, texts)
+    (files, meta, listed, branch_cur, branch_def, texts)
 }

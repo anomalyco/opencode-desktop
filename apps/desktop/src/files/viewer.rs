@@ -159,14 +159,36 @@ pub(super) fn files_main(
         }))
         .children(crate::open_in::button(s, p, "files-open-in", path));
 
-    let mut out = col()
+    let out = col()
         .key("files-main")
         .grow(1.0)
         .min_w(0.0)
         .h_full()
         .child(toolbar)
         .child(el().w_full().h(0.5).fill(p.border_muted));
+    out.child(code_area(s, p, session_id, ws, path, false))
+}
 
+/// The open file under the panel's own header (`ui.codeView`): its find bar while open, then a
+/// plugin's viewer, the rendered Markdown or the code. `artifact` puts a Markdown file's
+/// source / preview toggle above it, as Desktop's artifact toolbar does.
+pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, path: &str, artifact: bool) -> El {
+    let doc = ws.docs.get(path);
+    let rendered = markdown::shows_rendered(ws, path);
+    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready && !d.missing && !d.binary);
+    // A picture shows on its stage, which has no lines to find or wrap.
+    let picture = super::image::showing(ws, path);
+    let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
+    // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
+    // an artifact (Markdown, SVG, a picture, another binary file) has its `ArtifactToolbar`.
+    let toolbar = artifact && (markdown_doc || picture.is_some() || doc.is_some_and(|d| d.binary));
+    if artifact && !toolbar {
+        out = out.pt(12.0);
+    }
+    if toolbar {
+        let text = doc.filter(|_| markdown_doc).map(|d| d.text().to_owned());
+        out = out.child(artifact_toolbar(s, p, session_id, path, rendered, text, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
+    }
     if let Some(d) = doc
         && d.find_open
     {
@@ -188,7 +210,7 @@ pub(super) fn files_main(
         return out.child(super::image::stage(s, p, img));
     }
     if rendered && markdown::is_markdown(path) && let Some(d) = doc {
-        return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path)));
+        return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path), artifact));
     }
 
     let (sid_get, path_get) = (session_id.to_owned(), path.to_owned());
@@ -261,4 +283,109 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
                 })
                 .child(icon(&ic::XMARK_SMALL, 11.0).color(p.icon_muted)),
         )
+}
+
+/// Desktop's `ArtifactToolbar`: 44 tall on `layer-01`, 20 in and 12 from the end, with no rule
+/// under it. The file's name (13 / 16 at 530); then, 12 apart, a picture's size line and the
+/// actions 8 apart: for a previewable file (`text`) its source / preview toggle and Copy
+/// content, then the `...` menu (Download, the toggle, Reveal in the file manager, Copy path and
+/// Open in).
+fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bool, text_body: Option<String>, meta: Option<Vec<String>>) -> El {
+    const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
+    let name = opencode_kit::path::basename(path).to_owned();
+    let previewable = text_body.is_some();
+    let mode_label = if rendered { opencode_i18n::t!("plugin.file.view.viewSource") } else { opencode_i18n::t!("plugin.file.view.viewPreview") };
+    let mut actions = row().key("files-artifact-actions").gap(8.0).center_y();
+    if previewable {
+        let (sid, at) = (session_id.to_owned(), path.to_owned());
+        actions = actions.child(action(p, "files-render-btn", if rendered { &ic::OUTLINE_CODE_BRACKETS } else { &ic::OUTLINE_EYE }, mode_label, move |s: &mut App, tx: &mut Tx| s.toggle_rendered(&sid, &at, tx)));
+        let body = text_body.clone().unwrap_or_default();
+        actions = actions.child(action(p, "files-copy-content", &ic::OUTLINE_COPY, opencode_i18n::t!("plugin.file.view.copyContent"), move |s: &mut App, tx: &mut Tx| {
+            tx.copy(body.clone());
+            crate::status_toast::succeed(s, opencode_i18n::t!("common.copied"), "");
+        }));
+    }
+    let (sid, at, menu_name) = (session_id.to_owned(), path.to_owned(), name.clone());
+    let open = s.popup.open_at("files-artifact-menu");
+    actions = actions.child(
+        action(p, "files-artifact-menu", &ic::OUTLINE_DOTS, opencode_i18n::t!("plugin.file.view.actions"), move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            let (sid, at, body, name) = (sid.clone(), at.clone(), text_body.clone(), menu_name.clone());
+            crate::popup::open(s, artifact_menu(s, previewable, rendered), "files-artifact-menu".to_owned(), tx, move |s: &mut App, picked, tx| {
+                tx.instant();
+                match picked {
+                    Some("download") => {
+                        if let Err(e) = opencode_kit::client::save_download(&name, body.as_deref().unwrap_or_default()) {
+                            crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), crate::status_toast::plain(&e));
+                        }
+                    }
+                    Some("mode") => s.toggle_rendered(&sid, &at, tx),
+                    Some("reveal") => s.open_in_app_as(crate::open_in::FINDER, &at, false, true),
+                    Some("copy") => {
+                        if let Some(full) = s.open_in_path(&at) {
+                            tx.copy(full);
+                            crate::status_toast::succeed(s, opencode_i18n::t!("common.copied"), "");
+                        }
+                    }
+                    Some(id) => {
+                        if let Some(app) = id.strip_prefix("app:") {
+                            s.open_in_app_as(app, &at, true, false);
+                        }
+                    }
+                    None => {}
+                }
+            });
+        })
+        .fill(if open { p.pressed } else { Color::TRANSPARENT }),
+    );
+    let trailing = row().key("files-artifact-trailing").gap(12.0).center_y().min_w(0.0).children(meta.map(|m| picture_meta(p, m))).child(actions);
+    row()
+        .key("files-artifact-toolbar")
+        .w_full()
+        .h(44.0)
+        .pl(20.0)
+        .pr(12.0)
+        .gap(12.0)
+        .center_y()
+        .fill(p.layer1)
+        .hover_group_focus()
+        .hover_motion(INSTANT, INSTANT)
+        .child(text(name).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
+        .child(trailing)
+}
+
+/// The `...` menu's rows.
+fn artifact_menu(s: &App, previewable: bool, rendered: bool) -> crate::popup::Menu {
+    use crate::popup::{Item, Menu};
+    let mut menu = Menu::new(opencode_i18n::t!("plugin.file.view.actions")).min_width(160.0).align(rune::Align::End);
+    if previewable {
+        menu = menu.item(Item::new("download", opencode_i18n::t!("plugin.file.view.download")));
+        let label = if rendered { opencode_i18n::t!("plugin.file.view.viewSource") } else { opencode_i18n::t!("plugin.file.view.viewPreview") };
+        menu = menu.item(Item::new("mode", label));
+    }
+    if s.can_open_in() {
+        menu = menu.item(Item::new("reveal", opencode_i18n::t!("plugin.file.view.reveal", app = crate::open_in::finder_label(s))));
+    }
+    menu = menu.item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")));
+    if s.can_open_in() {
+        menu = menu.submenu("open-in", opencode_i18n::t!("plugin.file.open.in"), crate::open_in::apps_menu(s));
+    }
+    menu
+}
+
+/// An `IconButton` ghost-muted large: 28 square, 6 round, its 16 pt glyph in icon-muted.
+fn action(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static str, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    el().key(key)
+        .size(28.0, 28.0)
+        .radius(6.0)
+        .center()
+        .cursor(Cursor::Pointer)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .role("button")
+        .label(label)
+        .help(label)
+        .on_press_tx(press)
+        .child(icon(glyph, 16.0).color(p.icon_muted))
 }

@@ -20,9 +20,10 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         _ => {
             async_method(lua, vmx, t, "ReadFileAsync", "Workspace.ReadFileAsync")?;
             async_method(lua, vmx, t, "SaveDownloadAsync", "Workspace.SaveDownloadAsync")?;
-            for name in ["OpenDocument", "OpenTree", "OpenInApps", "OpenIn"] {
-                method(lua, t, name, move |_, _: MultiValue| -> mlua::Result<()> { Err(mlua::Error::runtime(format!("Workspace:{name} isn't in this app yet (LU-6 brings it)"))) })?;
+            for name in ["OpenInApps", "OpenIn"] {
+                method(lua, t, name, move |_, _: MultiValue| -> mlua::Result<()> { Err(mlua::Error::runtime(format!("Workspace:{name} isn't in this app yet: ui.openInButton offers the apps"))) })?;
             }
+            method(lua, t, "Relative", |_, (path, directory): (String, String)| Ok(crate::tool_open::relative(&path, &directory)))?;
             super::lazy_signals(lua, vmx, t, "Workspace", &["FileChanged"])
         }
     }

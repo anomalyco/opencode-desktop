@@ -487,6 +487,8 @@ pub struct App {
     pub side: panels::SideState,
     pub browser: browser::BrowserPane,
     pub review: review::ReviewPane,
+    /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
+    pub panel_sidebar: plugin_host::luau::native::sidebar::PanelSidebar,
     pub files: files::FilesPane,
     pub open_in: open_in::OpenIn,
     /// What a tool step last opened in the side region (`tool_open`).

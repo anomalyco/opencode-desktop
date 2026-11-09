@@ -331,6 +331,18 @@ fn menu(s: &App, with_current: bool) -> Menu {
     Menu::new(opencode_i18n::t!("plugin.file.open.in")).min_width(160.0).group(opencode_i18n::t!("plugin.file.open.in")).items(apps).separator().item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")).weak_icon(&ic::COPY))
 }
 
+/// The apps alone (`OpenInAppMenuItemsV2` with `copyPath={false}`), the current one checked:
+/// an artifact toolbar's Open in submenu, its rows `app:<id>`.
+pub fn apps_menu(s: &App) -> Menu {
+    let cur = s.open_in.current();
+    Menu::new(opencode_i18n::t!("plugin.file.open.in")).min_width(160.0).items(s.open_in.options().into_iter().map(|(id, label)| Item::new(format!("app:{id}"), label).app_icon(icon_of(id)).checked(id == cur)))
+}
+
+/// The file manager's name (the first app), for Reveal in.
+pub fn finder_label(s: &App) -> &'static str {
+    s.open_in.options().first().map_or("", |o| o.1)
+}
+
 fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
     if id == "copy" {
         if let Some(p) = s.open_in_path(rel) {

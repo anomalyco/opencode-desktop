@@ -1,0 +1,16 @@
+#:schema ../plugin.schema.json
+id = "review"
+name = "Review"
+version = "1.0.0"
+contract = "1.0"
+description = "A session's changes: the Review tab with its change tree and the diff of one file, the narrow Changes view, and the changes other plugins read"
+
+[[stores]]
+name = "diff"
+
+[[stores]]
+name = "panel"
+
+[[stores]]
+name = "session"
+scope = "session"

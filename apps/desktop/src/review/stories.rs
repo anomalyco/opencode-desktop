@@ -14,8 +14,7 @@ use crate::view::UI_MED;
 const REVIEW_VARIANTS: &[(&str, usize)] = &[
     ("Unified", 0),
     ("Split", 1),
-    ("Filtered tree", 2),
-    ("Expanded context", 3),
+    ("Expanded context", 2),
 ];
 
 const INLINE_VARIANTS: &[(&str, usize)] = &[
@@ -40,7 +39,7 @@ const REVIEW_KEYS: &[Trigger] = &[
         key: 'f',
         label: "Toggle file tree",
         run: |s, _| {
-            s.review.sidebar_open = !s.review.sidebar_open;
+            s.panel_sidebar.opened = !s.panel_sidebar.opened;
         },
     },
     Trigger {
@@ -68,10 +67,6 @@ pub fn init_review(s: &mut App) {
     match s.variant {
         0 => s.set_review_diff_mode(DiffMode::Unified),
         1 => s.set_review_diff_mode(DiffMode::Split),
-        2 => {
-            s.set_review_diff_mode(DiffMode::Unified);
-            s.review.filter = rune::TextEdit::new("backoff");
-        }
         _ => {
             s.set_review_diff_mode(DiffMode::Unified);
             s.set_review_change_mode(ChangeMode::Git);

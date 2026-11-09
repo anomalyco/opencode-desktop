@@ -27,6 +27,34 @@ struct Panel {
     on_focus: Option<Function>,
     on_close: Option<Function>,
     is_wide: Option<Function>,
+    tab_title: Option<Function>,
+}
+
+thread_local! {
+    /// The last answer of each listing function (`list`, `tabTitle`, `isWide`, a menu item's
+    /// `when`, `opened` and `detail`), with what it read: the side region resolves every frame,
+    /// so an answer whose reads didn't change costs no VM call.
+    static ANSWERS: std::cell::RefCell<std::collections::HashMap<String, (u64, Option<Data>, Vec<cx::Dep>)>> = std::cell::RefCell::default();
+}
+
+/// `f(args)` of plugin `i`, the last answer while nothing it read changed.
+pub(super) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl mlua::IntoLuaMulti) -> Option<Data> {
+    use std::hash::{Hash, Hasher};
+    let p = &app.plugins.luau.plugins[i];
+    let script = p.script()?;
+    let base = |deps: &[cx::Dep]| {
+        let mut h = std::hash::DefaultHasher::new();
+        (script.version(), p.half.epoch.get(), super::epoch(), cx::stamp(app, deps)).hash(&mut h);
+        h.finish()
+    };
+    let key = format!("{}:{key}", p.half.id);
+    if let Some(found) = ANSWERS.with_borrow(|a| a.get(&key).filter(|(v, _, deps)| *v == base(deps)).map(|(_, d, _)| d.clone())) {
+        return found;
+    }
+    let (out, deps) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(f, args).ok()));
+    let v = base(&deps);
+    ANSWERS.with_borrow_mut(|a| a.insert(key, (v, out.clone(), deps)));
+    out
 }
 
 /// A provider per running plugin with panels or `session.panel` menu items, ordered by its
@@ -69,6 +97,7 @@ fn panels(app: &App, plugin: &str) -> Option<(usize, Vec<Panel>)> {
             on_focus: c.f("onFocus").cloned(),
             on_close: c.f("onClose").cloned(),
             is_wide: c.f("isWide").cloned(),
+            tab_title: c.f("tabTitle").cloned(),
         })
         .collect();
     Some((i, all))
@@ -90,7 +119,11 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     let mut out = Vec::new();
     for p in &all {
         let Some(list) = &p.list else {
-            let mut tab = PanelTabDesc::new(p.spec.id.clone(), p.spec.title.clone()).icon(icon_of(&p.spec));
+            let title = match p.tab_title.as_ref().and_then(|f| answer(app, i, &format!("title:{}:{}", p.spec.id, ctx.session_id), f, ctx.session_id.to_owned())) {
+                Some(Data::String(t)) => t,
+                _ => p.spec.title.clone(),
+            };
+            let mut tab = PanelTabDesc::new(p.spec.id.clone(), title).icon(icon_of(&p.spec));
             if p.spec.transient == Some(true) {
                 tab = tab.transient();
             }
@@ -232,14 +265,12 @@ pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     out
 }
 
-/// Opens entry `id` of plugin `plugin`: runs its menu item, or opens its panel's tab in `pane`.
+/// Opens entry `id` of plugin `plugin`: runs its `session.panel` item `id` (whose row keys as
+/// Desktop's launcher does, `side-launch-<plugin>-<id>`), else opens panel `id`'s tab in `pane`.
 pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
-    match id.strip_prefix("menu:") {
-        Some(key) => {
-            let session = app.active_session_id().unwrap_or_default().to_owned();
-            super::commands::run_menu_item(app, key, &session, tx);
-        }
-        None => app.open_side_tab(&crate::panels::panel_key(plugin, id), Some(pane), false, false, tx),
+    let session = app.active_session_id().unwrap_or_default().to_owned();
+    if !super::commands::run_menu_item(app, &format!("{plugin}.{id}"), &session, tx) {
+        app.open_side_tab(&crate::panels::panel_key(plugin, id), Some(pane), false, false, tx);
     }
 }
 
@@ -278,7 +309,7 @@ pub fn closed_info(app: &App, plugin: &str, _session: &str, tab: &PanelTabDesc) 
 pub fn wide(app: &App, plugin: &str) -> bool {
     let Some((i, all)) = panels(app, plugin) else { return false };
     all.iter().any(|p| match &p.is_wide {
-        Some(f) => app.plugins.luau.plugins[i].script().is_some_and(|s| cx::with_app(app, || s.eval_fn::<bool>(f, ())).unwrap_or(false)),
+        Some(f) => answer(app, i, &format!("wide:{}", p.spec.id), f, ()) == Some(Data::Bool(true)),
         None => p.spec.wide == Some(true),
     })
 }

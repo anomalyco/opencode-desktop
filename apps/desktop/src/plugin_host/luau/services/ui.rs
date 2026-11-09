@@ -173,6 +173,20 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Narrow", |_, ()| {
         cx::read(Dep::Narrow);
         Ok(narrow(app_now("Layout:Narrow")?))
+    })?;
+    method(lua, t, "PanelSidebar", |lua, ()| {
+        cx::read(Dep::Sidebar);
+        let s = &app_now("Layout:PanelSidebar")?.panel_sidebar;
+        let width = s.width.unwrap_or(crate::plugin_host::luau::native::sidebar::DEFAULT_W);
+        mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
+    })?;
+    method(lua, t, "TogglePanelSidebar", |_, ()| {
+        app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
+            tx.instant();
+            s.panel_sidebar.opened = !s.panel_sidebar.opened;
+            crate::plugin_host::luau::bump();
+        }));
+        Ok(())
     })
 }
 
@@ -181,9 +195,9 @@ pub fn panel_state(app: &App, plugin: &str, panel: &str, session: &str) -> u64 {
     app.tab_state(session, &crate::plugin_host::luau::panels::tab_key(plugin, panel, None))
 }
 
-/// Whether the window's session header is narrow.
+/// Whether the window lays out narrow (Desktop's `layout.narrow()`, under 768).
 pub fn narrow(app: &App) -> bool {
-    app.plugins.luau.narrow.get()
+    app.narrow()
 }
 
 pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {

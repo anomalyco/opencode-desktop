@@ -54,8 +54,9 @@ pub fn sidebar_toggle(p: &Pal, key: &'static str, open: bool, disabled: bool, pr
         .label(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar"))
         .help(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar")).help_keys(crate::keymap::Bind::TreeToggle.keycaps())
         .child(icon(&FILETREE, 16.0).color(p.icon));
+    // A disabled IconButton draws at half opacity, its expanded fill too.
     if disabled {
-        return b.inert();
+        return b.opacity(0.5).inert();
     }
     b.cursor(Cursor::Pointer)
         .hover(if open { p.layer2 } else { p.hover })
@@ -85,17 +86,19 @@ pub fn sidebar_header(key: &'static str, title: El, end: Option<El>) -> El {
 #[allow(clippy::too_many_arguments)]
 pub fn filter_field(
     p: &Pal,
-    key: &'static str,
+    key: &str,
     edit: &TextEdit,
-    hovered_key: &'static str,
-    on_edit: fn(&mut App) -> &mut TextEdit,
-    on_submit: fn(&mut App, &mut Tx),
-    clear: fn(&mut App, &mut Tx),
+    hovered_key: &str,
+    placeholder: &str,
+    on_edit: impl for<'a> Fn(&'a mut App) -> &'a mut TextEdit + 'static,
+    on_submit: impl Fn(&mut App, &mut Tx) + 'static,
+    clear: impl Fn(&mut App, &mut Tx) + 'static,
     spellcheck: bool,
+    on_key: impl Fn(&mut App, &rune::KeyEvent, &mut Tx) -> bool + 'static,
 ) -> El {
     let focused = edit.focused;
     let field = row()
-        .key(hovered_key)
+        .key(hovered_key.to_owned())
         .w_full()
         .h(28.0)
         .mt(3.0)
@@ -112,15 +115,16 @@ pub fn filter_field(
         .child(icon(&SEARCH, 14.0).color(p.icon_muted))
         .child(
             text_input(edit, UI)
-                .key(key)
+                .key(key.to_owned())
                 .spellcheck(spellcheck)
-                .placeholder(opencode_i18n::t!("ui.sessionReviewV2.filterFiles"), p.faint)
+                .placeholder(placeholder.to_owned(), p.faint)
                 .selection_style(p.field_selection)
                 .color(p.text)
                 .grow(1.0)
                 .shrink()
                 .on_edit(on_edit)
-                .on_submit(on_submit),
+                .on_submit(on_submit)
+                .on_input_key(on_key),
         )
         .children((!edit.text.is_empty()).then(|| {
             el().key("filter-clear")
@@ -142,6 +146,14 @@ pub fn filter_field(
 /// `@pierre/trees` icon, in its type's colour on the selected row; the selected row takes the
 /// pressed overlay and the base text colour.
 pub fn tree_row(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file_glyph: Option<TreeIcon>, selected: bool) -> El {
+    tree_row_in(p, name, depth, expanded, file_glyph, selected, UI)
+}
+
+/// Files' workspace tree (`@pierre/trees` as Desktop styles it): 12 at 500.
+pub const PIERRE: rune::TextStyle = rune::TextStyle::new(12.0, 500.0).lh(16.0);
+
+/// [`tree_row`] with its name in `font`.
+pub fn tree_row_in(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file_glyph: Option<TreeIcon>, selected: bool, font: rune::TextStyle) -> El {
     let lead = match (expanded, file_glyph) {
         (Some(open), _) => icon(if open { &CHEVRON_DOWN } else { &CHEVRON_RIGHT }, 16.0)
             .color(if selected { p.text } else { p.icon_muted })
@@ -166,7 +178,7 @@ pub fn tree_row(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file_gl
         .child(lead)
         .child(
             text(name.to_owned())
-                .font(UI)
+                .font(font)
                 .color(if selected { p.text } else { p.muted })
                 .grow(1.0)
                 .shrink()
@@ -188,7 +200,7 @@ pub fn change_letter(p: &Pal, status: rune_kit::diff::FileStatus) -> El {
 
 const CHANGE: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).features("'tnum' 1, 'lnum' 1");
 
-/// A diff's file header (`session-review-v2-file-header`): its status letter, the file's
+/// A diff's file header (`session-review-v2-file-header`, 8 16 in on `line-height-compact`, 33 tall with its rule): its status letter, the file's
 /// coloured icon, its name and its folder, 6 apart, then its `+N -M` 8 past them, 8 by 16 in;
 /// a 1 px `border-base` rule under it.
 pub fn file_header(p: &Pal, path: &str, status: rune_kit::diff::FileStatus, adds: usize, dels: usize) -> El {
@@ -231,6 +243,6 @@ pub fn file_header(p: &Pal, path: &str, status: rune_kit::diff::FileStatus, adds
 }
 
 const STATUS: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
-const FILE_NAME: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
-const FILE_PATH: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
+const FILE_NAME: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
+const FILE_PATH: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04).features("'tnum' 1, 'lnum' 1");
 const COUNT: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(11.0).tracking(0.05);

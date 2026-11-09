@@ -1,18 +1,16 @@
 //! The `rune` client MCP tool definitions and execution on `App` (`tools.rune.*` in Code Mode).
 //!
 //! Exposes OpenCode (Rune)'s own browser pane (porting all capabilities of the retired loopback
-//! browser API) and side-panel openers (`open_file`, `open_diff`, `open_terminal`), and native
+//! browser API) and side-panel openers (`open_file`, `open_terminal`; the review plugin brings `open_diff`), and native
 //! plugins' tools (`plugin_host::mcp_tools`).
 
 use std::time::{Duration, Instant};
 
 use opencode_kit::client_mcp::{McpCall, McpResult, McpTool};
 use rune::Tx;
-use rune_kit::diff::DiffMode;
 use serde_json::{Value, json};
 
 use crate::App;
-use crate::review::ChangeMode;
 
 const CDP_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_TEXT_BYTES: usize = 32 * 1024;
@@ -242,35 +240,6 @@ pub fn catalog() -> Vec<McpTool> {
             }),
         ),
         McpTool::new(
-            "open_diff",
-            "Open the Changes diff view in the OpenCode (Rune) side panel, optionally scoped to a mode and file.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Optional file path in Changes to reveal and scroll to."
-                    },
-                    "mode": {
-                        "type": "string",
-                        "enum": ["uncommitted", "branch", "turn"],
-                        "description": "Which changes to show (defaults to the session's current mode)."
-                    },
-                    "view": {
-                        "type": "string",
-                        "enum": ["unified", "split"],
-                        "description": "Unified or split diff layout."
-                    },
-                    "line": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "Optional 1-based line number in the new file to scroll near when 'path' is set."
-                    }
-                },
-                "additionalProperties": false
-            }),
-        ),
-        McpTool::new(
             "open_terminal",
             "Show the integrated terminal dock in OpenCode (Rune) for this session's workspace.",
             json!({
@@ -493,56 +462,6 @@ pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
                 "lines": lines.map(|(a, b)| json!([a, b])),
             })));
         }
-        "open_diff" => {
-            let mode = match args["mode"].as_str() {
-                Some("uncommitted") => Some(ChangeMode::Git),
-                Some("branch") => Some(ChangeMode::Branch),
-                Some("turn") => Some(ChangeMode::Turn),
-                None => None,
-                Some(other) => {
-                    call.respond(McpResult::error(format!("Invalid diff mode '{other}'")));
-                    return;
-                }
-            };
-            let view = match args["view"].as_str() {
-                Some("unified") => Some(DiffMode::Unified),
-                Some("split") => Some(DiffMode::Split),
-                None => None,
-                Some(other) => {
-                    call.respond(McpResult::error(format!("Invalid diff view '{other}'")));
-                    return;
-                }
-            };
-            let dir = session_directory(s, sid, &call_dir);
-            let rel_path = match args["path"].as_str().filter(|p| !p.trim().is_empty()) {
-                Some(raw) => match resolve_workspace_path(raw, &dir) {
-                    Some(p) => Some(p),
-                    None => {
-                        call.respond(McpResult::error(format!(
-                            "Path '{raw}' is outside the session folder '{dir}'"
-                        )));
-                        return;
-                    }
-                },
-                None => None,
-            };
-            let line = args["line"].as_u64().map(|n| n.max(1) as u32);
-            s.open_review_for_session(sid, mode, view, rel_path.as_deref(), line, tx);
-            let active_mode = match s.review.sessions.get(sid).map(|r| r.mode).unwrap_or_default() {
-                ChangeMode::Git => "uncommitted",
-                ChangeMode::Branch => "branch",
-                ChangeMode::Turn => "turn",
-            };
-            let active_view = match s.review.diff_mode {
-                DiffMode::Unified => "unified",
-                DiffMode::Split => "split",
-            };
-            call.respond(McpResult::json(json!({
-                "mode": active_mode,
-                "view": active_view,
-                "path": rel_path,
-            })));
-        }
         "open_terminal" => {
             tx.instant();
             let new_tab = args["newTab"].as_bool().unwrap_or(false);
@@ -556,7 +475,7 @@ pub(super) fn execute(s: &mut App, sid: &str, call: McpCall, tx: &mut Tx) {
         // Plugins' tools (`McpTool`), routed to their plugin in this window.
         other => {
             let other = other.to_owned();
-            if let Some(call) = crate::plugin_host::mcp_call(s, call, tx) {
+            if let Some(call) = crate::plugin_host::mcp_call(s, sid, call, tx) {
                 call.respond(McpResult::error(format!("Unknown tool: {other}")));
             }
         }

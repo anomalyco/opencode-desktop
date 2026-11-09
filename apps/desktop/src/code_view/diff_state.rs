@@ -89,6 +89,8 @@ pub struct DiffDocState {
     expand_mode: ExpandMode,
     wrap: bool,
     pub(super) hide_file_headers: bool,
+    /// Draws only this file's rows: Review's single-file preview.
+    only: Option<usize>,
     pub(super) selection: Option<LineRange>,
     pub(super) selecting: bool,
     pub(super) selection_at_press: Option<LineRange>,
@@ -142,6 +144,7 @@ impl DiffDocState {
             // session-ui `session-review.tsx:691`); only the narrow review lets them scroll.
             wrap: true,
             hide_file_headers: false,
+            only: None,
             selection: None,
             selecting: false,
             selection_at_press: None,
@@ -176,6 +179,24 @@ impl DiffDocState {
         s.hide_file_headers = true;
         s.rebuild();
         s
+    }
+
+    /// Draws only file `file`'s rows (`None`: every file's, one under another).
+    pub fn show_only(&mut self, file: Option<usize>) {
+        let file = file.filter(|&f| f < self.files.len());
+        if self.only != file {
+            self.only = file;
+            self.selection = None;
+            self.visible = file.unwrap_or(0);
+            self.reported = None;
+            self.visible_rows = 0..0;
+            self.rebuild();
+        }
+    }
+
+    /// The file whose rows alone show, if one.
+    pub fn only(&self) -> Option<usize> {
+        self.only
     }
 
     pub fn set_hide_file_headers(&mut self, hide: bool) {
@@ -214,6 +235,7 @@ impl DiffDocState {
             }
         }
         self.files = files;
+        self.only = None;
         self.recompute_metrics();
         for f in 0..self.files.len() {
             for gap in 0..self.gaps[f].len() {
@@ -551,6 +573,9 @@ impl DiffDocState {
         for (f, file) in self.files.iter().enumerate() {
             let fu = f as u32;
             self.file_rows.push(rows.len() as u32);
+            if self.only.is_some_and(|o| o != f) {
+                continue;
+            }
             if !self.hide_file_headers {
                 rows.push(DiffRow::File(fu));
                 if self.ui[f].collapsed {

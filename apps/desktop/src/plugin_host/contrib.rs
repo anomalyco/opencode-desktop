@@ -46,6 +46,11 @@ static LUAU_TOOLS: Mutex<Vec<McpTool>> = Mutex::new(Vec::new());
 
 /// Mirrors the Luau plugins' code block actions and MCP tools, read off the app's state.
 pub fn sync_luau(app: &App) {
+    // A window whose plugins never started (`--no-plugins`, a test's bare app) has none to list,
+    // and mustn't empty the lists the process's other windows share.
+    if !app.plugins.started {
+        return;
+    }
     let all: Vec<CodeAction> = app.plugins.luau.running().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
     LUAU_ACTIONS.with(|a| *a.borrow_mut() = all);
     let tools: Vec<McpTool> = super::luau::commands::mcp_tools(app).into_iter().map(|(name, description, schema)| McpTool::new(name, description, schema)).collect();
@@ -103,10 +108,12 @@ pub fn mcp_tools_generation() -> u64 {
 }
 
 /// Runs a plugin's MCP tool, or hands `call` back when no plugin has one by its name.
-pub fn mcp_call(app: &mut App, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
+/// `session` is the session the call came from.
+pub fn mcp_call(app: &mut App, session: &str, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
     let key = MCP_TOOLS.lock().ok()?.iter().find(|(name, _, _)| *name == call.name).map(|(_, key, _)| *key);
     let Some(key) = key else {
-        return match super::luau::commands::mcp_call(app, &call.name, &call.arguments) {
+        let directory = if call.directory.is_empty() { app.session(session).map(|s| s.directory.clone()).unwrap_or_default() } else { call.directory.clone() };
+        return match super::luau::commands::mcp_call(app, &call.name, &call.arguments, session, &directory, tx) {
             Some(Ok(value)) => {
                 call.respond(McpResult::json(value));
                 None

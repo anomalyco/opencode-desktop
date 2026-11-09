@@ -11,7 +11,7 @@ use super::SessionFiles;
 use super::links::slug;
 use crate::App;
 use crate::code_view::CodeDocState;
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 
 /// The rendered column's width: a comfortable line for reading.
 pub const READ_W: f32 = 720.0;
@@ -150,8 +150,11 @@ fn headings(src: &str) -> Vec<(usize, String)> {
 }
 
 /// The rendered file: the replies' Markdown in a reading column that scrolls, its links
-/// resolving against the file's folder.
-pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option<&MdView>) -> El {
+/// resolving against the file's folder. `page` lays it out as Desktop's artifact view does: on
+/// `layer-01`, a raised `document-surface` sheet 20 in (12 in a view 600 wide or narrower) with its 0.5 pt
+/// `border-base` ring and 8 pt corners, the text 64 from its top and 12.5% in, between 24 and
+/// 134 (32 and 24 in a narrow view), at most 768 wide.
+pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option<&MdView>, page: bool) -> El {
     let find = view.filter(|_| doc.find_open);
     let active = find.map(|v| v.active);
     let find_ver = find.map(|v| (v.applied.clone(), v.matches.len(), v.active));
@@ -171,8 +174,36 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
             .link_help({ let base = base.clone(); move |url| crate::files::link_tip::tip(url, base.as_str()) })
             .build(crate::palette::kit(p))
     });
+    let key = scroll_key(sid, path);
+    if page {
+        let [_, _, w, h] = memo::layout(&key).unwrap_or([0.0, 0.0, 800.0, 0.0]);
+        let narrow = w <= 600.0;
+        let (gutter, pad_y, pad_x) = if narrow { (12.0, 32.0, 24.0) } else { (20.0, 64.0, (w - 40.0) * 0.125) };
+        let foot = if narrow { 12.0 } else { 20.0 };
+        let sheet = col()
+            .key("artifact-markdown-page")
+            .w_full()
+            // `min-height: 100%`: the sheet runs to the view's foot however short the text.
+            .min_h((h - 1.0 - foot).max(0.0))
+            .items_center()
+            .px(pad_x.clamp(24.0, 134.0))
+            .py(pad_y)
+            .radius(8.0)
+            .fill(p.bg_base)
+            .elevate(p.raised)
+            .border(0.5, p.border)
+            .child(body.w_full().max_w(768.0));
+        return col()
+            .key(key)
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .fill(p.layer1)
+            .scroll(ScrollSpec { stick_bottom: false })
+            .child(col().w_full().px(gutter).pt(1.0).pb(foot).child(sheet));
+    }
     col()
-        .key(scroll_key(sid, path))
+        .key(key)
         .w_full()
         .grow(1.0)
         .min_h(0.0)

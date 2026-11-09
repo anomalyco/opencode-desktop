@@ -34,13 +34,11 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("progressCircle", progress_circle),
         pending("terminalSurface", "LU-6"),
         pending("browserSurface", "LU-7"),
-        pending("codeView", "LU-6"),
-        pending("diffView", "LU-6"),
-        pending("fileTree", "LU-6"),
-        pending("panelSidebar", "LU-6"),
-        pending("openInButton", "LU-6"),
         HostNode::new("genUi", gen_ui),
     ]
+    .into_iter()
+    .chain(super::native::nodes())
+    .collect()
 }
 
 /// `ui.genUi`: a ```` ```ui ```` outline as parts (`rune_parts`). In a reply's code block it is
@@ -230,6 +228,9 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let app = cx::app().ok_or("ui.field draws only in a render")?;
     let editors = app.plugins.luau.editors.borrow();
     let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
+    if a.string("variant") == Some("filter") {
+        return Ok(filter_field(a, app, edit, plugin, index));
+    }
     let edit_plugin = plugin.clone();
     let mut input = rune_kit::TextInput::new(edit)
         .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
@@ -276,6 +277,47 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
         _ => pal.icon_faint,
     };
     Ok(el().size(6.0, 6.0).my(3.5).radius(3.0).fill(color))
+}
+
+/// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears
+/// it, then gives up the keyboard; Enter submits.
+fn filter_field(a: &NodeArgs, app: &App, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
+    let pal = p(a);
+    let placeholder = a.string("placeholder").unwrap_or(opencode_i18n::t!("ui.sessionReviewV2.filterFiles")).to_owned();
+    let key = a.string("key").unwrap_or("filter").to_owned();
+    let (on_edit, on_submit, on_key, on_clear) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
+    crate::review::chrome::filter_field(
+        &pal,
+        &key,
+        edit,
+        &format!("{key}-inner"),
+        &placeholder,
+        move |app: &mut App| super::editors::get_mut(app, &on_edit, index),
+        move |app: &mut App, tx: &mut Tx| super::submitted(app, &on_submit, index, tx),
+        move |app: &mut App, tx: &mut Tx| {
+            tx.instant();
+            let edit = super::editors::get_mut(app, &on_clear, index);
+            let focused = edit.focused;
+            edit.replace_text("");
+            edit.focused = focused;
+            super::bump();
+        },
+        app.settings.spellcheck,
+        move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            if ev.key != rune::Key::Escape {
+                return false;
+            }
+            tx.instant();
+            let edit = super::editors::get_mut(app, &on_key, index);
+            if edit.text.is_empty() {
+                edit.focused = false;
+            } else {
+                edit.replace_text("");
+            }
+            super::bump();
+            true
+        },
+    )
 }
 
 fn pill(a: &mut NodeArgs) -> Result<El, String> {

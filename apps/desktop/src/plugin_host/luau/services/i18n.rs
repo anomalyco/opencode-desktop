@@ -112,12 +112,13 @@ fn category(count: f64) -> &'static str {
     }
 }
 
-/// Message `key` of the catalogs in the current language, else English, else the key, with
+/// Message `key` of the catalogs in the current language, else English, else the app's own
+/// messages (a plugin's `ctx.t` reaches the UI catalog, as Desktop's does), else the key, with
 /// `{{name}}`s filled from `args` and a `count` picking the plural form.
 fn translate(catalogs: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>, key: &str, args: Option<&Table>) -> String {
     let lang = opencode_i18n::locale().id();
     let count = args.and_then(|a| a.raw_get::<Option<f64>>("count").ok().flatten());
-    let lookup = |k: &str| catalogs.get(lang).and_then(|c| c.get(k)).or_else(|| catalogs.get("en").and_then(|c| c.get(k))).cloned();
+    let lookup = |k: &str| catalogs.get(lang).and_then(|c| c.get(k)).or_else(|| catalogs.get("en").and_then(|c| c.get(k))).cloned().or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
     let text = count
         .and_then(|n| lookup(&format!("{key}.{}", category(n))).or_else(|| lookup(&format!("{key}.other"))))
         .or_else(|| lookup(key))

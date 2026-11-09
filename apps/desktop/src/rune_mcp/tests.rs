@@ -151,8 +151,16 @@ fn make_single_folder_app(server: Server, dir: &str, sid: &str) -> App {
     app.tabs = vec![crate::tabs::Tab::session(sid, "Session", dir)];
     app.route = Route::Session(sid.into());
     app.default_dir = dir.into();
+    with_plugins(&mut app);
     app.source = Source::Live { server, requests: None, writes: None, allow_send: true };
     app
+}
+
+/// Loads the built-in plugins, whose tools (the review's `open_diff`) list after the app's own,
+/// before the window has a server (so they read none) or a socket (so it lists them).
+fn with_plugins(app: &mut App) {
+    crate::plugin_host::setup(app, Arc::new(|| {}));
+    crate::plugin_host::contrib_sync_luau(app);
 }
 
 #[test]
@@ -210,8 +218,8 @@ fn handshake_readiness_gap_and_full_tool_list() {
             "browser_screenshot",
             "browser_cdp",
             "open_file",
-            "open_diff",
             "open_terminal",
+            "open_diff",
         ]
     );
     wait_until(Duration::from_secs(2), || app.rune_mcp_ready("/work/repo"));
@@ -241,6 +249,7 @@ fn e2e_headless_runtime_open_vs_unopened_session_and_side_panel_tools() {
         s.ensure_workspace_files(MAIN);
         s.ensure_session_review(MAIN);
         s.composer.focused = true;
+        with_plugins(s);
         s.source = Source::Live {
             server: server.clone(),
             requests: None,

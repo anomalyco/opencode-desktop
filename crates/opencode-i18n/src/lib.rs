@@ -89,6 +89,12 @@ macro_rules! plural_key {
     }};
 }
 
+/// The message for a key named at run time (a plugin asking for one of the app's), in the
+/// current locale; `None` when the catalog has no such key.
+pub fn lookup(key: &str) -> Option<&'static str> {
+    rune_i18n::find(KEYS, key).map(|_| I18N.text(Key::named(KEYS, key)))
+}
+
 /// The current locale.
 pub fn locale() -> LocaleInfo {
     I18N.info()

@@ -120,6 +120,8 @@ impl App {
                 }
             }
         }
+        // The native views Luau panels place (Review's diffs).
+        changed |= crate::plugin_host::luau::native::poll(self, tx);
         // Static slice iteration on idle frames: 0 heap allocations.
         for p in super::registered_panels() {
             if let Some(poll) = p.poll {
@@ -219,7 +221,11 @@ impl App {
             return false;
         }
 
-        // 4. Active panels' own scoped key handlers (e.g. Browser's ⌘L, ⌘R, ⇧⌘C, or Terminal's keys).
+        // 4. Active panels' own scoped key handlers (e.g. Browser's ⌘L, ⌘R, ⇧⌘C, or Terminal's keys),
+        // and the native views Luau panels place.
+        if crate::plugin_host::luau::native::on_key(self, ev, tx) {
+            return true;
+        }
         for p in self.all_panels() {
             if let Some(on_key) = p.on_key
                 && on_key(self, ev, tx)

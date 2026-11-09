@@ -26,6 +26,7 @@ mod ctx;
 pub mod cx;
 mod editors;
 mod hot;
+pub mod native;
 mod nodes;
 pub mod panels;
 mod plugin;
@@ -195,8 +196,6 @@ pub struct Host {
     pub waker: Option<rune::Waker>,
     /// The appearance the last surface rendered in.
     pub dark: Cell<bool>,
-    /// The session header is narrow (its `compact` slot flag).
-    pub narrow: Cell<bool>,
     /// A UI entry without a transaction asked for something: the next poll carries it out.
     pub asked: bool,
     /// Server events plugins listen for, waiting for the next poll.
@@ -410,6 +409,13 @@ pub fn server_event(app: &mut App, ty: &str, data: &serde_json::Value) {
     let wanted = host.running().any(|(_, p)| p.half.events.borrow().iter().any(|(_, prefix, _)| ty.starts_with(prefix.as_str())));
     if wanted {
         host.events.borrow_mut().push((ty.to_owned(), data.clone()));
+    }
+}
+
+/// Every plugin field gives up the keyboard (the side region switched tabs).
+pub fn blur_fields(app: &mut App) {
+    for edit in app.plugins.luau.editors.get_mut().values_mut() {
+        edit.focused = false;
     }
 }
 

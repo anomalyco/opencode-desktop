@@ -34,7 +34,7 @@ pub use fold::{ExpandMode, Fold, FoldEffect, FoldEvent, Reveal};
 /// Desktop's code row: Pierre's line at session-ui's `--diffs-line-height: 24px`
 /// (`session-ui/src/pierre/index.ts:325`), in its 13 px mono (`--font-size-small`, `:324`).
 pub const LINE_H: f32 = 24.0;
-pub const HEADER_H: f32 = 38.0;
+pub const HEADER_H: f32 = 33.0;
 /// Desktop's fold separator row (session-ui `[data-separator] { height: 24px }`).
 pub const GAP_H: f32 = 24.0;
 pub const NOTE_H: f32 = 36.0;

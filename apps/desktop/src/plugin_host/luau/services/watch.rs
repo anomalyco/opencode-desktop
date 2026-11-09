@@ -55,6 +55,8 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
             n => {
                 if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
                     Some((store_version(plugin, store), Data::Nil))
+                } else if let Some(session) = n.strip_prefix("Diff.").and_then(|s| s.strip_suffix(".Changed")) {
+                    Some((hash(super::super::native::diff::version(app, session)), Data::Nil))
                 } else {
                     n.strip_prefix("Contracts.").and_then(|s| s.strip_suffix(".Changed")).map(|id| (contract_generation(id), Data::Nil))
                 }

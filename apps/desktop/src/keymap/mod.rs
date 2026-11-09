@@ -72,9 +72,7 @@ pub enum Bind {
     SubmitAnswer,
     Stop,
     FileOpen,
-    FileBrowse,
     BrowserOpen,
-    ReviewOpen,
     DockToggle,
     BottomToggle,
     TerminalNew,
@@ -227,10 +225,8 @@ fn table() -> Vec<Binding> {
         row(FileOpen, "file.open", key!("command.file.open"), Navigation, on("mod+p")),
         // The GUI plugins' launchers (`gui-plugins/src/{browser,file,review}/renderer.tsx`):
         // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
-        row(FileBrowse, "file.browse", key!("plugin.file.command.open"), Navigation, on("ctrl+alt+p").on(Mac, "ctrl+mod+p")),
-        row(BrowserOpen, "browser.open", key!("plugin.browser.command.open"), General, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
-        row(ReviewOpen, "review.open", key!("plugin.review.command.open"), Session, on("ctrl+alt+r").on(Mac, "ctrl+mod+r")),
-        // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
+            row(BrowserOpen, "browser.open", key!("plugin.browser.command.open"), General, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
+            // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
         // macOS, as it always has here, and Ctrl+` elsewhere, as Desktop's does.
         row(DockToggle, "terminal.toggle", key!("plugin.terminal.command.toggle"), Terminal, on("ctrl+`")),
         row(BottomToggle, "bottom.toggle", key!("command.bottom.toggle"), General, on("mod+j")),
