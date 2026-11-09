@@ -298,6 +298,8 @@ pub struct PanelViewCtx<'a> {
     pub tab: &'a PanelTabDesc,
     pub visible: bool,
     pub focused: bool,
+    /// It renders as a narrow window's view (`usePanel().placement() === "mobile"`).
+    pub mobile: bool,
 }
 
 fn no_wide(_: &App) -> bool {

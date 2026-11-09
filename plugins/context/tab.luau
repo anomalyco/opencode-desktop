@@ -324,23 +324,33 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         tostring(exporting),
         tostring(wide),
         tostring(math.round(props.width)),
+        props.placement,
         env.Theme:Current().id,
         tostring(env.Theme:IsDark()),
         env.I18n:Locale().id,
     }, ":")
     return view:Memo(`panel-{sid}`, version, function()
-        local texts = json.items(json.member(body, "data") or "[]")
-        local values = if type(res.json) == "table" and type(res.json.data) == "table" then res.json.data else {}
-        local raws: { Raw } = {}
-        for i, text in texts do
-            table.insert(raws, { text = text, value = values[i] or {} })
+        -- Split each answer once: a rebuild for anything else reuses it.
+        local cached = env.state.parsed[sid]
+        local raws: { Raw }
+        if cached and cached.generation == res.generation then
+            raws = cached.raws
+        else
+            local texts = json.items(json.member(body, "data") or "[]")
+            local values = if type(res.json) == "table" and type(res.json.data) == "table" then res.json.data else {}
+            raws = {}
+            for i, text in texts do
+                table.insert(raws, { text = text, value = values[i] or {} })
+            end
+            env.state.parsed[sid] = { generation = res.generation, raws = raws }
         end
         local content = ui.col({ key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 }, {
             stats(env, session, sid, raws, wide),
             systemPrompt(env, raws) or false,
             rawMessages(env, view, sid, raws, exporting),
         } :: { any })
-        return ui.col({ key = "context-tab", w = "full", h = "full", pt = 8 }, {
+        -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.
+        return ui.col({ key = "context-tab", w = "full", h = "full", pt = if props.placement == "mobile" then 0 else 8 }, {
             ui.col({ key = "context-scroll", w = "full", grow = 1, minH = 0, scrollY = true }, { content }),
         })
     end)

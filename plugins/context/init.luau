@@ -59,6 +59,8 @@ return plugin.defineWindow(function(ctx)
         launcher = false,
         first = true,
         fallback = true,
+        -- A narrow window offers it as More › Usage.
+        mobile = { title = I18n:T("mobile.title"), order = 40, kind = "menu", icon = "status" },
         render = function(view, props)
             return tab.panel(env, view, props)
         end,

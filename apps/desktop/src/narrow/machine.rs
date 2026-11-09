@@ -194,11 +194,14 @@ impl TabsDrawer {
 // ---------------------------------------------------------------------------------------------
 // More drawer (`MobileViewTabs`)
 
-/// The More drawer: shut, its menu of views, or one `drawer` kind view inside it.
+/// The More drawer: shut, its menu of views, or one `drawer` kind view inside it. Shut from a
+/// view, it keeps drawing that view while it slides away, as Desktop's store keeps `drawer`
+/// until the next open.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum MoreDrawer {
     #[default]
     Closed,
+    ClosedFrom { view: String },
     Menu,
     Panel { view: String },
 }
@@ -215,7 +218,15 @@ pub enum MoreEvent {
 
 impl MoreDrawer {
     pub fn is_open(&self) -> bool {
-        *self != MoreDrawer::Closed
+        matches!(self, MoreDrawer::Menu | MoreDrawer::Panel { .. })
+    }
+
+    /// The `drawer` kind view it draws: open on it, or sliding away from it.
+    pub fn drawn_view(&self) -> Option<&str> {
+        match self {
+            MoreDrawer::Panel { view } | MoreDrawer::ClosedFrom { view } => Some(view),
+            MoreDrawer::Closed | MoreDrawer::Menu => None,
+        }
     }
 
     pub fn step(self, event: MoreEvent) -> MoreDrawer {
@@ -223,6 +234,7 @@ impl MoreDrawer {
             (_, MoreEvent::Open) => MoreDrawer::Menu,
             (MoreDrawer::Menu, MoreEvent::Drill { view }) => MoreDrawer::Panel { view },
             (state, MoreEvent::Drill { .. }) => state,
+            (MoreDrawer::Panel { view } | MoreDrawer::ClosedFrom { view }, MoreEvent::Close) => MoreDrawer::ClosedFrom { view },
             (_, MoreEvent::Close) => MoreDrawer::Closed,
         }
     }

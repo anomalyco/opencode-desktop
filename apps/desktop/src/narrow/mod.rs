@@ -103,9 +103,9 @@ impl App {
         }
         let st = self.session_side_mut(session);
         (st.open, st.bottom_open) = was;
-        let Some(view) = crate::panels::split_panel_key(key).and_then(|(plugin, _)| session::VIEWS.iter().find(|v| v.plugin == plugin)) else { return };
+        let Some(view) = session::view_for_tab(self, key) else { return };
         let routed = self.active_session_id().map(str::to_owned);
-        let event = ViewEvent::Select { session: session.to_owned(), view: view.plugin.to_owned(), routed, now: self.clock };
+        let event = ViewEvent::Select { session: session.to_owned(), view, routed, now: self.clock };
         self.layout.narrow.view = std::mem::take(&mut self.layout.narrow.view).step(event).0;
     }
 

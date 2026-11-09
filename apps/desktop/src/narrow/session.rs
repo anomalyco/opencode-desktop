@@ -6,7 +6,7 @@
 use rune::{El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
-use super::machine::{CONVERSATION, MoreDrawer, MoreEvent};
+use super::machine::{CONVERSATION, MoreEvent};
 use crate::palette::{Elevate as _, Pal};
 use crate::panels::{PanelTabDesc, PanelViewCtx, SessionPane};
 use crate::App;
@@ -38,16 +38,51 @@ pub enum Kind {
     Drawer,
 }
 
-/// The app's panels' narrow views (`review`, `file` and `terminal` renderers' `mobile`). Plugins'
-/// panels declare theirs in the plugin API, which doesn't carry it yet.
+/// The app's own panels' narrow views (`review`, `file` and `terminal` renderers' `mobile`).
+/// Luau plugins' panels declare theirs in the contract (`PanelSpec.mobile`); [`views`] has both.
 pub const VIEWS: &[MobileView] = &[
     MobileView { plugin: "review", title: || t!("plugin.review.mobile.title.other"), order: 10, kind: Kind::Tab, icon: &ic::REVIEW },
     MobileView { plugin: "file", title: || t!("plugin.file.mobile.title"), order: 20, kind: Kind::Menu, icon: &ic::FOLDER },
     MobileView { plugin: "terminal", title: || t!("plugin.terminal.tab.title"), order: 30, kind: Kind::Menu, icon: &crate::terminal::grid::TERMINAL_ICON },
 ];
 
-fn find(view: &str) -> Option<&'static MobileView> {
-    VIEWS.iter().find(|v| v.plugin == view)
+/// A view the narrow switcher offers: an app panel's (`id` its plugin, `review`) or a plugin
+/// panel's (`id` its tab's key, `plugin:context.main`), as Desktop keys them by panel
+/// (`createMobileViews`).
+pub struct NarrowView {
+    pub id: String,
+    pub title: String,
+    pub order: f64,
+    pub kind: Kind,
+    pub icon: &'static rune::Icon,
+}
+
+/// Every narrow view the window offers, in ascending order.
+pub fn views(s: &App) -> Vec<NarrowView> {
+    use opencode_plugin_spec::PanelMobileKind;
+    let own = VIEWS.iter().map(|v| NarrowView { id: v.plugin.to_owned(), title: (v.title)().to_owned(), order: f64::from(v.order), kind: v.kind, icon: v.icon });
+    let plugins = crate::plugin_host::luau::surfaces::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
+        id,
+        title: v.title,
+        order: v.order,
+        kind: match v.kind {
+            PanelMobileKind::Tab => Kind::Tab,
+            PanelMobileKind::Drawer => Kind::Drawer,
+            _ => Kind::Menu,
+        },
+        icon: crate::plugin_host::icons::resolve("", v.icon.as_deref().unwrap_or("window-analytics")),
+    });
+    let mut out: Vec<NarrowView> = own.chain(plugins).collect();
+    out.sort_by(|a, b| a.order.total_cmp(&b.order));
+    out
+}
+
+/// The narrow view tab `key` (`<plugin>:<tab>`) opens: its plugin panel's, else its app panel's.
+pub fn view_for_tab(s: &App, key: &str) -> Option<String> {
+    let plugin = crate::panels::split_panel_key(key).map(|(plugin, _)| plugin);
+    // An instance panel's tab (`plugin:<plugin>.<panel>/<instance>`) shows its panel's view.
+    let panel = key.split_once('/').map_or(key, |(panel, _)| panel);
+    views(s).into_iter().find(|v| v.id == panel || Some(v.id.as_str()) == plugin).map(|v| v.id)
 }
 
 /// The page: the switcher, then the conversation (`conversation`, built by the caller) under
@@ -68,7 +103,8 @@ pub fn page(s: &App, p: &Pal, id: &str, conversation: impl FnOnce() -> El) -> El
 /// the others `text-muted` until hovered.
 fn tabs(s: &App, p: &Pal, id: &str, shown: &str, bottom: bool) -> El {
     let more_open = s.layout.narrow.more.is_open();
-    let picked = if shown == CONVERSATION || VIEWS.iter().any(|v| v.kind == Kind::Tab && v.plugin == shown) { shown } else { "more" };
+    let views = views(s);
+    let picked = if shown == CONVERSATION || views.iter().any(|v| v.kind == Kind::Tab && v.id == shown) { shown } else { "more" };
     let mut bar = row()
         .key("narrow-view-tabs")
         .role("tablist")
@@ -82,11 +118,11 @@ fn tabs(s: &App, p: &Pal, id: &str, shown: &str, bottom: bool) -> El {
             let id = id.to_owned();
             move |s: &mut App, tx: &mut Tx| s.select_narrow_view(&id, CONVERSATION, tx)
         }));
-    for v in VIEWS.iter().filter(|v| v.kind == Kind::Tab) {
-        let id = id.to_owned();
-        bar = bar.child(tab(p, &format!("narrow-view-{}", v.plugin), (v.title)(), picked == v.plugin, move |s: &mut App, tx: &mut Tx| enter(s, &id, v.plugin, tx)));
+    for v in views.iter().filter(|v| v.kind == Kind::Tab) {
+        let (id, view) = (id.to_owned(), v.id.clone());
+        bar = bar.child(tab(p, &format!("narrow-view-{}", v.id), &v.title, picked == v.id, move |s: &mut App, tx: &mut Tx| enter(s, &id, &view, tx)));
     }
-    if VIEWS.iter().any(|v| v.kind != Kind::Tab) {
+    if views.iter().any(|v| v.kind != Kind::Tab) {
         bar = bar.child(
             tab(p, "narrow-view-more", t!("session.tab.more"), picked == "more", |s: &mut App, tx: &mut Tx| s.more_drawer(MoreEvent::Open, tx))
                 .expanded(more_open),
@@ -155,6 +191,7 @@ fn location_bar(s: &App, p: &Pal, id: &str) -> El {
         .children(info.map(|_| crate::view::location::trigger(s, p, project, &name, worktree.as_deref(), collapse)))
 }
 
+
 /// The picked panel's narrow view, filling the rest of the panel.
 fn view(s: &App, p: &Pal, id: &str, shown: &str) -> El {
     let body = match shown {
@@ -166,19 +203,27 @@ fn view(s: &App, p: &Pal, id: &str, shown: &str) -> El {
     col().key(format!("narrow-view-{shown}-body")).w_full().grow(1.0).min_h(0.0).child(body)
 }
 
-/// A panel's own render for the tab it shows: its selected one, else its first.
-fn panel(s: &App, p: &Pal, id: &str, plugin: &str) -> El {
+/// A panel's own render as a narrow view: a plugin panel's view (`plugin:<plugin>.<panel>`)
+/// draws its panel's tab; an app panel's, its selected tab, else its first.
+fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
     let Some(reg) = s.resolve_side_region() else { return el() };
-    let stored = s.side.sessions.get(id).map(|st| &st.tab_state.tabs);
-    let active = stored.and_then(|t| t.active.clone()).filter(|k| k.starts_with(&format!("{plugin}:")));
-    let entry = active.as_deref().and_then(|k| reg.entry(k)).or_else(|| reg.entries.iter().find(|e| e.plugin == plugin && !e.tab.hidden));
     let fallback;
-    let (provider, tab) = match entry {
-        Some(e) => (e.provider, &e.tab),
+    let (provider, tab) = match plugin_tab(s, view) {
+        Some((provider, tab)) => {
+            fallback = tab;
+            (provider, &fallback)
+        }
         None => {
-            let Some(provider) = crate::panels::find_panel(plugin) else { return el() };
-            fallback = PanelTabDesc::new(if plugin == "file" { crate::files::data::OPEN_TAB_ID } else { "" }, "");
-            (*provider, &fallback)
+            let stored = s.side.sessions.get(id).map(|st| &st.tab_state.tabs);
+            let active = stored.and_then(|t| t.active.clone()).filter(|k| k.starts_with(&format!("{view}:")));
+            match active.as_deref().and_then(|k| reg.entry(k)).or_else(|| reg.entries.iter().find(|e| e.plugin == view && !e.tab.hidden)) {
+                Some(e) => (e.provider, &e.tab),
+                None => {
+                    let Some(provider) = crate::panels::find_panel(view) else { return el() };
+                    fallback = PanelTabDesc::new(if view == "file" { crate::files::data::OPEN_TAB_ID } else { "" }, "");
+                    (*provider, &fallback)
+                }
+            }
         }
     };
     let w = s.layout.narrow.width() - 2.0;
@@ -192,17 +237,27 @@ fn panel(s: &App, p: &Pal, id: &str, plugin: &str) -> El {
         tab,
         visible: true,
         focused: s.side.focused,
+        mobile: true,
     };
     (provider.render)(s, p, &ctx)
 }
 
+/// A plugin panel's narrow view: the provider its tab belongs to, and the tab, titled as the view
+/// (Desktop hands the render a tab with the panel's id and the view's title).
+fn plugin_tab(s: &App, view: &str) -> Option<(crate::panels::PanelRegistration, PanelTabDesc)> {
+    let (provider, tab) = crate::panels::split_panel_key(view)?;
+    let v = views(s).into_iter().find(|v| v.id == view && provider == crate::plugin_host::view::PANEL)?;
+    Some((*crate::panels::find_panel(provider)?, PanelTabDesc::new(tab, v.title)))
+}
+
 /// The More drawer's contents (`session-mobile-view-options`): a raised card of rows, 44 tall,
 /// `ps-3 pe-2 gap-2`, each view's icon in icon-muted, a check by the one showing; a drawer
-/// kind's row ends in a chevron and opens inside.
+/// kind's row ends in a chevron and opens inside, where its panel draws instead of the card.
 pub fn more(s: &App, p: &Pal) -> El {
-    // Shut, it keeps its menu while it slides away.
-    if let MoreDrawer::Panel { .. } = s.layout.narrow.more {
-        return el();
+    let all = views(s);
+    if let Some(view) = s.layout.narrow.more.drawn_view() {
+        let Some(id) = s.active_session_id() else { return el() };
+        return col().key(format!("narrow-more-{view}-body")).w_full().min_h(0.0).child(panel(s, p, id, view));
     }
     let shown = s.narrow_view().to_owned();
     let mut card = col()
@@ -213,15 +268,15 @@ pub fn more(s: &App, p: &Pal) -> El {
         .radius(6.0)
         .fill(if p.dark { p.layer1 } else { p.bg_base })
         .elevate(p.raised);
-    let mut rows: Vec<&MobileView> = VIEWS.iter().filter(|v| v.kind != Kind::Tab).collect();
-    rows.sort_by_key(|v| (v.kind == Kind::Drawer, v.order));
+    // The menu kind's rows, then the drawer kind's, each in order (`MobileViewTabs`).
+    let rows = all.iter().filter(|v| v.kind == Kind::Menu).chain(all.iter().filter(|v| v.kind == Kind::Drawer));
     for v in rows {
-        let current = shown == v.plugin;
-        let plugin = v.plugin;
+        let current = shown == v.id;
+        let (view, drawer) = (v.id.clone(), v.kind == Kind::Drawer);
         let mut r = row()
-            .key(format!("narrow-more-{plugin}"))
+            .key(format!("narrow-more-{}", v.id))
             .role("button")
-            .label((v.title)())
+            .label(v.title.clone())
             .w_full()
             .min_h(44.0)
             .py(4.0)
@@ -234,19 +289,19 @@ pub fn more(s: &App, p: &Pal) -> El {
             .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 let Some(id) = s.active_session_id().map(str::to_owned) else { return };
-                if find(plugin).is_some_and(|v| v.kind == Kind::Drawer) {
-                    s.more_drawer(MoreEvent::Drill { view: plugin.to_owned() }, tx);
+                if drawer {
+                    s.more_drawer(MoreEvent::Drill { view: view.clone() }, tx);
                     return;
                 }
-                enter(s, &id, plugin, tx);
+                enter(s, &id, &view, tx);
                 s.more_drawer(MoreEvent::Close, tx);
             })
             .child(icon(v.icon, 16.0).color(p.icon_muted))
-            .child(text((v.title)()).font(MENU).color(p.text).truncate().grow(1.0).shrink().min_w(0.0));
-        if current {
+            .child(text(v.title.clone()).font(MENU).color(p.text).truncate().grow(1.0).shrink().min_w(0.0));
+        if current && !drawer {
             r = r.fill(p.pressed).child(icon(&ic::CHECK, 16.0).color(p.icon_muted).ml(4.0));
         }
-        if v.kind == Kind::Drawer {
+        if drawer {
             r = r.child(icon(&ic::CHEVRON_RIGHT, 16.0).color(p.icon_muted).ml(4.0));
         }
         card = card.child(r);

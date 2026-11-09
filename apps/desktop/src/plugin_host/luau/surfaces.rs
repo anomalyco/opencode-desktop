@@ -158,6 +158,15 @@ pub fn panel_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDes
         .collect()
 }
 
+/// The narrow-window views Luau panels offer (`PanelSpec.mobile`), each with its tab's key in
+/// the host's `plugin` panel.
+pub fn narrow_views(app: &App) -> Vec<(String, opencode_plugin_spec::PanelMobileView)> {
+    each::<(), _>(app, |c| c.panels.iter().filter_map(|c| Some((c.key, c.spec.mobile.clone()?))).collect())
+        .into_iter()
+        .map(|(_, (key, view))| (crate::panels::panel_key(crate::plugin_host::view::PANEL, key), view))
+        .collect()
+}
+
 /// Splits `<plugin>.<panel>[/<instance>]` into the plugin index, the panel's render and label.
 fn panel_of<'a>(app: &'a App, tab: &'a str) -> Option<(usize, opencode_plugin_spec::PanelSpec, Option<Function>, Option<Function>, &'a str)> {
     let (base, instance) = tab.split_once('/').unwrap_or((tab, ""));
@@ -185,11 +194,12 @@ pub fn panel(app: &App, p: &Pal, ctx: &PanelViewCtx) -> Option<El> {
         ("directory", Data::String(ctx.directory.to_owned())),
         ("instance", if instance.is_empty() { Data::Nil } else { Data::String(instance.to_owned()) }),
         ("active", Data::Bool(ctx.visible)),
-        ("placement", Data::String("side".into())),
+        ("placement", Data::String(if ctx.mobile { "mobile" } else { "side" }.into())),
         ("width", Data::Integer(ctx.pane_size.0.round() as i64)),
         ("height", Data::Integer(ctx.pane_size.1.round() as i64)),
     ]);
-    let body = render(app, p, i, &format!("panel:{}:{}:{instance}", spec.id, ctx.session_id), &f, props);
+    let placement = if ctx.mobile { ":mobile" } else { "" };
+    let body = render(app, p, i, &format!("panel:{}:{}:{instance}{placement}", spec.id, ctx.session_id), &f, props);
     let plugin = &app.plugins.luau.plugins[i].manifest.id;
     Some(col().key(format!("plugin-{plugin}-{}{}", spec.id, if instance.is_empty() { String::new() } else { format!("-{instance}") })).w_full().h_full().child(body))
 }
