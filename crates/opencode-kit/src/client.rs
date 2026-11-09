@@ -23,7 +23,7 @@ mod wire;
 mod worker;
 
 pub use downloads::{export_filename, save_download, set_download_dir};
-pub use hub::{EventHub, HUB_SEQ, connect_shared};
+pub use hub::{EventHub, HUB_AT, HUB_SEQ, connect_shared, heard_at};
 pub use ids::{message_id, session_id};
 #[cfg(test)]
 use ids::{id_at, message_id_at};

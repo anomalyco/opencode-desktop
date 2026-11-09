@@ -229,6 +229,27 @@ pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant,
     if finished == Some(true) { OPEN.with(|o| *o.borrow_mut() = None); }
 }
 
+thread_local! {
+    /// By window id: the oldest streamed text it shows that no frame has drawn yet, when the
+    /// hub heard it, and its session.
+    static STREAMED: RefCell<std::collections::HashMap<String, (Instant, String)>> = RefCell::default();
+}
+
+/// Window `window` took a text delta of session `sid` that its view shows (`data`, a stream
+/// event the hub stamped).
+pub fn streamed(window: &str, sid: &str, data: &Value) {
+    let Some(heard) = opencode_kit::client::heard_at(data).filter(|_| on()) else { return };
+    STREAMED.with(|s| { s.borrow_mut().entry(window.to_owned()).or_insert_with(|| (heard, sid.to_owned())); });
+}
+
+/// After window `window` drew a frame at `at`: `stream.paint` runs from the hub hearing the
+/// oldest delta the frame shows to the frame, so a window that draws late shows as late.
+pub fn stream_drawn(window: &str, at: Instant) {
+    let Some((heard, sid)) = STREAMED.with(|s| s.borrow_mut().remove(window)) else { return };
+    Span::root("stream.paint").at(heard).attr("window", window).attr("session.id", sid.as_str())
+        .attr("latency_ms", ms(at.saturating_duration_since(heard))).end_at(at);
+}
+
 /// The last `encoded` frame, for `drawn`.
 pub fn last_frame() -> Option<(Instant, Option<f64>, Option<f64>)> { FRAME.with(|x| x.borrow_mut().take()) }
 

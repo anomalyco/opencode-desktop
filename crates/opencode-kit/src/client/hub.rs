@@ -4,8 +4,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use rune::Waker;
 
@@ -56,15 +56,30 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 /// reacts to every event in its own view.
 pub const HUB_SEQ: &str = "hubSeq";
 
+/// The key a stream event's data carries the time the hub heard it under, in microseconds from
+/// the process's first hub (`heard_at` reads it back), for timing an event to the frame that
+/// shows it.
+pub const HUB_AT: &str = "hubAt";
+
+static EPOCH: OnceLock<Instant> = OnceLock::new();
+
+/// When the hub heard stream event `data`.
+pub fn heard_at(data: &serde_json::Value) -> Option<Instant> {
+    Some(*EPOCH.get()? + Duration::from_micros(data[HUB_AT].as_u64()?))
+}
+
 /// Every stream message to every window still listening, each woken once per batch.
 fn fan_out(inbox: &Receiver<Incoming>, subscribers: &Mutex<Vec<(Sender<Incoming>, Waker)>>) {
+    let epoch = *EPOCH.get_or_init(Instant::now);
     while let Ok(first) = inbox.recv() {
+        let heard = epoch.elapsed().as_micros() as u64;
         let mut batch: Vec<Incoming> = std::iter::once(first).chain(inbox.try_iter()).collect();
         for m in &mut batch {
             if let Incoming::Event { data, .. } = m
                 && let Some(map) = data.as_object_mut()
             {
                 map.insert(HUB_SEQ.into(), (SEQ.fetch_add(1, Ordering::Relaxed) + 1).into());
+                map.insert(HUB_AT.into(), heard.into());
             }
         }
         let mut subs = subscribers.lock().unwrap();

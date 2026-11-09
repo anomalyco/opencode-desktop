@@ -131,6 +131,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             drawn.drawn(rt);
             if let Some(frame) = crate::telemetry::last_frame() {
                 crate::telemetry::drawn(rt.state.painted_session(), frame);
+                crate::telemetry::stream_drawn(&rt.state.window.id, frame.0);
             }
             motion_log.frame(rt);
         })

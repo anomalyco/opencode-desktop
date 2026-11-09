@@ -143,6 +143,9 @@ impl App {
         // A transcript shows only in its own family's page, so another session's stream
         // updates its state without rebuilding the view. Windows share transcripts: the first
         // to hear an event applies its deltas, the others only draw them.
+        if ty == "session.text.delta" && self.shows_transcript(&sid) {
+            crate::telemetry::streamed(&self.window.id, &sid, data);
+        }
         if !crate::windows::shared::first_sight(self, data) {
             changed |= self.transcripts.contains_key(&sid) && self.shows_transcript(&sid);
         } else if let Some(t) = self.transcripts.get_mut(&sid) {
