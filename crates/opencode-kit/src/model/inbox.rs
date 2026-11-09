@@ -48,8 +48,15 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
         return None;
     }
     let payload = &item["payload"];
-    let text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
-    if let Some((_, quotes)) = crate::quote::parse_metadata(&payload["metadata"]) {
+    let mut text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
+    // With a presentation (`readPromptPresentation`) it reads as typed, its quotes and the files
+    // it names by path showing as cards, even when it holds no words of its own.
+    if let Some((display, quotes)) = crate::quote::parse_metadata(&payload["metadata"]) {
+        let refs = crate::mention::path_attachments(&payload["metadata"]).unwrap_or_default();
+        if display.is_empty() && !refs.is_empty() {
+            text = display;
+        }
+        crate::mention::set_user_path_attachments(&s(id), refs);
         set_user_quotes(&s(id), quotes);
     }
     Some(InboxItem { id: s(id), text, delivery: Delivery::parse(&item["delivery"])?, files: parse_attachments(&payload["files"]) })

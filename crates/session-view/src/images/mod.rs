@@ -345,6 +345,16 @@ impl MediaStore {
         }
     }
 
+    /// Forgets a ref's failed fetch, so the next `image` asks for its bytes again (Desktop's
+    /// `retry.requested`).
+    pub fn retry(&self, a: &Attachment) {
+        let Some(hash) = &a.media else { return };
+        let mut state = self.media.state.lock().unwrap_or_else(|e| e.into_inner());
+        if matches!(state.get(hash), Some(Fetched::Failed(_))) {
+            state.remove(hash);
+        }
+    }
+
     /// A ref's fetch, once `image` has asked for it (None for inline files).
     pub fn fetched(&self, a: &Attachment) -> Option<Fetched> {
         let hash = a.media.as_ref()?;

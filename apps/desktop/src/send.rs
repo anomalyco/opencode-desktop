@@ -80,6 +80,7 @@ impl App {
             // queue behind, both send as a steer does.
             let queue = (alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue)) && self.busy(&id);
             self.echo_mentions(&local);
+            opencode_kit::mention::set_user_path_attachments(&local, prompt.attachments.clone());
             self.admit(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer });
             if queue {
                 if crate::view::shows_whole_prompt() {
@@ -108,6 +109,8 @@ impl App {
                 return;
             }
         };
+        // The local copy shows the files it names by path as cards, as the server's will.
+        let refs = prompt.attachments.clone();
         let local = match &self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
@@ -172,6 +175,7 @@ impl App {
         // A prompt sent while a stop settles runs next, so its Working shows.
         self.stops.forget(&id);
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
+        opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);
         opencode_kit::model::set_user_quotes(&local, quotes);
         self.quote.take();

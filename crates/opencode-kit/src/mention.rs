@@ -138,9 +138,17 @@ pub fn record(id: &str, text: &str, m: &Value) {
     if let Some(created) = m["time"]["created"].as_i64().or_else(|| m["time"]["created"].as_f64().map(|f| f as i64)) {
         set_user_created(id, created);
     }
-    if let Some(list) = m["metadata"]["attachments"].as_array() {
-        let items = list
-            .iter()
+    if let Some(items) = path_attachments(&m["metadata"]) {
+        set_user_path_attachments(id, items);
+    }
+}
+
+/// The files a prompt's `metadata.attachments` names by path (`PromptAttachmentReference`),
+/// skipping malformed ones; None without the list.
+pub fn path_attachments(metadata: &Value) -> Option<Vec<PathAttachment>> {
+    let list = metadata["attachments"].as_array()?;
+    Some(
+        list.iter()
             .filter_map(|a| {
                 let path = a["path"].as_str()?.to_owned();
                 if path.is_empty() {
@@ -152,9 +160,8 @@ pub fn record(id: &str, text: &str, m: &Value) {
                     path,
                 })
             })
-            .collect();
-        set_user_path_attachments(id, items);
-    }
+            .collect(),
+    )
 }
 
 /// `@session:<id>` tokens in `text`: each token's bytes and the session id.

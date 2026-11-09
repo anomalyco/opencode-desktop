@@ -126,6 +126,21 @@ pub fn open_with_system(path: &Path) {
     }
 }
 
+/// Shows `path` selected in the file manager (`shell.showItemInFolder`); false when it isn't
+/// there or the file manager didn't start.
+pub fn reveal_with_system(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    let spawned = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
+    #[cfg(target_os = "macos")]
+    let spawned = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).spawn();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let spawned = std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
+    spawned.map_err(|e| eprintln!("reveal {}: {e}", path.display())).is_ok()
+}
+
 #[cfg(test)]
 #[path = "menu_tests.rs"]
 mod tests;

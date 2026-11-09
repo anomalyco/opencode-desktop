@@ -196,6 +196,11 @@ pub trait TimelineHost: Sized + 'static {
     fn open_file(&mut self, path: std::path::PathBuf) {
         images::menu::open_with_system(&path);
     }
+    /// Shows the file at `path` selected in the file manager (Desktop's `revealPath`); false
+    /// when it couldn't.
+    fn reveal_file(&mut self, path: &std::path::Path) -> bool {
+        images::menu::reveal_with_system(path)
+    }
     fn reply_link_help(_url: &str) -> Option<String> {
         None
     }

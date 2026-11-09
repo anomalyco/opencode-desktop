@@ -255,7 +255,10 @@ pub fn remove_button<S: 'static>(
         .child(icon(&ic::XMARK_SMALL, 12.0).color(p.icon_contrast))
 }
 
-fn card(p: &Pal, title: &str, subtitle: String) -> El {
+/// `AttachmentCard` (`attachment-card.css`): 160 wide, 8 in, its title over its subtitle 6
+/// apart (the subtitle's line at least 16 tall), on the hover overlay with a 0.5 hairline in
+/// `border-base`.
+pub fn card(p: &Pal, title: &str, subtitle: String) -> El {
     col()
         .key("card")
         .w(160.0)
@@ -265,7 +268,7 @@ fn card(p: &Pal, title: &str, subtitle: String) -> El {
         .fill(p.hover)
         .box_shadow(Pal::ring_in(p.border))
         .child(text(title.to_owned()).font(CARD_TITLE).color(p.text).truncate_fade().w_full())
-        .child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade())
+        .child(row().key("subtitle").w_full().min_h(16.0).center_y().child(text(subtitle).font(CARD_SUBTITLE).color(p.muted).truncate_fade()))
 }
 
 /// A file sent as context without a mention (`editor.tsx:802-830`): the card on the base

@@ -21,7 +21,7 @@ pub struct Place {
 pub fn joins(a: &Message, b: &Message) -> bool {
     match (a, b) {
         (Message::User { text: x, .. }, Message::User { id, text: y }) => {
-            !x.trim().is_empty() && !y.trim().is_empty() && model::user_files(id).is_empty()
+            !x.trim().is_empty() && !y.trim().is_empty() && !super::attachments::any(id)
         }
         _ => false,
     }
@@ -29,7 +29,7 @@ pub fn joins(a: &Message, b: &Message) -> bool {
 
 /// Whether pending steer `b` joins the run of the prompt (or steer) with text `a` above it.
 pub fn prompts_join(a: &str, b: &InboxItem) -> bool {
-    !a.trim().is_empty() && !b.text.trim().is_empty() && b.files.is_empty() && model::user_files(&b.id).is_empty()
+    !a.trim().is_empty() && !b.text.trim().is_empty() && b.files.is_empty() && !super::attachments::any(&b.id)
 }
 
 /// A read-only host's corner button for a user prompt: Copy message (`copied::glyph`), as

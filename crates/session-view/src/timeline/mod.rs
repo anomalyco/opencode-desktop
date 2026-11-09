@@ -11,6 +11,7 @@ use crate::palette::Pal;
 use crate::style::{UI, activity_ring};
 use crate::turns::{self, Block, Entry, Step};
 
+pub mod attachments;
 mod dividers;
 #[cfg(test)]
 mod open_tests;
@@ -230,10 +231,7 @@ impl RowSpec {
             RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
             RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, &t.messages[*message])),
-            RowContent::UserImages { id, pt } => {
-                let files = model::user_files(id);
-                crate::images::gallery(s, p, "images", &files, true, Some(id)).unwrap_or_else(col).pt(*pt)
-            }
+            RowContent::UserImages { id, pt } => attachments::view(s, p, id).map_or_else(col, |a| col().w_full().child(a)).pt(*pt),
             RowContent::ToolImages { start, end, tool } => {
                 let files = t.messages[*start..*end].iter().find_map(|m| match m {
                     Message::Assistant(a) => a.parts.iter().find_map(|part| match part {
@@ -608,12 +606,12 @@ pub fn row_keys<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<String> {
     rows(s, t).into_iter().map(|r| r.key).collect()
 }
 
-/// A prompt's own images, in a row 8 above its bubble. Returns whether its bubble sits tight
-/// under what's above it. With `older` messages still to land above, the first prompt keeps the
-/// gap it will have under them.
+/// A prompt's attachments (`attachments`), in a row 8 above its bubble. Returns whether its
+/// bubble sits tight under what's above it. With `older` messages still to land above, the first
+/// prompt keeps the gap it will have under them.
 pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
     let start = out.is_empty() && !older;
-    let gallery = crate::images::shows(&model::user_files(id));
+    let gallery = attachments::any(id);
     let tight = start || gallery;
     if gallery {
         let pt = if start { 8.0 } else { 16.0 };

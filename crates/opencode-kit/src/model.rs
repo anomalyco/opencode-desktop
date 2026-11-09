@@ -411,11 +411,17 @@ pub fn parse_message(m: &Value) -> Option<Message> {
     })
 }
 
-/// A user message's text without the quotes it carries for the model, which its bubble shows
-/// as cards (see [`user_quotes`]); the typed text when they aren't at its end as Desktop puts them.
+/// A user message's text as its bubble shows it (Desktop's `readPromptPresentation`): without
+/// the `Attached file:` lines and quotes it carries for the model, which show as cards over it
+/// (see `mention::user_path_attachments` and [`user_quotes`]); the typed text when they aren't
+/// at its end as Desktop puts them (`composer/request.ts`).
 fn quoted_text(id: &str, text: String, metadata: &Value) -> String {
-    let Some((display, quotes)) = crate::quote::parse_metadata(metadata).filter(|(_, q)| !q.is_empty()) else { return text };
-    let tail: Vec<String> = quotes.iter().map(Quote::prompt_text).collect();
+    let Some((display, quotes)) = crate::quote::parse_metadata(metadata) else { return text };
+    let refs = crate::mention::path_attachments(metadata).unwrap_or_default();
+    if quotes.is_empty() && refs.is_empty() {
+        return text;
+    }
+    let tail: Vec<String> = refs.iter().map(|r| format!("Attached file: `{}`", r.path)).chain(quotes.iter().map(Quote::prompt_text)).collect();
     let tail = tail.join("\n");
     set_user_quotes(id, quotes);
     match text.strip_suffix(tail.as_str()) {
