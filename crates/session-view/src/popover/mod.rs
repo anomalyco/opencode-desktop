@@ -119,6 +119,7 @@ pub fn scrim<S: TimelineHost>(key: impl Into<String>, close: impl Fn(&mut S, &mu
         .absolute(0.0, 0.0)
         .w_full()
         .h_full()
+        .focusable(false)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             motion::closing(s.knobs(), tx);
             close(s, tx);

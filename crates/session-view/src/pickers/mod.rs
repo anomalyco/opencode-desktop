@@ -142,7 +142,6 @@ pub struct Pickers {
     pub agent_models: HashMap<String, ModelRef>,
     pub open: Option<Kind>,
     pub search: TextEdit,
-    pub toolbar_focus: Option<Kind>,
     pub(crate) active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
     pub selections: HashMap<String, Selection>,

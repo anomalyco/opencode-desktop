@@ -324,7 +324,6 @@ impl App {
 
     pub fn set_show_agent(&mut self, on: bool) {
         self.change_settings(|s| s.show_agent = on);
-        self.pickers.toolbar_focus = self.pickers.toolbar_focus.filter(|k| on || *k != crate::pickers::Kind::Agent);
     }
 
     pub fn set_fold_user(&mut self, on: bool) {

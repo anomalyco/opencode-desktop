@@ -86,6 +86,11 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
         .min_h(0.0)
         .scroll(ScrollSpec { stick_bottom: false })
         .clip_soft(0.0)
+        // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), drawing no ring.
+        .focusable(true)
+        .role("region")
+        .label(opencode_i18n::t!("ui.scrollView.ariaLabel"))
+        .no_focus_ring()
         .child(col().key("home-content").w_full().items_center().child(grid))
         // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a
         // track as long as the page below it, shown while the pointer is on that column

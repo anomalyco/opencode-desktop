@@ -3,8 +3,6 @@
 //! (a read that settles in the same frame), from the widths its pieces measure to. The session
 //! header's fit is `header_fit`.
 
-use std::cell::Cell;
-
 use rune::TextStyle;
 
 /// `text`'s width in `style`, as layout will set it on one line.
@@ -60,16 +58,3 @@ impl Toolbar {
 /// How narrow the model's button gets before the toolbar folds further.
 pub(super) const MODEL_FLOOR: f32 = 72.0;
 
-thread_local! {
-    static SHOWN: Cell<Toolbar> = const { Cell::new(Toolbar { chevrons: true, effort: true, agent: Agent::Name, model_whole: true, mic: true }) };
-}
-
-/// Notes how the composer's toolbar was last laid out, for keys that walk its buttons.
-pub(super) fn note_toolbar(t: Toolbar) {
-    SHOWN.set(t);
-}
-
-/// How the composer's toolbar was last laid out.
-pub(crate) fn toolbar_shown() -> Toolbar {
-    SHOWN.get()
-}

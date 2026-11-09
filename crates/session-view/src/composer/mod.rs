@@ -88,7 +88,8 @@ pub fn ghost(p: &Pal, key: &str, label: &str, chevron: bool, color: Color) -> El
 /// [`ghost`] around any label: `button-v2` ghost-muted at size normal (`button.css:41-44,
 /// 247-283`), 28 tall with 6 pt corners and 11 in from its start. The chevron
 /// (`editor.tsx:1108`, `-ms-0.5 -me-1` on the 6 pt gap) sits 4 after the label and 7 in
-/// from the end, in `icon-icon-muted`, or `icon-icon-base` while its menu is `open`.
+/// from the end, in `icon-icon-muted`, or `icon-icon-base` while its menu is `open`. Its
+/// keyboard ring sits 2 inside it, where the toolbar's clip can't cut it (`editor.css:70-73`).
 pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> El {
     row()
         .key(key)
@@ -101,6 +102,7 @@ pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> E
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
+        .focus_ring(2.0, -2.0, p.v2.border_focus)
         .child(label)
         .children(chevron.then(|| icon(&ic::CHEVRON_DOWN, 16.0).key("chevron").color(if open { p.icon } else { p.icon_muted })))
 }
@@ -128,6 +130,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .center()
         .hover(p.hover)
         .press(p.pressed)
+        .focus_ring(2.0, -2.0, p.v2.border_focus)
         .on_press_tx(S::composer_pick_attachment)
         .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
 }
@@ -333,10 +336,11 @@ pub fn submit_button(p: &Pal, live: bool) -> El {
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
     if !live {
-        return b.opacity(0.4);
+        // Disabled, so not a Tab stop either.
+        return b.opacity(0.4).focusable(false);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
-    b.hover(hover).press(pressed)
+    b.hover(hover).press(pressed).focus_ring(2.0, -2.0, p.v2.border_focus)
 }
 
 /// Renders the shared composer (`key("composer")`).

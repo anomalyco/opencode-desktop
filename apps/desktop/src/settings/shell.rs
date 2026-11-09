@@ -72,7 +72,7 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
 /// project's pages have Back to projects and their tabs, without the search.
 fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
     if let Page::Project(dir, _) = &s.settings_pages.page {
-        let tabs = pages::project::Tab::ALL.iter().fold(col().key("settings-nav-group-0").w_full().gap(4.0), |c, tab| c.child(nav_item(s, p, &Page::Project(dir.clone(), *tab))));
+        let tabs = pages::project::Tab::ALL.iter().fold(col().key("settings-nav-group-0").role("tablist").focus_group().w_full().gap(4.0), |c, tab| c.child(nav_item(s, p, &Page::Project(dir.clone(), *tab))));
         return col().key("settings-nav").w(width).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0)).child(col().key("settings-nav-groups").w_full().child(tabs));
     }
     let nav = col().key("settings-nav").w(width).gap(16.0).child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))).mb(28.0));
@@ -92,7 +92,8 @@ fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
     // (`styles/scrollbar.css:25-28`), so its triggers are 8 narrower: 192 in the narrow rail.
     let content_h: f32 = groups.iter().map(|g| g.len() as f32 * 28.0 + g.len().saturating_sub(1) as f32 * 4.0).sum::<f32>() + groups.len().saturating_sub(1) as f32 * 16.0;
     let gutter = if content_h > room + 0.5 { 8.0 } else { 0.0 };
-    let mut list = col().key("settings-nav-list").w_full().pr(gutter).gap(16.0);
+    // One Tab stop for the rail, its open page, as Kobalte's `Tabs`; the arrows move in it.
+    let mut list = col().key("settings-nav-list").role("tablist").focus_group().w_full().pr(gutter).gap(16.0);
     for (g, group) in groups.into_iter().enumerate() {
         let items = group.iter().fold(col().key(format!("settings-nav-group-{g}")).w_full().gap(4.0), |c, page| c.child(nav_item(s, p, page)));
         list = list.child(items);

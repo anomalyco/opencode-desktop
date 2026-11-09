@@ -37,14 +37,6 @@ pub trait PickerHost: ComposerHost {
     fn picker_show_agent(&self) -> bool {
         true
     }
-    /// The pickers Tab visits from the composer, in order.
-    fn picker_tab_stops(&self) -> Vec<Kind> {
-        let mut out = Vec::new();
-        if self.picker_show_agent() { out.push(Kind::Agent); }
-        out.push(Kind::Model);
-        if self.has_effort() { out.push(Kind::Effort); }
-        out
-    }
     /// A key the model search field doesn't use, for the host's own shortcuts.
     fn picker_search_key(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
@@ -203,7 +195,6 @@ pub trait PickerHost: ComposerHost {
             self.pickers_mut().active.set(current, String::new());
         }
         self.composer_edit_mut().focused = false;
-        self.pickers_mut().toolbar_focus = None;
     }
 
     fn close_picker(&mut self, restore: bool) {
@@ -346,12 +337,13 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         match nav(ev) {
             Some(Nav::Close) if s.pickers().flyout.is_some() => s.pickers_mut().flyout = None,
             Some(Nav::Close) => s.close_picker(true),
-            // The model dialog keeps the keys in its search for its life (`select-dialog.tsx:847-871`).
-            Some(Nav::Leave) if open == Kind::Model => {}
+            // In the model dialog Tab moves on to Connect and Manage, as Desktop's does.
+            Some(Nav::Leave) if open == Kind::Model => return false,
             Some(Nav::Leave) => {
+                // Tab leaves the list on its trigger, as a Kobalte select returns focus there.
                 let kind = Some(open).filter(|k| *k != Kind::Project);
                 s.close_picker(kind.is_none());
-                s.pickers_mut().toolbar_focus = kind;
+                if let Some(kind) = kind { tx.focus(kind.key(), true); }
             }
             Some(Nav::Step(step)) => {
                 if s.pickers().search.preedit.is_some() { return false; }
@@ -384,20 +376,10 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
-    let focused = s.composer_edit().focused;
-    if focused { s.pickers_mut().toolbar_focus = None; }
-    let toolbar_focus = s.pickers().toolbar_focus;
-    if ev.key == Key::Tab && (focused || toolbar_focus.is_some()) {
-        let order = s.picker_tab_stops();
-        // The composer is the last stop after the pickers.
-        let n = order.len();
-        let next = toolbar_focus.and_then(|k| order.iter().position(|i| *i == k))
-            .map_or(if ev.mods.shift { n - 1 } else { 0 }, |i| if ev.mods.shift { (i + n) % (n + 1) } else { i + 1 });
-        s.pickers_mut().toolbar_focus = order.get(next).copied();
-        s.composer_edit_mut().focused = next == n;
-        return true;
-    }
-    if matches!(ev.key, Key::Enter | Key::Down | Key::Up)
+    // A focused trigger opens its list on the arrows too, as a Kobalte select's does; Tab moves
+    // through them as Rune's document order has it, and Return and Space press them.
+    let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort].into_iter().find(|k| tx.focused() == Some(k.key()));
+    if matches!(ev.key, Key::Down | Key::Up) && ev.mods == Default::default()
         && let Some(kind) = toolbar_focus { s.open_picker(kind); return true; }
     use crate::keymap::Bind;
     if Bind::Model.matches_tx(ev, tx) { s.open_picker(Kind::Model); return true; }

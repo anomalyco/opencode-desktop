@@ -13,6 +13,7 @@ use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
 
 pub mod context;
+mod restore;
 mod search;
 mod standard;
 
@@ -333,6 +334,8 @@ struct SubOpen {
 #[derive(Default)]
 pub struct Popup {
     shown: Option<Shown>,
+    /// Where focus goes as it closes.
+    focus: restore::MenuFocus,
     /// A searchable menu's field, and the query its rows were last lit for.
     query: TextEdit,
     lit_for: String,
@@ -359,7 +362,16 @@ pub fn open(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx
 
 /// [`open`], drawn on every platform.
 pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx, pick: impl FnOnce(&mut App, Option<&str>, &mut Tx) + 'static) {
-    close(s, None, tx);
+    close(s, None, restore::Reason::Outside, tx);
+    let anchor = anchor.into();
+    let trigger = match &anchor {
+        PopupAnchor::Key(key) => Some(key.clone()),
+        PopupAnchor::Point(..) => None,
+    };
+    // A menu opened while the keyboard drives (Return or Space on its trigger) hands focus back
+    // with the ring.
+    let modality = if tx.focus_visible() { restore::Modality::Keyboard } else { restore::Modality::Pointer };
+    s.popup.focus = restore::step(std::mem::take(&mut s.popup.focus), restore::Event::Opened { modality, trigger }).0;
     let active = menu.selected.as_deref().and_then(|id| menu.entries.iter().position(|e| matches!(e, Entry::Item(i) if i.id == id)));
     if let Some(id) = menu.selected.clone() {
         tx.scroll_into_view(row_key(&id));
@@ -371,14 +383,14 @@ pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &
     if menu.search.is_some() {
         s.composer.focused = false;
     }
-    s.popup.shown = Some(Shown { menu, anchor: anchor.into(), active, subs: Vec::new(), pick: Box::new(pick) });
+    s.popup.shown = Some(Shown { menu, anchor, active, subs: Vec::new(), pick: Box::new(pick) });
     refresh(s);
     popover::motion::opening(&s.knobs, tx);
 }
 
 /// Closes the drawn menu as a press outside it would. Nothing when none is open.
 pub fn dismiss(s: &mut App, tx: &mut Tx) {
-    close(s, None, tx);
+    close(s, None, restore::Reason::Outside, tx);
 }
 
 /// A searchable menu's rows for what's typed now; when the query changed since its rows were
@@ -396,10 +408,16 @@ fn refresh(s: &mut App) {
     }
 }
 
-/// Closes the drawn menu, answering `picked`. Nothing when none is open.
-fn close(s: &mut App, picked: Option<&str>, tx: &mut Tx) {
+/// Closes the drawn menu, answering `picked`, for `reason`; focus goes where the menu machine
+/// says (`restore`). Nothing when none is open.
+fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx) {
     let Some(shown) = s.popup.shown.take() else { return };
     s.popup.query.focused = false;
+    let (focus, effect) = restore::step(std::mem::take(&mut s.popup.focus), restore::Event::Closed(reason));
+    s.popup.focus = focus;
+    if let Some(restore::Effect::FocusTrigger { key, ring }) = effect {
+        tx.focus(key, ring);
+    }
     popover::motion::closing(&s.knobs, tx);
     (shown.pick)(s, picked, tx);
 }
@@ -408,7 +426,7 @@ fn close(s: &mut App, picked: Option<&str>, tx: &mut Tx) {
 fn choose(s: &mut App, n: usize, tx: &mut Tx) {
     refresh(s);
     let Some(id) = s.popup.shown.as_ref().and_then(|m| m.menu.item_at(n)).filter(|i| i.enabled).map(|i| i.id.clone()) else { return };
-    close(s, Some(&id), tx);
+    close(s, Some(&id), restore::Reason::Picked, tx);
 }
 
 /// Picks row `m` of the first open submenu, if it's offered.
@@ -423,7 +441,7 @@ fn choose_at(s: &mut App, level: usize, m: usize, tx: &mut Tx) {
     }
     let item = s.popup.shown.as_ref().and_then(|shown| shown.menu_at(level)?.item_at(m));
     let Some(id) = item.filter(|i| i.enabled).map(|i| i.id.clone()) else { return };
-    close(s, Some(&id), tx);
+    close(s, Some(&id), restore::Reason::Picked, tx);
 }
 
 /// Opens the root's row `n`'s submenu, lighting its first row when the keys opened it.
@@ -463,7 +481,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let opens = |shown: &Shown, n: usize| shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
     match &ev.key {
         Key::Escape | Key::Tab => {
-            close(s, None, tx);
+            close(s, None, restore::Reason::Keys, tx);
             return true;
         }
         Key::Left if level > 0 => {
@@ -538,8 +556,8 @@ fn row_key(id: &str) -> String { format!("popup-item-{id}") }
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
 pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let Some(shown) = &s.popup.shown else { return vec![] };
-    let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, tx))
-        .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, tx));
+    let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, restore::Reason::Outside, tx))
+        .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
         &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(0.0, 0.0)), Align::Start, Side::Bottom),

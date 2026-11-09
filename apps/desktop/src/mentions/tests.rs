@@ -281,7 +281,7 @@ fn keys_move_wrap_and_pick_into_a_pill() {
     assert!(!rt.state.mentions.open);
     assert_eq!(rt.state.composer.pills().map(|(r, id)| (r, id.to_owned())).collect::<Vec<_>>(), [(3..11, "agent:general".to_owned())]);
     assert_eq!(rt.state.composer.focus, 12);
-    assert!(rt.state.pickers.toolbar_focus.is_none(), "Tab picked instead of moving to the toolbar");
+    assert!(rt.state.composer.focused, "Tab picked instead of moving to the toolbar");
 
     // Backspace takes the space, then the whole pill, and never reopens the popover on it.
     key(&mut rt, Key::Backspace);

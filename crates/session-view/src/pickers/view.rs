@@ -39,7 +39,7 @@ pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, mode
     wrap(s, p, Kind::Model, crate::composer::ghost_with(p, Kind::Model.key(), label.child(name), chevron, false))
 }
 
-/// A trigger's states: lit while the keyboard is on it, pressed while its list is open (the
+/// A trigger's states: pressed while its list is open (the
 /// ghost's `[data-expanded]`, `button.css:259-278`, which drops the hover), and opening its
 /// list on a press.
 fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
@@ -47,15 +47,13 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
     if s.pickers().open == Some(kind) && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
-    } else if !s.composer_edit().focused && s.pickers().toolbar_focus == Some(kind) {
-        button = button.fill(p.hover);
     }
     button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx))
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
-    let mut b = el()
+pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
+    let b = el()
         .key(Kind::Agent.key())
         .role("button")
         .label(opencode_i18n::t!("ui.promptInput.chooseAgent"))
@@ -66,10 +64,8 @@ pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .motion(Spring::NONE)
+        .focus_ring(2.0, -2.0, p.v2.border_focus)
         .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
-    if !s.composer_edit().focused && s.pickers().toolbar_focus == Some(Kind::Agent) {
-        b = b.fill(p.hover);
-    }
     b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx))
 }
 
@@ -108,8 +104,8 @@ pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: boo
     let default = variant.is_empty() || variant == "default";
     let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
-    let focused = !s.composer_edit().focused && s.pickers().toolbar_focus == Some(Kind::Effort);
-    let shown = !default || s.pickers().open == Some(Kind::Effort) || focused;
+    // Rune shows it at its hovered opacity while the keyboard is on it (`:focus-visible`).
+    let shown = !default || s.pickers().open == Some(Kind::Effort);
     if shown { button } else { button.group_opacity(0.0, 1.0) }
 }
 

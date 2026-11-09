@@ -48,7 +48,8 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
             s.menus.confirm = None;
         })
         .build(kit)
-        .key("delete-cancel");
+        .key("delete-cancel")
+        .autofocus();
     // `danger` (`button.css:102-106`): the neutral surface and its elevation, in the danger ink.
     // Dark's neutral fill is `alpha-light-6`, which Chromium lays over the dialog's `layer-01`,
     // where the theme's token is flattened over `bg-base`. Opaque, as the elevation's ring and
@@ -70,6 +71,12 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
         .fill(p.layer1)
         .elevate(p.overlay)
         .clip_soft(0.0)
+        // Rune's modal: Tab stays inside, Escape and a press outside cancel, Cancel opens focused
+        // (`autofocus` in `controller.tsx`) and closing hands focus back.
+        .modal_tx(true, |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.menus.confirm = None;
+        })
         .child(
             col()
                 .key("delete-header")
@@ -85,11 +92,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
-            .fill(p.scrim)
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.menus.confirm = None;
-            }),
+            .fill(p.scrim),
         el().key("delete-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),
     ]
 }

@@ -406,6 +406,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .scroll(ScrollSpec { stick_bottom: true })
         // Its edges fade only while rows are under them, and never over a stuck group header.
         .scroll_edge_fade(16.0)
+        // A Tab stop that pages with the keys, as Desktop's `ScrollView` (`tabIndex={0}`,
+        // `scroll-view.tsx:546-548`), drawing no ring.
+        .focusable(true)
+        .role("region")
+        .label(opencode_i18n::t!("ui.scrollView.ariaLabel"))
+        .no_focus_ring()
         .child(stack);
     // Near its top, older messages load above what's on screen.
     if let Some(top) = s.watch_scroll_top(id) {

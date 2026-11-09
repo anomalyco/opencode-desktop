@@ -40,7 +40,6 @@ pub(crate) use tab_strip::tab_strip;
 pub use composer::*;
 pub(crate) use draft::*;
 pub(crate) use header::*;
-pub(crate) use narrow::{Agent as ToolbarAgent, toolbar_shown};
 pub(crate) use home::{home, home_modifiers, session_row};
 pub(crate) use home::fold::add_flow;
 pub(crate) use home::list::{Hold as HomeHold, is_automation};
@@ -85,6 +84,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // ring of their own draw button.css's: 2px `border-focus`, 2.5px out, keyboard focus only.
     cx.foreground(p.text);
     cx.focus_ring(2.0, 2.5, crate::palette::kit(p).c.border_focus);
+    // Every button, link and tab is a Tab stop in document order, and dialogs open focused, as
+    // in Desktop's DOM.
+    cx.web_focus();
     // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
     cx.help_look(rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact).help_look());
     crate::icons::prepare(s, cx);
@@ -234,9 +236,15 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .h_full()
         .child(sidebar(s, p))
         .children(band_below)
+        // The empty inset above the panels moves the window, as the titlebar does; on Windows
+        // it's the titlebar row itself.
+        .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag())
+        // The titlebar row before the page, as in Desktop's DOM, so Tab reaches it first.
+        .children(band)
         .child(
             // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
             panel
+                .focusable(false)
                 .on_press(|s: &mut App| {
                     s.side.focused = false;
                     s.side.tab_menu = None;
@@ -254,11 +262,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
-        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx))
-        // The empty inset above the panels moves the window, as the titlebar does; on Windows
-        // it's the titlebar row itself.
-        .child(el().key("drag-inset").pin(Some(0.0), Some(0.0), Some(chrome().caption_w), None).h(chrome().top()).window_drag());
-    root = root.children(band);
+        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx));
     if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))

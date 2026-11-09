@@ -452,7 +452,9 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .center()
         .motion(still)
         .motion_intent(rune::MotionIntent::CUT)
-        .preserve_focus_on_press(true);
+        .preserve_focus_on_press(true)
+        // Inside the composer's clip its keyboard ring sits 2 in (`editor.css:70-73`).
+        .focus_ring(2.0, -2.0, p.v2.border_focus);
     b = match &d.phase {
         Phase::Idle | Phase::Failed(_) => b.label(opencode_i18n::t!("rune.command.prompt.dictate")).help(opencode_i18n::t!("rune.command.prompt.dictate")).help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
         Phase::Finishing { .. } => b.label(opencode_i18n::t!("rune.dictation.finishing")).fill(p.layer2).child(activity_ring_sized(p, 14.0)),

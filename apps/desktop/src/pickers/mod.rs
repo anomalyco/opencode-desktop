@@ -37,16 +37,6 @@ impl PickerHost for App {
     fn picker_show_agent(&self) -> bool {
         self.settings.show_agent || self.subagent_page().is_some()
     }
-    /// A narrow window's folded pickers aren't stops (`view::narrow`).
-    fn picker_tab_stops(&self) -> Vec<Kind> {
-        let shown = crate::view::toolbar_shown();
-        [Kind::Agent, Kind::Model, Kind::Effort].into_iter()
-            .filter(|k| match k {
-                Kind::Agent => self.settings.show_agent && shown.agent != crate::view::ToolbarAgent::Gone,
-                Kind::Effort => self.has_effort() && shown.effort,
-                _ => true,
-            }).collect()
-    }
     fn picker_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
     }
@@ -239,14 +229,7 @@ mod tests {
         rt.state.settings.show_agent = true;
         rt.invalidate();
         rt.frame(1.0 / 60.0);
-        tap(&mut rt, "prompt");
-        for expected in [Some(Kind::Agent), Some(Kind::Model), Some(Kind::Effort), None] {
-            key(&mut rt, Key::Tab);
-            assert_eq!(rt.state.pickers.toolbar_focus, expected);
-        }
-        assert!(rt.state.composer.focused);
-        key(&mut rt, Key::Tab);
-        key(&mut rt, Key::Enter);
+        tap(&mut rt, Kind::Agent.key());
         key(&mut rt, Key::Down);
         key(&mut rt, Key::Enter);
         assert_eq!(rt.state.selection().agent, "plan");

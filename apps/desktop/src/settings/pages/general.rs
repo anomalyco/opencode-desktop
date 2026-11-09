@@ -53,11 +53,12 @@ pub fn view(s: &App, p: &Pal) -> El {
 /// Side or Bottom: where the terminal opens (this app's; Desktop's terminal is a side panel).
 fn placement(s: &App, p: &Pal) -> El {
     use crate::panels::DockPlacement;
-    let mut r = row().key("terminal-placement-control").gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
+    // A segmented radio group, one Tab stop whose arrows pick, as the official segmented control.
+    let mut r = row().key("terminal-placement-control").role("radiogroup").focus_group().gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
     for (pl, label) in [(DockPlacement::Side, t!("rune.settings.general.row.terminalPlacement.side")), (DockPlacement::Bottom, t!("rune.settings.general.row.terminalPlacement.bottom"))] {
         let on = s.settings.terminal_placement == pl;
         r = r.child(
-            row().key(format!("placement-{}", pl.name())).role("button").h(24.0).px(10.0).center().radius(4.0)
+            row().key(format!("placement-{}", pl.name())).role("radio").focus_selected(on).h(24.0).px(10.0).center().radius(4.0)
                 .fill(if on { p.bg_base } else { Color::TRANSPARENT })
                 .hover(if on { p.bg_base } else { p.hover })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.set_terminal_placement(pl, tx))

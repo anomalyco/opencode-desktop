@@ -32,14 +32,15 @@ const SMALL: f32 = 14.0;
 
 /// The scrim, the dialog and the lit model's flyout, while the model picker is open.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
-    // A press on the scrim closes it; nothing gets focus back, so the search field can unmount
-    // in this frame.
+    // A press on the scrim closes it and hands focus back to the composer, as Desktop's picker
+    // does on an outside click.
     let scrim = col().key("picker-model-scrim").absolute(0.0, 0.0).w_full().h_full().px(12.0).py(48.0).center()
         .fill(p.scrim)
         .transition(Transition::none())
+        .focusable(false)
         .on_press_tx(|s: &mut S, tx: &mut Tx| {
             tx.instant();
-            s.close_picker(false);
+            s.close_picker(true);
         })
         .child(dialog(s, p));
     let mut out = vec![hover::watch::<S>(scrim)];
@@ -71,6 +72,12 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .instant_changes()
         // Presses on its own space stay in it, off the scrim.
         .on_press(|_: &mut S| {})
+        // Desktop's dialog: Tab cycles its search, Connect and Manage; Escape or a press outside
+        // closes it and the composer takes the keys back.
+        .modal_tx(true, |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            s.close_picker(true);
+        })
         .child(pop::search_row(p, "picker-search-row", field, trailing))
         .child(list(s, p))
 }

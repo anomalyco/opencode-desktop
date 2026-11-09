@@ -180,6 +180,7 @@ pub(super) fn mode_popover(p: &Pal, sr: &SessionReview) -> El {
     }
     el().key("review-mode-scrim")
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .focusable(false)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.review.mode_menu_open = false;
