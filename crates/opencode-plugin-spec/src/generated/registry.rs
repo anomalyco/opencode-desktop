@@ -179,7 +179,7 @@ string_enum! {
         Office = "Office",
         /// The app's own updates.
         Updater = "Updater",
-        /// Developer diagnostics. Local and beta builds only; elsewhere every method returns nil.
+        /// Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil.
         Diagnostics = "Diagnostics",
         /// Display sleep.
         Power = "Power",
@@ -244,7 +244,7 @@ impl ServiceName {
             Self::Process => &["Spawn", "RunAsync"],
             Self::Store => &["Value", "SessionValue"],
             Self::Contracts => &["Provide", "Use", "Summary"],
-            Self::Console => &["Log", "Warn", "Error"],
+            Self::Console => &["Log", "Warn", "Error", "Lines", "Clear", "Eval"],
             Self::Toast => &["Show", "Info", "Success", "Error"],
             Self::Popover => &["Open", "Toggle", "Close", "IsOpen"],
             Self::Dialog => &["Open", "Close", "IsOpen"],
@@ -262,7 +262,7 @@ impl ServiceName {
             Self::Browser => &["Open", "Tabs", "Available"],
             Self::Office => &["OpenAsync"],
             Self::Updater => &["State", "Check", "Download", "Install", "StateChanged"],
-            Self::Diagnostics => &["Memory", "Metrics", "Get", "Set", "HeapSnapshotAsync"],
+            Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],
             Self::Power => &["KeepAwake"],
             Self::Qr => &["Encode"],
             Self::Askpass => &["Listen"],

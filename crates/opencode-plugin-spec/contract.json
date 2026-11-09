@@ -29,6 +29,7 @@
     { "name": "text-weaker", "group": "text", "doc": "Tertiary text: hints, placeholders and timestamps." },
     { "name": "text-muted", "group": "text", "doc": "Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`." },
     { "name": "text-faint", "group": "text", "doc": "Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`." },
+    { "name": "text-chrome", "group": "text", "doc": "Text in the app's chrome at full strength: menu and popover rows, header titles, list items. Hosts without a separate chrome scale use `text-strong`." },
     { "name": "text-on-accent", "group": "text", "doc": "Text on an `accent` fill." },
     { "name": "text-interactive", "group": "text", "doc": "Links and other interactive text." },
     { "name": "icon-strong", "group": "icon", "doc": "An icon that needs emphasis." },
@@ -46,7 +47,17 @@
     { "name": "status-success", "group": "status", "doc": "Done or passing." },
     { "name": "status-warning", "group": "status", "doc": "Needs attention." },
     { "name": "status-danger", "group": "status", "doc": "Failed, blocked or destructive." },
-    { "name": "status-info", "group": "status", "doc": "Neutral information." }
+    { "name": "status-info", "group": "status", "doc": "Neutral information." },
+    { "name": "avatar-orange", "group": "avatar", "doc": "A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to." },
+    { "name": "avatar-yellow", "group": "avatar", "doc": "A letter tile's fill, the second of eight." },
+    { "name": "avatar-cyan", "group": "avatar", "doc": "A letter tile's fill, the third of eight." },
+    { "name": "avatar-green", "group": "avatar", "doc": "A letter tile's fill, the fourth of eight." },
+    { "name": "avatar-red", "group": "avatar", "doc": "A letter tile's fill, the fifth of eight." },
+    { "name": "avatar-pink", "group": "avatar", "doc": "A letter tile's fill, the sixth of eight." },
+    { "name": "avatar-blue", "group": "avatar", "doc": "A letter tile's fill, the seventh of eight." },
+    { "name": "avatar-purple", "group": "avatar", "doc": "A letter tile's fill, the eighth of eight." },
+    { "name": "avatar-text", "group": "avatar", "doc": "The letter on a tile." },
+    { "name": "avatar-ring", "group": "avatar", "doc": "The hairline inside a tile's edge." }
   ],
   "enums": [
     { "name": "Half", "rust": true, "doc": "Which half of a plugin runs the code.", "values": [
@@ -306,6 +317,11 @@
     { "name": "ProgressAppearance", "rust": true, "doc": "How `ui.progressCircle` draws, as the app's ProgressCircle.", "values": [
       { "value": "compact", "doc": "A 14-unit ring with a 1.5 stroke: the session header's." },
       { "value": "indicator", "doc": "A 16-unit ring with a thicker stroke and an overlay over its track: a tab's." }
+    ] },
+    { "name": "ConsoleLevel", "rust": true, "doc": "How serious a console line is.", "values": [
+      { "value": "info", "doc": "`print` and `Console:Log`, and the host's own notes such as reloads." },
+      { "value": "warn", "doc": "`warn` and `Console:Warn`." },
+      { "value": "error", "doc": "An error a plugin raised or wrote with `Console:Error`." }
     ] },
     { "name": "TextDirection", "rust": true, "doc": "Which way the interface language reads.", "values": [
       { "value": "ltr", "doc": "Left to right." },
@@ -590,7 +606,9 @@
       { "name": "icon", "type": "IconName?", "doc": "A leading icon." },
       { "name": "detail", "type": "string?", "doc": "Muted text at the row's end, such as a count." },
       { "name": "popover", "type": "string", "doc": "The id of this plugin's popover the row opens." },
-      { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." }
+      { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." },
+      { "name": "alert", "type": "boolean?", "doc": "Shows a danger dot before the detail: something in the nested list failed." },
+      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
     ] },
     { "name": "UiMarkdownProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The Markdown." },
@@ -689,6 +707,9 @@
       { "name": "directory", "type": "string", "doc": "Its workspace folder." },
       { "name": "title", "type": "string", "doc": "Its title." },
       { "name": "parentId", "type": "string?", "doc": "The parent session of a subagent's session." },
+      { "name": "projectId", "type": "string?", "doc": "The project it belongs to. Nil for a folder outside any project." },
+      { "name": "agent", "type": "string?", "doc": "The agent it runs with, such as `build`." },
+      { "name": "variant", "type": "string?", "doc": "The model variant it runs with, such as `high`. Nil for the model's default." },
       { "name": "busy", "type": "boolean", "doc": "A turn is running." },
       { "name": "version", "type": "integer", "doc": "Changes whenever anything here does: put it in a memo's version." },
       { "name": "cost", "type": "number", "doc": "What it cost in USD, its subagents' sessions included." },
@@ -1029,6 +1050,20 @@
       { "name": "Prompted", "kind": "signal", "payload": "AskpassPrompt", "doc": "Fires with each prompt." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Stops listening." }
     ] },
+    { "name": "ConsoleLine", "kind": "record", "rust": true, "doc": "One line of the Studio console.", "fields": [
+      { "name": "plugin", "type": "string", "doc": "The plugin that wrote it." },
+      { "name": "level", "type": "ConsoleLevel", "doc": "How serious it is." },
+      { "name": "message", "type": "string", "doc": "What it says. An error's traceback follows its first line." },
+      { "name": "file", "type": "string?", "doc": "The `.luau` file the message names, such as `init.luau`." },
+      { "name": "line", "type": "integer?", "doc": "The line in `file`." },
+      { "name": "href", "type": "string?", "doc": "A `file://` link to that line, when the plugin runs from a folder." },
+      { "name": "count", "type": "integer", "doc": "How many times it was written in a row." }
+    ] },
+    { "name": "ConsoleEvalResult", "kind": "record", "rust": true, "doc": "What `Console:Eval` gave back.", "fields": [
+      { "name": "ok", "type": "boolean", "doc": "It ran without an error." },
+      { "name": "value", "type": "string?", "doc": "Its value as text." },
+      { "name": "error", "type": "string?", "doc": "The error it raised." }
+    ] },
     { "name": "PluginMetrics", "kind": "record", "rust": true, "doc": "A plugin's live costs.", "fields": [
       { "name": "memoryKb", "type": "number", "doc": "Luau heap in KB." },
       { "name": "renderUs", "type": "number", "doc": "The last render's cost in microseconds." },
@@ -1213,7 +1248,8 @@
     { "name": "CodeBlockProps", "kind": "record", "doc": "One complete fenced code block.", "fields": [
       { "name": "code", "type": "string", "doc": "The source between the fences." },
       { "name": "language", "type": "string", "doc": "The fence's language, lowercased. Empty when it has none." },
-      { "name": "sessionId", "type": "string?", "doc": "The session that shows it." }
+      { "name": "sessionId", "type": "string?", "doc": "The session that shows it." },
+      { "name": "streaming", "type": "boolean?", "doc": "The reply it is in still streams: the block may grow, and may not be closed yet." }
     ] },
     { "name": "CodeBlockSpec", "kind": "record", "rust": true, "official": "CodeBlock", "doc": "Renders the fenced code blocks of some languages as your own UI.", "fields": [
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },
@@ -1396,7 +1432,10 @@
     { "name": "Console", "halves": ["window", "app"], "doc": "The Studio console. `print` and `warn` write here too.", "members": [
       { "name": "Log", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes an information line." },
       { "name": "Warn", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes a warning." },
-      { "name": "Error", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes an error, without raising one." }
+      { "name": "Error", "kind": "method", "sig": "(...any) -> ()", "doc": "Writes an error, without raising one." },
+      { "name": "Lines", "kind": "method", "sig": "() -> { ConsoleLine }", "doc": "Every plugin's lines, oldest first; a repeat of the last line counts up. Read in a render, it redraws as lines come." },
+      { "name": "Clear", "kind": "method", "sig": "() -> ()", "doc": "Drops every line." },
+      { "name": "Eval", "kind": "method", "sig": "(pluginId: string, source: string) -> ConsoleEvalResult", "doc": "Runs Luau `source` in the window half of plugin `pluginId`, as Studio's command bar does: an expression's value, or a chunk's return value, as text. Local and beta builds only; elsewhere it fails." }
     ] },
     { "name": "Toast", "halves": ["window", "app"], "doc": "Short messages in a corner of the window. From the app half, in the focused window.", "members": [
       { "name": "Show", "kind": "method", "sig": "(spec: ToastSpec) -> ToastHandle", "doc": "Shows a toast." },
@@ -1493,12 +1532,13 @@
       { "name": "Install", "kind": "method", "sig": "() -> ()", "doc": "Restarts into the downloaded version." },
       { "name": "StateChanged", "kind": "signal", "payload": "UpdaterState", "doc": "Fires with each new state." }
     ] },
-    { "name": "Diagnostics", "halves": ["window", "app"], "doc": "Developer diagnostics. Local and beta builds only; elsewhere every method returns nil.", "members": [
+    { "name": "Diagnostics", "halves": ["window", "app"], "doc": "Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil.", "members": [
       { "name": "Memory", "kind": "method", "sig": "() -> { [string]: any }?", "doc": "The process's memory counters." },
       { "name": "Metrics", "kind": "method", "sig": "(pluginId: string?) -> PluginMetrics?", "doc": "A plugin's live costs. Defaults to this plugin." },
-      { "name": "Get", "kind": "method", "sig": "(name: string) -> any", "doc": "A developer setting, such as an experiment." },
-      { "name": "Set", "kind": "method", "sig": "(name: string, value: any) -> ()", "doc": "Changes a developer setting." },
-      { "name": "HeapSnapshotAsync", "kind": "method", "sig": "() -> SaveResult", "yields": true, "doc": "Writes a heap snapshot to the downloads folder." }
+      { "name": "Plugins", "kind": "method", "sig": "() -> { string }", "doc": "The ids of the plugins running in this window, for a console's target." },
+      { "name": "Get", "kind": "method", "sig": "(name: string) -> any", "doc": "A developer setting: an experiment (`sources.enabled` `\"on\"` or `\"off\"`, `sources.icons` `\"site\"` or `\"letters\"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `\"off\"`, `\"on\"`, or `\"env\"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes." },
+      { "name": "Set", "kind": "method", "sig": "(name: string, value: any) -> ()", "doc": "Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab." },
+      { "name": "HeapSnapshotAsync", "kind": "method", "sig": "() -> SaveResult", "yields": true, "doc": "Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it." }
     ] },
     { "name": "Power", "halves": ["window", "app"], "doc": "Display sleep.", "members": [
       { "name": "KeepAwake", "kind": "method", "sig": "(reason: string) -> PowerLock", "doc": "Keeps the display awake until the lock is released or the plugin goes away." }

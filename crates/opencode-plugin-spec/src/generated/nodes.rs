@@ -240,6 +240,8 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
     PropSpec::new("detail", PropType::String, false),
     PropSpec::new("popover", PropType::String, true),
     PropSpec::new("props", PropType::Map, false),
+    PropSpec::new("alert", PropType::Bool, false),
+    PropSpec::new("side", PropType::Enum("Side"), false),
 ]);
 
 /// `UiGenUiProps`.

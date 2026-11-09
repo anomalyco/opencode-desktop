@@ -19,9 +19,6 @@ pub fn spawn(app: &mut App, i: usize, f: &Function, args: impl IntoLuaMulti, tx:
     super::requests::carry_out(app, tx);
 }
 
-/// The plugin console's tab and keys (Ctrl+Shift+J, ⇧⌘J): a developer tool, so no command lists it.
-const CONSOLE: &str = "plugins.console";
-
 /// One Luau command as the app lists it.
 pub struct Cmd {
     pub id: &'static str,
@@ -83,12 +80,6 @@ pub fn offered(app: &App, c: &Cmd) -> bool {
 
 /// Runs Luau command `id` with `input`; false when there is none or it is off.
 pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
-    if id == CONSOLE {
-        if app.active_session_id().is_some() {
-            app.open_side_tab(&crate::panels::panel_key(crate::plugin_host::view::PANEL, super::console::TAB), None, false, false, tx);
-        }
-        return true;
-    }
     let Some((i, f)) = app.plugins.luau.running().find_map(|(i, p)| {
         let c = p.half.contribs.borrow();
         let c = c.commands.iter().find(|c| c.key == id && c.spec.enabled != Some(false))?;
@@ -105,9 +96,6 @@ pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
 
 /// A Luau command's keybind.
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if "mod+shift+j".parse::<Keybind>().is_ok_and(|k| k.matches_tx(ev, tx)) && app.active_session_id().is_some() {
-        return run(app, CONSOLE, None, tx);
-    }
     let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
     let hit = all(app).into_iter().find(|c| offered(app, c) && c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)) && (!plain || c.editable || tx.focused().is_none()));
     hit.is_some_and(|c| run(app, c.id, None, tx))

@@ -63,7 +63,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|a| (a.tokens.input, a.tokens.output, a.tokens.reasoning, a.tokens.cache_read, a.tokens.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|a| (&a.id, a.completed)), &info.model.provider, &info.model.id).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|a| (&a.id, a.completed)), &info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project).hash(&mut h);
     h.finish()
 }
 
@@ -77,6 +77,9 @@ fn session_value(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     s.raw_set("directory", info.directory.as_str())?;
     s.raw_set("title", info.title.as_str())?;
     s.raw_set("parentId", info.parent.as_deref())?;
+    s.raw_set("projectId", (!info.project.is_empty()).then_some(info.project.as_str()))?;
+    s.raw_set("agent", (!info.agent.is_empty()).then_some(info.agent.as_str()))?;
+    s.raw_set("variant", (!info.model.variant.is_empty() && info.model.variant != "default").then_some(info.model.variant.as_str()))?;
     s.raw_set("busy", app.subtree_running(&info.id))?;
     s.raw_set("version", (session_version(app, id) >> 11) as f64)?;
     s.raw_set("cost", info.cost.max(t.map_or(0.0, session_view::usage::spent)))?;
@@ -145,7 +148,8 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         for TicketEffect::Fetch(asked) in effects {
             let (plugin, path) = (plugin.to_string(), path.clone());
             app.job(move |srv| {
-                let answer = srv.get_text(&path);
+                // A server still loading its plugins answers `/api/skill` with 503 for a while.
+                let answer = srv.get_text_ready(&path);
                 Box::new(move |s: &mut App, tx: &mut Tx| land(s, &plugin, &path, asked, answer, tx)) as crate::jobs::Apply
             });
         }

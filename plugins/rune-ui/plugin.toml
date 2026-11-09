@@ -1,0 +1,6 @@
+#:schema ../plugin.schema.json
+id = "rune-ui"
+name = "Rune UI"
+version = "0.1.0"
+contract = "1.0"
+description = "Generative UI: a reply's ```ui outlines draw as native frames, rows, chats, facts and statuses rather than code"

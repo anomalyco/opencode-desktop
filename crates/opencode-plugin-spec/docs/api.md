@@ -226,6 +226,9 @@ The Studio console. `print` and `warn` write here too. Halves: window, app.
 | `:Log` | `(...any) -> ()` | Writes an information line. |
 | `:Warn` | `(...any) -> ()` | Writes a warning. |
 | `:Error` | `(...any) -> ()` | Writes an error, without raising one. |
+| `:Lines` | `() -> { ConsoleLine }` | Every plugin's lines, oldest first; a repeat of the last line counts up. Read in a render, it redraws as lines come. |
+| `:Clear` | `() -> ()` | Drops every line. |
+| `:Eval` | `(pluginId: string, source: string) -> ConsoleEvalResult` | Runs Luau `source` in the window half of plugin `pluginId`, as Studio's command bar does: an expression's value, or a chunk's return value, as text. Local and beta builds only; elsewhere it fails. |
 
 ### Toast
 
@@ -409,15 +412,16 @@ The app's own updates. Halves: window, app.
 
 ### Diagnostics
 
-Developer diagnostics. Local and beta builds only; elsewhere every method returns nil. Halves: window, app.
+Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil. Halves: window, app.
 
 | Member | Type | Description |
 |---|---|---|
 | `:Memory` | `() -> { [string]: any }?` | The process's memory counters. |
 | `:Metrics` | `(pluginId: string?) -> PluginMetrics?` | A plugin's live costs. Defaults to this plugin. |
-| `:Get` | `(name: string) -> any` | A developer setting, such as an experiment. |
-| `:Set` | `(name: string, value: any) -> ()` | Changes a developer setting. |
-| `:HeapSnapshotAsync` | `() -> SaveResult` | Writes a heap snapshot to the downloads folder. Yields. |
+| `:Plugins` | `() -> { string }` | The ids of the plugins running in this window, for a console's target. |
+| `:Get` | `(name: string) -> any` | A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes. |
+| `:Set` | `(name: string, value: any) -> ()` | Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab. |
+| `:HeapSnapshotAsync` | `() -> SaveResult` | Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it. Yields. |
 
 ### Power
 
@@ -550,6 +554,7 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `text-weaker` | text | Tertiary text: hints, placeholders and timestamps. |
 | `text-muted` | text | Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`. |
 | `text-faint` | text | Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`. |
+| `text-chrome` | text | Text in the app's chrome at full strength: menu and popover rows, header titles, list items. Hosts without a separate chrome scale use `text-strong`. |
 | `text-on-accent` | text | Text on an `accent` fill. |
 | `text-interactive` | text | Links and other interactive text. |
 | `icon-strong` | icon | An icon that needs emphasis. |
@@ -568,6 +573,16 @@ A `Color` is one of these tokens, or `ui.hex("#RRGGBB")`. The host resolves toke
 | `status-warning` | status | Needs attention. |
 | `status-danger` | status | Failed, blocked or destructive. |
 | `status-info` | status | Neutral information. |
+| `avatar-orange` | avatar | A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to. |
+| `avatar-yellow` | avatar | A letter tile's fill, the second of eight. |
+| `avatar-cyan` | avatar | A letter tile's fill, the third of eight. |
+| `avatar-green` | avatar | A letter tile's fill, the fourth of eight. |
+| `avatar-red` | avatar | A letter tile's fill, the fifth of eight. |
+| `avatar-pink` | avatar | A letter tile's fill, the sixth of eight. |
+| `avatar-blue` | avatar | A letter tile's fill, the seventh of eight. |
+| `avatar-purple` | avatar | A letter tile's fill, the eighth of eight. |
+| `avatar-text` | avatar | The letter on a tile. |
+| `avatar-ring` | avatar | The hairline inside a tile's edge. |
 
 ## Enums
 
@@ -1053,6 +1068,16 @@ How `ui.progressCircle` draws, as the app's ProgressCircle.
 |---|---|
 | `"compact"` | A 14-unit ring with a 1.5 stroke: the session header's. |
 | `"indicator"` | A 16-unit ring with a thicker stroke and an overlay over its track: a tab's. |
+
+### ConsoleLevel
+
+How serious a console line is.
+
+| Value | Meaning |
+|---|---|
+| `"info"` | `print` and `Console:Log`, and the host's own notes such as reloads. |
+| `"warn"` | `warn` and `Console:Warn`. |
+| `"error"` | An error a plugin raised or wrote with `Console:Error`. |
 
 ### TextDirection
 
@@ -1584,6 +1609,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `detail` | `string?` | Muted text at the row's end, such as a count. |
 | `popover` | `string` | The id of this plugin's popover the row opens. |
 | `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
+| `alert` | `boolean?` | Shows a danger dot before the detail: something in the nested list failed. |
+| `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
 
 ### UiMarkdownProps
 
@@ -1778,6 +1805,9 @@ A session as the app holds it.
 | `directory` | `string` | Its workspace folder. |
 | `title` | `string` | Its title. |
 | `parentId` | `string?` | The parent session of a subagent's session. |
+| `projectId` | `string?` | The project it belongs to. Nil for a folder outside any project. |
+| `agent` | `string?` | The agent it runs with, such as `build`. |
+| `variant` | `string?` | The model variant it runs with, such as `high`. Nil for the model's default. |
 | `busy` | `boolean` | A turn is running. |
 | `version` | `number` | Changes whenever anything here does: put it in a memo's version. |
 | `cost` | `number` | What it cost in USD, its subagents' sessions included. |
@@ -2348,6 +2378,30 @@ A loopback endpoint that turns `SSH_ASKPASS` prompts into signals.
 | `.Prompted` | `Signal<AskpassPrompt>` | Fires with each prompt. |
 | `:Close` | `() -> ()` | Stops listening. |
 
+### ConsoleLine
+
+One line of the Studio console.
+
+| Field | Type | Description |
+|---|---|---|
+| `plugin` | `string` | The plugin that wrote it. |
+| `level` | `ConsoleLevel` | How serious it is. |
+| `message` | `string` | What it says. An error's traceback follows its first line. |
+| `file` | `string?` | The `.luau` file the message names, such as `init.luau`. |
+| `line` | `number?` | The line in `file`. |
+| `href` | `string?` | A `file://` link to that line, when the plugin runs from a folder. |
+| `count` | `number` | How many times it was written in a row. |
+
+### ConsoleEvalResult
+
+What `Console:Eval` gave back.
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `boolean` | It ran without an error. |
+| `value` | `string?` | Its value as text. |
+| `error` | `string?` | The error it raised. |
+
 ### PluginMetrics
 
 A plugin's live costs.
@@ -2647,6 +2701,7 @@ One complete fenced code block.
 | `code` | `string` | The source between the fences. |
 | `language` | `string` | The fence's language, lowercased. Empty when it has none. |
 | `sessionId` | `string?` | The session that shows it. |
+| `streaming` | `boolean?` | The reply it is in still streams: the block may grow, and may not be closed yet. |
 
 ### CodeBlockSpec
 

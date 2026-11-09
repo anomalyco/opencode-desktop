@@ -38,8 +38,7 @@ fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         if p.flags & PANEL_FALLBACK != 0 { tab.fallback() } else { tab }
     });
     let failed = host.slots.iter().filter(|s| s.state == PluginState::Failed).flat_map(|s| &s.tabs);
-    let console = ctx.open_ids.iter().any(|id| id == super::luau::console::TAB).then(super::luau::console::tab);
-    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).chain(console).collect()
+    running.chain(instances).chain(failed.map(|(tab, title, icon)| PanelTabDesc::new(tab.clone(), title.clone()).icon(icon_by_name(Some(icon))))).collect()
 }
 
 /// The tabs of instance panel `p` the session has open (`<plugin>.<panel>/<instance>`), as the
@@ -127,9 +126,6 @@ fn open_entry(app: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {
 }
 
 fn render(app: &App, pal: &Pal, ctx: &PanelViewCtx) -> El {
-    if ctx.tab.id == super::luau::console::TAB {
-        return super::luau::console::view(app, pal);
-    }
     let host = &app.plugins;
     let (base, instance) = ctx.tab.id.split_once('/').unwrap_or((&ctx.tab.id, ""));
     let (plugin, panel) = base.split_once('.').unwrap_or((base, ""));

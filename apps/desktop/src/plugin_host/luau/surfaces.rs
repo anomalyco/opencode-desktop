@@ -213,12 +213,27 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .child(content);
         return vec![scrim, crate::popover::place(&app.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
     }
-    let super::Overlay::Popover { anchor, side, align, gap, .. } = &app.plugins.luau.overlay else { return Vec::new() };
+    let super::Overlay::Popover { anchor, side, align, gap, flyout, .. } = &app.plugins.luau.overlay else { return Vec::new() };
     let found = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()));
     let Some((key, Some(f))) = found else { return Vec::new() };
     let content = render(app, p, i, &format!("popover:{id}"), &f, map([("data", data.clone())]));
     let content = col().key(format!("plugin-popover-{key}")).child(content);
-    vec![scrim, crate::popover::place(&app.knobs, content, anchor, *side, *align, *gap)]
+    let mut out = vec![scrim, crate::popover::place(&app.knobs, content, anchor, *side, *align, *gap)];
+    out.extend(flyout_view(app, p, i, flyout));
+    out
+}
+
+/// The list a popover row opened, hung beside its row (drawn after the popover that holds the
+/// row): its top 2 above the row's, so its first row lines up with it across the list's 2 inset
+/// (`session-service-flyout`, `translateY(row - 2)`), 2 out from the row, which sits 2 inside
+/// the card, so it meets the card's edge.
+fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &super::Flyout) -> Option<El> {
+    let super::Flyout::Open { id, row, side, data } = flyout else { return None };
+    let half = &app.plugins.luau.plugins[i].half;
+    let (key, f) = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()))?;
+    let content = render(app, p, i, &format!("flyout:{id}"), &f?, map([("data", data.clone())]));
+    // An anchored element keeps its anchor's top whatever its margin, so the list moves up inside it.
+    Some(col().key(format!("plugin-flyout-{key}")).anchored(row.clone(), *side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(col().mt(-2.0).child(content)))
 }
 
 /// The open Luau dialog over a scrim, as the app's own dialogs sit.
@@ -266,6 +281,47 @@ pub fn settings_page_body(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_s
 }
 
 // ---- Files and code blocks ---------------------------------------------------------------------
+
+thread_local! {
+    /// The host's own view of the code block a plugin renders now, for `ui.genUi` to place.
+    static NATIVE: std::cell::RefCell<Option<El>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Takes the host's view of the block being rendered (`ui.genUi`); None outside a code block.
+pub fn take_native() -> Option<El> {
+    NATIVE.take()
+}
+
+/// The running plugin and code block that render ```` ```language ```` blocks.
+fn code_block_of(app: &App, language: &str) -> Option<(usize, opencode_plugin_spec::CodeBlockSpec, Option<Function>)> {
+    each::<(), _>(app, |c| c.code_blocks.iter().map(|c| (c.spec.clone(), c.f("render").cloned())).collect())
+        .into_iter()
+        .find(|(_, (spec, _))| spec.languages.iter().any(|l| l.eq_ignore_ascii_case(language)))
+        .map(|(i, (spec, f))| (i, spec, f))
+}
+
+pub fn code_block_lang(app: &App, language: &str) -> bool {
+    code_block_of(app, language).is_some()
+}
+
+/// A plugin's view of one ```` ```language ```` block (`CodeBlock.render`), `native` the host's
+/// own view of it, which `ui.genUi` places; `version` moves whenever `native` does.
+#[allow(clippy::too_many_arguments)]
+pub fn code_block(app: &App, p: &Pal, language: &str, key: &str, code: &str, streaming: bool, version: u64, native: El) -> Option<El> {
+    let Some((i, spec, Some(f))) = code_block_of(app, language) else { return Some(native) };
+    let props = map([
+        ("code", Data::String(code.to_owned())),
+        ("language", Data::String(language.to_ascii_lowercase())),
+        ("sessionId", app.active_session_id().map_or(Data::Nil, |s| Data::String(s.to_owned()))),
+        ("streaming", Data::Bool(streaming)),
+        // Not the contract's: what the host's own view draws from, so a memo of it moves too.
+        ("revision", Data::Integer(version as i64)),
+    ]);
+    NATIVE.set(Some(native));
+    let built = render(app, p, i, &format!("code:{}:{key}", spec.id), &f, props);
+    NATIVE.take();
+    Some(built)
+}
 
 /// A Luau plugin's view of file `path`, when a file viewer takes its extension.
 pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &str) -> Option<El> {

@@ -38,8 +38,19 @@ pub fn all() -> Vec<HostNode> {
         pending("fileTree", "LU-6"),
         pending("panelSidebar", "LU-6"),
         pending("openInButton", "LU-6"),
-        pending("genUi", "LU-3"),
+        HostNode::new("genUi", gen_ui),
     ]
+}
+
+/// `ui.genUi`: a ```` ```ui ```` outline as parts (`rune_parts`). In a reply's code block it is
+/// the timeline's own view of that block, with Find's marks, selection and the reply's width;
+/// anywhere else it parses `source` itself at the content width.
+fn gen_ui(a: &mut NodeArgs) -> Result<El, String> {
+    if let Some(native) = super::surfaces::take_native() {
+        return Ok(native);
+    }
+    let width = a.number("w").map_or_else(session_view::style::content_w, |w| w as f32);
+    Ok(session_view::genui::standalone::<App>(&p(a), a.string("source").unwrap_or_default(), width, a.flag("streaming")).unwrap_or_else(el))
 }
 
 fn p(a: &NodeArgs) -> Pal {
@@ -204,6 +215,8 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let editor = a.data("editor").ok_or("ui.field needs an editor from ctx:CreateEditor")?;
     let (Some(plugin), Some(index)) = (editor.get("plugin").as_str().map(str::to_owned), editor.get("id").as_i64()) else { return Err("ui.field needs an editor from ctx:CreateEditor".into()) };
     let index = index as usize;
+    // The field draws its editor's text, caret and focus: the render runs again as they change.
+    cx::read(cx::Dep::Editor(plugin.as_str().into(), index));
     let app = cx::app().ok_or("ui.field draws only in a render")?;
     let editors = app.plugins.luau.editors.borrow();
     let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
@@ -263,25 +276,66 @@ fn settings_list(a: &mut NodeArgs) -> Result<El, String> {
     })
 }
 
-/// A row that opens popover `popover` beside itself (a flyout): its icon, text, detail and
-/// chevron, as Session details' rows draw.
+/// A popover row that opens popover `popover` beside itself, as Session details' Extensions rows
+/// do (`session-summary-row session-service-trigger`, details.css): its icon, label, a danger dot
+/// (`alert`), the count (`detail`) and the chevron, lit while its list shows. The pointer
+/// coming onto it, or a click, shows its list ([`super::Flyout`]).
 fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
-    let mut r = row().role("button").w_full().h(28.0).pl(8.0).pr(6.0).gap(8.0).center_y().radius(4.0).hover(pal.hover).hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
+    let words = a.string("text").unwrap_or_default().to_owned();
+    let key = a.string("key").unwrap_or("flyout").to_owned();
+    let plugin = cx::rendering();
+    let expanded = plugin.as_ref().is_some_and(|plugin| {
+        cx::read(cx::Dep::Flyout(plugin.clone()));
+        cx::app().and_then(|app| app.plugins.luau.overlay.flyout_row(plugin)) == Some(key.as_str())
+    });
+    let mut r = row()
+        .role("button")
+        .label(words.clone())
+        .w_full()
+        .min_h(28.0)
+        .pl(12.0)
+        .pr(8.0)
+        .py(4.0)
+        .gap(8.0)
+        .center_y()
+        .radius(4.0)
+        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
+    // An open row's fill is the hover fill (`[data-expanded]`), which the pointer doesn't add to.
+    r = if expanded { r.fill(pal.hover) } else { r.hover(pal.hover) };
     if let Some(name) = a.string("icon") {
-        r = r.child(rune::icon(crate::plugin_host::icons::resolve("", name), 16.0).color(pal.icon));
+        r = r.child(rune::icon(crate::plugin_host::icons::resolve("", name), 16.0).color(pal.icon_muted));
     }
-    r = r.child(text(a.string("text").unwrap_or_default().to_owned()).font(crate::view::UI).color(pal.text).truncate().shrink().min_w(0.0)).child(rune::spacer());
-    if let Some(detail) = a.string("detail") {
-        r = r.child(text(detail.to_owned()).font(crate::view::UI).color(pal.faint).single_line());
+    r = r.child(text(words).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
+    if a.flag("alert") {
+        r = r.child(el().w(6.0).h(16.0).center().child(el().size(6.0, 6.0).radius(3.0).fill(pal.danger)));
     }
-    r = r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 14.0).color(pal.icon_faint));
-    let (Some(plugin), Some(popover), key) = (cx::rendering(), a.string("popover").map(str::to_owned), a.string("key").unwrap_or("flyout").to_owned()) else { return Ok(r) };
+    if let Some(detail) = a.string("detail").filter(|d| !d.is_empty()) {
+        r = r.child(text(detail.to_owned()).font(TextStyle::new(12.0, 440.0).lh(16.0).features("\"tnum\"")).color(pal.faint).single_line());
+    }
+    r = r.child(rune::icon(crate::plugin_host::icons::resolve("", "chevron-right"), 16.0).color(pal.icon_muted).ml(4.0));
+    let (Some(plugin), Some(popover)) = (plugin, a.string("popover").map(str::to_owned)) else { return Ok(r) };
+    let side = match a.string("side") {
+        Some("left") => rune::Side::Left,
+        Some("top") => rune::Side::Top,
+        Some("bottom") => rune::Side::Bottom,
+        _ => rune::Side::Right,
+    };
     let data = a.data("props").unwrap_or_default();
-    Ok(r.on_press_tx(move |app: &mut App, tx: &mut Tx| {
-        cx::ask(&plugin, cx::Request::OpenPopover { id: popover.clone(), anchor: key.clone(), side: rune::Side::Right, align: rune::Align::Start, gap: 6.0, data: data.clone(), toggle: true });
+    let show = move |app: &mut App, tx: &mut Tx| {
+        let event = super::FlyoutEvent::Row { id: popover.clone(), row: key.clone(), side, data: data.clone() };
+        cx::ask(&plugin, cx::Request::Flyout(event));
         super::requests::carry_out(app, tx);
-    }))
+    };
+    let show = std::rc::Rc::new(show);
+    let hover = show.clone();
+    Ok(r.key(a.string("key").unwrap_or("flyout").to_owned())
+        .on_hover_change(move |app: &mut App, inside: bool, tx: &mut Tx| {
+            if inside {
+                hover(app, tx);
+            }
+        })
+        .on_press_tx(move |app: &mut App, tx: &mut Tx| show(app, tx)))
 }
 
 fn markdown(a: &mut NodeArgs) -> Result<El, String> {

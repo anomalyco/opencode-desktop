@@ -72,12 +72,19 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
             return if type(v) == "number" then v else 0
         end
         local cache = t.cache or {}
-        tokens = { input = n(t.input), output = n(t.output), reasoning = n(t.reasoning), read = n(cache.read), write = n(cache.write) }
+        tokens = {
+            input = n(t.input),
+            output = n(t.output),
+            reasoning = n(t.reasoning),
+            read = n(cache.read),
+            write = n(cache.write),
+        }
         local m = last.value.model or {}
         provider, model = tostring(m.providerID or ""), tostring(m.id or "")
     elseif #raws == 0 and session and session.usage then
         local u = session.usage
-        tokens = { input = u.input, output = u.output, reasoning = u.reasoning, read = u.cacheRead, write = u.cacheWrite }
+        tokens =
+            { input = u.input, output = u.output, reasoning = u.reasoning, read = u.cacheRead, write = u.cacheWrite }
         provider, model = session.usageProviderId, session.usageModelId
     end
     local catalog = if provider and model then env.Models:Get(provider, model) else nil
@@ -125,7 +132,10 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
         return ui.col({ gap = 4, w = 0, grow = 1, minW = 0 }, {
             ui.text(pair[1], { size = TEXT.size, weight = TEXT.weight, lineHeight = 19, color = "text-weak" }),
             -- Two 19.5 lines on whole pixels: a row is 59 tall, as Desktop's.
-            ui.text(pair[2], { size = 13, weight = "medium", lineHeight = 20, color = "text-strong", selectable = true }),
+            ui.text(
+                pair[2],
+                { size = 13, weight = "medium", lineHeight = 20, color = "text-strong", selectable = true }
+            ),
         })
     end
     local perRow = if wide then 2 else 1
@@ -140,22 +150,36 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
     return ui.col({ key = "context-stats", w = "full", gap = 16 }, lines)
 end
 
-local function systemPrompt(env: Env, raws: { Raw }): ui.Node?
-    local prompt: string? = nil
+-- The latest system message's text, trimmed; nil when there is none.
+local function promptOf(raws: { Raw }): string?
     for i = #raws, 1, -1 do
         if raws[i].value.type == "system" then
             local text = raws[i].value.text
-            prompt = if type(text) == "string" then text:match("^%s*(.-)%s*$") else nil
-            break
+            local prompt = if type(text) == "string" then text:match("^%s*(.-)%s*$") else nil
+            return if prompt == "" then nil else prompt
         end
     end
-    if prompt == nil or prompt == "" then
-        return nil
-    end
+    return nil
+end
+
+local function systemPrompt(env: Env, prompt: string): ui.Node
     return ui.col({ key = "context-system", w = "full", gap = 8 }, {
-        ui.text(env.I18n:T("systemPrompt.title"), { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }),
+        ui.text(
+            env.I18n:T("systemPrompt.title"),
+            { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }
+        ),
         ui.col({ w = "full", px = 12, py = 8, radius = 6, border = "border-base", fill = "surface-1" }, {
-            ui.text(prompt, { size = 13, weight = "regular", lineHeight = 19.5, wrap = true, selectable = true, color = "text-strong" }),
+            ui.text(
+                prompt,
+                {
+                    size = 13,
+                    weight = "regular",
+                    lineHeight = 19.5,
+                    wrap = true,
+                    selectable = true,
+                    color = "text-chrome",
+                }
+            ),
         }),
     })
 end
@@ -182,7 +206,10 @@ local function startExport(env: Env, sid: string)
         local I18n = env.I18n
         local function failed(err: string?)
             env.state.export = { kind = "idle" }
-            env.Toast:Error(I18n:T("export.failed.title"), if err and err ~= "" then err else I18n:T("export.failed.description"))
+            env.Toast:Error(
+                I18n:T("export.failed.title"),
+                if err and err ~= "" then err else I18n:T("export.failed.description")
+            )
         end
         local res = env.Server:RequestAsync("GET", `/api/session/{sid}`)
         if not res.ok then
@@ -203,7 +230,9 @@ local function startExport(env: Env, sid: string)
             for _, item in json.items(json.member(page.text, "data") or "[]") do
                 table.insert(messages, item)
             end
-            local next = if type(page.json) == "table" and type(page.json.cursor) == "table" then page.json.cursor.next else nil
+            local next = if type(page.json) == "table" and type(page.json.cursor) == "table"
+                then page.json.cursor.next
+                else nil
             cursor = if type(next) == "string" then next else nil
         until cursor == nil
         local raw = `\{"info":{if info == "" then "{}" else info},"messages":[{table.concat(messages, ",")}]\}`
@@ -234,15 +263,31 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
         hoverTransition = "instant",
         hoverGroup = true,
         opacity = if disabled then 0.5 else 1,
-        onPress = if disabled then nil else view:Handler(function()
-            startExport(env, sid)
-        end),
+        onPress = if disabled
+            then nil
+            else view:Handler(function()
+                startExport(env, sid)
+            end),
     }, {
-        ui.icon("download", { size = 14, color = "text-weak", hoverGroupColor = "text-strong" }),
-        ui.text(env.I18n:T("export.session"), { size = 13, weight = "medium", lineHeight = 20, tracking = -0.04, tabular = true, color = "text-weak", hoverGroupColor = "text-strong" }),
+        ui.icon("download", { size = 14, color = "text-weak", hoverGroupColor = "text-chrome" }),
+        ui.text(
+            env.I18n:T("export.session"),
+            {
+                size = 13,
+                weight = "medium",
+                lineHeight = 20,
+                tracking = -0.04,
+                tabular = true,
+                color = "text-weak",
+                hoverGroupColor = "text-chrome",
+            }
+        ),
     })
     local head = ui.row({ w = "full", align = "center", justify = "between" }, {
-        ui.text(env.I18n:T("rawMessages.title"), { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }),
+        ui.text(
+            env.I18n:T("rawMessages.title"),
+            { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }
+        ),
         export,
     })
     local open = env.state.open
@@ -274,16 +319,32 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
                 hoverTransition = "instant",
                 mt = if i > 1 then -1 else nil,
                 onPress = view:Handler(function()
-                    open[id] = if open[id] then nil else true
+                    open[id] = (if open[id] then nil else true) :: any
                 end),
             }, {
                 ui.row({ shrink = true, minW = 0, align = "center" }, {
-                    ui.text(`{kind} `, { size = 13, weight = "regular", lineHeight = 19.5, color = "text-strong", noWrap = true }),
-                    ui.text(`\u{2022} {id}`, { size = 13, weight = "regular", lineHeight = 19.5, color = "text-base", truncate = true, shrink = true }),
+                    ui.text(
+                        `{kind} `,
+                        { size = 13, weight = "regular", lineHeight = 19.5, color = "text-chrome", noWrap = true }
+                    ),
+                    ui.text(
+                        `\u{2022} {id}`,
+                        {
+                            size = 13,
+                            weight = "regular",
+                            lineHeight = 19.5,
+                            color = "text-base",
+                            truncate = true,
+                            shrink = true,
+                        }
+                    ),
                 }),
                 ui.spacer(),
                 ui.row({ gap = 12, align = "center" }, {
-                    ui.text(if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-", { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", noWrap = true }),
+                    ui.text(
+                        if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-",
+                        { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", noWrap = true }
+                    ),
                     ui.icon("chevron-grabber-vertical", { size = 14, color = "text-weak" }),
                 }),
             })
@@ -292,9 +353,31 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
             local corner = if last then lg else 0
             table.insert(
                 list,
-                ui.col({ key = `raw-body-{id}`, w = "full", pad = 12, corners = { 0, 0, corner, corner }, border = "border-base", mt = -1, fill = "bg-base" }, {
-                    ui.text(json.pretty(m.text), { size = 12, weight = "regular", lineHeight = 18, mono = true, wrap = true, selectable = true, color = "text-strong" }),
-                })
+                ui.col(
+                    {
+                        key = `raw-body-{id}`,
+                        w = "full",
+                        pad = 12,
+                        corners = { 0, 0, corner, corner },
+                        border = "border-base",
+                        mt = -1,
+                        fill = "bg-base",
+                    },
+                    {
+                        ui.text(
+                            json.pretty(m.text),
+                            {
+                                size = 12,
+                                weight = "regular",
+                                lineHeight = 18,
+                                mono = true,
+                                wrap = true,
+                                selectable = true,
+                                color = "text-chrome",
+                            }
+                        ),
+                    }
+                )
             )
         end
     end
@@ -344,15 +427,32 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
             end
             env.state.parsed[sid] = { generation = res.generation, raws = raws }
         end
-        local content = ui.col({ key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 }, {
-            stats(env, session, sid, raws, wide),
-            systemPrompt(env, raws) or false,
-            rawMessages(env, view, sid, raws, exporting),
-        } :: { any })
+        -- The figures and the system prompt move only with the session and its messages: a
+        -- rebuild for a raw message opening or an export reuses them.
+        local prompt = promptOf(raws)
+        local figures =
+            `{session and session.version}:{res.generation}:{wide}:{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
+        local content = ui.col(
+            { key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 },
+            {
+                view:Memo(`stats-{sid}`, figures, function()
+                    return stats(env, session, sid, raws, wide)
+                end),
+                if prompt
+                    then view:Memo(`system-{sid}`, figures, function()
+                        return systemPrompt(env, prompt :: string)
+                    end)
+                    else false,
+                rawMessages(env, view, sid, raws, exporting),
+            } :: { any }
+        )
         -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.
-        return ui.col({ key = "context-tab", w = "full", h = "full", pt = if props.placement == "mobile" then 0 else 8 }, {
-            ui.col({ key = "context-scroll", w = "full", grow = 1, minH = 0, scrollY = true }, { content }),
-        })
+        return ui.col(
+            { key = "context-tab", w = "full", h = "full", pt = if props.placement == "mobile" then 0 else 8 },
+            {
+                ui.col({ key = "context-scroll", w = "full", grow = 1, minH = 0, scrollY = true }, { content }),
+            }
+        )
     end)
 end
 

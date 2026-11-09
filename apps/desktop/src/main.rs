@@ -546,6 +546,12 @@ impl session_view::TimelineHost for App {
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
     }
+    fn code_block_lang(&self, language: &str) -> bool {
+        plugin_host::luau::surfaces::code_block_lang(self, language)
+    }
+    fn code_block(&self, p: &palette::Pal, language: &str, key: &str, code: &str, streaming: bool, version: u64, native: rune::El) -> Option<rune::El> {
+        plugin_host::luau::surfaces::code_block(self, p, language, key, code, streaming, version, native)
+    }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
     }

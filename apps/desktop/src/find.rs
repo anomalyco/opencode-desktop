@@ -399,6 +399,8 @@ impl App {
         // cloning message strings.
         let mut matches = Vec::new();
         let mut rows = HashMap::new();
+        // Outlines read as their words only while a plugin draws them (Rune UI).
+        let outlines = crate::plugin_host::luau::surfaces::code_block_lang(self, "ui");
         let mut record = |parts: &mut HashMap<(String, usize), CachedPart>, row_key: String, cache_key: (String, usize), body: &str, plain: bool| {
             let sig = str_sig(body);
             let len = body.len();
@@ -407,8 +409,10 @@ impl App {
             } else {
                 let computed: Vec<Vec<Range<usize>>> = if plain {
                     find_plain(body, &q).into_iter().map(|r| vec![r]).collect()
-                } else {
+                } else if outlines {
                     crate::genui::find(body, &q)
+                } else {
+                    rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Insensitive)
                 };
                 parts.insert(cache_key, CachedPart { len, head_tail: sig, ranges: computed.clone() });
                 computed

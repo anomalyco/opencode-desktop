@@ -49,9 +49,14 @@ fn request(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         other => Some(Data::from_lua(other, lua)?.to_json()),
     };
     let app = cx::app().ok_or_else(|| mlua::Error::runtime("Server:RequestAsync needs a window"))?;
+    // A window without a server (a fixture) runs no jobs: answer at once rather than never.
+    if !app.live() && !path.starts_with("local:") {
+        done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String("This window has no server".into()))]));
+        return Ok(());
+    }
     let send = move |srv: &opencode_kit::client::Server, path: &str| {
         let answer = if method.eq_ignore_ascii_case("GET") {
-            srv.get_text(path).map(|text| (serde_json::from_str(&text).ok(), text))
+            srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text))
         } else {
             srv.call_within(&method.to_ascii_uppercase(), path, body, Duration::from_secs(600)).map(|v| {
                 let text = v.to_string();

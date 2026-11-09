@@ -1,5 +1,5 @@
 //! Store (values kept with the app, shared by every window), Contracts (values one plugin
-//! half provides and others use, across VMs), Console and Diagnostics.
+//! half provides and others use, across VMs) and Console (the Studio output and command bar).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
     match name {
         "Store" => store(lua, vmx, t),
         "Contracts" => contracts(lua, vmx, t),
-        "Console" => {
+        _ => {
             for (name, level) in [("Log", LogLevel::Info), ("Warn", LogLevel::Warn), ("Error", LogLevel::Error)] {
                 let plugin = vmx.half.id.clone();
                 method(lua, t, name, move |_, args: Variadic<Value>| {
@@ -41,9 +41,35 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
                     Ok(())
                 })?;
             }
-            Ok(())
+            method(lua, t, "Lines", |lua, ()| {
+                cx::read(Dep::Console);
+                let app = app_now("Console:Lines")?;
+                console::lines(app).into_lua(lua)
+            })?;
+            method(lua, t, "Clear", |_, ()| {
+                console::clear();
+                crate::plugin_host::luau::bump();
+                Ok(())
+            })?;
+            let own = vmx.half.id.clone();
+            method(lua, t, "Eval", move |lua, (plugin, source): (String, String)| {
+                let app = app_now("Console:Eval")?;
+                let result = if !super::diag::debug_build() {
+                    Err("The console's command bar runs in local and beta builds only".to_owned())
+                } else if *own == *plugin {
+                    console::eval_here(lua, &source)
+                } else {
+                    console::eval(app, &plugin, &source)
+                };
+                let out = lua.create_table()?;
+                out.raw_set("ok", result.is_ok())?;
+                match result {
+                    Ok(value) => out.raw_set("value", value)?,
+                    Err(e) => out.raw_set("error", e)?,
+                }
+                Ok(out)
+            })
         }
-        _ => diagnostics(lua, vmx, t),
     }
 }
 
@@ -238,21 +264,3 @@ fn set_path(lua: &Lua, root: &Value, path: &[String], v: Value) -> mlua::Result<
     Ok(())
 }
 
-fn diagnostics(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
-    let own = vmx.half.id.clone();
-    method(lua, t, "Metrics", move |lua, plugin: Option<String>| {
-        let app = app_now("Diagnostics:Metrics")?;
-        let id = plugin.unwrap_or_else(|| own.to_string());
-        let Some(m) = app.plugins.luau.metrics(&id) else { return Ok(Value::Nil) };
-        let out = lua.create_table()?;
-        out.raw_set("memoryKb", m.memory_kb)?;
-        out.raw_set("renderUs", m.render_us)?;
-        out.raw_set("memoHitRate", m.memo_hit_rate)?;
-        Ok(Value::Table(out))
-    })?;
-    method(lua, t, "Memory", |_, ()| Ok(Value::Nil))?;
-    method(lua, t, "Get", |_, _name: String| Ok(Value::Nil))?;
-    method(lua, t, "Set", |_, (_name, _value): (String, Value)| Ok(()))?;
-    method(lua, t, "HeapSnapshotAsync", |_, ()| -> mlua::Result<()> { Err(mlua::Error::runtime("Diagnostics:HeapSnapshotAsync isn't in this app yet (LU-3 brings it with the debug plugin)")) })?;
-    Ok(())
-}

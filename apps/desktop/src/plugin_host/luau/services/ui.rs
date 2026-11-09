@@ -113,13 +113,13 @@ fn toast(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Show", move |lua, spec: Value| {
         let s: spec::ToastSpec = decode(lua, spec, "ToastSpec")?;
         let reveal = s.actions.iter().flatten().find_map(|a| Some((a.label.clone(), a.reveal_path.clone()?)));
-        cx::ask(&q, Request::Toast { variant: s.variant.unwrap_or_default().as_str().to_owned(), title: s.title, description: s.description.unwrap_or_default(), reveal });
+        cx::ask(&q, Request::Toast { variant: s.variant.unwrap_or_default().as_str().to_owned(), title: s.title, description: s.description.unwrap_or_default(), reveal, persistent: s.persistent == Some(true) });
         handle(lua)
     })?;
     for (name, variant) in [("Info", "default"), ("Success", "success"), ("Error", "error")] {
         let q = p.clone();
         method(lua, t, name, move |lua, (title, description): (String, Option<String>)| {
-            cx::ask(&q, Request::Toast { variant: variant.to_owned(), title, description: description.unwrap_or_default(), reveal: None });
+            cx::ask(&q, Request::Toast { variant: variant.to_owned(), title, description: description.unwrap_or_default(), reveal: None, persistent: false });
             handle(lua)
         })?;
     }

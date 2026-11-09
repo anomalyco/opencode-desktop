@@ -157,6 +157,20 @@ pub trait TimelineHost: Sized + 'static {
         }
     }
 
+    /// Whether a plugin renders fenced code blocks of `language` (Desktop's `CodeBlock`): a
+    /// reply's ```` ```ui ```` outlines draw as parts only while one does.
+    fn code_block_lang(&self, language: &str) -> bool {
+        language == "ui"
+    }
+    /// The plugin's view of one such block, `code` its source between the fences, `key` its
+    /// place in the reply; `native` is the host's own view of it (an outline), which the plugin
+    /// places (`ui.genUi`), and `version` changes whenever `native` would. None keeps the
+    /// block as code.
+    #[allow(clippy::too_many_arguments)]
+    fn code_block(&self, _p: &palette::Pal, _language: &str, _key: &str, _code: &str, _streaming: bool, _version: u64, native: El) -> Option<El> {
+        Some(native)
+    }
+
     fn expanded(&self) -> &HashSet<String>;
     fn expanded_mut(&mut self) -> &mut HashSet<String>;
     fn shutting_map(&self) -> &HashMap<String, f64>;

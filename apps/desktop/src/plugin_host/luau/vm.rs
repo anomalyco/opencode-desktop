@@ -172,6 +172,7 @@ pub fn palette(name: &str, dark: bool) -> Option<Color> {
         "text-base" => desktop("text-base", p.muted),
         "text-weak" => desktop("text-weak", p.faint),
         "text-weaker" => desktop("text-weaker", p.icon_faint),
+        "text-chrome" => p.text,
         "text-muted" => p.muted,
         "text-faint" => p.faint,
         "text-on-accent" | "icon-on-accent" => p.on_fill,
@@ -191,6 +192,17 @@ pub fn palette(name: &str, dark: bool) -> Option<Color> {
         "status-warning" => p.warning,
         "status-danger" => p.danger,
         "status-info" => p.info,
+        "avatar-orange" => p.avatars[0].0,
+        "avatar-yellow" => p.avatars[1].0,
+        "avatar-cyan" => p.avatars[2].0,
+        "avatar-green" => p.avatars[3].0,
+        "avatar-red" => p.avatars[4].0,
+        "avatar-pink" => p.avatars[5].0,
+        "avatar-blue" => p.avatars[6].0,
+        "avatar-purple" => p.avatars[7].0,
+        "avatar-text" => p.avatar_fg,
+        // `site-icon`'s inset ring: `alpha-dark-12` in both schemes.
+        "avatar-ring" => desktop("alpha-dark-12", p.border),
         _ => return None,
     })
 }

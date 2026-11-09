@@ -1,20 +1,15 @@
-//! The plugin console, as Roblox Studio's Output: every plugin's `print`, `warn`, errors and
-//! reloads, newest last. An error is a card with its message, the source location as a link that
-//! opens the file at that line, and its traceback; repeats fold into a count. It opens as a tab
-//! in the side region (Show plugin console, Ctrl+Shift+J).
+//! The Studio console's lines, as Roblox Studio's Output keeps them: every plugin's `print`,
+//! `warn`, errors and reloads, newest last; a repeat of the last line counts up. The Debug
+//! plugin draws them (`Console:Lines`) with its command bar (`Console:Eval`), which runs Luau in
+//! a plugin's live VM.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use rune::{El, Tx, col, row, text};
-use rune_luau::{LogLevel, Reload};
+use mlua::{FromLua, Lua, MultiValue, Value};
+use rune_luau::{Data, LogLevel, Reload};
 
 use crate::App;
-use crate::palette::Pal;
-use crate::view::{UI, UI_SMALL};
-
-/// The console's tab id under the host's `plugin` panel.
-pub const TAB: &str = "luau-console";
 
 pub struct Line {
     pub plugin: String,
@@ -58,6 +53,16 @@ pub fn reloaded(plugin: &str, r: Reload) {
     push(plugin, LogLevel::Info, &format!("Reloaded in {:.2} ms (compile {:.2} ms off the UI thread, swap {:.2} ms)", ms(r.compile) + ms(r.swap), ms(r.compile), ms(r.swap)));
 }
 
+/// Moves with every line written, and with Clear.
+pub fn version() -> u64 {
+    VERSION.get()
+}
+
+pub fn clear() {
+    LINES.with_borrow_mut(VecDeque::clear);
+    VERSION.set(VERSION.get() + 1);
+}
+
 /// The first `name.luau:line` in a message.
 fn location(message: &str) -> Option<(String, u32)> {
     let at = message.find(".luau:")?;
@@ -66,62 +71,32 @@ fn location(message: &str) -> Option<(String, u32)> {
     Some((message[start..at + 5].to_owned(), digits.parse().ok()?))
 }
 
-/// The console's tab in the strip.
-pub fn tab() -> crate::panels::PanelTabDesc {
-    crate::panels::PanelTabDesc::new(TAB, "Plugin console").icon(crate::plugin_host::icons::resolve("", "console")).transient()
-}
-
-/// The console tab.
-pub fn view(app: &App, p: &Pal) -> El {
-    rune::memo::memo_with_hash("luau-console", VERSION.get() ^ u64::from(p.dark) ^ (p.generation << 1), || {
-        LINES.with_borrow(|lines| {
-            let cards: Vec<El> = lines.iter().enumerate().map(|(n, l)| card(app, p, n, l)).collect();
-            let head = row()
-                .w_full()
-                .center_y()
-                .child(text(summary(lines.len(), lines.iter().filter(|l| l.level == LogLevel::Error).count())).font(UI).color(p.faint))
-                .child(rune::spacer())
-                .child(
-                    row().key("luau-console-clear").role("button").label("Clear").h(24.0).px(8.0).radius(4.0).center().hover(p.hover).child(text("Clear").font(UI).color(p.muted)).on_press_tx(|_: &mut App, tx: &mut Tx| {
-                        tx.instant();
-                        LINES.with_borrow_mut(VecDeque::clear);
-                        VERSION.set(VERSION.get() + 1);
-                    }),
-                );
-            col().key("luau-console").w_full().h_full().pt(8.0).child(
-                col().key("luau-console-scroll").w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: true }).child(col().w_full().px(16.0).py(12.0).gap(8.0).child(head).children(cards)),
-            )
-        })
+/// Every line as `ConsoleLine` records, oldest first.
+pub fn lines(app: &App) -> Data {
+    LINES.with_borrow(|lines| {
+        Data::List(
+            lines
+                .iter()
+                .map(|l| {
+                    let level = match l.level {
+                        LogLevel::Error => "error",
+                        LogLevel::Warn => "warn",
+                        LogLevel::Info => "info",
+                    };
+                    let href = l.at.as_ref().and_then(|(file, line)| source_href(app, &l.plugin, file, *line));
+                    super::services::map([
+                        ("plugin", Data::String(l.plugin.clone())),
+                        ("level", Data::String(level.into())),
+                        ("message", Data::String(l.message.clone())),
+                        ("file", l.at.as_ref().map_or(Data::Nil, |(f, _)| Data::String(f.clone()))),
+                        ("line", l.at.as_ref().map_or(Data::Nil, |(_, n)| Data::Integer(i64::from(*n)))),
+                        ("href", href.map_or(Data::Nil, Data::String)),
+                        ("count", Data::Integer(i64::from(l.count))),
+                    ])
+                })
+                .collect(),
+        )
     })
-}
-
-fn card(app: &App, p: &Pal, n: usize, l: &Line) -> El {
-    let (ink, fill, border) = match l.level {
-        LogLevel::Error => (p.danger, p.danger_bg, p.danger_border),
-        LogLevel::Warn => (p.warning, p.layer1, p.border_muted),
-        LogLevel::Info => (p.muted, p.layer1, p.border_muted),
-    };
-    let mut lines = l.message.lines();
-    let first = lines.next().unwrap_or_default().to_owned();
-    let rest: Vec<&str> = lines.filter(|s| !s.trim().is_empty()).take(12).collect();
-    let mut head = row().w_full().gap(8.0).center_y().child(text(l.plugin.clone()).font(UI_SMALL).color(ink));
-    if let Some((file, line)) = &l.at {
-        let href = source_href(app, &l.plugin, file, *line);
-        let label = format!("{file}:{line}");
-        let link = text(label.clone()).font(UI_SMALL).color(p.accent).hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
-        head = head.child(match href {
-            Some(href) => row().key(format!("luau-console-at-{n}")).role("link").label(label).child(link).on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_reply_link(&href, tx)),
-            None => row().child(link),
-        });
-    }
-    if l.count > 1 {
-        head = head.child(text(format!("×{}", l.count)).font(UI_SMALL).color(p.faint));
-    }
-    let mut c = col().key(format!("luau-console-{n}")).w_full().px(12.0).py(8.0).gap(4.0).radius(6.0).fill(fill).border(1.0, border).child(head).child(text(first).font(UI).color(p.text).wrap().selectable(true));
-    if !rest.is_empty() {
-        c = c.child(text(rest.join("\n")).font(rune::TextStyle::new(11.0, 440.0).lh(16.0).mono()).color(p.faint).wrap().selectable(true));
-    }
-    c
 }
 
 /// `file://` link to `file` of plugin `plugin` at `line`, when the plugin runs from a folder.
@@ -131,7 +106,37 @@ fn source_href(app: &App, plugin: &str, file: &str, line: u32) -> Option<String>
     Some(format!("file://{}#L{line}", path.display()))
 }
 
-fn summary(lines: usize, errors: usize) -> String {
-    let word = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
-    format!("{}, {}", word(lines, "line", "lines"), word(errors, "error", "errors"))
+/// Runs `source` in plugin `plugin`'s window VM, under its watchdog: as an expression first
+/// (`return <source>`), else as a chunk.
+pub fn eval(app: &App, plugin: &str, source: &str) -> Result<String, String> {
+    let script = app.plugins.luau.plugins.iter().find(|p| p.manifest.id == plugin).and_then(super::Plugin::script).ok_or_else(|| format!("{plugin} isn't running in this window"))?;
+    let f = script.with_lua(|lua| compile(lua, source)).ok_or("the plugin has no VM")??;
+    let values = super::cx::with_app(app, || script.eval_fn::<MultiValue>(&f, ())).map_err(|e| e.message)?;
+    script.with_lua(|lua| show(lua, values)).ok_or_else(|| "the plugin has no VM".to_owned())
 }
+
+/// [`eval`] in the VM asking: the console's own plugin, already running.
+pub fn eval_here(lua: &Lua, source: &str) -> Result<String, String> {
+    let f = compile(lua, source)?;
+    let values = f.call::<MultiValue>(()).map_err(|e| e.to_string())?;
+    Ok(show(lua, values))
+}
+
+fn compile(lua: &Lua, source: &str) -> Result<mlua::Function, String> {
+    lua.load(format!("return {source}")).set_name("=console").into_function().or_else(|_| lua.load(source).set_name("=console").into_function()).map_err(|e| e.to_string())
+}
+
+/// Values as the console shows them: plain data as JSON, anything else as Luau names it.
+fn show(lua: &Lua, values: MultiValue) -> String {
+    if values.is_empty() {
+        return "nil".to_owned();
+    }
+    let one = |v: Value| match &v {
+        Value::Nil => "nil".to_owned(),
+        Value::String(s) => format!("{:?}", s.to_string_lossy()),
+        Value::Table(_) => Data::from_lua(v.clone(), lua).ok().map_or_else(|| v.to_string().unwrap_or_default(), |d| serde_json::to_string_pretty(&d.to_json()).unwrap_or_default()),
+        _ => v.to_string().unwrap_or_else(|_| v.type_name().to_owned()),
+    };
+    values.into_iter().map(one).collect::<Vec<_>>().join("\t")
+}
+

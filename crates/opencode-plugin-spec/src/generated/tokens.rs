@@ -39,6 +39,8 @@ string_enum! {
         TextMuted = "text-muted",
         /// Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`.
         TextFaint = "text-faint",
+        /// Text in the app's chrome at full strength: menu and popover rows, header titles, list items. Hosts without a separate chrome scale use `text-strong`.
+        TextChrome = "text-chrome",
         /// Text on an `accent` fill.
         TextOnAccent = "text-on-accent",
         /// Links and other interactive text.
@@ -75,6 +77,26 @@ string_enum! {
         StatusDanger = "status-danger",
         /// Neutral information.
         StatusInfo = "status-info",
+        /// A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to.
+        AvatarOrange = "avatar-orange",
+        /// A letter tile's fill, the second of eight.
+        AvatarYellow = "avatar-yellow",
+        /// A letter tile's fill, the third of eight.
+        AvatarCyan = "avatar-cyan",
+        /// A letter tile's fill, the fourth of eight.
+        AvatarGreen = "avatar-green",
+        /// A letter tile's fill, the fifth of eight.
+        AvatarRed = "avatar-red",
+        /// A letter tile's fill, the sixth of eight.
+        AvatarPink = "avatar-pink",
+        /// A letter tile's fill, the seventh of eight.
+        AvatarBlue = "avatar-blue",
+        /// A letter tile's fill, the eighth of eight.
+        AvatarPurple = "avatar-purple",
+        /// The letter on a tile.
+        AvatarText = "avatar-text",
+        /// The hairline inside a tile's edge.
+        AvatarRing = "avatar-ring",
     }
 }
 
@@ -83,12 +105,13 @@ impl SemanticToken {
     pub fn group(self) -> &'static str {
         match self {
             Self::Accent | Self::AccentHover | Self::AccentSubtle => "accent",
+            Self::AvatarOrange | Self::AvatarYellow | Self::AvatarCyan | Self::AvatarGreen | Self::AvatarRed | Self::AvatarPink | Self::AvatarBlue | Self::AvatarPurple | Self::AvatarText | Self::AvatarRing => "avatar",
             Self::BgBase | Self::BgWeak | Self::BgStrong => "background",
             Self::BorderStrong | Self::BorderBase | Self::BorderWeak | Self::BorderFocus => "border",
             Self::IconStrong | Self::IconBase | Self::IconWeak | Self::IconWeaker | Self::IconOnAccent => "icon",
             Self::StatusSuccess | Self::StatusWarning | Self::StatusDanger | Self::StatusInfo => "status",
             Self::Surface1 | Self::Surface2 | Self::Surface3 | Self::Surface4 | Self::SurfaceHover | Self::SurfacePress | Self::SurfaceSelected => "surface",
-            Self::TextStrong | Self::TextBase | Self::TextWeak | Self::TextWeaker | Self::TextMuted | Self::TextFaint | Self::TextOnAccent | Self::TextInteractive => "text",
+            Self::TextStrong | Self::TextBase | Self::TextWeak | Self::TextWeaker | Self::TextMuted | Self::TextFaint | Self::TextChrome | Self::TextOnAccent | Self::TextInteractive => "text",
         }
     }
 }

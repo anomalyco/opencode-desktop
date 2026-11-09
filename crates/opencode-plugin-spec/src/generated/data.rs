@@ -122,6 +122,12 @@ pub struct Session {
     pub title: String,
     /// The parent session of a subagent's session.
     pub parent_id: Option<String>,
+    /// The project it belongs to. Nil for a folder outside any project.
+    pub project_id: Option<String>,
+    /// The agent it runs with, such as `build`.
+    pub agent: Option<String>,
+    /// The model variant it runs with, such as `high`. Nil for the model's default.
+    pub variant: Option<String>,
     /// A turn is running.
     pub busy: bool,
     /// Changes whenever anything here does: put it in a memo's version.
@@ -145,7 +151,7 @@ pub struct Session {
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "providerId", "modelId", "created", "updated", "messages"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -712,6 +718,42 @@ pub struct QrCode {
     pub modules: Vec<bool>,
 }
 impl_record!(QrCode, ["size", "modules"], [], []);
+
+/// One line of the Studio console.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ConsoleLine {
+    /// The plugin that wrote it.
+    pub plugin: String,
+    /// How serious it is.
+    pub level: ConsoleLevel,
+    /// What it says. An error's traceback follows its first line.
+    pub message: String,
+    /// The `.luau` file the message names, such as `init.luau`.
+    pub file: Option<String>,
+    /// The line in `file`.
+    pub line: Option<i64>,
+    /// A `file://` link to that line, when the plugin runs from a folder.
+    pub href: Option<String>,
+    /// How many times it was written in a row.
+    pub count: i64,
+}
+impl_record!(ConsoleLine, ["plugin", "level", "message", "file", "line", "href", "count"], [], []);
+
+/// What `Console:Eval` gave back.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ConsoleEvalResult {
+    /// It ran without an error.
+    pub ok: bool,
+    /// Its value as text.
+    pub value: Option<String>,
+    /// The error it raised.
+    pub error: Option<String>,
+}
+impl_record!(ConsoleEvalResult, ["ok", "value", "error"], [], []);
 
 /// A plugin's live costs.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

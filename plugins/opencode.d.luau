@@ -22,6 +22,7 @@ export type SemanticToken =
     | "text-weaker" -- Tertiary text: hints, placeholders and timestamps.
     | "text-muted" -- Secondary text in the app's chrome: header figures' labels, menu row names, tab titles. Hosts without a separate chrome scale use `text-weak`.
     | "text-faint" -- Quiet figures and hints in the app's chrome, such as a header's counts. Hosts without a separate chrome scale use `text-weaker`.
+    | "text-chrome" -- Text in the app's chrome at full strength: menu and popover rows, header titles, list items. Hosts without a separate chrome scale use `text-strong`.
     | "text-on-accent" -- Text on an `accent` fill.
     | "text-interactive" -- Links and other interactive text.
     | "icon-strong" -- An icon that needs emphasis.
@@ -40,6 +41,16 @@ export type SemanticToken =
     | "status-warning" -- Needs attention.
     | "status-danger" -- Failed, blocked or destructive.
     | "status-info" -- Neutral information.
+    | "avatar-orange" -- A letter tile's fill, as the app's project avatars draw: the first of eight a name hashes to.
+    | "avatar-yellow" -- A letter tile's fill, the second of eight.
+    | "avatar-cyan" -- A letter tile's fill, the third of eight.
+    | "avatar-green" -- A letter tile's fill, the fourth of eight.
+    | "avatar-red" -- A letter tile's fill, the fifth of eight.
+    | "avatar-pink" -- A letter tile's fill, the sixth of eight.
+    | "avatar-blue" -- A letter tile's fill, the seventh of eight.
+    | "avatar-purple" -- A letter tile's fill, the eighth of eight.
+    | "avatar-text" -- The letter on a tile.
+    | "avatar-ring" -- The hairline inside a tile's edge.
 
 -- Enums -------------------------------------------------------------------------------------------
 
@@ -177,6 +188,9 @@ export type StoreScope = "global" | "session"
 
 --- How `ui.progressCircle` draws, as the app's ProgressCircle.
 export type ProgressAppearance = "compact" | "indicator"
+
+--- How serious a console line is.
+export type ConsoleLevel = "info" | "warn" | "error"
 
 --- Which way the interface language reads.
 export type TextDirection = "ltr" | "rtl"
@@ -1735,6 +1749,10 @@ export type UiFlyoutRowProps = {
     popover: string,
     --- Passed to the nested popover's render as `props.data`.
     props: { [string]: any }?,
+    --- Shows a danger dot before the detail: something in the nested list failed.
+    alert: boolean?,
+    --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
+    side: Side?,
 }
 
 --- `ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.
@@ -2567,6 +2585,12 @@ export type Session = {
     title: string,
     --- The parent session of a subagent's session.
     parentId: string?,
+    --- The project it belongs to. Nil for a folder outside any project.
+    projectId: string?,
+    --- The agent it runs with, such as `build`.
+    agent: string?,
+    --- The model variant it runs with, such as `high`. Nil for the model's default.
+    variant: string?,
     --- A turn is running.
     busy: boolean,
     --- Changes whenever anything here does: put it in a memo's version.
@@ -3247,6 +3271,34 @@ export type AskpassListener = {
     Close: (self: AskpassListener) -> (),
 }
 
+--- One line of the Studio console.
+export type ConsoleLine = {
+    --- The plugin that wrote it.
+    plugin: string,
+    --- How serious it is.
+    level: ConsoleLevel,
+    --- What it says. An error's traceback follows its first line.
+    message: string,
+    --- The `.luau` file the message names, such as `init.luau`.
+    file: string?,
+    --- The line in `file`.
+    line: number?,
+    --- A `file://` link to that line, when the plugin runs from a folder.
+    href: string?,
+    --- How many times it was written in a row.
+    count: number,
+}
+
+--- What `Console:Eval` gave back.
+export type ConsoleEvalResult = {
+    --- It ran without an error.
+    ok: boolean,
+    --- Its value as text.
+    value: string?,
+    --- The error it raised.
+    error: string?,
+}
+
 --- A plugin's live costs.
 export type PluginMetrics = {
     --- Luau heap in KB.
@@ -3615,6 +3667,8 @@ export type CodeBlockProps = {
     language: string,
     --- The session that shows it.
     sessionId: string?,
+    --- The reply it is in still streams: the block may grow, and may not be closed yet.
+    streaming: boolean?,
 }
 
 --- Renders the fenced code blocks of some languages as your own UI. Desktop's plugin API calls it `CodeBlock`.
@@ -3917,6 +3971,12 @@ export type ConsoleService = {
     Warn: (self: ConsoleService, ...any) -> (),
     --- Writes an error, without raising one.
     Error: (self: ConsoleService, ...any) -> (),
+    --- Every plugin's lines, oldest first; a repeat of the last line counts up. Read in a render, it redraws as lines come.
+    Lines: (self: ConsoleService) -> { ConsoleLine },
+    --- Drops every line.
+    Clear: (self: ConsoleService) -> (),
+    --- Runs Luau `source` in the window half of plugin `pluginId`, as Studio's command bar does: an expression's value, or a chunk's return value, as text. Local and beta builds only; elsewhere it fails.
+    Eval: (self: ConsoleService, pluginId: string, source: string) -> ConsoleEvalResult,
 }
 
 --- Short messages in a corner of the window. From the app half, in the focused window. Both halves: `ctx:GetService("Toast")`.
@@ -4109,17 +4169,19 @@ export type UpdaterService = {
     StateChanged: Signal<UpdaterState>,
 }
 
---- Developer diagnostics. Local and beta builds only; elsewhere every method returns nil. Both halves: `ctx:GetService("Diagnostics")`.
+--- Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil. Both halves: `ctx:GetService("Diagnostics")`.
 export type DiagnosticsService = {
     --- The process's memory counters.
     Memory: (self: DiagnosticsService) -> { [string]: any }?,
     --- A plugin's live costs. Defaults to this plugin.
     Metrics: (self: DiagnosticsService, pluginId: string?) -> PluginMetrics?,
-    --- A developer setting, such as an experiment.
+    --- The ids of the plugins running in this window, for a console's target.
+    Plugins: (self: DiagnosticsService) -> { string },
+    --- A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes.
     Get: (self: DiagnosticsService, name: string) -> any,
-    --- Changes a developer setting.
+    --- Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab.
     Set: (self: DiagnosticsService, name: string, value: any) -> (),
-    --- Writes a heap snapshot to the downloads folder. Yields: call it from a handler, a task or a signal callback.
+    --- Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it. Yields: call it from a handler, a task or a signal callback.
     HeapSnapshotAsync: (self: DiagnosticsService) -> SaveResult,
 }
 

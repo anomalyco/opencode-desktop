@@ -105,9 +105,20 @@ function indicator.header(env: Env, view: View, props: SlotProps): ui.Node?
             local label = env.I18n:T("usage.view")
             -- The memo keys its root, so the button's own key sits a level down.
             return ui.row({}, {
-                button(label, { circle }, view:Handler(function()
-                    env.Popover:Toggle({ id = "usage", anchorKey = "context-usage", side = "bottom", align = "end", gap = 4 })
-                end), open),
+                button(
+                    label,
+                    { circle },
+                    view:Handler(function()
+                        env.Popover:Toggle({
+                            id = "usage",
+                            anchorKey = "context-usage",
+                            side = "bottom",
+                            align = "end",
+                            gap = 4,
+                        })
+                    end),
+                    open
+                ),
             })
         end
         local function figure(key: string, words: string, value: number): ui.Node
@@ -131,16 +142,27 @@ function indicator.header(env: Env, view: View, props: SlotProps): ui.Node?
             table.insert(
                 children,
                 ui.box({ w = 6, center = true }, {
-                    ui.text("\u{b7}", { size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-faint" }),
+                    ui.text(
+                        "\u{b7}",
+                        { size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-faint" }
+                    ),
                 })
             )
-            table.insert(children, figure(`cost-{sid}`, env.I18n:Number(usage.cost, { style = "currency" }), math.round(usage.cost * 100)))
+            table.insert(
+                children,
+                figure(`cost-{sid}`, env.I18n:Number(usage.cost, { style = "currency" }), math.round(usage.cost * 100))
+            )
         end
         local label = env.I18n:T("usage.toggle")
         return ui.row({}, {
-            button(label, children, view:Handler(function()
-                env.Layout:TogglePanel("main")
-            end), false),
+            button(
+                label,
+                children,
+                view:Handler(function()
+                    env.Layout:TogglePanel("main")
+                end),
+                false
+            ),
         })
     end)
 end
@@ -155,16 +177,40 @@ function indicator.menu(env: Env, view: View, _props: PopoverProps): ui.Node?
     local font = { size = 13, weight = "regular" :: FontWeight, lineHeight = 16, tracking = -0.04 }
     local function line(name: string, value: string): ui.Node
         return ui.row({ h = 28, px = 12, gap = 16, align = "center" }, {
-            ui.text(name, { size = font.size, weight = font.weight, lineHeight = font.lineHeight, tracking = font.tracking, color = "text-muted", shrink = true }),
+            ui.text(
+                name,
+                {
+                    size = font.size,
+                    weight = font.weight,
+                    lineHeight = font.lineHeight,
+                    tracking = font.tracking,
+                    color = "text-muted",
+                    shrink = true,
+                }
+            ),
             ui.spacer(),
-            ui.text(value, { size = font.size, weight = font.weight, lineHeight = font.lineHeight, tracking = font.tracking, tabular = true, truncate = true, color = "text-strong" }),
+            ui.text(
+                value,
+                {
+                    size = font.size,
+                    weight = font.weight,
+                    lineHeight = font.lineHeight,
+                    tracking = font.tracking,
+                    tabular = true,
+                    truncate = true,
+                    color = "text-chrome",
+                }
+            ),
         })
     end
     local rows: { ui.Node } = { line(env.I18n:T("usage.tokens"), env.I18n:Number(usage.total)) }
     if usage.showCost then
         table.insert(rows, line(env.I18n:T("usage.cost"), env.I18n:Number(usage.cost, { style = "currency" })))
     end
-    table.insert(rows, line(env.I18n:T("usage.usage"), env.I18n:Number((usage.percent or 0) / 100, { style = "percent" })))
+    table.insert(
+        rows,
+        line(env.I18n:T("usage.usage"), env.I18n:Number((usage.percent or 0) / 100, { style = "percent" }))
+    )
     table.insert(rows, ui.box({ w = "full", py = 2 }, { ui.box({ w = "full", h = 1, fill = "border-weak" }) }))
     table.insert(
         rows,
@@ -183,7 +229,16 @@ function indicator.menu(env: Env, view: View, _props: PopoverProps): ui.Node?
                 env.Layout:OpenPanel("main")
             end),
         }, {
-            ui.text(env.I18n:T("usage.view"), { size = font.size, weight = font.weight, lineHeight = font.lineHeight, tracking = font.tracking, color = "text-strong" }),
+            ui.text(
+                env.I18n:T("usage.view"),
+                {
+                    size = font.size,
+                    weight = font.weight,
+                    lineHeight = font.lineHeight,
+                    tracking = font.tracking,
+                    color = "text-chrome",
+                }
+            ),
         })
     )
     return ui.col({
@@ -206,7 +261,10 @@ function indicator.label(env: Env, view: View, props: PanelTabLabelProps): ui.No
     return view:Memo("tab-label", `{percent}:{themeKey(env)}`, function()
         return ui.row({ gap = 8, align = "center" }, {
             ring(percent, true),
-            ui.text(env.I18n:T("tab.title"), { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true }),
+            ui.text(
+                env.I18n:T("tab.title"),
+                { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true }
+            ),
         })
     end)
 end

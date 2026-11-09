@@ -38,6 +38,10 @@ pub enum Seg {
         /// The fence's line in the reply (1-based), its key.
         line: usize,
         nodes: Vec<Node>,
+        /// The outline's source, between the fences.
+        code: Range<usize>,
+        /// Its closing fence hasn't come yet.
+        open: bool,
     },
 }
 
@@ -84,7 +88,8 @@ pub fn split(body: &str, streaming: bool) -> Option<Vec<Seg>> {
         }
         let rows = src.split_inclusive('\n').count();
         let close = if open { body.len() } else { start(line + rows + 1) };
-        out.push(Seg::Ui { at: fence..close, src_at: start(line), line, nodes });
+        let src_at = start(line);
+        out.push(Seg::Ui { at: fence..close, src_at, line, nodes, code: src_at..(src_at + src.len()).min(body.len()), open });
         at = close;
     }
     if at < end && !body[at..end].trim().is_empty() {
@@ -132,6 +137,10 @@ fn hits_in(hits: Hits<'_>, r: &Range<usize>) -> Vec<(usize, Vec<Range<usize>>, b
 /// A reply with outlines in it, or None to draw it as plain Markdown.
 /// `chips` are its session chips' tooltips (`session_chips::tips`).
 pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: bool, hits: Hits<'_>, chips: &[(String, String)]) -> Option<El> {
+    // Outlines draw as parts only while a plugin renders `ui` blocks (Rune UI); else as code.
+    if !s.code_block_lang("ui") {
+        return None;
+    }
     let segs = split(src, streaming)?;
     let width = width(s);
     let mut root: Option<El> = None;
@@ -146,11 +155,19 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))
             }
-            Seg::Ui { at, src_at, line, nodes } => {
+            Seg::Ui { at, src_at, line, nodes, code, open } => {
                 let marks: Vec<inline::Mark> = hits_in(hits, &at).into_iter().map(|(i, m, on)| (i, shift(m, at.start), on)).collect();
                 let lines: Vec<(usize, u64)> = nodes_lines(&nodes);
                 let ver = (lines, src_at, width.to_bits(), fade.to_bits(), p.dark, (p.theme, p.generation), &marks);
+                let version = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::hash::DefaultHasher::new();
+                    ver.hash(&mut h);
+                    h.finish()
+                };
                 let outline = rune::memo(format!("outline-{line}"), ver, || inline::outline::<S>(p, src, src_at, &nodes, width, fade, marks.clone()));
+                // The plugin that renders `ui` blocks places the outline (`ui.genUi`), or keeps the code.
+                let outline = s.code_block(p, "ui", &format!("outline-{line}"), &src[code], streaming && open, version, outline).unwrap_or_else(|| markdown_styled::<S, _>(p, &src[at.clone()], fade, false, markdown_style(p, p.text, width), Vec::<(Vec<Range<usize>>, rune_kit::Highlight)>::new(), crate::copied::current(s), None, chips));
                 // A pane that gains a sibling while it streams springs to its new width.
                 (col().key(format!("ui-{line}")).w_full().animate_layout().child(outline), UI_EDGES)
             }
@@ -162,6 +179,16 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
         below = bottom;
     }
     Some(root.unwrap_or_else(|| col().w_full()))
+}
+
+/// One outline on its own, outside a reply (a plugin's `ui.genUi`): `source` is the outline,
+/// without its fences.
+pub fn standalone<S: TimelineHost>(p: &Pal, source: &str, width: f32, streaming: bool) -> Option<El> {
+    let body = format!("```ui\n{source}\n```\n");
+    split(&body, streaming)?.into_iter().find_map(|s| match s {
+        Seg::Ui { src_at, nodes, .. } => Some(inline::outline::<S>(p, &body, src_at, &nodes, width, 0.0, Vec::new())),
+        Seg::Md(_) => None,
+    })
 }
 
 /// Every line of an outline and its hash, what it draws from.

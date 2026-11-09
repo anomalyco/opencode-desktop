@@ -52,10 +52,22 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 return;
             }
             tx.instant();
-            app.plugins.luau.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data };
+            app.plugins.luau.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::Closed };
             crate::popover::motion::opening(&app.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
+        Request::Flyout(event) => {
+            let Overlay::Popover { plugin: owner, flyout, .. } = &mut app.plugins.luau.overlay else { return };
+            if owner != plugin {
+                return;
+            }
+            let (next, changed) = std::mem::take(flyout).step(event);
+            *flyout = next;
+            if changed {
+                // Lists swap at once, as Desktop's do without the submenu motion knob.
+                tx.instant();
+            }
+        }
         Request::OpenDialog { id, data } => {
             tx.instant();
             app.plugins.luau.dialog = Some(OpenDialog { plugin: plugin.clone(), id, data });
@@ -65,9 +77,11 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 tx.instant();
             }
         }
-        Request::Toast { variant, title, description, reveal } => {
+        Request::Toast { variant, title, description, reveal, persistent } => {
             match variant.as_str() {
+                // A persistent toast stays until dismissed, as an error does.
                 "error" => crate::status_toast::fail(app, title, description),
+                v if persistent && v != "loading" => crate::status_toast::fail(app, title, description),
                 "loading" => {
                     crate::status_toast::waiting(app, &title);
                 }
@@ -125,6 +139,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 }
             });
         }
+        Request::Dev { name, value } => super::services::diag::apply(app, &name, value, tx),
         Request::Redraw => {}
     }
 }

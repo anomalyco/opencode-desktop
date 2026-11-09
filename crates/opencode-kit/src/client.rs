@@ -206,6 +206,20 @@ impl Server {
         self.get_timed(path, capabilities).map(|(v, _)| v)
     }
 
+    /// `get_text`, waiting out a server that answers 503 while it starts, as [`Self::get_ready`]
+    /// does: off the app's thread only.
+    pub fn get_text_ready(&self, path: &str) -> Result<String, String> {
+        let mut wait = Duration::from_millis(250);
+        for _ in 0..5 {
+            match self.get_text(path) {
+                Err(e) if e.ends_with("http status: 503") => std::thread::sleep(wait),
+                done => return done,
+            }
+            wait *= 2;
+        }
+        self.get_text(path)
+    }
+
     /// `GET path`'s body as the server wrote it, unparsed (its keys in the server's order).
     pub fn get_text(&self, path: &str) -> Result<String, String> {
         let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));

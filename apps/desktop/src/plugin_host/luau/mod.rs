@@ -87,20 +87,70 @@ impl Plugin {
     }
 }
 
-/// What a plugin shows over the window: nothing, a popover it placed, or a composer pill's menu
-/// (under the host's heading, above its pill). One at a time: opening one closes the other.
+/// What a plugin shows over the window: nothing, a popover it placed (with the list a
+/// `ui.flyoutRow` in it opened beside it), or a composer pill's menu (under the host's heading,
+/// above its pill). One at a time: opening one closes the other.
 #[derive(Default)]
 pub enum Overlay {
     #[default]
     Closed,
-    Popover { plugin: Rc<str>, id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: Data },
+    Popover { plugin: Rc<str>, id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: Data, flyout: Flyout },
     PillMenu { plugin: Rc<str>, id: String, anchor: String, data: Data },
 }
 
+/// The nested popover a popover's `ui.flyoutRow` opens beside its row: Session details'
+/// Extensions lists. Desktop's `flyout-machine.ts` without the pointer's aim (a list opens on
+/// the side away from the rows, so the pointer never crosses another row on its way).
+#[derive(Default)]
+pub enum Flyout {
+    #[default]
+    Closed,
+    Open { id: String, row: String, side: rune::Side, data: Data },
+}
+
+pub enum FlyoutEvent {
+    /// The pointer came onto a row (`row.entered`, and `row.moved` onto another row), or a click
+    /// on it (`row.activated`): its list shows, at once, in place of any other.
+    Row { id: String, row: String, side: rune::Side, data: Data },
+    /// A footer action, Escape, or the popover closing (`close`, `hidden`).
+    Close,
+}
+
+impl Flyout {
+    /// The next state, and whether anything shown changed.
+    pub fn step(self, event: FlyoutEvent) -> (Flyout, bool) {
+        match (self, event) {
+            (Flyout::Open { row, id, side, data }, FlyoutEvent::Row { row: r, .. }) if row == r => (Flyout::Open { id, row, side, data }, false),
+            (_, FlyoutEvent::Row { id, row, side, data }) => (Flyout::Open { id, row, side, data }, true),
+            (Flyout::Closed, FlyoutEvent::Close) => (Flyout::Closed, false),
+            (Flyout::Open { .. }, FlyoutEvent::Close) => (Flyout::Closed, true),
+        }
+    }
+
+    /// The row whose list shows.
+    pub fn row(&self) -> Option<&str> {
+        match self {
+            Flyout::Open { row, .. } => Some(row),
+            Flyout::Closed => None,
+        }
+    }
+}
+
 impl Overlay {
-    /// Whether plugin `plugin`'s popover `id` is open.
+    /// Whether plugin `plugin`'s popover `id` is open, on its own or as a row's list.
     pub fn popover_open(&self, plugin: &str, id: &str) -> bool {
-        matches!(self, Overlay::Popover { plugin: p, id: i, .. } if &**p == plugin && i == id)
+        match self {
+            Overlay::Popover { plugin: p, id: i, flyout, .. } if &**p == plugin => i == id || matches!(flyout, Flyout::Open { id: f, .. } if f == id),
+            _ => false,
+        }
+    }
+
+    /// The row of plugin `plugin`'s open popover whose list shows beside it.
+    pub fn flyout_row(&self, plugin: &str) -> Option<&str> {
+        match self {
+            Overlay::Popover { plugin: p, flyout, .. } if &**p == plugin => flyout.row(),
+            _ => None,
+        }
     }
 
     /// Whether plugin `plugin`'s pill `id` has its menu open.

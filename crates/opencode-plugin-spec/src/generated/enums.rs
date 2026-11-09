@@ -610,6 +610,18 @@ string_enum! {
 }
 
 string_enum! {
+    /// How serious a console line is.
+    pub enum ConsoleLevel {
+        /// `print` and `Console:Log`, and the host's own notes such as reloads.
+        Info = "info",
+        /// `warn` and `Console:Warn`.
+        Warn = "warn",
+        /// An error a plugin raised or wrote with `Console:Error`.
+        Error = "error",
+    }
+}
+
+string_enum! {
     /// Which way the interface language reads.
     pub enum TextDirection {
         /// Left to right.

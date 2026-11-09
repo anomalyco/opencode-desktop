@@ -59,9 +59,11 @@ pub enum Request {
     ClosePanel { panel: String },
     OpenPopover { id: String, anchor: String, side: rune::Side, align: rune::Align, gap: f32, data: rune_luau::Data, toggle: bool },
     ClosePopover,
+    /// A step of the open popover's row list (`ui.flyoutRow`).
+    Flyout(super::FlyoutEvent),
     OpenDialog { id: String, data: rune_luau::Data },
     CloseDialog,
-    Toast { variant: String, title: String, description: String, reveal: Option<(String, String)> },
+    Toast { variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool },
     OpenSettings(Option<String>),
     NewDraft { directory: String, prompt: String },
     RunCommand { id: String, input: Option<String> },
@@ -71,6 +73,8 @@ pub enum Request {
     CopyText(String),
     Notify { title: String, body: String },
     Menu { anchor: String, menu: crate::popup::Menu, done: rune_luau::Completer },
+    /// A developer tool (`Diagnostics:Set`).
+    Dev { name: String, value: rune_luau::Data },
     Redraw,
 }
 
@@ -95,12 +99,18 @@ pub enum Dep {
     Store(Rc<str>, String),
     Editor(Rc<str>, usize),
     Popover(Rc<str>, String),
+    /// Which row's list the plugin's open popover shows beside it.
+    Flyout(Rc<str>),
     Dialog(Rc<str>, String),
     Panel(Rc<str>, String),
     Narrow,
     Locale,
     Server,
     Contract(String),
+    /// A developer setting (`Diagnostics:Get`).
+    Dev(String),
+    /// The console's lines.
+    Console,
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.
