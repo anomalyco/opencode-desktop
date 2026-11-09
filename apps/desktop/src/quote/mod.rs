@@ -86,7 +86,6 @@ enum Settle {
 
 impl Quotes {
     /// The button is showing (or about to, once measured).
-    #[cfg(test)]
     pub fn offered(&self) -> bool {
         self.offer.is_some()
     }

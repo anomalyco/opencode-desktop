@@ -379,6 +379,11 @@ impl App {
     }
 
     /// Esc while a step's view shows: puts the side region back. True when it did.
+    /// A tool step's view is open in the side region (the escape stack's `ToolStep` layer).
+    pub(crate) fn tool_view_open(&self) -> bool {
+        self.tool_open.as_ref().is_some_and(|o| self.showing(o))
+    }
+
     pub fn dismiss_tool_step(&mut self, tx: &mut Tx) -> bool {
         let Some(o) = self.tool_open.take() else { return false };
         if !self.showing(&o) {

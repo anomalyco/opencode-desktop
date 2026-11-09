@@ -105,6 +105,13 @@ impl App {
     }
 }
 
+/// Whether Escape stops the open session's run: the composer has focus while it runs or its stop
+/// settles (the escape stack's `Run` layer).
+pub fn escape_stops(s: &App) -> bool {
+    let Route::Session(id) = &s.route else { return false };
+    s.composer.focused && (s.busy(id) || s.stopping(id))
+}
+
 /// Esc or ⌃G in the composer while the open session runs, as Desktop's: stops it. Again while
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {

@@ -99,6 +99,11 @@ impl App {
     }
 
     /// From a subagent's session back to the one that started it.
+    /// The open session is a subagent's, with the session that started it known.
+    pub fn has_parent(&self) -> bool {
+        matches!(&self.route, Route::Session(id) if self.session(id).is_some_and(|s| s.parent.is_some()))
+    }
+
     pub fn open_parent(&mut self, tx: &mut Tx) -> bool {
         let Route::Session(id) = &self.route else { return false };
         let Some(parent) = self.session(id).and_then(|s| s.parent.clone()) else { return false };

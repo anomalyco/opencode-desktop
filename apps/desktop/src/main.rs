@@ -101,6 +101,7 @@ mod dirs;
 mod disk;
 mod dock_fade_stories;
 mod dropzone;
+mod escape;
 mod events;
 mod export_logs;
 mod files;

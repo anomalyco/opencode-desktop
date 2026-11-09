@@ -199,6 +199,15 @@ impl ComposerHost for App {
         if ev.key == Key::Escape && !self.route_busy() && crate::status_toast::key(self, ev, tx) {
             return true;
         }
+        // Escape closes the topmost layer and the caret stays put: a contenteditable keeps focus
+        // on Escape, so Desktop's composer never drops the keys that follow.
+        if ev.key == Key::Escape {
+            crate::escape::key(self, ev, tx);
+            return true;
+        }
+        if crate::keys::global(self, ev, tx) {
+            return true;
+        }
         if crate::keymap::Bind::SubmitAlternate.matches_tx(ev, tx) {
             if session_view::composer::stopping(self) {
                 session_view::composer::submit_or_stop(self, tx);
@@ -240,7 +249,6 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         mic.is_some(),
         dictating,
     );
-    narrow::note_toolbar(fold);
     let agent = agent.and_then(|name| match fold.agent {
         Agent::Name => Some(picker_trigger(s, p, Kind::Agent, &name, p.muted, fold.chevrons)),
         Agent::Icon => Some(agent_icon(s, p, &name)),

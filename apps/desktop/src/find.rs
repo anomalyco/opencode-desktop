@@ -522,7 +522,8 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// Escape when Find is open (outside a busy composer's stop).
 pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let take = ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session(_));
-    if take { s.close_find(true, tx); }
+    // Desktop leaves nothing focused once Escape closes the bar (`esc-find`).
+    if take { s.close_find(false, tx); }
     take
 }
 
@@ -531,7 +532,7 @@ fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if ev.key == Key::Escape {
-        s.close_find(true, tx);
+        s.close_find(false, tx);
         return true;
     }
     let m = ev.mods;
