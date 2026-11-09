@@ -154,10 +154,30 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             .unwrap_or_default();
         let has_others = !others.is_empty();
 
-        let rows = col()
-            .key("side-tab-menu-rows")
-            .w_full()
-            .padding(MENU.inset)
+        let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
+        // A browser tab's page: open it in the default browser, or copy its address.
+        if let Some((plugin, tid)) = super::split_panel_key(target_key)
+            && plugin == "browser"
+            && let Ok(id) = tid.parse::<u64>()
+        {
+            let url = s.browser_tab_external_url(id);
+            let copy = url.clone();
+            rows = rows
+                .child(menu_row(p, "side-tab-menu-open-out", None, opencode_i18n::t!("plugin.browser.external.menu"), "", url.is_some(), move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.side.tab_menu = None;
+                    s.open_browser_tab_externally(id, tx);
+                }))
+                .child(menu_row(p, "side-tab-menu-copy-url", None, opencode_i18n::t!("plugin.browser.link.copy"), "", copy.is_some(), move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    s.side.tab_menu = None;
+                    if let Some(url) = &copy {
+                        tx.copy(url.clone());
+                    }
+                }))
+                .child(col().w_full().py(4.0).child(popover::divider(p, "side-tab-menu-divider")));
+        }
+        let rows = rows
             .child(menu_row(p, "side-tab-menu-close", None, opencode_i18n::t!("common.closeTab"), "", can_close, move |s: &mut App, tx: &mut Tx| {
                 s.side.tab_menu = None;
                 s.close_side_tab(&tk, tx);

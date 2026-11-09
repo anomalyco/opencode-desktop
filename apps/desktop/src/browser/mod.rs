@@ -1,6 +1,8 @@
 //! Built-in Chromium 156 Browser panel registered on `crate::panels::PANELS`, with `:port` URL
 //! resolution and `@eN` visual element picker into `s.composer`.
 
+#[cfg(test)]
+mod external_tests;
 pub mod prefetch;
 #[cfg(test)]
 mod tests;
@@ -200,7 +202,26 @@ static PAGE_KEYS: std::sync::LazyLock<[rune::Chord; 7]> = std::sync::LazyLock::n
     ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"].map(|c| rune::Chord::parse(c).expect("chord"))
 });
 
+/// `url` when the default browser can open it: an `http:` or `https:` page, not `about:blank`,
+/// `chrome:` or `data:`.
+pub fn external_url(url: &str) -> Option<&str> {
+    let scheme = url.split_once("://")?.0;
+    (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")).then_some(url)
+}
+
 impl App {
+    /// The page browser tab `id` shows, when the default browser can open it.
+    pub fn browser_tab_external_url(&self, id: u64) -> Option<String> {
+        external_url(&self.browser.host.tab(id)?.url).map(str::to_owned)
+    }
+
+    /// Opens browser tab `id`'s page in the default browser.
+    pub fn open_browser_tab_externally(&mut self, id: u64, tx: &mut Tx) {
+        if let Some(url) = self.browser_tab_external_url(id) {
+            let _ = tx.open_url(&url);
+        }
+    }
+
     pub fn setup_browser(&mut self, waker: Waker) {
         self.browser.host.set_waker(waker);
         self.browser.host.set_shell_shortcut(claims_app_shortcut);
