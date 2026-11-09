@@ -1,0 +1,9 @@
+{
+  "scene": "session", "secs": 3.4,
+  "events": [
+    {"t": 0.4, "type": "tap", "key": "side-toggle"},
+    {"t": 1.2, "type": "tap", "key": "side-launch-review-open", "expect": "instant", "scope": "side-panel"},
+    {"t": 1.8, "type": "tap", "key": "side-tab-close-review-changes", "expect": "smooth", "element": "side-region"},
+    {"t": 2.9, "type": "move", "x": 600, "y": 400}
+  ]
+}

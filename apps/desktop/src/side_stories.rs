@@ -156,6 +156,33 @@ pub fn setup_region(s: &mut App, _play: &mut Play<'_, App>) {
     init_region(s);
 }
 
+pub const CLOSE_LAST_KEYS: &[Trigger] = &[
+    replay(setup_close_last),
+    Trigger { key: 'c', label: "Close the last tab", run: close_last },
+];
+
+/// Changes alone in the side panel, which closes 0.8 s on.
+pub fn init_close_last(s: &mut App) {
+    crate::open_scene(s);
+    s.finish_stream();
+    s.side = Default::default();
+    s.browser = Default::default();
+    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+    let mut tx = rune::Tx::default();
+    s.show_review(&sid, &mut tx);
+}
+
+pub fn setup_close_last(s: &mut App, play: &mut Play<'_, App>) {
+    init_close_last(s);
+    play.after(0.8, close_last);
+}
+
+fn close_last(s: &mut App, play: &mut Play<'_, App>) {
+    play.animated();
+    let mut tx = rune::Tx::default();
+    s.close_side_tab(crate::review::REVIEW_KEY, &mut tx);
+}
+
 pub fn init_browser(s: &mut App) {
     crate::open_scene(s);
     s.finish_stream();
@@ -243,6 +270,14 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
         knobs: &[],
         keys: REGION_KEYS,
         variants: REGION_VARIANTS,
+    },
+    Story {
+        path: "Side panel/Close last tab",
+        // The whole window, so the panel slides shut beside the chat.
+        scene: init_close_last,
+        knobs: &[],
+        keys: CLOSE_LAST_KEYS,
+        variants: &[],
     },
     Story {
         path: "Browser/Pane",

@@ -23,6 +23,9 @@ pub const SIDE_SPRING: Spring = Spring::new(0.3, 0.0);
 /// How long the side region's contents glide with its edge while the sidebar flies: SIDE_SPRING
 /// within half a point of where it lands.
 pub const SIDE_FLIGHT: f64 = 0.6;
+/// How long a SIDE_SPRING flight takes to come wholly to rest, its last stretch far under a
+/// thousandth of a point, so what changes once it lands changes out of sight.
+pub const SIDE_REST: f64 = 1.0;
 const INSTANT: Anim = Anim::INSTANT;
 const FADE_FLOOR: f32 = 0.5;
 
@@ -115,6 +118,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
     // what keeps to the end stays, as Desktop's holdLandingWidth "blocks" does (`screen.tsx:171`).
     let flying = s.side.edge_flight.is_some_and(|until| s.clock < until);
     let has_split = !reg.pane_entries(SessionPane::Split).is_empty()
+        || s.closing_side_entry(reg, SessionPane::Split).is_some()
         || s.side
             .adding
             .iter()
@@ -237,10 +241,12 @@ pub(super) fn pane_box(
     let stored_state = s.side.sessions.get(&reg.session_id);
     let stored = stored_state.map_or(&empty_tabs, |st| &st.tab_state.tabs);
     let preview_key = stored_state.and_then(|st| st.tab_state.preview.as_deref());
-    let pane_active = reg.pane_active(pane, stored);
+    let held = s.closing_side_entry(reg, pane);
+    let pane_active = held.map(|e| e.key.clone()).or_else(|| reg.pane_active(pane, stored));
     let shown_new = s.shown_new_tab(&reg.session_id, pane, pane_active.as_deref());
     let live_new = s.live_new_tabs(&reg.session_id, pane, pane_active.as_deref());
-    let entries = reg.pane_entries(pane);
+    let mut entries = reg.pane_entries(pane);
+    entries.extend(held);
 
     let bar = tab_bar(
         s,
@@ -256,9 +262,7 @@ pub(super) fn pane_box(
 
     let content = if shown_new.is_some() {
         new_tab_view(s, p, reg, pane)
-    } else if let Some(act_key) = pane_active.as_deref()
-        && let Some(selected) = reg.entry(act_key)
-    {
+    } else if let Some(selected) = held.or_else(|| pane_active.as_deref().and_then(|k| reg.entry(k))) {
         let visible = match pane {
             SessionPane::Bottom => s.bottom_open(),
             _ => s.side_open() || s.stage.is_some(),

@@ -1,6 +1,7 @@
 use rune::{El, Env, Key, KeyEvent, Mods, Runtime, col, text};
 use rune_theme_opencode::icons as ic;
 
+use super::closing::State as Closing;
 use super::{
     PanelRegistration, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SideState,
     panel_key,
@@ -183,6 +184,66 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
         .and_then(|id| rt.state.browser.host.tab(id))
         .map(|t| t.url.clone());
     assert_eq!(restored_url.as_deref(), Some("http://localhost:3000/app"));
+}
+
+#[test]
+fn closing_last_side_tab_keeps_its_contents_until_the_region_lands() {
+    let mut rt = test_runtime();
+    rt.update(|s, tx| s.open_side_tab("review:changes", None, false, false, tx));
+    for _ in 0..45 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("panel-review:changes").is_some());
+
+    rt.update(|s, tx| s.close_side_tab("review:changes", tx));
+    for _ in 0..6 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(!rt.state.side_open());
+    let w = rt.presented("side-region").map_or(0.0, |(r, _)| r[2]);
+    assert!(w > 50.0, "still mid-flight: {w}");
+    assert!(rt.find("panel-review:changes").is_some(), "the closing tab stays drawn while the region slides shut");
+    assert!(rt.find("side-tab-review-changes").is_some(), "and so does its tab");
+    assert!(rt.find("side-empty").is_none(), "no empty pane flashes mid-flight");
+
+    for _ in 0..60 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(matches!(rt.state.side.closing, Closing::Idle));
+
+    // Reopening shows New tab, not the tab just closed.
+    rt.update(|s, tx| s.toggle_side_region(tx));
+    for _ in 0..45 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("panel-review:changes").is_none());
+    assert!(rt.find("side-launch-review-open").is_some());
+}
+
+#[test]
+fn reopening_mid_slide_lets_go_of_the_closing_tab_at_once() {
+    let mut rt = test_runtime();
+    rt.update(|s, tx| s.open_side_tab("review:changes", None, false, false, tx));
+    for _ in 0..45 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt.update(|s, tx| s.close_side_tab("review:changes", tx));
+    for _ in 0..6 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(matches!(rt.state.side.closing, Closing::Sliding { .. }));
+
+    // Input runs after a frame's poll, so the reopened region holds nothing before the next one.
+    rt.update(|s, tx| s.toggle_side_region(tx));
+    let reg = rt.state.resolve_side_region().unwrap();
+    assert!(rt.state.closing_side_entry(&reg, super::SessionPane::Side).is_none());
+    rt.frame(1.0 / 60.0);
+    assert!(matches!(rt.state.side.closing, Closing::Idle));
+    for _ in 0..45 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert!(rt.find("panel-review:changes").is_none());
+    assert!(rt.find("side-launch-review-open").is_some());
 }
 
 #[test]
