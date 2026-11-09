@@ -1,4 +1,6 @@
 [
+  {"trace": "compacted-summary", "element": "cmp-msg_zzlongcompaction-quiet/#0/bar", "kind": "invisible-work",
+   "reason": "KNOWN GAP (MOTION-GREEN-3 follow-up): the story's Compacted divider eases its colours for 10 frames while a fold scrolls it out of view; Rune's unseen check counts the whole span a scroll may cover as in view during the glide, so it doesn't land them"},
   {"trace": "sidebar", "element": "window/side-region/side-column", "kind": "invisible-work",
    "reason": "KNOWN GAP (MOTION-GREEN-3 follow-up): the closed side region's column, parked past the window's right edge under a zero-width clip, still springs its width as the sidebar changes the row; Rune's unseen check counts it as drawn last frame. Nothing shows"},
   {"trace": "demo", "element": "session/timeline-area/jump-lane", "kind": "invisible-work",
