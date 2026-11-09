@@ -810,6 +810,18 @@ fn flag(name: &str) -> bool {
 /// test can't post or type as Kit.
 pub(crate) use rune::is_headless as headless;
 
+/// `--harness-writes`, honoured only when `RUNE_DIRS_ROOT` moves every folder this app writes:
+/// a headless run (the parity harness's `--realtime` probes) sends, stops and saves as a window
+/// does, into its own root and to the server it was given.
+fn harness_writes() -> bool {
+    flag("--harness-writes") && dirs::rooted()
+}
+
+/// A person, or the harness standing in for one, is at this run: it may write.
+fn attended() -> bool {
+    !headless() || harness_writes()
+}
+
 fn wall_ms() -> i64 {
     #[cfg(test)]
     if let Some(ms) = interaction_fuzz::wall_override() {
@@ -963,7 +975,7 @@ impl App {
         if self.launch.offline { (self.tabs.clear(), self.route = Route::Home); }
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
-        let allow_send = !flag("--read-only") && !headless();
+        let allow_send = !flag("--read-only") && attended();
         self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.open_outbox();
         self.status = self.live_status();
@@ -1037,7 +1049,7 @@ impl App {
 
     /// Saves tabs, zoom, the open session and drafts: live, with a person at it.
     pub fn persists(&self) -> bool {
-        self.live() && !headless() && !cfg!(test)
+        self.live() && attended() && !cfg!(test)
     }
 
     /// Asks the server for one session's info (live only).

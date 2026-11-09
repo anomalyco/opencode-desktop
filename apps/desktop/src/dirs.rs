@@ -25,6 +25,11 @@ fn app() -> Option<&'static AppDirs> {
     DIRS.get_or_init(|| AppDirs::new(APP_ID)).as_ref()
 }
 
+/// Whether `RUNE_DIRS_ROOT` put every folder this app writes under one scratch root.
+pub fn rooted() -> bool {
+    app().is_some_and(AppDirs::is_rooted)
+}
+
 /// Settings, tabs, the open session and drafts, prompt history, model prefs and perf records.
 pub fn data() -> Option<PathBuf> {
     Some(app()?.data().to_owned())
