@@ -84,7 +84,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let f = &s.settings_pages.fonts;
     let themes = crate::themes::all();
-    let theme_about = row().child(about(p, &format!("{} ", t!("settings.general.row.theme.description")))).child(link(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/v2/docs/themes"));
+    let theme_about = row().child(about(p, &format!("{} ", t!("settings.general.row.theme.description")))).child(link(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/docs/themes"));
     let zoom = (st.zoom_percent(s.zoom), ZOOM_LEVELS);
     let mut levels: Vec<(String, String)> = zoom.1.iter().map(|l| (format!("{}", (l * 100.0).round() as i32), opencode_i18n::percent(f64::from(*l)))).collect();
     if !levels.iter().any(|(id, _)| *id == zoom.0) {

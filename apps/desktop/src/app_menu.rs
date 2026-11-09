@@ -117,7 +117,7 @@ const MENUS: [(&str, opencode_i18n::Key, &[Row]); 6] = [
         it(opencode_i18n::key!("desktop.menu.closeWindow"), Act::CloseWindow, Keys::None),
     ]),
     ("Help", opencode_i18n::key!("desktop.menu.help"), &[
-        it(opencode_i18n::key!("desktop.menu.documentation"), Act::Open("https://opencode.ai/v2/docs"), Keys::None),
+        it(opencode_i18n::key!("desktop.menu.documentation"), Act::Open("https://opencode.ai/docs"), Keys::None),
         it(opencode_i18n::key!("desktop.menu.supportForum"), Act::Open("https://discord.com/invite/opencode"), Keys::None),
         it(opencode_i18n::key!("desktop.menu.exportLogs"), Act::ExportLogs, Keys::None),
         None,

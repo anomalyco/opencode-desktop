@@ -81,7 +81,7 @@ fn manage(p: &Pal) -> El {
 /// `.settings-extension-link`: underlined in `text-accent`, `text-accent-hover` under the pointer.
 fn skills_link(p: &Pal) -> El {
     let words = t!("settings.extensions.addSkills");
-    const URL: &str = "https://opencode.ai/v2/docs/skills";
+    const URL: &str = "https://opencode.ai/docs/skills";
     text(words).key("settings-extension-link").font(LINE).color(p.accent)
         .spans(vec![rune::Span::new(0, words.len()).underline(p.accent)])
         .link(rune::Link::new(0..words.len(), URL).role("link").label(words).hover(rune::LinkPaint::new().color(p.accent_hover).underline(p.accent_hover)))
