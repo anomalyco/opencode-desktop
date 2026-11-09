@@ -110,6 +110,8 @@ pub struct Switcher {
     /// The file query last sent.
     files_asked: Option<String>,
     files_fetch: Latest<(String, Vec<String>)>,
+    /// The fixture's answer to the file query and when it lands (its `find_ms`, as a server's).
+    fixture_find: Option<(f64, (String, Vec<String>))>,
 }
 
 impl Default for Switcher {
@@ -131,6 +133,7 @@ impl Default for Switcher {
             files: (String::new(), Vec::new()),
             files_asked: None,
             files_fetch: Latest::default(),
+            fixture_find: None,
         }
     }
 }
@@ -177,7 +180,7 @@ impl Switcher {
 
     /// Still waiting on the server for this query: Desktop's "Loading" while nothing matches.
     pub(crate) fn loading(&self) -> bool {
-        self.fetch.is_pending() || self.files_fetch.is_pending()
+        self.fetch.is_pending() || self.files_fetch.is_pending() || self.fixture_find.is_some()
     }
 
     pub(crate) fn failed(&self) -> Option<&str> {
@@ -473,6 +476,7 @@ impl App {
         self.switcher.files = (String::new(), Vec::new());
         self.switcher.files_asked = None;
         self.switcher.files_fetch.cancel();
+        self.switcher.fixture_find = None;
     }
 
     /// Closes it; `restore` gives the composer back its focus if it had it.
@@ -623,6 +627,17 @@ impl App {
             }
             changed = true;
         }
+        if let Some((at, _)) = &self.switcher.fixture_find {
+            if self.clock >= *at {
+                let (_, found) = self.switcher.fixture_find.take().unwrap();
+                if self.switcher.files_asked.as_deref() == Some(found.0.as_str()) {
+                    self.switcher.files = found;
+                }
+                changed = true;
+            } else {
+                tx.wake_after(Duration::from_secs_f64(at - self.clock));
+            }
+        }
         if !self.switcher.open {
             return changed;
         }
@@ -683,11 +698,17 @@ impl App {
         }
         self.switcher.files_asked = Some(clean.clone());
         self.switcher.files_fetch.cancel();
+        self.switcher.fixture_find = None;
         let Source::Live { server, .. } = &self.source else {
-            // The fixture's folder is all known: its files are the answer.
-            let known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            // The fixture's folder and `find_files` (files only its server has seen) are the
+            // answer, `find_ms` later as a server's would be (at once without it).
+            let mut known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            known.extend(self.fixture["find_files"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)));
             let found = crate::files::data::rank_file_query(&known, &clean).into_iter().filter(|p| p.to_lowercase().contains(&clean.to_lowercase())).collect();
-            self.switcher.files = (clean, found);
+            match self.fixture["find_ms"].as_f64() {
+                Some(ms) if ms > 0.0 => self.switcher.fixture_find = Some((self.clock + ms / 1000.0, (clean, found))),
+                _ => self.switcher.files = (clean, found),
+            }
             return true;
         };
         let (server, dir) = (server.clone(), self.session(&sid).map(|s| s.directory.clone()).unwrap_or_default());
