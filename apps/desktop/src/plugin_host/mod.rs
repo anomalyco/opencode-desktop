@@ -74,7 +74,7 @@ pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};
 pub use contrib::{run_menu_item, server_menu_items, settings_search};
-pub use surfaces::{composer_pills, pill_views, file_viewer, settings_page, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, slot, slot_with, titlebar_items};
+pub use surfaces::{composer_pills, pill_views, file_viewer, settings_page, settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with, titlebar_items};
 pub use requests::reveal;
 pub use trust::dialog as trust_dialog;
 pub use view::settings_section;

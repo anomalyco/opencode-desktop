@@ -182,7 +182,7 @@ pub struct SettingsPageSpec {
     #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
     pub entries: Option<Vec<SettingEntry>>,
 }
-impl_record!(SettingsPageSpec, ["id", "title", "description", "icon", "page", "about", "entries"], ["render"], []);
+impl_record!(SettingsPageSpec, ["id", "title", "description", "icon", "page", "about", "entries"], ["render", "renderActions"], []);
 
 /// An item of a host menu.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

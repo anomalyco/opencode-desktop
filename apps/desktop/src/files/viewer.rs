@@ -179,9 +179,13 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
     let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
+    // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
+    let text = doc.filter(|d| d.ready && !d.missing && !d.binary).map_or("", |d| d.text());
+    let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text);
     // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
-    // an artifact (Markdown, SVG, a picture, another binary file) has its `ArtifactToolbar`.
-    let toolbar = artifact && (markdown_doc || picture.is_some() || doc.is_some_and(|d| d.binary));
+    // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
+    // `ArtifactToolbar`.
+    let toolbar = artifact && (markdown_doc || picture.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary));
     if artifact && !toolbar {
         out = out.pt(12.0);
     }
@@ -201,9 +205,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         out = out.child(file_find_bar(p, session_id, path, d, total, active, s.settings.spellcheck)).child(el().w_full().h(0.5).fill(p.border_muted));
     }
 
-    // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
-    let text = doc.filter(|d| d.ready && !d.missing && !d.binary).map_or("", |d| d.text());
-    if let Some(view) = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text) {
+    if let Some(view) = plugin_view {
         return out.child(view);
     }
     if let Some(img) = picture {

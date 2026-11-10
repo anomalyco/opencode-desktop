@@ -1,0 +1,6 @@
+#:schema ../plugin.schema.json
+id = "microsoft-office"
+name = "Microsoft Office"
+version = "1.0.0"
+contract = "1.0"
+description = "Read-only previews of Word, Excel and PowerPoint files in the file view"

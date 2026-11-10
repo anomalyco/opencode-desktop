@@ -65,7 +65,9 @@ pub enum Request {
     /// A nested view in the narrow More drawer (`Layout:OpenDrawerView`).
     DrawerView { title: String, data: rune_luau::Data },
     CloseDialog,
-    Toast { variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool },
+    Toast { variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool, buttons: Vec<crate::status_toast::PluginButton>, handle: u64 },
+    /// Closes the toast Toast:Show answered with this handle, when it still shows.
+    DismissToast(u64),
     OpenSettings(Option<String>),
     NewDraft { directory: String, prompt: String },
     RunCommand { id: String, input: Option<String> },
@@ -127,6 +129,12 @@ pub enum Dep {
     TerminalScreen(String),
     /// The shared panel sidebar.
     Sidebar,
+    /// A plugin's own state behind a render nested in another's (a file viewer inside the Files`n    /// panel): its script's signals and its contributions.
+    Plugin(Rc<str>),
+    /// An Office file's views (Office:Version).
+    Office(u64),
+    /// Where the app's updates stand (`Updater:State`).
+    Updater,
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

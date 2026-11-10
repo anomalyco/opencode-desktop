@@ -65,7 +65,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("settings-shortcuts", |s| on(s, Page::Shortcuts)),
     ("settings-pairing", |s| on(s, Page::Plugin("pairing.pairing".into()))),
     ("settings-server", |s| on(s, Page::Servers)),
-    ("settings-whats-new", |s| on(s, Page::WhatsNew)),
+    ("settings-whats-new", |s| on(s, Page::Plugin("updater.whats-new".into()))),
     ("settings-experimental", |s| on(s, Page::Experimental)),
     ("settings-about", |s| on(s, Page::About)),
     // Settings search for "notif": its results in the rail, Preferences beside them.

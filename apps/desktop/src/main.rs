@@ -264,6 +264,8 @@ mod turn_diffs;
 mod turn_errors_stories;
 #[path = "commands/type_to_compose.rs"]
 mod type_to_compose;
+#[cfg(feature = "office")]
+mod office;
 mod updater;
 mod usage;
 mod view;
@@ -1174,6 +1176,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);
+    #[cfg(feature = "office")]
+    {
+        changed |= office::poll();
+    }
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
     text_rendering::poll(s, tx);
@@ -1346,8 +1352,13 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 /// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native
 /// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
+    let app = rune::App::new(spec);
+    // Office pages draw their Vello scenes into effect slots; a window without one draws as
+    // Rune's default frame does.
+    #[cfg(feature = "office")]
+    let app = app.compositor(office::OfficeCompositor::default());
     menubar::install(
-        rune::App::new(spec)
+        app
             .gpu_backend(rune::GpuBackend::Metal)
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))

@@ -532,8 +532,34 @@ string_enum! {
 }
 
 string_enum! {
+    /// A toast button's look.
+    pub enum ToastActionVariant {
+        /// The app's neutral button.
+        Primary = "primary",
+        /// A ghost button.
+        Secondary = "secondary",
+    }
+}
+
+string_enum! {
+    /// What an Office file's first bytes are.
+    pub enum OfficeSignature {
+        /// A zip archive, as every Office Open XML package is.
+        Zip = "zip",
+        /// A Compound File: an encrypted file, or one in the binary .doc, .xls or .ppt formats.
+        Compound = "compound",
+        /// Neither.
+        Other = "other",
+        /// The file could not be read.
+        Unreadable = "unreadable",
+    }
+}
+
+string_enum! {
     /// Where the app updater stands.
     pub enum UpdaterPhase {
+        /// Updates are off in this build or for this install.
+        Disabled = "disabled",
         /// Nothing checked yet.
         Idle = "idle",
         /// Asking for a newer version.

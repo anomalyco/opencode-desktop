@@ -59,6 +59,11 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     } else {
         app.plugins.luau.hits.set(app.plugins.luau.hits.get() + 1);
     }
+    // A render inside another plugin's (a file viewer under the Files panel's `ui.codeView`)
+    // hands what it reads, and its own plugin's state, to the render around it, which otherwise
+    // keeps the view it built until its own reads move.
+    half.reads.borrow().get(surface).into_iter().flatten().for_each(|dep| cx::read(dep.clone()));
+    cx::read(cx::Dep::Plugin(id));
     built
 }
 
@@ -127,27 +132,72 @@ pub fn slot(app: &App, p: &Pal, name: &str, session: &str, active: bool, compact
         .collect()
 }
 
-/// Titlebar items: each plugin's `show()` answer, drawn as the app's titlebar pill.
-pub fn titlebar_items(app: &App, p: &Pal) -> Vec<El> {
+/// Desktop's default titlebar item icon: a download arrow (`titlebar-items.tsx`).
+static DOWNLOAD: rune::Icon = rune::Icon { name: "titlebar-download", view: 14.0, body: r#"<path d="M7 11V3M3.5 7.63128L7 11L10.5 7.63128" stroke="currentColor" fill="none"/>"# };
+
+/// Titlebar items: each plugin's `show()` answer as Desktop's `TitlebarItemButton`: a round
+/// `bg-deep` pill holding its icon in `icon-accent`, which grows on hover to show its label
+/// (11/16 at 530, `text-accent`) as the label fades and slides in over 150 ms. In the titlebar
+/// it is 20 across with the label before the icon, 12 before the titlebar's end; in the
+/// sidebar's footer (`vertical`) 28 across with the label after it.
+pub fn titlebar_items(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
+    let ease = rune::Curve::tween(0.15, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
     each::<(), _>(app, |c| c.titlebar_items.iter().map(|t| (t.key, t.f("show").cloned(), t.f("run").cloned())).collect())
         .into_iter()
         .filter_map(|(i, (key, show, run))| {
             let script = app.plugins.luau.plugins[i].script()?;
             let view: opencode_plugin_spec::TitlebarItemView = cx::with_app(app, || script.eval_fn::<Data>(show.as_ref()?, ()).ok())?.decode().ok()?;
-            let mut pill = row().key(format!("plugin-titlebar-{key}")).role("button").label(view.title.clone().unwrap_or_else(|| view.label.clone())).h(24.0).px(8.0).gap(6.0).center_y().radius(6.0).hover(p.hover);
-            if view.pressed == Some(true) {
-                pill = pill.fill(p.pressed);
+            let busy = view.busy == Some(true);
+            let open = app.plugins.luau.titlebar_hover == Some(key);
+            let side = if vertical { 28.0 } else { 20.0 };
+            let glyph = if busy {
+                rune_kit::Loader::new().size(12.0).build(crate::palette::kit(p))
+            } else {
+                let icon = view.icon.as_deref().map_or(&DOWNLOAD, |name| crate::plugin_host::icons::resolve("", name));
+                rune::icon(icon, 14.0).color(session_view::palette::token(p.dark, "icon-icon-accent").unwrap_or(p.accent))
+            };
+            let glyph = row().size(side, side).center().child(glyph);
+            let label = text(view.label.clone())
+                .font(rune::TextStyle::new(11.0, 530.0).lh(16.0))
+                .color(session_view::palette::token(p.dark, "text-text-accent").unwrap_or(p.accent))
+                .opacity(if open { 1.0 } else { 0.0 })
+                .opacity_motion(ease)
+                .offset(if open { 0.0 } else if vertical { -8.0 } else { 8.0 }, 0.0)
+                .offset_motion(ease);
+            let label = if vertical { label.ml(1.0).mr(16.0) } else { label.ml(8.0).mr(1.0) };
+            let inner = if vertical { row().child(glyph).child(label) } else { row().justify_end().child(label).child(glyph) };
+            let mut pill = inner
+                .key(format!("plugin-titlebar-{key}"))
+                .role("button")
+                .label(view.title.clone().unwrap_or_else(|| view.label.clone()))
+                .h(side)
+                .min_w(side)
+                .center_y()
+                .radius(side / 2.0)
+                .fill(p.bg_deep)
+                .clip_rounded(side / 2.0)
+                .no_window_drag()
+                .on_hover_change(move |s: &mut App, inside: bool, tx: &mut Tx| {
+                    let now = inside.then_some(key);
+                    if s.plugins.luau.titlebar_hover != now && (inside || s.plugins.luau.titlebar_hover == Some(key)) {
+                        s.plugins.luau.titlebar_hover = now;
+                        tx.instant();
+                    }
+                });
+            if !open {
+                pill = pill.w(side);
             }
-            if let Some(icon) = &view.icon {
-                pill = pill.child(rune::icon(crate::plugin_host::icons::resolve("", icon), 14.0).color(p.icon));
+            if !vertical {
+                pill = pill.mr(12.0);
             }
-            pill = pill.child(text(view.label).font(crate::view::UI).color(p.text));
+            if busy {
+                return Some(pill.layer_opacity(0.6).disabled(true));
+            }
             let Some(run) = run else { return Some(pill) };
             Some(pill.on_press_tx(move |s: &mut App, tx: &mut Tx| super::commands::spawn(s, i, &run, (), tx)))
         })
         .collect()
 }
-
 /// The pills Luau plugins put in the composer lane: their `show()` answer in the lane's capsule;
 /// a pill with `renderMenu` opens it as a popover above, one without runs `run`.
 pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
@@ -313,6 +363,12 @@ pub fn settings_pages(app: &App, page: Option<&str>) -> Vec<(usize, &'static str
         .filter(|(_, (_, spec, _))| spec.page.map(|p| p.as_str()) == page)
         .map(|(i, (key, spec, f))| (i, key, spec, f))
         .collect()
+}
+
+/// What page `spec` of plugin `i` draws at the end of its header, when it draws anything.
+pub fn settings_page_actions(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::SettingsPageSpec) -> Option<El> {
+    let f = app.plugins.luau.plugins[i].half.contribs.borrow().settings_pages.iter().find(|c| c.spec.id == spec.id).and_then(|c| c.f("renderActions").cloned())?;
+    Some(render(app, p, i, &format!("page-actions:{}", spec.id), &f, Data::Nil))
 }
 
 pub fn settings_page_body(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::SettingsPageSpec, f: &Function, target: Option<&str>) -> El {

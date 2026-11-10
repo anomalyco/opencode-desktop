@@ -16,7 +16,6 @@ pub mod providers;
 pub mod servers;
 pub mod shortcuts;
 pub mod timeline;
-pub mod whats_new;
 pub mod worktrees;
 
 use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
@@ -29,7 +28,7 @@ use crate::popup::{self, Menu};
 use opencode_i18n::t;
 
 /// A page of Settings: Desktop's root tabs (`SettingsRootTab`), a page a plugin adds (by its
-/// id), or one built in here that Desktop's GUI plugins add there (What's new).
+/// id).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Page {
     Providers,
@@ -44,7 +43,6 @@ pub enum Page {
     Notifications,
     Shortcuts,
     Servers,
-    WhatsNew,
     Experimental,
     About,
     /// A plugin's own page (`SettingsPage` without a host page), by its contribution key.
@@ -67,7 +65,6 @@ impl Page {
             Page::Notifications => "notifications",
             Page::Shortcuts => "shortcuts",
             Page::Servers => "servers",
-            Page::WhatsNew => "whats-new",
             Page::Experimental => "experimental",
             Page::About => "about",
             Page::Plugin(id) => id,
@@ -89,7 +86,6 @@ impl Page {
             "notifications" => Page::Notifications,
             "shortcuts" | "keybinds" => Page::Shortcuts,
             "servers" | "server" => Page::Servers,
-            "whats-new" => Page::WhatsNew,
             "experimental" => Page::Experimental,
             "about" => Page::About,
             // A project's page names no project; its list stands in.
@@ -111,7 +107,6 @@ impl Page {
             Page::Notifications => t!("settings.tab.notifications"),
             Page::Shortcuts => t!("settings.shortcuts.title"),
             Page::Servers => t!("settings.section.server"),
-            Page::WhatsNew => t!("plugin.updater.beta.title"),
             Page::Experimental => t!("settings.tab.experimental"),
             Page::About => t!("settings.tab.about"),
             Page::Plugin(_) => "",
@@ -140,7 +135,6 @@ impl Page {
             Page::Notifications => &ic::NOTIFICATIONS,
             Page::Shortcuts => &ic::KEYBOARD,
             Page::Servers => &ic::SERVER,
-            Page::WhatsNew => &ic::OUTLINE_LIST_CHANGELOG,
             Page::Experimental => &ic::FLASK,
             Page::About => &ic::INFO,
             Page::Project(_, tab) => tab.icon(),
@@ -421,7 +415,6 @@ pub fn view(s: &App, p: &Pal) -> El {
         Page::Notifications => notifications::view(s, p),
         Page::Shortcuts => shortcuts::view(s, p),
         Page::Servers => servers::view(s, p),
-        Page::WhatsNew => whats_new::view(s, p),
         Page::Experimental => experimental::view(s, p),
         Page::About => about::view(s, p),
         Page::Plugin(id) => plugin_page(s, p, id),
@@ -432,7 +425,8 @@ pub fn view(s: &App, p: &Pal) -> El {
 /// A plugin's own page: its title, then what it draws.
 fn plugin_page(s: &App, p: &Pal, id: &str) -> El {
     let (title, description, body) = crate::plugin_host::settings_page(s, p, id).unwrap_or_else(|| (id.to_owned(), String::new(), el()));
-    page_with(p, &format!("settings-{}-page", id.rsplit('.').next().unwrap_or(id)), header(p, &title, &description), body, true)
+    let actions = crate::plugin_host::settings_page_actions(s, p, id);
+    page_with(p, &format!("settings-{}-page", id.rsplit('.').next().unwrap_or(id)), header_with(p, &title, &description, actions), body, true)
 }
 
 /// `row` with the settings search's highlight behind it once a result revealed `target`

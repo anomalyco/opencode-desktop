@@ -65,6 +65,11 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
         "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
         "Server.Connected" => Some((hash(&app.server_key()), Data::Bool(true))),
         "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
+        "ctx.FocusChanged" => {
+            let focused = !app.plugins.luau.window_blurred.get();
+            Some((u64::from(focused), Data::Bool(focused)))
+        }
+        "Updater.StateChanged" => Some((app.updater.revision(), crate::updater::state_data(app))),
         n => {
             if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
                 Some((store_version(plugin, store), Data::Nil))

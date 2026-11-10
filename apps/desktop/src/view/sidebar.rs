@@ -142,7 +142,7 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
         )
         .child(el().key("tabs-gap").w_full().h(16.0))
         .child(list(s, p))
-        .children(crate::updater::sidebar_pill(s, p))
+        .children(crate::plugin_host::sidebar_items(s, p))
 }
 
 /// The sidebar's list: the side tabs, or the inbox.

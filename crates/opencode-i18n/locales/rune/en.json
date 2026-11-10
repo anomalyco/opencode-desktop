@@ -43,7 +43,6 @@
   "rune.command.tab.next": "Next tab",
   "rune.command.tab.previous": "Previous tab",
   "rune.command.terminal.killLine": "Delete line",
-  "rune.command.updater.check.description": "Check the Anomaly release feed for a newer build",
   "rune.composer.commandsNeedServer": "Commands need a server",
   "rune.composer.mentions": "Mentions",
   "rune.composer.needServer.description": "Connect to an OpenCode server to run them.",
@@ -167,15 +166,5 @@
   "rune.textRendering.windfoilChromium": "Windfoil, Chromium weight",
   "rune.textRendering.windfoilRgb": "Windfoil RGB subpixel (ClearType-like)",
   "rune.toast.renameFailed": "Failed to rename session",
-  "rune.tool.failed": "{{tool}} failed",
-  "rune.updater.automatic": "Automatic updates",
-  "rune.updater.checking": "Version {{version}} ({{channel}}). Checking for updates…",
-  "rune.updater.downloading": "Downloading {{version}}…",
-  "rune.updater.failed": "Version {{version}} ({{channel}}). {{error}}",
-  "rune.updater.idle": "Version {{version}} ({{channel}}). Checks automatically every 10 minutes.",
-  "rune.updater.installing": "Installing {{version}}…",
-  "rune.updater.ready": "{{version}} is verified and ready to install.",
-  "rune.updater.restart": "Restart to update",
-  "rune.updater.restartApply": "Restart to apply {{version}}",
-  "rune.updater.upToDate": "Version {{version}} ({{channel}}) is up to date."
+  "rune.tool.failed": "{{tool}} failed"
 }

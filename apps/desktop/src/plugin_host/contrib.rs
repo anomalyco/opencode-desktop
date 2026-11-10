@@ -234,6 +234,8 @@ fn menu_name(target: &str) -> &'static str {
         "view" => "view",
         "go" => "go",
         "window" => "window",
+        // The app menu is macOS's alone (`desktop-menu.ts`): the in-window menu lists none of it.
+        "app" => "app",
         _ => "help",
     }
 }

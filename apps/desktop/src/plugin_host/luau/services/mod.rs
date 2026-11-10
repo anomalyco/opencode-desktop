@@ -14,11 +14,14 @@ pub mod diag;
 mod i18n;
 mod net;
 pub mod power;
+#[cfg(feature = "office")]
+mod office;
 pub mod process;
 mod qr;
 mod session;
 pub mod store;
 mod ui;
+mod updater;
 mod watch;
 
 use std::collections::HashMap;
@@ -42,13 +45,11 @@ pub use watch::fire_watched;
 /// Services later packages bring, and which.
 const PENDING: &[(&str, &str)] = &[
     ("Browser", "LU-7"),
-    ("Office", "LU-5"),
-    ("Updater", "LU-5"),
     ("Images", "LU-5"),
 ];
 
 /// Window-half-only services.
-const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff"];
+const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff", "Office"];
 
 /// App-half-only services.
 const APP_ONLY: &[&str] = &["Askpass"];
@@ -117,6 +118,9 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
         "Diff" | "Terminal" => super::native::build(lua, vmx, name, &t)?,
+        "Updater" => updater::build(lua, vmx, &t)?,
+        #[cfg(feature = "office")]
+        "Office" => office::build(lua, vmx, &t)?,
         _ => {
             let why = PENDING.iter().find(|(n, _)| *n == name).map_or_else(|| format!("there is no service {name:?}"), |(_, pkg)| format!("{name} isn't in this app yet ({pkg} brings it)"));
             return Err(mlua::Error::runtime(why));
@@ -131,6 +135,9 @@ pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
     net::asyncs(host, t, half)?;
     process::asyncs(host, t, half)?;
     diag::asyncs(host, t, half)?;
+    #[cfg(feature = "office")]
+    office::asyncs(host, t, half)?;
+    updater::asyncs(host, t, half)?;
     ui::asyncs(host, t, half)
 }
 
@@ -408,6 +415,12 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Terminals(session) => super::native::terminal::version(app, session).hash(&mut h),
         Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),
         Dep::Sidebar => (app.panel_sidebar.opened, app.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
+        Dep::Plugin(id) => app.plugins.luau.plugins.iter().find(|p| p.half.id == *id).map(|p| (p.script().map(|s| s.version()), p.half.epoch.get())).hash(&mut h),
+        Dep::Updater => app.updater.revision().hash(&mut h),
+        #[cfg(feature = "office")]
+        Dep::Office(id) => crate::office::registry::version(*id).hash(&mut h),
+        #[cfg(not(feature = "office"))]
+        Dep::Office(_) => 0.hash(&mut h),
     }
     h.finish()
 }

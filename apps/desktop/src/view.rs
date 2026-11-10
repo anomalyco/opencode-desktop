@@ -177,7 +177,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
     let root = root.dir(ui_direction());
     root.on_key_up(crate::dictation::key_up)
-        .on_window_focus(|s: &mut App, focused, tx| { if focused { crate::launch::network_available(s, tx); } })
+        .on_window_focus(|s: &mut App, focused, tx| {
+            s.plugins.luau.window_blurred.set(!focused);
+            if focused { crate::launch::network_available(s, tx); }
+        })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
         .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))

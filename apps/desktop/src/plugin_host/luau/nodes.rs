@@ -12,7 +12,7 @@ use crate::App;
 use crate::palette::{Pal, kit, pal};
 
 pub fn all() -> Vec<HostNode> {
-    vec![
+    let mut all = vec![
         HostNode::new("divider", divider),
         HostNode::new("icon", icon),
         HostNode::new("image", |_| Ok(el())),
@@ -35,10 +35,11 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("progressCircle", progress_circle),
         pending("browserSurface", "LU-7"),
         HostNode::new("genUi", gen_ui),
-    ]
-    .into_iter()
-    .chain(super::native::nodes())
-    .collect()
+    ];
+    all.extend(super::native::nodes());
+    #[cfg(feature = "office")]
+    all.extend(super::office_nodes::all());
+    all
 }
 
 /// `ui.genUi`: a ```` ```ui ```` outline as parts (`rune_parts`). In a reply's code block it is
@@ -357,7 +358,7 @@ fn settings_list(a: &mut NodeArgs) -> Result<El, String> {
     let key = a.string("key").unwrap_or("plugin-settings").to_owned();
     let rows = std::mem::take(&mut a.children);
     // Desktop's `SettingsList`: the app's own card, its rows split by hairlines.
-    let card = crate::settings::list(&pal, &key, rows);
+    let card = if a.flag("catalog") { crate::settings::pages::catalog(&pal, &key, rows) } else { crate::settings::list(&pal, &key, rows) };
     Ok(match a.string("title") {
         Some(title) => crate::settings::pages::section(&pal, &format!("plugin-section-{title}"), Some(title), card),
         None => card,

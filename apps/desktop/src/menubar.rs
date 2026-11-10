@@ -1,5 +1,5 @@
 //! The native menu bar (macOS), as Desktop builds it from `DESKTOP_MENU` (`desktop-menu.ts`,
-//! `native/menu.ts`): the app menu's Check for Updates… after About, then Settings, Reload
+//! `native/menu.ts`): the app menu's plugin items after About (the Updater's Check for Updates), then Settings, Reload
 //! Webview and Export Logs; File; Edit's Delete among the standard items; View; Go; and Help.
 //! Rune's standard Edit and Window items and the app menu's About, Hide and Quit stay AppKit's.
 //! An item a command binds shows the keys the command has now, so a change in Settings >
@@ -58,20 +58,37 @@ fn items() -> Vec<MenuItem<App>> {
     [app(), file(), edit(), crate::find::menu_items(), view(), crate::history::menu_items(), go(), help()].into_iter().flatten().collect()
 }
 
-/// The app menu after About: the updater's Check for Updates… (Desktop's `MenubarItem { menu:
-/// "app", after: "about" }`), which checks as Settings > Updates' Check now does and does
-/// nothing in a build without an updater; then Settings, Reload Webview (Rune's Reload, which
-/// reads the server again), Restart (Desktop's `app.relaunch`: the app quits, saving every
-/// window, and starts again) and Export Logs. Install CLI isn't here: Desktop's installs the CLI
-/// it bundles (`desktop-cli.ts`), and Rune bundles none; it attaches to the CLI's service.
+/// The app menu after About: the items Luau plugins add there ([`plugin_items`]: the Updater's
+/// Check for Updates, Desktop's `MenubarItem { menu: "app", after: "about" }`); then Settings,
+/// Reload Webview (Rune's Reload, which reads the server again), Restart (Desktop's
+/// `app.relaunch`: the app quits, saving every window, and starts again) and Export Logs.
+/// Install CLI isn't here: Desktop's installs the CLI it bundles (`desktop-cli.ts`), and Rune bundles none; it attaches to the CLI's service.
 fn app() -> Vec<MenuItem<App>> {
-    vec![
-        MenuItem::new(t!("plugin.updater.menu.check"), |s: &mut App, tx: &mut Tx| s.run_command("updater.check", tx)).id("App/CheckForUpdates"),
+    plugin_items().into_iter().chain([
         keyed(MenuItem::new(t!("desktop.menu.settings"), |s: &mut App, tx: &mut Tx| run(s, Act::Settings, tx)).id("App/Settings"), Bind::Settings).keys_first(),
         MenuItem::new(t!("desktop.menu.reloadWebview"), |s: &mut App, tx: &mut Tx| run(s, Act::Reload, tx)).id("App/ReloadWebview"),
         MenuItem::new(t!("desktop.menu.restart"), |_: &mut App, tx: &mut Tx| tx.relaunch()).id("App/Restart"),
         MenuItem::new(t!("desktop.menu.exportLogs"), |s: &mut App, tx: &mut Tx| run(s, Act::ExportLogs, tx)).id("App/ExportLogs"),
-    ]
+    ])
+    .collect()
+}
+
+/// The app menu's items Luau plugins add (`MenubarItem { menu: "app" }`). Plugins load after
+/// the menu is first built, so the first frame's [`refresh`] puts them there. A native item runs
+/// a plain `fn`, so each slot runs the plugin item at its place in the list.
+fn plugin_items() -> Vec<MenuItem<App>> {
+    const SLOTS: [fn(&mut App, &mut Tx); 8] = [plugin_slot::<0>, plugin_slot::<1>, plugin_slot::<2>, plugin_slot::<3>, plugin_slot::<4>, plugin_slot::<5>, plugin_slot::<6>, plugin_slot::<7>];
+    app_items().into_iter().zip(SLOTS).map(|((key, label), slot)| MenuItem::new(label, slot).id(format!("App/{key}"))).collect()
+}
+
+fn app_items() -> Vec<(&'static str, String)> {
+    crate::plugin_host::luau::commands::menubar_items().into_iter().filter(|(_, menu, _, _)| menu == "app").map(|(key, _, label, _)| (key, label)).collect()
+}
+
+fn plugin_slot<const I: usize>(s: &mut App, tx: &mut Tx) {
+    if let Some((key, _)) = app_items().get(I) {
+        crate::plugin_host::run_menubar(s, key, tx);
+    }
 }
 
 /// New Window and Close Window take ⇧⌘N and ⇧⌘W before the window sees them, as Electron's

@@ -124,7 +124,6 @@ pub fn index(s: &App) -> Vec<Entry> {
             Page::Worktrees => "workspaces disk usage cleanup delete",
             Page::Providers => "connect api key credentials",
             Page::Models => "model picker visibility",
-            Page::WhatsNew => "changelog release notes beta",
             _ => "",
         };
         out.push(entry(&page, &label, &label, None, keywords, "", true));

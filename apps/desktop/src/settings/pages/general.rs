@@ -58,8 +58,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let body = col().w_full().gap(32.0)
         .child(general)
         .child(super::timeline::section(s, p))
-        .children(crate::plugin_host::settings_pages(s, p, "general"))
-        .children(crate::updater::settings_section(s, p));
+        .children(crate::plugin_host::settings_pages(s, p, "general"));
     page_with(p, "settings-general-page", header(p, t!("settings.tab.preferences"), t!("settings.preferences.description")), body, true)
 }
 

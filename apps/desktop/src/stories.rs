@@ -222,7 +222,6 @@ const ORDER: &[&str] = &[
     "Files/Markdown file",
     "Projects/Open project",
     "Projects/Project switcher",
-    "Settings/Updates",
     "Dev/Rewind",
 ];
 

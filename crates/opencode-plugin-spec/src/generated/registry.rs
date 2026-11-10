@@ -175,9 +175,9 @@ string_enum! {
         Terminal = "Terminal",
         /// Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them.
         Browser = "Browser",
-        /// Office documents laid out and drawn by the host.
+        /// Office documents laid out and drawn by the host, each on a thread of its own.
         Office = "Office",
-        /// The app's own updates.
+        /// The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install.
         Updater = "Updater",
         /// Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil.
         Diagnostics = "Diagnostics",
@@ -222,7 +222,7 @@ impl ServiceName {
             Self::Diff => &[Half::Window],
             Self::Terminal => &[Half::Window, Half::App],
             Self::Browser => &[Half::Window, Half::App],
-            Self::Office => &[Half::Window, Half::App],
+            Self::Office => &[Half::Window],
             Self::Updater => &[Half::Window, Half::App],
             Self::Diagnostics => &[Half::Window, Half::App],
             Self::Power => &[Half::Window, Half::App],
@@ -253,15 +253,15 @@ impl ServiceName {
             Self::Links => &["Open", "Exists"],
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],
-            Self::App => &["Version", "Channel", "Platform", "Locale", "Arg", "LogsDir", "DownloadsDir", "LocaleChanged"],
+            Self::App => &["Version", "Channel", "Platform", "Commit", "BetaNotes", "Locale", "Arg", "LogsDir", "DownloadsDir", "LocaleChanged"],
             Self::System => &["CopyText", "OpenExternal", "Reveal", "Now", "UtcOffset", "FreePort", "RandomId"],
             Self::Notifications => &["Notify"],
             Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "FileChanged"],
             Self::Diff => &["Open", "Mode", "SetMode"],
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select"],
             Self::Browser => &["Open", "Tabs", "Available"],
-            Self::Office => &["OpenAsync"],
-            Self::Updater => &["State", "Check", "Download", "Install", "StateChanged"],
+            Self::Office => &["OpenAsync", "Version", "SetSheet", "Close"],
+            Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],
             Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],
             Self::Power => &["KeepAwake"],
             Self::Qr => &["Encode"],

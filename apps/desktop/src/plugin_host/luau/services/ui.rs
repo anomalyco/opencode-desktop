@@ -111,29 +111,64 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
 fn toast(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     let q = p.clone();
     method(lua, t, "Show", move |lua, spec: Value| {
+        let buttons = buttons(&q, &spec)?;
         let s: spec::ToastSpec = decode(lua, spec, "ToastSpec")?;
         let reveal = s.actions.iter().flatten().find_map(|a| Some((a.label.clone(), a.reveal_path.clone()?)));
-        cx::ask(&q, Request::Toast { variant: s.variant.unwrap_or_default().as_str().to_owned(), title: s.title, description: s.description.unwrap_or_default(), reveal, persistent: s.persistent == Some(true) });
-        handle(lua)
+        let handle = next_handle();
+        cx::ask(&q, Request::Toast { variant: s.variant.unwrap_or_default().as_str().to_owned(), title: s.title, description: s.description.unwrap_or_default(), reveal, persistent: s.persistent == Some(true), buttons, handle });
+        toast_handle(lua, &q, handle)
     })?;
     for (name, variant) in [("Info", "default"), ("Success", "success"), ("Error", "error")] {
         let q = p.clone();
         method(lua, t, name, move |lua, (title, description): (String, Option<String>)| {
-            cx::ask(&q, Request::Toast { variant: variant.to_owned(), title, description: description.unwrap_or_default(), reveal: None, persistent: false });
-            handle(lua)
+            let handle = next_handle();
+            cx::ask(&q, Request::Toast { variant: variant.to_owned(), title, description: description.unwrap_or_default(), reveal: None, persistent: variant == "error", buttons: Vec::new(), handle });
+            toast_handle(lua, &q, handle)
         })?;
     }
     Ok(())
 }
 
-/// A `ToastHandle`. The app shows one toast at a time and dismisses it itself.
-fn handle(lua: &Lua) -> mlua::Result<Table> {
+fn next_handle() -> u64 {
+    thread_local!(static NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) });
+    NEXT.with(|n| {
+        n.set(n.get() + 1);
+        n.get()
+    })
+}
+
+/// A toast's buttons that run plugin code or just close it (`ToastAction.run`, `variant`).
+fn buttons(plugin: &Rc<str>, spec: &Value) -> mlua::Result<Vec<crate::status_toast::PluginButton>> {
+    let Value::Table(spec) = spec else { return Ok(Vec::new()) };
+    let Some(actions) = spec.raw_get::<Option<Table>>("actions")? else { return Ok(Vec::new()) };
+    let mut out = Vec::new();
+    for action in actions.sequence_values::<Table>() {
+        let action = action?;
+        if action.raw_get::<Option<String>>("revealPath")?.is_some() {
+            continue;
+        }
+        out.push(crate::status_toast::PluginButton {
+            label: action.raw_get::<Option<String>>("label")?.unwrap_or_default(),
+            secondary: action.raw_get::<Option<String>>("variant")?.as_deref() == Some("secondary"),
+            plugin: plugin.clone(),
+            run: action.raw_get::<Option<mlua::Function>>("run")?,
+            url: action.raw_get::<Option<String>>("openUrl")?,
+        });
+    }
+    Ok(out)
+}
+
+/// A `ToastHandle`: `Dismiss` closes its toast while it shows.
+fn toast_handle(lua: &Lua, plugin: &Rc<str>, handle: u64) -> mlua::Result<Table> {
     let h = lua.create_table()?;
-    method(lua, &h, "Dismiss", |_, ()| Ok(()))?;
+    let q = plugin.clone();
+    method(lua, &h, "Dismiss", move |_, ()| {
+        cx::ask(&q, Request::DismissToast(handle));
+        Ok(())
+    })?;
     method(lua, &h, "Update", |_, _: Value| Ok(()))?;
     Ok(h)
 }
-
 fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     let options = |lua: &Lua, v: Value| -> mlua::Result<spec::OpenPanelOptions> { if v.is_nil() { Ok(Default::default()) } else { decode(lua, v, "OpenPanelOptions") } };
     let q = p.clone();

@@ -75,7 +75,16 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 tx.instant();
             }
         }
-        Request::Toast { variant, title, description, reveal, persistent } => {
+        Request::DismissToast(handle) => {
+            let shown = app.toast.stack.entries().iter().find_map(|e| match &e.options {
+                crate::status_toast::Shown::Status(entry) if entry.handle == Some(handle) => Some(e.id),
+                _ => None,
+            });
+            if let Some(id) = shown {
+                crate::status_toast::dismiss_id(app, id);
+            }
+        }
+        Request::Toast { variant, title, description, reveal, persistent, buttons, handle } => {
             match variant.as_str() {
                 // A persistent toast stays until dismissed, as an error does.
                 "error" => crate::status_toast::fail(app, title, description),
@@ -92,6 +101,8 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 if let Some((label, path)) = reveal {
                     e.action = Some(crate::status_toast::ToastAction::Reveal(label, path.into()));
                 }
+                e.buttons = buttons;
+                e.handle = Some(handle);
             }
         }
         Request::OpenSettings(page) => {

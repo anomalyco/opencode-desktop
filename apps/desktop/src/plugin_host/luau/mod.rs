@@ -29,6 +29,8 @@ pub mod flyout;
 mod hot;
 pub mod native;
 mod nodes;
+#[cfg(feature = "office")]
+mod office_nodes;
 pub mod panels;
 mod plugin;
 pub mod requests;
@@ -168,6 +170,10 @@ pub struct Host {
     started: bool,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
+    /// The titlebar item the pointer is over, whose pill opens to show its label.
+    pub titlebar_hover: Option<&'static str>,
+    /// The window lost the system's focus (`ctx.FocusChanged`); a new window has it.
+    pub window_blurred: Cell<bool>,
     pub editors: editors::Editors,
     /// The window's waker, for process output and finished work.
     pub waker: Option<rune::Waker>,

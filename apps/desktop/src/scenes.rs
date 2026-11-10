@@ -43,7 +43,6 @@ const ORDER: &[&str] = &[
     "queue-question-morph",
     "draft",
     "settings",
-    "settings-updates",
     "settings-sidebar-closed",
     "question",
     "question-morph",

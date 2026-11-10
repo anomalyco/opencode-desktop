@@ -40,7 +40,11 @@ pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
         return None;
     }
     let mut items: Vec<El> = sorted(app, kinds::TITLEBAR_ITEM).into_iter().filter_map(|(i, c)| draw(app, p, i, c, &Props::new(SURFACE_TITLEBAR, &c.id), true)).collect();
-    items.extend(super::luau::surfaces::titlebar_items(app, p));
+    // In side tabs and the inbox, Desktop puts them in the sidebar's footer instead.
+    if app.tab_layout() != crate::layout_state::TabLayout::Horizontal {
+        return None;
+    }
+    items.extend(super::luau::surfaces::titlebar_items(app, p, false));
     if items.is_empty() {
         return None;
     }
@@ -54,6 +58,13 @@ pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
             .no_window_drag()
             .children(items),
     )
+}
+
+/// The sidebar's footer of titlebar items, in side tabs and the inbox (`vertical-tabs-footer`):
+/// 8 under the list, a column of pills.
+pub fn sidebar_items(app: &App, p: &Pal) -> Option<El> {
+    let items = super::luau::surfaces::titlebar_items(app, p, true);
+    (!items.is_empty()).then(|| col().key("vertical-tabs-footer").mt(8.0).w_full().items_start().children(items))
 }
 
 /// What a host-drawn composer pill shows (`ComposerPillView`), as its plugin answered.
@@ -167,10 +178,10 @@ pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
             let card = col().key(format!("plugin-page-{}", c.key)).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
             Some(crate::settings::section(p, intern(&c.title), card))
         })
+        // A Luau section draws its own title and list (`ui.settingsList`), as Desktop's do.
         .chain(super::luau::surfaces::settings_pages(app, Some(page)).into_iter().filter_map(|(i, key, spec, f)| {
             let body = super::luau::surfaces::settings_page_body(app, p, i, &spec, f.as_ref()?, None);
-            let card = col().key(format!("plugin-page-{key}")).w_full().px(20.0).py(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).child(body);
-            Some(crate::settings::section(p, intern(&spec.title), card))
+            Some(col().key(format!("plugin-page-{key}")).w_full().child(body))
         }))
         .collect()
 }
@@ -201,6 +212,12 @@ pub fn settings_page_title(app: &App, key: &str) -> Option<String> {
 
 fn luau_page(app: &App, key: &str) -> Option<(usize, &'static str, opencode_plugin_spec::SettingsPageSpec, Option<mlua::Function>)> {
     super::luau::surfaces::settings_pages(app, None).into_iter().find(|(_, k, spec, _)| *k == key || spec.id == key)
+}
+
+/// The controls a Luau plugin's page draws at the end of its header (`renderActions`).
+pub fn settings_page_actions(app: &App, p: &Pal, key: &str) -> Option<El> {
+    let (i, _, spec, _) = luau_page(app, key)?;
+    super::luau::surfaces::settings_page_actions(app, p, i, &spec)
 }
 
 /// A plugin page's rail icon: one it interned or a host icon by name.

@@ -6,7 +6,11 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["knobs"]
+default = ["knobs", "office"]
+# Word, Excel and PowerPoint previews (`office`): BetterOffice's engines and Vello, which draws
+# their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
+# shows Office files as binary.
+office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
@@ -25,6 +29,9 @@ knobs = ["rune-knobs/panel"]
 [dependencies]
 memchr = "2"
 base64 = "0.22"
+bytemuck = { version = "1", features = ["derive"], optional = true }
+office-preview = { path = "../../crates/office-preview", optional = true }
+vello = { version = "0.11", default-features = false, features = ["wgpu"], optional = true }
 browser-pane = { path = "../../crates/browser-pane" }
 crc32fast = "1"
 flate2 = "1"

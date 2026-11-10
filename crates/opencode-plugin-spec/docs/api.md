@@ -97,7 +97,7 @@ What a plugin half's setup function receives.
 | `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
 | `AddMenubarItem` | `(spec: MenubarItemSpec) -> Contribution` | Adds an item to the app menu bar. |
 | `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
 | `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
@@ -326,6 +326,8 @@ The running app. Halves: window, app.
 | `.Version` | `string` | The app's version. |
 | `.Channel` | `Channel` | Its release channel. |
 | `.Platform` | `Platform` | The operating system. |
+| `.Commit` | `string?` | The commit this build was made from, when the build knows it. |
+| `.BetaNotes` | `any?` | The changes a local or beta build carries (Desktop's `OPENCODE_BETA_NOTES`): `{ sha, commits, notes }`, each note `{ type, summary, sha, pr?, author? }`, newest first; nil in other builds. |
 | `:Locale` | `() -> string` | The interface language, such as `"en"`. |
 | `:Arg` | `(name: string) -> string?` | The value of command-line option `--name`. |
 | `:LogsDir` | `() -> string?` | The folder the app writes its logs to. |
@@ -405,23 +407,25 @@ Pages in the app's embedded browser. Pages belong to the process and survive a w
 
 ### Office
 
-Office documents laid out and drawn by the host. Halves: window, app.
+Office documents laid out and drawn by the host, each on a thread of its own. Halves: window.
 
 | Member | Type | Description |
 |---|---|---|
-| `:OpenAsync` | `(path: string) -> OfficeDocument?` | Opens a `.docx`, `.xlsx` or `.pptx` file. Nil when it cannot. Yields. |
+| `:OpenAsync` | `(path: string, directory: string, kind: OfficeKind) -> OfficeFile` | Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`. Yields. |
+| `:Version` | `(document: OfficeDocument) -> number` | Grows with every change its views draw: pages laid out, zoom, a sheet's frame. Read in a render, it redraws as it grows. |
+| `:SetSheet` | `(document: OfficeDocument, index: number) -> ()` | Shows a workbook's sheet `index`, from 1. |
+| `:Close` | `(document: OfficeDocument) -> ()` | Releases it and ends its thread. |
 
 ### Updater
 
-The app's own updates. Halves: window, app.
+The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install. Halves: window, app.
 
 | Member | Type | Description |
 |---|---|---|
-| `:State` | `() -> UpdaterState` | Where it stands. |
-| `:Check` | `() -> ()` | Checks for a newer version now. |
-| `:Download` | `() -> ()` | Downloads the available version. |
-| `:Install` | `() -> ()` | Restarts into the downloaded version. |
-| `.StateChanged` | `Signal<UpdaterState>` | Fires with each new state. |
+| `:State` | `() -> UpdaterState?` | Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves. |
+| `:CheckAsync` | `() -> UpdaterState` | Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way. Yields. |
+| `:InstallAsync` | `() -> string?` | Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not. Yields. |
+| `.StateChanged` | `Signal<UpdaterState?>` | Fires with each new state. |
 
 ### Diagnostics
 
@@ -530,6 +534,8 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.fileTree(props: UiFileTreeProps) -> UiNode` | native | [`UiFileTreeProps`](#uifiletreeprops) | A folder's file tree. |
 | `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start, its children stacked in it. |
 | `ui.openInButton(props: UiOpenInButtonProps) -> UiNode` | native | [`UiOpenInButtonProps`](#uiopeninbuttonprops) | The app's Open in split button for a path. |
+| `ui.officePages(props: UiOfficePagesProps) -> UiNode` | native | [`UiOfficePagesProps`](#uiofficepagesprops) | A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls. |
+| `ui.officeSheet(props: UiOfficeSheetProps) -> UiNode` | native | [`UiOfficeSheetProps`](#uiofficesheetprops) | A workbook's sheet: its headers and the cells under the scroll position. |
 | `ui.genUi(props: UiGenUiProps) -> UiNode` | native | [`UiGenUiProps`](#uigenuiprops) | An interactive UI outline, from a ```` ```ui ```` code block. |
 
 ### Native nodes
@@ -548,6 +554,8 @@ Heavy engines stay native in the host. Luau composes them as opaque nodes and dr
 | `ui.fileTree` | Tree model | Tree flattening, file icons, keyboard navigation | Folder loading, filter input, expanded state, open and context menus |
 | `ui.panelSidebar` | Pointer capture | The resize drag and the width it leaves | Whether it shows and what it holds |
 | `ui.openInButton` | The system's app registry | Finding installed apps and their marks, launching them, the remembered choice | Which path it opens |
+| `ui.officePages` | Office engines and a GPU vector renderer | Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom | Opening the file, its binary placeholder, the words |
+| `ui.officeSheet` | Office engines and a GPU vector renderer | Frames of the sheet drawn as it scrolls, headers, the active cell | Opening the file, the sheet tabs |
 | `ui.genUi` | UI outline renderer | Outline parsing, widget primitives and their motion | Which blocks render, through `AddCodeBlock` |
 
 ## Semantic tokens
@@ -1024,12 +1032,33 @@ An Office document's format.
 | `"xlsx"` | Excel. |
 | `"pptx"` | PowerPoint. |
 
+### ToastActionVariant
+
+A toast button's look.
+
+| Value | Meaning |
+|---|---|
+| `"primary"` | The app's neutral button. |
+| `"secondary"` | A ghost button. |
+
+### OfficeSignature
+
+What an Office file's first bytes are.
+
+| Value | Meaning |
+|---|---|
+| `"zip"` | A zip archive, as every Office Open XML package is. |
+| `"compound"` | A Compound File: an encrypted file, or one in the binary .doc, .xls or .ppt formats. |
+| `"other"` | Neither. |
+| `"unreadable"` | The file could not be read. |
+
 ### UpdaterPhase
 
 Where the app updater stands.
 
 | Value | Meaning |
 |---|---|
+| `"disabled"` | Updates are off in this build or for this install. |
 | `"idle"` | Nothing checked yet. |
 | `"checking"` | Asking for a newer version. |
 | `"up-to-date"` | This is the newest version. |
@@ -1654,6 +1683,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | Field | Type | Description |
 |---|---|---|
 | `title` | `string?` | A section title above the card. |
+| `catalog` | `boolean?` | Desktop's catalog list (`data-variant="catalog"`): rows 16 in from the card's sides, for lists of entries rather than controls. |
 
 ### UiFlyoutRowProps
 
@@ -1834,6 +1864,27 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | Field | Type | Description |
 |---|---|---|
 | `path` | `string` | A workspace path, or empty for the workspace folder. |
+
+### UiOfficePagesProps
+
+`ui.officePages` props. Native: the page column, its scenes, near-viewport loading and the zoom stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `document` | `OfficeDocument` | A Word document or a deck, from `Office:OpenAsync`. |
+| `labels` | `OfficePagesLabels` | The words it shows. |
+
+### UiOfficeSheetProps
+
+`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `document` | `OfficeDocument` | A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose. |
 
 ### UiGenUiProps
 
@@ -2138,6 +2189,7 @@ A button on a toast.
 | `revealPath` | `string?` | Shows this path in the system's file manager. |
 | `openUrl` | `string?` | Opens this URL in the system's browser. |
 | `run` | `(() -> ())?` | Runs when the user clicks it. The toast then closes. |
+| `variant` | `ToastActionVariant?` | Its look: `primary` (the default) or `secondary`. |
 
 ### ToastSpec
 
@@ -2435,17 +2487,37 @@ A page in the app's browser, for `ui.browserSurface`.
 
 ### OfficeDocument
 
-An Office file the host lays out and draws off the UI thread.
+An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.
 
-| Member | Type | Description |
+| Field | Type | Description |
 |---|---|---|
-| `.Kind` | `OfficeKind` | Its format. |
-| `:PageCount` | `() -> number` | Pages, slides, or the active sheet's pages. |
-| `:Sheets` | `() -> { string }` | An `xlsx` file's sheet names. |
-| `:SetSheet` | `(index: number) -> ()` | Shows sheet `index`, from 1. |
-| `:Notes` | `(page: number) -> string?` | A slide's speaker notes. |
-| `:RenderPageAsync` | `(page: number, scale: number?) -> ImageId?` | Draws page `page`, from 1, at `scale` (defaults to 2). Yields. |
-| `:Close` | `() -> ()` | Releases it. |
+| `id` | `number` | The host's id for it. |
+| `kind` | `OfficeKind` | Its format. |
+| `pages` | `number` | Pages or slides; 0 for a workbook. |
+| `sheets` | `{ string }` | A workbook's sheet names, in order. |
+
+### OfficeFile
+
+What `Office:OpenAsync` found: the file's size and first bytes, and the document when they are an Office Open XML package that opened.
+
+| Field | Type | Description |
+|---|---|---|
+| `size` | `number` | The file's size in bytes. |
+| `signature` | `OfficeSignature` | What its first bytes are. |
+| `document` | `OfficeDocument?` | The opened document; nil when the bytes are no package or the engine failed. |
+| `error` | `string?` | Why it did not open. |
+
+### OfficePagesLabels
+
+The words `ui.officePages` shows, in the plugin's language.
+
+| Field | Type | Description |
+|---|---|---|
+| `page` | `string` | A page's label, `{{number}}` its number from 1: "Page {{number}}" or "Slide {{number}}". |
+| `hiddenSlide` | `string?` | The badge under a hidden slide. |
+| `failed` | `string` | Over a page that could not be drawn. |
+| `speakerNotes` | `string?` | The label of a slide's notes. |
+| `layoutFailed` | `string?` | Under the last page when the rest could not be laid out. |
 
 ### UpdaterState
 
@@ -2704,6 +2776,7 @@ A settings page, or a section on a host page. Desktop's plugin API calls it `Set
 | `about` | `boolean?` | Lists the page in the About group, such as release notes. |
 | `entries` | `{ SettingEntry }?` | Search entries. |
 | `render` | `(view: View, props: SettingsPageProps) -> UiNode?` | Draws the page or section. |
+| `renderActions` | `((view: View) -> UiNode?)?` | Draws controls at the end of the page's header, such as a link out. |
 
 ### MenuItemSpec
 

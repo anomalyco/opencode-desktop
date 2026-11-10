@@ -85,7 +85,8 @@ pub fn icon(id: u32) -> Option<&'static Icon> {
 }
 
 /// Plugin `plugin`'s icon `name`, else Desktop's icon by that name (`window-analytics`,
-/// `chevron-right` …), else the host's panel icon by that name.
+/// `chevron-right` …), else the host's panel icon by that name. `file:<file name>` is the file
+/// icon Desktop's `FileIcon` draws for that file.
 pub fn resolve(plugin: &str, name: &str) -> &'static Icon {
     // `file:<name>`: the file type icon Desktop's `FileIcon` draws for that name.
     if let Some(file) = name.strip_prefix("file:") {

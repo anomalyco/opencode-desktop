@@ -44,6 +44,17 @@ pub enum ToastAction {
     Reveal(String, PathBuf),
 }
 
+/// A plugin toast's button (`ToastAction` with `run`): it closes the toast, then runs `run` in its
+/// plugin or opens `url`. `secondary` is Desktop's ghost button, the rest its neutral one.
+#[derive(Clone, Debug)]
+pub struct PluginButton {
+    pub label: String,
+    pub secondary: bool,
+    pub plugin: std::rc::Rc<str>,
+    pub run: Option<mlua::Function>,
+    pub url: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Entry {
     pub id: u64,
@@ -53,6 +64,10 @@ pub struct Entry {
     /// The glyph before the words: a success toast's tick.
     pub icon: Option<&'static Icon>,
     pub persistent: bool,
+    /// A plugin's buttons, in place of `action`.
+    pub buttons: Vec<PluginButton>,
+    /// The handle `Toast:Show` answered with, which `Dismiss` names.
+    pub handle: Option<u64>,
 }
 
 /// What a toast of the stack shows.
@@ -118,7 +133,7 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
 }
 
 fn entry(title: impl Into<String>, description: Option<String>, persistent: bool) -> Entry {
-    Entry { id: 0, title: title.into(), description, action: None, icon: None, persistent }
+    Entry { id: 0, title: title.into(), description, action: None, icon: None, persistent, buttons: Vec::new(), handle: None }
 }
 
 /// Shows `"Reverted"` with an `"Undo"` button bound to `undo`.
@@ -414,6 +429,9 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .children(entry.description.as_ref().map(|desc| text(desc.clone()).key("toast-description").font(DESC).color(p.muted).wrap().w_full()));
     if let Some(btn) = action_btn {
         content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
+    } else if !entry.buttons.is_empty() {
+        let buttons = entry.buttons.iter().enumerate().map(|(i, b)| plugin_button(p, id, i, b.clone()));
+        content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).wrap().children(buttons));
     }
     let lead = entry.icon.map(|glyph| el().key("toast-icon").w(16.0).h(20.0).center().child(icon(glyph, 16.0).color(p.icon)));
     let body = row()
@@ -436,6 +454,29 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .motion(Spring::NONE)
         .on_press(|_: &mut App| {})
         .child(body)
+}
+
+/// A plugin's toast button (`toast.tsx` `createToastActions`): `button-v2` small, neutral or
+/// ghost, 13/530; a press closes the toast, then runs the plugin's `run` or opens its URL.
+fn plugin_button(p: &Pal, id: u64, i: usize, b: PluginButton) -> El {
+    let label = b.label.clone();
+    let base = row().key(format!("toast-action-{i}")).role("button").label(label.clone()).h(24.0).px(9.0).radius(4.0).center();
+    let styled = if b.secondary { base } else { base.fill(if p.dark && p.theme == 0 { Color::WHITE.alpha(0.06) } else { p.q.neutral }).elevate(neutral_lift(p)) };
+    styled
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            dismiss_id(s, id);
+            if let Some(url) = &b.url {
+                let _ = tx.open_url(url);
+            }
+            let Some(run) = &b.run else { return };
+            let Some(index) = s.plugins.luau.running().find(|(_, pl)| pl.half.id == b.plugin).map(|(i, _)| i) else { return };
+            crate::plugin_host::luau::commands::spawn(s, index, run, (), tx);
+        })
+        .child(text(label).font(TITLE).color(p.text))
 }
 
 /// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the

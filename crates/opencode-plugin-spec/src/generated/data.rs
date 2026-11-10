@@ -451,8 +451,10 @@ pub struct ToastAction {
     pub reveal_path: Option<String>,
     /// Opens this URL in the system's browser.
     pub open_url: Option<String>,
+    /// Its look: `primary` (the default) or `secondary`.
+    pub variant: Option<ToastActionVariant>,
 }
-impl_record!(ToastAction, ["label", "revealPath", "openUrl"], ["run"], []);
+impl_record!(ToastAction, ["label", "revealPath", "openUrl", "variant"], ["run"], []);
 
 /// What a toast shows.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -76,6 +76,10 @@ string_enum! {
         PanelSidebar = "panelSidebar",
         /// The app's Open in split button for a path.
         OpenInButton = "openInButton",
+        /// A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls.
+        OfficePages = "officePages",
+        /// A workbook's sheet: its headers and the cells under the scroll position.
+        OfficeSheet = "officeSheet",
         /// An interactive UI outline, from a ```` ```ui ```` code block.
         GenUi = "genUi",
     }
@@ -101,7 +105,7 @@ impl NodeKind {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
-            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
+            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
     }
 
@@ -145,6 +149,8 @@ impl NodeKind {
             Self::FileTree => &UI_FILE_TREE_PROPS,
             Self::PanelSidebar => &UI_PANEL_SIDEBAR_PROPS,
             Self::OpenInButton => &UI_OPEN_IN_BUTTON_PROPS,
+            Self::OfficePages => &UI_OFFICE_PAGES_PROPS,
+            Self::OfficeSheet => &UI_OFFICE_SHEET_PROPS,
             Self::GenUi => &UI_GEN_UI_PROPS,
         }
     }
@@ -369,6 +375,17 @@ pub static UI_METRIC_PROPS: PropsSpec = PropsSpec::new("UiMetricProps", Some(&UI
     PropSpec::new("color", PropType::Color, false),
 ]);
 
+/// `UiOfficePagesProps`.
+pub static UI_OFFICE_PAGES_PROPS: PropsSpec = PropsSpec::new("UiOfficePagesProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("document", PropType::Record("OfficeDocument"), true),
+    PropSpec::new("labels", PropType::Record("OfficePagesLabels"), true),
+]);
+
+/// `UiOfficeSheetProps`.
+pub static UI_OFFICE_SHEET_PROPS: PropsSpec = PropsSpec::new("UiOfficeSheetProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("document", PropType::Record("OfficeDocument"), true),
+]);
+
 /// `UiOpenInButtonProps`.
 pub static UI_OPEN_IN_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiOpenInButtonProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("path", PropType::String, true),
@@ -431,6 +448,7 @@ pub static UI_SERVER_INDICATOR_PROPS: PropsSpec = PropsSpec::new("UiServerIndica
 /// `UiSettingsListProps`.
 pub static UI_SETTINGS_LIST_PROPS: PropsSpec = PropsSpec::new("UiSettingsListProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("title", PropType::String, false),
+    PropSpec::new("catalog", PropType::Bool, false),
 ]);
 
 /// `UiSettingsRowProps`.

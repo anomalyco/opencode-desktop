@@ -171,8 +171,14 @@ export type ImageFit = "contain" | "cover" | "fill"
 --- An Office document's format.
 export type OfficeKind = "docx" | "xlsx" | "pptx"
 
+--- A toast button's look.
+export type ToastActionVariant = "primary" | "secondary"
+
+--- What an Office file's first bytes are.
+export type OfficeSignature = "zip" | "compound" | "other" | "unreadable"
+
 --- Where the app updater stands.
-export type UpdaterPhase = "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "installing" | "error"
+export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "installing" | "error"
 
 --- What a `UiEvent` reports.
 export type UiEventKind = "press" | "hover" | "submit" | "change" | "select" | "visible-rows"
@@ -1871,6 +1877,8 @@ export type UiSettingsListProps = {
     dir: ("ltr" | "rtl" | "auto")?,
     --- A section title above the card.
     title: string?,
+    --- Desktop's catalog list (`data-variant="catalog"`): rows 16 in from the card's sides, for lists of entries rather than controls.
+    catalog: boolean?,
 }
 
 --- `ui.flyoutRow` props: a popover row that opens a nested popover beside it. The host owns placement, hover intent and dismissal.
@@ -2775,6 +2783,140 @@ export type UiOpenInButtonProps = {
     path: string,
 }
 
+--- `ui.officePages` props. Native: the page column, its scenes, near-viewport loading and the zoom stay in the host.
+export type UiOfficePagesProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- A Word document or a deck, from `Office:OpenAsync`.
+    document: OfficeDocument,
+    --- The words it shows.
+    labels: OfficePagesLabels,
+}
+
+--- `ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.
+export type UiOfficeSheetProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose.
+    document: OfficeDocument,
+}
+
 --- `ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.
 export type UiGenUiProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
@@ -3253,6 +3395,8 @@ export type ToastAction = {
     openUrl: string?,
     --- Runs when the user clicks it. The toast then closes.
     run: (() -> ())?,
+    --- Its look: `primary` (the default) or `secondary`.
+    variant: ToastActionVariant?,
 }
 
 --- What a toast shows.
@@ -3613,22 +3757,42 @@ export type BrowserTab = {
     Closed: Signal<()>,
 }
 
---- An Office file the host lays out and draws off the UI thread.
+--- An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.
 export type OfficeDocument = {
+    --- The host's id for it.
+    id: number,
     --- Its format.
-    Kind: OfficeKind,
-    --- Pages, slides, or the active sheet's pages.
-    PageCount: (self: OfficeDocument) -> number,
-    --- An `xlsx` file's sheet names.
-    Sheets: (self: OfficeDocument) -> { string },
-    --- Shows sheet `index`, from 1.
-    SetSheet: (self: OfficeDocument, index: number) -> (),
-    --- A slide's speaker notes.
-    Notes: (self: OfficeDocument, page: number) -> string?,
-    --- Draws page `page`, from 1, at `scale` (defaults to 2). Yields: call it from a handler, a task or a signal callback.
-    RenderPageAsync: (self: OfficeDocument, page: number, scale: number?) -> ImageId?,
-    --- Releases it.
-    Close: (self: OfficeDocument) -> (),
+    kind: OfficeKind,
+    --- Pages or slides; 0 for a workbook.
+    pages: number,
+    --- A workbook's sheet names, in order.
+    sheets: { string },
+}
+
+--- What `Office:OpenAsync` found: the file's size and first bytes, and the document when they are an Office Open XML package that opened.
+export type OfficeFile = {
+    --- The file's size in bytes.
+    size: number,
+    --- What its first bytes are.
+    signature: OfficeSignature,
+    --- The opened document; nil when the bytes are no package or the engine failed.
+    document: OfficeDocument?,
+    --- Why it did not open.
+    error: string?,
+}
+
+--- The words `ui.officePages` shows, in the plugin's language.
+export type OfficePagesLabels = {
+    --- A page's label, `{{number}}` its number from 1: "Page {{number}}" or "Slide {{number}}".
+    page: string,
+    --- The badge under a hidden slide.
+    hiddenSlide: string?,
+    --- Over a page that could not be drawn.
+    failed: string,
+    --- The label of a slide's notes.
+    speakerNotes: string?,
+    --- Under the last page when the rest could not be laid out.
+    layoutFailed: string?,
 }
 
 --- Where the app updater stands.
@@ -3945,6 +4109,8 @@ export type SettingsPageSpec = {
     entries: { SettingEntry }?,
     --- Draws the page or section.
     render: (view: View, props: SettingsPageProps) -> UiNode?,
+    --- Draws controls at the end of the page's header, such as a link out.
+    renderActions: ((view: View) -> UiNode?)?,
 }
 
 --- An item of a host menu. Desktop's plugin API calls it `MenuItem`.
@@ -4515,6 +4681,10 @@ export type AppService = {
     Channel: Channel,
     --- The operating system.
     Platform: Platform,
+    --- The commit this build was made from, when the build knows it.
+    Commit: string?,
+    --- The changes a local or beta build carries (Desktop's `OPENCODE_BETA_NOTES`): `{ sha, commits, notes }`, each note `{ type, summary, sha, pr?, author? }`, newest first; nil in other builds.
+    BetaNotes: any?,
     --- The interface language, such as `"en"`.
     Locale: (self: AppService) -> string,
     --- The value of command-line option `--name`.
@@ -4609,24 +4779,28 @@ export type BrowserService = {
     Available: (self: BrowserService) -> boolean,
 }
 
---- Office documents laid out and drawn by the host. Both halves: `ctx:GetService("Office")`.
+--- Office documents laid out and drawn by the host, each on a thread of its own. The window half only: `ctx:GetService("Office")`.
 export type OfficeService = {
-    --- Opens a `.docx`, `.xlsx` or `.pptx` file. Nil when it cannot. Yields: call it from a handler, a task or a signal callback.
-    OpenAsync: (self: OfficeService, path: string) -> OfficeDocument?,
+    --- Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`. Yields: call it from a handler, a task or a signal callback.
+    OpenAsync: (self: OfficeService, path: string, directory: string, kind: OfficeKind) -> OfficeFile,
+    --- Grows with every change its views draw: pages laid out, zoom, a sheet's frame. Read in a render, it redraws as it grows.
+    Version: (self: OfficeService, document: OfficeDocument) -> number,
+    --- Shows a workbook's sheet `index`, from 1.
+    SetSheet: (self: OfficeService, document: OfficeDocument, index: number) -> (),
+    --- Releases it and ends its thread.
+    Close: (self: OfficeService, document: OfficeDocument) -> (),
 }
 
---- The app's own updates. Both halves: `ctx:GetService("Updater")`.
+--- The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install. Both halves: `ctx:GetService("Updater")`.
 export type UpdaterService = {
-    --- Where it stands.
-    State: (self: UpdaterService) -> UpdaterState,
-    --- Checks for a newer version now.
-    Check: (self: UpdaterService) -> (),
-    --- Downloads the available version.
-    Download: (self: UpdaterService) -> (),
-    --- Restarts into the downloaded version.
-    Install: (self: UpdaterService) -> (),
+    --- Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves.
+    State: (self: UpdaterService) -> UpdaterState?,
+    --- Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way. Yields: call it from a handler, a task or a signal callback.
+    CheckAsync: (self: UpdaterService) -> UpdaterState,
+    --- Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not. Yields: call it from a handler, a task or a signal callback.
+    InstallAsync: (self: UpdaterService) -> string?,
     --- Fires with each new state.
-    StateChanged: Signal<UpdaterState>,
+    StateChanged: Signal<UpdaterState?>,
 }
 
 --- Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil. Both halves: `ctx:GetService("Diagnostics")`.
@@ -4835,55 +5009,53 @@ declare extern type AppContext with
     CreateSignal: AppContextCreateSignal
     --- Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new.
     function BindHotState(self, save: () -> any, load: (state: any) -> ()): ()
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Sessions"): SessionsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Models"): ModelsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Server"): ServerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Servers"): ServersService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Http"): HttpService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Process"): ProcessService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Store"): StoreService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Contracts"): ContractsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Console"): ConsoleService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Toast"): ToastService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Theme"): ThemeService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "App"): AppService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "System"): SystemService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Notifications"): NotificationsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Workspace"): WorkspaceService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Terminal"): TerminalService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Browser"): BrowserService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
-    function GetService(self, name: "Office"): OfficeService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Updater"): UpdaterService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Diagnostics"): DiagnosticsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Power"): PowerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Qr"): QrService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Askpass"): AskpassService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "Images"): ImagesService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
     function GetService(self, name: "I18n"): I18nService
     --- Adds an item to the app menu bar.
     function AddMenubarItem(self, spec: MenubarItemSpec): Contribution
@@ -4969,6 +5141,10 @@ export type UiLibrary = {
     panelSidebar: (props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode,
     --- The app's Open in split button for a path. Native: the host renders it.
     openInButton: (props: UiOpenInButtonProps) -> UiNode,
+    --- A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls. Native: the host renders it.
+    officePages: (props: UiOfficePagesProps) -> UiNode,
+    --- A workbook's sheet: its headers and the cells under the scroll position. Native: the host renders it.
+    officeSheet: (props: UiOfficeSheetProps) -> UiNode,
     --- An interactive UI outline, from a ```` ```ui ```` code block. Native: the host renders it.
     genUi: (props: UiGenUiProps) -> UiNode,
     --- A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme.

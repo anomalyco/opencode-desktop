@@ -285,7 +285,18 @@
       { "value": "xlsx", "doc": "Excel." },
       { "value": "pptx", "doc": "PowerPoint." }
     ] },
+    { "name": "ToastActionVariant", "rust": true, "doc": "A toast button's look.", "values": [
+      { "value": "primary", "doc": "The app's neutral button." },
+      { "value": "secondary", "doc": "A ghost button." }
+    ] },
+    { "name": "OfficeSignature", "rust": true, "doc": "What an Office file's first bytes are.", "values": [
+      { "value": "zip", "doc": "A zip archive, as every Office Open XML package is." },
+      { "value": "compound", "doc": "A Compound File: an encrypted file, or one in the binary .doc, .xls or .ppt formats." },
+      { "value": "other", "doc": "Neither." },
+      { "value": "unreadable", "doc": "The file could not be read." }
+    ] },
     { "name": "UpdaterPhase", "rust": true, "doc": "Where the app updater stands.", "values": [
+      { "value": "disabled", "doc": "Updates are off in this build or for this install." },
       { "value": "idle", "doc": "Nothing checked yet." },
       { "value": "checking", "doc": "Asking for a newer version." },
       { "value": "up-to-date", "doc": "This is the newest version." },
@@ -621,7 +632,8 @@
       { "name": "description", "type": "string?", "doc": "A line under the title." }
     ] },
     { "name": "UiSettingsListProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.settingsList` props: a card of settings rows split by hairlines.", "fields": [
-      { "name": "title", "type": "string?", "doc": "A section title above the card." }
+      { "name": "title", "type": "string?", "doc": "A section title above the card." },
+      { "name": "catalog", "type": "boolean?", "doc": "Desktop's catalog list (`data-variant=\"catalog\"`): rows 16 in from the card's sides, for lists of entries rather than controls." }
     ] },
     { "name": "UiFlyoutRowProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.flyoutRow` props: a popover row that opens a nested popover beside it. The host owns placement, hover intent and dismissal.", "fields": [
       { "name": "text", "type": "string", "doc": "The row's label." },
@@ -713,6 +725,13 @@
     ] },
     { "name": "UiOpenInButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.", "fields": [
       { "name": "path", "type": "string", "doc": "A workspace path, or empty for the workspace folder." }
+    ] },
+    { "name": "UiOfficePagesProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.officePages` props. Native: the page column, its scenes, near-viewport loading and the zoom stay in the host.", "fields": [
+      { "name": "document", "type": "OfficeDocument", "doc": "A Word document or a deck, from `Office:OpenAsync`." },
+      { "name": "labels", "type": "OfficePagesLabels", "doc": "The words it shows." }
+    ] },
+    { "name": "UiOfficeSheetProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.", "fields": [
+      { "name": "document", "type": "OfficeDocument", "doc": "A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose." }
     ] },
     { "name": "UiGenUiProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The ```` ```ui ```` outline source." },
@@ -893,7 +912,8 @@
       { "name": "label", "type": "string", "doc": "The button's label." },
       { "name": "revealPath", "type": "string?", "doc": "Shows this path in the system's file manager." },
       { "name": "openUrl", "type": "string?", "doc": "Opens this URL in the system's browser." },
-      { "name": "run", "type": "(() -> ())?", "doc": "Runs when the user clicks it. The toast then closes." }
+      { "name": "run", "type": "(() -> ())?", "doc": "Runs when the user clicks it. The toast then closes." },
+      { "name": "variant", "type": "ToastActionVariant?", "doc": "Its look: `primary` (the default) or `secondary`." }
     ] },
     { "name": "ToastSpec", "kind": "record", "rust": true, "doc": "What a toast shows.", "fields": [
       { "name": "title", "type": "string", "doc": "The headline." },
@@ -1074,14 +1094,24 @@
       { "name": "LoadingChanged", "kind": "signal", "payload": "boolean", "doc": "Fires as a load starts and ends." },
       { "name": "Closed", "kind": "signal", "payload": "()", "doc": "Fires as the page closes." }
     ] },
-    { "name": "OfficeDocument", "kind": "object", "doc": "An Office file the host lays out and draws off the UI thread.", "members": [
-      { "name": "Kind", "kind": "field", "type": "OfficeKind", "doc": "Its format." },
-      { "name": "PageCount", "kind": "method", "sig": "() -> number", "doc": "Pages, slides, or the active sheet's pages." },
-      { "name": "Sheets", "kind": "method", "sig": "() -> { string }", "doc": "An `xlsx` file's sheet names." },
-      { "name": "SetSheet", "kind": "method", "sig": "(index: number) -> ()", "doc": "Shows sheet `index`, from 1." },
-      { "name": "Notes", "kind": "method", "sig": "(page: number) -> string?", "doc": "A slide's speaker notes." },
-      { "name": "RenderPageAsync", "kind": "method", "sig": "(page: number, scale: number?) -> ImageId?", "yields": true, "doc": "Draws page `page`, from 1, at `scale` (defaults to 2)." },
-      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Releases it." }
+    { "name": "OfficeDocument", "kind": "record", "doc": "An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.", "fields": [
+      { "name": "id", "type": "integer", "doc": "The host's id for it." },
+      { "name": "kind", "type": "OfficeKind", "doc": "Its format." },
+      { "name": "pages", "type": "integer", "doc": "Pages or slides; 0 for a workbook." },
+      { "name": "sheets", "type": "{ string }", "doc": "A workbook's sheet names, in order." }
+    ] },
+    { "name": "OfficeFile", "kind": "record", "doc": "What `Office:OpenAsync` found: the file's size and first bytes, and the document when they are an Office Open XML package that opened.", "fields": [
+      { "name": "size", "type": "integer", "doc": "The file's size in bytes." },
+      { "name": "signature", "type": "OfficeSignature", "doc": "What its first bytes are." },
+      { "name": "document", "type": "OfficeDocument?", "doc": "The opened document; nil when the bytes are no package or the engine failed." },
+      { "name": "error", "type": "string?", "doc": "Why it did not open." }
+    ] },
+    { "name": "OfficePagesLabels", "kind": "record", "doc": "The words `ui.officePages` shows, in the plugin's language.", "fields": [
+      { "name": "page", "type": "string", "doc": "A page's label, `{{number}}` its number from 1: \"Page {{number}}\" or \"Slide {{number}}\"." },
+      { "name": "hiddenSlide", "type": "string?", "doc": "The badge under a hidden slide." },
+      { "name": "failed", "type": "string", "doc": "Over a page that could not be drawn." },
+      { "name": "speakerNotes", "type": "string?", "doc": "The label of a slide's notes." },
+      { "name": "layoutFailed", "type": "string?", "doc": "Under the last page when the rest could not be laid out." }
     ] },
     { "name": "UpdaterState", "kind": "record", "rust": true, "doc": "Where the app updater stands.", "fields": [
       { "name": "phase", "type": "UpdaterPhase", "doc": "The phase." },
@@ -1240,7 +1270,8 @@
       { "name": "page", "type": "HostSettingsPage?", "doc": "Adds a section to this host page instead of a page of its own." },
       { "name": "about", "type": "boolean?", "doc": "Lists the page in the About group, such as release notes." },
       { "name": "entries", "type": "{ SettingEntry }?", "doc": "Search entries." },
-      { "name": "render", "type": "(view: View, props: SettingsPageProps) -> UiNode?", "doc": "Draws the page or section." }
+      { "name": "render", "type": "(view: View, props: SettingsPageProps) -> UiNode?", "doc": "Draws the page or section." },
+      { "name": "renderActions", "type": "((view: View) -> UiNode?)?", "doc": "Draws controls at the end of the page's header, such as a link out." }
     ] },
     { "name": "MenuItemSpec", "kind": "record", "rust": true, "official": "MenuItem", "doc": "An item of a host menu.", "fields": [
       { "name": "menu", "type": "MenuName", "doc": "The menu." },
@@ -1558,6 +1589,8 @@
       { "name": "Version", "kind": "field", "type": "string", "doc": "The app's version." },
       { "name": "Channel", "kind": "field", "type": "Channel", "doc": "Its release channel." },
       { "name": "Platform", "kind": "field", "type": "Platform", "doc": "The operating system." },
+      { "name": "Commit", "kind": "field", "type": "string?", "doc": "The commit this build was made from, when the build knows it." },
+      { "name": "BetaNotes", "kind": "field", "type": "any?", "doc": "The changes a local or beta build carries (Desktop's `OPENCODE_BETA_NOTES`): `{ sha, commits, notes }`, each note `{ type, summary, sha, pr?, author? }`, newest first; nil in other builds." },
       { "name": "Locale", "kind": "method", "sig": "() -> string", "doc": "The interface language, such as `\"en\"`." },
       { "name": "Arg", "kind": "method", "sig": "(name: string) -> string?", "doc": "The value of command-line option `--name`." },
       { "name": "LogsDir", "kind": "method", "sig": "() -> string?", "doc": "The folder the app writes its logs to." },
@@ -1605,15 +1638,17 @@
       { "name": "Tabs", "kind": "method", "sig": "() -> { BrowserTab }", "doc": "This plugin's open pages." },
       { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "The browser engine is installed and runs on this platform." }
     ] },
-    { "name": "Office", "halves": ["window", "app"], "doc": "Office documents laid out and drawn by the host.", "members": [
-      { "name": "OpenAsync", "kind": "method", "sig": "(path: string) -> OfficeDocument?", "yields": true, "doc": "Opens a `.docx`, `.xlsx` or `.pptx` file. Nil when it cannot." }
+    { "name": "Office", "halves": ["window"], "doc": "Office documents laid out and drawn by the host, each on a thread of its own.", "members": [
+      { "name": "OpenAsync", "kind": "method", "sig": "(path: string, directory: string, kind: OfficeKind) -> OfficeFile", "yields": true, "doc": "Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`." },
+      { "name": "Version", "kind": "method", "sig": "(document: OfficeDocument) -> number", "doc": "Grows with every change its views draw: pages laid out, zoom, a sheet's frame. Read in a render, it redraws as it grows." },
+      { "name": "SetSheet", "kind": "method", "sig": "(document: OfficeDocument, index: integer) -> ()", "doc": "Shows a workbook's sheet `index`, from 1." },
+      { "name": "Close", "kind": "method", "sig": "(document: OfficeDocument) -> ()", "doc": "Releases it and ends its thread." }
     ] },
-    { "name": "Updater", "halves": ["window", "app"], "doc": "The app's own updates.", "members": [
-      { "name": "State", "kind": "method", "sig": "() -> UpdaterState", "doc": "Where it stands." },
-      { "name": "Check", "kind": "method", "sig": "() -> ()", "doc": "Checks for a newer version now." },
-      { "name": "Download", "kind": "method", "sig": "() -> ()", "doc": "Downloads the available version." },
-      { "name": "Install", "kind": "method", "sig": "() -> ()", "doc": "Restarts into the downloaded version." },
-      { "name": "StateChanged", "kind": "signal", "payload": "UpdaterState", "doc": "Fires with each new state." }
+    { "name": "Updater", "halves": ["window", "app"], "doc": "The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install.", "members": [
+      { "name": "State", "kind": "method", "sig": "() -> UpdaterState?", "doc": "Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves." },
+      { "name": "CheckAsync", "kind": "method", "sig": "() -> UpdaterState", "yields": true, "doc": "Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way." },
+      { "name": "InstallAsync", "kind": "method", "sig": "() -> string?", "yields": true, "doc": "Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not." },
+      { "name": "StateChanged", "kind": "signal", "payload": "UpdaterState?", "doc": "Fires with each new state." }
     ] },
     { "name": "Diagnostics", "halves": ["window", "app"], "doc": "Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil.", "members": [
       { "name": "Memory", "kind": "method", "sig": "() -> { [string]: any }?", "doc": "The process's memory counters." },
@@ -1692,6 +1727,8 @@
     { "name": "fileTree", "category": "native", "sig": "(props: UiFileTreeProps) -> UiNode", "props": "UiFileTreeProps", "doc": "A folder's file tree.", "native": { "engine": "Tree model", "native": "Tree flattening, file icons, keyboard navigation", "luau": "Folder loading, filter input, expanded state, open and context menus" } },
     { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
     { "name": "openInButton", "category": "native", "sig": "(props: UiOpenInButtonProps) -> UiNode", "props": "UiOpenInButtonProps", "doc": "The app's Open in split button for a path.", "native": { "engine": "The system's app registry", "native": "Finding installed apps and their marks, launching them, the remembered choice", "luau": "Which path it opens" } },
+    { "name": "officePages", "category": "native", "sig": "(props: UiOfficePagesProps) -> UiNode", "props": "UiOfficePagesProps", "doc": "A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom", "luau": "Opening the file, its binary placeholder, the words" } },
+    { "name": "officeSheet", "category": "native", "sig": "(props: UiOfficeSheetProps) -> UiNode", "props": "UiOfficeSheetProps", "doc": "A workbook's sheet: its headers and the cells under the scroll position.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Frames of the sheet drawn as it scrolls, headers, the active cell", "luau": "Opening the file, the sheet tabs" } },
     { "name": "genUi", "category": "native", "sig": "(props: UiGenUiProps) -> UiNode", "props": "UiGenUiProps", "doc": "An interactive UI outline, from a ```` ```ui ```` code block.", "native": { "engine": "UI outline renderer", "native": "Outline parsing, widget primitives and their motion", "luau": "Which blocks render, through `AddCodeBlock`" } }
   ],
   "uiExtras": [
