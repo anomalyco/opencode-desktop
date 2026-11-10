@@ -173,8 +173,13 @@ fn a_tool_joining_the_group_slides_its_chevron() {
     let chevron = |rt: &Runtime<App>| rt.elements().into_iter()
         .find(|e| !e.exiting && e.path.contains("c-call_reply_read-0001/") && e.key.as_deref() == Some("chevron"))
         .map(|e| e.rect[0]);
+    // The arrow shows under the pointer (it rests transparent, and Rune lands what nobody sees,
+    // 87caf2a3), so the pointer follows the header as the reply comes in under it.
     let mut xs = Vec::new();
     for _ in 0..(4.5 * 120.0) as usize {
+        if let Some(t) = rt.elements().into_iter().find(|e| !e.exiting && e.path.contains("c-call_reply_read-0001/") && e.key.as_deref() == Some("trigger")) {
+            rt.pointer_move(t.rect[0] + 20.0, t.rect[1] + t.rect[3] / 2.0);
+        }
         rt.frame(1.0 / 120.0);
         xs.extend(chevron(&rt));
     }
