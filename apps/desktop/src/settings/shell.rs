@@ -4,6 +4,7 @@
 //! with 24 pt gutters; below that the rail gives way to a bar with Back and the page menu. The
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
+use rune_kit::ScrollBar as _;
 use rune::{Color, El, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -52,8 +53,14 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     let narrow = width > 0.0 && width < 800.0;
     crate::settings::note_panel_width(if narrow { width - 8.0 } else { 0.0 }, s.layout.narrow.sm());
     let content = pages::view(s, p);
-    let screen = col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
-        .scroll(rune::ScrollSpec { stick_bottom: false });
+    // Desktop's ScrollView bar over the whole screen, as Home has; the pointer over it shows it.
+    let screen = |inner: El| col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
+        .scroll(rune::ScrollSpec { stick_bottom: false })
+        .child(inner)
+        .scroll_bar_styled(rune_kit::ScrollBarStyle::scroll_view(&crate::palette::kit(p)))
+        // The bar's column takes the viewport's place, so it takes its sizing too.
+        .w_full().grow(1.0).shrink().min_h(0.0);
+
     if narrow {
         // `--settings-mobile-inner-inset`: 8 in a narrow window, else 16 (`settings.css:33`).
         let inset = if s.narrow() { 8.0 } else { 16.0 };
@@ -63,7 +70,7 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
         return col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
             .child(narrow_bar(s, p, inset))
             .child(col().key("settings-sidebar").w_full().px(inset).py(8.0).child(field))
-            .child(screen.child(col().w_full().px(inset).child(content)));
+            .child(screen(col().w_full().px(inset).child(content)));
     }
     let wide = width <= 0.0 || width >= 1048.0;
     let (rail_w, pad_start, pad_end, gutter) = if wide { (328.0, 24.0, 64.0, 0.0) } else { (240.0, 16.0, 24.0, 24.0) };
@@ -71,7 +78,7 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     let rail = col().key("settings-sidebar").w(rail_w).pt(50.0).pb(48.0).pl(pad_start).pr(pad_end).sticky_top(0.0).child(nav(s, p, rail_w - pad_start - pad_end, height));
     let page = col().key("settings-content").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(content);
     col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
-        .child(screen.child(row().w_full().px(gutter).justify_center().child(row().w_full().max_w(1048.0).items_start().child(rail).child(page))))
+        .child(screen(row().w_full().px(gutter).justify_center().child(row().w_full().max_w(1048.0).items_start().child(rail).child(page))))
 }
 
 /// `.settings-nav`: Back, the search, then the page groups (or the search's results). A
