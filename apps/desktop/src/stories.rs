@@ -117,8 +117,9 @@ const QUEUE_KEYS: &[Trigger] = &[
 const SUBAGENT_KEYS: &[Trigger] = &[replay(subagent_open), Trigger { key: 's', label: "Start the subagent", run: start_child }, Trigger { key: 'f', label: "Finish it", run: finish_child }];
 const IMAGE_KEYS: &[Trigger] = &[
     replay(images_open),
-    Trigger { key: 'o', label: "Open the first image", run: |s, _| view_image(s) },
-    Trigger { key: 'c', label: "Close it", run: |s, _| s.attach.viewing = None },
+    Trigger { key: 'o', label: "Open the first image", run: view_image },
+    Trigger { key: 'z', label: "Zoom in", run: |s, tx| s.attach.zoom.zoom_in(tx) },
+    Trigger { key: 'e', label: "Escape", run: |_, tx| tx.press(rune::Key::Escape) },
 ];
 const JUMP_KEYS: &[Trigger] = &[
     replay(jump_open),
@@ -345,6 +346,7 @@ fn fresh(real: &App) -> App {
     w.base_ms -= (real.clock * 1000.0) as i64;
     w.now_ms = w.base_ms + (real.clock * 1000.0) as i64;
     w.waker = real.waker.clone();
+    serve_pictures(&w);
     if let Some(waker) = w.waker.clone() {
         w.attach.set_waker(waker.clone());
         w.icons.set_waker(waker.clone());
@@ -664,16 +666,7 @@ fn finish_child(s: &mut App, tx: &mut Play<App>) {
 fn pictures() -> &'static [Attachment] {
     static PICS: OnceLock<Vec<Attachment>> = OnceLock::new();
     PICS.get_or_init(|| {
-        let shot = |name: &str, (w, h): (u32, u32), a: [f32; 3], b: [f32; 3]| {
-            let img = image::RgbaImage::from_fn(w, h, |x, y| {
-                let t = (x as f32 / w as f32 * 0.7 + y as f32 / h as f32 * 0.3).clamp(0.0, 1.0);
-                let c = |i: usize| ((a[i] + (b[i] - a[i]) * t) * 255.0) as u8;
-                image::Rgba([c(0), c(1), c(2), 255])
-            });
-            let mut out = std::io::Cursor::new(Vec::new());
-            img.write_to(&mut out, image::ImageFormat::Png).expect("encode a PNG");
-            Attachment { mime: "image/png".into(), name: name.into(), bytes: Arc::from(out.into_inner()), media: None }
-        };
+        let shot = |name: &str, size, a, b| Attachment { mime: "image/png".into(), name: name.into(), bytes: Arc::from(gradient(size, a, b)), media: None };
         vec![
             shot("sidebar.png", (640, 400), [0.22, 0.36, 0.86], [0.62, 0.32, 0.78]),
             shot("reconnect.png", (480, 480), [0.95, 0.55, 0.25], [0.86, 0.24, 0.42]),
@@ -681,8 +674,44 @@ fn pictures() -> &'static [Attachment] {
     })
 }
 
-/// A prompt with two images and a quote arrives, both above its words; the first image opens in
-/// the viewer and closes.
+/// A reply's markdown picture reads from the storybook, never a server or the web.
+pub(crate) fn serve_pictures(w: &App) {
+    w.attach.markdown.set_fetch(
+        Arc::new(|_: &str, path: &str| if path == REPLY_PICTURE { Ok(reply_picture().to_vec()) } else { Err("not in the storybook".into()) }),
+        Arc::new(|_: &str| Err("offline".into())),
+    );
+}
+
+/// A finished reply that shows the storybook's picture inline, at the end of the open session.
+pub(crate) fn add_picture_reply(s: &mut App) {
+    let text = format!("Fixed: the first heartbeat after a wake now waits for the socket. Here it is after the fix:\n\n![The sidebar after the fix](/story/{REPLY_PICTURE})\n");
+    let reply = opencode_kit::model::Assistant { id: format!("{ARRIVED}imgreply"), completed: Some(1), parts: vec![opencode_kit::model::Part::Text { text }], ..Default::default() };
+    let session = sid(s);
+    if let Some(t) = s.transcripts.get_mut(&session) { t.messages.push(Message::Assistant(reply)); }
+}
+
+/// The file the story's reply shows inline, and its bytes.
+const REPLY_PICTURE: &str = "after.png";
+fn reply_picture() -> &'static [u8] {
+    static PIC: OnceLock<Vec<u8>> = OnceLock::new();
+    PIC.get_or_init(|| gradient((1200, 760), [0.16, 0.62, 0.52], [0.18, 0.30, 0.70]))
+}
+
+/// A `w`×`h` PNG shading from `a` to `b`.
+fn gradient((w, h): (u32, u32), a: [f32; 3], b: [f32; 3]) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let t = (x as f32 / w as f32 * 0.7 + y as f32 / h as f32 * 0.3).clamp(0.0, 1.0);
+        let c = |i: usize| ((a[i] + (b[i] - a[i]) * t) * 255.0) as u8;
+        image::Rgba([c(0), c(1), c(2), 255])
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).expect("encode a PNG");
+    out.into_inner()
+}
+
+/// A prompt with two images and a quote arrives, both above its words, and a reply shows its
+/// own picture inline; the first image flies into the viewer and zooms in, Escape fits it, and a
+/// second Escape while it still glides flies it home.
 fn images_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.4, |s, tx| {
@@ -692,14 +721,21 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
         opencode_kit::model::set_user_quotes(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None }]);
         emit(s, "session.prompted", json!({ "messageID": id, "text": "Here's the sidebar after a wake, and the reconnect log" }), tx);
     });
-    tx.after(1.6, |s, _| view_image(s));
-    tx.after(3.0, |s, _| s.attach.viewing = None);
+    tx.after(0.7, |s, tx| {
+        add_picture_reply(s);
+        tx.animated();
+    });
+    tx.after(1.6, view_image);
+    tx.after(2.6, |s, tx| s.attach.zoom.zoom_in(tx));
+    tx.after(3.6, |_, tx| tx.press(rune::Key::Escape));
+    tx.after(3.8, |_, tx| tx.press(rune::Key::Escape));
 }
 
-fn view_image(s: &mut App) {
-    let files = opencode_kit::model::user_files(&format!("{ARRIVED}img"));
-    if let Some(f) = files.first() {
-        crate::attachments::view_image(s, "images", f);
+/// Opens the first picture of the story's prompt, as a press on its thumbnail does.
+fn view_image(s: &mut App, tx: &mut Play<App>) {
+    let id = format!("{ARRIVED}img");
+    if let Some(f) = opencode_kit::model::user_files(&id).first() {
+        crate::attachments::view_image(s, &format!("user-attachments:{id}"), 0, f, tx);
     }
 }
 

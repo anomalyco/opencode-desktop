@@ -423,7 +423,7 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     let src = chips.as_deref().unwrap_or(src);
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
     let el = crate::genui::reply(s, p, src, fade, streaming, hits, &tips).unwrap_or_else(|| {
-        let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), ..crate::images::md_media(s) };
+        let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), scope: Some(std::rc::Rc::from(row_key)), ..crate::images::md_media(s) };
         markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media), &tips)
     });
     match message {
