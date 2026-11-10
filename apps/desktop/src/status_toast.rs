@@ -10,8 +10,9 @@
 //! - [`uploads_shown`]: the uploads in flight (`attachments::toast`), until the last settles.
 //!
 //! They stack as Sonner stacks them (`rune_kit::ToastStack`): the newest in front, up to two
-//! more peeking behind it; the pointer over the stack spreads them out, and while it's there no
-//! toast's time runs. Each also sets `s.status`, which `--debug`'s status bar shows.
+//! more peeking behind it; the pointer over the stack spreads them out, and while it's there or
+//! the window is hidden no toast's time runs. One shown again in front pulses. Each also sets
+//! `s.status`, which `--debug`'s status bar shows.
 
 use std::path::PathBuf;
 
@@ -81,6 +82,98 @@ pub enum Shown {
 #[derive(Default)]
 pub struct StatusToast {
     pub stack: ToastStack<Shown>,
+    pulse: Pulse,
+}
+
+/// Desktop's `pulseToast`: a toast shown again while it's in front grows 2.5% and back over
+/// 160 ms on one ease-out (`element.animate([{ scale: 1 }, { scale: 1.025 }, { scale: 1 }], {
+/// duration: 160, easing: "ease-out" })`), as two tweens that meet at the peak.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Pulse {
+    #[default]
+    Still,
+    /// Growing to the peak, which it reaches at `until`.
+    Rising { id: u64, until: f64 },
+    /// Back to its size, which it reaches at `until`.
+    Falling { id: u64, until: f64 },
+}
+
+enum PulseEvent {
+    Start { id: u64, now: f64 },
+    Tick { now: f64 },
+}
+
+/// `pulseToast`'s length and peak.
+const PULSE_SECS: f32 = 0.16;
+const PULSE_PEAK: f32 = 1.025;
+
+impl Pulse {
+    /// Steps the pulse; when to wake for its next phase.
+    fn step(&mut self, event: PulseEvent) -> Option<f64> {
+        let (rise, fall) = pulse_phases();
+        *self = match (*self, event) {
+            (_, PulseEvent::Start { id, now }) => Pulse::Rising { id, until: now + f64::from(rise) },
+            (Pulse::Rising { id, until }, PulseEvent::Tick { now }) if now + 1e-3 >= until => Pulse::Falling { id, until: until + f64::from(fall) },
+            (Pulse::Falling { until, .. }, PulseEvent::Tick { now }) if now + 1e-3 >= until => Pulse::Still,
+            (pulse, PulseEvent::Tick { .. }) => pulse,
+        };
+        self.due()
+    }
+
+    fn due(&self) -> Option<f64> {
+        match *self {
+            Pulse::Still => None,
+            Pulse::Rising { until, .. } | Pulse::Falling { until, .. } => Some(until),
+        }
+    }
+
+    /// Toast `id`'s scale and how it moves there while it pulses.
+    fn of(&self, id: u64) -> Option<(f32, Anim)> {
+        let (rise, fall) = pulse_phases();
+        match *self {
+            Pulse::Rising { id: at, .. } if at == id => Some((PULSE_PEAK, Anim::new(Curve::tween(rise, pulse_easing(true))))),
+            Pulse::Falling { id: at, .. } if at == id => Some((1.0, Anim::new(Curve::tween(fall, pulse_easing(false))))),
+            _ => None,
+        }
+    }
+}
+
+/// Seconds to the peak and back: the peak is halfway through the eased progress, which
+/// `ease-out` reaches early.
+fn pulse_phases() -> (f32, f32) {
+    static SPLIT: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let half = *SPLIT.get_or_init(|| {
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..40 {
+            let mid = (lo + hi) / 2.0;
+            if Easing::EASE_OUT.eval(mid) < 0.5 { lo = mid } else { hi = mid }
+        }
+        (lo + hi) / 2.0
+    });
+    (PULSE_SECS * half, PULSE_SECS * (1.0 - half))
+}
+
+/// Each phase's share of the one ease-out, as a tween from its start to its end value.
+fn pulse_easing(rising: bool) -> Easing {
+    static STOPS: std::sync::OnceLock<[&'static [[f32; 2]]; 2]> = std::sync::OnceLock::new();
+    let stops = STOPS.get_or_init(|| {
+        let (rise, _) = pulse_phases();
+        let split = rise / PULSE_SECS;
+        let phase = |from: f32, to: f32| -> &'static [[f32; 2]] {
+            let points: Vec<[f32; 2]> = (0..=32)
+                .map(|i| {
+                    let x = i as f32 / 32.0;
+                    let p = Easing::EASE_OUT.eval(from + (to - from) * x);
+                    let start = Easing::EASE_OUT.eval(from);
+                    let end = Easing::EASE_OUT.eval(to);
+                    [x, (p - start) / (end - start)]
+                })
+                .collect();
+            Box::leak(points.into_boxed_slice())
+        };
+        [phase(0.0, split), phase(split, 1.0)]
+    });
+    Easing::Piecewise(stops[if rising { 0 } else { 1 }])
 }
 
 impl StatusToast {
@@ -102,14 +195,18 @@ impl StatusToast {
 }
 
 /// Steps the stack and carries out what it asks.
-fn step(s: &mut App, event: ToastEvent<Shown>, tx: Option<&mut Tx>) {
+fn step(s: &mut App, event: ToastEvent<Shown>, mut tx: Option<&mut Tx>) {
     let effects = s.toast.stack.step(event);
-    let Some(tx) = tx else { return };
     for effect in effects {
-        match effect {
-            ToastEffect::WakeAt(due) => tx.wake_at(due),
-            // Desktop pulses a toast shown again in front (`pulseToast`); Rune's lands still.
-            ToastEffect::Pulse(_) | ToastEffect::Closed(_) => {}
+        let wake = match effect {
+            ToastEffect::WakeAt(due) => Some(due),
+            // A toast shown again in front pulses (`pulseToast`), unless motion is reduced.
+            ToastEffect::Pulse(id) if !s.reduced_motion => s.toast.pulse.step(PulseEvent::Start { id, now: s.clock }),
+            ToastEffect::Pulse(_) | ToastEffect::Closed(_) => None,
+        };
+        // Without a `Tx`, the next poll wakes for it.
+        if let (Some(due), Some(tx)) = (wake, tx.as_deref_mut()) {
+            tx.wake_at(due);
         }
     }
 }
@@ -253,6 +350,30 @@ pub fn dismiss_id(s: &mut App, id: u64) {
 /// Closes toasts whose time ran out, and the upload toast once no upload is left; wakes for the
 /// next timer.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    let pulsed = match s.toast.pulse.due() {
+        Some(due) if now + 1e-3 >= due => {
+            if let Some(next) = s.toast.pulse.step(PulseEvent::Tick { now }) { tx.wake_at(next); }
+            true
+        }
+        Some(due) => {
+            tx.wake_at(due);
+            false
+        }
+        None => false,
+    };
+    toast_timers(s, now, tx) || pulsed
+}
+
+/// The window went off screen or came back (`App::on_visibility`): toasts' time waits while
+/// it's hidden, as Sonner pauses them while `document.hidden`.
+pub fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
+    let page = if shown { rune_kit::ToastPage::Shown } else { rune_kit::ToastPage::Hidden };
+    // The app's clock moves on in polls, which a hidden window may not have run.
+    let now = tx.clock();
+    step(s, ToastEvent::Page { page, now }, Some(tx));
+}
+
+fn toast_timers(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let uploads = s.toast.stack.entries().iter().find(|e| matches!(e.options, Shown::Uploads)).map(|e| e.id);
     if let Some(id) = uploads.filter(|_| s.attach.uploads.is_empty()) {
         tx.instant();
@@ -269,15 +390,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     false
 }
 
-/// Sonner's hotkey, Alt+T wherever focus is, spreads the stack, and Escape puts a stack it
-/// spread back (its document `keydown`, which takes nothing from the field typed in).
+/// Sonner's hotkey, Alt+T wherever focus is, spreads the stack and focuses it (its document
+/// `keydown`, which takes nothing from the field typed in).
 pub fn hotkey(s: &mut App, ev: &KeyEvent, tx: &mut Tx) {
-    if ev.key == Key::Escape && s.toast.stack.stack() == rune_kit::ToastStackState::Expanded {
-        let now = s.clock;
-        step(s, ToastEvent::Escape { now }, Some(tx));
-        tx.motion_curve(MOVE);
-        return;
-    }
     let t = |c: char| c.eq_ignore_ascii_case(&'t');
     let on_t = tx.key_base().is_some_and(t) || matches!(&ev.key, Key::Command(c) if t(*c)) || matches!(&ev.key, Key::Text(x) if x.chars().eq(['t']) || x.chars().eq(['T']));
     if !ev.mods.alt || !on_t || s.toast.stack.entries().is_empty() || s.toast.stack.stack().expanded() {
@@ -286,7 +401,24 @@ pub fn hotkey(s: &mut App, ev: &KeyEvent, tx: &mut Tx) {
     let now = s.clock;
     step(s, ToastEvent::Hotkey { now }, Some(tx));
     tx.motion_curve(MOVE);
+    // The list takes focus from the field typed in, as `listRef.current.focus()` does.
+    s.composer.focused = false;
+    tx.focus(STACK, false);
 }
+
+/// Escape with focus in the stack puts a stack spread out back (Sonner's `keydown`: Escape while
+/// `document.activeElement` is the list or inside it), and goes on to whatever else hears it.
+fn stack_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key == Key::Escape && s.toast.stack.stack() == rune_kit::ToastStackState::Expanded {
+        let now = tx.clock();
+        step(s, ToastEvent::Escape { now }, Some(tx));
+        tx.motion_curve(MOVE);
+    }
+    false
+}
+
+/// The stack's key: Sonner's list (`ol`, `tabIndex={-1}`), which the hotkey focuses.
+const STACK: &str = "toast-stack";
 
 /// Escape dismisses a persistent failure toast in front when no higher overlay owns the key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -326,7 +458,9 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
     let narrow = width > 0.0 && width <= 600.0;
     let w = if narrow { width - 64.0 } else { 320.0 };
     let mut reach = 0.0f32;
-    let mut stack = el().key("toast-stack").role("region").label("Notifications alt+T").w(w);
+    // Focusable outside the Tab order, so the hotkey can focus it and Escape there reaches it;
+    // a press on a toast focuses it as one on a toast's `li` does.
+    let mut stack = el().key(STACK).role("region").label("Notifications alt+T").w(w).focusable(true).tab_index(-1).on_key(stack_key);
     for (order, e) in entries.iter().enumerate() {
         let Some(at) = s.toast.stack.place(e.id, height) else { continue };
         if at.visible {
@@ -341,11 +475,12 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
             // Behind the front one, as tall as it (`--front-toast-height`).
             card = card.h(at.height).clip_soft(0.0);
         }
+        let (pulse, scale_motion) = s.toast.pulse.of(e.id).unwrap_or((1.0, MOVE));
         stack = stack.child(
             card.offset(0.0, -at.lift)
                 .offset_motion(MOVE)
-                .scale(at.scale)
-                .scale_motion(MOVE)
+                .scale(at.scale * pulse)
+                .scale_motion(scale_motion)
                 .opacity(if at.visible { 1.0 } else { 0.0 })
                 .opacity_motion(FADE),
         );

@@ -1371,6 +1371,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // The page's server's copy of the session data moves into the window whose turn it is.
             .turn_scope(servers::runtime::enter, servers::runtime::leave)
             .on_modifiers(view::home_modifiers)
+            .on_visibility(status_toast::visibility)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
