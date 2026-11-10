@@ -24,7 +24,8 @@ pub(crate) fn setup(s: &mut App) {
 pub(crate) fn confirmed(s: &mut App) {
     let Route::Session(sid) = s.route.clone() else { return };
     s.judge_sends_by_page(&sid, &[Message::User { id: SECOND.into(), text: "Let's start with the ideas first.".into() }]);
-    s.send_failed(FIRST, "POST /prompt: http status: 422");
+    // The timed-out first is unconfirmed until its receipt check: the server never got it.
+    s.step_send(FIRST, super::machine::Event::Checked(super::machine::Found::Missing));
     s.toast = Default::default();
 }
 
