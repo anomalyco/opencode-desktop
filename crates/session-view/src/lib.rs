@@ -380,9 +380,10 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// Loads that diff again after a failure.
     fn retry_turn_diff(&mut self, _session: &str, _from: &str) {}
-    /// The height of the pane the timeline scrolls in, header and composer included: Desktop's
-    /// timeline viewport runs under both, and Jump to latest shows past that far from the end.
-    fn timeline_frame_h(&self) -> Option<f32> {
+    /// The key of the pane the timeline scrolls in, header and composer included: Desktop's
+    /// timeline viewport runs under both, and Jump to latest shows past its height from the end.
+    /// Rune measures it as the timeline scrolls, so no view reads it. None: the timeline's own.
+    fn timeline_frame(&self) -> Option<&'static str> {
         None
     }
     /// Settings › Preferences › Background activity: where the pills over the composer sit.
