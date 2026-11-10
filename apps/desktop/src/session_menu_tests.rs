@@ -51,6 +51,13 @@ fn right_click(rt: &mut Runtime<App>, key: &str) {
     rt.frame(1.0 / 60.0);
 }
 
+/// The middle of the session header's title. The titlebar's tabs carry a `title` too since
+/// they moved there, so a bare `find("title")` lands on a tab.
+fn header_title(rt: &Runtime<App>) -> (f32, f32) {
+    let e = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("title") && e.path.contains("/header-title/")).expect("the header's title is drawn");
+    (e.rect[0] + e.rect[2] / 2.0, e.rect[1] + e.rect[3] / 2.0)
+}
+
 fn type_text(rt: &mut Runtime<App>, text: &str) {
     rt.key(KeyEvent { key: Key::Text(text.into()), mods: Mods::default() });
     rt.frame(1.0 / 60.0);
@@ -232,11 +239,15 @@ fn delete_asks_first_then_removes_the_session_and_its_tab() {
     let (x, y) = rt.find("delete-confirm").unwrap();
     press(&mut rt, x, y);
     frames(&mut rt, 3);
+    let Ok(Write::Delete(sent)) = writes.try_recv() else { panic!("no delete sent") };
+    assert_eq!(sent, id);
+    // Delete's machine waits for the server's answer (5e1e8b00), its buttons off meanwhile.
+    assert!(rt.state.menus.deleting());
+    rt.update(|s, tx| s.session_write_replied(&serde_json::json!({ "sessionID": id, "kind": "delete", "ok": true }), tx));
+    frames(&mut rt, 3);
     assert_eq!(rt.state.menus.confirming(), None);
     assert!(rt.state.session(&id).is_none() && rt.state.tabs.iter().all(|t| t.id != id));
     assert_eq!(rt.state.tabs.len(), count - 1);
-    let Ok(Write::Delete(sent)) = writes.try_recv() else { panic!("no delete sent") };
-    assert_eq!(sent, id);
 }
 
 #[test]
@@ -285,7 +296,15 @@ fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
     let (mut rt, writes) = app();
     let Route::Session { id, .. } = rt.state.route.clone() else { panic!("open session") };
     let id = rt.state.root_of(&id).to_owned();
-    open_menu(&mut rt, "title", &["rename", "export", "delete"]);
+    let (x, y) = header_title(&rt);
+    rt.pointer_move(x, y);
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    rt.frame(1.0 / 60.0);
+    let menu = rt.popup_menu().expect("a right-click on the title opens a menu");
+    for id in ["rename", "export", "delete"] {
+        assert!(menu.find(id).is_some(), "the title's menu has {id}");
+    }
     assert_eq!(rt.state.menus.on, Some(Target::new(&id, Spot::Header)));
     pick(&mut rt, "export");
     assert!(matches!(writes.try_recv(), Ok(Write::Export(s)) if s == id));
@@ -299,7 +318,7 @@ fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
     assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)));
     press_key(&mut rt, Key::Escape);
 
-    let (x, y) = rt.find("title").unwrap();
+    let (x, y) = header_title(&rt);
     press(&mut rt, x, y);
     assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)), "a click on the title edits it");
     type_text(&mut rt, "Header rename");
@@ -313,7 +332,7 @@ fn the_headers_rename_field_hugs_its_title_so_the_more_button_moves_only_with_ty
     let (mut rt, _) = app();
     let x = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} is drawn")).rect[0];
     let rest = x(&rt, "header-more");
-    let (tx, ty) = rt.find("title").unwrap();
+    let (tx, ty) = header_title(&rt);
     press(&mut rt, tx, ty);
     frames(&mut rt, 3);
     assert!(rt.state.menus.renaming().is_some());
