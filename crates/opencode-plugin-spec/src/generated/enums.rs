@@ -504,6 +504,42 @@ string_enum! {
         Default = "default",
         /// A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text.
         Filter = "filter",
+        /// Only the text, caret and selection, at 13 points: the box around it is the plugin's, such as a browser's address field.
+        Bare = "bare",
+    }
+}
+
+string_enum! {
+    /// Where the browser engine stands.
+    pub enum BrowserEngineState {
+        /// This build has no engine for its platform.
+        Unsupported = "unsupported",
+        /// Not downloaded yet.
+        Missing = "missing",
+        /// Downloading.
+        Downloading = "downloading",
+        /// Checking the download.
+        Verifying = "verifying",
+        /// The background download waits, on a metered network or on battery.
+        Paused = "paused",
+        /// The download or the engine failed.
+        Failed = "failed",
+        /// Installed, and starting or connecting.
+        Starting = "starting",
+        /// Running.
+        Ready = "ready",
+    }
+}
+
+string_enum! {
+    /// A page zoom step.
+    pub enum BrowserZoom {
+        /// One step closer.
+        In = "in",
+        /// One step further.
+        Out = "out",
+        /// Back to 100%.
+        Reset = "reset",
     }
 }
 

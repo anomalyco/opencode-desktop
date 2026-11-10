@@ -70,8 +70,12 @@ pub struct ClosedTab {
     pub title: Option<String>,
     /// Its icon.
     pub icon: Option<String>,
+    /// Muted text after its title, such as a page's host.
+    pub detail: Option<String>,
+    /// What `restore` gets back, such as a page's address.
+    pub data: Option<String>,
 }
-impl_record!(ClosedTab, ["title", "icon"], [], []);
+impl_record!(ClosedTab, ["title", "icon", "detail", "data"], [], []);
 
 /// A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -127,7 +131,7 @@ pub struct PanelSpec {
     /// What Recently closed lists for its closed tab.
     pub closed: Option<ClosedTab>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "enabled", "pane", "closed"], ["enabled", "isWide", "tabTitle", "list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "enabled", "pane", "closed"], ["enabled", "isWide", "tabTitle", "list", "render", "label", "onClose", "onFocus", "closedTab", "restore"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

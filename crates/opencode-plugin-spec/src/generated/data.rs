@@ -518,6 +518,8 @@ pub struct MenuEntry {
     pub detail: Option<String>,
     /// A published command id whose shortcut the item shows.
     pub keybind: Option<String>,
+    /// A literal shortcut the item shows, such as `"mod+plus"`, when no command has it.
+    pub keys: Option<String>,
     /// False shows the item disabled. Defaults to true.
     pub enabled: Option<bool>,
     /// A destructive item.
@@ -525,7 +527,7 @@ pub struct MenuEntry {
     /// Shows a check mark.
     pub checked: Option<bool>,
 }
-impl_record!(MenuEntry, ["kind", "id", "title", "icon", "detail", "keybind", "enabled", "danger", "checked"], [], []);
+impl_record!(MenuEntry, ["kind", "id", "title", "icon", "detail", "keybind", "keys", "enabled", "danger", "checked"], [], []);
 
 /// A menu to open beside an element.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -545,8 +547,10 @@ pub struct MenuOpenSpec {
     pub align: Option<Align>,
     /// Its minimum width in points.
     pub min_width: Option<f64>,
+    /// Its width in points.
+    pub width: Option<f64>,
 }
-impl_record!(MenuOpenSpec, ["anchorKey", "items", "label", "side", "align", "minWidth"], [], []);
+impl_record!(MenuOpenSpec, ["anchorKey", "items", "label", "side", "align", "minWidth", "width"], [], []);
 
 /// How to open a panel tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -729,19 +733,99 @@ pub struct TerminalInfo {
 }
 impl_record!(TerminalInfo, ["id", "title", "number", "hidden"], [], []);
 
+/// How `Workspace:OpenFile` opens a file.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct OpenFileOptions {
+    /// Opens it in the preview tab, which the next preview replaces, instead of a kept one.
+    pub preview: Option<bool>,
+    /// The first line to select and scroll into view, from 1.
+    pub start_line: Option<i64>,
+    /// The last line to select. Defaults to `startLine`.
+    pub end_line: Option<i64>,
+}
+impl_record!(OpenFileOptions, ["preview", "startLine", "endLine"], [], []);
+
+/// The terminal tab `Terminal:OpenAsync` showed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct TerminalOpened {
+    /// The terminal's id; nil when the session has none and can't start one.
+    pub id: Option<String>,
+    /// Where a session's first terminal opens (Settings > Terminal): `side` or `bottom`.
+    pub placement: String,
+}
+impl_record!(TerminalOpened, ["id", "placement"], [], []);
+
 /// A page to open.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct BrowserOpenSpec {
-    /// The URL.
+    /// The URL, or a local `:port`. Defaults to `about:blank`.
     pub url: String,
-    /// The session the page belongs to.
+    /// The session whose side region gets the page's tab. Defaults to the routed session.
     pub session_id: Option<String>,
-    /// Opens without showing it.
+    /// Opens the tab without moving the keyboard: focus stays where it is.
     pub background: Option<bool>,
 }
 impl_record!(BrowserOpenSpec, ["url", "sessionId", "background"], [], []);
+
+/// Where to show a page's tab.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BrowserShowOptions {
+    /// The session whose side region shows it. Defaults to the routed session.
+    pub session_id: Option<String>,
+    /// Selects the tab without moving the keyboard.
+    pub background: Option<bool>,
+}
+impl_record!(BrowserShowOptions, ["sessionId", "background"], [], []);
+
+/// One page of a session, as its tab lists it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BrowserTabInfo {
+    /// The host's id for it.
+    pub id: String,
+    /// Its address; empty for a blank page.
+    pub url: String,
+    /// Its title; empty before the page names itself.
+    pub title: String,
+    /// The page exists. A stored tab the engine never opened in this run is listed, not open.
+    pub open: bool,
+}
+impl_record!(BrowserTabInfo, ["id", "url", "title", "open"], [], []);
+
+/// Where the browser engine stands.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BrowserEngine {
+    /// Its state.
+    pub state: BrowserEngineState,
+    /// Why it failed, for `failed`.
+    pub message: Option<String>,
+}
+impl_record!(BrowserEngine, ["state", "message"], [], []);
+
+/// An element the user picked in a page with the element picker.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct BrowserPick {
+    /// The page.
+    pub tab_id: String,
+    /// The element's `@eN` reference.
+    pub r#ref: String,
+    /// A CSS selector for it.
+    pub selector: String,
+}
+impl_record!(BrowserPick, ["tabId", "ref", "selector"], [], []);
 
 /// Where the app updater stands.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -908,6 +992,20 @@ pub struct ComposerPillView {
     pub rows: Option<Vec<ComposerPillRow>>,
 }
 impl_record!(ComposerPillView, ["label", "icon", "tone", "title", "rows"], [], []);
+
+/// An MCP tool result with an image: a text part and the image.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct McpImage {
+    /// The text part, such as JSON metadata.
+    pub text: String,
+    /// The image, base64-encoded.
+    pub image: String,
+    /// Its type, such as `image/png`.
+    pub mime_type: String,
+}
+impl_record!(McpImage, ["text", "image", "mimeType"], [], []);
 
 /// Where an MCP tool call comes from.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

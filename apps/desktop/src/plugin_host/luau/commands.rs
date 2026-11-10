@@ -3,6 +3,7 @@
 //! running their functions in a task with the app in reach.
 
 use mlua::{Function, IntoLuaMulti};
+use opencode_kit::client_mcp::{McpCall, McpResult};
 use rune::{KeyEvent, Keybind, Tx};
 use rune_luau::Data;
 
@@ -88,7 +89,8 @@ pub fn offered(app: &App, c: &Cmd) -> bool {
     c.enabled && (!c.needs_session || app.active_session_id().is_some())
 }
 
-/// Runs Luau command `id` with `input`; false when there is none or it is off.
+/// Runs Luau command `id` with `input`; false when there is none, it is off, or it declined
+/// (returned `false` before its first yield).
 pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
     if !all(app).iter().any(|c| c.id == id && offered(app, c)) {
         return false;
@@ -96,8 +98,101 @@ pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
     let Some((i, f)) = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().commands.iter().find(|c| c.key == id)?.f("run")?.clone()))) else {
         return false;
     };
-    spawn(app, i, &f, input.map(str::to_owned), tx);
-    true
+    let Some(script) = app.plugins.luau.plugins[i].script() else { return false };
+    let Some(Ok(wrap)) = script.with_lua(|lua| wrapper(lua, "opencode.command", COMMAND)) else { return false };
+    DECLINED.set(false);
+    cx::with_app(app, || script.spawn_fn(&wrap, (f, input.map(str::to_owned)), Some(&mut *tx)).ok());
+    super::requests::carry_out(app, tx);
+    !DECLINED.replace(false)
+}
+
+thread_local! {
+    /// The command that just ran returned `false` before its first yield.
+    static DECLINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// MCP calls whose tool's task hasn't returned yet, by call id, with when they give up.
+    static CALLS: std::cell::RefCell<std::collections::HashMap<u64, (McpCall, std::time::Instant)>> = std::cell::RefCell::default();
+    static NEXT_CALL: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
+}
+
+/// Runs a command and notes whether it declined: its answer before it first yields.
+const COMMAND: &str = r#"
+local declined = ...
+return function(f, input)
+    local answer = f(input)
+    if answer == false then
+        declined()
+    end
+end
+"#;
+
+/// Runs an MCP tool's `call` and answers the call with what it returns or raises, whenever
+/// that is.
+const TOOL: &str = r#"
+local finish = ...
+return function(f, id, args, context)
+    local ok, value = pcall(f, args, context)
+    finish(id, ok, value)
+end
+"#;
+
+/// The VM's `source` wrapper, made once and kept under `name` in its registry.
+fn wrapper(lua: &mlua::Lua, name: &str, source: &str) -> mlua::Result<Function> {
+    if let Some(f) = lua.named_registry_value::<Option<Function>>(name)? {
+        return Ok(f);
+    }
+    let host = if source == COMMAND {
+        lua.create_function(|_, ()| {
+            DECLINED.set(true);
+            Ok(())
+        })?
+    } else {
+        lua.create_function(|lua, (id, ok, value): (u64, bool, mlua::Value)| {
+            let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id)) else { return Ok(()) };
+            call.respond(tool_result(lua, ok, value));
+            Ok(())
+        })?
+    };
+    let f: Function = lua.load(source).set_name(format!("={name}")).call(host)?;
+    lua.set_named_registry_value(name, &f)?;
+    Ok(f)
+}
+
+/// What a tool's task ended with, as an MCP result: its error, an `McpImage`, its text, or its
+/// value as JSON.
+fn tool_result(lua: &mlua::Lua, ok: bool, value: mlua::Value) -> McpResult {
+    use mlua::FromLua;
+    if !ok {
+        return McpResult::error(value.to_string().unwrap_or_else(|_| "The tool failed".to_owned()));
+    }
+    if let mlua::Value::String(s) = &value {
+        return McpResult::text(s.to_string_lossy());
+    }
+    let data = Data::from_lua(value, lua).unwrap_or(Data::Nil);
+    if let (Some(text), Some(image), Some(mime)) = (data.get("text").as_str(), data.get("image").as_str(), data.get("mimeType").as_str()) {
+        return McpResult::with_image(text, image, mime);
+    }
+    McpResult::json(data.to_json())
+}
+
+/// How long an MCP tool's task may run before its call fails.
+const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Answers the MCP calls whose tools ran past their time, and asks for a wake at the next
+/// deadline; true when one was answered.
+pub fn expire_calls(tx: &mut Tx) -> bool {
+    let now = std::time::Instant::now();
+    let late: Vec<McpCall> = CALLS.with_borrow_mut(|c| {
+        let ids: Vec<u64> = c.iter().filter(|(_, (_, at))| *at <= now).map(|(id, _)| *id).collect();
+        ids.into_iter().filter_map(|id| c.remove(&id)).map(|(call, _)| call).collect()
+    });
+    if let Some(next) = CALLS.with_borrow(|c| c.values().map(|(_, at)| *at).min()) {
+        tx.wake_after(next.saturating_duration_since(now));
+    }
+    let any = !late.is_empty();
+    for call in late {
+        call.respond(McpResult::error("The tool didn't answer in time"));
+    }
+    any
 }
 
 /// A Luau command's keybind.
@@ -210,16 +305,32 @@ fn tools(half: &super::Half) -> Vec<(String, String, serde_json::Value)> {
     half.contribs.borrow().mcp_tools.iter().map(|c| (c.spec.name.clone(), c.spec.description.clone(), serde_json::Value::Object(c.spec.input_schema.clone().into_iter().collect()))).collect()
 }
 
-/// Calls Luau MCP tool `name` with `args` for the call of session `session` (in `directory`),
-/// then carries out what it asked for; `None` when no plugin has it.
-pub fn mcp_call(app: &mut App, name: &str, args: &serde_json::Value, session: &str, directory: &str, tx: &mut Tx) -> Option<Result<serde_json::Value, String>> {
-    let found = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().mcp_tools.iter().find(|c| c.spec.name == name)?.f("call")?.clone())))?;
-    let script = app.plugins.luau.plugins[found.0].script()?;
-    let input = super::services::json_to_data(args);
+/// Runs Luau MCP tool `call.name` for the call of session `session` (in `directory`) as a task,
+/// which answers the call when it returns (at once, or after the `...Async` calls it waits on),
+/// then carries out what it asked for. Hands the call back when no plugin has the tool.
+pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx: &mut Tx) -> Option<McpCall> {
+    let found = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().mcp_tools.iter().find(|c| c.spec.name == call.name)?.f("call")?.clone())));
+    let Some((i, f)) = found else { return Some(call) };
+    let Some(script) = app.plugins.luau.plugins[i].script() else { return Some(call) };
+    let wrap = match script.with_lua(|lua| wrapper(lua, "opencode.tool", TOOL)) {
+        Some(Ok(w)) => w,
+        _ => {
+            call.respond(McpResult::error("The plugin isn't running"));
+            return None;
+        }
+    };
+    let input = super::services::json_to_data(&call.arguments);
     let context = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
-    let out = cx::with_app(app, || script.eval_fn::<Data>(&found.1, (input, context))).map(|d| d.to_json()).map_err(|e| e.message);
+    let id = NEXT_CALL.replace(NEXT_CALL.get() + 1);
+    CALLS.with_borrow_mut(|c| c.insert(id, (call, std::time::Instant::now() + TOOL_TIMEOUT)));
+    if let Err(e) = cx::with_app(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
+        && let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id))
+    {
+        call.respond(McpResult::error(e.message));
+    }
     super::requests::carry_out(app, tx);
-    Some(out)
+    expire_calls(tx);
+    None
 }
 
 /// App menu items Luau app halves add, as `(key, menu, label, order)`.

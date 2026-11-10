@@ -4,8 +4,6 @@
   "rune.attach.pickerTitle": "Attach images and files",
   "rune.branch.choose": "Choose branch",
   "rune.branch.loadFailed": "Couldn't load branches",
-  "rune.browser.empty.keys": "{{address}} jumps to the address bar, {{tab}} opens a new tab, {{inspect}} picks an element.",
-  "rune.browser.empty.title": "Enter a URL or :port above",
   "rune.browser.engine.download": "Download browser",
   "rune.browser.engine.downloading": "Downloading browser…",
   "rune.browser.engine.needsDownload": "Browser needs a one-time download (~{{size}} MB)",

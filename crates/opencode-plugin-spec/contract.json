@@ -273,7 +273,23 @@
     ] },
     { "name": "FieldVariant", "rust": true, "doc": "A text field's look.", "values": [
       { "value": "default", "doc": "The app's bordered field." },
-      { "value": "filter", "doc": "A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text." }
+      { "value": "filter", "doc": "A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text." },
+      { "value": "bare", "doc": "Only the text, caret and selection, at 13 points: the box around it is the plugin's, such as a browser's address field." }
+    ] },
+    { "name": "BrowserEngineState", "rust": true, "doc": "Where the browser engine stands.", "values": [
+      { "value": "unsupported", "doc": "This build has no engine for its platform." },
+      { "value": "missing", "doc": "Not downloaded yet." },
+      { "value": "downloading", "doc": "Downloading." },
+      { "value": "verifying", "doc": "Checking the download." },
+      { "value": "paused", "doc": "The background download waits, on a metered network or on battery." },
+      { "value": "failed", "doc": "The download or the engine failed." },
+      { "value": "starting", "doc": "Installed, and starting or connecting." },
+      { "value": "ready", "doc": "Running." }
+    ] },
+    { "name": "BrowserZoom", "rust": true, "doc": "A page zoom step.", "values": [
+      { "value": "in", "doc": "One step closer." },
+      { "value": "out", "doc": "One step further." },
+      { "value": "reset", "doc": "Back to 100%." }
     ] },
     { "name": "ImageFit", "rust": true, "doc": "How an image fills its box.", "values": [
       { "value": "contain", "doc": "Whole, aspect kept. The default." },
@@ -437,8 +453,13 @@
       { "name": "SetText", "kind": "method", "sig": "(text: string) -> ()", "doc": "Replaces the text and puts the caret at its end." },
       { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes whenever the text, selection, composition or focus does: put it in a memo's version." },
       { "name": "Focus", "kind": "method", "sig": "() -> ()", "doc": "Moves keyboard focus to the field." },
+      { "name": "Blur", "kind": "method", "sig": "() -> ()", "doc": "Takes keyboard focus from the field." },
+      { "name": "SelectAll", "kind": "method", "sig": "() -> ()", "doc": "Selects the whole text." },
+      { "name": "Focused", "kind": "method", "sig": "() -> boolean", "doc": "The field has keyboard focus." },
       { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with the new text after each edit." },
-      { "name": "Submitted", "kind": "signal", "payload": "string", "doc": "Fires with the text when the user presses Enter." }
+      { "name": "Submitted", "kind": "signal", "payload": "string", "doc": "Fires with the text when the user presses Enter." },
+      { "name": "FocusChanged", "kind": "signal", "payload": "boolean", "doc": "Fires as the field takes keyboard focus (true) or loses it (false)." },
+      { "name": "KeyPressed", "kind": "signal", "payload": "string", "doc": "Fires with a key the field's `keys` hands over (`ArrowUp`, `ArrowDown`, `Escape`) instead of handling it." }
     ] },
 
     { "name": "UiLayoutProps", "kind": "record", "doc": "Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = \"text-weak\" })`). A node whose props are partly its own takes the frozen style first and a small table of its own props after it, laid over the style: `ui.row(ROW, { key = id, onPress = open }, children)`, `ui.text(words, LABEL, { color = ink })`, `ui.icon(name, ICON, { color = ink })`. Only those are decoded; a prop in both takes the second table's value.", "fields": [
@@ -568,6 +589,8 @@
       { "name": "size", "type": "ControlSize?", "doc": "The size." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
+      { "name": "color", "type": "Color?", "doc": "The icon's color, instead of the variant's." },
+      { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut its tooltip shows after the `help` text, as keycaps." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
     ] },
     { "name": "UiSwitchProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.switch` props: the app's own switch.", "fields": [
@@ -594,6 +617,7 @@
       { "name": "readOnly", "type": "boolean?", "doc": "Takes no typing but looks as usual, such as while what was typed is sent." },
       { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
       { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
+      { "name": "keys", "type": "{ string }?", "doc": "Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
     ] },
     { "name": "UiSegmentedItem", "kind": "record", "rust": true, "doc": "One item of `ui.segmented`.", "fields": [
@@ -685,7 +709,7 @@
       { "name": "selected", "type": "boolean?", "doc": "The tab is selected." }
     ] },
     { "name": "UiBrowserSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.", "fields": [
-      { "name": "tab", "type": "BrowserTab", "doc": "The page, from the `Browser` service." },
+      { "name": "tab", "type": "BrowserTab", "doc": "The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed." },
       { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." }
     ] },
     { "name": "UiCodeViewProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.codeView` props. Native: highlighting, the line buffer, the gutter, selection and find stay in the host.", "fields": [
@@ -946,6 +970,7 @@
       { "name": "icon", "type": "IconName?", "doc": "An item's icon." },
       { "name": "detail", "type": "string?", "doc": "Muted text at an item's end." },
       { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut the item shows." },
+      { "name": "keys", "type": "string?", "doc": "A literal shortcut the item shows, such as `\"mod+plus\"`, when no command has it." },
       { "name": "enabled", "type": "boolean?", "doc": "False shows the item disabled. Defaults to true." },
       { "name": "danger", "type": "boolean?", "doc": "A destructive item." },
       { "name": "checked", "type": "boolean?", "doc": "Shows a check mark." }
@@ -956,7 +981,8 @@
       { "name": "label", "type": "string?", "doc": "Its accessible name." },
       { "name": "side", "type": "Side?", "doc": "The anchor's side. Defaults to below." },
       { "name": "align", "type": "Align?", "doc": "Alignment along that side. Defaults to start." },
-      { "name": "minWidth", "type": "number?", "doc": "Its minimum width in points." }
+      { "name": "minWidth", "type": "number?", "doc": "Its minimum width in points." },
+      { "name": "width", "type": "number?", "doc": "Its width in points." }
     ] },
     { "name": "OpenPanelOptions", "kind": "record", "rust": true, "doc": "How to open a panel tab.", "fields": [
       { "name": "sessionId", "type": "string?", "doc": "The session. Defaults to the routed session." },
@@ -1071,30 +1097,60 @@
       { "name": "number", "type": "integer", "doc": "Its place among the session's terminals, from 1: what a default title says." },
       { "name": "hidden", "type": "boolean", "doc": "Listed only to hold a restored tab until the server lists the session's terminals." }
     ] },
+    { "name": "OpenFileOptions", "kind": "record", "rust": true, "doc": "How `Workspace:OpenFile` opens a file.", "fields": [
+      { "name": "preview", "type": "boolean?", "doc": "Opens it in the preview tab, which the next preview replaces, instead of a kept one." },
+      { "name": "startLine", "type": "integer?", "doc": "The first line to select and scroll into view, from 1." },
+      { "name": "endLine", "type": "integer?", "doc": "The last line to select. Defaults to `startLine`." }
+    ] },
+    { "name": "TerminalOpened", "kind": "record", "rust": true, "doc": "The terminal tab `Terminal:OpenAsync` showed.", "fields": [
+      { "name": "id", "type": "string?", "doc": "The terminal's id; nil when the session has none and can't start one." },
+      { "name": "placement", "type": "string", "doc": "Where a session's first terminal opens (Settings > Terminal): `side` or `bottom`." }
+    ] },
     { "name": "BrowserOpenSpec", "kind": "record", "rust": true, "doc": "A page to open.", "fields": [
-      { "name": "url", "type": "string", "doc": "The URL." },
-      { "name": "sessionId", "type": "string?", "doc": "The session the page belongs to." },
-      { "name": "background", "type": "boolean?", "doc": "Opens without showing it." }
+      { "name": "url", "type": "string", "doc": "The URL, or a local `:port`. Defaults to `about:blank`." },
+      { "name": "sessionId", "type": "string?", "doc": "The session whose side region gets the page's tab. Defaults to the routed session." },
+      { "name": "background", "type": "boolean?", "doc": "Opens the tab without moving the keyboard: focus stays where it is." }
+    ] },
+    { "name": "BrowserShowOptions", "kind": "record", "rust": true, "doc": "Where to show a page's tab.", "fields": [
+      { "name": "sessionId", "type": "string?", "doc": "The session whose side region shows it. Defaults to the routed session." },
+      { "name": "background", "type": "boolean?", "doc": "Selects the tab without moving the keyboard." }
+    ] },
+    { "name": "BrowserTabInfo", "kind": "record", "rust": true, "doc": "One page of a session, as its tab lists it.", "fields": [
+      { "name": "id", "type": "string", "doc": "The host's id for it." },
+      { "name": "url", "type": "string", "doc": "Its address; empty for a blank page." },
+      { "name": "title", "type": "string", "doc": "Its title; empty before the page names itself." },
+      { "name": "open", "type": "boolean", "doc": "The page exists. A stored tab the engine never opened in this run is listed, not open." }
+    ] },
+    { "name": "BrowserEngine", "kind": "record", "rust": true, "doc": "Where the browser engine stands.", "fields": [
+      { "name": "state", "type": "BrowserEngineState", "doc": "Its state." },
+      { "name": "message", "type": "string?", "doc": "Why it failed, for `failed`." }
+    ] },
+    { "name": "BrowserPick", "kind": "record", "rust": true, "doc": "An element the user picked in a page with the element picker.", "fields": [
+      { "name": "tabId", "type": "string", "doc": "The page." },
+      { "name": "ref", "type": "string", "doc": "The element's `@eN` reference." },
+      { "name": "selector", "type": "string", "doc": "A CSS selector for it." }
     ] },
     { "name": "BrowserTab", "kind": "object", "doc": "A page in the app's browser, for `ui.browserSurface`.", "members": [
       { "name": "Id", "kind": "field", "type": "string", "doc": "The host's id for it." },
+      { "name": "IsOpen", "kind": "method", "sig": "() -> boolean", "doc": "The page exists: it hasn't closed." },
       { "name": "Url", "kind": "method", "sig": "() -> string", "doc": "The current URL." },
       { "name": "Title", "kind": "method", "sig": "() -> string", "doc": "The page title." },
       { "name": "Loading", "kind": "method", "sig": "() -> boolean", "doc": "A load is in flight." },
       { "name": "CanGoBack", "kind": "method", "sig": "() -> boolean", "doc": "History has an earlier page." },
       { "name": "CanGoForward", "kind": "method", "sig": "() -> boolean", "doc": "History has a later page." },
-      { "name": "Navigate", "kind": "method", "sig": "(url: string) -> ()", "doc": "Loads a URL." },
+      { "name": "Zoom", "kind": "method", "sig": "() -> number", "doc": "The page's zoom: 1 at 100%." },
+      { "name": "Inspecting", "kind": "method", "sig": "() -> boolean", "doc": "The element picker waits for a click in the page." },
+      { "name": "Navigate", "kind": "method", "sig": "(url: string) -> ()", "doc": "Loads a URL, or a local `:port`." },
       { "name": "Back", "kind": "method", "sig": "() -> ()", "doc": "Goes back." },
       { "name": "Forward", "kind": "method", "sig": "() -> ()", "doc": "Goes forward." },
       { "name": "Reload", "kind": "method", "sig": "() -> ()", "doc": "Reloads." },
       { "name": "Stop", "kind": "method", "sig": "() -> ()", "doc": "Stops loading." },
-      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes the page." },
-      { "name": "DevtoolsAsync", "kind": "method", "sig": "(method: string, params: { [string]: any }?) -> any", "yields": true, "doc": "Sends one DevTools protocol command and returns its result." },
-      { "name": "ScreenshotAsync", "kind": "method", "sig": "() -> ImageId?", "yields": true, "doc": "Captures the visible page." },
-      { "name": "Navigated", "kind": "signal", "payload": "string", "doc": "Fires with the new URL." },
-      { "name": "TitleChanged", "kind": "signal", "payload": "string", "doc": "Fires with the new title." },
-      { "name": "LoadingChanged", "kind": "signal", "payload": "boolean", "doc": "Fires as a load starts and ends." },
-      { "name": "Closed", "kind": "signal", "payload": "()", "doc": "Fires as the page closes." }
+      { "name": "SetZoom", "kind": "method", "sig": "(direction: BrowserZoom) -> ()", "doc": "Zooms the page in or out a step, or back to 100%. The site keeps its zoom." },
+      { "name": "Inspect", "kind": "method", "sig": "(enabled: boolean?) -> ()", "doc": "Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`." },
+      { "name": "Highlight", "kind": "method", "sig": "(nodeId: number?) -> ()", "doc": "Outlines the DevTools backend node `nodeId` in the page, or clears the outline." },
+      { "name": "Show", "kind": "method", "sig": "(options: BrowserShowOptions?) -> ()", "doc": "Selects its tab in a session's side region, opening the region and adding the tab when it isn't there." },
+      { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes the page and its tab." },
+      { "name": "DevtoolsAsync", "kind": "method", "sig": "(method: string, params: { [string]: any }?, targetSessionId: string?) -> any", "yields": true, "doc": "Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds." }
     ] },
     { "name": "OfficeDocument", "kind": "record", "doc": "An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.", "fields": [
       { "name": "id", "type": "integer", "doc": "The host's id for it." },
@@ -1215,7 +1271,9 @@
     ] },
     { "name": "ClosedTab", "kind": "record", "rust": true, "doc": "What Recently closed lists for a panel's closed tab.", "fields": [
       { "name": "title", "type": "string?", "doc": "Its title, instead of the tab's." },
-      { "name": "icon", "type": "IconName?", "doc": "Its icon." }
+      { "name": "icon", "type": "IconName?", "doc": "Its icon." },
+      { "name": "detail", "type": "string?", "doc": "Muted text after its title, such as a page's host." },
+      { "name": "data", "type": "string?", "doc": "What `restore` gets back, such as a page's address." }
     ] },
     { "name": "PanelMobileView", "kind": "record", "rust": true, "official": "MobileView", "doc": "A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `\"mobile\"`.", "fields": [
       { "name": "title", "type": "string", "doc": "Its label in the switcher or the More drawer." },
@@ -1246,7 +1304,9 @@
       { "name": "render", "type": "(view: View, props: PanelProps) -> UiNode?", "doc": "Draws a tab's content." },
       { "name": "label", "type": "((view: View, props: PanelTabLabelProps) -> UiNode?)?", "doc": "Draws the tab's label in the strip, instead of its icon and title." },
       { "name": "onClose", "type": "((props: PanelProps) -> ())?", "doc": "Runs after the tab leaves the strip." },
-      { "name": "onFocus", "type": "((props: PanelProps) -> ())?", "doc": "Runs as the tab becomes selected." }
+      { "name": "onFocus", "type": "((props: PanelProps) -> ())?", "doc": "Runs as the tab becomes selected." },
+      { "name": "closedTab", "type": "((props: PanelProps) -> ClosedTab?)?", "doc": "What Recently closed keeps of a tab as it closes, instead of `closed`; nil keeps nothing. Keep it cheap, and don't yield." },
+      { "name": "restore", "type": "((props: PanelProps, data: string?) -> ())?", "doc": "Brings a tab back from Recently closed with its `ClosedTab.data`. Without it, the tab's key opens again." }
     ] },
     { "name": "SettingSpec", "kind": "record", "rust": true, "doc": "A row in Settings › Plugins, under this plugin.", "fields": [
       { "name": "id", "type": "string", "doc": "Its search id." },
@@ -1448,7 +1508,12 @@
       { "name": "name", "type": "string", "doc": "Its name within the plugin." },
       { "name": "description", "type": "string", "doc": "What it does, for the model." },
       { "name": "inputSchema", "type": "{ [string]: any }", "doc": "Its arguments' JSON Schema." },
-      { "name": "call", "type": "(args: { [string]: any }, context: McpCallContext) -> any", "doc": "Runs it and returns its result: a string, or a table sent as JSON. Raise an error to fail. It must not yield." }
+      { "name": "call", "type": "(args: { [string]: any }, context: McpCallContext) -> any", "doc": "Runs it, as a task, and returns its result: a string, a table sent as JSON, or an `McpImage`. Raise an error to fail. It may yield (call `...Async` methods): the call answers when it returns, or fails after 30 seconds." }
+    ] },
+    { "name": "McpImage", "kind": "record", "rust": true, "doc": "An MCP tool result with an image: a text part and the image.", "fields": [
+      { "name": "text", "type": "string", "doc": "The text part, such as JSON metadata." },
+      { "name": "image", "type": "string", "doc": "The image, base64-encoded." },
+      { "name": "mimeType", "type": "string", "doc": "Its type, such as `image/png`." }
     ] },
     { "name": "McpCallContext", "kind": "record", "rust": true, "doc": "Where an MCP tool call comes from.", "fields": [
       { "name": "sessionId", "type": "string", "doc": "The session whose agent called it." },
@@ -1570,7 +1635,8 @@
       { "name": "Narrow", "kind": "method", "sig": "() -> boolean", "doc": "The window is narrow-screen sized." },
       { "name": "PanelSidebar", "kind": "method", "sig": "() -> PanelSidebarInfo", "doc": "The file sidebar `ui.panelSidebar` draws." },
       { "name": "TogglePanelSidebar", "kind": "method", "sig": "() -> ()", "doc": "Shows or hides it." },
-      { "name": "OpenDrawerView", "kind": "method", "sig": "(title: string, data: { [string]: any }?) -> ()", "doc": "From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere." }
+      { "name": "OpenDrawerView", "kind": "method", "sig": "(title: string, data: { [string]: any }?) -> ()", "doc": "From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere." },
+      { "name": "RegionOpen", "kind": "method", "sig": "(sessionId: string?) -> boolean", "doc": "A session's side region is open. Defaults to the routed session." }
     ] },
     { "name": "Links", "halves": ["window"], "doc": "Routes local links to the plugins that handle them.", "members": [
       { "name": "Open", "kind": "method", "sig": "(link: Link) -> boolean", "doc": "Opens a link with the best handler. False when no handler matches." },
@@ -1619,6 +1685,7 @@
       { "name": "OpenInApps", "kind": "method", "sig": "() -> { OpenInApp }", "doc": "The installed apps that can open a path." },
       { "name": "OpenIn", "kind": "method", "sig": "(appId: string, path: string) -> ()", "doc": "Opens a path in one of those apps." },
       { "name": "Relative", "kind": "method", "sig": "(path: string, directory: string) -> string?", "doc": "A path inside a workspace folder, relative to it with `/` between parts; nil for a path outside it. A relative path stays as it is." },
+      { "name": "OpenFile", "kind": "method", "sig": "(sessionId: string, path: string, options: OpenFileOptions?) -> ()", "doc": "Opens workspace file `path` in a tab of the session's side region, leaving the keyboard where it was." },
       { "name": "FileChanged", "kind": "signal", "payload": "string", "doc": "Fires with a workspace path after it changes on disk." }
     ] },
     { "name": "Diff", "halves": ["window"], "doc": "Session changes for `ui.diffView`.", "members": [
@@ -1633,12 +1700,24 @@
       { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "This window can start terminals: its server has them and the window isn't read-only." },
       { "name": "New", "kind": "method", "sig": "(sessionId: string?) -> ()", "doc": "Starts a terminal in the session (the routed one by default) and opens its tab beside its others, or where Settings place a first one; it takes the keyboard." },
       { "name": "Toggle", "kind": "method", "sig": "() -> ()", "doc": "`terminal.toggle`: a new terminal when the routed session has none; the active terminal's pane hides while its tab shows; otherwise its tab opens and takes the keyboard." },
-      { "name": "Select", "kind": "method", "sig": "(sessionId: string, id: string, focus: boolean) -> ()", "doc": "Makes terminal `id` the session's active one, and with `focus` gives it the keyboard." }
+      { "name": "Select", "kind": "method", "sig": "(sessionId: string, id: string, focus: boolean) -> ()", "doc": "Makes terminal `id` the session's active one, and with `focus` gives it the keyboard." },
+      { "name": "OpenAsync", "kind": "method", "sig": "(sessionId: string, newTerminal: boolean) -> TerminalOpened", "yields": true, "doc": "Shows session `sessionId`'s terminal tab, starting a terminal when `newTerminal` or it has none, and leaves the keyboard where it was." }
     ] },
-    { "name": "Browser", "halves": ["window", "app"], "doc": "Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them.", "members": [
-      { "name": "Open", "kind": "method", "sig": "(spec: BrowserOpenSpec) -> BrowserTab", "doc": "Opens a page." },
-      { "name": "Tabs", "kind": "method", "sig": "() -> { BrowserTab }", "doc": "This plugin's open pages." },
-      { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "The browser engine is installed and runs on this platform." }
+    { "name": "Browser", "halves": ["window"], "doc": "Pages in this window's embedded browser, each a tab of a session's side region.", "members": [
+      { "name": "OpenAsync", "kind": "method", "sig": "(spec: BrowserOpenSpec) -> BrowserTab", "yields": true, "doc": "Opens a page in a new tab of a session's side region, and returns it once its tab is there." },
+      { "name": "Tabs", "kind": "method", "sig": "(sessionId: string?) -> { BrowserTab }", "doc": "Session `sessionId`'s open pages, oldest first; without a session, every open page." },
+      { "name": "Get", "kind": "method", "sig": "(id: string) -> BrowserTab?", "doc": "An open page by id." },
+      { "name": "List", "kind": "method", "sig": "(sessionId: string, open: { string }) -> { BrowserTabInfo }", "doc": "The pages of the stored tabs `open` names, in that order, for a panel's `list`." },
+      { "name": "Active", "kind": "method", "sig": "(sessionId: string) -> BrowserTab?", "doc": "The page a session shows: its selected browser tab, else its newest open page, else the page the engine shows." },
+      { "name": "Selected", "kind": "method", "sig": "(sessionId: string?) -> BrowserTab?", "doc": "The page whose tab is selected in a session's open side region (the routed session by default)." },
+      { "name": "Focused", "kind": "method", "sig": "() -> BrowserTab?", "doc": "The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's." },
+      { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "Pages can open here: this build has a browser engine for its platform." },
+      { "name": "Engine", "kind": "method", "sig": "() -> BrowserEngine", "doc": "Where the browser engine stands." },
+      { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with a page's id when its address, title or loading changes, or it closes." },
+      { "name": "Picked", "kind": "signal", "payload": "BrowserPick", "doc": "Fires when the element picker picks an element." }
+    ] },
+    { "name": "Composer", "halves": ["window"], "doc": "The routed session's composer.", "members": [
+      { "name": "InsertPill", "kind": "method", "sig": "(id: string, label: string) -> ()", "doc": "Puts a pill at the caret, with a space on each side, and gives the composer the keyboard." }
     ] },
     { "name": "Office", "halves": ["window"], "doc": "Office documents laid out and drawn by the host, each on a thread of its own.", "members": [
       { "name": "OpenAsync", "kind": "method", "sig": "(path: string, directory: string, kind: OfficeKind) -> OfficeFile", "yields": true, "doc": "Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`." },

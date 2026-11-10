@@ -445,7 +445,7 @@ impl App {
         if was_open {
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
-            self.browser.address.focused = false;
+            crate::plugin_host::luau::blur_fields(self);
             return;
         }
 
@@ -638,9 +638,6 @@ impl App {
         // Switching tabs is always instant (rules.md).
         tx.instant();
         self.side.tab_menu = None;
-        if !key.starts_with("browser:") {
-            self.browser.address.focused = false;
-        }
         // A plugin's field in the tab left behind gives up the keyboard, as the app's own do.
         crate::plugin_host::luau::blur_fields(self);
         if !key.starts_with("file:") {

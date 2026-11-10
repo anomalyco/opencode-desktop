@@ -1,7 +1,7 @@
 //! The host signals that follow app state rather than an event: `Sessions.Changed`,
 //! `Sessions.RoutedChanged`, `Models.Changed`, `Theme.Changed`, `I18n.Changed`,
-//! `App.LocaleChanged`, `Server.Connected`, `Servers.Changed`, each store's and contract's
-//! `Changed`. Each poll compares what a signal follows with what it last saw and fires on a
+//! `App.LocaleChanged`, `Server.Connected`, `Servers.Changed`, each store's, contract's and
+//! editor's `Changed`, an editor's `FocusChanged`, and `Browser.Changed`. Each poll compares what a signal follows with what it last saw and fires on a
 //! change; a plugin that made none of them costs one map lookup.
 
 use std::hash::{Hash, Hasher};
@@ -38,6 +38,27 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
             }
             continue;
         }
+        // Each page whose address, title or loading moved, or that closed, by its id.
+        if name == "Browser.Changed" {
+            let pages = super::super::native::browser::pages(app);
+            let mut seen = half.seen.borrow_mut();
+            let gone: Vec<String> = seen.keys().filter_map(|k| k.strip_prefix("Browser.Changed:")).filter(|id| !pages.iter().any(|(p, _)| p == id)).map(str::to_owned).collect();
+            let mut moved: Vec<String> = Vec::new();
+            for id in gone {
+                seen.remove(&format!("Browser.Changed:{id}"));
+                moved.push(id);
+            }
+            for (id, v) in pages {
+                if seen.insert(format!("Browser.Changed:{id}"), v) != Some(v) {
+                    moved.push(id);
+                }
+            }
+            drop(seen);
+            for id in moved {
+                fired |= super::super::fire_named(app, i, &name, Data::String(id));
+            }
+            continue;
+        }
         let Some((v, payload)) = observe(app, &half.id, &name) else { continue };
         let was = half.seen.borrow_mut().insert(name.clone(), v);
         if was.is_some_and(|w| w != v) {
@@ -71,7 +92,14 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
         }
         "Updater.StateChanged" => Some((app.updater.revision(), crate::updater::state_data(app))),
         n => {
-            if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
+            let editor = |suffix: &str| n.strip_prefix("editor.").and_then(|s| s.strip_suffix(suffix)).and_then(|s| s.parse::<usize>().ok());
+            if let Some(index) = editor(".FocusChanged") {
+                let focused = super::super::editors::focused_in(app, plugin, index);
+                Some((hash(focused), Data::Bool(focused)))
+            } else if let Some(index) = editor(".Changed") {
+                let text = super::super::editors::text_in(app, plugin, index);
+                Some((hash(&text), Data::String(text)))
+            } else if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
                 Some((store_version(plugin, store), Data::Nil))
             } else if let Some(session) = n.strip_prefix("Diff.").and_then(|s| s.strip_suffix(".Changed")) {
                 Some((hash(super::super::native::diff::version(app, session)), Data::Nil))

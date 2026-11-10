@@ -21,9 +21,10 @@ use crate::view::UI;
 /// The host panel every plugin panel is a tab of: `plugin:<plugin>.<panel>`.
 pub const PANEL: &str = "plugin";
 
-rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::new(PANEL, list, render).order(40).launchers(launchers, open_entry).poll(super::run::poll).tab_lead(tab_lead).on_close(closed),
-]);
+/// The native plugins' panels, one provider for them all (`panels::registered_panels`).
+pub fn provider() -> PanelRegistration {
+    PanelRegistration::new(PANEL, list, render).order(40).launchers(launchers, open_entry).poll(super::run::poll).tab_lead(tab_lead).on_close(closed)
+}
 
 fn panels(host: &PluginHost) -> impl Iterator<Item = (usize, &super::instance::PanelRec)> {
     host.slots.iter().enumerate().filter_map(|(i, s)| s.active().map(|inst| (i, inst))).flat_map(|(i, inst)| inst.contributions.panels.iter().map(move |p| (i, p)))

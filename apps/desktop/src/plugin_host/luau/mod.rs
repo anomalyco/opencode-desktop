@@ -406,6 +406,20 @@ pub fn blur_fields(app: &mut App) {
     }
 }
 
+/// Whether a plugin's field has the keyboard.
+pub fn field_focused(app: &App) -> bool {
+    editors::any_focused(app)
+}
+
+/// A key a plugin's field hands over (`UiFieldProps.keys`): its editor's `KeyPressed` fires with
+/// the key's name.
+pub fn key_pressed(app: &mut App, plugin: &str, index: usize, key: &str, tx: &mut Tx) {
+    if let Some(p) = app.plugins.luau.plugins.iter().find(|p| p.manifest.id == plugin) {
+        services::fire(app, p, &format!("editor.{index}.KeyPressed"), |lua| mlua::IntoLuaMulti::into_lua_multi(key.to_owned(), lua));
+    }
+    requests::carry_out(app, tx);
+}
+
 /// Enter in a plugin's field: its editor's `Submitted` fires with the text.
 pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
     let text = editors::text_in(app, plugin, index);

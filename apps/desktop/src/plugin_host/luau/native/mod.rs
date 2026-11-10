@@ -7,6 +7,7 @@
 //! A render reads `&App`. A node whose props ask for another state than the engine holds (a
 //! diff's layout, the file it previews) hands the change to the next frame (`App::later`).
 
+pub mod browser;
 pub mod diff;
 pub mod files;
 pub mod icons;
@@ -37,6 +38,7 @@ pub fn nodes() -> Vec<HostNode> {
         HostNode::new("segmented", segmented::view),
         HostNode::new("terminalSurface", terminal::view),
         HostNode::new("terminalTabLabel", terminal::label),
+        HostNode::new("browserSurface", browser::view),
     ]
 }
 
@@ -47,12 +49,12 @@ pub(crate) fn icon(name: &str) -> &'static rune::Icon {
 
 /// Lands what the engines read, and reads again what file events made stale.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    crate::review::poll(app, tx) | files::poll(app, tx) | terminal::poll(app, tx)
+    crate::review::poll(app, tx) | files::poll(app, tx) | terminal::poll(app, tx) | browser::poll(app, tx)
 }
 
-/// IME for the native view that has the keyboard: the terminal's.
+/// IME for the native view that has the keyboard: the terminal's, else the page's.
 pub fn on_ime(app: &mut App, ime: &rune::Ime) -> bool {
-    terminal::ime(app, ime)
+    terminal::ime(app, ime) || browser::ime(app, ime)
 }
 
 /// Keys for the native views on screen: the terminal that has the keyboard, the panel sidebar's
@@ -98,7 +100,15 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
     match name {
         "Diff" => diff::build(lua, vmx, t),
         "Workspace" => files::build(lua, t),
-        "Terminal" => terminal::build(lua, t),
+        "Terminal" => terminal::build(lua, vmx, t),
+        "Browser" => browser::build(lua, vmx, t),
+        "Composer" => browser::composer(lua, t),
         _ => Ok(()),
     }
+}
+
+/// The native objects' async functions, made with the VM.
+pub fn asyncs(host: &rune_luau::Host<'_>, t: &Table) -> mlua::Result<()> {
+    terminal::asyncs(host, t)?;
+    browser::asyncs(host, t)
 }

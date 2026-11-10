@@ -221,6 +221,12 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         let width = s.width.unwrap_or(crate::plugin_host::luau::native::sidebar::DEFAULT_W);
         mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
     })?;
+    method(lua, t, "RegionOpen", |_, session: Option<String>| {
+        cx::read(Dep::Browser);
+        let app = app_now("Layout:RegionOpen")?;
+        let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
+        Ok(app.side.sessions.get(session).is_some_and(|st| st.open))
+    })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
             tx.instant();
@@ -256,12 +262,31 @@ fn open_menu(lua: &Lua, p: &Rc<str>, a: MultiValue, done: Completer) -> mlua::Re
     if let Some(w) = s.min_width.filter(|w| *w > 0.0) {
         menu = menu.min_width(w as f32);
     }
+    if let Some(w) = s.width.filter(|w| *w > 0.0) {
+        menu = menu.width(w as f32);
+    }
+    let app = app_now("Menu:OpenAsync")?;
     for e in s.items {
         menu = match e.kind.unwrap_or_default() {
             spec::MenuEntryKind::Separator => menu.separator(),
             spec::MenuEntryKind::Group => menu.group(e.title.as_deref().unwrap_or_default()),
             spec::MenuEntryKind::Item => {
-                let item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
+                let mut item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
+                let chord = match (&e.keys, &e.keybind) {
+                    (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()),
+                    (None, Some(id)) => crate::keymap::command_chord(app, id),
+                    _ => None,
+                };
+                // Desktop's menus show a shortcut as neutral `Keybind` chips, a plus or minus at a
+                // letter key's width (`fullWidth`).
+                if let Some(chord) = chord {
+                    let caps = crate::keymap::caps(chord).into_iter().map(|c| match c.as_str() {
+                        "+" => "＋".to_owned(),
+                        "-" => "－".to_owned(),
+                        _ => c,
+                    });
+                    item = item.keycaps(caps.collect());
+                }
                 menu.item(item.enabled(e.enabled.unwrap_or(true)).checked(e.checked.unwrap_or(false)).danger(e.danger.unwrap_or(false)))
             }
         };

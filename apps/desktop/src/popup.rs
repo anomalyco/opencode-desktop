@@ -49,6 +49,9 @@ pub struct Item {
     /// The folder whose project avatar leads the row (drawn menus only).
     project: Option<String>,
     shortcut: Option<String>,
+    /// The keys that do the same as keycap chips at the row's end, instead of `shortcut`'s text
+    /// (drawn menus only; native ones show `shortcut`).
+    keycaps: Vec<String>,
     /// The glyph before the title (drawn menus only).
     glyph: Option<Glyph>,
     /// A row that only tells (`SessionLocationDetail`): never lit or picked, in the base ink.
@@ -90,7 +93,7 @@ impl PartialEq for Glyph {
 
 impl Item {
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Item {
-        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, glyph: None, detail: false, diff: None }
+        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, keycaps: Vec::new(), glyph: None, detail: false, diff: None }
     }
     pub fn enabled(mut self, on: bool) -> Item { self.enabled = on; self }
     /// A check at the row's end, as a picker marks its current value.
@@ -109,6 +112,13 @@ impl Item {
     pub fn detail(mut self) -> Item { self.detail = true; self.enabled = false; self }
     /// A change count's lines after the title, as Desktop's `DiffChanges` reads them.
     pub fn diff(mut self, added: u32, removed: u32) -> Item { self.diff = Some((added, removed)); self }
+    /// The keys that do the same as Desktop's neutral `Keybind` chips (`CTRL` `＋`), and as the native
+    /// menu's text.
+    pub fn keycaps(mut self, caps: Vec<String>) -> Item {
+        self.shortcut = (!caps.is_empty()).then(|| caps.join("+"));
+        self.keycaps = caps;
+        self
+    }
     /// The keys that do the same, at the row's end ("Ctrl+Shift+N"); none when empty.
     pub fn shortcut(mut self, keys: impl Into<String>) -> Item {
         let keys = keys.into();
@@ -639,6 +649,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     None => o,
                 };
                 let o = match &i.shortcut {
+                    _ if !i.keycaps.is_empty() => o.trailing(crate::keymap::view::chips(p, i.keycaps.clone())),
                     Some(keys) => o.trailing(popover::hint(p, keys)),
                     None => o,
                 };

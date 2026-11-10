@@ -113,17 +113,7 @@ pub fn mcp_call(app: &mut App, session: &str, call: McpCall, tx: &mut Tx) -> Opt
     let key = MCP_TOOLS.lock().ok()?.iter().find(|(name, _, _)| *name == call.name).map(|(_, key, _)| *key);
     let Some(key) = key else {
         let directory = if call.directory.is_empty() { app.session(session).map(|s| s.directory.clone()).unwrap_or_default() } else { call.directory.clone() };
-        return match super::luau::commands::mcp_call(app, &call.name, &call.arguments, session, &directory, tx) {
-            Some(Ok(value)) => {
-                call.respond(McpResult::json(value));
-                None
-            }
-            Some(Err(e)) => {
-                call.respond(McpResult::error(e));
-                None
-            }
-            None => Some(call),
-        };
+        return super::luau::commands::mcp_call(app, call, session, &directory, tx);
     };
     let Some((i, scope, query)) = find(&app.plugins, kinds::MCP_TOOL, key).and_then(|(i, c)| Some((i, c.scope, c.query.as_ref()?.cb))) else {
         call.respond(McpResult::error("That plugin isn't running"));

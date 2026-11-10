@@ -13,102 +13,6 @@ fn test_runtime() -> Runtime<App> {
 }
 
 #[test]
-fn alt_cmd_b_toggles_side_region_and_cmd_l_navigates_browser() {
-    let mut rt = test_runtime();
-    assert!(!rt.state.side_open());
-
-    // ⌥⌘B opens the side region.
-    rt.key(KeyEvent {
-        key: Key::Command('b'),
-        mods: Mods { cmd: true, alt: true, logo: true, ..Default::default() },
-    });
-    for _ in 0..40 {
-        rt.frame(1.0 / 60.0);
-    }
-    assert!(rt.state.side_open());
-
-    // ⌘L opens a browser tab if on New tab and focuses the URL input; `:5173/app` resolves to localhost.
-    rt.key(KeyEvent {
-        key: Key::Command('l'),
-        mods: Mods { cmd: true, logo: true, ..Default::default() },
-    });
-    rt.frame(1.0 / 60.0);
-    assert!(rt.state.browser.address.focused);
-    assert!(rt.find("browser-address").is_some(), "URL input mounted in side region");
-
-    rt.update(|s, _| s.browser.address = rune::TextEdit::new(":5173/app"));
-    rt.update(|s, _| s.browser.address.focused = true);
-    rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
-    rt.frame(1.0 / 60.0);
-
-    assert!(!rt.state.browser.address.focused);
-    let active_url = rt
-        .state
-        .active_browser_tab_id()
-        .and_then(|id| rt.state.browser.host.tab(id))
-        .map(|t| t.url.as_str());
-    assert_eq!(active_url, Some("http://localhost:5173/app"));
-
-    // ⌥⌘B again hides the side region while keeping the tab stored for next open.
-    rt.key(KeyEvent {
-        key: Key::Command('b'),
-        mods: Mods { cmd: true, alt: true, logo: true, ..Default::default() },
-    });
-    rt.frame(1.0 / 60.0);
-    assert!(!rt.state.side_open());
-}
-
-fn cmd_t() -> KeyEvent {
-    KeyEvent { key: Key::Command('t'), mods: Mods { cmd: true, logo: true, ..Default::default() } }
-}
-
-#[test]
-fn cmd_t_in_the_browser_pane_opens_a_browser_tab_and_elsewhere_the_chooser() {
-    let mut rt = test_runtime();
-    let first = rt.state.open_new_browser_tab("http://localhost:3000/");
-    if !rt.state.side_open() {
-        rt.update(|s, tx| s.toggle_side_region(tx));
-    }
-    rt.frame(1.0 / 60.0);
-    assert!(rt.state.side_open());
-
-    // A click in the page, then ⌘T, opens another browser tab with its address bar focused.
-    rt.update(|s, _| s.composer.focused = true);
-    for _ in 0..30 {
-        rt.frame(1.0 / 60.0);
-    }
-    let (x, y) = rt.find("browser-surface").expect("page surface mounted");
-    rt.pointer_move(x, y);
-    rt.pointer_down(x, y);
-    rt.pointer_up(x, y);
-    rt.frame(1.0 / 60.0);
-    assert!(!rt.state.composer.focused && rt.state.side.focused, "a click in the page focuses its pane");
-    let pane = rt.state.side.active_pane_focus;
-    rt.key(cmd_t());
-    rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.browser.host.tabs().len(), 2);
-    let second = rt.state.active_browser_tab_id().expect("new browser tab is active");
-    assert_ne!(second, first);
-    assert!(rt.state.browser.address.focused, "address bar focused for typing");
-    assert_eq!(rt.state.side.active_pane_focus, pane);
-
-    // From the address bar it opens a third.
-    rt.key(cmd_t());
-    rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.browser.host.tabs().len(), 3);
-
-    // Focus in the composer: ⌘T keeps doing what it did (a new session), no browser tab.
-    rt.update(|s, _| {
-        s.composer.focused = true;
-        s.side.focused = false;
-        s.browser.address.focused = false;
-    });
-    rt.key(cmd_t());
-    rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.browser.host.tabs().len(), 3, "no browser tab from outside the pane");
-}
-
-#[test]
 fn scroll_and_click_on_the_side_panel_page_reach_the_engine_at_zoom_1_6() {
     use browser_pane::protocol::{HostMsg, PointerBtn};
     use rune::WheelEvent;
@@ -677,7 +581,6 @@ fn captures_live_chromium_sidecar_split_still_when_requested() {
         app.register_existing_browser_tab(id);
         app.select_side_tab(&panel_key("browser", &id.to_string()), tx);
         tx.settle();
-        app.sync_browser_address_now();
     });
 
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -741,7 +644,6 @@ fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
         );
         app.register_existing_browser_tab(id);
         tx.settle();
-        app.sync_browser_address_now();
     });
     rt.frame(1.0 / 60.0);
     assert!(rt.find("browser-download-prompt").is_some());

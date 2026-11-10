@@ -72,17 +72,12 @@ pub enum Bind {
     SubmitAnswer,
     Stop,
     FileOpen,
-    BrowserOpen,
     BottomToggle,
     PaneTabNew,
     PaneTabPrev,
     PaneTabNext,
     TreeToggle,
     CopySelection,
-    BrowserAddress,
-    BrowserTab,
-    BrowserReload,
-    BrowserInspect,
     TerminalCopy,
     TerminalPaste,
     TerminalSelectAll,
@@ -221,9 +216,7 @@ fn table() -> Vec<Binding> {
         unlisted(SubmitAnswer, "question.submit", key!("rune.command.question.submit"), Prompt, view(session_view::keymap::Bind::QuestionAdvance)),
         unlisted(Stop, "session.stop", key!("rune.command.session.stop"), Prompt, view(session_view::keymap::Bind::Stop)),
         row(FileOpen, "file.open", key!("command.file.open"), Navigation, on("mod+p")),
-        // The GUI plugins' launchers (`gui-plugins/src/{browser,file,review}/renderer.tsx`):
-        // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
-            row(BrowserOpen, "browser.open", key!("plugin.browser.command.open"), General, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
+        // The browser's commands (`browser.open` and its pane's) are the browser plugin's.
         // Desktop's `terminal.toggle` (Ctrl+`) and `terminal.new` are the terminal plugin's
         // (`TERMINAL_TOGGLE`, `TERMINAL_NEW`).
         row(BottomToggle, "bottom.toggle", key!("command.bottom.toggle"), General, on("mod+j")),
@@ -232,12 +225,6 @@ fn table() -> Vec<Binding> {
         hidden(PaneTabNext, "file.tab.next", key!("rune.command.file.tab.next"), Navigation, on("mod+shift+]")),
         hidden(TreeToggle, "fileTree.toggle", key!("ui.sessionReviewV2.toggleSidebar"), Session, on("mod+\\")),
         hidden(CopySelection, "edit.copy", key!("ui.message.copy"), General, on("mod+c")),
-        // The browser pane's (`browser/renderer.tsx:145-224`): its address and element picker are
-        // listed; the pane keeps its keys from the terminal's Ctrl+L and Ctrl+Shift+C.
-        scoped(BrowserAddress, "browser.address", key!("plugin.browser.command.address"), General, on("mod+l")),
-        hidden(BrowserTab, "browser.tab.new", key!("plugin.browser.command.newTab"), Session, on("mod+t")),
-        hidden(BrowserReload, "browser.reload", key!("plugin.browser.command.reload"), Session, on("mod+r")),
-        scoped(BrowserInspect, "browser.inspect", key!("plugin.browser.command.inspect"), General, on("mod+shift+c")),
         // The terminal's own keys (`terminal-key-event.ts`, `terminal.tsx`): ⌘ chords on macOS;
         // elsewhere Ctrl belongs to the shell, so copy and paste add Shift.
         hidden(TerminalCopy, "terminal.copy", key!("ui.message.copy"), Terminal, on("super+c, ctrl+shift+c")),
@@ -405,6 +392,8 @@ pub struct PluginBind {
 pub const TERMINAL_TOGGLE: PluginBind = PluginBind { id: "terminal.toggle", default: "ctrl+`" };
 /// The terminal plugin's `terminal.new`.
 pub const TERMINAL_NEW: PluginBind = PluginBind { id: "terminal.new", default: "ctrl+alt+t" };
+/// The browser plugin's `browser.reloadPage`, the system browser's reload inside its pane.
+pub const BROWSER_RELOAD_PAGE: PluginBind = PluginBind { id: "browser.reloadPage", default: "mod+r" };
 
 impl PluginBind {
     fn keybind(self) -> Keybind {

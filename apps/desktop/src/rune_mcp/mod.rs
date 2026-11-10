@@ -384,7 +384,6 @@ pub struct WindowMcp {
     rx: Receiver<RoutedCall>,
     last_stamp: Option<u64>,
     force_enabled: bool,
-    in_flight: HashMap<u64, tools::PendingCdp>,
 }
 
 impl Default for WindowMcp {
@@ -398,7 +397,6 @@ impl Default for WindowMcp {
             rx,
             last_stamp: None,
             force_enabled: false,
-            in_flight: HashMap::new(),
         }
     }
 }
@@ -417,7 +415,6 @@ impl App {
     }
 
     pub fn close_rune_mcp(&mut self) {
-        self.rune_mcp.in_flight.clear();
         self.rune_mcp.hub.remove_window(self.rune_mcp.window_id);
         self.rune_mcp.last_stamp = None;
     }
@@ -447,7 +444,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         tools::execute(s, &routed.target_session, routed.call, tx);
         changed = true;
     }
-    if tools::poll_cdp(s, tx) {
+    if crate::plugin_host::luau::commands::expire_calls(tx) {
         changed = true;
     }
     changed

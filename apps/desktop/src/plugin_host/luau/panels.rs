@@ -29,6 +29,8 @@ struct Panel {
     is_wide: Option<Function>,
     tab_title: Option<Function>,
     enabled: Option<Function>,
+    closed_tab: Option<Function>,
+    restore: Option<Function>,
 }
 
 thread_local! {
@@ -102,6 +104,8 @@ fn panels(app: &App, plugin: &str) -> Option<(usize, Vec<Panel>)> {
             is_wide: c.f("isWide").cloned(),
             tab_title: c.f("tabTitle").cloned(),
             enabled: c.f("enabled").cloned(),
+            closed_tab: c.f("closedTab").cloned(),
+            restore: c.f("restore").cloned(),
         })
         .collect();
     Some((i, all))
@@ -321,13 +325,37 @@ pub fn closed(app: &mut App, plugin: &str, session: &str, tab: &str, tx: &mut Tx
     super::commands::spawn(app, i, &f, data, tx);
 }
 
-/// What Recently closed keeps of `tab`: its panel's `closed`, else the tab's own title.
-pub fn closed_info(app: &App, plugin: &str, _session: &str, tab: &PanelTabDesc) -> ClosedTabInfo {
-    let Some((_, all)) = panels(app, plugin) else { return ClosedTabInfo::Default };
-    match owner(&all, &tab.id).and_then(|k| all[k].spec.closed.clone()) {
-        Some(c) => ClosedTabInfo::Allow(ClosedPanelTab { title: c.title, icon_name: c.icon, ..Default::default() }),
-        None => ClosedTabInfo::Default,
-    }
+/// What Recently closed keeps of `tab`: what its panel's `closedTab` answers (nothing for nil),
+/// else its panel's `closed`, else the tab's own title.
+pub fn closed_info(app: &App, plugin: &str, session: &str, tab: &PanelTabDesc) -> ClosedTabInfo {
+    let Some((i, all)) = panels(app, plugin) else { return ClosedTabInfo::Default };
+    let Some(k) = owner(&all, &tab.id) else { return ClosedTabInfo::Default };
+    let closed = match &all[k].closed_tab {
+        Some(f) => {
+            let props = props(app, &all, k, session, &tab.id, false, "side", (0.0, 0.0));
+            let answer = app.plugins.luau.plugins[i].script().and_then(|s| cx::with_app(app, || s.eval_fn::<Data>(f, props).ok()));
+            match answer.and_then(|d| d.decode::<opencode_plugin_spec::ClosedTab>().ok()) {
+                Some(c) => c,
+                None => return ClosedTabInfo::Deny,
+            }
+        }
+        None => match all[k].spec.closed.clone() {
+            Some(c) => c,
+            None => return ClosedTabInfo::Default,
+        },
+    };
+    ClosedTabInfo::Allow(ClosedPanelTab { title: closed.title, icon_name: closed.icon, detail: closed.detail, data: closed.data })
+}
+
+/// Brings `tab` of `session` back from Recently closed with its panel's `restore`; false when
+/// the panel has none, so its key opens again.
+pub fn restore(app: &mut App, plugin: &str, session: &str, tab: &str, data: Option<&str>, tx: &mut Tx) -> bool {
+    let Some((i, all)) = panels(app, plugin) else { return false };
+    let Some(k) = owner(&all, tab) else { return false };
+    let Some(f) = all[k].restore.clone() else { return false };
+    let props = props(app, &all, k, session, tab, false, "side", (0.0, 0.0));
+    super::commands::spawn(app, i, &f, (props, data.map(str::to_owned)), tx);
+    true
 }
 
 /// Whether one of the plugin's panels asks for the wider session minimum now.

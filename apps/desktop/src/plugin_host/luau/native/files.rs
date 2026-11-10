@@ -42,6 +42,20 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         }
         let fields = [("Path", Value::String(lua.create_string(&path)?)), ("sessionId", Value::String(lua.create_string(&sid)?))];
         object(lua, "CodeDocument", &fields, document(lua)?)
+    })?;
+    method(lua, t, "OpenFile", |lua, (sid, path, options): (String, String, Value)| {
+        let o: opencode_plugin_spec::OpenFileOptions = if options.is_nil() { Default::default() } else { mlua::FromLua::from_lua(options, lua).and_then(|d: rune_luau::Data| d.decode().map_err(mlua::Error::runtime))? };
+        let lines = o.start_line.map(|a| {
+            let a = a.max(1) as u32;
+            (a, o.end_line.map_or(a, |b| (b.max(1) as u32).max(a)))
+        });
+        let preview = o.preview == Some(true);
+        let path = crate::review::data::normalize_path(&path);
+        app_now("Workspace:OpenFile")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
+        }));
+        Ok(())
     })
 }
 

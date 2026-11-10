@@ -44,12 +44,11 @@ pub use watch::fire_watched;
 
 /// Services later packages bring, and which.
 const PENDING: &[(&str, &str)] = &[
-    ("Browser", "LU-7"),
     ("Images", "LU-5"),
 ];
 
 /// Window-half-only services.
-const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff", "Office"];
+const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff", "Office", "Browser", "Composer"];
 
 /// App-half-only services.
 const APP_ONLY: &[&str] = &["Askpass"];
@@ -117,10 +116,10 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "Toast" | "Popover" | "Dialog" | "Menu" | "Layout" | "Links" | "Commands" | "Notifications" => ui::build(lua, vmx, name, &t)?,
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
-        "Diff" | "Terminal" => super::native::build(lua, vmx, name, &t)?,
         "Updater" => updater::build(lua, vmx, &t)?,
         #[cfg(feature = "office")]
         "Office" => office::build(lua, vmx, &t)?,
+        "Diff" | "Terminal" | "Browser" | "Composer" => super::native::build(lua, vmx, name, &t)?,
         _ => {
             let why = PENDING.iter().find(|(n, _)| *n == name).map_or_else(|| format!("there is no service {name:?}"), |(_, pkg)| format!("{name} isn't in this app yet ({pkg} brings it)"));
             return Err(mlua::Error::runtime(why));
@@ -138,6 +137,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
     #[cfg(feature = "office")]
     office::asyncs(host, t, half)?;
     updater::asyncs(host, t, half)?;
+    super::native::asyncs(host, t)?;
     ui::asyncs(host, t, half)
 }
 
@@ -380,8 +380,27 @@ pub fn editor(lua: &Lua, vmx: &Rc<Vmx>, initial: Option<String>) -> mlua::Result
         cx::ask(&p, cx::Request::Redraw);
         Ok(())
     })?;
+    let p = id.clone();
+    method(lua, &methods, "Blur", move |_, ()| {
+        super::editors::blur(&p, index);
+        cx::ask(&p, cx::Request::Redraw);
+        Ok(())
+    })?;
+    let p = id.clone();
+    method(lua, &methods, "SelectAll", move |_, ()| {
+        super::editors::select_all(&p, index);
+        cx::ask(&p, cx::Request::Redraw);
+        Ok(())
+    })?;
+    let p = id.clone();
+    method(lua, &methods, "Focused", move |_, ()| {
+        cx::read(Dep::Editor(p.clone(), index));
+        Ok(super::editors::focused(&p, index))
+    })?;
     methods.raw_set("Changed", signal(lua, vmx, &format!("editor.{index}.Changed"))?)?;
     methods.raw_set("Submitted", signal(lua, vmx, &format!("editor.{index}.Submitted"))?)?;
+    methods.raw_set("FocusChanged", signal(lua, vmx, &format!("editor.{index}.FocusChanged"))?)?;
+    methods.raw_set("KeyPressed", signal(lua, vmx, &format!("editor.{index}.KeyPressed"))?)?;
     mt.raw_set("__index", methods)?;
     mt.raw_set("__type", "Editor")?;
     t.set_metatable(Some(mt))?;
@@ -421,6 +440,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Office(id) => crate::office::registry::version(*id).hash(&mut h),
         #[cfg(not(feature = "office"))]
         Dep::Office(_) => 0.hash(&mut h),
+        Dep::Browser => super::native::browser::version(app).hash(&mut h),
     }
     h.finish()
 }

@@ -1,10 +1,9 @@
-//! Two-lane Panel registry for the session side region (`side`, `split`, and `bottom` panes).
+//! The panel providers of the session side region (`side`, `split`, and `bottom` panes).
 //!
-//! Built-in panels (Browser, Changes/Review, Files, Terminal) register in-process from their own
-//! modules via `rune_register::register!(crate::panels::PANELS: ...)`. Tab metadata, launcher rows,
-//! shortcuts, and closed-tab restoration use plain data descriptors (`PanelTabDesc`,
-//! `PanelLauncherDesc`, `ClosedPanelTab`) so a future sandboxed WASM `Surface` lane can feed the
-//! exact same region state without changing built-ins or `view.rs`.
+//! The built-in panels (Browser, Changes, Files, Terminal) are Luau plugins', one provider per
+//! plugin (`plugin_host::luau::panels`); the native plugins' panels share one provider
+//! (`plugin_host::view`). Tab metadata, launcher rows, shortcuts, and closed-tab restoration use
+//! plain data descriptors (`PanelTabDesc`, `PanelLauncherDesc`, `ClosedPanelTab`).
 
 pub mod closing;
 pub mod dock;
@@ -22,7 +21,6 @@ pub mod width;
 use std::sync::OnceLock;
 
 use rune::{El, Icon, Ime, KeyEvent, Tx};
-use rune_register::{collect, slice};
 
 use crate::App;
 use crate::keymap::Bind;
@@ -30,9 +28,6 @@ use crate::palette::Pal;
 
 pub use state::{SessionSideState, SideState};
 pub use tabs::{ClosedSideTab, SessionTabState, SessionTabs, panel_key, split_panel_key};
-
-// Distributed slice of all compiled-in panel providers.
-slice!(pub PANELS: PanelRegistration);
 
 /// The pane a new terminal opens in beside no other (`terminalPlacement` in Desktop).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -349,7 +344,7 @@ fn no_wide(_: &App) -> bool {
     false
 }
 
-/// One registered panel provider (`Copy` + `const`-constructible for `rune_register::slice!`).
+/// One panel provider (`Copy`, and `const`-constructible).
 #[derive(Clone, Copy)]
 pub struct PanelRegistration {
     /// Unique plugin namespace, e.g. `"browser"`, `"review"`, `"file"`, `"terminal"`.
@@ -519,12 +514,15 @@ impl PanelRegistration {
 
     /// Restores a closed tab; false when the provider leaves it to the default reopen.
     pub fn restore(&self, s: &mut App, session: &str, tab: &str, data: Option<&str>, tx: &mut Tx) -> bool {
+        if self.luau {
+            return crate::plugin_host::luau::panels::restore(s, self.plugin, session, tab, data, tx);
+        }
         match self.on_restore_tab {
-            Some(f) if !self.luau => {
+            Some(f) => {
                 f(s, session, tab, data, tx);
                 true
             }
-            _ => false,
+            None => false,
         }
     }
 
@@ -672,14 +670,11 @@ impl PanelRegistration {
     }
 }
 
-/// Every registered `PanelRegistration`, deterministically ordered by `(order, plugin)`.
+/// The app's own panel providers: the native plugins' panels. The built-in panels are Luau
+/// plugins' (`plugin_host::luau::panels::providers`).
 pub fn registered_panels() -> &'static [PanelRegistration] {
     static ALL: OnceLock<Vec<PanelRegistration>> = OnceLock::new();
-    ALL.get_or_init(|| {
-        let mut v = collect(&PANELS);
-        v.sort_by_key(|p| (p.order, p.plugin));
-        v
-    })
+    ALL.get_or_init(|| vec![crate::plugin_host::view::provider()])
 }
 
 /// Finds a registered provider by its `plugin` id.

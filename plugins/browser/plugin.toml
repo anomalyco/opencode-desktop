@@ -1,0 +1,12 @@
+#:schema ../plugin.schema.json
+id = "browser"
+name = "Browser"
+version = "1.0.0"
+contract = "1.0"
+description = "Web pages in a session's side region: a tab per page with its address bar, options menu and new tab page, Open browser and the pane's keys, the + menu's Browser row, the element picker's notes, the history, and the agent's browser tools"
+entry = "init.luau"
+app = "app.luau"
+
+[[stores]]
+name = "history"
+scope = "global"

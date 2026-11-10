@@ -1,0 +1,293 @@
+--!strict
+-- The browser's tools on the app's client MCP server (`browser_*`): the agent lists, opens,
+-- navigates, shows and closes the session's pages, reads a page's accessibility tree with `@eN`
+-- references, highlights one, runs JavaScript, takes a screenshot and sends raw DevTools
+-- commands. Each answers for the session whose agent called it.
+
+local mcp = {}
+
+local MAX_TEXT_BYTES = 32 * 1024
+local UNSUPPORTED = "The browser isn't available on this platform yet in OpenCode (Rune)"
+
+local ACTIONABLE: { [string]: boolean } = {
+    button = true,
+    link = true,
+    textbox = true,
+    searchbox = true,
+    combobox = true,
+    checkbox = true,
+    radio = true,
+    option = true,
+}
+
+local function truncate(s: string): string
+    if #s <= MAX_TEXT_BYTES then
+        return s
+    end
+    -- Cut on a UTF-8 boundary.
+    local cut = MAX_TEXT_BYTES
+    while cut > 0 and bit32.band(string.byte(s, cut + 1) or 0, 0xC0) == 0x80 do
+        cut -= 1
+    end
+    return `{string.sub(s, 1, cut)}… [truncated {#s - cut} bytes]`
+end
+
+-- A name as Rust's `{:?}` quotes it.
+local function quote(s: string): string
+    local escaped = string.gsub(s, '[\\"\n\r\t]', { ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" })
+    return `"{escaped}"`
+end
+
+local function compact(v: any): any
+    if type(v) == "string" then
+        return truncate(v)
+    end
+    return v
+end
+
+local function tabSchema(description: string): { [string]: any }
+    return { type = "integer", minimum = 1, description = description }
+end
+
+local DEFAULT_TAB = "Browser tab ID (defaults to this session's active browser tab)."
+
+function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutService)
+    -- Each page's `@eN` references from its last snapshot, and the next number to hand out.
+    local refs: { [string]: { [string]: number } } = {}
+    local nextRef = 1
+
+    local function id(tab: BrowserTab): number
+        return tonumber(tab.Id) or 0
+    end
+
+    local function page(tab: BrowserTab): { [string]: any }
+        return { tabID = id(tab), url = tab:Url(), title = tab:Title() }
+    end
+
+    -- The page `args.tabID` names, else the session's: a missing one raises the tool's error.
+    local function target(args: { [string]: any }, sid: string): BrowserTab
+        local wanted = args.tabID
+        local tab = if wanted ~= nil then Browser:Get(tostring(wanted)) else Browser:Active(sid)
+        if tab == nil then
+            error(if wanted ~= nil then `No browser tab with tabID {wanted}` else "No open browser tab", 0)
+        end
+        return tab
+    end
+
+    local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
+        ctx:AddMcpTool({
+            name = name,
+            description = description,
+            inputSchema = { type = "object", properties = properties, required = required, additionalProperties = false },
+            call = function(args, context)
+                return call(args, context.sessionId)
+            end,
+        })
+    end
+
+    tool("browser_tabs", "List browser tabs in this session's OpenCode (Rune) side panel and which tab is focused.", {}, nil, function(_, sid)
+        local tabs = {}
+        for _, tab in Browser:Tabs(sid) do
+            table.insert(tabs, { tabID = id(tab), url = tab:Url(), title = tab:Title(), loading = tab:Loading(), canGoBack = tab:CanGoBack(), canGoForward = tab:CanGoForward() })
+        end
+        local focused = Browser:Active(sid)
+        return { open = Layout:RegionOpen(sid), focusedTabID = if focused then id(focused) else nil, tabs = tabs }
+    end)
+
+    tool("browser_open", "Open a URL or local ':port' in a new browser tab in the OpenCode (Rune) side panel.", {
+        url = { type = "string", description = "URL or ':port' address to open (defaults to 'about:blank')." },
+    }, nil, function(args, sid)
+        if not Browser:Available() then
+            error(UNSUPPORTED, 0)
+        end
+        local tab = Browser:OpenAsync({ url = if type(args.url) == "string" then args.url else "about:blank", sessionId = sid, background = true })
+        if tab == nil then
+            error(UNSUPPORTED, 0)
+        end
+        return { tabID = id(tab), url = tab:Url() }
+    end)
+
+    tool("browser_navigate", "Navigate a browser tab in OpenCode (Rune) to a URL or ':port', opening a tab if none exists.", {
+        url = { type = "string", description = "URL or ':port' address to navigate to." },
+        tabID = tabSchema("Target browser tab ID (defaults to this session's active browser tab)."),
+    }, { "url" }, function(args, sid)
+        local url = if type(args.url) == "string" then args.url else ""
+        if string.match(url, "^%s*$") then
+            error("Missing 'url'", 0)
+        end
+        if not Browser:Available() then
+            error(UNSUPPORTED, 0)
+        end
+        if args.tabID ~= nil and Browser:Get(tostring(args.tabID)) == nil then
+            error(`No browser tab with tabID {args.tabID}`, 0)
+        end
+        local tab = if args.tabID ~= nil then Browser:Get(tostring(args.tabID)) else Browser:Active(sid)
+        if tab == nil then
+            local opened = Browser:OpenAsync({ url = url, sessionId = sid, background = true })
+            if opened == nil then
+                error(UNSUPPORTED, 0)
+            end
+            return { tabID = id(opened), url = opened:Url() }
+        end
+        local before = tab:Url()
+        tab:Navigate(url)
+        tab:Show({ sessionId = sid, background = true })
+        -- The navigation lands with the next frame; answer with the address it went to.
+        for _ = 1, 5 do
+            task.wait()
+            if tab:Url() ~= before then
+                break
+            end
+        end
+        return { tabID = id(tab), url = tab:Url() }
+    end)
+
+    tool("browser_focus", "Show and focus an existing browser tab in the OpenCode (Rune) side panel.", {
+        tabID = { type = "integer", minimum = 1, description = "Browser tab ID from browser_tabs." },
+    }, { "tabID" }, function(args, sid)
+        if args.tabID == nil then
+            error("Missing 'tabID'", 0)
+        end
+        local tab = Browser:Get(tostring(args.tabID))
+        if tab == nil then
+            error(`No browser tab with tabID {args.tabID}`, 0)
+        end
+        tab:Show({ sessionId = sid, background = true })
+        return page(tab)
+    end)
+
+    tool("browser_close", "Close a browser tab in the OpenCode (Rune) side panel.", {
+        tabID = tabSchema("Browser tab ID to close (defaults to this session's active browser tab)."),
+    }, nil, function(args, sid)
+        local tab = target(args, sid)
+        tab:Close()
+        return { closedTabID = id(tab) }
+    end)
+
+    tool("browser_snapshot", "Read the accessibility tree of a browser tab in OpenCode (Rune) with '@eN' refs on actionable elements.", {
+        tabID = tabSchema(DEFAULT_TAB),
+        depth = { type = "integer", minimum = 1, maximum = 32, description = "Maximum accessibility tree depth (default 8)." },
+    }, nil, function(args, sid)
+        local tab = target(args, sid)
+        local depth = math.clamp(if type(args.depth) == "number" then math.floor(args.depth) else 8, 1, 32)
+        local tree = tab:DevtoolsAsync("Accessibility.getFullAXTree", { depth = depth })
+        local mine: { [string]: number } = {}
+        refs[tab.Id] = mine
+        local lines: { string } = {}
+        local nodes = if type(tree) == "table" and type(tree.nodes) == "table" then tree.nodes else {}
+        for n, node in nodes do
+            if n > 300 then
+                break
+            end
+            if node.ignored ~= true then
+                local role = if type(node.role) == "table" and type(node.role.value) == "string" then node.role.value else "node"
+                local name = if type(node.name) == "table" and type(node.name.value) == "string" then string.gsub(node.name.value, "^%s*(.-)%s*$", "%1") else ""
+                local actionable = ACTIONABLE[role] == true
+                local prefix = ""
+                if actionable and type(node.backendDOMNodeId) == "number" then
+                    local ref = `@e{nextRef}`
+                    nextRef += 1
+                    mine[ref] = node.backendDOMNodeId
+                    prefix = `{ref} `
+                end
+                if actionable or name ~= "" then
+                    table.insert(lines, `{prefix}[{role}] {quote(name)}`)
+                end
+            end
+        end
+        local out = page(tab)
+        out.snapshot = truncate(table.concat(lines, "\n"))
+        return out
+    end)
+
+    tool("browser_highlight", "Highlight an '@eN' accessibility ref in a browser tab in OpenCode (Rune), or omit 'ref' to clear.", {
+        ref = { type = "string", description = "Element ref from browser_snapshot (e.g. '@e3'); omit or pass '' to clear." },
+        tabID = tabSchema(DEFAULT_TAB),
+    }, nil, function(args, sid)
+        local tab = target(args, sid)
+        local raw = if type(args.ref) == "string" then string.gsub(args.ref, "^%s*(.-)%s*$", "%1") else ""
+        if raw == "" then
+            tab:Highlight(nil)
+            return { tabID = id(tab) }
+        end
+        local key = `@{string.gsub(raw, "^@+", "")}`
+        local node = (refs[tab.Id] or {})[key]
+        if node == nil then
+            error(`Unknown ref '{key}' for tab {id(tab)}; run browser_snapshot first`, 0)
+        end
+        tab:Highlight(node)
+        return { tabID = id(tab), ref = key, backendNodeId = node }
+    end)
+
+    tool("browser_evaluate", "Evaluate a JavaScript expression in a browser tab in OpenCode (Rune) and return its value.", {
+        expression = { type = "string", description = "JavaScript expression to evaluate (promises are awaited)." },
+        tabID = tabSchema(DEFAULT_TAB),
+    }, { "expression" }, function(args, sid)
+        if type(args.expression) ~= "string" then
+            error("Missing 'expression'", 0)
+        end
+        local tab = target(args, sid)
+        local answer = tab:DevtoolsAsync("Runtime.evaluate", { expression = args.expression, returnByValue = true, awaitPromise = true })
+        if type(answer) ~= "table" then
+            return { tabID = id(tab) }
+        end
+        local exc = answer.exceptionDetails
+        if type(exc) == "table" then
+            local detail = if type(exc.exception) == "table" and type(exc.exception.description) == "string" then exc.exception.description elseif type(exc.text) == "string" then exc.text else "Evaluation failed"
+            error(detail, 0)
+        end
+        local result = if type(answer.result) == "table" then answer.result else {}
+        local value: any
+        if result.value ~= nil then
+            value = compact(result.value)
+        elseif type(result.description) == "string" then
+            value = truncate(result.description)
+        else
+            value = result
+        end
+        return { tabID = id(tab), value = value }
+    end)
+
+    tool("browser_screenshot", "Capture a screenshot of a browser tab in OpenCode (Rune), returning compact metadata and the image.", {
+        tabID = tabSchema(DEFAULT_TAB),
+        format = { type = "string", enum = { "png", "jpeg", "webp" }, description = "Image format (default 'png')." },
+    }, nil, function(args, sid)
+        local format = if args.format == "jpeg" or args.format == "jpg" then "jpeg" elseif args.format == "webp" then "webp" else "png"
+        local tab = target(args, sid)
+        local shot = tab:DevtoolsAsync("Page.captureScreenshot", { format = format })
+        local data = if type(shot) == "table" and type(shot.data) == "string" then shot.data else ""
+        if data == "" then
+            error("Screenshot returned no image data", 0)
+        end
+        local meta = page(tab)
+        return { text = `\{"tabID":{id(tab)},"url":{quote(meta.url)},"title":{quote(meta.title)},"format":"{format}"\}`, image = data, mimeType = `image/{format}` }
+    end)
+
+    tool("browser_cdp", "Send a raw Chrome DevTools Protocol command to a browser tab in OpenCode (Rune).", {
+        method = { type = "string", description = "CDP method name, e.g. 'Input.dispatchMouseEvent' or 'DOM.getDocument'." },
+        params = { type = "object", description = "CDP method parameters." },
+        tabID = tabSchema(DEFAULT_TAB),
+        sessionId = { type = "string", description = "Optional CDP target sessionId." },
+    }, { "method" }, function(args, sid)
+        local method = if type(args.method) == "string" then args.method else ""
+        if string.match(method, "^%s*$") then
+            error("Missing 'method'", 0)
+        end
+        local tab = target(args, sid)
+        local result = tab:DevtoolsAsync(method, if type(args.params) == "table" then args.params else {}, if type(args.sessionId) == "string" then args.sessionId else nil)
+        -- An answer that is one long `data` string is an image (a screenshot through CDP).
+        if type(result) == "table" and type(result.data) == "string" and #result.data > 256 then
+            local only = true
+            for k in result do
+                only = only and k == "data"
+            end
+            if only then
+                local meta = page(tab)
+                return { text = `\{"tabID":{id(tab)},"url":{quote(meta.url)},"title":{quote(meta.title)}\}`, image = result.data, mimeType = "image/png" }
+            end
+        end
+        return { tabID = id(tab), result = compact(result) }
+    end)
+end
+
+return mcp

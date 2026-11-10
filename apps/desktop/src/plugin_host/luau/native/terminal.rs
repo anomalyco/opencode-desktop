@@ -21,7 +21,7 @@ thread_local! {
 }
 
 /// The `Terminal` service.
-pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
+pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "List", |lua, (sid, open): (String, Vec<String>)| {
         cx::read(Dep::Terminals(sid.clone()));
         let app = app_now("Terminal:List")?;
@@ -59,7 +59,25 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let Some(sid) = app.active_session_id().map(str::to_owned) else { return Ok(Value::Nil) };
         Ok(Value::Table(session(lua, &sid, &id)?))
     })?;
-    method(lua, t, "Create", |_, _: Value| -> mlua::Result<()> { Err(mlua::Error::runtime("Terminal:Create isn't in this app yet: Terminal:New starts a session's terminal")) })
+    method(lua, t, "Create", |_, _: Value| -> mlua::Result<()> { Err(mlua::Error::runtime("Terminal:Create isn't in this app yet: Terminal:New starts a session's terminal")) })?;
+    super::super::services::async_method(lua, vmx, t, "OpenAsync", "Terminal.OpenAsync")
+}
+
+/// `Terminal:OpenAsync`, made with the VM.
+pub fn asyncs(host: &rune_luau::Host<'_>, t: &Table) -> mlua::Result<()> {
+    t.raw_set("Terminal.OpenAsync", host.async_function("Terminal:OpenAsync", open)?)
+}
+
+/// Shows the session's terminal tab on the next poll (starting one when asked or it has none),
+/// then answers with its id and where a first terminal opens.
+fn open(lua: &Lua, a: mlua::MultiValue, done: rune_luau::Completer) -> mlua::Result<()> {
+    let (sid, new): (String, Option<bool>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    app_now("Terminal:OpenAsync")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+        tx.instant();
+        let id = s.open_terminal_for_session(&sid, new.unwrap_or(false));
+        done.complete(map([("id", id.map_or(Data::Nil, Data::String)), ("placement", Data::String(s.dock_placement().name().to_owned()))]));
+    }));
+    Ok(())
 }
 
 /// A `PtySession` for terminal `id` of session `sid`.

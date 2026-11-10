@@ -273,7 +273,7 @@ pub fn playground() -> Playground<App> {
             !s.stage.is_some_and(|st| st.watch)
                 && (s.composer.focused
                     || s.question_takes_text()
-                    || s.browser.address.focused
+                    || crate::plugin_host::luau::field_focused(s)
                     || s.project_switcher.search.focused
                     || s.search.focused
                     || s.switcher.search.focused

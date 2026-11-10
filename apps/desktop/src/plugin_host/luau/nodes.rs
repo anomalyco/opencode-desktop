@@ -1,7 +1,7 @@
 //! The contract's `ui.*` nodes beyond rune-luau's own (`row`, `col`, `box`, `text`, `spacer`,
 //! `virtualList`): the app's controls and content, built by the same code the app draws its own
-//! with, so a plugin's button or settings row is the app's to the pixel. Native views later
-//! packages bring (terminal, browser, code, diff, tree, UI outlines) draw a note naming them.
+//! with, so a plugin's button or settings row is the app's to the pixel. The native views
+//! (terminal, browser, code, diff, tree) are `native`'s.
 
 use rune::{El, TextStyle, Tx, col, el, row, text};
 use rune_kit::{ButtonVariant, Loader};
@@ -33,7 +33,6 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("dialogHeader", dialog_header),
         HostNode::new("markdown", markdown),
         HostNode::new("progressCircle", progress_circle),
-        pending("browserSurface", "LU-7"),
         HostNode::new("genUi", gen_ui),
     ];
     all.extend(super::native::nodes());
@@ -60,10 +59,6 @@ fn named_icon(name: &str) -> &'static rune::Icon {
 
 fn p(a: &NodeArgs) -> Pal {
     *pal(a.dark())
-}
-
-fn pending(name: &'static str, package: &'static str) -> HostNode {
-    HostNode::new(name, move |a| Ok(text(format!("ui.{name} arrives with {package}")).font(crate::view::UI).color(p(a).faint)))
 }
 
 /// The text style the props describe, from `base`.
@@ -192,7 +187,12 @@ fn icon_button(a: &mut NodeArgs) -> Result<El, String> {
     if pressed {
         b = b.fill(pal.pressed);
     }
-    let b = b.child(rune::icon(named_icon(&name), 16.0).color(if a.string("variant") == Some("ghost-muted") { pal.icon_muted } else { pal.icon }));
+    // ghost-muted draws its icon in icon-muted, icon-base while pressed (`icon-button.css`).
+    let ink = a.color("color").unwrap_or(if a.string("variant") == Some("ghost-muted") && !pressed { pal.icon_muted } else { pal.icon });
+    let mut b = b.child(rune::icon(named_icon(&name), 16.0).color(ink));
+    if let Some(chord) = a.string("keybind").and_then(|id| cx::app().and_then(|app| crate::keymap::command_chord(app, id))) {
+        b = b.help_keys(crate::keymap::caps(chord));
+    }
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
 }
 
@@ -231,6 +231,9 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
     if a.string("variant") == Some("filter") {
         return Ok(filter_field(a, edit, plugin, index));
+    }
+    if a.string("variant") == Some("bare") {
+        return Ok(bare_field(a, edit, plugin, index));
     }
     let edit_plugin = plugin.clone();
     let mut input = rune_kit::TextInput::new(edit)
@@ -284,6 +287,52 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
         _ => pal.icon_faint,
     };
     Ok(el().size(6.0, 6.0).my(3.5).radius(3.0).fill(color))
+}
+
+/// The `bare` variant: the text, caret and selection alone at 13 / 440 (tracking -0.04), on no
+/// box of its own (the browser's address input, `bar.css`). The keys `keys` names go to the
+/// editor's `KeyPressed`.
+fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
+    let pal = p(a);
+    let handed: Vec<rune::Key> = match a.data("keys") {
+        Some(Data::List(keys)) => keys
+            .iter()
+            .filter_map(|k| match k.as_str()? {
+                "ArrowUp" => Some(rune::Key::Up),
+                "ArrowDown" => Some(rune::Key::Down),
+                "Escape" => Some(rune::Key::Escape),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let (on_edit, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin);
+    let font = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+    let mut input = rune::text_input(edit, font)
+        .spellcheck(false)
+        .placeholder(a.string("placeholder").unwrap_or_default().to_owned(), pal.faint)
+        .selection_style(pal.field_selection)
+        .color(pal.text)
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .on_edit(move |app: &mut App| super::editors::get_mut(app, &on_edit, index))
+        .on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &on_submit, index, tx));
+    if !handed.is_empty() {
+        input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            let Some(name) = handed.iter().find(|k| ev.key == **k && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt).map(|k| match k {
+                rune::Key::Up => "ArrowUp",
+                rune::Key::Down => "ArrowDown",
+                _ => "Escape",
+            }) else {
+                return false;
+            };
+            tx.instant();
+            super::key_pressed(app, &on_key, index, name, tx);
+            true
+        });
+    }
+    input
 }
 
 /// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears

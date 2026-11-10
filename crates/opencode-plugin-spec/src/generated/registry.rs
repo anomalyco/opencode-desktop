@@ -173,8 +173,10 @@ string_enum! {
         Diff = "Diff",
         /// Terminal sessions on the server, for `ui.terminalSurface`.
         Terminal = "Terminal",
-        /// Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them.
+        /// Pages in this window's embedded browser, each a tab of a session's side region.
         Browser = "Browser",
+        /// The routed session's composer.
+        Composer = "Composer",
         /// Office documents laid out and drawn by the host, each on a thread of its own.
         Office = "Office",
         /// The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install.
@@ -221,7 +223,8 @@ impl ServiceName {
             Self::Workspace => &[Half::Window, Half::App],
             Self::Diff => &[Half::Window],
             Self::Terminal => &[Half::Window, Half::App],
-            Self::Browser => &[Half::Window, Half::App],
+            Self::Browser => &[Half::Window],
+            Self::Composer => &[Half::Window],
             Self::Office => &[Half::Window],
             Self::Updater => &[Half::Window, Half::App],
             Self::Diagnostics => &[Half::Window, Half::App],
@@ -249,17 +252,18 @@ impl ServiceName {
             Self::Popover => &["Open", "Toggle", "Close", "IsOpen"],
             Self::Dialog => &["Open", "Close", "IsOpen"],
             Self::Menu => &["OpenAsync"],
-            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView"],
+            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView", "RegionOpen"],
             Self::Links => &["Open", "Exists"],
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],
             Self::App => &["Version", "Channel", "Platform", "Commit", "BetaNotes", "Locale", "Arg", "LogsDir", "DownloadsDir", "LocaleChanged"],
             Self::System => &["CopyText", "OpenExternal", "Reveal", "Now", "UtcOffset", "FreePort", "RandomId"],
             Self::Notifications => &["Notify"],
-            Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "FileChanged"],
+            Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "OpenFile", "FileChanged"],
             Self::Diff => &["Open", "Mode", "SetMode"],
-            Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select"],
-            Self::Browser => &["Open", "Tabs", "Available"],
+            Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
+            Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "Changed", "Picked"],
+            Self::Composer => &["InsertPill"],
             Self::Office => &["OpenAsync", "Version", "SetSheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],
             Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],

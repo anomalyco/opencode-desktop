@@ -149,7 +149,6 @@ pub fn init_region(s: &mut App) {
             s.select_side_tab(&panel_key("browser", &t1.to_string()), &mut tx);
         }
     }
-    s.sync_browser_address_now();
 }
 
 pub fn setup_region(s: &mut App, _play: &mut Play<'_, App>) {
@@ -221,7 +220,6 @@ pub fn init_browser(s: &mut App) {
             s.browser.host.toggle_inspect(id);
         }
     }
-    s.sync_browser_address_now();
 }
 
 pub fn setup_browser(s: &mut App, _play: &mut Play<'_, App>) {
@@ -249,7 +247,6 @@ pub fn init_install(s: &mut App) {
         .host
         .insert_mock_tab("http://localhost:3000/", "Local Preview", status);
     s.register_existing_browser_tab(id);
-    s.sync_browser_address_now();
 }
 
 pub fn setup_install(s: &mut App, _play: &mut Play<'_, App>) {

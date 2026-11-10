@@ -163,7 +163,13 @@ export type ChangeKind = "add" | "del" | "mix"
 export type PanelPane = "side" | "bottom" | "dock"
 
 --- A text field's look.
-export type FieldVariant = "default" | "filter"
+export type FieldVariant = "default" | "filter" | "bare"
+
+--- Where the browser engine stands.
+export type BrowserEngineState = "unsupported" | "missing" | "downloading" | "verifying" | "paused" | "failed" | "starting" | "ready"
+
+--- A page zoom step.
+export type BrowserZoom = "in" | "out" | "reset"
 
 --- How an image fills its box.
 export type ImageFit = "contain" | "cover" | "fill"
@@ -345,10 +351,20 @@ export type Editor = {
     Version: (self: Editor) -> number,
     --- Moves keyboard focus to the field.
     Focus: (self: Editor) -> (),
+    --- Takes keyboard focus from the field.
+    Blur: (self: Editor) -> (),
+    --- Selects the whole text.
+    SelectAll: (self: Editor) -> (),
+    --- The field has keyboard focus.
+    Focused: (self: Editor) -> boolean,
     --- Fires with the new text after each edit.
     Changed: Signal<string>,
     --- Fires with the text when the user presses Enter.
     Submitted: Signal<string>,
+    --- Fires as the field takes keyboard focus (true) or loses it (false).
+    FocusChanged: Signal<boolean>,
+    --- Fires with a key the field's `keys` hands over (`ArrowUp`, `ArrowDown`, `Escape`) instead of handling it.
+    KeyPressed: Signal<string>,
 }
 
 --- Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`). A node whose props are partly its own takes the frozen style first and a small table of its own props after it, laid over the style: `ui.row(ROW, { key = id, onPress = open }, children)`, `ui.text(words, LABEL, { color = ink })`, `ui.icon(name, ICON, { color = ink })`. Only those are decoded; a prop in both takes the second table's value.
@@ -1147,6 +1163,10 @@ export type UiIconButtonProps = {
     disabled: boolean?,
     --- A toggle button's pressed state.
     pressed: boolean?,
+    --- The icon's color, instead of the variant's.
+    color: Color?,
+    --- A published command id whose shortcut its tooltip shows after the `help` text, as keycaps.
+    keybind: string?,
     --- Runs on a press.
     onPress: UiHandler?,
 }
@@ -1379,6 +1399,8 @@ export type UiFieldProps = {
     multiline: boolean?,
     --- The look. Defaults to `default`.
     variant: FieldVariant?,
+    --- Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`.
+    keys: { string }?,
     --- Runs on Enter with the text in `event.text`.
     onSubmit: UiHandler?,
 }
@@ -2401,7 +2423,7 @@ export type UiBrowserSurfaceProps = {
     helpSide: Side?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
-    --- The page, from the `Browser` service.
+    --- The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed.
     tab: BrowserTab,
     --- Takes keyboard focus.
     focused: boolean?,
@@ -3461,6 +3483,8 @@ export type MenuEntry = {
     detail: string?,
     --- A published command id whose shortcut the item shows.
     keybind: string?,
+    --- A literal shortcut the item shows, such as `"mod+plus"`, when no command has it.
+    keys: string?,
     --- False shows the item disabled. Defaults to true.
     enabled: boolean?,
     --- A destructive item.
@@ -3483,6 +3507,8 @@ export type MenuOpenSpec = {
     align: Align?,
     --- Its minimum width in points.
     minWidth: number?,
+    --- Its width in points.
+    width: number?,
 }
 
 --- How to open a panel tab.
@@ -3711,20 +3737,78 @@ export type TerminalInfo = {
     hidden: boolean,
 }
 
+--- How `Workspace:OpenFile` opens a file.
+export type OpenFileOptions = {
+    --- Opens it in the preview tab, which the next preview replaces, instead of a kept one.
+    preview: boolean?,
+    --- The first line to select and scroll into view, from 1.
+    startLine: number?,
+    --- The last line to select. Defaults to `startLine`.
+    endLine: number?,
+}
+
+--- The terminal tab `Terminal:OpenAsync` showed.
+export type TerminalOpened = {
+    --- The terminal's id; nil when the session has none and can't start one.
+    id: string?,
+    --- Where a session's first terminal opens (Settings > Terminal): `side` or `bottom`.
+    placement: string,
+}
+
 --- A page to open.
 export type BrowserOpenSpec = {
-    --- The URL.
+    --- The URL, or a local `:port`. Defaults to `about:blank`.
     url: string,
-    --- The session the page belongs to.
+    --- The session whose side region gets the page's tab. Defaults to the routed session.
     sessionId: string?,
-    --- Opens without showing it.
+    --- Opens the tab without moving the keyboard: focus stays where it is.
     background: boolean?,
+}
+
+--- Where to show a page's tab.
+export type BrowserShowOptions = {
+    --- The session whose side region shows it. Defaults to the routed session.
+    sessionId: string?,
+    --- Selects the tab without moving the keyboard.
+    background: boolean?,
+}
+
+--- One page of a session, as its tab lists it.
+export type BrowserTabInfo = {
+    --- The host's id for it.
+    id: string,
+    --- Its address; empty for a blank page.
+    url: string,
+    --- Its title; empty before the page names itself.
+    title: string,
+    --- The page exists. A stored tab the engine never opened in this run is listed, not open.
+    open: boolean,
+}
+
+--- Where the browser engine stands.
+export type BrowserEngine = {
+    --- Its state.
+    state: BrowserEngineState,
+    --- Why it failed, for `failed`.
+    message: string?,
+}
+
+--- An element the user picked in a page with the element picker.
+export type BrowserPick = {
+    --- The page.
+    tabId: string,
+    --- The element's `@eN` reference.
+    ref: string,
+    --- A CSS selector for it.
+    selector: string,
 }
 
 --- A page in the app's browser, for `ui.browserSurface`.
 export type BrowserTab = {
     --- The host's id for it.
     Id: string,
+    --- The page exists: it hasn't closed.
+    IsOpen: (self: BrowserTab) -> boolean,
     --- The current URL.
     Url: (self: BrowserTab) -> string,
     --- The page title.
@@ -3735,7 +3819,11 @@ export type BrowserTab = {
     CanGoBack: (self: BrowserTab) -> boolean,
     --- History has a later page.
     CanGoForward: (self: BrowserTab) -> boolean,
-    --- Loads a URL.
+    --- The page's zoom: 1 at 100%.
+    Zoom: (self: BrowserTab) -> number,
+    --- The element picker waits for a click in the page.
+    Inspecting: (self: BrowserTab) -> boolean,
+    --- Loads a URL, or a local `:port`.
     Navigate: (self: BrowserTab, url: string) -> (),
     --- Goes back.
     Back: (self: BrowserTab) -> (),
@@ -3745,20 +3833,18 @@ export type BrowserTab = {
     Reload: (self: BrowserTab) -> (),
     --- Stops loading.
     Stop: (self: BrowserTab) -> (),
-    --- Closes the page.
+    --- Zooms the page in or out a step, or back to 100%. The site keeps its zoom.
+    SetZoom: (self: BrowserTab, direction: BrowserZoom) -> (),
+    --- Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`.
+    Inspect: (self: BrowserTab, enabled: boolean?) -> (),
+    --- Outlines the DevTools backend node `nodeId` in the page, or clears the outline.
+    Highlight: (self: BrowserTab, nodeId: number?) -> (),
+    --- Selects its tab in a session's side region, opening the region and adding the tab when it isn't there.
+    Show: (self: BrowserTab, options: BrowserShowOptions?) -> (),
+    --- Closes the page and its tab.
     Close: (self: BrowserTab) -> (),
-    --- Sends one DevTools protocol command and returns its result. Yields: call it from a handler, a task or a signal callback.
-    DevtoolsAsync: (self: BrowserTab, method: string, params: { [string]: any }?) -> any,
-    --- Captures the visible page. Yields: call it from a handler, a task or a signal callback.
-    ScreenshotAsync: (self: BrowserTab) -> ImageId?,
-    --- Fires with the new URL.
-    Navigated: Signal<string>,
-    --- Fires with the new title.
-    TitleChanged: Signal<string>,
-    --- Fires as a load starts and ends.
-    LoadingChanged: Signal<boolean>,
-    --- Fires as the page closes.
-    Closed: Signal<()>,
+    --- Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields: call it from a handler, a task or a signal callback.
+    DevtoolsAsync: (self: BrowserTab, method: string, params: { [string]: any }?, targetSessionId: string?) -> any,
 }
 
 --- An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.
@@ -3999,6 +4085,10 @@ export type ClosedTab = {
     title: string?,
     --- Its icon.
     icon: IconName?,
+    --- Muted text after its title, such as a page's host.
+    detail: string?,
+    --- What `restore` gets back, such as a page's address.
+    data: string?,
 }
 
 --- A panel's view in a narrow window (below 768 points), where the side region folds into a Session / More switcher. Its render gets `placement` `"mobile"`. Desktop's plugin API calls it `MobileView`.
@@ -4061,6 +4151,10 @@ export type PanelSpec = {
     onClose: ((props: PanelProps) -> ())?,
     --- Runs as the tab becomes selected.
     onFocus: ((props: PanelProps) -> ())?,
+    --- What Recently closed keeps of a tab as it closes, instead of `closed`; nil keeps nothing. Keep it cheap, and don't yield.
+    closedTab: ((props: PanelProps) -> ClosedTab?)?,
+    --- Brings a tab back from Recently closed with its `ClosedTab.data`. Without it, the tab's key opens again.
+    restore: ((props: PanelProps, data: string?) -> ())?,
 }
 
 --- A row in Settings › Plugins, under this plugin.
@@ -4463,8 +4557,18 @@ export type McpToolSpec = {
     description: string,
     --- Its arguments' JSON Schema.
     inputSchema: { [string]: any },
-    --- Runs it and returns its result: a string, or a table sent as JSON. Raise an error to fail. It must not yield.
+    --- Runs it, as a task, and returns its result: a string, a table sent as JSON, or an `McpImage`. Raise an error to fail. It may yield (call `...Async` methods): the call answers when it returns, or fails after 30 seconds.
     call: (args: { [string]: any }, context: McpCallContext) -> any,
+}
+
+--- An MCP tool result with an image: a text part and the image.
+export type McpImage = {
+    --- The text part, such as JSON metadata.
+    text: string,
+    --- The image, base64-encoded.
+    image: string,
+    --- Its type, such as `image/png`.
+    mimeType: string,
 }
 
 --- Where an MCP tool call comes from.
@@ -4645,6 +4749,8 @@ export type LayoutService = {
     TogglePanelSidebar: (self: LayoutService) -> (),
     --- From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere.
     OpenDrawerView: (self: LayoutService, title: string, data: { [string]: any }?) -> (),
+    --- A session's side region is open. Defaults to the routed session.
+    RegionOpen: (self: LayoutService, sessionId: string?) -> boolean,
 }
 
 --- Routes local links to the plugins that handle them. The window half only: `ctx:GetService("Links")`.
@@ -4741,6 +4847,8 @@ export type WorkspaceService = {
     OpenIn: (self: WorkspaceService, appId: string, path: string) -> (),
     --- A path inside a workspace folder, relative to it with `/` between parts; nil for a path outside it. A relative path stays as it is.
     Relative: (self: WorkspaceService, path: string, directory: string) -> string?,
+    --- Opens workspace file `path` in a tab of the session's side region, leaving the keyboard where it was.
+    OpenFile: (self: WorkspaceService, sessionId: string, path: string, options: OpenFileOptions?) -> (),
     --- Fires with a workspace path after it changes on disk.
     FileChanged: Signal<string>,
 }
@@ -4771,16 +4879,40 @@ export type TerminalService = {
     Toggle: (self: TerminalService) -> (),
     --- Makes terminal `id` the session's active one, and with `focus` gives it the keyboard.
     Select: (self: TerminalService, sessionId: string, id: string, focus: boolean) -> (),
+    --- Shows session `sessionId`'s terminal tab, starting a terminal when `newTerminal` or it has none, and leaves the keyboard where it was. Yields: call it from a handler, a task or a signal callback.
+    OpenAsync: (self: TerminalService, sessionId: string, newTerminal: boolean) -> TerminalOpened,
 }
 
---- Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them. Both halves: `ctx:GetService("Browser")`.
+--- Pages in this window's embedded browser, each a tab of a session's side region. The window half only: `ctx:GetService("Browser")`.
 export type BrowserService = {
-    --- Opens a page.
-    Open: (self: BrowserService, spec: BrowserOpenSpec) -> BrowserTab,
-    --- This plugin's open pages.
-    Tabs: (self: BrowserService) -> { BrowserTab },
-    --- The browser engine is installed and runs on this platform.
+    --- Opens a page in a new tab of a session's side region, and returns it once its tab is there. Yields: call it from a handler, a task or a signal callback.
+    OpenAsync: (self: BrowserService, spec: BrowserOpenSpec) -> BrowserTab,
+    --- Session `sessionId`'s open pages, oldest first; without a session, every open page.
+    Tabs: (self: BrowserService, sessionId: string?) -> { BrowserTab },
+    --- An open page by id.
+    Get: (self: BrowserService, id: string) -> BrowserTab?,
+    --- The pages of the stored tabs `open` names, in that order, for a panel's `list`.
+    List: (self: BrowserService, sessionId: string, open: { string }) -> { BrowserTabInfo },
+    --- The page a session shows: its selected browser tab, else its newest open page, else the page the engine shows.
+    Active: (self: BrowserService, sessionId: string) -> BrowserTab?,
+    --- The page whose tab is selected in a session's open side region (the routed session by default).
+    Selected: (self: BrowserService, sessionId: string?) -> BrowserTab?,
+    --- The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's.
+    Focused: (self: BrowserService) -> BrowserTab?,
+    --- Pages can open here: this build has a browser engine for its platform.
     Available: (self: BrowserService) -> boolean,
+    --- Where the browser engine stands.
+    Engine: (self: BrowserService) -> BrowserEngine,
+    --- Fires with a page's id when its address, title or loading changes, or it closes.
+    Changed: Signal<string>,
+    --- Fires when the element picker picks an element.
+    Picked: Signal<BrowserPick>,
+}
+
+--- The routed session's composer. The window half only: `ctx:GetService("Composer")`.
+export type ComposerService = {
+    --- Puts a pill at the caret, with a space on each side, and gives the composer the keyboard.
+    InsertPill: (self: ComposerService, id: string, label: string) -> (),
 }
 
 --- Office documents laid out and drawn by the host, each on a thread of its own. The window half only: `ctx:GetService("Office")`.
@@ -4946,6 +5078,8 @@ declare extern type WindowContext with
     --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
     function GetService(self, name: "Browser"): BrowserService
     --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
+    function GetService(self, name: "Composer"): ComposerService
+    --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
     function GetService(self, name: "Office"): OfficeService
     --- Returns a host service by name; each overload narrows the type. The app half alone has: Askpass.
     function GetService(self, name: "Updater"): UpdaterService
@@ -5013,53 +5147,51 @@ declare extern type AppContext with
     CreateSignal: AppContextCreateSignal
     --- Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new.
     function BindHotState(self, save: () -> any, load: (state: any) -> ()): ()
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Sessions"): SessionsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Models"): ModelsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Server"): ServerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Servers"): ServersService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Http"): HttpService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Process"): ProcessService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Store"): StoreService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Contracts"): ContractsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Console"): ConsoleService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Toast"): ToastService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Theme"): ThemeService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "App"): AppService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "System"): SystemService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Notifications"): NotificationsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Workspace"): WorkspaceService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Terminal"): TerminalService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
-    function GetService(self, name: "Browser"): BrowserService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Updater"): UpdaterService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Diagnostics"): DiagnosticsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Power"): PowerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Qr"): QrService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Askpass"): AskpassService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "Images"): ImagesService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
     function GetService(self, name: "I18n"): I18nService
     --- Adds an item to the app menu bar.
     function AddMenubarItem(self, spec: MenubarItemSpec): Contribution

@@ -59,6 +59,42 @@ pub fn focus(plugin: &str, index: usize) {
     });
 }
 
+pub fn blur(plugin: &str, index: usize) {
+    with(|e| {
+        if let Some(edit) = e.borrow_mut().get_mut(&(plugin.to_owned(), index)) {
+            edit.focused = false;
+        }
+    });
+}
+
+pub fn select_all(plugin: &str, index: usize) {
+    with(|e| {
+        if let Some(edit) = e.borrow_mut().get_mut(&(plugin.to_owned(), index)) {
+            let len = edit.text.len();
+            edit.set_selection(0, len);
+        }
+    });
+}
+
+pub fn focused(plugin: &str, index: usize) -> bool {
+    with(|e| e.borrow().get(&(plugin.to_owned(), index)).is_some_and(|t| t.focused)).unwrap_or(false)
+}
+
+/// Whether field `index` of `plugin` has the keyboard.
+pub fn focused_in(app: &App, plugin: &str, index: usize) -> bool {
+    app.plugins.luau.editors.borrow().get(&(plugin.to_owned(), index)).is_some_and(|t| t.focused)
+}
+
+/// Whether any plugin field in this window has the keyboard.
+pub fn any_focused(app: &App) -> bool {
+    app.plugins.luau.editors.borrow().values().any(|t| t.focused)
+}
+
+/// Whether one of `plugin`'s fields has the keyboard.
+pub fn plugin_focused(app: &App, plugin: &str) -> bool {
+    app.plugins.luau.editors.borrow().iter().any(|((p, _), t)| p == plugin && t.focused)
+}
+
 /// What an edit of field `index` of `plugin` changes.
 pub fn get_mut<'a>(app: &'a mut App, plugin: &str, index: usize) -> &'a mut TextEdit {
     app.plugins.luau.editors.get_mut().entry((plugin.to_owned(), index)).or_insert_with(|| TextEdit::new(""))

@@ -216,6 +216,26 @@ impl BrowserHost {
         id
     }
 
+    /// Shows `url` titled `title` in mock tab `id`, loaded at once, as an engine would report a
+    /// finished navigation (stories, captures and tests have no engine).
+    pub fn set_mock_page(&mut self, id: u64, url: &str, title: &str) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            // The page it left is history, unless it was a blank one.
+            t.can_go_back |= !t.url.is_empty() && t.url != "about:blank";
+            t.url = url.to_owned();
+            t.title = title.to_owned();
+            t.loading = false;
+        }
+    }
+
+    /// Sets whether mock tab `id` has an earlier and a later page.
+    pub fn set_mock_history(&mut self, id: u64, back: bool, forward: bool) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.can_go_back = back;
+            t.can_go_forward = forward;
+        }
+    }
+
     /// Sends every message to the returned receiver instead of an engine (tests).
     pub fn capture_sent(&mut self) -> Receiver<HostMsg> {
         let (tx, rx) = mpsc::channel();

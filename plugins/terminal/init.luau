@@ -142,6 +142,23 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    -- Shows the session's terminal for the agent, answering with the terminal it shows.
+    ctx:AddMcpTool({
+        name = "open_terminal",
+        description = "Show the integrated terminal dock in OpenCode (Rune) for this session's workspace.",
+        inputSchema = {
+            type = "object",
+            properties = {
+                newTab = { type = "boolean", description = "Create a new terminal tab instead of reusing the active one (default false)." },
+            },
+            additionalProperties = false,
+        },
+        call = function(args, context)
+            local shown = Terminal:OpenAsync(context.sessionId, args.newTab == true)
+            return { open = true, tabID = shown.id, placement = shown.placement }
+        end,
+    })
+
     -- The + menu's and New tab's Terminal row (order 20): it opens a new terminal. A read-only
     -- window offers none.
     ctx:AddMenuItem({

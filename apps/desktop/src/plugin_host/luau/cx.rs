@@ -135,6 +135,9 @@ pub enum Dep {
     Office(u64),
     /// Where the app's updates stand (`Updater:State`).
     Updater,
+    /// The window's browser: its pages, the sessions they belong to, where the keyboard is
+    /// among them, and the engine's state (`Browser`).
+    Browser,
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

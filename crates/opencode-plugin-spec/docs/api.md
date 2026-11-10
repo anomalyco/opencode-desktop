@@ -68,7 +68,7 @@ What a plugin half's setup function receives.
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `CreateEditor` | `(initial: string?) -> Editor` | A host-owned text field's content. The n-th editor a setup creates is the same field after a hot reload. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Popover`](#popover), [`Dialog`](#dialog), [`Menu`](#menu), [`Layout`](#layout), [`Links`](#links), [`Commands`](#commands), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Diff`](#diff), [`Terminal`](#terminal), [`Browser`](#browser), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Images`](#images), [`I18n`](#i18n). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Popover`](#popover), [`Dialog`](#dialog), [`Menu`](#menu), [`Layout`](#layout), [`Links`](#links), [`Commands`](#commands), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Diff`](#diff), [`Terminal`](#terminal), [`Browser`](#browser), [`Composer`](#composer), [`Office`](#office), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Images`](#images), [`I18n`](#i18n). |
 | `AddCommand` | `(spec: CommandSpec) -> Contribution` | Adds a command to the palette, its keybind and its slash command. |
 | `AddPanel` | `(spec: PanelSpec) -> Contribution` | Adds a panel: tabs in the session's side region. |
 | `AddSetting` | `(spec: SettingSpec) -> Contribution` | Adds a row to Settings › Plugins. |
@@ -98,7 +98,7 @@ What a plugin half's setup function receives.
 | `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Browser`](#browser), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
 | `AddMenubarItem` | `(spec: MenubarItemSpec) -> Contribution` | Adds an item to the app menu bar. |
 | `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
 | `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
@@ -287,6 +287,7 @@ Panels, settings and drafts in this window. Halves: window.
 | `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
 | `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
 | `:OpenDrawerView` | `(title: string, data: { [string]: any }?) -> ()` | From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere. |
+| `:RegionOpen` | `(sessionId: string?) -> boolean` | A session's side region is open. Defaults to the routed session. |
 
 ### Links
 
@@ -370,6 +371,7 @@ Files in the workspace and the apps that open them. Halves: window, app.
 | `:OpenInApps` | `() -> { OpenInApp }` | The installed apps that can open a path. |
 | `:OpenIn` | `(appId: string, path: string) -> ()` | Opens a path in one of those apps. |
 | `:Relative` | `(path: string, directory: string) -> string?` | A path inside a workspace folder, relative to it with `/` between parts; nil for a path outside it. A relative path stays as it is. |
+| `:OpenFile` | `(sessionId: string, path: string, options: OpenFileOptions?) -> ()` | Opens workspace file `path` in a tab of the session's side region, leaving the keyboard where it was. |
 | `.FileChanged` | `Signal<string>` | Fires with a workspace path after it changes on disk. |
 
 ### Diff
@@ -395,16 +397,33 @@ Terminal sessions on the server, for `ui.terminalSurface`. Halves: window, app.
 | `:New` | `(sessionId: string?) -> ()` | Starts a terminal in the session (the routed one by default) and opens its tab beside its others, or where Settings place a first one; it takes the keyboard. |
 | `:Toggle` | `() -> ()` | `terminal.toggle`: a new terminal when the routed session has none; the active terminal's pane hides while its tab shows; otherwise its tab opens and takes the keyboard. |
 | `:Select` | `(sessionId: string, id: string, focus: boolean) -> ()` | Makes terminal `id` the session's active one, and with `focus` gives it the keyboard. |
+| `:OpenAsync` | `(sessionId: string, newTerminal: boolean) -> TerminalOpened` | Shows session `sessionId`'s terminal tab, starting a terminal when `newTerminal` or it has none, and leaves the keyboard where it was. Yields. |
 
 ### Browser
 
-Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them. Halves: window, app.
+Pages in this window's embedded browser, each a tab of a session's side region. Halves: window.
 
 | Member | Type | Description |
 |---|---|---|
-| `:Open` | `(spec: BrowserOpenSpec) -> BrowserTab` | Opens a page. |
-| `:Tabs` | `() -> { BrowserTab }` | This plugin's open pages. |
-| `:Available` | `() -> boolean` | The browser engine is installed and runs on this platform. |
+| `:OpenAsync` | `(spec: BrowserOpenSpec) -> BrowserTab` | Opens a page in a new tab of a session's side region, and returns it once its tab is there. Yields. |
+| `:Tabs` | `(sessionId: string?) -> { BrowserTab }` | Session `sessionId`'s open pages, oldest first; without a session, every open page. |
+| `:Get` | `(id: string) -> BrowserTab?` | An open page by id. |
+| `:List` | `(sessionId: string, open: { string }) -> { BrowserTabInfo }` | The pages of the stored tabs `open` names, in that order, for a panel's `list`. |
+| `:Active` | `(sessionId: string) -> BrowserTab?` | The page a session shows: its selected browser tab, else its newest open page, else the page the engine shows. |
+| `:Selected` | `(sessionId: string?) -> BrowserTab?` | The page whose tab is selected in a session's open side region (the routed session by default). |
+| `:Focused` | `() -> BrowserTab?` | The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's. |
+| `:Available` | `() -> boolean` | Pages can open here: this build has a browser engine for its platform. |
+| `:Engine` | `() -> BrowserEngine` | Where the browser engine stands. |
+| `.Changed` | `Signal<string>` | Fires with a page's id when its address, title or loading changes, or it closes. |
+| `.Picked` | `Signal<BrowserPick>` | Fires when the element picker picks an element. |
+
+### Composer
+
+The routed session's composer. Halves: window.
+
+| Member | Type | Description |
+|---|---|---|
+| `:InsertPill` | `(id: string, label: string) -> ()` | Puts a pill at the caret, with a space on each side, and gives the composer the keyboard. |
 
 ### Office
 
@@ -1012,6 +1031,32 @@ A text field's look.
 |---|---|
 | `"default"` | The app's bordered field. |
 | `"filter"` | A panel sidebar's filter: a search icon, no fill until hovered or focused, and a clear button while it holds text. |
+| `"bare"` | Only the text, caret and selection, at 13 points: the box around it is the plugin's, such as a browser's address field. |
+
+### BrowserEngineState
+
+Where the browser engine stands.
+
+| Value | Meaning |
+|---|---|
+| `"unsupported"` | This build has no engine for its platform. |
+| `"missing"` | Not downloaded yet. |
+| `"downloading"` | Downloading. |
+| `"verifying"` | Checking the download. |
+| `"paused"` | The background download waits, on a metered network or on battery. |
+| `"failed"` | The download or the engine failed. |
+| `"starting"` | Installed, and starting or connecting. |
+| `"ready"` | Running. |
+
+### BrowserZoom
+
+A page zoom step.
+
+| Value | Meaning |
+|---|---|
+| `"in"` | One step closer. |
+| `"out"` | One step further. |
+| `"reset"` | Back to 100%. |
 
 ### ImageFit
 
@@ -1343,8 +1388,13 @@ A host-owned text field's content: typing, IME, selection and undo stay in the h
 | `:SetText` | `(text: string) -> ()` | Replaces the text and puts the caret at its end. |
 | `:Version` | `() -> number` | Changes whenever the text, selection, composition or focus does: put it in a memo's version. |
 | `:Focus` | `() -> ()` | Moves keyboard focus to the field. |
+| `:Blur` | `() -> ()` | Takes keyboard focus from the field. |
+| `:SelectAll` | `() -> ()` | Selects the whole text. |
+| `:Focused` | `() -> boolean` | The field has keyboard focus. |
 | `.Changed` | `Signal<string>` | Fires with the new text after each edit. |
 | `.Submitted` | `Signal<string>` | Fires with the text when the user presses Enter. |
+| `.FocusChanged` | `Signal<boolean>` | Fires as the field takes keyboard focus (true) or loses it (false). |
+| `.KeyPressed` | `Signal<string>` | Fires with a key the field's `keys` hands over (`ArrowUp`, `ArrowDown`, `Escape`) instead of handling it. |
 
 ### UiLayoutProps
 
@@ -1544,6 +1594,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `size` | `ControlSize?` | The size. |
 | `disabled` | `boolean?` | Takes no presses. |
 | `pressed` | `boolean?` | A toggle button's pressed state. |
+| `color` | `Color?` | The icon's color, instead of the variant's. |
+| `keybind` | `string?` | A published command id whose shortcut its tooltip shows after the `help` text, as keycaps. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 
 ### UiSwitchProps
@@ -1591,6 +1643,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `readOnly` | `boolean?` | Takes no typing but looks as usual, such as while what was typed is sent. |
 | `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
+| `keys` | `{ string }?` | Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
 ### UiSegmentedItem
@@ -1785,7 +1838,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `tab` | `BrowserTab` | The page, from the `Browser` service. |
+| `tab` | `BrowserTab` | The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed. |
 | `focused` | `boolean?` | Takes keyboard focus. |
 
 ### UiCodeViewProps
@@ -2243,6 +2296,7 @@ One entry of a menu.
 | `icon` | `IconName?` | An item's icon. |
 | `detail` | `string?` | Muted text at an item's end. |
 | `keybind` | `string?` | A published command id whose shortcut the item shows. |
+| `keys` | `string?` | A literal shortcut the item shows, such as `"mod+plus"`, when no command has it. |
 | `enabled` | `boolean?` | False shows the item disabled. Defaults to true. |
 | `danger` | `boolean?` | A destructive item. |
 | `checked` | `boolean?` | Shows a check mark. |
@@ -2259,6 +2313,7 @@ A menu to open beside an element.
 | `side` | `Side?` | The anchor's side. Defaults to below. |
 | `align` | `Align?` | Alignment along that side. Defaults to start. |
 | `minWidth` | `number?` | Its minimum width in points. |
+| `width` | `number?` | Its width in points. |
 
 ### OpenPanelOptions
 
@@ -2453,15 +2508,73 @@ One terminal of a session, as its tab lists it.
 | `number` | `number` | Its place among the session's terminals, from 1: what a default title says. |
 | `hidden` | `boolean` | Listed only to hold a restored tab until the server lists the session's terminals. |
 
+### OpenFileOptions
+
+How `Workspace:OpenFile` opens a file.
+
+| Field | Type | Description |
+|---|---|---|
+| `preview` | `boolean?` | Opens it in the preview tab, which the next preview replaces, instead of a kept one. |
+| `startLine` | `number?` | The first line to select and scroll into view, from 1. |
+| `endLine` | `number?` | The last line to select. Defaults to `startLine`. |
+
+### TerminalOpened
+
+The terminal tab `Terminal:OpenAsync` showed.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string?` | The terminal's id; nil when the session has none and can't start one. |
+| `placement` | `string` | Where a session's first terminal opens (Settings > Terminal): `side` or `bottom`. |
+
 ### BrowserOpenSpec
 
 A page to open.
 
 | Field | Type | Description |
 |---|---|---|
-| `url` | `string` | The URL. |
-| `sessionId` | `string?` | The session the page belongs to. |
-| `background` | `boolean?` | Opens without showing it. |
+| `url` | `string` | The URL, or a local `:port`. Defaults to `about:blank`. |
+| `sessionId` | `string?` | The session whose side region gets the page's tab. Defaults to the routed session. |
+| `background` | `boolean?` | Opens the tab without moving the keyboard: focus stays where it is. |
+
+### BrowserShowOptions
+
+Where to show a page's tab.
+
+| Field | Type | Description |
+|---|---|---|
+| `sessionId` | `string?` | The session whose side region shows it. Defaults to the routed session. |
+| `background` | `boolean?` | Selects the tab without moving the keyboard. |
+
+### BrowserTabInfo
+
+One page of a session, as its tab lists it.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The host's id for it. |
+| `url` | `string` | Its address; empty for a blank page. |
+| `title` | `string` | Its title; empty before the page names itself. |
+| `open` | `boolean` | The page exists. A stored tab the engine never opened in this run is listed, not open. |
+
+### BrowserEngine
+
+Where the browser engine stands.
+
+| Field | Type | Description |
+|---|---|---|
+| `state` | `BrowserEngineState` | Its state. |
+| `message` | `string?` | Why it failed, for `failed`. |
+
+### BrowserPick
+
+An element the user picked in a page with the element picker.
+
+| Field | Type | Description |
+|---|---|---|
+| `tabId` | `string` | The page. |
+| `ref` | `string` | The element's `@eN` reference. |
+| `selector` | `string` | A CSS selector for it. |
 
 ### BrowserTab
 
@@ -2470,23 +2583,25 @@ A page in the app's browser, for `ui.browserSurface`.
 | Member | Type | Description |
 |---|---|---|
 | `.Id` | `string` | The host's id for it. |
+| `:IsOpen` | `() -> boolean` | The page exists: it hasn't closed. |
 | `:Url` | `() -> string` | The current URL. |
 | `:Title` | `() -> string` | The page title. |
 | `:Loading` | `() -> boolean` | A load is in flight. |
 | `:CanGoBack` | `() -> boolean` | History has an earlier page. |
 | `:CanGoForward` | `() -> boolean` | History has a later page. |
-| `:Navigate` | `(url: string) -> ()` | Loads a URL. |
+| `:Zoom` | `() -> number` | The page's zoom: 1 at 100%. |
+| `:Inspecting` | `() -> boolean` | The element picker waits for a click in the page. |
+| `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |
 | `:Forward` | `() -> ()` | Goes forward. |
 | `:Reload` | `() -> ()` | Reloads. |
 | `:Stop` | `() -> ()` | Stops loading. |
-| `:Close` | `() -> ()` | Closes the page. |
-| `:DevtoolsAsync` | `(method: string, params: { [string]: any }?) -> any` | Sends one DevTools protocol command and returns its result. Yields. |
-| `:ScreenshotAsync` | `() -> ImageId?` | Captures the visible page. Yields. |
-| `.Navigated` | `Signal<string>` | Fires with the new URL. |
-| `.TitleChanged` | `Signal<string>` | Fires with the new title. |
-| `.LoadingChanged` | `Signal<boolean>` | Fires as a load starts and ends. |
-| `.Closed` | `Signal<()>` | Fires as the page closes. |
+| `:SetZoom` | `(direction: BrowserZoom) -> ()` | Zooms the page in or out a step, or back to 100%. The site keeps its zoom. |
+| `:Inspect` | `(enabled: boolean?) -> ()` | Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`. |
+| `:Highlight` | `(nodeId: number?) -> ()` | Outlines the DevTools backend node `nodeId` in the page, or clears the outline. |
+| `:Show` | `(options: BrowserShowOptions?) -> ()` | Selects its tab in a session's side region, opening the region and adding the tab when it isn't there. |
+| `:Close` | `() -> ()` | Closes the page and its tab. |
+| `:DevtoolsAsync` | `(method: string, params: { [string]: any }?, targetSessionId: string?) -> any` | Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields. |
 
 ### OfficeDocument
 
@@ -2692,6 +2807,8 @@ What Recently closed lists for a panel's closed tab.
 |---|---|---|
 | `title` | `string?` | Its title, instead of the tab's. |
 | `icon` | `IconName?` | Its icon. |
+| `detail` | `string?` | Muted text after its title, such as a page's host. |
+| `data` | `string?` | What `restore` gets back, such as a page's address. |
 
 ### PanelMobileView
 
@@ -2733,6 +2850,8 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `label` | `((view: View, props: PanelTabLabelProps) -> UiNode?)?` | Draws the tab's label in the strip, instead of its icon and title. |
 | `onClose` | `((props: PanelProps) -> ())?` | Runs after the tab leaves the strip. |
 | `onFocus` | `((props: PanelProps) -> ())?` | Runs as the tab becomes selected. |
+| `closedTab` | `((props: PanelProps) -> ClosedTab?)?` | What Recently closed keeps of a tab as it closes, instead of `closed`; nil keeps nothing. Keep it cheap, and don't yield. |
+| `restore` | `((props: PanelProps, data: string?) -> ())?` | Brings a tab back from Recently closed with its `ClosedTab.data`. Without it, the tab's key opens again. |
 
 ### SettingSpec
 
@@ -3089,7 +3208,17 @@ A tool on the app's client MCP server, named `<plugin>_<name>`. Desktop's plugin
 | `name` | `string` | Its name within the plugin. |
 | `description` | `string` | What it does, for the model. |
 | `inputSchema` | `{ [string]: any }` | Its arguments' JSON Schema. |
-| `call` | `(args: { [string]: any }, context: McpCallContext) -> any` | Runs it and returns its result: a string, or a table sent as JSON. Raise an error to fail. It must not yield. |
+| `call` | `(args: { [string]: any }, context: McpCallContext) -> any` | Runs it, as a task, and returns its result: a string, a table sent as JSON, or an `McpImage`. Raise an error to fail. It may yield (call `...Async` methods): the call answers when it returns, or fails after 30 seconds. |
+
+### McpImage
+
+An MCP tool result with an image: a text part and the image.
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The text part, such as JSON metadata. |
+| `image` | `string` | The image, base64-encoded. |
+| `mimeType` | `string` | Its type, such as `image/png`. |
 
 ### McpCallContext
 

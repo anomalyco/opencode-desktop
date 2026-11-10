@@ -247,6 +247,7 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("readOnly", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
     PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
+    PropSpec::new("keys", PropType::List("string"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
 ]);
 
@@ -288,6 +289,8 @@ pub static UI_ICON_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiIconButtonProps",
     PropSpec::new("size", PropType::Enum("ControlSize"), false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("pressed", PropType::Bool, false),
+    PropSpec::new("color", PropType::Color, false),
+    PropSpec::new("keybind", PropType::String, false),
     PropSpec::new("onPress", PropType::Handler, false),
 ]);
 

@@ -78,6 +78,46 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    -- Opens a workspace file for the agent, as Desktop's file plugin's `open_file` does.
+    ctx:AddMcpTool({
+        name = "open_file",
+        description = "Open a workspace file in the OpenCode (Rune) side panel, optionally selecting a line or line range.",
+        inputSchema = {
+            type = "object",
+            properties = {
+                path = { type = "string", description = "Workspace-relative or absolute file path inside the session folder." },
+                startLine = { type = "integer", minimum = 1, description = "1-based start line to select and scroll into view." },
+                endLine = { type = "integer", minimum = 1, description = "1-based end line (defaults to startLine)." },
+                preview = { type = "boolean", description = "Open in the transient preview tab instead of pinning (default false)." },
+            },
+            required = { "path" },
+            additionalProperties = false,
+        },
+        call = function(args, context)
+            local raw = if type(args.path) == "string" then args.path else ""
+            if string.match(raw, "^%s*$") then
+                error("Missing 'path'", 0)
+            end
+            local session = Sessions:Get(context.sessionId)
+            local dir = if session and session.directory ~= "" then session.directory else context.directory
+            local parent = false
+            for part in string.gmatch(raw, "[^/]+") do
+                parent = parent or part == ".."
+            end
+            local path = if parent then nil else Workspace:Relative(raw, dir)
+            if path == nil then
+                error(`Path '{raw}' is outside the session folder '{dir}'`, 0)
+            end
+            local first: number? = if type(args.startLine) == "number" then math.max(1, math.floor(args.startLine)) else nil
+            local last: number? = first
+            if first and type(args.endLine) == "number" then
+                last = math.max(first, math.floor(args.endLine))
+            end
+            Workspace:OpenFile(context.sessionId, path, { preview = args.preview == true, startLine = first, endLine = last })
+            return { path = path, lines = if first and last then { first, last } else nil }
+        end,
+    })
+
     -- The + menu's and New tab's Open file row (order 30).
     ctx:AddMenuItem({
         menu = "session.panel",
