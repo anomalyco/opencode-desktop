@@ -588,8 +588,8 @@ impl session_view::TimelineHost for App {
     fn content_width(&self) -> f32 {
         narrow::content_width(self).unwrap_or_else(|| self.settings.timeline_width.width().content())
     }
-    fn timeline_frame_h(&self) -> Option<f32> {
-        rune::memo::layout_with("session", |r| r[3])
+    fn timeline_frame(&self) -> Option<&'static str> {
+        Some("session")
     }
     fn active_session_id(&self) -> Option<&str> {
         match &self.route {
