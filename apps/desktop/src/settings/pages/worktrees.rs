@@ -33,7 +33,23 @@ pub struct State {
     pub delete: Machine,
     /// Its timers on the app clock (ms).
     timers: Vec<(i64, Due)>,
+    /// The toolbar's project menu (`projectFilter`), back to All projects each time the page
+    /// opens.
+    pub filter: Filter,
 }
+
+/// Which project's worktrees the page lists.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    All,
+    Project(String),
+}
+
+/// `.settings-workspaces-row-motion`: a deleted row closes to nothing over 150 ms and fades
+/// over 120 ms, both ease-out, the row above it losing its rule as it goes when it was last.
+const COLLAPSE: rune::Anim = rune::Anim::new(rune::Curve::tween(machine::COLLAPSE_MS as f32 / 1000.0, rune::Easing::EASE_OUT));
+const FADE: rune::Anim = rune::Anim::new(rune::Curve::tween(0.12, rune::Easing::EASE_OUT));
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Due {
@@ -69,7 +85,7 @@ impl Worktree {
 /// Every worktree, by project; `only`'s alone when given. Rows that finished collapsing stay
 /// out until the inventory drops them (`visibleWorkspaces`).
 fn worktrees(s: &App, only: Option<&str>) -> Vec<Worktree> {
-    s.projects.iter().filter(|p| only.is_none_or(|id| p.id == id)).flat_map(|p| {
+    inventory(s).into_iter().filter(|p| only.is_none_or(|id| p.id == id)).flat_map(|p| {
         let name = super::projects::name(p);
         s.project_worktrees(&p.id, &p.directory).into_iter().map(move |dir| Worktree { project: p.id.clone(), name: name.clone(), dir })
     }).filter(|w| !s.settings_pages.worktrees.delete.removed.contains(&w.key())).collect()
@@ -92,9 +108,35 @@ pub fn view(s: &App, p: &Pal) -> El {
     view_for(s, p, None)
 }
 
+/// The projects in the server's order, as Desktop's inventory lists them (`project.list`: most
+/// recently active first, then by id).
+fn inventory(s: &App) -> Vec<&opencode_kit::model::Project> {
+    let mut list: Vec<_> = s.projects.iter().collect();
+    list.sort_by(|a, b| b.active.cmp(&a.active).then_with(|| a.id.cmp(&b.id)));
+    list
+}
+
+/// The projects that have worktrees, with their names (`projects`).
+fn with_worktrees(s: &App) -> Vec<(String, String)> {
+    inventory(s).into_iter().filter(|p| !s.project_worktrees(&p.id, &p.directory).is_empty()).map(|p| (p.id.clone(), super::projects::name(p))).collect()
+}
+
+/// The project listed (`selectedProject`): `only` on a project's own pages, else the menu's
+/// pick while that project still has worktrees; `None` for all of them.
+fn selection(s: &App, only: Option<&str>) -> Option<String> {
+    if let Some(id) = only {
+        return Some(id.to_owned());
+    }
+    match &s.settings_pages.worktrees.filter {
+        Filter::Project(id) if with_worktrees(s).iter().any(|(p, _)| p == id) => Some(id.clone()),
+        _ => None,
+    }
+}
+
 /// Worktrees, of project `only` alone on its own pages (`SettingsWorkspaces projectID`).
 pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
-    let list = worktrees(s, only);
+    let selected = selection(s, only);
+    let list = worktrees(s, selected.as_deref());
     let body = if list.is_empty() {
         col().key("settings-workspaces-empty").w_full().gap(4.0)
             .child(text(t!("settings.workspaces.empty")).font(NAME).color(p.text))
@@ -102,13 +144,18 @@ pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
     } else {
         let n = list.len();
         let active = s.active_session_id().and_then(|id| s.session(&id).map(|i| i.directory.clone()));
-        let rows: Vec<El> = list.iter().enumerate().map(|(i, w)| worktree_row(s, p, w, active.as_deref(), i + 1 < n)).collect();
+        // A row keeps its rule while one follows it, unless that one is the last and closing.
+        let closing = |w: &Worktree| s.settings_pages.worktrees.delete.row(&w.key()).1;
+        let rows: Vec<El> = list.iter().enumerate().map(|(i, w)| {
+            let divided = i + 1 < n && !(i + 2 == n && closing(&list[i + 1]));
+            worktree_row(s, p, w, active.as_deref(), i + 1 < n, divided, selected.is_some())
+        }).collect();
         // A page 520 wide or less, or a window under 640, takes the inventory 14 in
         // (`settings.css:2119-2121, 2151-2153`).
         let pad = if crate::settings::rows_wrap() { 14.0 } else { 16.0 };
         // `.settings-tab-body.settings-workspaces` stacks the toolbar on the inventory with no gap.
         col().w_full()
-            .child(toolbar(s, p, &list, active))
+            .child(toolbar(s, p, &list, active, only.is_none().then_some(selected.as_deref())))
             .child(col().key("settings-workspaces-inventory").w_full().padding(pad).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
     };
     // Under 640 the body stands 20 in (`.settings-tab-body.settings-workspaces`,
@@ -122,7 +169,7 @@ pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
 /// `.settings-workspaces-toolbar`: the count as a section title, and the ⋯ menu at its end
 /// (`IconButton` ghost-muted small: 20 square, its icon 14, 4 pt corners) with Delete without sessions, while there are
 /// some, over Delete all in the danger ink.
-fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>) -> El {
+fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>, filter: Option<Option<&str>>) -> El {
     let busy = s.settings_pages.worktrees.delete.busy();
     let all: Vec<Target> = list.iter().map(Worktree::target).collect();
     let unused: Vec<Target> = list.iter().filter(|w| sessions_in(s, &w.dir).is_empty()).map(Worktree::target).collect();
@@ -151,13 +198,52 @@ fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>) -> El {
     row().key("settings-workspaces-toolbar").w_full().pb(8.0).gap(16.0).center_y()
         // `.settings-section-title`: 13 on 16 at 530 in text-base.
         .child(text(opencode_i18n::plural!("settings.workspaces.count", list.len())).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0))
-        .child(row().key("settings-workspaces-toolbar-actions").gap(4.0).center_y().child(dots))
+        .child(row().key("settings-workspaces-toolbar-actions").gap(4.0).center_y().children(filter.and_then(|f| project_menu(s, p, f))).child(dots))
 }
 
-fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, divided: bool) -> El {
+/// The project menu, on Settings › Worktrees while two or more projects have worktrees: a small
+/// ghost-muted `Button` at most 192 wide, the listed project's name cut short and a chevron,
+/// that opens All projects and each project, the listed one checked (`workspaces.tsx:445-467`).
+fn project_menu(s: &App, p: &Pal, selected: Option<&str>) -> Option<El> {
+    let projects = with_worktrees(s);
+    if projects.len() < 2 {
+        return None;
+    }
+    let all = t!("settings.workspaces.filter.all").to_owned();
+    let label = selected.and_then(|id| projects.iter().find(|(p, _)| p == id)).map_or(all.clone(), |(_, name)| name.clone());
+    let current = selected.unwrap_or(ALL).to_owned();
+    let open = s.popup.open_at(FILTER);
+    // `button-v2` small ghost-muted: 24 tall, 9 in, 4 round, 6 apart, 13/20 at 440 in
+    // text-muted, its small icon (14) in icon-muted; open (`data-expanded`) it keeps the
+    // pressed fill.
+    let b = row().key(FILTER).role("button").label(label.clone()).h(24.0).px(9.0).gap(6.0).center_y().radius(4.0).max_w(192.0).min_w(0.0)
+        .child(text(label).font(rune::TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(p.muted).truncate().shrink().min_w(0.0))
+        .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted));
+    let b = if open { b.fill(p.pressed) } else { b.hover(p.hover) };
+    Some(b.press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        tx.instant();
+        let items = std::iter::once((ALL.to_owned(), all.clone())).chain(projects.iter().cloned())
+            .map(|(id, name)| Item::new(id.clone(), name).checked(id == current));
+        // `menu-v2`'s content: as wide as its widest row, 160 at least.
+        let menu = Menu::new(t!("settings.tab.workspaces")).align(Align::End).gap(6.0).items(items).hug().min_width(160.0);
+        popup::open(s, menu, FILTER, tx, |s: &mut App, picked, _| {
+            let Some(id) = picked else { return };
+            s.settings_pages.worktrees.filter = if id == ALL { Filter::All } else { Filter::Project(id.to_owned()) };
+        });
+    }))
+}
+
+const FILTER: &str = "settings-workspaces-filter";
+/// The menu's All projects row (`"all"`), which no project id is.
+const ALL: &str = "workspaces-filter-all";
+
+/// A worktree's row: `followed` while a row comes after it, which draws its rule while
+/// `divided`; `filtered` while one project's alone, its count then naming none
+/// (`settings.workspaces.sessions.filtered`).
+fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, followed: bool, divided: bool, filtered: bool) -> El {
     let linked = sessions_in(s, &w.dir);
     let machine = &s.settings_pages.worktrees.delete;
-    let (deleting, _) = machine.row(&w.key());
+    let (deleting, collapsing) = machine.row(&w.key());
     let busy = machine.busy();
     let base = path::basename(&w.dir).to_owned();
     let parent = w.dir.strip_suffix(&base).unwrap_or_default().to_owned();
@@ -175,12 +261,16 @@ fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, divided: b
         })
     };
     // The project's name in its own ink, found from the end as Desktop's `sessionCount` finds it.
-    let label = opencode_i18n::plural!("settings.workspaces.sessions", linked.len(), project = w.name);
-    let (before, after) = label.rfind(&w.name).map_or((label.as_str(), ""), |at| (&label[..at], &label[at + w.name.len()..]));
-    let meta = row().gap(0.0)
-        .children((!before.is_empty()).then(|| text(before.to_owned()).font(BODY).color(p.faint)))
-        .children(label.rfind(&w.name).map(|_| text(w.name.clone()).font(BODY).color(p.muted)))
-        .children((!after.is_empty()).then(|| text(after.to_owned()).font(BODY).color(p.faint)));
+    let meta = if filtered {
+        row().child(text(opencode_i18n::plural!("settings.workspaces.sessions.filtered", linked.len())).font(BODY).color(p.faint))
+    } else {
+        let label = opencode_i18n::plural!("settings.workspaces.sessions", linked.len(), project = w.name);
+        let (before, after) = label.rfind(&w.name).map_or((label.as_str(), ""), |at| (&label[..at], &label[at + w.name.len()..]));
+        row().gap(0.0)
+            .children((!before.is_empty()).then(|| text(before.to_owned()).font(BODY).color(p.faint)))
+            .children(label.rfind(&w.name).map(|_| text(w.name.clone()).font(BODY).color(p.muted)))
+            .children((!after.is_empty()).then(|| text(after.to_owned()).font(BODY).color(p.faint)))
+    };
     // `.settings-workspaces-path`: the whole folder in text-base, its name at 530, cut short at
     // its end; a page 520 wide or less, or a window under 640, wraps it anywhere instead and
     // hides the row's faint time (`settings.css:2123-2132, 2155-2164`).
@@ -204,7 +294,11 @@ fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, divided: b
     if !linked.is_empty() {
         r = r.child(sessions(s, p, &linked));
     }
-    r.children(divided.then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
+    let r = r.children(followed.then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border).opacity(if divided { 1.0 } else { 0.0 }).opacity_motion(FADE)));
+    // `.settings-workspaces-row-motion`: the row, its rule and the room under it close up
+    // together as it's deleted.
+    let motion = col().key(format!("settings-worktree-motion-{}", w.key())).w_full().clip_soft(0.0).opacity(if collapsing { 0.0 } else { 1.0 }).opacity_motion(FADE).child(r);
+    if collapsing { motion.h(0.0) } else { motion }
 }
 
 /// `.settings-workspaces-sessions`: the worktree's sessions in a box on bg-base, each 10 in
@@ -308,10 +402,16 @@ fn run(s: &mut App, effect: Effect) {
                 };
                 Box::new(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
+                    let key = target.key.clone();
                     dispatch(s, match result {
                         Ok(()) => Event::DeleteSucceeded { attempt, target },
                         Err(reason) => Event::DeleteSkipped { attempt, reason },
                     });
+                    // The deleted row closes up on its own curve (`.settings-workspaces-row-motion`).
+                    if s.settings_pages.worktrees.delete.row(&key).1 {
+                        tx.animated();
+                        tx.motion_curve(COLLAPSE);
+                    }
                 }) as Apply
             });
         }

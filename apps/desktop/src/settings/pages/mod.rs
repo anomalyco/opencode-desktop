@@ -223,7 +223,10 @@ impl App {
             }
             Page::Appearance => self.settings_pages.fonts = appearance::Fields::from(&self.settings),
             Page::Servers => servers::load(self),
-            Page::Worktrees => worktrees::load(self),
+            Page::Worktrees => {
+                self.settings_pages.worktrees.filter = worktrees::Filter::All;
+                worktrees::load(self);
+            }
             Page::Project(dir, tab) => project::load(self, &dir.clone(), *tab),
             _ => {}
         }
