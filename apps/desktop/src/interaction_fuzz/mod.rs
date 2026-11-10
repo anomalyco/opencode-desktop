@@ -44,7 +44,7 @@ pub fn wall_override() -> Option<i64> {
     WALL_MS.with(Cell::get)
 }
 
-fn set_wall(ms: Option<i64>) {
+pub(crate) fn set_wall(ms: Option<i64>) {
     WALL_MS.with(|w| w.set(ms));
 }
 

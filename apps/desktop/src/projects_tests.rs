@@ -175,23 +175,25 @@ fn shift_cmd_o_switches_recent_projects_worktrees_and_other_projects() {
     assert!(rows.iter().any(|r| r.key == "other"), "hidden project shows Other projects row");
     assert_eq!(rows.last().map(|r| r.key.as_str()), Some("+add"));
 
-    // → on lumen drills into existing worktrees (main + reconnect-fix, never "New worktree").
+    // → on lumen drills into its worktrees: its checkout, New worktree, then the server's
+    // (b005ad28).
     key(&mut rt, Key::Right);
     assert!(matches!(rt.state.project_switcher.mode, StepMode::Worktrees { .. }));
     let wt_rows = rt.state.project_switcher_rows();
     let wt_titles: Vec<&str> = wt_rows.iter().map(|r| r.title.as_str()).collect();
-    assert_eq!(wt_titles, ["lumen", "reconnect-fix"]);
-    assert!(!wt_titles.iter().any(|t| t.to_lowercase().contains("new")), "no worktree creation row");
+    assert_eq!(wt_titles, ["lumen", "New worktree", "reconnect-fix"]);
 
-    // ← steps back to projects; picking reconnect-fix from a session opens a session in that worktree.
+    // ← steps back to projects; picking reconnect-fix starts a new session there, as Desktop's
+    // location dialog does (b005ad28).
     key(&mut rt, Key::Left);
     assert_eq!(rt.state.project_switcher.mode, StepMode::Projects);
     key(&mut rt, Key::Right);
     key(&mut rt, Key::Down);
+    key(&mut rt, Key::Down);
     key(&mut rt, Key::Enter);
     assert!(!rt.state.project_switcher.open);
-    let Route::Session { id: wt_sid, .. } = rt.state.route.clone() else { panic!("expected session in worktree") };
-    assert_eq!(rt.state.session(&wt_sid).unwrap().directory, "/Users/demo/code/worktrees/lumen/reconnect-fix");
+    assert!(matches!(rt.state.route, Route::Draft(_)), "{:?}", rt.state.route);
+    assert_eq!(rt.state.draft_dir(), "/Users/demo/code/worktrees/lumen/reconnect-fix");
 
     // On Draft, ⇧⌘O updates draft_dir in place (including finding hidden kiln by search) and keeps Route::Draft.
     rt.update(|s, tx| s.new_session(tx));

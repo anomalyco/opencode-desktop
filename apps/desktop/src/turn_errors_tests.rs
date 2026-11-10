@@ -136,5 +136,11 @@ fn the_fixture_has_each_row() {
     assert!(keys(&mut s, RETRYING).iter().any(|k| k.starts_with("r-")));
     let notices = s.transcripts[NOTICES].messages.iter().filter(|m| matches!(m, Message::Notice(_))).count();
     assert_eq!(notices, 6);
-    assert_eq!(keys(&mut s, NOTICES).iter().filter(|k| k.starts_with("n-")).count(), 6);
+    // The timeline's detail groups some notices into their turn as Desktop's does (1532baee);
+    // every other one is a row of its own.
+    use session_view::TimelineHost as _;
+    let detail = s.timeline_detail();
+    let own = s.transcripts[NOTICES].messages.iter().filter(|m| matches!(m, Message::Notice(n) if session_view::detail::notice_placement(n, &detail) != session_view::detail::Placement::Grouped)).count();
+    assert!(own > 0);
+    assert_eq!(keys(&mut s, NOTICES).iter().filter(|k| k.starts_with("n-")).count(), own);
 }
