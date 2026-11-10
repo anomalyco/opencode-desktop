@@ -44,6 +44,10 @@ const FOOTER_H: f32 = 47.0;
 pub const FADE: f32 = 16.0;
 /// Never shorter than this while the pane has room (Desktop's floor).
 const MIN_H: f32 = 240.0;
+/// The share of the pane the timeline keeps above a long question, however short the pane.
+const TIMELINE_KEEP: f32 = 0.2;
+/// The session header's row over the timeline, with the timeline's own padding under it.
+const HEADER_H: f32 = 48.0 + 16.0;
 
 /// Where the dock is for the form it shows: the question, the highlighted answer, and the
 /// picked and typed answers in progress by `form/key`.
@@ -550,7 +554,11 @@ fn hover_answer<S: DockHost>(s: &mut S, i: usize, tx: &mut Tx) {
 /// None on a stage with no pane to share (the composer stories).
 fn body_max<S: DockHost>(s: &S) -> Option<f32> {
     let pane = s.dock_pane_h()?;
-    let cap = (pane * s.knobs().get(&knobs::QUESTION_MAX)).max(MIN_H).min(pane);
+    // Never so tall the timeline goes: in a short pane (1280×640 at 1.6×) the 240 pt floor gives
+    // way, so a fifth of the pane under the header still shows the conversation; the answers
+    // scroll inside whatever the dock gets.
+    let keep = pane * TIMELINE_KEEP + HEADER_H;
+    let cap = (pane * s.knobs().get(&knobs::QUESTION_MAX)).max(MIN_H).min(pane - keep).max(FOOTER_H);
     Some((cap - FOOTER_H).max(0.0))
 }
 
