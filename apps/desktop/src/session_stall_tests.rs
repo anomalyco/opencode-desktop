@@ -71,10 +71,12 @@ fn the_event_stream_coming_back_ends_the_silence() {
     assert!(app.toast.current().is_none());
 }
 
+/// A session its server doesn't have shows Desktop's panel in its tab at once (27ff2715), not a
+/// toast and not a wait.
 #[test]
 fn a_missing_session_still_fails_at_once_in_plain_words() {
     let fetch: Fetch = Arc::new(|_| Err("GET /api/session/x/message: http status: 404".into()));
     let mut app = open(fetch, Duration::from_secs(30));
-    assert!(wait(&mut app, |a| a.toast.current().is_some()));
-    assert_eq!(app.toast.current().cloned().unwrap().title, "Couldn't load this session");
+    assert!(wait(&mut app, |a| crate::session_state::view(a, ID) == crate::session_state::View::NotFound));
+    assert!(app.toast.current().is_none());
 }

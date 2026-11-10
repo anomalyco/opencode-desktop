@@ -35,6 +35,10 @@ fn turning_it_on_answers_the_open_requests_once_and_later_ones_as_they_come() {
     ask(&mut app, "per_1");
     app.set_auto_accept(true);
     assert_eq!(decisions(&writes), [("per_1".to_owned(), "once".to_owned())]);
+    // The request leaves once the server says it's answered (05cf747e).
+    let sid = crate::stories::sid(&app);
+    app.apply_event("client.request.replied", &json!({ "requestID": "per_1" }));
+    app.apply_event("permission.replied", &json!({ "requestID": "per_1", "sessionID": sid }));
     assert!(app.pending.is_empty());
     ask(&mut app, "per_2");
     assert_eq!(decisions(&writes), [("per_2".to_owned(), "once".to_owned())]);
