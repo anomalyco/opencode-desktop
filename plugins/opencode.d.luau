@@ -130,7 +130,7 @@ export type ControlSize = "small" | "normal" | "large"
 export type Elevation = "raised" | "floating" | "overlay"
 
 --- An element's accessibility role.
-export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "heading" | "img" | "status"
+export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "heading" | "img" | "status" | "alert"
 
 --- The state of a contract another plugin provides.
 export type LiveState = "pending" | "active" | "inactive" | "failed"
@@ -405,6 +405,8 @@ export type UiLayoutProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
 }
 
 --- Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.
@@ -479,6 +481,8 @@ export type UiBoxProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Space between children.
     gap: number?,
     --- How children sit across the axis.
@@ -593,6 +597,8 @@ export type UiTextProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Font size in points. Defaults to 13.
     size: number?,
     --- Weight.
@@ -685,6 +691,8 @@ export type UiSpacerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
 }
 
 --- `ui.divider` props.
@@ -747,6 +755,8 @@ export type UiDividerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- A vertical rule. Defaults to horizontal.
     vertical: boolean?,
     --- Defaults to `border-weak`.
@@ -813,6 +823,8 @@ export type UiIconProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
     --- Defaults to `icon-base`.
@@ -885,6 +897,8 @@ export type UiImageProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The image, from the `Images` service or an `Async` render.
     image: ImageId,
     --- How it fills its box.
@@ -953,6 +967,8 @@ export type UiMetricProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The number the text stands for. Hosts that animate compare it with the last value.
     value: number,
     --- What it reads, such as `"12.4K"`.
@@ -1033,6 +1049,8 @@ export type UiButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The visible label. Also the accessible name unless `label` is set.
     text: string?,
     --- A leading icon.
@@ -1111,6 +1129,8 @@ export type UiIconButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The icon.
     icon: IconName,
     --- The look. Defaults to `ghost`.
@@ -1185,6 +1205,8 @@ export type UiSwitchProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- On.
     checked: boolean,
     --- Cannot change.
@@ -1253,6 +1275,8 @@ export type UiRadioProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The row's label.
     text: string,
     --- A line under the label.
@@ -1329,6 +1353,8 @@ export type UiFieldProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The field's content, from `ctx:CreateEditor`.
     editor: Editor,
     --- Shows while the field is empty.
@@ -1341,6 +1367,8 @@ export type UiFieldProps = {
     secure: boolean?,
     --- Takes no typing.
     disabled: boolean?,
+    --- Takes no typing but looks as usual, such as while what was typed is sent.
+    readOnly: boolean?,
     --- Grows to more lines. Enter inserts a line break; Mod+Enter submits.
     multiline: boolean?,
     --- The look. Defaults to `default`.
@@ -1421,6 +1449,8 @@ export type UiSegmentedProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Its items, in order.
     items: { UiSegmentedItem },
     --- The picked item's id.
@@ -1489,6 +1519,8 @@ export type UiLoaderProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
 }
@@ -1553,6 +1585,8 @@ export type UiServerIndicatorProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown.
     health: ServerHealth?,
     --- It waits for the user to sign in: a lock.
@@ -1621,6 +1655,8 @@ export type UiPillProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The capsule's label.
     text: string,
     --- A leading icon.
@@ -1693,6 +1729,8 @@ export type UiKeybindProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- A published command id. The chip shows the user's current binding.
     command: string?,
     --- A literal binding, such as `"mod+shift+t"`, when there is no command.
@@ -1759,6 +1797,8 @@ export type UiSettingsRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The row's search id: settings search scrolls to it.
     id: string,
     --- The row's title.
@@ -1827,6 +1867,8 @@ export type UiSettingsListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- A section title above the card.
     title: string?,
 }
@@ -1891,6 +1933,8 @@ export type UiFlyoutRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The row's label.
     text: string,
     --- A leading icon.
@@ -1905,6 +1949,78 @@ export type UiFlyoutRowProps = {
     alert: boolean?,
     --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
     side: Side?,
+}
+
+--- `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.
+export type UiDialogHeaderProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- The dialog's title: 15 pt, wrapping anywhere.
+    title: string,
+    --- A muted line under the title.
+    description: string?,
+    --- Leaves out the close button.
+    hideClose: boolean?,
+    --- The close button's accessible name. Defaults to Close.
+    closeLabel: string?,
 }
 
 --- `ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.
@@ -1967,6 +2083,8 @@ export type UiMarkdownProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The Markdown.
     source: string,
     --- Body font size in points. Defaults to 14.
@@ -2041,6 +2159,8 @@ export type UiVirtualListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- How many rows.
     count: number,
     --- A row's height before it is measured.
@@ -2117,6 +2237,8 @@ export type UiTerminalSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The terminal session, from the `Terminal` service.
     session: PtySession?,
     --- A font family. Defaults to the user's code font.
@@ -2195,6 +2317,8 @@ export type UiTerminalTabLabelProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The terminal the tab shows.
     session: PtySession,
     --- Its label.
@@ -2263,6 +2387,8 @@ export type UiBrowserSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The page, from the `Browser` service.
     tab: BrowserTab,
     --- Takes keyboard focus.
@@ -2329,6 +2455,8 @@ export type UiCodeViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The file, from `Workspace:OpenDocument`.
     doc: CodeDocument,
     --- Wraps long lines.
@@ -2399,6 +2527,8 @@ export type UiDiffViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The changes, from `Diff:Open`.
     diff: DiffDocument,
     --- Split or unified.
@@ -2473,6 +2603,8 @@ export type UiFileTreeProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The tree, from `Workspace:OpenTree`.
     tree: FileTreeModel,
     --- Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing.
@@ -2555,6 +2687,8 @@ export type UiPanelSidebarProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`.
     id: string,
     --- Its width until the user drags it. Defaults to 240.
@@ -2635,6 +2769,8 @@ export type UiOpenInButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- A workspace path, or empty for the workspace folder.
     path: string,
 }
@@ -2699,6 +2835,8 @@ export type UiGenUiProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- The ```` ```ui ```` outline source.
     source: string,
     --- The source is still growing.
@@ -2765,6 +2903,8 @@ export type UiProgressCircleProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
     --- How full, 0 to 100. The arc runs clockwise from twelve o'clock.
     percentage: number,
     --- Its look. Defaults to `compact`.
@@ -3611,14 +3751,14 @@ export type CommandSpec = {
     bind: string?,
     --- Also offers it as a slash command.
     slash: CommandSlash?,
-    --- Keeps it out of the palette. The keybind still works.
-    hidden: boolean?,
+    --- Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield.
+    hidden: (boolean | (() -> boolean))?,
     --- Also lists it under Suggested.
     suggested: boolean?,
     --- Lists it when the palette opens without a query.
     featured: boolean?,
-    --- False takes it out of the palette and turns its keybind off. Defaults to true.
-    enabled: boolean?,
+    --- False takes it out of the palette and the slash list and turns its keybind off, and `Commands:Run` declines it. Defaults to true. A function makes it reactive, as Desktop's command accessor is: the host calls it as it lists commands or matches a key, and again only once something it read changes (`Layout:Narrow`, the routed session, a store value). Keep it cheap, and don't yield.
+    enabled: (boolean | (() -> boolean))?,
     --- The keybind also fires while a text field has focus.
     editable: boolean?,
     --- Offered only while a session is open.
@@ -3645,6 +3785,8 @@ export type PanelProps = {
     width: number,
     --- The pane's height in points.
     height: number,
+    --- In a narrow window's More drawer, the nested view this panel opened there with `Layout:OpenDrawerView`: its `data`. Nil while the drawer shows the panel's own view.
+    drawer: { [string]: any }?,
 }
 
 --- What a panel's `label` render receives.
@@ -3731,6 +3873,8 @@ export type PanelSpec = {
     fallback: boolean?,
     --- Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
     mobile: PanelMobileView?,
+    --- False withdraws the panel: no tab, launcher or narrow view. Defaults to true. A function offers it per session, as Desktop's panel accessor does (`session.project` for Session details): the host calls it with the routed session as it lists panels, and again only once something it read changes. Keep it cheap, and don't yield.
+    enabled: (boolean | ((sessionId: string) -> boolean))?,
     --- The pane a new tab opens in beside none of the plugin's others. Defaults to `side`.
     pane: PanelPane?,
     --- What Recently closed lists for its closed tab.
@@ -4329,6 +4473,8 @@ export type LayoutService = {
     PanelSidebar: (self: LayoutService) -> PanelSidebarInfo,
     --- Shows or hides it.
     TogglePanelSidebar: (self: LayoutService) -> (),
+    --- From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere.
+    OpenDrawerView: (self: LayoutService, title: string, data: { [string]: any }?) -> (),
 }
 
 --- Routes local links to the plugins that handle them. The window half only: `ctx:GetService("Links")`.
@@ -4491,9 +4637,9 @@ export type DiagnosticsService = {
     Metrics: (self: DiagnosticsService, pluginId: string?) -> PluginMetrics?,
     --- The ids of the plugins running in this window, for a console's target.
     Plugins: (self: DiagnosticsService) -> { string },
-    --- A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes.
+    --- A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch), and the layout tools: `direction` (`"ltr"` or `"rtl"`, the window's layout direction) and `forceFocus` (a boolean: every control draws its keyboard focus ring). Read in a render, it redraws as the setting changes.
     Get: (self: DiagnosticsService, name: string) -> any,
-    --- Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab.
+    --- Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches; `direction` overrides the language's direction for this launch, and setting the language's own direction drops the override), or opens a developer tool: `components` the components lab.
     Set: (self: DiagnosticsService, name: string, value: any) -> (),
     --- Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it. Yields: call it from a handler, a task or a signal callback.
     HeapSnapshotAsync: (self: DiagnosticsService) -> SaveResult,
@@ -4801,6 +4947,8 @@ export type UiLibrary = {
     settingsList: (props: UiSettingsListProps, rows: { UiNode }) -> UiNode,
     --- A popover row that opens a nested popover.
     flyoutRow: (props: UiFlyoutRowProps) -> UiNode,
+    --- The app's dialog header: title, description and close button. Its close button closes this plugin's dialog, as Esc does.
+    dialogHeader: (props: UiDialogHeaderProps) -> UiNode,
     --- Markdown, as the timeline draws a reply. Native: the host renders it.
     markdown: (props: UiMarkdownProps) -> UiNode,
     --- A long list that builds only its visible rows. Native: the host renders it.

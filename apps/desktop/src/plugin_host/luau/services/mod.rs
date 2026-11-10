@@ -315,6 +315,10 @@ pub(super) fn lazy_signals(lua: &Lua, vmx: &Rc<Vmx>, t: &Table, service: &str, f
                 return Ok(Value::Nil);
             }
             let s = signal(lua, &v, &format!("{service}.{key}"))?;
+            // What it follows now is its first value: a change from here on fires it.
+            if let Some(app) = cx::app() {
+                watch::baseline(app, &v.half, &format!("{service}.{key}"));
+            }
             t.raw_set(key, &s)?;
             Ok(s)
         })?,

@@ -93,6 +93,11 @@ pub fn get(app: &App, name: &str) -> Data {
         "slow" => Data::Bool(on(k.get(&crate::knobs::SLOW))),
         "knobs" => Data::Bool(k.open),
         "memoryLog" => word(LOG.with_borrow(|l| l.word())),
+        "direction" => word(match opencode_i18n::direction() {
+            opencode_i18n::Direction::Ltr => "ltr",
+            opencode_i18n::Direction::Rtl => "rtl",
+        }),
+        "forceFocus" => Data::Bool(app.plugins.luau.force_focus),
         _ => Data::Nil,
     }
 }
@@ -106,6 +111,8 @@ pub fn apply(app: &mut App, name: &str, value: Data, tx: &mut rune::Tx) {
         ("slow", Data::Bool(on)) => app.knobs.set(&crate::knobs::SLOW, if on { 1.0 } else { 0.0 }),
         ("knobs", Data::Bool(open)) if open != app.knobs.open => app.knobs.toggle(),
         ("components", _) => tx.open_playground(),
+        ("direction", Data::String(d)) => opencode_i18n::set_direction(if d == "rtl" { opencode_i18n::Direction::Rtl } else { opencode_i18n::Direction::Ltr }),
+        ("forceFocus", Data::Bool(on)) => app.plugins.luau.force_focus = on,
         _ => {}
     }
 }

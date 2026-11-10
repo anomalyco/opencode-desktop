@@ -28,6 +28,7 @@ struct Panel {
     on_close: Option<Function>,
     is_wide: Option<Function>,
     tab_title: Option<Function>,
+    enabled: Option<Function>,
 }
 
 thread_local! {
@@ -100,9 +101,17 @@ fn panels(app: &App, plugin: &str) -> Option<(usize, Vec<Panel>)> {
             on_close: c.f("onClose").cloned(),
             is_wide: c.f("isWide").cloned(),
             tab_title: c.f("tabTitle").cloned(),
+            enabled: c.f("enabled").cloned(),
         })
         .collect();
     Some((i, all))
+}
+
+/// Whether plugin `i` offers panel `p` for `session` (`PanelSpec.enabled`): its function's
+/// answer for the session ([`answer`]), else its value.
+fn offered(app: &App, i: usize, p: &Panel, session: &str) -> bool {
+    let Some(f) = &p.enabled else { return p.spec.enabled != Some(false) };
+    answer(app, i, &format!("enabled:{}:{session}", p.spec.id), f, session.to_owned()) == Some(Data::Bool(true))
 }
 
 /// The panel that draws tab `tab`: the panel of that id, else the instance panel.
@@ -119,7 +128,7 @@ fn icon_of(spec: &PanelSpec) -> &'static rune::Icon {
 pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
     let Some((i, all)) = panels(app, ctx.plugin) else { return Vec::new() };
     let mut out = Vec::new();
-    for p in &all {
+    for p in all.iter().filter(|p| offered(app, i, p, ctx.session_id)) {
         let Some(list) = &p.list else {
             let title = match p.tab_title.as_ref().and_then(|f| answer(app, i, &format!("title:{}:{}", p.spec.id, ctx.session_id), f, ctx.session_id.to_owned())) {
                 Some(Data::String(t)) => t,
@@ -235,7 +244,14 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let Some(f) = &all[k].render else { return rune::el() };
     let placement = if ctx.mobile { "mobile" } else { "side" };
     super::native::terminal::SCALE.set(ctx.env_scale);
-    let data = props(app, &all, k, ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
+    let mut data = props(app, &all, k, ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
+    // The nested view it opened in the More drawer (`Layout:OpenDrawerView`).
+    let more = &app.layout.narrow.more;
+    if let (true, Some(nested), Data::Map(fields)) = (ctx.mobile, more.nested(), &mut data)
+        && more.drawn_view() == Some(crate::panels::panel_key(ctx.plugin, &all[k].spec.id).as_str())
+    {
+        fields.insert("drawer".to_owned(), nested.data.clone());
+    }
     let instance = if all[k].list.is_some() { ctx.tab.id.as_str() } else { "" };
     let suffix = if ctx.mobile { ":mobile" } else { "" };
     let spec = &all[k].spec;
@@ -260,7 +276,7 @@ pub fn tab_lead(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: 
 pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     let Some((i, all)) = panels(app, ctx.plugin) else { return Vec::new() };
     let manifest = &app.plugins.luau.plugins[i].manifest;
-    let own = all.iter().filter(|p| p.list.is_none() && p.spec.launcher != Some(false)).map(|p| {
+    let own = all.iter().filter(|p| p.list.is_none() && p.spec.launcher != Some(false) && offered(app, i, p, ctx.session_id)).map(|p| {
         let description = p.spec.description.clone().or_else(|| manifest.description.clone());
         PanelLauncherDesc::new(intern(&p.spec.id), p.spec.title.clone(), icon_of(&p.spec), p.spec.order.unwrap_or(0) as i32)
             .description(description)
@@ -335,13 +351,14 @@ pub fn home_pane(app: &App, plugin: &str) -> Option<SessionPane> {
     })
 }
 
-/// The narrow-window views the plugins' panels offer (`PanelSpec.mobile`), each keyed by its
-/// panel's tab key, `<plugin>:<panel>`.
+/// The narrow-window views the plugins' panels offer the routed session (`PanelSpec.mobile`),
+/// each keyed by its panel's tab key, `<plugin>:<panel>`.
 pub fn narrow_views(app: &App) -> Vec<(String, opencode_plugin_spec::PanelMobileView)> {
-    app.plugins
-        .luau
-        .running()
-        .flat_map(|(_, p)| p.half.contribs.borrow().panels.iter().filter_map(|c| Some((crate::panels::panel_key(&p.manifest.id, &c.spec.id), c.spec.mobile.clone()?))).collect::<Vec<_>>())
+    let session = app.active_session_id().unwrap_or_default();
+    let ids: Vec<String> = app.plugins.luau.running().map(|(_, p)| p.manifest.id.clone()).collect();
+    ids.iter()
+        .filter_map(|id| panels(app, id).map(|(i, all)| (id, i, all)))
+        .flat_map(|(id, i, all)| all.into_iter().filter(|p| offered(app, i, p, session)).filter_map(|p| Some((crate::panels::panel_key(id, &p.spec.id), p.spec.mobile?))).collect::<Vec<_>>())
         .collect()
 }
 

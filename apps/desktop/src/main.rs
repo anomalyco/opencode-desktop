@@ -922,6 +922,12 @@ impl App {
         if let Some(name) = arg("--preset") {
             knobs::apply_preset(&mut app, &name);
         }
+        // `--knob <name>=<value>` (repeatable): a run starts with that knob set, by its key or its
+        // panel name and a choice's label or a number, as a capture needs an experiment on.
+        let all = rune::extra_args();
+        for pair in all.iter().zip(all.iter().skip(1)).filter(|(k, _)| *k == "--knob").map(|(_, v)| v) {
+            knobs::apply_arg(&mut app, pair);
+        }
         app
     }
 

@@ -106,8 +106,10 @@ fn push<S: DeserializeOwned + Record>(lua: &Lua, list: &mut Vec<Contrib<S>>, t: 
     }
     let spec: S = data.decode().map_err(|e| mlua::Error::runtime(format!("{}: {e}", S::NAME)))?;
     let mut fns = BTreeMap::new();
+    // A key that takes a value or a function (`enabled`) keeps only a function here; its value
+    // decoded into the spec.
     for name in S::CALLBACKS {
-        if let Some(f) = t.raw_get::<Option<Function>>(*name)? {
+        if let Value::Function(f) = t.raw_get::<Value>(*name)? {
             fns.insert(*name, f);
         }
     }

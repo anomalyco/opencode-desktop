@@ -87,6 +87,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // Every button, link and tab is a Tab stop in document order, and dialogs open focused, as
     // in Desktop's DOM.
     cx.web_focus();
+    // The debug bar's FOCUS: every control shows its focus ring.
+    if s.plugins.luau.force_focus {
+        cx.force_focus_rings();
+    }
     // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
     cx.help_look(rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact).help_look());
     // A quote's source stays lit in the timeline while its comment is written.

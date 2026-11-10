@@ -36,29 +36,39 @@ pub struct Cmd {
 
 /// Every Luau command, offered here or not.
 pub fn all(app: &App) -> Vec<Cmd> {
-    app
+    let listed: Vec<_> = app
         .plugins
         .luau
         .running()
-        .flat_map(|(_, p)| {
-            p.half.contribs.borrow().commands.iter().map(|c| {
-                let s = &c.spec;
-                Cmd {
-                    id: c.key,
-                    title: intern(&s.title),
-                    description: intern(s.description.as_deref().unwrap_or_default()),
-                    slash: s.slash.as_ref().map(|sl| intern(sl.name.trim_start_matches('/'))),
-                    slash_args: s.slash.as_ref().is_some_and(|sl| sl.arguments == Some(true)),
-                    keybind: s.bind.as_deref().and_then(|b| b.parse::<Keybind>().ok()).filter(|k| !k.chords().is_empty()),
-                    section: s.section.map(section),
-                    hidden: s.hidden == Some(true),
-                    editable: s.editable == Some(true),
-                    needs_session: s.requires_session == Some(true),
-                    enabled: s.enabled != Some(false),
-                }
-            }).collect::<Vec<_>>()
+        .flat_map(|(i, p)| p.half.contribs.borrow().commands.iter().map(|c| (i, c.key, c.spec.clone(), c.f("enabled").cloned(), c.f("hidden").cloned())).collect::<Vec<_>>())
+        .collect();
+    listed
+        .into_iter()
+        .map(|(i, key, s, enabled, hidden)| Cmd {
+            id: key,
+            title: intern(&s.title),
+            description: intern(s.description.as_deref().unwrap_or_default()),
+            slash: s.slash.as_ref().map(|sl| intern(sl.name.trim_start_matches('/'))),
+            slash_args: s.slash.as_ref().is_some_and(|sl| sl.arguments == Some(true)),
+            keybind: s.bind.as_deref().and_then(|b| b.parse::<Keybind>().ok()).filter(|k| !k.chords().is_empty()),
+            section: s.section.map(section),
+            hidden: flag(app, i, key, "hidden", hidden.as_ref(), s.hidden, false),
+            editable: s.editable == Some(true),
+            needs_session: s.requires_session == Some(true),
+            enabled: flag(app, i, key, "enabled", enabled.as_ref(), s.enabled, true),
         })
         .collect()
+}
+
+/// Command `key`'s flag `name` (`enabled`, `hidden`): its function's answer ([`cx::answer`]),
+/// else its value, else `default`.
+fn flag(app: &App, i: usize, key: &str, name: &str, f: Option<&Function>, value: Option<bool>, default: bool) -> bool {
+    let (Some(f), Some(script)) = (f, app.plugins.luau.plugins[i].script()) else { return value.unwrap_or(default) };
+    let answer = cx::answer(app, script, format!("command:{key}:{name}"), || script.eval_fn::<bool>(f, ()).map_or(Data::Nil, Data::Bool));
+    match answer {
+        Data::Bool(b) => b,
+        _ => default,
+    }
 }
 
 pub fn section(s: opencode_plugin_spec::CommandSection) -> Section {
@@ -80,14 +90,10 @@ pub fn offered(app: &App, c: &Cmd) -> bool {
 
 /// Runs Luau command `id` with `input`; false when there is none or it is off.
 pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
-    let Some((i, f)) = app.plugins.luau.running().find_map(|(i, p)| {
-        let c = p.half.contribs.borrow();
-        let c = c.commands.iter().find(|c| c.key == id && c.spec.enabled != Some(false))?;
-        if c.spec.requires_session == Some(true) && app.active_session_id().is_none() {
-            return None;
-        }
-        Some((i, c.f("run")?.clone()))
-    }) else {
+    if !all(app).iter().any(|c| c.id == id && offered(app, c)) {
+        return false;
+    }
+    let Some((i, f)) = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().commands.iter().find(|c| c.key == id)?.f("run")?.clone()))) else {
         return false;
     };
     spawn(app, i, &f, input.map(str::to_owned), tx);

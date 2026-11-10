@@ -150,6 +150,12 @@ fn records(c: &Contract, doc: &str, list: &[&TypeDef]) -> Result<String, String>
                     o.line(&format!("    pub {}: {ty},", snake(&f.name)));
                     data.push(format!("\"{}\"", f.name));
                 }
+                RustField::DataOrCallback(ty) => {
+                    o.line(&format!("    /// {}", f.doc));
+                    o.line(&format!("    pub {}: {ty},", snake(&f.name)));
+                    data.push(format!("\"{}\"", f.name));
+                    callbacks.push(format!("\"{}\"", f.name));
+                }
                 RustField::Callback => callbacks.push(format!("\"{}\"", f.name)),
                 RustField::Handle => handles.push(format!("\"{}\"", f.name)),
             }

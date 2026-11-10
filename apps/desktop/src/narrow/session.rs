@@ -236,7 +236,23 @@ pub fn more(s: &App, p: &Pal) -> El {
     let all = views(s);
     if let Some(view) = s.layout.narrow.more.drawn_view() {
         let Some(id) = s.active_session_id() else { return el() };
-        return col().key(format!("narrow-more-{view}-body")).w_full().min_h(0.0).child(panel(s, p, id, view));
+        // A nested view the panel opened (`mobile-panel-drawer.tsx`): a ghost Back button named
+        // after the panel's view (`mb-2 !justify-start`), then what the panel draws for it.
+        let back = s.layout.narrow.more.nested().map(|_| {
+            let title = all.iter().find(|v| v.id == view).map(|v| v.title.clone()).unwrap_or_default();
+            let button = crate::widgets::button(title, rune_kit::ButtonVariant::Ghost).icon(crate::plugin_host::icons::resolve("", "arrow-left")).build(crate::palette::kit(p));
+            row().key("narrow-more-back").w_full().mb(8.0).child(button.key("narrow-more-back-button").label(t!("common.goBack")).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.more_drawer(MoreEvent::Back, tx);
+            }))
+        });
+        let body = col().key(format!("narrow-more-{view}-body")).w_full().min_h(0.0);
+        // The drawer's hidden heading names the nested view (`MobileDrawerLabel`).
+        let body = match s.layout.narrow.more.nested() {
+            Some(n) => body.role("group").label(n.title.clone()),
+            None => body,
+        };
+        return body.children(back).child(panel(s, p, id, view));
     }
     let shown = s.narrow_view().to_owned();
     let mut card = col()

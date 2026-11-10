@@ -27,48 +27,70 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
     }
     let mut fired = false;
     for name in names {
-        let plugin = &half.id;
-        let now: Option<(u64, Data)> = match name.as_str() {
-            "Sessions.RoutedChanged" => {
-                let id = app.active_session_id();
-                Some((hash(id), id.map_or(Data::Nil, |id| session_data(app, id))))
-            }
-            "Models.Changed" => Some((hash((app.pickers.models.len(), app.pickers.limits.len(), app.pickers.paid.len())), Data::Nil)),
-            "Theme.Changed" => {
-                let p = crate::palette::pal(app.plugins.luau.dark.get());
-                Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))
-            }
-            "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
-            "Server.Connected" => Some((hash(&app.server_key), Data::Bool(true))),
-            "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
-            "Sessions.Changed" => {
-                for s in &app.sessions {
-                    let key = format!("Sessions.Changed:{}", s.id);
-                    let v = session_version(app, &s.id);
-                    let was = half.seen.borrow_mut().insert(key, v);
-                    if was.is_some_and(|w| w != v) {
-                        fired |= super::super::fire_named(app, i, &name, session_data(app, &s.id));
-                    }
-                }
-                None
-            }
-            n => {
-                if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
-                    Some((store_version(plugin, store), Data::Nil))
-                } else if let Some(session) = n.strip_prefix("Diff.").and_then(|s| s.strip_suffix(".Changed")) {
-                    Some((hash(super::super::native::diff::version(app, session)), Data::Nil))
-                } else {
-                    n.strip_prefix("Contracts.").and_then(|s| s.strip_suffix(".Changed")).map(|id| (contract_generation(id), Data::Nil))
+        if name == "Sessions.Changed" {
+            for s in &app.sessions {
+                let key = format!("Sessions.Changed:{}", s.id);
+                let v = session_version(app, &s.id);
+                let was = half.seen.borrow_mut().insert(key, v);
+                if was.is_some_and(|w| w != v) {
+                    fired |= super::super::fire_named(app, i, &name, session_data(app, &s.id));
                 }
             }
-        };
-        let Some((v, payload)) = now else { continue };
+            continue;
+        }
+        let Some((v, payload)) = observe(app, &half.id, &name) else { continue };
         let was = half.seen.borrow_mut().insert(name.clone(), v);
         if was.is_some_and(|w| w != v) {
             fired |= super::super::fire_named(app, i, &name, payload);
         }
     }
     fired
+}
+
+/// What signal `name` of plugin `plugin` follows, as a version, and the payload it fires with.
+/// `Sessions.Changed`, which follows each session apart, isn't one.
+fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
+    match name {
+        // The routed session, and whether its data has loaded: a window routed at launch
+        // (a restored tab) knows the id before the session, which `Routed` returns only then.
+        "Sessions.RoutedChanged" => {
+            let id = app.active_session_id();
+            Some((hash((id, id.is_some_and(|id| app.session(id).is_some()))), id.map_or(Data::Nil, |id| session_data(app, id))))
+        }
+        "Models.Changed" => Some((hash((app.pickers.models.len(), app.pickers.limits.len(), app.pickers.paid.len())), Data::Nil)),
+        "Theme.Changed" => {
+            let p = crate::palette::pal(app.plugins.luau.dark.get());
+            Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))
+        }
+        "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
+        "Server.Connected" => Some((hash(&app.server_key), Data::Bool(true))),
+        "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
+        n => {
+            if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {
+                Some((store_version(plugin, store), Data::Nil))
+            } else if let Some(session) = n.strip_prefix("Diff.").and_then(|s| s.strip_suffix(".Changed")) {
+                Some((hash(super::super::native::diff::version(app, session)), Data::Nil))
+            } else {
+                n.strip_prefix("Contracts.").and_then(|s| s.strip_suffix(".Changed")).map(|id| (contract_generation(id), Data::Nil))
+            }
+        }
+    }
+}
+
+/// Takes what signal `name` of plugin half `half` follows as it is when the plugin connects to
+/// it, so a change between its setup and the next poll (a launch's routed session loading)
+/// fires it rather than becoming its first value.
+pub fn baseline(app: &App, half: &crate::plugin_host::luau::Half, name: &str) {
+    let mut seen = half.seen.borrow_mut();
+    if name == "Sessions.Changed" {
+        for s in &app.sessions {
+            seen.entry(format!("Sessions.Changed:{}", s.id)).or_insert_with(|| session_version(app, &s.id));
+        }
+        return;
+    }
+    if let Some((v, _)) = observe(app, &half.id, name) {
+        seen.entry(name.to_owned()).or_insert(v);
+    }
 }
 
 /// A session as `Data`, the record `Sessions:Get` returns.

@@ -31,6 +31,7 @@ export type KeybindProps = UiKeybindProps
 export type SettingsRowProps = UiSettingsRowProps
 export type SettingsListProps = UiSettingsListProps
 export type FlyoutRowProps = UiFlyoutRowProps
+export type DialogHeaderProps = UiDialogHeaderProps
 export type MarkdownProps = UiMarkdownProps
 export type VirtualListProps = UiVirtualListProps
 export type TerminalSurfaceProps = UiTerminalSurfaceProps

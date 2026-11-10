@@ -77,17 +77,23 @@ pub fn modal(key: &str, p: &Pal, dialog: El, top: Option<f32>) -> Vec<El> {
     vec![scrim, layer.child(dialog).raise()]
 }
 
-/// The MCP status dot (`.mcp-status-dot`): filled green, red or amber, a ring when disabled,
-/// faint while connecting.
-pub fn status_dot(p: &Pal, status: &str) -> El {
-    // Desktop's v1 `icon-success-base` and `icon-critical-base`; a chosen theme's v2 state colours.
+/// A status dot's colour (`.mcp-status-dot`, `.session-service-dot`): Desktop's v1
+/// `icon-success-base`, `icon-critical-base` and `icon-warning-base`, or a chosen theme's v2
+/// state colours; faint otherwise.
+pub fn status_ink(p: &Pal, status: &str) -> Color {
     let v1 = |light: &str, dark: &str, or: Color| if p.theme == 0 { rune::color::hex(if p.dark { dark } else { light }).unwrap_or(or) } else { or };
-    let ink = match status {
-        "connected" => v1("#0abe00", "#089b00", p.success),
+    match status {
+        "connected" | "active" => v1("#0abe00", "#089b00", p.success),
         "failed" => v1("#fa3012", "#cb321c", p.danger),
         "needs_auth" => p.v1_icon_warning,
         _ => p.icon_faint,
-    };
+    }
+}
+
+/// The MCP status dot (`.mcp-status-dot`): filled green, red or amber, a ring when disabled,
+/// faint while connecting.
+pub fn status_dot(p: &Pal, status: &str) -> El {
+    let ink = status_ink(p, status);
     let dot = el().key("mcp-status-dot").size(6.0, 6.0).radius(3.0);
     let dot = if status == "disabled" { dot.border(1.0, ink) } else { dot.fill(ink) };
     el().key("mcp-status").size(16.0, 16.0).center().child(dot)

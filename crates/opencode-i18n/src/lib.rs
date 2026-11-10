@@ -136,10 +136,34 @@ pub enum Direction {
 /// document root (`language.tsx:42`, `:397`). The locale switch commits the language and its
 /// direction together, as `runtime/i18n/machine.ts` does.
 pub fn direction() -> Direction {
+    match DIRECTION.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => Direction::Ltr,
+        2 => Direction::Rtl,
+        _ => locale_direction(),
+    }
+}
+
+/// The current locale's own direction, whatever [`set_direction`] chose.
+pub fn locale_direction() -> Direction {
     match locale().id() {
         "ar" | "he" | "ur" | "pa" | "fa" | "dv" => Direction::Rtl,
         _ => Direction::Ltr,
     }
+}
+
+/// The layout direction the debug bar's DIR forces (`language.setDirection`): 0 follows the
+/// locale, 1 is left to right, 2 right to left.
+static DIRECTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Lays the window out in `dir` without changing the language, for this launch, as Desktop's
+/// `language.setDirection` does; the language's own direction drops the override.
+pub fn set_direction(dir: Direction) {
+    let forced = match dir {
+        _ if dir == locale_direction() => 0,
+        Direction::Ltr => 1,
+        Direction::Rtl => 2,
+    };
+    DIRECTION.store(forced, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Whether the current locale is an English one (Desktop compares the tag's language).

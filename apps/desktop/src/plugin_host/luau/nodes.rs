@@ -3,7 +3,7 @@
 //! with, so a plugin's button or settings row is the app's to the pixel. Native views later
 //! packages bring (terminal, browser, code, diff, tree, UI outlines) draw a note naming them.
 
-use rune::{El, TextStyle, Tx, el, row, text};
+use rune::{El, TextStyle, Tx, col, el, row, text};
 use rune_kit::{ButtonVariant, Loader};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -30,6 +30,7 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("settingsRow", settings_row),
         HostNode::new("settingsList", settings_list),
         HostNode::new("flyoutRow", flyout_row),
+        HostNode::new("dialogHeader", dialog_header),
         HostNode::new("markdown", markdown),
         HostNode::new("progressCircle", progress_circle),
         pending("browserSurface", "LU-7"),
@@ -234,8 +235,14 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let mut input = rune_kit::TextInput::new(edit)
         .placeholder(a.string("placeholder").unwrap_or_default().to_owned())
         .invalid(a.flag("invalid"))
-        .disabled(a.flag("disabled"))
-        .on_edit(move |app: &mut App| super::editors::get_mut(app, &edit_plugin, index));
+        .disabled(a.flag("disabled"));
+    // A read-only field draws as usual and takes no edit.
+    if !a.flag("readOnly") {
+        input = input.on_edit(move |app: &mut App| super::editors::get_mut(app, &edit_plugin, index));
+    }
+    if a.string("w") == Some("full") {
+        input = input.width(None);
+    }
     if a.string("size") == Some("large") {
         input = input.large();
     }
@@ -389,7 +396,7 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     }
     r = r.child(text(words).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(pal.text).truncate().grow(1.0).shrink().min_w(0.0));
     if a.flag("alert") {
-        r = r.child(el().w(6.0).h(16.0).center().child(el().size(6.0, 6.0).radius(3.0).fill(pal.danger)));
+        r = r.child(el().w(6.0).h(16.0).center().child(el().size(6.0, 6.0).radius(3.0).fill(crate::widgets::status_ink(&pal, "failed"))));
     }
     if let Some(detail) = a.string("detail").filter(|d| !d.is_empty()) {
         r = r.child(text(detail.to_owned()).font(TextStyle::new(12.0, 440.0).lh(16.0).features("\"tnum\"")).color(pal.faint).single_line());
@@ -403,20 +410,72 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
         _ => rune::Side::Right,
     };
     let data = a.data("props").unwrap_or_default();
-    let show = move |app: &mut App, tx: &mut Tx| {
-        let event = super::FlyoutEvent::Row { id: popover.clone(), row: key.clone(), side, data: data.clone() };
-        cx::ask(&plugin, cx::Request::Flyout(event));
+    let target = super::flyout::Row { id: popover, row: key.clone(), side, data };
+    // Steps the popover's flyout (`flyout-machine.ts`) with the event `make` builds for this row.
+    let ask = std::rc::Rc::new(move |app: &mut App, tx: &mut Tx, make: &dyn Fn(super::flyout::Row) -> super::FlyoutEvent| {
+        cx::ask(&plugin, cx::Request::Flyout(make(target.clone())));
         super::requests::carry_out(app, tx);
-    };
-    let show = std::rc::Rc::new(show);
-    let hover = show.clone();
-    Ok(r.key(a.string("key").unwrap_or("flyout").to_owned())
+    });
+    let (hover, moved, press) = (ask.clone(), ask.clone(), ask);
+    let (row_key, laid) = (key.clone(), key.clone());
+    Ok(r.key(key)
+        .on_layout_tx(move |app: &mut App, rect, tx: &mut Tx| {
+            app.plugins.luau.aim.rows.borrow_mut().insert(laid.clone(), rect);
+            tx.live_only();
+        })
+        // Coming onto a row opens a closed flyout (`row.entered`); leaving it for the gap
+        // between rows, or the rows altogether, ends an aim (`row.moved` onto no row,
+        // `aim.cancelled`).
         .on_hover_change(move |app: &mut App, inside: bool, tx: &mut Tx| {
             if inside {
-                hover(app, tx);
+                hover(app, tx, &super::FlyoutEvent::Entered);
+            } else if app.plugins.luau.overlay.flyout_due() {
+                hover(app, tx, &|_: super::flyout::Row| super::FlyoutEvent::Settled);
+            } else {
+                tx.live_only();
             }
         })
-        .on_press_tx(move |app: &mut App, tx: &mut Tx| show(app, tx)))
+        // Moving over a row switches an open flyout at once, unless the pointer heads for the
+        // open list across it (`row.moved`).
+        .on_pointer_move_local(move |app: &mut App, e: rune::PointerEvent, tx: &mut Tx| {
+            let aim = &app.plugins.luau.aim;
+            let Some(point) = aim.point(&row_key, [e.x, e.y]) else { return tx.live_only() };
+            aim.step(point);
+            let Some(open) = app.plugins.luau.overlay.flyout_list().map(|l| (l.row.clone(), l.side)) else { return tx.live_only() };
+            if open.0 == row_key && !app.plugins.luau.overlay.flyout_due() {
+                return tx.live_only();
+            }
+            let aiming = open.0 != row_key && aim.heading(point, open.1);
+            let now = app.clock;
+            moved(app, tx, &move |row: super::flyout::Row| super::FlyoutEvent::Moved { row, aiming, now });
+        })
+        .on_press_tx(move |app: &mut App, tx: &mut Tx| press(app, tx, &super::FlyoutEvent::Activated)))
+}
+
+/// `ui.dialogHeader` (`dialog.css`): `dialog-header` 16 in, its `dialog-title-group` (the title
+/// 15 on 20 at 530, tracking -0.13; the description 13 on 20 at 440 in `text-muted`, 4 under it,
+/// both wrapping anywhere) and the 20 pt close button, 2 up and 2 out at the end, lit on hover,
+/// which closes this plugin's dialog as Esc does.
+fn dialog_header(a: &mut NodeArgs) -> Result<El, String> {
+    let pal = p(a);
+    let title = a.string("title").unwrap_or_default().to_owned();
+    let mut group = col().key("dialog-title-group").grow(1.0).shrink().min_w(0.0).gap(4.0)
+        .child(text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text).wrap_anywhere().w_full());
+    if let Some(description) = a.string("description") {
+        group = group.child(text(description.to_owned()).font(crate::widgets::BODY).color(pal.muted).wrap_anywhere().w_full());
+    }
+    let mut header = row().key("dialog-header").w_full().padding(16.0).child(group);
+    if !a.flag("hideClose") {
+        let label = a.string("closeLabel").map_or_else(|| opencode_i18n::t!("common.close").to_owned(), str::to_owned);
+        header = header.child(
+            el().key("dialog-close-button").role("button").label(label).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+                .hover(pal.hover)
+                .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| super::requests::dismiss_dialog(s, tx))
+                .child(rune::icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(pal.icon_muted)),
+        );
+    }
+    Ok(header)
 }
 
 fn markdown(a: &mut NodeArgs) -> Result<El, String> {

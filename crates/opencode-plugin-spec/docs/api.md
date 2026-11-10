@@ -285,6 +285,7 @@ Panels, settings and drafts in this window. Halves: window.
 | `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
 | `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
 | `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
+| `:OpenDrawerView` | `(title: string, data: { [string]: any }?) -> ()` | From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere. |
 
 ### Links
 
@@ -431,8 +432,8 @@ Developer diagnostics. Local and beta builds only, except `Get` of an experiment
 | `:Memory` | `() -> { [string]: any }?` | The process's memory counters. |
 | `:Metrics` | `(pluginId: string?) -> PluginMetrics?` | A plugin's live costs. Defaults to this plugin. |
 | `:Plugins` | `() -> { string }` | The ids of the plugins running in this window, for a console's target. |
-| `:Get` | `(name: string) -> any` | A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes. |
-| `:Set` | `(name: string, value: any) -> ()` | Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab. |
+| `:Get` | `(name: string) -> any` | A developer setting: an experiment (`sources.enabled` `"on"` or `"off"`, `sources.icons` `"site"` or `"letters"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `"off"`, `"on"`, or `"env"` when the environment turned them on for this launch), and the layout tools: `direction` (`"ltr"` or `"rtl"`, the window's layout direction) and `forceFocus` (a boolean: every control draws its keyboard focus ring). Read in a render, it redraws as the setting changes. |
+| `:Set` | `(name: string, value: any) -> ()` | Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches; `direction` overrides the language's direction for this launch, and setting the language's own direction drops the override), or opens a developer tool: `components` the components lab. |
 | `:HeapSnapshotAsync` | `() -> SaveResult` | Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it. Yields. |
 
 ### Power
@@ -518,6 +519,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
 | `ui.flyoutRow(props: UiFlyoutRowProps) -> UiNode` | control | [`UiFlyoutRowProps`](#uiflyoutrowprops) | A popover row that opens a nested popover. |
+| `ui.dialogHeader(props: UiDialogHeaderProps) -> UiNode` | control | [`UiDialogHeaderProps`](#uidialogheaderprops) | The app's dialog header: title, description and close button. Its close button closes this plugin's dialog, as Esc does. |
 | `ui.markdown(props: UiMarkdownProps) -> UiNode` | native | [`UiMarkdownProps`](#uimarkdownprops) | Markdown, as the timeline draws a reply. |
 | `ui.virtualList(props: UiVirtualListProps) -> UiNode` | native | [`UiVirtualListProps`](#uivirtuallistprops) | A long list that builds only its visible rows. |
 | `ui.terminalSurface(props: UiTerminalSurfaceProps) -> UiNode` | native | [`UiTerminalSurfaceProps`](#uiterminalsurfaceprops) | A terminal. |
@@ -888,6 +890,7 @@ An element's accessibility role.
 | `"heading"` | A heading. |
 | `"img"` | An image. Give it a `label`. |
 | `"status"` | A live status message. |
+| `"alert"` | An urgent message that assistive technology announces at once, such as a failure. |
 
 ### LiveState
 
@@ -1348,6 +1351,7 @@ Size, spacing, position and accessibility: every `ui.*` node takes these. A prop
 | `label` | `string?` | The accessible name. |
 | `help` | `string?` | A tooltip. |
 | `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
+| `dir` | `("ltr" \| "rtl" \| "auto")?` | Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's. |
 
 ### UiPin
 
@@ -1554,6 +1558,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `invalid` | `boolean?` | Drawn as invalid. |
 | `secure` | `boolean?` | Hides the text, for a password. |
 | `disabled` | `boolean?` | Takes no typing. |
+| `readOnly` | `boolean?` | Takes no typing but looks as usual, such as while what was typed is sent. |
 | `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
@@ -1665,6 +1670,19 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
 | `alert` | `boolean?` | Shows a danger dot before the detail: something in the nested list failed. |
 | `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
+
+### UiDialogHeaderProps
+
+`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | `string` | The dialog's title: 15 pt, wrapping anywhere. |
+| `description` | `string?` | A muted line under the title. |
+| `hideClose` | `boolean?` | Leaves out the close button. |
+| `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
 
 ### UiMarkdownProps
 
@@ -2539,10 +2557,10 @@ A command in the palette, with an optional keybind and slash command. Published 
 | `section` | `CommandSection?` | The Settings › Shortcuts section. Defaults to `general`. |
 | `bind` | `string?` | The default keybind, such as `"mod+shift+t"`. |
 | `slash` | `CommandSlash?` | Also offers it as a slash command. |
-| `hidden` | `boolean?` | Keeps it out of the palette. The keybind still works. |
+| `hidden` | `(boolean \| (() -> boolean))?` | Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield. |
 | `suggested` | `boolean?` | Also lists it under Suggested. |
 | `featured` | `boolean?` | Lists it when the palette opens without a query. |
-| `enabled` | `boolean?` | False takes it out of the palette and turns its keybind off. Defaults to true. |
+| `enabled` | `(boolean \| (() -> boolean))?` | False takes it out of the palette and the slash list and turns its keybind off, and `Commands:Run` declines it. Defaults to true. A function makes it reactive, as Desktop's command accessor is: the host calls it as it lists commands or matches a key, and again only once something it read changes (`Layout:Narrow`, the routed session, a store value). Keep it cheap, and don't yield. |
 | `editable` | `boolean?` | The keybind also fires while a text field has focus. |
 | `requiresSession` | `boolean?` | Offered only while a session is open. |
 | `run` | `(input: string?) -> ...any` | Runs it, as a coroutine. `input` is the slash command's arguments. Return `false` before the first yield to decline the key, so it reaches its target; any other return handles it. |
@@ -2561,6 +2579,7 @@ What a panel's render receives.
 | `restored` | `boolean?` | In `onFocus`: the selection came back with a restored strip rather than from the user. |
 | `width` | `number` | The pane's width in points: lay out for it as a container query would. |
 | `height` | `number` | The pane's height in points. |
+| `drawer` | `{ [string]: any }?` | In a narrow window's More drawer, the nested view this panel opened there with `Layout:OpenDrawerView`: its `data`. Nil while the drawer shows the panel's own view. |
 
 ### PanelTabLabelProps
 
@@ -2629,6 +2648,7 @@ A panel: tabs in a session's side region. Desktop's plugin API calls it `Panel`.
 | `first` | `boolean?` | Its tab sits at the front of the strip. |
 | `fallback` | `boolean?` | Its tab is selected when the selected tab closes. |
 | `mobile` | `PanelMobileView?` | Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it. |
+| `enabled` | `(boolean \| ((sessionId: string) -> boolean))?` | False withdraws the panel: no tab, launcher or narrow view. Defaults to true. A function offers it per session, as Desktop's panel accessor does (`session.project` for Session details): the host calls it with the routed session as it lists panels, and again only once something it read changes. Keep it cheap, and don't yield. |
 | `pane` | `PanelPane?` | The pane a new tab opens in beside none of the plugin's others. Defaults to `side`. |
 | `closed` | `ClosedTab?` | What Recently closed lists for its closed tab. |
 | `isWide` | `(() -> boolean)?` | Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield. |

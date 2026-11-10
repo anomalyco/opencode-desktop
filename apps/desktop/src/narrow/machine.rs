@@ -194,24 +194,37 @@ impl TabsDrawer {
 // ---------------------------------------------------------------------------------------------
 // More drawer (`MobileViewTabs`)
 
-/// The More drawer: shut, its menu of views, or one `drawer` kind view inside it. Shut from a
+/// The More drawer: shut, its menu of views, or one `drawer` kind view inside it, which may show
+/// a nested view of its own in its place (`mobile-panel-drawer.tsx`'s `view`). Shut from a
 /// view, it keeps drawing that view while it slides away, as Desktop's store keeps `drawer`
 /// until the next open.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum MoreDrawer {
     #[default]
     Closed,
-    ClosedFrom { view: String },
+    ClosedFrom { view: String, nested: Option<Nested> },
     Menu,
-    Panel { view: String },
+    Panel { view: String, nested: Option<Nested> },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A nested view a drawer kind view opened in the drawer (`useDrawer().open`): its title, and
+/// what its panel draws it from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Nested {
+    pub title: String,
+    pub data: rune_luau::Data,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum MoreEvent {
     /// More pressed: the menu, from the top.
     Open,
     /// A `drawer` kind view picked from the menu.
     Drill { view: String },
+    /// The drawer kind view `view` opened a nested view (`navigation.open`).
+    Nest { view: String, nested: Nested },
+    /// The nested view's back button (`navigation.back`).
+    Back,
     /// A `menu` kind view picked, an outside press, Escape, or the window going wide.
     Close,
 }
@@ -224,7 +237,15 @@ impl MoreDrawer {
     /// The `drawer` kind view it draws: open on it, or sliding away from it.
     pub fn drawn_view(&self) -> Option<&str> {
         match self {
-            MoreDrawer::Panel { view } | MoreDrawer::ClosedFrom { view } => Some(view),
+            MoreDrawer::Panel { view, .. } | MoreDrawer::ClosedFrom { view, .. } => Some(view),
+            MoreDrawer::Closed | MoreDrawer::Menu => None,
+        }
+    }
+
+    /// The nested view drawn in place of the drawer kind view.
+    pub fn nested(&self) -> Option<&Nested> {
+        match self {
+            MoreDrawer::Panel { nested, .. } | MoreDrawer::ClosedFrom { nested, .. } => nested.as_ref(),
             MoreDrawer::Closed | MoreDrawer::Menu => None,
         }
     }
@@ -232,9 +253,13 @@ impl MoreDrawer {
     pub fn step(self, event: MoreEvent) -> MoreDrawer {
         match (self, event) {
             (_, MoreEvent::Open) => MoreDrawer::Menu,
-            (MoreDrawer::Menu, MoreEvent::Drill { view }) => MoreDrawer::Panel { view },
+            (MoreDrawer::Menu, MoreEvent::Drill { view }) => MoreDrawer::Panel { view, nested: None },
             (state, MoreEvent::Drill { .. }) => state,
-            (MoreDrawer::Panel { view } | MoreDrawer::ClosedFrom { view }, MoreEvent::Close) => MoreDrawer::ClosedFrom { view },
+            (MoreDrawer::Panel { view, .. }, MoreEvent::Nest { view: from, nested }) if view == from => MoreDrawer::Panel { view, nested: Some(nested) },
+            (state, MoreEvent::Nest { .. }) => state,
+            (MoreDrawer::Panel { view, .. }, MoreEvent::Back) => MoreDrawer::Panel { view, nested: None },
+            (state, MoreEvent::Back) => state,
+            (MoreDrawer::Panel { view, nested } | MoreDrawer::ClosedFrom { view, nested }, MoreEvent::Close) => MoreDrawer::ClosedFrom { view, nested },
             (_, MoreEvent::Close) => MoreDrawer::Closed,
         }
     }

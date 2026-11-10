@@ -249,7 +249,7 @@ impl ServiceName {
             Self::Popover => &["Open", "Toggle", "Close", "IsOpen"],
             Self::Dialog => &["Open", "Close", "IsOpen"],
             Self::Menu => &["OpenAsync"],
-            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "Narrow", "PanelSidebar", "TogglePanelSidebar"],
+            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView"],
             Self::Links => &["Open", "Exists"],
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],

@@ -211,7 +211,8 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .role("dialog")
             .label(heading)
             .w(320.0)
-            .padding(4.0)
+            // `w-80 p-1` inside a 0.5 transparent border (`[data-composer-pill-panel]`).
+            .padding(4.5)
             .radius(10.0)
             .fill(p.layer1)
             .elevate(p.floating)
@@ -235,12 +236,28 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
 /// (`session-service-flyout`, `translateY(row - 2)`), 2 out from the row, which sits 2 inside
 /// the card, so it meets the card's edge.
 fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &super::Flyout) -> Option<El> {
-    let super::Flyout::Open { id, row, side, data } = flyout else { return None };
+    let list = flyout.list()?;
     let half = &app.plugins.luau.plugins[i].half;
-    let (key, f) = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()))?;
-    let content = render(app, p, i, &format!("flyout:{id}"), &f?, map([("data", data.clone())]));
+    let (key, f) = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == list.id).map(|c| (c.key, c.f("render").cloned()))?;
+    let content = render(app, p, i, &format!("flyout:{}", list.id), &f?, map([("data", list.data.clone())]));
     // An anchored element keeps its anchor's top whatever its margin, so the list moves up inside it.
-    Some(col().key(format!("plugin-flyout-{key}")).anchored(row.clone(), *side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(col().mt(-2.0).child(content)))
+    let body = col()
+        .mt(-2.0)
+        // Where the list is, for the rows' safe triangle; drawing doesn't depend on it.
+        .on_layout_tx(|s: &mut App, rect, tx: &mut Tx| {
+            s.plugins.luau.aim.list.set(Some(rect));
+            tx.live_only();
+        })
+        // The pointer reached the list: the aim ends (`aim.cancelled`).
+        .on_hover_change(|s: &mut App, inside: bool, tx: &mut Tx| {
+            let aiming = matches!(&s.plugins.luau.overlay, super::Overlay::Popover { flyout: super::Flyout::Aiming { .. }, .. });
+            if !(inside && aiming) {
+                return tx.live_only();
+            }
+            super::requests::step_flyout(s, None, super::FlyoutEvent::Settled, tx);
+        })
+        .child(content);
+    Some(col().key(format!("plugin-flyout-{key}")).anchored(list.row.clone(), list.side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(body))
 }
 
 /// The open Luau dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame

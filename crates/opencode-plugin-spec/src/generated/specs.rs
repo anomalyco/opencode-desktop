@@ -46,20 +46,20 @@ pub struct CommandSpec {
     pub bind: Option<String>,
     /// Also offers it as a slash command.
     pub slash: Option<CommandSlash>,
-    /// Keeps it out of the palette. The keybind still works.
+    /// Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield.
     pub hidden: Option<bool>,
     /// Also lists it under Suggested.
     pub suggested: Option<bool>,
     /// Lists it when the palette opens without a query.
     pub featured: Option<bool>,
-    /// False takes it out of the palette and turns its keybind off. Defaults to true.
+    /// False takes it out of the palette and the slash list and turns its keybind off, and `Commands:Run` declines it. Defaults to true. A function makes it reactive, as Desktop's command accessor is: the host calls it as it lists commands or matches a key, and again only once something it read changes (`Layout:Narrow`, the routed session, a store value). Keep it cheap, and don't yield.
     pub enabled: Option<bool>,
     /// The keybind also fires while a text field has focus.
     pub editable: Option<bool>,
     /// Offered only while a session is open.
     pub requires_session: Option<bool>,
 }
-impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["run"], []);
+impl_record!(CommandSpec, ["id", "title", "description", "keywords", "group", "section", "bind", "slash", "hidden", "suggested", "featured", "enabled", "editable", "requiresSession"], ["hidden", "enabled", "run"], []);
 
 /// What Recently closed lists for a panel's closed tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -120,12 +120,14 @@ pub struct PanelSpec {
     pub fallback: Option<bool>,
     /// Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it.
     pub mobile: Option<PanelMobileView>,
+    /// False withdraws the panel: no tab, launcher or narrow view. Defaults to true. A function offers it per session, as Desktop's panel accessor does (`session.project` for Session details): the host calls it with the routed session as it lists panels, and again only once something it read changes. Keep it cheap, and don't yield.
+    pub enabled: Option<bool>,
     /// The pane a new tab opens in beside none of the plugin's others. Defaults to `side`.
     pub pane: Option<PanelPane>,
     /// What Recently closed lists for its closed tab.
     pub closed: Option<ClosedTab>,
 }
-impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "pane", "closed"], ["isWide", "tabTitle", "list", "render", "label", "onClose", "onFocus"], []);
+impl_record!(PanelSpec, ["id", "title", "description", "icon", "order", "wide", "width", "transient", "launcher", "first", "fallback", "mobile", "enabled", "pane", "closed"], ["enabled", "isWide", "tabTitle", "list", "render", "label", "onClose", "onFocus"], []);
 
 /// A row in Settings › Plugins, under this plugin.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

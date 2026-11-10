@@ -61,6 +61,18 @@ pub fn apply_preset(s: &mut App, name: &str) {
     s.knobs.apply(g, name);
 }
 
+/// Sets one knob from `--knob <name>=<value>`: `name` is its key (`Sources`) or its panel label,
+/// `value` a choice's label (`On`) or a number. An unknown knob or value changes nothing.
+pub fn apply_arg(s: &mut App, pair: &str) {
+    let Some((name, value)) = pair.split_once('=') else { return };
+    let found = groups().iter().flat_map(|g| g.knobs).find(|k| k.name.eq_ignore_ascii_case(name) || k.label.eq_ignore_ascii_case(name));
+    let Some(knob) = found else { return };
+    let v = knob.labels.iter().position(|l| l.eq_ignore_ascii_case(value)).map(|i| i as f32).or_else(|| value.parse().ok());
+    if let Some(v) = v {
+        s.knobs.set(knob, v);
+    }
+}
+
 /// ⌘⇧K toggles the layer; Esc closes it.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let ours = crate::keymap::Bind::Knobs.matches_tx(ev, tx) || (ev.key == rune::Key::Escape && !ev.mods.alt && !ev.mods.ctrl);

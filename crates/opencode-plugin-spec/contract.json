@@ -215,7 +215,8 @@
       { "value": "listitem", "doc": "A list item." },
       { "value": "heading", "doc": "A heading." },
       { "value": "img", "doc": "An image. Give it a `label`." },
-      { "value": "status", "doc": "A live status message." }
+      { "value": "status", "doc": "A live status message." },
+      { "value": "alert", "doc": "An urgent message that assistive technology announces at once, such as a failure." }
     ] },
     { "name": "LiveState", "rust": true, "doc": "The state of a contract another plugin provides.", "values": [
       { "value": "pending", "doc": "Its provider is still loading or reloading." },
@@ -458,7 +459,8 @@
       { "name": "role", "type": "Role?", "doc": "The accessibility role." },
       { "name": "label", "type": "string?", "doc": "The accessible name." },
       { "name": "help", "type": "string?", "doc": "A tooltip." },
-      { "name": "helpSide", "type": "Side?", "doc": "Where the tooltip shows. Defaults to below." }
+      { "name": "helpSide", "type": "Side?", "doc": "Where the tooltip shows. Defaults to below." },
+      { "name": "dir", "type": "(\"ltr\" | \"rtl\" | \"auto\")?", "doc": "Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's." }
     ] },
     { "name": "UiPin", "kind": "record", "rust": true, "doc": "Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.", "fields": [
       { "name": "left", "type": "number?", "doc": "From the left edge." },
@@ -578,6 +580,7 @@
       { "name": "invalid", "type": "boolean?", "doc": "Drawn as invalid." },
       { "name": "secure", "type": "boolean?", "doc": "Hides the text, for a password." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no typing." },
+      { "name": "readOnly", "type": "boolean?", "doc": "Takes no typing but looks as usual, such as while what was typed is sent." },
       { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
       { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
@@ -628,6 +631,12 @@
       { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." },
       { "name": "alert", "type": "boolean?", "doc": "Shows a danger dot before the detail: something in the nested list failed." },
       { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
+    ] },
+    { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
+      { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere." },
+      { "name": "description", "type": "string?", "doc": "A muted line under the title." },
+      { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
+      { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." }
     ] },
     { "name": "UiMarkdownProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.markdown` props. Native: parsing, shaping, code fences and Mermaid diagrams stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The Markdown." },
@@ -1135,10 +1144,10 @@
       { "name": "section", "type": "CommandSection?", "doc": "The Settings › Shortcuts section. Defaults to `general`." },
       { "name": "bind", "type": "string?", "doc": "The default keybind, such as `\"mod+shift+t\"`." },
       { "name": "slash", "type": "CommandSlash?", "doc": "Also offers it as a slash command." },
-      { "name": "hidden", "type": "boolean?", "doc": "Keeps it out of the palette. The keybind still works." },
+      { "name": "hidden", "type": "(boolean | (() -> boolean))?", "doc": "Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield." },
       { "name": "suggested", "type": "boolean?", "doc": "Also lists it under Suggested." },
       { "name": "featured", "type": "boolean?", "doc": "Lists it when the palette opens without a query." },
-      { "name": "enabled", "type": "boolean?", "doc": "False takes it out of the palette and turns its keybind off. Defaults to true." },
+      { "name": "enabled", "type": "(boolean | (() -> boolean))?", "doc": "False takes it out of the palette and the slash list and turns its keybind off, and `Commands:Run` declines it. Defaults to true. A function makes it reactive, as Desktop's command accessor is: the host calls it as it lists commands or matches a key, and again only once something it read changes (`Layout:Narrow`, the routed session, a store value). Keep it cheap, and don't yield." },
       { "name": "editable", "type": "boolean?", "doc": "The keybind also fires while a text field has focus." },
       { "name": "requiresSession", "type": "boolean?", "doc": "Offered only while a session is open." },
       { "name": "run", "type": "(input: string?) -> ...any", "doc": "Runs it, as a coroutine. `input` is the slash command's arguments. Return `false` before the first yield to decline the key, so it reaches its target; any other return handles it." }
@@ -1151,7 +1160,8 @@
       { "name": "placement", "type": "\"side\" | \"mobile\"", "doc": "Where it renders." },
       { "name": "restored", "type": "boolean?", "doc": "In `onFocus`: the selection came back with a restored strip rather than from the user." },
       { "name": "width", "type": "number", "doc": "The pane's width in points: lay out for it as a container query would." },
-      { "name": "height", "type": "number", "doc": "The pane's height in points." }
+      { "name": "height", "type": "number", "doc": "The pane's height in points." },
+      { "name": "drawer", "type": "{ [string]: any }?", "doc": "In a narrow window's More drawer, the nested view this panel opened there with `Layout:OpenDrawerView`: its `data`. Nil while the drawer shows the panel's own view." }
     ] },
     { "name": "PanelTabLabelProps", "kind": "record", "doc": "What a panel's `label` render receives.", "fields": [
       { "name": "sessionId", "type": "string", "doc": "The routed session." },
@@ -1195,6 +1205,7 @@
       { "name": "first", "type": "boolean?", "doc": "Its tab sits at the front of the strip." },
       { "name": "fallback", "type": "boolean?", "doc": "Its tab is selected when the selected tab closes." },
       { "name": "mobile", "type": "PanelMobileView?", "doc": "Its view in a narrow window: a switcher tab or a More drawer row. Without one, a narrow window doesn't offer it." },
+      { "name": "enabled", "type": "(boolean | ((sessionId: string) -> boolean))?", "doc": "False withdraws the panel: no tab, launcher or narrow view. Defaults to true. A function offers it per session, as Desktop's panel accessor does (`session.project` for Session details): the host calls it with the routed session as it lists panels, and again only once something it read changes. Keep it cheap, and don't yield." },
       { "name": "pane", "type": "PanelPane?", "doc": "The pane a new tab opens in beside none of the plugin's others. Defaults to `side`." },
       { "name": "closed", "type": "ClosedTab?", "doc": "What Recently closed lists for its closed tab." },
       { "name": "isWide", "type": "(() -> boolean)?", "doc": "Asks for the wider session minimum while it returns true. Read on every layout: keep it cheap, and don't yield." },
@@ -1525,7 +1536,8 @@
       { "name": "NewDraft", "kind": "method", "sig": "(directory: string, prompt: string?) -> ()", "doc": "Opens a new session's draft in a folder, with a prompt typed in." },
       { "name": "Narrow", "kind": "method", "sig": "() -> boolean", "doc": "The window is narrow-screen sized." },
       { "name": "PanelSidebar", "kind": "method", "sig": "() -> PanelSidebarInfo", "doc": "The file sidebar `ui.panelSidebar` draws." },
-      { "name": "TogglePanelSidebar", "kind": "method", "sig": "() -> ()", "doc": "Shows or hides it." }
+      { "name": "TogglePanelSidebar", "kind": "method", "sig": "() -> ()", "doc": "Shows or hides it." },
+      { "name": "OpenDrawerView", "kind": "method", "sig": "(title: string, data: { [string]: any }?) -> ()", "doc": "From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere." }
     ] },
     { "name": "Links", "halves": ["window"], "doc": "Routes local links to the plugins that handle them.", "members": [
       { "name": "Open", "kind": "method", "sig": "(link: Link) -> boolean", "doc": "Opens a link with the best handler. False when no handler matches." },
@@ -1607,8 +1619,8 @@
       { "name": "Memory", "kind": "method", "sig": "() -> { [string]: any }?", "doc": "The process's memory counters." },
       { "name": "Metrics", "kind": "method", "sig": "(pluginId: string?) -> PluginMetrics?", "doc": "A plugin's live costs. Defaults to this plugin." },
       { "name": "Plugins", "kind": "method", "sig": "() -> { string }", "doc": "The ids of the plugins running in this window, for a console's target." },
-      { "name": "Get", "kind": "method", "sig": "(name: string) -> any", "doc": "A developer setting: an experiment (`sources.enabled` `\"on\"` or `\"off\"`, `sources.icons` `\"site\"` or `\"letters\"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `\"off\"`, `\"on\"`, or `\"env\"` when the environment turned them on for this launch). Read in a render, it redraws as the setting changes." },
-      { "name": "Set", "kind": "method", "sig": "(name: string, value: any) -> ()", "doc": "Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches), or opens a developer tool: `components` the components lab." },
+      { "name": "Get", "kind": "method", "sig": "(name: string) -> any", "doc": "A developer setting: an experiment (`sources.enabled` `\"on\"` or `\"off\"`, `sources.icons` `\"site\"` or `\"letters\"`), the animation clock (`speed` a number, `slow` a boolean), the tuning panel (`knobs` a boolean), or memory diagnostics (`memoryLog` `\"off\"`, `\"on\"`, or `\"env\"` when the environment turned them on for this launch), and the layout tools: `direction` (`\"ltr\"` or `\"rtl\"`, the window's layout direction) and `forceFocus` (a boolean: every control draws its keyboard focus ring). Read in a render, it redraws as the setting changes." },
+      { "name": "Set", "kind": "method", "sig": "(name: string, value: any) -> ()", "doc": "Changes a setting `Get` reads (`memoryLog` takes a boolean and keeps it across launches; `direction` overrides the language's direction for this launch, and setting the language's own direction drops the override), or opens a developer tool: `components` the components lab." },
       { "name": "HeapSnapshotAsync", "kind": "method", "sig": "() -> SaveResult", "yields": true, "doc": "Captures heap snapshots in a new folder in the downloads folder: the app's own server's snapshot, where the memory is per process (`memory.json`), and `manifest.json`, written last. `path` is the folder; `error` says why nothing was captured, or which snapshot failed. Every build offers it." }
     ] },
     { "name": "Power", "halves": ["window", "app"], "doc": "Display sleep.", "members": [
@@ -1669,6 +1681,7 @@
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },
     { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
+    { "name": "dialogHeader", "category": "control", "sig": "(props: UiDialogHeaderProps) -> UiNode", "props": "UiDialogHeaderProps", "doc": "The app's dialog header: title, description and close button. Its close button closes this plugin's dialog, as Esc does." },
     { "name": "markdown", "category": "native", "sig": "(props: UiMarkdownProps) -> UiNode", "props": "UiMarkdownProps", "doc": "Markdown, as the timeline draws a reply.", "native": { "engine": "Markdown renderer with Mermaid diagrams", "native": "Parsing and AST caching, paragraph shaping, code fences, Mermaid layout", "luau": "What to show, streaming state, highlights" } },
     { "name": "virtualList", "category": "native", "sig": "(props: UiVirtualListProps) -> UiNode", "props": "UiVirtualListProps", "doc": "A long list that builds only its visible rows.", "native": { "engine": "Virtualized rows", "native": "Viewport windowing, height cache, scroll anchoring, incremental mounting", "luau": "Row count, version and each row's content" } },
     { "name": "terminalSurface", "category": "native", "sig": "(props: UiTerminalSurfaceProps) -> UiNode", "props": "UiTerminalSurfaceProps", "doc": "A terminal.", "native": { "engine": "Terminal emulator over the server's PTY stream", "native": "VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream", "luau": "Tabs and their titles, commands, the + menu row, the narrow view" } },

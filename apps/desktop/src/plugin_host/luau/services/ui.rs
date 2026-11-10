@@ -170,6 +170,12 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         cx::ask(&q, Request::NewDraft { directory, prompt: prompt.unwrap_or_default() });
         Ok(())
     })?;
+    let q = p.clone();
+    method(lua, t, "OpenDrawerView", move |lua, (title, data): (String, Value)| {
+        let data = Data::from_lua(data, lua)?;
+        cx::ask(&q, Request::DrawerView { title, data });
+        Ok(())
+    })?;
     method(lua, t, "Narrow", |_, ()| {
         cx::read(Dep::Narrow);
         Ok(narrow(app_now("Layout:Narrow")?))

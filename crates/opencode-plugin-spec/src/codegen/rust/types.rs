@@ -9,6 +9,9 @@ pub enum RustField {
     Data(String),
     /// A Luau function the host keeps as a reference.
     Callback,
+    /// A plain value or a function that returns one (`boolean | (() -> boolean)`): the value
+    /// decodes as data, and the host keeps the function as a reference and calls it instead.
+    DataOrCallback(String),
     /// A host object or opaque value the host attaches itself.
     Handle,
 }
@@ -18,6 +21,14 @@ pub fn field(c: &Contract, ty: &str) -> Result<RustField, String> {
         return Ok(RustField::Callback);
     }
     let (inner, optional) = sig::strip_optional(ty);
+    let arms = sig::split_top(sig::unwrap_parens(inner), '|');
+    if let [value, f] = arms.as_slice()
+        && sig::is_function(f)
+        && !sig::is_function(value)
+    {
+        let rust = data(c, value)?;
+        return Ok(RustField::DataOrCallback(if optional { format!("Option<{rust}>") } else { rust }));
+    }
     if is_handle(c, inner) {
         return Ok(RustField::Handle);
     }

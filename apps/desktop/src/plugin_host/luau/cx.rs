@@ -62,6 +62,8 @@ pub enum Request {
     /// A step of the open popover's row list (`ui.flyoutRow`).
     Flyout(super::FlyoutEvent),
     OpenDialog { id: String, data: rune_luau::Data },
+    /// A nested view in the narrow More drawer (`Layout:OpenDrawerView`).
+    DrawerView { title: String, data: rune_luau::Data },
     CloseDialog,
     Toast { variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool },
     OpenSettings(Option<String>),
@@ -144,6 +146,36 @@ pub fn recording<R>(f: impl FnOnce() -> R) -> (R, Vec<Dep>) {
     let out = f();
     let reads = READS.replace(outer).unwrap_or_default();
     (out, reads)
+}
+
+thread_local! {
+    /// Each reactive answer by its key ([`answer`]), with what it was asked on.
+    static ANSWERS: RefCell<std::collections::HashMap<String, Answer>> = RefCell::default();
+}
+
+/// A reactive function's last answer: the script's version it was asked at, what the call read
+/// and how that read then.
+struct Answer {
+    asked: u64,
+    reads: Vec<Dep>,
+    read: u64,
+    value: rune_luau::Data,
+}
+
+/// A plugin function's answer that the host reads as it lists things (a command's `enabled`, a
+/// panel's `enabled`), from `ask`, which calls into `script`. It is answered from the last call
+/// under `key` while the script hasn't run since and nothing that call read changed, so a list
+/// built every frame enters no VM.
+pub fn answer(app: &App, script: &rune_luau::Script, key: String, ask: impl FnOnce() -> rune_luau::Data) -> rune_luau::Data {
+    let asked = script.version();
+    let hit = ANSWERS.with_borrow(|c| c.get(&key).filter(|a| a.asked == asked && stamp(app, &a.reads) == a.read).map(|a| a.value.clone()));
+    if let Some(value) = hit {
+        return value;
+    }
+    let (value, reads) = recording(|| with_app(app, ask));
+    let read = stamp(app, &reads);
+    ANSWERS.with_borrow_mut(|c| c.insert(key, Answer { asked, reads, read, value: value.clone() }));
+    value
 }
 
 /// A hash of what `deps` read now: equal while none of them changed.

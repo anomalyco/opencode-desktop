@@ -25,6 +25,7 @@ pub mod machines;
 mod ctx;
 pub mod cx;
 mod editors;
+pub mod flyout;
 mod hot;
 pub mod native;
 mod nodes;
@@ -46,6 +47,7 @@ use opencode_plugin_spec::Manifest;
 use rune::Tx;
 use rune_luau::{Data, Script};
 
+pub use flyout::{Flyout, FlyoutEvent};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
 pub use servers::all as servers;
@@ -99,49 +101,11 @@ pub enum Overlay {
     PillMenu { plugin: Rc<str>, id: String, anchor: String, data: Data },
 }
 
-/// The nested popover a popover's `ui.flyoutRow` opens beside its row: Session details'
-/// Extensions lists. Desktop's `flyout-machine.ts` without the pointer's aim (a list opens on
-/// the side away from the rows, so the pointer never crosses another row on its way).
-#[derive(Default)]
-pub enum Flyout {
-    #[default]
-    Closed,
-    Open { id: String, row: String, side: rune::Side, data: Data },
-}
-
-pub enum FlyoutEvent {
-    /// The pointer came onto a row (`row.entered`, and `row.moved` onto another row), or a click
-    /// on it (`row.activated`): its list shows, at once, in place of any other.
-    Row { id: String, row: String, side: rune::Side, data: Data },
-    /// A footer action, Escape, or the popover closing (`close`, `hidden`).
-    Close,
-}
-
-impl Flyout {
-    /// The next state, and whether anything shown changed.
-    pub fn step(self, event: FlyoutEvent) -> (Flyout, bool) {
-        match (self, event) {
-            (Flyout::Open { row, id, side, data }, FlyoutEvent::Row { row: r, .. }) if row == r => (Flyout::Open { id, row, side, data }, false),
-            (_, FlyoutEvent::Row { id, row, side, data }) => (Flyout::Open { id, row, side, data }, true),
-            (Flyout::Closed, FlyoutEvent::Close) => (Flyout::Closed, false),
-            (Flyout::Open { .. }, FlyoutEvent::Close) => (Flyout::Closed, true),
-        }
-    }
-
-    /// The row whose list shows.
-    pub fn row(&self) -> Option<&str> {
-        match self {
-            Flyout::Open { row, .. } => Some(row),
-            Flyout::Closed => None,
-        }
-    }
-}
-
 impl Overlay {
     /// Whether plugin `plugin`'s popover `id` is open, on its own or as a row's list.
     pub fn popover_open(&self, plugin: &str, id: &str) -> bool {
         match self {
-            Overlay::Popover { plugin: p, id: i, flyout, .. } if &**p == plugin => i == id || matches!(flyout, Flyout::Open { id: f, .. } if f == id),
+            Overlay::Popover { plugin: p, id: i, flyout, .. } if &**p == plugin => i == id || flyout.list().is_some_and(|l| l.id == id),
             _ => false,
         }
     }
@@ -152,6 +116,19 @@ impl Overlay {
             Overlay::Popover { plugin: p, flyout, .. } if &**p == plugin => flyout.row(),
             _ => None,
         }
+    }
+
+    /// The list the open popover's flyout shows, whoever's popover it is.
+    pub fn flyout_list(&self) -> Option<&flyout::Row> {
+        match self {
+            Overlay::Popover { flyout, .. } => flyout.list(),
+            _ => None,
+        }
+    }
+
+    /// The open popover's flyout waits on the pointer's aim.
+    pub fn flyout_due(&self) -> bool {
+        matches!(self, Overlay::Popover { flyout, .. } if flyout.due().is_some())
     }
 
     /// Whether plugin `plugin`'s pill `id` has its menu open.
@@ -196,6 +173,10 @@ pub struct Host {
     pub waker: Option<rune::Waker>,
     /// The appearance the last surface rendered in.
     pub dark: Cell<bool>,
+    /// The pointer's heading over a popover's flyout rows, and where their open list is.
+    pub aim: flyout::Aim,
+    /// The debug bar's FOCUS: every control draws its keyboard focus ring.
+    pub force_focus: bool,
     /// A UI entry without a transaction asked for something: the next poll carries it out.
     pub asked: bool,
     /// Server events plugins listen for, waiting for the next poll.
@@ -435,6 +416,14 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     mark(&app.plugins.luau, now);
     let mut changed = std::mem::take(&mut app.plugins.luau.asked);
     changed |= app_half::poll(app, now, tx);
+    // A flyout row's aim came due: the row under the resting pointer takes over.
+    if let Overlay::Popover { flyout, .. } = &app.plugins.luau.overlay
+        && let Some((attempt, due)) = flyout.due()
+        && now + 1e-9 >= due
+    {
+        requests::step_flyout(app, None, FlyoutEvent::AimDue { attempt }, tx);
+        changed = true;
+    }
     let saves = app.plugins.luau.watcher.as_ref().map(hot::Watcher::take).unwrap_or_default();
     for (i, event) in saves {
         let hot = std::mem::replace(&mut app.plugins.luau.plugins[i].hot, Hot::Idle);

@@ -52,25 +52,23 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 return;
             }
             tx.instant();
-            app.plugins.luau.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::Closed };
+            app.plugins.luau.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::default() };
             crate::popover::motion::opening(&app.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
-        Request::Flyout(event) => {
-            let Overlay::Popover { plugin: owner, flyout, .. } = &mut app.plugins.luau.overlay else { return };
-            if owner != plugin {
-                return;
-            }
-            let (next, changed) = std::mem::take(flyout).step(event);
-            *flyout = next;
-            if changed {
-                // Lists swap at once, as Desktop's do without the submenu motion knob.
-                tx.instant();
-            }
-        }
+        Request::Flyout(event) => step_flyout(app, Some(plugin), event, tx),
         Request::OpenDialog { id, data } => {
             tx.instant();
+            // A dialog takes over from a popover, as Kobalte's does as focus leaves it.
+            close_popover(app, tx);
             app.plugins.luau.dialog = Some(OpenDialog { plugin: plugin.clone(), id, data });
+        }
+        // Only the drawer kind view of this plugin that the More drawer shows opens one.
+        Request::DrawerView { title, data } => {
+            let Some(view) = app.layout.narrow.more.drawn_view().filter(|v| crate::panels::split_panel_key(v).is_some_and(|(p, _)| p == &**plugin)).map(str::to_owned) else { return };
+            let data = if data == Data::Nil { Data::Map(Default::default()) } else { data };
+            tx.instant();
+            app.more_drawer(crate::narrow::machine::MoreEvent::Nest { view, nested: crate::narrow::machine::Nested { title, data } }, tx);
         }
         Request::CloseDialog => {
             if app.plugins.luau.dialog.take().is_some() {
@@ -142,6 +140,24 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::Dev { name, value } => super::services::diag::apply(app, &name, value, tx),
         Request::ServersChanged => crate::plugin_host::servers_changed(app, tx),
         Request::Redraw => {}
+    }
+}
+
+/// Steps the open popover's flyout (of `plugin`, when named) with `event`.
+pub fn step_flyout(app: &mut App, plugin: Option<&std::rc::Rc<str>>, event: super::FlyoutEvent, tx: &mut Tx) {
+    let clock = app.clock;
+    let Overlay::Popover { plugin: owner, flyout, .. } = &mut app.plugins.luau.overlay else { return };
+    if plugin.is_some_and(|p| p != owner) {
+        return;
+    }
+    let (next, effect) = std::mem::take(flyout).step(event);
+    *flyout = next;
+    if effect.changed {
+        // Lists swap at once, as Desktop's do without the submenu motion knob.
+        tx.instant();
+    }
+    if let Some(at) = effect.wake_at {
+        tx.wake_after(std::time::Duration::from_secs_f64((at - clock).max(0.0)));
     }
 }
 

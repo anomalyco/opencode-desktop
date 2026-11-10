@@ -54,6 +54,8 @@ string_enum! {
         SettingsList = "settingsList",
         /// A popover row that opens a nested popover.
         FlyoutRow = "flyoutRow",
+        /// The app's dialog header: title, description and close button. Its close button closes this plugin's dialog, as Esc does.
+        DialogHeader = "dialogHeader",
         /// Markdown, as the timeline draws a reply.
         Markdown = "markdown",
         /// A long list that builds only its visible rows.
@@ -98,7 +100,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -132,6 +134,7 @@ impl NodeKind {
             Self::SettingsRow => &UI_SETTINGS_ROW_PROPS,
             Self::SettingsList => &UI_SETTINGS_LIST_PROPS,
             Self::FlyoutRow => &UI_FLYOUT_ROW_PROPS,
+            Self::DialogHeader => &UI_DIALOG_HEADER_PROPS,
             Self::Markdown => &UI_MARKDOWN_PROPS,
             Self::VirtualList => &UI_VIRTUAL_LIST_PROPS,
             Self::TerminalSurface => &UI_TERMINAL_SURFACE_PROPS,
@@ -203,6 +206,14 @@ pub static UI_CODE_VIEW_PROPS: PropsSpec = PropsSpec::new("UiCodeViewProps", Som
     PropSpec::new("revealLine", PropType::Integer, false),
 ]);
 
+/// `UiDialogHeaderProps`.
+pub static UI_DIALOG_HEADER_PROPS: PropsSpec = PropsSpec::new("UiDialogHeaderProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("title", PropType::String, true),
+    PropSpec::new("description", PropType::String, false),
+    PropSpec::new("hideClose", PropType::Bool, false),
+    PropSpec::new("closeLabel", PropType::String, false),
+]);
+
 /// `UiDiffViewProps`.
 pub static UI_DIFF_VIEW_PROPS: PropsSpec = PropsSpec::new("UiDiffViewProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("diff", PropType::Handle("DiffDocument"), true),
@@ -227,6 +238,7 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("invalid", PropType::Bool, false),
     PropSpec::new("secure", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("readOnly", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
     PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
@@ -326,6 +338,7 @@ pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
     PropSpec::new("label", PropType::String, false),
     PropSpec::new("help", PropType::String, false),
     PropSpec::new("helpSide", PropType::Enum("Side"), false),
+    PropSpec::new("dir", PropType::Any, false),
 ]);
 
 /// `UiLoaderProps`.
