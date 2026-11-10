@@ -510,6 +510,9 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         .motion(still)
         .motion_intent(rune::MotionIntent::CUT)
         .preserve_focus_on_press(true)
+        // Desktop's composer has no Tab stop after its variant select: Tab goes on to the
+        // titlebar, so the mic keeps out of the Tab order (its shortcut still toggles it).
+        .tab_index(-1)
         // Inside the composer's clip its keyboard ring sits 2 in (`editor.css:70-73`).
         .focus_ring(2.0, -2.0, p.v2.border_focus);
     b = match &d.phase {
