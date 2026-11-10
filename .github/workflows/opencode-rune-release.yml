@@ -176,42 +176,227 @@ jobs:
       - id: digest
         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
+  # The setup around the install folder sign-windows signed, so it installs the same signed files
+  # the updater downloads. Repository code: a build, after the signing job (as OpenCode's
+  # build-desktop-windows-installer); sign-windows-setup signs the setup next.
+  package-windows:
+    needs: [plan, sign-windows]
+    if: ${{ !cancelled() && needs.sign-windows.outputs.signed == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          [ "${{ matrix.arch }}" = x64 ] || rustup target add aarch64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: windows-setup-${{ matrix.arch }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-windows-app
+          digests: sign-opencode-rune-windows-app=${{ needs.sign-windows.outputs.digest }}
+      - name: Build the setup around the signed zip
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows-app/OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-${{ matrix.arch }}.zip"
+          apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/setup" -Arch ${{ matrix.arch }} -Payload $zip
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-opencode-rune-windows-setup-${{ matrix.arch }}
+          path: ${{ runner.temp }}/setup
+          retention-days: "7"
+      - id: digest
+        run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
   # ---- Sign: release environment; only .github/release/ is checked out -------
 
-  # TODO(IMPORTANT before release): Authenticode-sign opencode-desktop.exe before it's zipped and the setup after it's built (owner decision: the certificate, and win_install::PUBLISHER / updater::windows::EXPECTED_PUBLISHER to match it), verify the signatures, then publish the zip as target windows-x64 / windows-arm64 in the feed and the setup as the Windows download. Until then this job only reports the missing certificate, and publish-windows-dev publishes the unsigned setups.
+  # Authenticode-signs opencode-desktop.exe and every program and library of both install folders
+  # through Azure Artifact Signing, as OpenCode's and Hex's release workflows do (GitHub OIDC into
+  # the release environment's AZURE_* values), then zips the signed folders: the updater's
+  # windows-<arch> targets, which it checks against updater::windows::EXPECTED_PUBLISHER.
+  # package-windows builds the setups around those zips and sign-windows-setup signs them.
+  # Without the Azure values, dev and check go on without Windows in the feed; stable fails.
   sign-windows:
     needs: [plan, build-windows]
     if: >-
       ${{ !cancelled() && needs.plan.outputs.build-desktop == 'true'
       && needs.plan.outputs.channel != 'pr-check'
-      && needs.build-windows.outputs.digest-x64 != '' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+      && needs.build-windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
     environment: release
-    env:
+    permissions:
+      contents: read
+      id-token: write
+    env: &windows-sign-env
       CHANNEL: ${{ needs.plan.outputs.channel }}
+      VERSION: ${{ needs.plan.outputs.release-version }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT || secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE || secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
     outputs:
       signed: ${{ steps.credentials.outputs.available }}
+      digest: ${{ steps.upload.outputs.digest }}
     steps:
-      - id: credentials
-        name: Require the Authenticode certificate
-        env:
-          CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
-          PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+      - &checkout-release
+        name: Check out the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - &azure-credentials
+        id: credentials
+        name: Require the Azure values
         run: |
           missing=
-          [ -n "$CERTIFICATE" ] || missing="$missing WINDOWS_SIGNING_CERTIFICATE"
-          [ -n "$PASSWORD" ] || missing="$missing WINDOWS_SIGNING_CERTIFICATE_PASSWORD"
-          if [ -n "$missing" ] && [ "$CHANNEL" = stable ]; then
-            echo "::error::Stable releases require an Authenticode certificate; missing:$missing."
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_TRUSTED_SIGNING_ENDPOINT \
+            AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -z "$missing" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CHANNEL" = stable ]; then
+            echo "::error::Stable releases need signed Windows builds, and the release environment lacks:$missing."
             exit 1
-          elif [ -n "$missing" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping Authenticode signing: release environment lacks:$missing. The Windows setup is unsigned." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error::The Authenticode certificate is set, but signing isn't implemented yet (see the TODO above sign-windows)."
-            exit 1
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Authenticode signing, so no Windows targets in the feed: the release environment lacks$missing. The unsigned setups still go to the rolling pre-release (dev)." >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Download the unsigned builds
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-windows-*
+          digests: >-
+            build-opencode-rune-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
+            build-opencode-rune-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
+      - name: Unpack the install folders
+        if: steps.credentials.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          foreach ($arch in 'x64', 'arm64') {
+            Expand-Archive -LiteralPath "$env:RUNNER_TEMP/in/build-opencode-rune-windows-$arch/OpenCode-Rune-$env:VERSION-windows-$arch.zip" -DestinationPath "$env:RUNNER_TEMP/work/windows-$arch"
+          }
+      - &azure-login
+        name: Sign in to Azure
+        if: steps.credentials.outputs.available == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - &azure-sign
+        name: Sign
+        if: steps.credentials.outputs.available == 'true'
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ env.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ runner.temp }}\work
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: OpenCode (Rune)
+          description-url: https://github.com/anomalyco/rune-desktop
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - &azure-verify
+        name: Check the signatures
+        if: steps.credentials.outputs.available == 'true'
+        shell: pwsh
+        run: .github/release/opencode-rune-verify-windows.ps1 -Folders "$env:RUNNER_TEMP/work"
+      - name: Zip the signed install folders
+        if: steps.credentials.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/out" | Out-Null
+          foreach ($arch in 'x64', 'arm64') {
+            Compress-Archive -Path "$env:RUNNER_TEMP/work/windows-$arch/*" -DestinationPath "$env:RUNNER_TEMP/out/OpenCode-Rune-$env:VERSION-windows-$arch.zip"
+          }
+      - id: upload
+        if: steps.credentials.outputs.available == 'true'
+        uses: ./.github/release/upload
+        with:
+          name: sign-opencode-rune-windows-app
+          path: ${{ runner.temp }}/out
+
+  sign-windows-setup:
+    needs: [plan, sign-windows, package-windows]
+    if: ${{ !cancelled() && needs.sign-windows.outputs.signed == 'true' && needs.package-windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env: *windows-sign-env
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - *checkout-release
+      - *azure-credentials
+      - name: Download the setups
+        uses: ./.github/release/download
+        with:
+          pattern: build-opencode-rune-windows-setup-*
+          digests: >-
+            build-opencode-rune-windows-setup-x64=${{ needs.package-windows.outputs.digest-x64 }}
+            build-opencode-rune-windows-setup-arm64=${{ needs.package-windows.outputs.digest-arm64 }}
+      - name: Download the signed zips
+        uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-windows-app
+          digests: sign-opencode-rune-windows-app=${{ needs.sign-windows.outputs.digest }}
+          folder: app
+      - name: Gather the setups
+        run: |
+          temp=$(cygpath -u "$RUNNER_TEMP")
+          mkdir -p "$temp/work" && cp "$temp"/in/build-opencode-rune-windows-setup-*/*.exe "$temp/work/"
+      - *azure-login
+      - *azure-sign
+      - *azure-verify
+      - name: Gather the release files
+        run: |
+          temp=$(cygpath -u "$RUNNER_TEMP")
+          mkdir -p "$temp/out" && cp "$temp"/work/*.exe "$temp"/app/sign-opencode-rune-windows-app/*.zip "$temp/out/"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: sign-opencode-rune-windows
+          path: ${{ runner.temp }}/out
 
   sign-macos:
     needs: [plan, build-macos]
@@ -229,14 +414,7 @@ jobs:
       signed: ${{ steps.credentials.outputs.available }}
       digest: ${{ steps.upload.outputs.digest }}
     steps:
-      - &checkout-release
-        name: Check out the release scripts
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.plan.outputs.sha }}
-          sparse-checkout: /.github/release/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
+      - *checkout-release
       - id: credentials
         name: Require the Apple values
         env:
@@ -328,15 +506,58 @@ jobs:
           hdiutil detach -quiet "$check/dmg"
           codesign -dv "$check/update/OpenCode (Rune).app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
 
+  # The publisher every signed file carries must be the one the updater checks, read from the app.
+  verify-windows:
+    needs: [plan, sign-windows-setup]
+    if: ${{ !cancelled() && needs.sign-windows-setup.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
+      OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /apps/desktop/src/updater/windows.rs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-windows
+          digests: sign-opencode-rune-windows=${{ needs.sign-windows-setup.outputs.digest }}
+      - name: Verify the signed install folders and setups
+        shell: pwsh
+        run: |
+          $in = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows"
+          $publisher = [regex]::Match((Get-Content -Raw apps/desktop/src/updater/windows.rs), 'pub const EXPECTED_PUBLISHER: &str = "([^"]+)";').Groups[1].Value
+          if (-not $publisher) { throw 'Could not read EXPECTED_PUBLISHER from apps/desktop/src/updater/windows.rs.' }
+          foreach ($arch in 'x64', 'arm64') {
+            foreach ($name in "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch.zip", "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch-setup.exe") {
+              if (-not (Test-Path -LiteralPath "$in/$name")) { throw "The signed artifact has no $name." }
+            }
+          }
+          .github/release/opencode-rune-verify-windows.ps1 -Folders $in -Publisher $publisher
+          $app = Join-Path $env:RUNNER_TEMP 'x64'
+          Expand-Archive -LiteralPath "$in/OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-x64.zip" -DestinationPath $app
+          $reported = (& "$app/opencode-desktop.exe" --version | Out-String).Trim()
+          if ($reported -ne "opencode-rune $env:OPENCODE_RUNE_VERSION ($env:OPENCODE_RUNE_BUILD_CHANNEL)") { throw "opencode-desktop --version reported '$reported'." }
+          "Windows: every program, library and setup is signed by $publisher ($reported)." >> $env:GITHUB_STEP_SUMMARY
+
   # ---- Publish desktop: release environment; OIDC only -----------------------
+  # A channel has one current release, and publishing replaces it whole (targets included), so
+  # macOS and Windows go out in one release: each platform that's signed and verified this run,
+  # and one that isn't never holds the other back. Only signed Windows builds reach the feed.
 
   publish-desktop:
-    needs: [plan, sign-macos, verify-macos]
+    needs: [plan, sign-macos, verify-macos, verify-windows, sign-windows-setup]
     if: >-
       ${{ !cancelled()
       && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
-      && needs.sign-macos.outputs.signed == 'true'
-      && needs.verify-macos.result == 'success' }}
+      && ((needs.sign-macos.outputs.signed == 'true' && needs.verify-macos.result == 'success')
+        || needs.verify-windows.result == 'success') }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -347,17 +568,37 @@ jobs:
       VERSION: ${{ needs.plan.outputs.release-version }}
       CHANNEL: ${{ needs.plan.outputs.release-channel }}
       NOTES_URL: ${{ needs.plan.outputs.notes-url }}
+      MACOS: ${{ needs.sign-macos.outputs.signed == 'true' && needs.verify-macos.result == 'success' }}
+      WINDOWS: ${{ needs.verify-windows.result == 'success' }}
     steps:
       - *checkout-release
-      - uses: ./.github/release/download
+      - if: env.MACOS == 'true'
+        uses: ./.github/release/download
         with:
           pattern: sign-opencode-rune-macos
           digests: sign-opencode-rune-macos=${{ needs.sign-macos.outputs.digest }}
+          folder: macos
+      - if: env.WINDOWS == 'true'
+        uses: ./.github/release/download
+        with:
+          pattern: sign-opencode-rune-windows
+          digests: sign-opencode-rune-windows=${{ needs.sign-windows-setup.outputs.digest }}
+          folder: windows
       - name: Publish OpenCode (Rune) desktop release
         run: |
-          in_dir="$RUNNER_TEMP/in/sign-opencode-rune-macos"
-          zip="$in_dir/OpenCode-Rune-$VERSION-macos-arm64.zip"
-          dmg="$in_dir/OpenCode-Rune-$VERSION-macos-arm64.dmg"
+          targets=()
+          if [ "$MACOS" = true ]; then
+            dir="$RUNNER_TEMP/macos/sign-opencode-rune-macos"
+            targets+=(--target "macos-arm64=$dir/OpenCode-Rune-$VERSION-macos-arm64.zip")
+            targets+=(--target "macos-arm64-dmg=$dir/OpenCode-Rune-$VERSION-macos-arm64.dmg")
+          fi
+          if [ "$WINDOWS" = true ]; then
+            dir="$RUNNER_TEMP/windows/sign-opencode-rune-windows"
+            for arch in x64 arm64; do
+              targets+=(--target "windows-$arch=$dir/OpenCode-Rune-$VERSION-windows-$arch.zip")
+              targets+=(--target "windows-$arch-setup=$dir/OpenCode-Rune-$VERSION-windows-$arch-setup.exe")
+            done
+          fi
           jq -n \
             --arg channel "$CHANNEL" \
             --arg version "$VERSION" \
@@ -368,15 +609,17 @@ jobs:
             --app opencode-rune \
             --artifact desktop \
             --release "$RUNNER_TEMP/release.json" \
-            --target "macos-arm64=$zip" \
-            --target "macos-arm64-dmg=$dmg" \
+            "${targets[@]}" \
             --out "$RUNNER_TEMP/manifest.json" \
             --verify-downloads
-          { echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "Published macOS: $MACOS, Windows: $WINDOWS."
+            echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
   # Every main build replaces the setups on opencode-rune-windows-dev, under names that stay the
-  # same, so the download links never change. The feed gets Windows after sign-windows signs.
+  # same, so the download links never change. Signed builds go to the feed too (publish-desktop).
 
   publish-windows-dev:
     needs: [plan, build-windows]

@@ -3,7 +3,7 @@
 //!
 //! | Variable | Builds | What it does |
 //! | --- | --- | --- |
-//! | `OPENCODE_RUNE_UPDATE_FEED` | debug (Windows) | The feed's base URL, such as a local feed served by `bun`; turns the updater on in a development build, and lets an unsigned update from a loopback feed install. |
+//! | `OPENCODE_RUNE_UPDATE_FEED` | debug (Windows) | The feed's base URL, such as a local feed served by `bun`; turns the updater on in a development build, and lets an unsigned update from a loopback feed (`http://127.0.0.1:`, `localhost`, `[::1]`) install. Any other URL gets the release's publisher check. |
 //! | `OPENCODE_RUNE_RELEASE_URL` | all (macOS) | The feed's base URL. |
 //! | `OPENCODE_RUNE_UPDATE_CHANNEL` | all | The feed channel (`dev`, `stable`). |
 //! | `OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS` | all | How long after launch the first check waits (10 s). |
@@ -12,14 +12,15 @@
 
 use std::time::Duration;
 
-#[cfg_attr(not(target_os = "macos"), allow(unused_imports))]
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
 pub use super::protocol::DEFAULT_SERVICE_URL;
 
-// TODO(IMPORTANT before release): publish signed Windows builds to the release feed (a zip of the install folder as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json, its exe and DLLs Authenticode-signed), then set WINDOWS_SERVICE_URL to DEFAULT_SERVICE_URL and EXPECTED_PUBLISHER in updater/windows.rs.
-// Until then a Windows release build has no feed and its updater is off; a debug build reaches a
-// local feed through OPENCODE_RUNE_UPDATE_FEED.
+/// The feed Windows builds read: the release workflow publishes each signed build's install
+/// folder there as target `windows-x64` / `windows-arm64`. Only a build that the release's
+/// publisher signed reads it (`windows::EXPECTED_PUBLISHER`); a debug build reaches a local feed
+/// through `OPENCODE_RUNE_UPDATE_FEED` instead.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub const WINDOWS_SERVICE_URL: Option<&str> = None;
+pub const WINDOWS_SERVICE_URL: &str = DEFAULT_SERVICE_URL;
 
 /// The first check waits this long after launch, so it never competes with the first frames.
 pub const INITIAL_DELAY: Duration = Duration::from_secs(10);

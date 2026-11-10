@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 pub const DEFAULT_SERVICE_URL: &str = "https://anoma.ly/release";
 pub const APP_NAME: &str = "opencode-rune";
 pub const ARTIFACT_NAME: &str = "desktop";

@@ -20,7 +20,9 @@
 //! `--silent` installs without a window, with the desktop shortcut and launch only when asked.
 //! `--dir` installs somewhere else (a test's scratch folder); the updater and the uninstaller
 //! follow the install wherever it is.
-// TODO(IMPORTANT before release): sign opencode-rune-setup.exe and the opencode-desktop.exe inside its payload with the Authenticode certificate (owner decision: the publisher identity, see win_install::PUBLISHER and updater::windows::EXPECTED_PUBLISHER), or SmartScreen warns on every download.
+//!
+//! Release builds are Authenticode-signed (the release workflow's `sign-windows` and
+//! `sign-windows-setup`): the setup, and the install folder in its payload before it's zipped.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 #[cfg(target_os = "windows")]

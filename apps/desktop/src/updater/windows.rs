@@ -39,9 +39,11 @@ use super::platform::Platform;
 
 pub const EXE: &str = "opencode-desktop.exe";
 
-// TODO(IMPORTANT before release): publish signed Windows builds to the release feed (a zip of the install folder as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json, its exe and DLLs Authenticode-signed), then set WINDOWS_SERVICE_URL to DEFAULT_SERVICE_URL and EXPECTED_PUBLISHER in updater/windows.rs.
-// The signing certificate's subject name, as `CertGetNameStringW` reads it.
-pub const EXPECTED_PUBLISHER: Option<&str> = None;
+/// Who signs every program and library of a release: the signing certificate's subject name as
+/// `CertGetNameStringW` reads it (`CERT_NAME_SIMPLE_DISPLAY_TYPE`: the CN), the identity Azure
+/// Artifact Signing gives OpenCode's and Hex's Windows builds too. The release workflow's
+/// `verify-windows` job reads it from here.
+pub const EXPECTED_PUBLISHER: &str = "Anomaly Innovations, Inc https://anoma.ly/";
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
@@ -56,30 +58,57 @@ struct Staged {
     dir: PathBuf,
 }
 
+/// Whose builds an update may carry.
+enum Trust {
+    /// Programs and libraries Windows trusts, signed by [`EXPECTED_PUBLISHER`]: the release feed,
+    /// and a debug build's feed anywhere but this machine.
+    Publisher,
+    /// Anything, signed or not: a debug build's loopback feed, since local builds aren't signed.
+    Anything,
+}
+
 pub struct Windows {
     engine: Engine,
     version: String,
     root: PathBuf,
-    /// A debug build on a local feed installs unsigned builds, since local builds aren't signed.
-    allow_unsigned: bool,
+    trust: Trust,
     staged: Mutex<Option<Staged>>,
     /// The arguments to start the new version with.
     args: Vec<String>,
 }
 
-/// The updater for the install `exe` runs from: on with a release feed (none yet, see
-/// [`feed::WINDOWS_SERVICE_URL`]) in a release build, or with `OPENCODE_RUNE_UPDATE_FEED` in a
-/// debug build. A development build (channel `local`) never reads the release feed.
+/// The updater for the install `exe` runs from: on with the release feed in a build that
+/// [`EXPECTED_PUBLISHER`] signed, or with `OPENCODE_RUNE_UPDATE_FEED` in a debug build.
 pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Windows> {
-    let debug = feed::debug_feed();
-    let service = debug.clone().or_else(|| feed::WINDOWS_SERVICE_URL.filter(|_| build_channel != "local").map(str::to_owned))?;
+    let (service, trust) = match feed::debug_feed() {
+        Some(url) if feed::loopback(&url) => (url, Trust::Anything),
+        Some(url) => (url, Trust::Publisher),
+        None if release_signed(exe, build_channel) => (feed::WINDOWS_SERVICE_URL.to_owned(), Trust::Publisher),
+        None => return None,
+    };
     let root = exe.parent()?.to_path_buf();
-    let allow_unsigned = debug.as_deref().is_some_and(feed::loopback);
     sweep(&root, &updates);
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
     #[allow(clippy::disallowed_methods)]
     let args = std::env::args().skip(1).collect();
-    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, allow_unsigned, staged: Mutex::new(None), args })
+    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
+}
+
+/// Only a build the release's publisher signed reads the release feed. A development build
+/// (channel `local`), a pull request's and any other unsigned build never do, so none of them
+/// replaces itself with a release by surprise.
+fn release_signed(exe: &Path, build_channel: &str) -> bool {
+    if build_channel == "local" {
+        return false;
+    }
+    let started = std::time::Instant::now();
+    let signer = authenticode::embedded_signer(exe);
+    if signer.as_deref() == Some(EXPECTED_PUBLISHER) {
+        return true;
+    }
+    let found = signer.map_or_else(|| "no trusted signature".to_owned(), |s| format!("signed by {s}"));
+    log(&format!("updater: off: this build isn't signed by {EXPECTED_PUBLISHER} ({found}, read in {:?})", started.elapsed()));
+    false
 }
 
 impl Platform for Windows {
@@ -148,19 +177,16 @@ impl Windows {
         if !app.join(EXE).is_file() {
             return Err(format!("the update has no {EXE}"));
         }
-        if EXPECTED_PUBLISHER.is_none() && !self.allow_unsigned {
-            return Err("this build has no release publisher to check updates against".into());
-        }
         let mut files = Vec::new();
         binaries(app, &mut files);
         for file in &files {
             let name = file.strip_prefix(app).unwrap_or(file).display().to_string();
-            match authenticode::signer(file) {
-                Ok(signer) if EXPECTED_PUBLISHER.is_none_or(|p| p == signer) => {}
-                Ok(signer) if self.allow_unsigned => log(&format!("updater: {name} is signed by {signer}; allowed from a local feed")),
-                Ok(signer) => return Err(format!("{name} is signed by {signer}, not the release's publisher")),
-                Err(e) if self.allow_unsigned => log(&format!("updater: {name}: {e}; allowed from a local feed")),
-                Err(e) => return Err(format!("the update couldn't be verified: {name}: {e}")),
+            match (authenticode::signer(file), &self.trust) {
+                (Ok(signer), _) if signer == EXPECTED_PUBLISHER => {}
+                (Ok(signer), Trust::Anything) => log(&format!("updater: {name} is signed by {signer}; allowed from a local feed")),
+                (Err(e), Trust::Anything) => log(&format!("updater: {name}: {e}; allowed from a local feed")),
+                (Ok(signer), Trust::Publisher) => return Err(format!("{name} is signed by {signer}, not {EXPECTED_PUBLISHER}")),
+                (Err(e), Trust::Publisher) => return Err(format!("the update couldn't be verified: {name}: {e}")),
             }
         }
         log(&format!("updater: checked the signatures of {} files", files.len()));
@@ -212,8 +238,9 @@ impl Windows {
         if !exe.is_file() {
             return Err(format!("the staged update lost {}", exe.display()));
         }
-        match authenticode::signer(&exe) {
-            Err(e) if !self.allow_unsigned => Err(format!("the staged update couldn't be verified: {e}")),
+        match (authenticode::signer(&exe), &self.trust) {
+            (Ok(signer), Trust::Publisher) if signer != EXPECTED_PUBLISHER => Err(format!("the staged update is signed by {signer}, not {EXPECTED_PUBLISHER}")),
+            (Err(e), Trust::Publisher) => Err(format!("the staged update couldn't be verified: {e}")),
             _ => Ok(()),
         }
     }

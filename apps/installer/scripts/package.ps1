@@ -3,10 +3,14 @@
 #   OpenCode-Rune-<version>-windows-<arch>.zip        the install folder, the updater's windows-<arch> target
 #   OpenCode-Rune-<version>-windows-<arch>-setup.exe  the setup, with that zip inside
 #
-#   pwsh apps/installer/scripts/package.ps1 -Out <folder> [-Profile release|dev] [-Arch x64|arm64] [-Cargo <command>]
+#   pwsh apps/installer/scripts/package.ps1 -Out <folder> [-Profile release|dev] [-Arch x64|arm64] [-Cargo <command>] [-Payload <zip>]
 #
 # -Arch defaults to this machine's. Another arch cross-builds (`--target`), and the app's
 # `--version` check is skipped, because this machine can't run it.
+#
+# -Payload builds only the setup, around a zip built before: the release workflow's
+# package-windows job wraps the zip of the install folder that sign-windows signed, so the setup
+# installs the same signed files the updater downloads. It writes the setup alone.
 #
 # Environment, as the macOS build reads it (every artifact of a build gets the same):
 #   OPENCODE_RUNE_VERSION, OPENCODE_RUNE_BUILD_CHANNEL   required; `opencode-desktop --version` must report them
@@ -16,13 +20,16 @@
 #
 # -Cargo runs cargo another way, such as a build throttle ("pwsh tools/cargo.ps1 +1.99.1").
 #
-# TODO(IMPORTANT before release): .github/workflows/opencode-rune-release.yml runs this script (build-windows, x64 and arm64) and publishes the unsigned setups as a GitHub pre-release; once sign-windows signs them (below), upload the zip as target windows-x64 / windows-arm64 in opencode-rune/desktop/<channel>.json with its size and SHA-256, and publish the setup as the Windows download.
-# TODO(IMPORTANT before release): Authenticode-sign opencode-desktop.exe before it's zipped and the setup after it's built (signtool sign /fd sha256 /tr <timestamp> ...), with the certificate the owner picks; the updater refuses unsigned builds (updater::windows::EXPECTED_PUBLISHER).
+# .github/workflows/opencode-rune-release.yml runs this script in build-windows (x64 and arm64;
+# the unsigned setups go to the rolling GitHub pre-release), signs the install folder through
+# Azure Artifact Signing, runs it again with -Payload around the signed zip, signs that setup,
+# and publishes the zip as target windows-<arch> and the setup as windows-<arch>-setup.
 param(
     [Parameter(Mandatory)] [string] $Out,
     [ValidateSet('release', 'dev')] [string] $Profile = 'release',
     [ValidateSet('', 'x64', 'arm64')] [string] $Arch = '',
-    [string] $Cargo = 'cargo'
+    [string] $Cargo = 'cargo',
+    [string] $Payload = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -48,22 +55,26 @@ function Invoke-Cargo([string[]] $Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "cargo $($Arguments -join ' ') failed" }
 }
 
-Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
-$exe = Join-Path $bin 'opencode-desktop.exe'
-if (-not $cross) {
-    $reported = (& $exe --version | Out-String).Trim()
-    if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
-}
+if ($Payload) {
+    $zip = (Resolve-Path $Payload).Path
+} else {
+    Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
+    $exe = Join-Path $bin 'opencode-desktop.exe'
+    if (-not $cross) {
+        $reported = (& $exe --version | Out-String).Trim()
+        if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
+    }
 
-# The install folder: the app alone. The browser engine downloads in the background.
-$stage = Join-Path $Out 'stage'
-Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-New-Item -ItemType Directory $stage | Out-Null
-Copy-Item $exe $stage
-$zip = Join-Path $Out "$stem.zip"
-Remove-Item -Force $zip -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
-Remove-Item -Recurse -Force $stage
+    # The install folder: the app alone. The browser engine downloads in the background.
+    $stage = Join-Path $Out 'stage'
+    Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory $stage | Out-Null
+    Copy-Item $exe $stage
+    $zip = Join-Path $Out "$stem.zip"
+    Remove-Item -Force $zip -ErrorAction SilentlyContinue
+    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+    Remove-Item -Recurse -Force $stage
+}
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip
 try {
@@ -74,7 +85,7 @@ try {
 $setup = Join-Path $Out "$stem-setup.exe"
 Copy-Item (Join-Path $bin 'opencode-rune-setup.exe') $setup -Force
 
-foreach ($file in $zip, $setup) {
+foreach ($file in @(if (-not $Payload) { $zip }) + $setup) {
     $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
     '{0}  {1}  {2:N0} bytes' -f $hash, (Split-Path -Leaf $file), (Get-Item $file).Length
 }
