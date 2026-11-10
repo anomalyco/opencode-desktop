@@ -187,7 +187,8 @@ fn an_open_popover_keeps_the_arrows() {
 #[test]
 fn modified_arrows_and_an_unfocused_composer_are_left_alone() {
     let mut rt = rt();
-    assert!(!press(&mut rt, Key::Up, Mods { shift: true, ..Mods::default() }));
+    // Shift+Up on an empty draft opens Desktop's list of sent prompts (bbdd73c7); ⌥↑ is left alone.
+    assert!(!press(&mut rt, Key::Up, Mods { alt: true, ..Mods::default() }));
     rt.state.composer.focused = false;
     assert!(!press(&mut rt, Key::Up, Mods::default()));
 }

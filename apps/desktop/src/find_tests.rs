@@ -91,13 +91,14 @@ fn cmd_f_highlights_every_match_steps_wraps_centres_and_closes_on_escape() {
     settle(&mut rt);
     assert_eq!(count_text(&rt).as_deref(), Some(format!("{total} of {total}").as_str()));
 
-    // Esc closes Find, clears highlights and restores composer focus.
+    // Esc closes Find and clears highlights, leaving nothing focused as Desktop's does (`esc-find`);
+    // the bar's close button is the one that hands the composer its focus back.
     key(&mut rt, Key::Escape, false);
     settle(&mut rt);
     assert!(!rt.state.find.open);
     assert!(rt.find("find-bar").is_none());
     assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("find-active")));
-    assert!(rt.state.composer.focused, "composer focus restored");
+    assert!(!rt.state.composer.focused, "Escape leaves nothing focused");
 }
 
 #[test]

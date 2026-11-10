@@ -215,6 +215,10 @@ impl ComposerHost for App {
         if ev.key == Key::Escape && !self.route_busy() && crate::status_toast::key(self, ev, tx) {
             return true;
         }
+        // A recording takes Escape before the page's layers: it throws the dictation away.
+        if ev.key == Key::Escape && self.dictation.active() && crate::dictation::key(self, ev, tx) {
+            return true;
+        }
         // Escape closes the topmost layer and the caret stays put: a contenteditable keeps focus
         // on Escape, so Desktop's composer never drops the keys that follow.
         if ev.key == Key::Escape {
