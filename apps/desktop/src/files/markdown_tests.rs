@@ -47,18 +47,21 @@ fn open(rt: &mut Runtime<App>, path: &'static str) {
     settle(rt);
 }
 
+/// The file viewer wraps code too until it's turned off, as Desktop's (826dfb5a); prose and code
+/// each keep their own choice.
 #[test]
-fn prose_wraps_and_code_does_not() {
+fn prose_and_code_wrap_until_turned_off() {
     let w = WrapPrefs::default();
     for path in ["docs/a.md", "A.MARKDOWN", "page.mdx", "notes.txt", "guide.rst", "book.adoc", "LICENSE", "README", "sub/LICENSE-MIT", "COPYING"] {
         assert!(w.wraps(path), "{path} wraps");
         assert!(is_prose(path));
     }
     for path in ["src/main.rs", "src/net/stream.ts", "Cargo.toml", "Makefile", ".gitignore", "Dockerfile", "LICENSES.json"] {
-        assert!(!w.wraps(path), "{path} doesn't wrap");
+        assert!(w.wraps(path), "{path} wraps");
+        assert!(!is_prose(path));
     }
-    let flipped = WrapPrefs { prose: Some(false), code: Some(true) };
-    assert!(!flipped.wraps("docs/a.md") && flipped.wraps("src/main.rs"));
+    let flipped = WrapPrefs { prose: Some(true), code: Some(false) };
+    assert!(flipped.wraps("docs/a.md") && !flipped.wraps("src/main.rs"));
     assert!(is_markdown("docs/a.md") && is_markdown("x.MDX") && !is_markdown("notes.txt"));
 }
 
@@ -69,15 +72,15 @@ fn opened_files_wrap_by_kind_and_a_flip_carries_to_the_kind() {
     open(&mut rt, "src/net/stream.ts");
     let docs = |rt: &Runtime<App>, p: &str| rt.state.files.sessions[THIRD].docs[p].wrap();
     assert!(docs(&rt, PROPOSAL));
-    assert!(!docs(&rt, "src/net/stream.ts"));
+    assert!(docs(&rt, "src/net/stream.ts"));
 
-    // Kit turns wrap on for one code file: every code file wraps from then on, prose untouched.
-    rt.update(|s, _| s.set_file_wrap(THIRD, "src/net/stream.ts", true));
+    // Kit turns wrap off for one code file: every code file stops wrapping, prose untouched.
+    rt.update(|s, _| s.set_file_wrap(THIRD, "src/net/stream.ts", false));
     settle(&mut rt);
-    assert!(docs(&rt, "src/net/stream.ts") && docs(&rt, "src/net/backoff.ts"));
-    assert_eq!(rt.state.files.wrap, WrapPrefs { prose: None, code: Some(true) });
+    assert!(!docs(&rt, "src/net/stream.ts") && !docs(&rt, "src/net/backoff.ts"));
+    assert_eq!(rt.state.files.wrap, WrapPrefs { prose: None, code: Some(false) });
     open(&mut rt, "src/sidebar/store.ts");
-    assert!(docs(&rt, "src/sidebar/store.ts"));
+    assert!(!docs(&rt, "src/sidebar/store.ts"));
     assert!(docs(&rt, PROPOSAL));
 }
 
