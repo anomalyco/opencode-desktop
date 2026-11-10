@@ -364,6 +364,10 @@ pub struct App {
     pub inboxes: HashMap<String, Inbox>,
     /// Each session's queue changes this window asked for (`queue::machine`).
     pub queue_ops: HashMap<String, queue::machine::Queue>,
+    /// A queued prompt dragged to a new place (`queue::drag`).
+    pub queue_drag: queue::drag::Drag,
+    /// The queue rewrites in flight and how far each got (`queue::run`).
+    pub queue_runs: queue::run::Runs,
     /// A send held while a session opens (`submit.rs`).
     pub submit: submit::Submit,
     /// This window's place in its server's peer (`windows::peer`).
@@ -616,6 +620,9 @@ impl session_view::TimelineHost for App {
     fn timeline_busy(&self,t:&Transcript)->bool {
         let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(_)) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
         matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+    }
+    fn working_label_for(&self, session: &str) -> Option<&'static str> {
+        self.starts.status(session)
     }
     fn is_session_stopped(&self, session: &str) -> bool {
         self.stops.has(session)
@@ -1244,6 +1251,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.revert_timeouts(tx);
     changed |= fork::poll(s, tx);
     s.queue_timers(tx);
+    s.start_timers(tx);
     changed |= submit::poll(s, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);

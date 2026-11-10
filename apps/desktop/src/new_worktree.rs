@@ -100,7 +100,7 @@ impl App {
     }
 
     /// The branch the open draft's new worktree starts from, once one is picked.
-    fn draft_base(&self) -> Option<&str> {
+    pub(crate) fn draft_base(&self) -> Option<&str> {
         let Route::Draft(id) = &self.route else { return None };
         self.new_worktree.drafts.get(id)?.as_deref()
     }

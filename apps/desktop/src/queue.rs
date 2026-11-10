@@ -4,15 +4,18 @@
 //! composer until the turn ends, where it can be steered (Send once the turn has stopped),
 //! taken back into the composer, or removed.
 
-use rune::{El, Icon, Tx, col, el, icon, row, text};
+use rune::{El, Icon, Key, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
-use opencode_kit::client::{Prompt, Ticket, TicketKind, Write};
+use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::{self, Delivery, Inbox, InboxChange, InboxItem, Message};
 use rune::machine::Attempt;
 
+pub mod drag;
+mod edit;
 pub mod machine;
-use machine::{Effect, Event, Operation, Queue, State as QueueState};
+pub mod run;
+use machine::{Effect, Event, Operation, Row as QueueRow, Stage};
 
 use crate::odometer::odometer;
 use crate::palette::Pal;
@@ -90,7 +93,15 @@ impl App {
         // An item listed by the server has its files only on the item.
         let files = model::user_files(&item.id);
         let files = if files.is_empty() { item.files } else { files.to_vec() };
-        self.queue_op(session, Operation::Undo { id: item.id, text: item.text, files });
+        let (shell, now) = (self.add.shell(), self.clock);
+        self.step_queue(session, Event::UndoRequested { id: item.id, text: item.text, files, shell, now });
+    }
+
+    /// A row dropped in a new place: the queue is rewritten in `ids`' order (`reorder.requested`).
+    pub fn reorder_queued(&mut self, session: &str, ids: Vec<String>) {
+        let reverted = self.session(session).and_then(|i| i.revert.as_ref()).is_some();
+        let (rows, now) = (self.queue_rows(session), self.clock);
+        self.step_queue(session, Event::ReorderRequested { ids, reverted, rows, now });
     }
 
     /// Fixture runs act locally, as if the server agreed.
@@ -104,37 +115,19 @@ impl App {
         self.step_queue(session, Event::Requested { operation, now });
     }
 
-    fn step_queue(&mut self, session: &str, event: Event) {
-        let effects = self.queue_ops.entry(session.to_owned()).or_default().step(event);
+    pub(crate) fn step_queue(&mut self, session: &str, event: Event) {
+        let rows = self.queue_rows(session);
+        let effects = self.queue_ops.entry(session.to_owned()).or_default().step(event, &rows);
         for effect in effects {
+            let Some(effect) = self.queue_draft_effect(session, effect) else { continue };
             match effect {
                 Effect::Run { attempt, operation } => self.run_queue_op(session, attempt, operation),
-                Effect::Merge { text, files } => {
-                    let draft = self.composer.text.trim_end();
-                    let merged = if draft.is_empty() { text } else { format!("{draft}\n\n{text}") };
-                    self.composer.replace_text(merged);
-                    self.composer.focused = true;
-                    self.attach.files.extend(files);
-                }
+                Effect::Abort { attempt } => self.queue_runs.abort(session, attempt),
                 Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), ""),
+                Effect::Reverted => crate::status_toast::say(self, opencode_i18n::t!("session.queue.reverted"), ""),
+                Effect::UndoShell => crate::status_toast::say(self, opencode_i18n::t!("session.queue.undoShell"), ""),
+                Effect::Load(_) | Effect::Restore { .. } | Effect::Merge { .. } => {}
             }
-        }
-    }
-
-    fn run_queue_op(&mut self, session: &str, attempt: Attempt, operation: Operation) {
-        let (s, id) = (session.to_owned(), operation.id().to_owned());
-        let write = match &operation {
-            Operation::Steer { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Steer },
-            Operation::Requeue { .. } => Write::Deliver { session: s, item: id, delivery: Delivery::Queue },
-            Operation::Remove { .. } | Operation::Undo { .. } | Operation::Delete { .. } => Write::Cancel { session: s, item: id },
-        };
-        // Fixture runs act locally, as if the server agreed at once.
-        if matches!(self.source, Source::Fixture) {
-            return self.queue_settled(session, attempt.0, true);
-        }
-        let ticket = Ticket { kind: TicketKind::Inbox, session: session.to_owned(), attempt: attempt.0 };
-        if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
-            self.queue_settled(session, attempt.0, false);
         }
     }
 
@@ -142,7 +135,7 @@ impl App {
     /// once, as its event will say.
     pub(crate) fn queue_settled(&mut self, session: &str, attempt: u32, ok: bool) {
         let (attempt, now) = (Attempt(attempt), self.clock);
-        let Some(QueueState::Mutating { attempt: a, active, .. }) = self.queue_ops.get(session).map(|q| q.state.clone()) else { return };
+        let Some((a, active)) = self.queue_ops.get(session).and_then(|q| q.running()).map(|(a, o)| (a, o.clone())) else { return };
         if a != attempt {
             return;
         }
@@ -158,6 +151,7 @@ impl App {
                 Operation::Remove { id } | Operation::Undo { id, .. } | Operation::Delete { id } => {
                     inbox.remove(id);
                 }
+                Operation::Edit(_) | Operation::Reorder { .. } => {}
             }
             if let Operation::Undo { id, .. } = &active {
                 model::set_user_files(id, Vec::new());
@@ -168,17 +162,23 @@ impl App {
             crate::windows::peer::touch(self);
             return self.step_queue(session, Event::Succeeded { attempt, now });
         }
-        self.step_queue(session, Event::Failed { attempt, now });
+        self.step_queue(session, Event::Failed { attempt, hidden: Vec::new(), now });
     }
 
-    /// Each frame: confirmed rows' hiding expires and an undo past its bound fails.
+    /// Each frame: confirmed rows' hiding expires and a change past its bound ends as it got.
     pub(crate) fn queue_timers(&mut self, tx: &mut Tx) {
         let now = self.clock;
         let due: Vec<String> = self.queue_ops.iter().filter(|(_, q)| q.due().is_some_and(|d| now + 1e-9 >= d)).map(|(s, _)| s.clone()).collect();
         for session in due {
-            self.step_queue(&session, Event::Tick { now });
+            let (stage, hidden) = match self.queue_ops.get(&session).and_then(|q| q.running()) {
+                // An undo's cancel goes out at once, so it waits for its answer (`committed`).
+                Some((_, Operation::Undo { .. })) => (Stage::Committed, Vec::new()),
+                Some((attempt, _)) => self.queue_runs.progress(&session, attempt),
+                None => (Stage::Running, Vec::new()),
+            };
+            self.step_queue(&session, Event::Tick { now, stage, hidden });
         }
-        if let Some(next) = self.queue_ops.values().filter_map(Queue::due).reduce(f64::min) {
+        if let Some(next) = self.queue_ops.values().filter_map(machine::Queue::due).reduce(f64::min) {
             tx.wake_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
         }
     }
@@ -246,11 +246,13 @@ impl App {
                 admitted = true;
             }
             let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
-            if let Some(queue) = self.queue_ops.get_mut(sid) {
-                queue.step(Event::Synced { ids: ids.clone() });
-            }
             admitted |= self.judge_sends_by_inbox(sid, &ids);
             self.check_sends();
+        }
+        // The queue hears the server's queued prompts whenever they change (`inbox.synced`).
+        if self.queue_ops.contains_key(sid) {
+            let ids = self.inboxes.get(sid).map(|i| i.queued().map(|i| i.id.clone()).collect()).unwrap_or_default();
+            self.step_queue(sid, Event::Synced { ids });
         }
         admitted || done.changed
     }
@@ -319,25 +321,36 @@ const SINK: f32 = 6.0;
 /// A question or permission in the composer's place closes it, as Desktop hides its queue while
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
-    let queued = shown_rows(s, session);
-    let shadow = if queued.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
+    let rows = shown_rows(s, session);
+    let shadow = if rows.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
     let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
     let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).box_shadow(Pal::ring_in(p.ring));
     let clip = col().key("queue-clip").w_full().clip_soft(0.0);
     let tuck = el().key("queue-tuck").mx(0.5).fill(crate::view::composer_fill(p));
-    if queued.is_empty() {
+    if rows.is_empty() {
         // Closed, the face rests below the composer's top edge, so closing it passes behind
         // that edge rather than creeping up to it as a second line.
         return shell.h(0.0).child(clip.h(0.0).child(face.mt(SINK).h(1.0))).child(tuck.h(0.0));
     }
-    let n = queued.len();
+    let n = rows.len();
     let ops = s.queue_ops.get(session);
+    let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
     let mut list = col().key("queue-list").w_full();
-    for (k, item) in queued.iter().enumerate() {
+    for (k, r) in rows.iter().enumerate() {
         // While the turn is stopped the queue is parked: the first prompt shows its actions,
         // labelled Send, which is how the queue resumes.
-        let row = Row { busy, parked: !busy && k == 0, undoing: ops.is_some_and(|q| q.undoing(&item.id)), changing: ops.is_some_and(Queue::busy) };
-        list = list.child(queue_row(p, session, item, row));
+        let st = RowState {
+            busy,
+            parked: !busy && k == 0,
+            editing: ops.and_then(|q| q.editing()) == Some(r.id.as_str()),
+            changing: ops.is_some_and(machine::Queue::busy),
+            lifted: s.queue_drag.lifted(session, &r.id),
+            dragging: s.queue_drag.active(session),
+            offset: s.queue_drag.offset(session, k),
+            key: format!("queued-{}", ops.map_or_else(|| r.id.clone(), |q| q.origin(&r.id))),
+            index: k,
+        };
+        list = list.child(queue_row(p, session, r, &ids, st));
     }
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
     // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
@@ -358,40 +371,76 @@ pub fn docked(s: &App) -> bool {
     matches!(&s.route, crate::Route::Session { id, .. } if !shown_rows(s, id).is_empty())
 }
 
-/// The queue's rows: the session's queued prompts, less those a change took out of the strip
-/// (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
-fn shown_rows<'a>(s: &'a App, session: &str) -> Vec<&'a InboxItem> {
+/// The queue's rows (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
+fn shown_rows(s: &App, session: &str) -> Vec<QueueRow> {
     if s.dock_shown() {
         return Vec::new();
     }
-    let ops = s.queue_ops.get(session);
-    s.inbox_for(session).map(|i| i.queued().filter(|i| !ops.is_some_and(|q| q.hidden(&i.id))).collect()).unwrap_or_default()
+    s.queue_rows(session)
 }
 
-/// How a row stands: the turn running (`busy`), the queue parked on it, its undo on its way
-/// (`undoing`: it shows pending), or any change on its way (`changing`: the actions wait).
-struct Row {
+/// A queued prompt's words as its row shows them: on one line, as a `truncate` button collapses
+/// its whitespace.
+fn row_text(item: &InboxItem) -> String {
+    item.text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// How many attachments a queued prompt carries: its files, the files it names by path, and its
+/// quotes (`queuedPromptRows`).
+fn row_files(item: &InboxItem) -> usize {
+    let files = model::inbox_payload(&item.id).and_then(|p| p["files"].as_array().map(Vec::len)).unwrap_or(0);
+    let files = files.max(model::user_files(&item.id).len()).max(item.files.len());
+    files + opencode_kit::mention::user_path_attachments(&item.id).len() + model::user_quotes(&item.id).len()
+}
+
+/// How a row stands: the turn running (`busy`), the queue parked on it, open in the composer,
+/// any change on its way (`changing`: the actions wait), lifted by a drag or beside one, and
+/// how far the drag has moved it.
+struct RowState {
     busy: bool,
     parked: bool,
-    undoing: bool,
+    editing: bool,
     changing: bool,
+    lifted: bool,
+    dragging: bool,
+    offset: f32,
+    key: String,
+    /// Its place in the strip, which keys its words and handle for scripts.
+    index: usize,
 }
 
-fn queue_row(p: &Pal, session: &str, item: &InboxItem, st: Row) -> El {
-    let (busy, parked) = (st.busy, st.parked);
-    let files = model::user_files(&item.id).len().max(item.files.len());
-    let label = if item.text.trim().is_empty() { attachments_label(files) } else { item.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned() };
-    let (ss, is) = (session.to_owned(), item.id.clone());
-    let (su, iu) = (session.to_owned(), item.id.clone());
-    let (sr, ir) = (session.to_owned(), item.id.clone());
-    let reveal = |e: El| if parked { e } else { e.group_opacity(0.0, 1.0) };
+/// The rows a drag passes step aside on dnd-kit's sortable transition (`250ms
+/// cubic-bezier(0.25, 1, 0.5, 1)`).
+fn sort_motion() -> rune::Anim {
+    rune::Anim::new(rune::Curve::tween(0.25, rune::Easing::cubic(0.25, 1.0, 0.5, 1.0)))
+}
+
+/// A row (`queue-panel.tsx:194-300`): the drag handle, the words (a click opens them in the
+/// composer), the attachment count, and the actions, which show on hover, always on the parked
+/// first row and while the row is open in the composer. A row whose change is on its way shows
+/// its words faint and a loader in place of its actions.
+fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState) -> El {
+    let busy = st.busy;
+    let label = if r.text.is_empty() { attachments_label(r.files) } else { r.text.clone() };
+    let (ss, is) = (session.to_owned(), r.id.clone());
+    let (su, iu) = (session.to_owned(), r.id.clone());
+    let (sr, ir) = (session.to_owned(), r.id.clone());
+    let (se, ie) = (session.to_owned(), r.id.clone());
+    // A lifted row takes no hover: dnd-kit turns off the pointer for what it drags.
+    let reveal = |e: El| match (st.parked || st.editing, st.lifted) {
+        (true, _) => e,
+        (false, true) => e.opacity(0.0),
+        (false, false) => e.group_opacity(0.0, 1.0),
+    };
     let steer = row()
         .key("steer")
         .role("button")
         .label(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") })
+        // `button-v2` small, ghost-faint, with `gap-0.5 ps-1`.
         .h(24.0)
-        .px(6.0)
-        .gap(4.0)
+        .pl(4.0)
+        .pr(9.0)
+        .gap(2.0)
         .center_y()
         .radius(4.0)
         .hover(p.hover)
@@ -400,39 +449,122 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, st: Row) -> El {
             tx.instant();
             s.steer_queued(&ss, &is);
         })
-        .child(icon(&ic::ARROW_UP, 14.0).color(p.icon_faint))
+        .child(icon(&ic::ARROW_UP, 16.0).color(p.icon_muted))
         .child(text(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") }).font(UI_MED).color(p.faint));
-    // An undo on its way: the words go faint and a loader takes the actions' place
-    // (`queue-panel.tsx:221-252`).
-    let mut left = row().grow(1.0).shrink().gap(16.0).center_y().pl(6.0).child(text(label).key("label").font(UI).color(if st.undoing { p.faint } else { p.text }).truncate_fade());
-    if files > 0 && !item.text.trim().is_empty() {
-        left = left.child(text(attachments_label(files)).font(UI).color(p.muted));
+    // Its tooltip shows only while the turn runs (`inactive={!working}`).
+    let steer = if busy { steer.help(opencode_i18n::t!("session.queue.steerTooltip")) } else { steer };
+    let words = row()
+        .key("edit")
+        .role("button")
+        .label(label.clone())
+        .self_start()
+        .shrink()
+        .min_w(0.0)
+        .radius(2.0)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.edit_queued(&se, &ie);
+        })
+        .child(text(label).key("label").font(UI).color(if st.editing || r.pending { p.faint } else { p.text }).truncate_fade())
+        .child(marker(format!("edit-{}", st.index)));
+    let words = if st.editing || r.pending { words } else { words.hover(p.hover).cursor(rune::Cursor::Text) };
+    let mut inner = row().shrink().min_w(0.0).gap(16.0).center_y().child(words);
+    if r.files > 0 && !r.text.is_empty() {
+        inner = inner.child(text(attachments_label(r.files)).font(UI).color(p.muted));
     }
-    let actions = if st.undoing {
-        row().key("actions").gap(6.0).center_y().child(session_view::style::activity_ring_sized(p, 14.0))
+    let left = row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(handle(p, session, &r.id, ids, st.index, st.changing || r.pending)).child(inner);
+    let actions = if r.pending {
+        row().key("actions").gap(4.0).center_y().child(session_view::style::activity_ring_sized(p, 14.0))
     } else {
-        // While another change runs, the actions wait (`pointer-events-none`, `disabled`).
-        let actions = reveal(row().key("actions").gap(6.0).center_y())
-            .child(steer)
-            .child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)))
-            .child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| s.withdraw(&sr, &ir)));
-        if st.changing { actions.inert() } else { actions }
+        let mut actions = reveal(row().key("actions").gap(4.0).center_y());
+        if !st.editing {
+            actions = actions.child(steer).child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)));
+        }
+        let actions = actions.child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| s.withdraw(&sr, &ir)));
+        // While another change runs or a row is dragged, the actions wait
+        // (`pointer-events-none`, `disabled`).
+        if st.changing || st.dragging { actions.inert() } else { actions }
     };
-    row()
-        .key(format!("queued-{}", item.id))
+    let row_el = row()
+        .key(st.key)
         .role("listitem")
         .w_full()
         .h(32.0)
         .mb(1.0)
-        .pr(8.0)
+        .pl(2.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
         .hover_group()
+        .fill(if st.editing { p.hover } else { rune::Color::TRANSPARENT })
         // It leaves at once, and the queue closes up on its height spring.
         .transition(rune::Transition::opacity().springs(rune::SpringPair::NONE))
         .child(left)
-        .child(actions)
+        .child(actions);
+    // The lifted row follows the pointer at 60% over the others, which step aside for it.
+    if st.lifted {
+        row_el.opacity(0.6).raise().offset(0.0, st.offset).offset_motion(rune::Anim::INSTANT)
+    } else {
+        row_el.offset(0.0, st.offset).offset_motion(sort_motion())
+    }
+}
+
+/// An empty box over its parent, keyed by the row's place in the strip so scripts can find the
+/// row; its parent keeps a key of its own, so a row that moves up keeps its elements.
+fn marker(key: String) -> El {
+    el().key(key).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+}
+
+/// The drag handle (`queue-panel.tsx:206-215`): six 2 pt squares in two columns, 2 apart and
+/// 2.25 down, inside 4 of padding, in `bg-layer-04`. The pointer drags it; the keys lift it from
+/// focus.
+fn handle(p: &Pal, session: &str, id: &str, ids: &[String], index: usize, disabled: bool) -> El {
+    let dot = || el().size(2.0, 2.0).fill(p.q.layer4);
+    let column = || col().gap(2.25).child(dot()).child(dot()).child(dot());
+    let h = row().key("reorder").role("button").label(opencode_i18n::t!("session.queue.reorder")).padding(4.0).gap(2.0).child(column()).child(column()).child(marker(format!("reorder-{index}")));
+    if disabled {
+        return h;
+    }
+    let (sd, idd, idsd) = (session.to_owned(), id.to_owned(), ids.to_vec());
+    let (sk, idk, idsk) = (session.to_owned(), id.to_owned(), ids.to_vec());
+    h.cursor(rune::Cursor::Grab)
+        .focusable(true)
+        .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            let effect = match d.phase {
+                rune::Phase::Down => s.queue_drag.step(drag::Event::Down { session: &sd, id: &idd }),
+                rune::Phase::Move => {
+                    tx.animated();
+                    s.queue_drag.step(drag::Event::Move { dx: d.dx, dy: d.dy, ids: &idsd })
+                }
+                rune::Phase::Up => {
+                    tx.instant();
+                    s.queue_drag.step(drag::Event::Up { cancelled: d.cancelled() })
+                }
+            };
+            if let Some(drag::Effect::Reorder { session, ids }) = effect {
+                s.reorder_queued(&session, ids);
+            }
+        })
+        .on_key(move |s: &mut App, ev, tx| {
+            let lifted = s.queue_drag.active(&sk);
+            let event = match ev.key {
+                Key::Text(ref t) if t == " " && !lifted => drag::Event::Pick { session: &sk, id: &idk, ids: &idsk },
+                Key::Enter if !lifted => drag::Event::Pick { session: &sk, id: &idk, ids: &idsk },
+                Key::Text(ref t) if t == " " => drag::Event::Drop,
+                Key::Enter | Key::Tab if lifted => drag::Event::Drop,
+                Key::Up if lifted => drag::Event::Step(-1),
+                Key::Down if lifted => drag::Event::Step(1),
+                Key::Escape if lifted => drag::Event::Cancel,
+                _ => return false,
+            };
+            tx.animated();
+            if let Some(drag::Effect::Reorder { session, ids }) = s.queue_drag.step(event) {
+                tx.instant();
+                s.reorder_queued(&session, ids);
+            }
+            true
+        })
 }
 
 /// "Queue ⌘⏎" (or "Steer ⌘⏎") beside the submit button while a turn runs and the composer holds
@@ -440,20 +572,21 @@ fn queue_row(p: &Pal, session: &str, item: &InboxItem, st: Row) -> El {
 /// 640 wide (`sm`; `hidden sm:block`, `editor.tsx:1456-1458`). It sits in the toolbar's free
 /// `room`, which it never widens, as the word and the keys, the word alone, or nothing: in a
 /// narrow window it can't push the mic and Send aside.
-pub fn alternate_hint(p: &Pal, room: f32, sm: bool) -> Option<El> {
+pub fn alternate_hint(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
+    let word = if steer { opencode_i18n::t!("ui.promptInput.steer") } else { opencode_i18n::t!("ui.promptInput.queue") };
     // Its padding and right margin, the word, and the two keycaps 6 after it and 6 apart.
     let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
     let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
     let keys = caps + 6.0 * labels.len() as f32;
-    let word = rune::text::measure(opencode_i18n::t!("ui.promptInput.queue"), &[], UI_MED, None).0 + 12.0 + 10.0;
-    if room < word {
+    let width = rune::text::measure(word, &[], UI_MED, None).0 + 12.0 + 10.0;
+    if room < width {
         return None;
     }
-    let labels = if sm && room >= word + keys { labels } else { Vec::new() };
+    let labels = if sm && room >= width + keys { labels } else { Vec::new() };
     let hint = row()
         .key("alternate-delivery")
         .role("button")
-        .label(opencode_i18n::t!("ui.promptInput.queue"))
+        .label(word)
         // `button-v2` ghost-faint at size small (`editor.tsx:1448-1455`, `button.css:46-50`):
         // 24 tall, 6 in, 4 pt corners, 12 before Send (`me-3`, the toolbar's 2 pt gap and 10).
         .h(24.0)
@@ -466,9 +599,10 @@ pub fn alternate_hint(p: &Pal, room: f32, sm: bool) -> Option<El> {
         .press(p.pressed)
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
-        .child(text(opencode_i18n::t!("ui.promptInput.queue")).font(UI_MED).color(p.faint))
+        .child(text(word).font(UI_MED).color(p.faint))
         .children(labels.iter().map(|k| keycap(p, k)));
-    Some(hint)
+    // Only the steer has a tooltip (`inactive={delivery !== "steer"}`).
+    Some(if steer { hint.help(opencode_i18n::t!("ui.promptInput.steerHint")) } else { hint })
 }
 
 pub(crate) fn keycap(p: &Pal, key: &str) -> El {

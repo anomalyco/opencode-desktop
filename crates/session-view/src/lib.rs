@@ -139,6 +139,11 @@ pub trait TimelineHost: Sized + 'static {
     fn is_session_stopped(&self, _session: &str) -> bool {
         false
     }
+    /// The words in place of "Working" under a session that is still being started (Desktop's
+    /// `PreparingSession` status line: "Creating worktree", "Starting session").
+    fn working_label_for(&self, _session: &str) -> Option<&'static str> {
+        None
+    }
     /// Whether session `session` itself waits on a question or a permission, which hides its
     /// Working (`message-timeline.tsx:339`).
     fn session_asking(&self, _session: &str) -> bool {

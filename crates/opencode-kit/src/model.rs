@@ -19,7 +19,7 @@ mod compaction_tests;
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, set_user_files, user_files};
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
-pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, parse_inbox_item, step_notice};
+pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, inbox_payload, parse_inbox_item, step_notice};
 pub use pending::{Field, FieldKind, FieldOption, Pending, parse_form, parse_permission};
 pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, is_notice_event, parse_inbox_notice};
 pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};

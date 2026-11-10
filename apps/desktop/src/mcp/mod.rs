@@ -239,6 +239,11 @@ impl App {
         self.mcp.toggles.iter().any(|t| t.dir == dir && t.name == name)
     }
 
+    /// The toggles in flight in `dir`, which a new session there waits for (`toggling`).
+    pub(crate) fn mcp_toggling_in(&self, dir: &str) -> Vec<Attempt> {
+        self.mcp.toggles.iter().filter(|t| t.dir == dir).map(|t| t.attempt).collect()
+    }
+
     /// Opens the MCPs dialog on the open session's or draft's folder, or closes it.
     pub fn toggle_mcp_dialog(&mut self, tx: &mut Tx) {
         tx.instant();
@@ -350,8 +355,12 @@ impl App {
         let late = toggle.clone();
         self.job_after(Duration::from_secs_f64(TOGGLE_TIMEOUT_S), move |_| {
             Box::new(move |s: &mut App, tx: &mut Tx| {
+                let live = s.mcp.toggles.contains(&late);
                 let effects = step(&mut s.mcp, Event::ToggleTimedOut { toggle: &late });
                 s.mcp_effects(effects, tx);
+                if live {
+                    s.start_mcp_settled(&late.dir, late.attempt, false, tx);
+                }
             }) as Apply
         });
         self.job(move |srv| {
@@ -406,8 +415,13 @@ impl App {
                 (event, Some(list))
             }
         };
+        let live = self.mcp.toggles.contains(toggle);
+        let ok = matches!(event, Event::ToggleSucceeded { .. });
         let effects = step(&mut self.mcp, event);
         self.mcp_effects(effects, tx);
+        if live {
+            self.start_mcp_settled(&toggle.dir, toggle.attempt, ok, tx);
+        }
         match list {
             Some(list) => self.mcp_listed(&toggle.dir, list, tx),
             None => {

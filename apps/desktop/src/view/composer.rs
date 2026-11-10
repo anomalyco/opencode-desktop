@@ -175,6 +175,9 @@ impl ComposerHost for App {
     fn composer_docked_top(&self) -> bool {
         crate::queue::docked(self)
     }
+    fn composer_editing(&self) -> bool {
+        self.queue_editing().is_some()
+    }
     fn composer_face(&self, p: &Pal) -> Option<Vec<El>> {
         session_view::dock::face(self, p)
     }
@@ -208,6 +211,7 @@ impl ComposerHost for App {
             || self.suggest_key(ev, tx)
             || self.add_key(ev, tx)
             || crate::subagents::reply::esc(self, ev, tx)
+            || self.queue_edit_key(ev, tx)
             || crate::stop::key(self, ev, tx)
         {
             return true;
@@ -229,7 +233,7 @@ impl ComposerHost for App {
             return true;
         }
         if crate::keymap::Bind::SubmitAlternate.matches_tx(ev, tx) {
-            if session_view::composer::stopping(self) {
+            if session_view::composer::stopping(self) && self.queue_editing().is_none() {
                 session_view::composer::submit_or_stop(self, tx);
             } else {
                 self.submit(true, tx);
@@ -285,10 +289,14 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     let actions = if s.add.shell() {
         Some(crate::add_menu::exit_shell_button(p, s.layout.narrow.sm()))
     } else {
-        queues
+        // An open queued prompt's other delivery steers it, whether or not a turn runs
+        // (`editor.tsx:1430-1440`).
+        let editing = s.queue_editing().is_some() && session_view::composer::ready(s);
+        let steer = editing || s.settings.follow_up == crate::settings::FollowUp::Queue;
+        (queues || editing)
             .then(|| {
                 let room = rune::memo::layout_size("room").map_or(f32::INFINITY, |[w, _]| w);
-                crate::queue::alternate_hint(p, room, s.layout.narrow.sm())
+                crate::queue::alternate_hint(p, room, s.layout.narrow.sm(), steer)
             })
             .flatten()
     };

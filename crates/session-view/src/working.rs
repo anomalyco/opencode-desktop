@@ -118,7 +118,7 @@ pub fn width(label: &str) -> f32 {
 }
 
 fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
-    let words = s.working_state().label();
+    let words = s.working_label_for(session).unwrap_or_else(|| s.working_state().label());
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
     if !on {

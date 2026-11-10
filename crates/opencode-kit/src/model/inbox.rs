@@ -59,7 +59,21 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
         crate::mention::set_user_path_attachments(&s(id), refs);
         set_user_quotes(&s(id), quotes);
     }
-    Some(InboxItem { id: s(id), text, delivery: Delivery::parse(&item["delivery"])?, files: parse_attachments(&payload["files"]) })
+    let delivery = Delivery::parse(&item["delivery"])?;
+    inbox_payload_store().lock().unwrap().insert(s(id), payload.clone());
+    Some(InboxItem { id: s(id), text, delivery, files: parse_attachments(&payload["files"]) })
+}
+
+/// Undelivered prompts' payloads as the server holds them, by inbox id. `InboxItem` has no field
+/// for it, so apps that build one as a literal keep compiling; editing a queued prompt reads it.
+fn inbox_payload_store() -> &'static Mutex<HashMap<String, Value>> {
+    static STORE: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// The payload of inbox item `id`, once listed or admitted.
+pub fn inbox_payload(id: &str) -> Option<Value> {
+    inbox_payload_store().lock().unwrap().get(id).cloned()
 }
 
 /// What [`Inbox::apply`] did.

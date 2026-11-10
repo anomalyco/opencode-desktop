@@ -260,6 +260,10 @@ pub trait ComposerHost: TimelineHost {
     fn composer_docked_top(&self) -> bool {
         false
     }
+    /// A queued prompt is open in the composer for an edit: Return confirms it, never stops.
+    fn composer_editing(&self) -> bool {
+        false
+    }
     fn composer_face(&self, _p: &Pal) -> Option<Vec<El>> {
         None
     }
@@ -308,7 +312,8 @@ pub fn stopping<S: ComposerHost>(s: &S) -> bool {
 /// ↵ (⌘↵ too): sends, or stops the run when Send shows as Stop, as Desktop does. A held ↵'s
 /// repeats never stop it.
 pub fn submit_or_stop<S: ComposerHost>(s: &mut S, tx: &mut Tx) {
-    if !stopping(s) {
+    // A queued prompt open for an edit goes back to the queue, even blank (`model.ts:550-556`).
+    if !stopping(s) || s.composer_editing() {
         return s.composer_send(tx);
     }
     if !tx.key_repeat() {

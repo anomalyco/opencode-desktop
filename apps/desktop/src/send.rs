@@ -8,6 +8,20 @@ impl App {
     /// Sends the composer's prompt. While the session is busy it steers, or queues when
     /// `alternate` (⌘⏎); see `queue.rs`.
     pub fn submit(&mut self, alternate: bool, tx: &mut Tx) {
+        // An undo of a queued prompt holds the submit; a queued prompt open in the composer goes
+        // back to the queue (Return) or steers (the other delivery) instead of a new send
+        // (`composer/model.ts:540-560`).
+        if let Route::Session { id, .. } = &self.route
+            && let Some(q) = self.queue_ops.get(id)
+        {
+            if q.undoing() {
+                return;
+            }
+            if q.editing().is_some() {
+                tx.instant();
+                return self.confirm_queue_edit(alternate);
+            }
+        }
         let typed = !self.composer.text.is_empty();
         self.record_sent(|s| s.send_prompt(alternate, tx));
         // A narrow window lets go of the composer once it sends (`submit.ts:436`).
@@ -117,23 +131,30 @@ impl App {
                 let local = prompt.id.clone().unwrap_or_default();
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
-                let w = if starting {
-                    self.start_write(id.clone(), prompt)
-                } else if staged {
-                    Write::SendFromRevert { session: id.clone(), prompt }
-                } else {
-                    self.send_write(&id, prompt)
-                };
-                if matches!(self.source, Source::Live {allow_send:true,..}) && self.stage.is_none() {
+                let journal = matches!(self.source, Source::Live {allow_send:true,..}) && self.stage.is_none();
+                if starting && journal {
+                    // The start runs its phases and hands the prompt to the outbox (`new_session`).
                     let paths=sent.paths.clone();
-                    if !self.enqueue_prompt(sent,w) {self.attach.paths.extend(paths);return;}
+                    if !self.begin_start(&id, sent, prompt, tx) {self.attach.paths.extend(paths);return;}
                 } else {
-                    if !self.write(w) {self.attach.paths.extend(sent.paths);return;}
-                    self.unsent.note(sent);
-                    self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
-                }
-                if starting {
-                    self.start(&id, tx);
+                    let w = if starting {
+                        self.start_write(id.clone(), prompt)
+                    } else if staged {
+                        Write::SendFromRevert { session: id.clone(), prompt }
+                    } else {
+                        self.send_write(&id, prompt)
+                    };
+                    if journal {
+                        let paths=sent.paths.clone();
+                        if !self.enqueue_prompt(sent,w) {self.attach.paths.extend(paths);return;}
+                    } else {
+                        if !self.write(w) {self.attach.paths.extend(sent.paths);return;}
+                        self.unsent.note(sent);
+                        self.attach.echoes.push((id.clone(), local.clone(), text.clone()));
+                    }
+                    if starting {
+                        self.start(&id, tx);
+                    }
                 }
                 if staged {
                     self.commit_staged_revert(&id);

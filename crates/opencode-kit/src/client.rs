@@ -19,6 +19,7 @@ mod downloads;
 mod hub;
 mod ids;
 mod mentions;
+pub mod rewrite;
 mod upload;
 mod wire;
 mod worker;
