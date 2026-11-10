@@ -63,13 +63,44 @@ pub struct NewTabEntry {
     pub over: Option<String>,
 }
 
+/// Whether the routed session's side region is open with an empty strip (`new-tab-machine.ts`
+/// `openedEmpty`). Entering such a span opens one New tab; leaving it lets the next one open
+/// another.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum EmptySpan {
+    #[default]
+    Outside,
+    Within { session: String },
+}
+
+impl EmptySpan {
+    pub fn within(&self, session: &str) -> bool {
+        matches!(self, Self::Within { session: s } if s == session)
+    }
+
+    /// Steps on the routed `session`'s region as it is now; true when it enters a span.
+    pub fn step(&mut self, session: &str, open_empty: bool) -> bool {
+        if !open_empty {
+            *self = Self::Outside;
+            return false;
+        }
+        if self.within(session) {
+            return false;
+        }
+        *self = Self::Within { session: session.to_owned() };
+        true
+    }
+}
+
 pub struct SideState {
-    /// The chat panel's width as a divider drag began, and what the session stored then.
-    pub drag_origin: Option<(f32, Option<f32>)>,
-    /// The side pane's share as a split divider drag began, and what the session stored then.
-    pub split_drag_origin: Option<(f32, Option<f32>)>,
-    /// The bottom pane's height as a drag began, and what the session stored then.
-    pub bottom_drag_origin: Option<(f32, Option<f32>)>,
+    /// The chat/side divider's gesture, over the chat panel's width.
+    pub chat_resize: super::resize::Resize,
+    /// The split divider's gesture, over the lower pane's height.
+    pub split_resize: super::resize::Resize,
+    /// The bottom dock's top edge's gesture, over its height.
+    pub bottom_resize: super::resize::Resize,
+    /// The open, empty side region that already opened its New tab.
+    pub empty_span: EmptySpan,
     /// The window's width at the last layout, for sizes estimated outside the view.
     pub laid_w: std::cell::Cell<f32>,
     /// Until when (`App::clock`) the left sidebar's flight moves the side region's edge, so its
@@ -102,9 +133,10 @@ pub struct SideState {
 impl Default for SideState {
     fn default() -> Self {
         Self {
-            drag_origin: None,
-            split_drag_origin: None,
-            bottom_drag_origin: None,
+            chat_resize: Default::default(),
+            split_resize: Default::default(),
+            bottom_resize: Default::default(),
+            empty_span: EmptySpan::Outside,
             laid_w: std::cell::Cell::new(1280.0),
             edge_flight: None,
             pane_drag: Default::default(),
@@ -419,12 +451,11 @@ impl App {
     pub fn dismiss_side_new_tab(&mut self, new_id: &str) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         self.side.adding.retain(|n| n.id != new_id);
-        let reg = self.resolve_side_region();
-        let side_strip_empty = reg
-            .as_ref()
-            .is_none_or(|r| r.strip.iter().all(|e| e.pane == SessionPane::Bottom));
-        let any_live_new = self.side.adding.iter().any(|n| n.session_id == sid && n.pane != SessionPane::Bottom);
-        if side_strip_empty && !any_live_new {
+        // Desktop's `dismiss` empties the region only when the strip holds no tab in any pane and
+        // no New tab is left (`new-tab-machine.ts`); with a bottom tab the side region stays open.
+        let strip_empty = self.resolve_side_region().is_none_or(|r| r.strip.is_empty());
+        let any_new = self.side.adding.iter().any(|n| n.session_id == sid);
+        if strip_empty && !any_new {
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
         }
@@ -448,23 +479,45 @@ impl App {
         self.side.focused = true;
         self.side.active_pane_focus = SessionPane::Side;
 
-        let reg = self.resolve_side_region();
-        let has_side_tabs = reg
-            .as_ref()
-            .is_some_and(|r| r.strip.iter().any(|e| e.pane != SessionPane::Bottom));
-        if !has_side_tabs {
-            let empty_tabs = SessionTabs::default();
-            let has_new = self.shown_new_tab(&sid, SessionPane::Side, None).is_some()
-                || !self.live_new_tabs(&sid, SessionPane::Side, session_pane_tab(&empty_tabs, SessionPane::Side)).is_empty();
-            if !has_new {
-                self.open_side_new_tab(SessionPane::Side);
-            }
-        } else if let Some(r) = reg
+        // An empty strip shows a New tab at once rather than on the next frame's poll.
+        if self.sync_empty_side() {
+            self.composer.focused = false;
+            return;
+        }
+        if let Some(r) = self.resolve_side_region()
             && let Some(act_key) = &r.active
             && let Some(entry) = r.entry(act_key)
         {
             entry.provider.enter(self, &sid, &entry.tab.id);
         }
+    }
+
+    /// Desktop's New tab `sync` (`new-tab-machine.ts`): a side region open with nothing in its
+    /// strip, hidden tabs included, shows a New tab once per such span. That covers opening it
+    /// empty and its last tab leaving without closing it (a terminal that exits). A side region
+    /// whose only tabs are in the bottom pane shows the empty pane, as Desktop's does.
+    pub(super) fn sync_empty_side(&mut self) -> bool {
+        let Route::Session { id, .. } = &self.route else { return false };
+        let stored_empty = self.side.sessions.get(id).is_none_or(|st| st.tab_state.tabs.all.is_empty());
+        let candidate = self.side_stored_open() && stored_empty;
+        if candidate && self.side.empty_span.within(id) {
+            return false;
+        }
+        // Pinned tabs fill the strip without being stored.
+        let open_empty = candidate && self.resolve_side_region().is_none_or(|r| r.strip.is_empty());
+        if !self.side.empty_span.step(id, open_empty) {
+            return false;
+        }
+        // One left from an earlier opening shows again rather than being joined by another.
+        if self.shown_new_tab(id, SessionPane::Side, None).is_some() {
+            return false;
+        }
+        // Focus stays where it is, as Desktop's does: a terminal exiting doesn't take it.
+        let new = NewTabEntry { id: format!("new:{}", self.side.next_new_serial), pane: SessionPane::Side, session_id: id.clone(), over: None };
+        self.side.next_new_serial += 1;
+        self.side.chosen_new_tab.insert(SessionPane::Side, new.id.clone());
+        self.side.adding.push(new);
+        true
     }
 
     pub fn toggle_bottom_region(&mut self) {

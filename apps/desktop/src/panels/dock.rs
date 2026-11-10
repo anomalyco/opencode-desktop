@@ -3,6 +3,7 @@
 use rune::{Cursor, Cx, Drag, El, Phase, Tx, col};
 
 use super::SessionPane;
+use super::resize::{ResizeEffect, ResizeEvent};
 use super::state::BOTTOM_MIN_H;
 use super::view::pane_box;
 use crate::palette::{Elevate as _, Pal};
@@ -56,8 +57,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 
     let h = bottom_pane_height(s, cx);
     let max_h = bottom_pane_max(s, cx);
-    let dragging = s.side.bottom_drag_origin.is_some();
-    let handle = super::view::resize_pill(p, dragging, false)
+    let handle = super::view::resize_pill(p, s.side.bottom_resize.dragging(), false)
         .key("bottom-resize")
         .w_full()
         .h(8.0)
@@ -65,21 +65,15 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-            match d.phase {
-                Phase::Down => s.side.bottom_drag_origin = Some((h, s.session_side_mut(&sid).bottom_height)),
-                Phase::Move => {
-                    if let Some((start, _)) = s.side.bottom_drag_origin {
-                        s.session_side_mut(&sid).bottom_height = Some((start - d.dy / s.zoom).clamp(BOTTOM_MIN_H, max_h.max(BOTTOM_MIN_H)));
-                    }
-                }
-                Phase::Up => {
-                    if d.cancelled()
-                        && let Some((_, stored)) = s.side.bottom_drag_origin
-                    {
-                        s.session_side_mut(&sid).bottom_height = stored;
-                    }
-                    s.side.bottom_drag_origin = None;
-                }
+            let event = match d.phase {
+                Phase::Down => ResizeEvent::Down { size: h, stored: s.session_side_mut(&sid).bottom_height, clicks: d.clicks },
+                Phase::Move => ResizeEvent::Move { by: -d.dy / s.zoom },
+                Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
+            };
+            match s.side.bottom_resize.step(event) {
+                ResizeEffect::Size(h) => s.session_side_mut(&sid).bottom_height = Some(h.clamp(BOTTOM_MIN_H, max_h.max(BOTTOM_MIN_H))),
+                ResizeEffect::Restore(stored) => s.session_side_mut(&sid).bottom_height = stored,
+                ResizeEffect::None => {}
             }
         });
 

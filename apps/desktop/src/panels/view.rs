@@ -9,6 +9,7 @@ use rune_theme_opencode::icons as ic;
 
 pub use super::dock::{bottom_dock, bottom_reserve_height};
 use super::menus::new_tab_view;
+use super::resize::{ResizeEffect, ResizeEvent};
 pub use super::menus::context_menus;
 use super::state::{ResolvedEntry, ResolvedRegion, SPLIT_MIN_H};
 use super::width::SESSION_MIN_W;
@@ -179,8 +180,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
 /// The split's `ResizeHandle` (`direction="vertical" edge="start"`): 8 tall across the lower
 /// pane's top edge, sizing it between `SPLIT_MIN_H` and the column less `SPLIT_MIN_H`.
 fn split_handle(s: &App, p: &Pal, col_h: f32, split_h: f32) -> El {
-    let dragging = s.side.split_drag_origin.is_some();
-    resize_pill(p, dragging, false)
+    resize_pill(p, s.side.split_resize.dragging(), false)
         .key("side-split-resize")
         .absolute(0.0, col_h - split_h - 4.0)
         .w_full()
@@ -189,24 +189,18 @@ fn split_handle(s: &App, p: &Pal, col_h: f32, split_h: f32) -> El {
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-            match d.phase {
-                Phase::Down => s.side.split_drag_origin = Some((split_h, s.session_side_mut(&sid).split_ratio)),
-                Phase::Move => {
-                    if let Some((start, _)) = s.side.split_drag_origin
-                        && col_h > 1.0
-                    {
-                        let h = (start - d.dy / s.zoom).clamp(SPLIT_MIN_H, SPLIT_MIN_H.max(col_h - SPLIT_MIN_H));
-                        s.session_side_mut(&sid).split_ratio = Some(1.0 - h / col_h);
-                    }
+            let event = match d.phase {
+                Phase::Down => ResizeEvent::Down { size: split_h, stored: s.session_side_mut(&sid).split_ratio, clicks: d.clicks },
+                Phase::Move => ResizeEvent::Move { by: -d.dy / s.zoom },
+                Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
+            };
+            match s.side.split_resize.step(event) {
+                ResizeEffect::Size(h) if col_h > 1.0 => {
+                    let h = h.clamp(SPLIT_MIN_H, SPLIT_MIN_H.max(col_h - SPLIT_MIN_H));
+                    s.session_side_mut(&sid).split_ratio = Some(1.0 - h / col_h);
                 }
-                Phase::Up => {
-                    if d.cancelled()
-                        && let Some((_, stored)) = s.side.split_drag_origin
-                    {
-                        s.session_side_mut(&sid).split_ratio = stored;
-                    }
-                    s.side.split_drag_origin = None;
-                }
+                ResizeEffect::Restore(stored) => s.session_side_mut(&sid).split_ratio = stored,
+                ResizeEffect::Size(_) | ResizeEffect::None => {}
             }
         })
 }
@@ -641,10 +635,8 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
     let x = (zoomed_w - s.side_width(zoomed_w) - 16.0).max(0.0);
     let chat = s.chat_width(zoomed_w);
     let max = s.chat_width_max(zoomed_w);
-    let dragging = s.side.drag_origin.is_some();
-
     Some(
-        resize_pill(p, dragging, true)
+        resize_pill(p, s.side.chat_resize.dragging(), true)
             .key("side-resize")
             .pin(Some(x), Some(crate::view::chrome().top()), None, Some(8.0))
             .w(8.0)
@@ -652,21 +644,15 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
             .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
                 tx.instant();
                 let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-                match d.phase {
-                    Phase::Down => s.side.drag_origin = Some((chat, s.session_side_mut(&sid).session_width)),
-                    Phase::Move => {
-                        if let Some((start, _)) = s.side.drag_origin {
-                            s.session_side_mut(&sid).session_width = Some((start + d.dx / s.zoom).clamp(SESSION_MIN_W, max.max(SESSION_MIN_W)));
-                        }
-                    }
-                    Phase::Up => {
-                        if d.cancelled()
-                            && let Some((_, stored)) = s.side.drag_origin
-                        {
-                            s.session_side_mut(&sid).session_width = stored;
-                        }
-                        s.side.drag_origin = None;
-                    }
+                let event = match d.phase {
+                    Phase::Down => ResizeEvent::Down { size: chat, stored: s.session_side_mut(&sid).session_width, clicks: d.clicks },
+                    Phase::Move => ResizeEvent::Move { by: d.dx / s.zoom },
+                    Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
+                };
+                match s.side.chat_resize.step(event) {
+                    ResizeEffect::Size(w) => s.session_side_mut(&sid).session_width = Some(w.clamp(SESSION_MIN_W, max.max(SESSION_MIN_W))),
+                    ResizeEffect::Restore(stored) => s.session_side_mut(&sid).session_width = stored,
+                    ResizeEffect::None => {}
                 }
             }),
     )

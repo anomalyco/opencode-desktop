@@ -369,7 +369,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     cx::read(Dep::Browser);
     let id = handle_field(a, "tab", "Id").and_then(|s| s.parse::<u64>().ok()).ok_or("ui.browserSurface needs a page from the Browser service")?;
     let pal = p(a);
-    Ok(crate::browser::view::surface(app, &pal, id, super::terminal::SCALE.get()).unwrap_or_else(|| col().key("browser-no-page").grow(1.0).w_full()))
+    let surface = crate::browser::view::surface(app, &pal, id, super::terminal::SCALE.get()).unwrap_or_else(|| col().key("browser-no-page").grow(1.0).w_full());
+    // The node's key lands on this frame, so the page and the engine's states keep their own.
+    Ok(col().grow(1.0).min_h(0.0).w_full().child(surface))
 }
 
 /// The engine's messages, the background download, DevTools answers and picks.

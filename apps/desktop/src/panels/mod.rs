@@ -11,6 +11,7 @@ pub mod drag;
 pub mod keys;
 pub mod menus;
 pub mod persist;
+pub mod resize;
 pub mod state;
 pub mod tabs;
 pub mod view;

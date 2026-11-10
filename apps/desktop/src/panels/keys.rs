@@ -120,6 +120,8 @@ impl App {
                 }
             }
         }
+        // A strip its last tab left (a terminal that exited) shows a New tab, as Desktop's does.
+        changed |= self.sync_empty_side();
         // The native views Luau panels place (Review's diffs).
         changed |= crate::plugin_host::luau::native::poll(self, tx);
         // Static slice iteration on idle frames: 0 heap allocations.
