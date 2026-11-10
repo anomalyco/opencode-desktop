@@ -38,7 +38,8 @@ fn find(rt: &Runtime<App>, key: &str) -> ElementInfo {
 /// The thumb of the bar on the viewport keyed `area`.
 fn thumb(rt: &Runtime<App>, area: &str) -> ElementInfo {
     let area = format!("{area}-scroll-area");
-    rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("thumb") && e.path.contains(&area)).expect("a thumb")
+    // The bar's own, the shallowest: a switch inside the page has a thumb too.
+    rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some("thumb") && e.path.contains(&area)).min_by_key(|e| e.path.matches('/').count()).expect("a thumb")
 }
 
 fn shown(rt: &Runtime<App>) -> bool {
