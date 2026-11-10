@@ -153,7 +153,6 @@ impl App {
     }
 
     pub fn open_new_browser_tab_for_session(&mut self, sid: Option<&str>, url: &str, target_pane: Option<SessionPane>, steal_focus: bool) -> u64 {
-        let saved_focus = (self.composer.focused, self.side.focused);
         let id = if self.use_mock_browser() {
             let resolved = browser_pane::resolve_address(url);
             let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
@@ -167,10 +166,11 @@ impl App {
         if let Some(sid) = sid {
             self.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
             let key = panel_key(PLUGIN, &id.to_string());
-            self.open_side_tab_for_session(sid, &key, target_pane, false, false);
-        }
-        if !steal_focus {
-            (self.composer.focused, self.side.focused) = saved_focus;
+            if steal_focus {
+                self.open_side_tab_for_session(sid, &key, target_pane, false, false);
+            } else {
+                self.keeping_keyboard(|s| s.open_side_tab_for_session(sid, &key, target_pane, false, false));
+            }
         }
         id
     }
@@ -193,15 +193,15 @@ impl App {
     }
 
     pub fn register_existing_browser_tab_for_session(&mut self, sid: &str, id: u64, steal_focus: bool) {
-        let saved_focus = (self.composer.focused, self.side.focused);
         let vec = self.browser.session_tabs.entry(sid.to_owned()).or_default();
         if !vec.contains(&id) {
             vec.push(id);
         }
         let key = panel_key(PLUGIN, &id.to_string());
-        self.open_side_tab_for_session(sid, &key, None, false, false);
-        if !steal_focus {
-            (self.composer.focused, self.side.focused) = saved_focus;
+        if steal_focus {
+            self.open_side_tab_for_session(sid, &key, None, false, false);
+        } else {
+            self.keeping_keyboard(|s| s.open_side_tab_for_session(sid, &key, None, false, false));
         }
     }
 

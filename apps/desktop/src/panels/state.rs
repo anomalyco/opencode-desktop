@@ -83,6 +83,8 @@ pub struct SideState {
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
     pub active_pane_focus: SessionPane,
+    /// A tab is opening for someone other than the user (`App::keeping_keyboard`).
+    pub background_open: bool,
     /// Blocks an extra `⌘W` right after closing the side region's last tab from closing the session.
     pub emptied_guard: bool,
     /// The side region's last tab, still drawn while closing it slides the region shut.
@@ -111,6 +113,7 @@ impl Default for SideState {
             mounted: false,
             focused: false,
             active_pane_focus: SessionPane::Side,
+            background_open: false,
             emptied_guard: false,
             closing: Default::default(),
             tab_menu: None,
@@ -590,6 +593,18 @@ impl App {
     /// when it isn't there, without replacing a preview tab, selects it, and shows its pane. A
     /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
     /// pane.
+    /// Runs `open`, which shows a tab for someone other than the user (an agent's tool), leaving
+    /// the keyboard where it was: now, and when the tab's panel hears at the next poll that it
+    /// was selected, as a restored tab's does.
+    pub fn keeping_keyboard<R>(&mut self, open: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = (self.composer.focused, self.side.focused, self.side.active_pane_focus);
+        self.side.background_open = true;
+        let out = open(self);
+        self.side.background_open = false;
+        (self.composer.focused, self.side.focused, self.side.active_pane_focus) = saved;
+        out
+    }
+
     pub fn show_side_tab(&mut self, session_id: &str, key: &str, target: Option<SessionPane>) {
         let was = self.side.sessions.get(session_id).map_or((false, false), |st| (st.open, st.bottom_open));
         let fallback = split_panel_key(key)

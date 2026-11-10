@@ -302,18 +302,18 @@ impl App {
     /// Opens session `sid`'s terminal tab (a new terminal when `new_tab` or it has none), leaving
     /// the keyboard where it was.
     pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
-        let saved_focus = (self.composer.focused, self.side.focused, self.side.active_pane_focus);
-        let ws_key = self.terminal_workspace_key_for_session(sid);
-        if new_tab {
-            self.ensure_terminal_workspace_hydrated(&ws_key);
-            self.new_terminal_in(&ws_key);
-        } else {
-            self.ensure_workspace_ready(&ws_key);
-        }
-        let id = self.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())?;
-        self.show_side_tab(sid, &crate::panels::panel_key(side_ops::PLUGIN, &id), None);
-        (self.composer.focused, self.side.focused, self.side.active_pane_focus) = saved_focus;
-        Some(id)
+        self.keeping_keyboard(|s| {
+            let ws_key = s.terminal_workspace_key_for_session(sid);
+            if new_tab {
+                s.ensure_terminal_workspace_hydrated(&ws_key);
+                s.new_terminal_in(&ws_key);
+            } else {
+                s.ensure_workspace_ready(&ws_key);
+            }
+            let id = s.terminal.workspaces.get(&ws_key).and_then(|ws| ws.active.clone())?;
+            s.show_side_tab(sid, &crate::panels::panel_key(side_ops::PLUGIN, &id), None);
+            Some(id)
+        })
     }
 
     /// The keyboard goes to the routed session's active terminal, in the pane showing its tab.
