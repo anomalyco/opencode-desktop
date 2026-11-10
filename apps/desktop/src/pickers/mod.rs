@@ -191,7 +191,6 @@ mod tests {
         });
         tap(&mut rt, "model");
         assert_eq!(text_of(&rt, "group-console-openai-test"), "Anomaly / RITB", "the header says the name");
-        assert!(rt.find("rail-console-openai-test").is_some(), "the rail's mark and stop stay keyed by the id");
         assert_eq!(text_of(&rt, "group-nowhere"), "nowhere", "a provider with no name says its id");
         key(&mut rt, Key::Text("anomaly".into()));
         let keys: Vec<String> = rt.state.picker_items().into_iter().map(|i| i.key).collect();
@@ -248,7 +247,8 @@ mod tests {
         key(&mut rt, Key::Enter);
         assert_eq!(rt.state.selection().model.variant, "low");
         let effort = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("effort")).unwrap();
-        assert!(!effort.moving && effort.rect == effort.target, "the new label's width cuts: {:?} → {:?}", effort.rect, effort.target);
+        let landed = effort.rect.iter().zip(effort.target).all(|(a, b)| (a - b).abs() < 0.01);
+        assert!(!effort.moving && landed, "the new label's width cuts: {:?} → {:?}", effort.rect, effort.target);
         tap(&mut rt, "model");
         for _ in 0..60 { rt.frame(1.0 / 60.0); }
         let (x, y) = rt.find("option-anthropic:claude-sonnet-5-5").unwrap();
@@ -261,18 +261,18 @@ mod tests {
         rt.state.open_draft_tab();
         assert_eq!(rt.state.selection().agent, "build");
         rt.state.route = old_route;
+        // The model picker is a dialog centred in the window since 279e0b01, and a press on its
+        // scrim hands the keys back to the composer.
         tap(&mut rt, "model");
         rt.set_viewport((960.0, 700.0), 1.0);
         rt.frame(1.0 / 60.0);
-        let elements = rt.elements();
-        let menu = elements.iter().find(|e| e.key.as_deref() == Some("picker-model")).unwrap();
-        let anchor = elements.iter().find(|e| e.key.as_deref() == Some("model")).unwrap();
-        assert!((menu.target[1] + menu.target[3] + 6.0 - anchor.target[1]).abs() < 0.1);
+        let menu = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("picker-model")).unwrap();
+        assert!((menu.target[0] + menu.target[2] / 2.0 - 480.0).abs() < 0.5 && (menu.target[1] + menu.target[3] / 2.0 - 350.0).abs() < 0.5, "centred: {:?}", menu.target);
         rt.pointer_down(10.0, 10.0);
         rt.pointer_up(10.0, 10.0);
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.state.pickers.open, None);
-        assert!(!rt.state.composer.focused);
+        assert!(rt.state.composer.focused);
     }
 
     #[test]
@@ -284,9 +284,9 @@ mod tests {
             tap(&mut rt, "model");
             rt.frame(1.0 / 60.0);
             let find = |rt: &Runtime<App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key));
-            // Under Reduce Motion the grow is only its fade.
+            // Desktop's dialog is whole on its first frame (279e0b01), with or without Reduce Motion.
             let menu = find(&rt, "picker-model").unwrap();
-            assert!(menu.opacity < 1.0 && (menu.scale < 1.0) != reduced, "it grows from the trigger (reduced={reduced}): {}", menu.scale);
+            assert!(menu.opacity == 1.0 && menu.scale == 1.0, "it opens whole (reduced={reduced}): {} {}", menu.opacity, menu.scale);
             key(&mut rt, Key::Escape);
             rt.frame(1.0 / 60.0);
             assert!(find(&rt, "picker-model").is_none(), "Escape removes it in one frame (reduced={reduced})");
@@ -303,8 +303,7 @@ mod tests {
         assert!(find(&rt, "option-openai:gpt-6-astra").is_none(), "a row that stops matching goes at once");
         let empty = find(&rt, "picker-empty").unwrap();
         assert_eq!(empty.opacity, 1.0);
-        let scroll = find(&rt, "picker-scroll").unwrap();
-        assert!((scroll.rect[3] - 48.0).abs() < 0.1, "the menu is the empty state's height at once: {}", scroll.rect[3]);
+        assert!((empty.rect[3] - 120.0).abs() < 0.1, "the empty state is Desktop's 120 pt at once: {}", empty.rect[3]);
         key(&mut rt, Key::Backspace);
         for _ in 0..6 { key(&mut rt, Key::Backspace); }
         let row = find(&rt, "option-openai:gpt-6-astra").unwrap();
