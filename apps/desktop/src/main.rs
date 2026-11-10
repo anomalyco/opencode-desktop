@@ -1113,7 +1113,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= updater::poll(s, tx);
     #[cfg(feature = "office")]
     {
-        changed |= office::poll();
+        changed |= office::poll(s, tx);
     }
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);

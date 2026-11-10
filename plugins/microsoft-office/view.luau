@@ -92,7 +92,18 @@ function view.workbook(services: Services, v: View, document: OfficeDocument, ac
         end
     end
     return ui.col({ key = "office-workbook", w = "full", grow = 1, minH = 0 }, {
-        ui.officeSheet({ key = `office-sheet-{active}`, w = "full", grow = 1, minH = 0, document = document }),
+        ui.officeSheet({
+            key = `office-sheet-{active}`,
+            w = "full",
+            grow = 1,
+            minH = 0,
+            document = document,
+            labels = {
+                name = document.sheets[active],
+                copyTooLarge = services.I18n:T("sheet.copyTooLarge"),
+                copyFailed = services.I18n:T("sheet.copyFailed"),
+            },
+        }),
         if #tabs > 0 then ui.divider() else nil,
         if #tabs > 0
             then ui.row({

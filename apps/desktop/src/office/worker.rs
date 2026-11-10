@@ -6,8 +6,10 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
 
 use office_preview::fonts::FontPacks;
-use office_preview::xlsx::SheetLayout;
+use office_preview::xlsx::{CellText, Range, SheetLayout};
 use office_preview::{Document, Kind, PageInfo};
+
+use super::sheet::state::Purpose;
 
 /// What the UI asks a document's thread for.
 pub enum Job {
@@ -18,6 +20,10 @@ pub enum Job {
     /// The cells of sheet `sheet` in a viewport, CSS px: x, y, width, height.
     /// `ratio`: device pixels per CSS px, which the frame's lines snap to (`canvas2d.ts`).
     Frame { sheet: usize, viewport: [f64; 4], ratio: f64, ticket: u64 },
+    /// The cells of a range of sheet `sheet` as they show, for a copy or screen readers.
+    Cells { sheet: usize, range: Range, ticket: u64, purpose: Purpose },
+    /// Where a cell of sheet `sheet` is, to scroll it into view.
+    Position { sheet: usize, cell: [u32; 2], ticket: u64 },
     /// Opens the file again with these faces (the CJK pack arrived), then answers as at first.
     Reopen(FontPacks),
 }
@@ -29,6 +35,8 @@ pub enum Reply {
     Scene { page: usize, scene: Result<Arc<Scene>, String> },
     Layout { sheet: usize, layout: Result<SheetLayout, String> },
     Frame { sheet: usize, ticket: u64, frame: Result<Arc<SheetFrame>, String> },
+    Cells { sheet: usize, range: Range, ticket: u64, purpose: Purpose, cells: Result<Vec<Vec<CellText>>, String> },
+    Position { sheet: usize, ticket: u64, rect: Result<[f64; 4], String> },
 }
 
 pub struct Opened {
@@ -79,6 +87,8 @@ fn run(kind: Kind, bytes: &[u8], packs: FontPacks, jobs: &Receiver<Job>, replies
                     let frame = excel(&mut document).and_then(|x| x.frame(sheet, viewport[0], viewport[1], viewport[2], viewport[3], ratio).map_err(|e| e.to_string()));
                     send(Reply::Frame { sheet, ticket, frame: frame.map(|f| Arc::new(SheetFrame { scene: Scene { scene: f.page.scene, width: f.page.width, height: f.page.height }, grid: f.grid, viewport })) })
                 }
+                Job::Cells { sheet, range, ticket, purpose } => send(Reply::Cells { sheet, range, ticket, purpose, cells: excel(&mut document).and_then(|x| x.cells(sheet, range).map_err(|e| e.to_string())) }),
+                Job::Position { sheet, cell, ticket } => send(Reply::Position { sheet, ticket, rect: excel(&mut document).and_then(|x| x.position(sheet, cell[0], cell[1]).map_err(|e| e.to_string())) }),
                 Job::Reopen(packs) => match open(kind, bytes, &packs, &send) {
                     Some(reopened) => {
                         document = reopened;

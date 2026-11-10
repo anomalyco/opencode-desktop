@@ -1,0 +1,268 @@
+//! `ui.officeSheet`: a worksheet as Desktop's `SpreadsheetGrid` draws it (`spreadsheet.tsx`,
+//! `sheet-paint.ts`): Excel's light column and row headers along the edges, the cells under the
+//! scroll position as one frame the workbook's thread draws, and the selection over them, tinted
+//! and outlined in Excel's green with its headers lit, all on white paper in every theme. A frame
+//! drawn for another scroll position keeps its place under the headers until the next one
+//! arrives. Under the cells, the grid screen readers hear: the block of cells around the active
+//! cell, as text.
+
+pub mod copy;
+mod input;
+pub mod pointer;
+pub mod select;
+pub mod state;
+
+use office_preview::xlsx::{LAST_CELL, Range};
+use rune::{Color, Cursor, El, ScrollPos, TextStyle, col, el, text};
+
+use super::registry::{self, Snapshot};
+use super::worker::SheetFrame;
+pub use input::run;
+use select::{contains, cover_merges, hidden_at};
+
+/// `sheet-paint.ts`'s colours: Excel's, kept in every theme.
+fn ink_header() -> Color { rune::color::hex("#f5f5f5").unwrap_or(Color::BLACK) }
+fn ink_label() -> Color { rune::color::hex("#5c5c5c").unwrap_or(Color::BLACK) }
+fn ink_line() -> Color { rune::color::hex("#d4d4d4").unwrap_or(Color::BLACK) }
+fn ink_edge() -> Color { rune::color::hex("#bdbdbd").unwrap_or(Color::BLACK) }
+fn ink_selected_header() -> Color { rune::color::hex("#d3ecdd").unwrap_or(Color::BLACK) }
+fn ink_selected_label() -> Color { rune::color::hex("#185c37").unwrap_or(Color::BLACK) }
+fn ink_accent() -> Color { rune::color::hex("#217346").unwrap_or(Color::BLACK) }
+/// `rgba(33, 115, 70, 0.12)`: the selected cells' tint.
+fn ink_selection() -> Color { Color { a: 0.12, ..ink_accent() } }
+
+/// The column headers' height (`headerHeight`).
+pub const HEADER_H: f32 = 20.0;
+const LABEL_STYLE: TextStyle = TextStyle::new(11.0, 440.0).lh(13.0);
+
+/// The words the grid says, in the plugin's language.
+#[derive(Clone, Default)]
+pub struct Labels {
+    pub name: String,
+    pub too_large: String,
+    pub failed: String,
+}
+
+/// The key of file `id`'s scroll view, which a reveal scrolls.
+pub fn scroll_key(id: u64) -> String {
+    format!("office-sheet-{id}")
+}
+
+pub fn view(id: u64, labels: Labels, focus: Color) -> El {
+    let snap = registry::snapshot(id).unwrap_or_default();
+    let layout = snap.layout.clone().unwrap_or_default();
+    let header_w = row_header_width(&snap);
+    let (content_w, content_h) = (layout.width as f32, layout.height as f32);
+    let anchor = snap.selection.anchor;
+    let range = cover_merges(snap.selection.range(), &layout.merges);
+    let active = cover_merges([anchor[0], anchor[1], anchor[0], anchor[1]], &layout.merges);
+    let frozen = snap.frame.as_deref().map_or([0.0; 2], |f| frozen_size(f, layout.frozen_rows, layout.frozen_cols));
+    // As in Excel, the sheet scrolls one screen past the farthest point seen (`area`): its cells,
+    // a cell a key or link scrolled to, or where it is scrolled now.
+    let v = snap.view;
+    let cells = [(v.size[0] - header_w).max(0.0), (v.size[1] - HEADER_H).max(0.0)];
+    let content_w = content_w.max(snap.reach[0]).max(v.scroll[0] + cells[0]) + cells[0];
+    let content_h = content_h.max(snap.reach[1]).max(v.scroll[1] + cells[1]) + cells[1];
+    let mut content = el().key("office-sheet-content").size(header_w + content_w.max(1.0), HEADER_H + content_h.max(1.0));
+    if let Some(frame) = &snap.frame {
+        let [x, y, w, h] = frame.viewport.map(|v| v as f32);
+        content = content.child(el().key("office-sheet-cells").absolute(header_w + x, HEADER_H + y).size(w, h).fill(Color::WHITE).effect(registry::sheet_mark(id))).child(selection(frame, header_w, range, active));
+    }
+    content = content.child(column_headers(&snap, header_w, content_w, range)).child(row_headers(&snap, header_w, content_h, range));
+    let key = scroll_key(id);
+    let mut grid = col()
+        .key(key.clone())
+        .role("grid")
+        .label(labels.name.clone())
+        .read_only(true)
+        .focusable(true)
+        // The cells would cover the scroller's own outline, so the keyboard's ring is laid inside
+        // both (`peer-focus-visible:shadow-[inset_0_0_0_2px_var(--v2-border-border-focus)]`).
+        .focus_ring(2.0, -2.0, focus)
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .fill(Color::WHITE)
+        .cursor(Cursor::Crosshair)
+        .scroll_xy()
+        .on_scroll_offset(move |at: ScrollPos| registry::scrolled(id, at.offset, at.viewport, header_w, frozen));
+    if let Some(cell) = active_cell(&snap) {
+        grid = grid.active_descendant(cell);
+    }
+    input::keys(input::pointer(grid, id, &key), id, labels).child(content).child(reader(&snap, range))
+}
+
+/// The row headers fit the longest row number on show (`rowHeaderWidth`): at least 28.
+fn row_header_width(snap: &Snapshot) -> f32 {
+    let last = snap.frame.as_ref().map_or(1, |f| track(f.grid.start_row, f.grid.row_indices.as_deref(), f.grid.row_offsets.len().saturating_sub(1)) + 1);
+    let digits = last.max(1).to_string().len() as f32;
+    (digits * 6.2 + 12.0).ceil().max(28.0)
+}
+
+/// The frozen panes' size in a frame: the offset of the first track past them (`frozenSize`).
+fn frozen_size(frame: &SheetFrame, rows: u32, cols: u32) -> [f32; 2] {
+    let pane = |offsets: &[f32], start: u32, indices: Option<&[u32]>, count: u32| -> f32 {
+        if count == 0 {
+            return 0.0;
+        }
+        let first = (0..offsets.len()).find(|&p| p == offsets.len() - 1 || track(start, indices, p) >= count).unwrap_or(0);
+        offsets.get(first).copied().unwrap_or(0.0).max(0.0)
+    };
+    let g = &frame.grid;
+    [pane(&g.col_offsets, g.start_col, g.col_indices.as_deref(), cols), pane(&g.row_offsets, g.start_row, g.row_indices.as_deref(), rows)]
+}
+
+/// The sheet row or column at `position` in a frame's grid (`trackIndex`).
+fn track(start: u32, indices: Option<&[u32]>, position: usize) -> u32 {
+    indices.and_then(|i| i.get(position).copied()).unwrap_or(start + position as u32)
+}
+
+/// A column's letters (`columnName`): A..Z, AA...
+fn column_name(index: u32) -> String {
+    let mut n = index + 1;
+    let mut name = Vec::new();
+    while n > 0 {
+        n -= 1;
+        name.push(b'A' + (n % 26) as u8);
+        n /= 26;
+    }
+    name.reverse();
+    String::from_utf8(name).unwrap_or_default()
+}
+
+/// The strip of column letters, held at the top as the sheet scrolls down; the selected columns
+/// lit.
+fn column_headers(snap: &Snapshot, header_w: f32, content_w: f32, range: Range) -> El {
+    let mut strip = el().key("office-sheet-columns").w(header_w + content_w.max(1.0)).h(HEADER_H).fill(ink_header()).sticky_top(0.0).cursor(Cursor::Default);
+    if let Some(frame) = &snap.frame {
+        let x0 = header_w + frame.viewport[0] as f32;
+        let offsets = &frame.grid.col_offsets;
+        for (position, pair) in offsets.windows(2).enumerate() {
+            let index = track(frame.grid.start_col, frame.grid.col_indices.as_deref(), position);
+            strip = strip.child(header_cell(x0 + pair[0], 0.0, pair[1] - pair[0], HEADER_H, column_name(index), index >= range[1] && index <= range[3], true));
+        }
+    }
+    strip.child(el().absolute(0.0, HEADER_H - 1.0).w(header_w + content_w.max(1.0)).h(1.0).fill(ink_edge())).child(corner(header_w))
+}
+
+/// The strip of row numbers, held at the left as the sheet scrolls across; the selected rows lit.
+fn row_headers(snap: &Snapshot, header_w: f32, content_h: f32, range: Range) -> El {
+    let mut strip = el().key("office-sheet-rows").absolute(0.0, HEADER_H).w(header_w).h(content_h.max(1.0)).fill(ink_header()).sticky_left(0.0).cursor(Cursor::Default);
+    if let Some(frame) = &snap.frame {
+        let y0 = frame.viewport[1] as f32;
+        let offsets = &frame.grid.row_offsets;
+        for (position, pair) in offsets.windows(2).enumerate() {
+            let index = track(frame.grid.start_row, frame.grid.row_indices.as_deref(), position);
+            strip = strip.child(header_cell(0.0, y0 + pair[0], header_w, pair[1] - pair[0], (index + 1).to_string(), index >= range[0] && index <= range[2], false));
+        }
+    }
+    strip.child(el().absolute(header_w - 1.0, 0.0).w(1.0).h(content_h.max(1.0)).fill(ink_edge()))
+}
+
+/// The select-all corner over both strips, with Excel's small triangle pointing at the cells.
+fn corner(header_w: f32) -> El {
+    let triangle = rune::Shape::new().fill(vec![[header_w - 4.0, HEADER_H - 12.0], [header_w - 4.0, HEADER_H - 4.0], [header_w - 12.0, HEADER_H - 4.0]], rune::color::hex("#c8c8c8").unwrap_or(Color::BLACK));
+    el().key("office-sheet-corner").absolute(0.0, 0.0).size(header_w, HEADER_H).fill(ink_header()).sticky_left(0.0).child(rune::canvas(triangle).absolute(0.0, 0.0).size(header_w, HEADER_H)).child(el().absolute(0.0, HEADER_H - 1.0).w(header_w).h(1.0).fill(ink_edge())).child(el().absolute(header_w - 1.0, 0.0).w(1.0).h(HEADER_H).fill(ink_edge()))
+}
+
+/// One header: its label centred, tinted with a bar toward the cells when selected, and the line
+/// after it where the gridline meets it.
+fn header_cell(x: f32, y: f32, w: f32, h: f32, label: String, selected: bool, columns: bool) -> El {
+    if w <= 0.0 || h <= 0.0 {
+        return el();
+    }
+    let mut cell = el().absolute(x, y).size(w, h).center().fill(if selected { ink_selected_header() } else { ink_header() });
+    // A track too small for its label shows none.
+    let fits = if columns { label.len() as f32 * 6.2 + 2.0 <= w } else { h >= 9.0 };
+    if fits {
+        cell = cell.child(text(label).font(LABEL_STYLE).color(if selected { ink_selected_label() } else { ink_label() }));
+    }
+    if selected {
+        cell = cell.child(if columns { el().absolute(0.0, h - 2.0).w(w).h(2.0).fill(ink_accent()) } else { el().absolute(w - 2.0, 0.0).w(2.0).h(h).fill(ink_accent()) });
+    }
+    let rule = if columns { el().absolute(w - 1.0, 0.0).w(1.0).h(h).fill(ink_line()) } else { el().absolute(0.0, h - 1.0).w(w).h(1.0).fill(ink_line()) };
+    cell.child(rule)
+}
+
+/// Where a range's tracks on show sit in the frame (`rangeRect`): x, y, width, height; `None`
+/// when none of its rows or columns shows.
+fn range_rect(frame: &SheetFrame, range: Range) -> Option<[f32; 4]> {
+    let g = &frame.grid;
+    let span = |start: u32, indices: Option<&[u32]>, offsets: &[f32], low: u32, high: u32| -> Option<(f32, f32)> {
+        let tracks = offsets.len().saturating_sub(1);
+        let mut found: Option<(usize, usize)> = None;
+        for p in 0..tracks {
+            let t = track(start, indices, p);
+            if t < low {
+                continue;
+            }
+            if t > high {
+                break;
+            }
+            found = Some((found.map_or(p, |f| f.0), p));
+        }
+        let (first, last) = found?;
+        Some((offsets[first], offsets[last + 1] - offsets[first]))
+    };
+    let (x, w) = span(g.start_col, g.col_indices.as_deref(), &g.col_offsets, range[1], range[3])?;
+    let (y, h) = span(g.start_row, g.row_indices.as_deref(), &g.row_offsets, range[0], range[2])?;
+    Some([x, y, w, h])
+}
+
+/// The selected range tinted, its active cell left clear, and outlined 2 wide in Excel's green
+/// (`paintSelection`), to the frame's edge where it runs past it.
+fn selection(frame: &SheetFrame, header_w: f32, range: Range, active: Range) -> El {
+    let Some([x, y, w, h]) = range_rect(frame, range) else { return el() };
+    let (ox, oy) = (header_w + frame.viewport[0] as f32, HEADER_H + frame.viewport[1] as f32);
+    let mut layer = el().key("office-sheet-selection").absolute(ox + x - 1.0, oy + y - 1.0).size(w + 2.0, h + 2.0);
+    let hole = range_rect(frame, active);
+    if hole != Some([x, y, w, h]) {
+        // The tint with the active cell cut out (`fill("evenodd")`): the bands around it.
+        let bands = match hole {
+            Some([hx, hy, hw, hh]) => {
+                let (hx, hy) = (hx - x, hy - y);
+                vec![[0.0, 0.0, w, hy], [0.0, hy + hh, w, h - hy - hh], [0.0, hy, hx, hh], [hx + hw, hy, w - hx - hw, hh]]
+            }
+            None => vec![[0.0, 0.0, w, h]],
+        };
+        for [bx, by, bw, bh] in bands.into_iter().filter(|b| b[2] > 0.0 && b[3] > 0.0) {
+            layer = layer.child(el().absolute(1.0 + bx, 1.0 + by).size(bw, bh).fill(ink_selection()));
+        }
+    }
+    layer.child(el().absolute(0.0, 0.0).size(w + 2.0, h + 2.0).border(2.0, ink_accent()))
+}
+
+/// The key of the screen readers' cell `cell`.
+fn cell_key(cell: [u32; 2]) -> String {
+    format!("office-cell-{}-{}", cell[0], cell[1])
+}
+
+/// The cell keyboard moves reach, which screen readers announce, when the block holds it.
+fn active_cell(snap: &Snapshot) -> Option<String> {
+    let read = snap.read.as_ref()?;
+    let focus = snap.selection.focus;
+    contains(read.range, focus).then(|| cell_key(focus))
+}
+
+/// The grid screen readers hear (`sr-only`): the block's rows and columns but the hidden ones,
+/// each cell's text as it shows, the selected ones marked. Nothing of it draws.
+fn reader(snap: &Snapshot, range: Range) -> El {
+    let Some(read) = &snap.read else { return el() };
+    let layout = snap.layout.clone().unwrap_or_default();
+    let [top, left, bottom, right] = read.range;
+    let columns: Vec<u32> = (left..=right.min(LAST_CELL[1])).filter(|c| !hidden_at(&layout.hidden_cols, *c)).collect();
+    let mut head = el().role("row").child(el().role("columnheader"));
+    for c in &columns {
+        head = head.child(el().role("columnheader").label(column_name(*c)));
+    }
+    let mut grid = el().key("office-sheet-reader").absolute(0.0, 0.0).size(1.0, 1.0).clip_rounded(0.0).child(head);
+    for r in (top..=bottom.min(LAST_CELL[0])).filter(|r| !hidden_at(&layout.hidden_rows, *r)) {
+        let mut row = el().role("row").child(el().role("rowheader").label((r + 1).to_string()));
+        for c in &columns {
+            let text = read.texts.get((r - top) as usize).and_then(|t| t.get((*c - left) as usize)).cloned().unwrap_or_default();
+            row = row.child(el().key(cell_key([r, *c])).role("gridcell").label(text).focus_selected(contains(range, [r, *c])));
+        }
+        grid = grid.child(row);
+    }
+    grid
+}

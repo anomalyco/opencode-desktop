@@ -12,7 +12,12 @@ mod worker;
 
 pub use compositor::OfficeCompositor;
 
-/// Takes the file threads' and the font fetch's news; true when a view should draw again.
-pub fn poll() -> bool {
-    registry::poll() | cjk::poll()
+/// Takes the file threads' and the font fetch's news, and does what a sheet's grid asked of the
+/// window (a copy, a toast, a scroll); true when a view should draw again.
+pub fn poll(app: &mut crate::App, tx: &mut rune::Tx) -> bool {
+    let changed = registry::poll() | cjk::poll();
+    for effect in registry::take_ui() {
+        sheet::run(app, effect, tx);
+    }
+    changed
 }

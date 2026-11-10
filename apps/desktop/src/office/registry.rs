@@ -12,6 +12,9 @@ use office_preview::xlsx::SheetLayout;
 use office_preview::{Kind, PageInfo};
 use rune_luau::{Completer, Data};
 
+use super::sheet::pointer::PointerEvent;
+use super::sheet::select::Selection;
+use super::sheet::state::{Ask, Grid, Read, UiEffect};
 use super::worker::{self, Job, Reply, Scene, SheetFrame};
 
 /// Effect-slot marks of Office pages share this upper half; the lower half numbers the page.
@@ -22,6 +25,8 @@ const KEPT_AROUND: usize = 10;
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
+    /// What the windows do once the file threads answered a grid: a copy, a toast, a scroll.
+    static UI: RefCell<Vec<UiEffect>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Default)]
@@ -57,7 +62,7 @@ struct Doc {
 /// A file's lifecycle (`office-worker.ts`'s `worker-machine.ts`): opening, then open or failed.
 enum State {
     Opening { waiters: Vec<(Completer, usize)> },
-    Open(Open),
+    Open(Box<Open>),
     Failed,
 }
 
@@ -84,6 +89,9 @@ struct Sheet {
     /// The device pixels per CSS px the sheet last drew at, which frames snap their lines to.
     ratio: f64,
     ticket: u64,
+    /// Its selection, pointer gesture, screen readers' cells, copy and scroll into view; each
+    /// sheet's grid starts fresh, as Desktop gives each sheet its own.
+    grid: Grid,
 }
 
 /// What the compositor draws for a mark: a page's scene or a sheet's frame, and a version that
@@ -117,6 +125,12 @@ pub struct Snapshot {
     pub width: f32,
     pub layout: Option<SheetLayout>,
     pub frame: Option<Arc<SheetFrame>>,
+    pub selection: Selection,
+    /// The cells screen readers browse around the active cell.
+    pub read: Option<Read>,
+    /// Where the grid's scroll view is, and the farthest point a reveal scrolled to.
+    pub view: super::sheet::state::View,
+    pub reach: [f32; 2],
 }
 
 /// Starts opening `bytes` (`size` bytes long, for the answer) and answers `done` once it opened.
@@ -179,7 +193,7 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
             if doc.kind == Kind::Spreadsheet && !opened.sheets.is_empty() {
                 doc.jobs.send(Job::Layout { sheet: 0 }).ok();
             }
-            doc.state = State::Open(Open { pages: opened.pages, scenes: HashMap::new(), sheet: Sheet::default() });
+            doc.state = State::Open(Box::new(Open { pages: opened.pages, scenes: HashMap::new(), sheet: Sheet::default() }));
         }
         (State::Opening { waiters }, Reply::Failed(reason)) => {
             eprintln!("office: {reason}");
@@ -200,6 +214,16 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
         }
         (State::Open(open), Reply::Layout { sheet, layout }) if sheet == open.sheet.index => {
             open.sheet.layout = layout.ok();
+            // The screen readers' first block, around A1.
+            let asks: Vec<Ask> = open.sheet.grid.select(Selection::default()).into_iter().collect();
+            send_asks(&doc.jobs, sheet, asks);
+        }
+        (State::Open(open), Reply::Cells { sheet, range, ticket, purpose, cells }) if sheet == open.sheet.index => {
+            UI.with_borrow_mut(|ui| ui.extend(open.sheet.grid.cells_read(ticket, purpose, range, cells)));
+        }
+        (State::Open(open), Reply::Position { sheet, ticket, rect }) if sheet == open.sheet.index => {
+            let Some(layout) = &open.sheet.layout else { return };
+            UI.with_borrow_mut(|ui| ui.extend(open.sheet.grid.positioned(ticket, rect, layout, &super::sheet::scroll_key(id))));
         }
         (State::Open(open), Reply::Frame { sheet, ticket, frame }) if sheet == open.sheet.index && ticket == open.sheet.ticket => match frame {
             Ok(frame) => open.sheet.frame = Some(frame),
@@ -244,8 +268,12 @@ pub fn snapshot(id: u64) -> Option<Snapshot> {
             failed_pages,
             zoom: doc.zoom,
             width: doc.width,
-            layout: open.sheet.layout,
+            layout: open.sheet.layout.clone(),
             frame: open.sheet.frame.clone(),
+            selection: open.sheet.grid.selection,
+            read: open.sheet.grid.read().cloned(),
+            view: open.sheet.grid.view,
+            reach: open.sheet.grid.reach,
         })
     })
 }
@@ -405,5 +433,104 @@ pub fn measure(id: u64, width: f32) -> bool {
             doc.version += 1;
         }
         changed
+    })
+}
+/// Sends a grid's asks to its file's thread, for sheet `sheet`.
+fn send_asks(jobs: &std::sync::mpsc::Sender<Job>, sheet: usize, asks: Vec<Ask>) {
+    for ask in asks {
+        let job = match ask {
+            Ask::Cells { range, ticket, purpose } => Job::Cells { sheet, range, ticket, purpose },
+            Ask::Position { cell, ticket } => Job::Position { sheet, cell, ticket },
+        };
+        jobs.send(job).ok();
+    }
+}
+
+/// Runs `f` on file `id`'s grid with its sheet's layout, sends what it asks and counts a change.
+fn with_grid<R>(id: u64, f: impl FnOnce(&mut Grid, &SheetLayout) -> (R, Vec<Ask>)) -> Option<R> {
+    REGISTRY.with_borrow_mut(|r| {
+        let doc = r.docs.get_mut(&id)?;
+        let State::Open(open) = &mut doc.state else { return None };
+        let layout = open.sheet.layout.clone()?;
+        let before = open.sheet.grid.selection;
+        let (out, asks) = f(&mut open.sheet.grid, &layout);
+        send_asks(&doc.jobs, open.sheet.index, asks);
+        if open.sheet.grid.selection != before {
+            doc.version += 1;
+        }
+        Some(out)
+    })
+}
+
+/// File `id`'s sheet scrolled to `scroll` in a view `size` points large whose row headers are
+/// `header_w` wide: asks for the frame of the cells beside the headers.
+pub fn scrolled(id: u64, scroll: [f32; 2], size: [f32; 2], header_w: f32, frozen: [f32; 2]) {
+    REGISTRY.with_borrow_mut(|r| {
+        let Some(doc) = r.docs.get_mut(&id) else { return };
+        let State::Open(open) = &mut doc.state else { return };
+        let grid = &mut open.sheet.grid;
+        let resized = grid.view.size != size || grid.view.header_w != header_w;
+        grid.view = super::sheet::state::View { scroll, size, header_w, frozen };
+        // Half a screen from the scroll area's end it grows by a screen, as Desktop's does.
+        let cells = [size[0] - header_w, size[1] - super::sheet::HEADER_H];
+        let layout = open.sheet.layout.as_ref().map_or([0.0; 2], |l| [l.width as f32, l.height as f32]);
+        let near = (0..2).any(|i| scroll[i] + cells[i] > layout[i].max(grid.reach[i]) + cells[i] / 2.0);
+        if near {
+            grid.reach = [grid.reach[0].max(scroll[0] + cells[0]), grid.reach[1].max(scroll[1] + cells[1])];
+        }
+        if near || resized {
+            doc.version += 1;
+        }
+    });
+    let (w, h) = (size[0] - header_w, size[1] - super::sheet::HEADER_H);
+    show_sheet(id, [f64::from(scroll[0]), f64::from(scroll[1]), f64::from(w), f64::from(h)]);
+}
+
+/// A pointer step on file `id`'s grid; true when its selection changed.
+pub fn pointer(id: u64, event: PointerEvent) -> bool {
+    with_grid(id, |grid, layout| {
+        let before = grid.selection;
+        let asks = grid.pointer(event, layout);
+        (grid.selection != before, asks)
+    })
+    .unwrap_or(false)
+}
+
+/// What file `id`'s grid's drag under way moves along.
+pub fn drag_axis(id: u64) -> Option<super::sheet::pointer::Axis> {
+    REGISTRY.with_borrow(|r| match &r.docs.get(&id)?.state {
+        State::Open(open) => open.sheet.grid.axis(),
+        _ => None,
+    })
+}
+
+/// A key on file `id`'s grid; false when the grid doesn't take it.
+pub fn key(id: u64, key: &rune::Key, mods: rune::Mods) -> bool {
+    with_grid(id, |grid, layout| match grid.key(key, mods, layout) {
+        Some(asks) => (true, asks),
+        None => (false, Vec::new()),
+    })
+    .unwrap_or(false)
+}
+
+/// Copies file `id`'s selection; a toast to show now when it is too large.
+pub fn copy(id: u64, too_large: &str, failed: &str) -> Option<UiEffect> {
+    with_grid(id, |grid, layout| match grid.copy(layout, too_large, failed) {
+        Ok(ask) => (None, vec![ask]),
+        Err(toast) => (Some(toast), Vec::new()),
+    })
+    .flatten()
+}
+
+/// What the windows should do for the grids since the last call.
+pub fn take_ui() -> Vec<UiEffect> {
+    UI.with_borrow_mut(std::mem::take)
+}
+
+/// File `id`'s sheet frame on show, its grid's view and selection: what a pointer hits.
+pub fn hit_target(id: u64) -> Option<(Arc<SheetFrame>, super::sheet::state::View, Selection)> {
+    REGISTRY.with_borrow(|r| {
+        let State::Open(open) = &r.docs.get(&id)?.state else { return None };
+        Some((open.sheet.frame.clone()?, open.sheet.grid.view, open.sheet.grid.selection))
     })
 }

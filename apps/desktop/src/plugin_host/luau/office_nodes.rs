@@ -36,7 +36,13 @@ fn pages(a: &mut NodeArgs) -> Result<El, String> {
 fn sheet(a: &mut NodeArgs) -> Result<El, String> {
     let id = document(a)?;
     cx::read(Dep::Office(id));
-    Ok(office::sheet::view(id))
+    let labels = a.data("labels").unwrap_or(Data::Nil);
+    let field = |name: &str| match &labels {
+        Data::Map(m) => m.get(name).and_then(|v| if let Data::String(s) = v { Some(s.clone()) } else { None }).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let labels = office::sheet::Labels { name: field("name"), too_large: field("copyTooLarge"), failed: field("copyFailed") };
+    Ok(office::sheet::view(id, labels, pal(a.dark()).v2.border_focus))
 }
 
 /// The `document` prop's id.
