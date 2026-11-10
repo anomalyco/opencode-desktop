@@ -101,11 +101,20 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
     let o = lua.create_table()?;
     let read = {
         let (plugin, name, default) = (plugin.clone(), name.clone(), default.clone());
+        // Each key's value as last parsed, by its version: a render reads it every time it runs.
+        let parsed: Rc<std::cell::RefCell<std::collections::HashMap<String, (u64, Data)>>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
             let key = crate::plugin_host::shared::key(&name, session);
-            cx::read(Dep::Store(plugin.clone(), key));
+            cx::read(Dep::Store(plugin.clone(), key.clone()));
+            let version = store_version(&plugin, &key);
+            if let Some((v, data)) = parsed.borrow().get(&key)
+                && *v == version
+            {
+                return data.clone().into_lua(lua);
+            }
             let text = app_now("Store")?.plugins.shared.stores.text(&plugin, &name, session);
             let data = text.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).map_or_else(|| default.clone(), |j| super::json_to_data(&j));
+            parsed.borrow_mut().insert(key, (version, data.clone()));
             data.into_lua(lua)
         }
     };

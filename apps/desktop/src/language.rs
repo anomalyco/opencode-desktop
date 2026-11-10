@@ -83,5 +83,6 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         return false;
     }
     tx.invalidate_memos_by_prefix("");
+    crate::plugin_host::luau::services::locale_changed(s);
     true
 }

@@ -2,12 +2,13 @@
 //! app's number, date and list formats. Every read records the language, so a surface redraws
 //! when it changes.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
-use mlua::{Lua, Table, Value};
+use mlua::{Lua, LuaString, Table, Value};
 use opencode_i18n::PluralCategory;
 use opencode_plugin_spec as spec;
-use rune_luau::Data;
 
 use super::{lazy_signals, method};
 use crate::plugin_host::luau::cx::{self, Dep};
@@ -18,9 +19,15 @@ const RTL: &[&str] = &["ar", "he", "ur", "pa", "fa", "dv"];
 
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let half = vmx.half.clone();
-    method(lua, t, "T", move |_, (key, args): (String, Option<Table>)| {
+    let texts: Rc<RefCell<Texts>> = Rc::default();
+    let cache = texts.clone();
+    method(lua, t, "T", move |lua, (key, args): (LuaString, Option<Table>)| {
         cx::read(Dep::Locale);
-        Ok(translate(&half.catalogs.borrow(), &key, args.as_ref()))
+        let key = key.to_str()?;
+        if args.is_some() {
+            return lua.create_string(translate(&half.catalogs.borrow(), &key, args.as_ref()));
+        }
+        cache.borrow_mut().get_or(lua, |k| k.extend([b'T'].iter().chain(key.as_bytes())), || translate(&half.catalogs.borrow(), &key, None))
     })?;
     let half = vmx.half.clone();
     method(lua, t, "Has", move |_, key: String| {
@@ -40,16 +47,42 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Locale);
         Ok(category(count))
     })?;
-    method(lua, t, "Number", |lua, (value, format): (f64, Value)| {
+    let cache = texts.clone();
+    method(lua, t, "Number", move |lua, (value, format): (f64, Option<Table>)| {
         cx::read(Dep::Locale);
-        let format: spec::NumberFormat = if format.is_nil() { Default::default() } else { Data::from_lua_value(lua, format)?.decode().map_err(|e| mlua::Error::runtime(format!("NumberFormat: {e}")))? };
-        Ok(number(value, &format))
+        let format = match &format {
+            Some(t) => number_format(t)?,
+            None => spec::NumberFormat::default(),
+        };
+        cache.borrow_mut().get_or(
+            lua,
+            |k| {
+                k.push(b'N');
+                k.extend(value.to_bits().to_le_bytes());
+                k.extend([format.style.map_or(0, |s| s as u8 + 1), format.notation.map_or(0, |n| n as u8 + 1)]);
+                k.extend(format.max_fraction.unwrap_or(-1).to_le_bytes());
+                k.extend(format.currency.as_deref().unwrap_or_default().as_bytes());
+            },
+            || number(value, &format),
+        )
     })?;
-    method(lua, t, "Date", |_, (ms, style): (f64, String)| {
+    let cache = texts;
+    method(lua, t, "Date", move |lua, (ms, style): (f64, LuaString)| {
         cx::read(Dep::Locale);
-        let style = spec::DateStyle::parse(&style).ok_or_else(|| mlua::Error::runtime(format!("unknown DateStyle {style:?}")))?;
-        Ok(date(ms as i64, style))
+        let style = style.to_str()?;
+        let style = spec::DateStyle::parse(&style).ok_or_else(|| mlua::Error::runtime(format!("unknown DateStyle {:?}", &*style)))?;
+        cache.borrow_mut().get_or(
+            lua,
+            |k| {
+                k.extend([b'D', style as u8]);
+                k.extend(ms.to_bits().to_le_bytes());
+            },
+            || date(ms as i64, style),
+        )
     })?;
+    if vmx.half.kind == crate::plugin_host::luau::plugin::Kind::Window {
+        remembered(lua, t)?;
+    }
     method(lua, t, "RelativeTime", |_, (value, unit): (f64, String)| {
         cx::read(Dep::Locale);
         use opencode_i18n::date::Unit as U;
@@ -75,14 +108,144 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     lazy_signals(lua, vmx, t, "I18n", &["Changed"])
 }
 
-trait FromLuaValue {
-    fn from_lua_value(lua: &Lua, v: Value) -> mlua::Result<Data>;
+/// `T` without arguments, `Number` (plain, or with one `style` or `notation`) and `Date`
+/// answered from tables in the VM: a render asks for the same few strings every time it runs,
+/// and a table read costs far less than a call into the host. [`locale_changed`] empties them
+/// and redraws every plugin surface; a surface whose render read them from the tables recorded
+/// no read of the language, so that redraw is what moves it.
+const REMEMBERED: &str = r#"
+local hostT, hostN, hostD = ...
+local texts, plain, numbers, dates, made = {}, {}, {}, {}, 0
+local function made1()
+    made += 1
+    if made > 4096 then
+        texts, plain, numbers, dates, made = {}, {}, {}, {}, 0
+    end
+end
+local out = {}
+function out.T(self, key, args)
+    if args ~= nil or type(key) ~= "string" then
+        return hostT(self, key, args)
+    end
+    local v = texts[key]
+    if v == nil then
+        v = hostT(self, key)
+        made1()
+        texts[key] = v
+    end
+    return v
+end
+function out.Number(self, value, format)
+    if type(value) ~= "number" or value ~= value then
+        return hostN(self, value, format)
+    end
+    local bucket = plain
+    if format ~= nil then
+        local style, notation = format.style, format.notation
+        local by = if notation == nil then style elseif style == nil then notation else nil
+        if by == nil or format.currency ~= nil or format.maxFraction ~= nil then
+            return hostN(self, value, format)
+        end
+        bucket = numbers[by]
+        if bucket == nil then
+            bucket = {}
+            numbers[by] = bucket
+        end
+    end
+    local v = bucket[value]
+    if v == nil then
+        v = hostN(self, value, format)
+        made1()
+        bucket[value] = v
+    end
+    return v
+end
+function out.Date(self, ms, style)
+    if type(ms) ~= "number" or ms ~= ms or type(style) ~= "string" then
+        return hostD(self, ms, style)
+    end
+    local bucket = dates[style]
+    if bucket == nil then
+        bucket = {}
+        dates[style] = bucket
+    end
+    local v = bucket[ms]
+    if v == nil then
+        v = hostD(self, ms, style)
+        made1()
+        bucket[ms] = v
+    end
+    return v
+end
+function out.clear()
+    texts, plain, numbers, dates, made = {}, {}, {}, {}, 0
+end
+return out
+"#;
+
+/// Puts the remembering `T`, `Number` and `Date` in front of the host's on service `t`.
+fn remembered(lua: &Lua, t: &Table) -> mlua::Result<()> {
+    let host = (t.raw_get::<mlua::Function>("T")?, t.raw_get::<mlua::Function>("Number")?, t.raw_get::<mlua::Function>("Date")?);
+    let out: Table = lua.load(REMEMBERED).set_name("=I18n").call(host)?;
+    for name in ["T", "Number", "Date"] {
+        t.raw_set(name, out.raw_get::<mlua::Function>(name)?)?;
+    }
+    lua.set_named_registry_value("opencode.i18n.clear", out.raw_get::<mlua::Function>("clear")?)
 }
 
-impl FromLuaValue for Data {
-    fn from_lua_value(lua: &Lua, v: Value) -> mlua::Result<Data> {
-        <Data as mlua::FromLua>::from_lua(v, lua)
+/// The interface language changed: every plugin of the window forgets the strings it
+/// remembered, and its surfaces draw again.
+pub fn locale_changed(app: &crate::App) {
+    for (_, p) in app.plugins.luau.running() {
+        if let Some(script) = p.script() {
+            script.with_lua(|lua| {
+                if let Ok(Some(clear)) = lua.named_registry_value::<Option<mlua::Function>>("opencode.i18n.clear") {
+                    clear.call::<()>(()).ok();
+                }
+            });
+        }
     }
+    crate::plugin_host::luau::bump();
+}
+
+/// The VM's strings `T` (without arguments), `Number` and `Date` made in the current language,
+/// by what they were made from: a surface that rebuilds asks for the same few again and again.
+#[derive(Default)]
+struct Texts {
+    locale: String,
+    made: HashMap<Box<[u8]>, LuaString>,
+    key: Vec<u8>,
+}
+
+impl Texts {
+    /// The string `make` gives for the key `key` writes, made once per language.
+    fn get_or(&mut self, lua: &Lua, key: impl FnOnce(&mut Vec<u8>), make: impl FnOnce() -> String) -> mlua::Result<LuaString> {
+        let locale = opencode_i18n::locale().id();
+        if self.locale != locale || self.made.len() >= 4096 {
+            self.made.clear();
+            locale.clone_into(&mut self.locale);
+        }
+        self.key.clear();
+        key(&mut self.key);
+        if let Some(s) = self.made.get(self.key.as_slice()) {
+            return Ok(s.clone());
+        }
+        let s = lua.create_string(make())?;
+        self.made.insert(self.key.as_slice().into(), s.clone());
+        Ok(s)
+    }
+}
+
+/// A `NumberFormat` off its table, read field by field.
+fn number_format(t: &Table) -> mlua::Result<spec::NumberFormat> {
+    let pick = |field: &str| -> mlua::Result<Option<String>> { t.raw_get::<Option<String>>(field) };
+    let bad = |what: &str, v: &str| mlua::Error::runtime(format!("NumberFormat: unknown {what} {v:?}"));
+    let mut f = spec::NumberFormat::default();
+    f.style = pick("style")?.map(|s| spec::NumberStyle::parse(&s).ok_or_else(|| bad("style", &s))).transpose()?;
+    f.notation = pick("notation")?.map(|s| spec::NumberNotation::parse(&s).ok_or_else(|| bad("notation", &s))).transpose()?;
+    f.currency = pick("currency")?;
+    f.max_fraction = t.raw_get::<Option<f64>>("maxFraction")?.map(|n| n as i64);
+    Ok(f)
 }
 
 /// The interface language as a `LocaleInfo`.

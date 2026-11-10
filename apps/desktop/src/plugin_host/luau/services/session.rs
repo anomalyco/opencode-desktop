@@ -7,7 +7,7 @@ use std::rc::Rc;
 use mlua::{Lua, Table, Value};
 use rune::Tx;
 
-use super::{app_now, json_to_lua, lazy_signals, method};
+use super::{app_now, json_to_lua, lazy_signals, method, record, snapshot};
 use crate::App;
 use crate::plugin_host::luau::cx::{self, Dep};
 use crate::plugin_host::luau::machines::{Ticket, TicketEffect, TicketEvent};
@@ -67,44 +67,55 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     h.finish()
 }
 
+/// Session `id` as a `Session` record, kept per VM while its version and the server hold.
 fn session_value(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
+    let mut h = std::hash::DefaultHasher::new();
+    (session_version(app, id), &app.server_key).hash(&mut h);
+    snapshot(lua, &format!("session:{id}"), h.finish(), || build_session(lua, app, id))
+}
+
+fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let Some(info) = app.session(id) else { return Ok(Value::Nil) };
     let t = app.transcripts.get(&info.id);
     let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
-    let s = lua.create_table()?;
-    s.raw_set("id", info.id.as_str())?;
-    s.raw_set("serverId", app.server_key.as_deref().unwrap_or("local"))?;
-    s.raw_set("directory", info.directory.as_str())?;
-    s.raw_set("title", info.title.as_str())?;
-    s.raw_set("parentId", info.parent.as_deref())?;
-    s.raw_set("projectId", (!info.project.is_empty()).then_some(info.project.as_str()))?;
-    s.raw_set("agent", (!info.agent.is_empty()).then_some(info.agent.as_str()))?;
-    s.raw_set("variant", (!info.model.variant.is_empty() && info.model.variant != "default").then_some(info.model.variant.as_str()))?;
-    s.raw_set("busy", app.subtree_running(&info.id))?;
-    s.raw_set("version", (session_version(app, id) >> 11) as f64)?;
-    s.raw_set("cost", info.cost.max(t.map_or(0.0, session_view::usage::spent)))?;
-    if let Some(a) = last {
-        let u = lua.create_table()?;
-        u.raw_set("input", a.tokens.input as f64)?;
-        u.raw_set("output", a.tokens.output as f64)?;
-        u.raw_set("reasoning", a.tokens.reasoning as f64)?;
-        u.raw_set("cacheRead", a.tokens.cache_read as f64)?;
-        u.raw_set("cacheWrite", a.tokens.cache_write as f64)?;
-        s.raw_set("usage", u)?;
-        if let Some(m) = a.model.as_ref() {
-            s.raw_set("usageProviderId", m.provider.as_str())?;
-            s.raw_set("usageModelId", m.id.as_str())?;
+    let busy = app.subtree_running(&info.id);
+    let version = (session_version(app, id) >> 11) as f64;
+    let cost = info.cost.max(t.map_or(0.0, session_view::usage::spent));
+    let s = record(lua, 20, |s| {
+        s.str(c"id", &info.id);
+        s.str(c"serverId", app.server_key.as_deref().unwrap_or("local"));
+        s.str(c"directory", &info.directory);
+        s.str(c"title", &info.title);
+        s.opt_str(c"parentId", info.parent.as_deref());
+        s.opt_str(c"projectId", (!info.project.is_empty()).then_some(info.project.as_str()));
+        s.opt_str(c"agent", (!info.agent.is_empty()).then_some(info.agent.as_str()));
+        s.opt_str(c"variant", (!info.model.variant.is_empty() && info.model.variant != "default").then_some(info.model.variant.as_str()));
+        s.bool(c"busy", busy);
+        s.num(c"version", version);
+        s.num(c"cost", cost);
+        if let Some(a) = last {
+            s.record(c"usage", 5, |u| {
+                u.num(c"input", a.tokens.input as f64);
+                u.num(c"output", a.tokens.output as f64);
+                u.num(c"reasoning", a.tokens.reasoning as f64);
+                u.num(c"cacheRead", a.tokens.cache_read as f64);
+                u.num(c"cacheWrite", a.tokens.cache_write as f64);
+            });
+            if let Some(m) = a.model.as_ref() {
+                s.str(c"usageProviderId", &m.provider);
+                s.str(c"usageModelId", &m.id);
+            }
         }
-    }
-    if !info.model.id.is_empty() {
-        s.raw_set("providerId", info.model.provider.as_str())?;
-        s.raw_set("modelId", info.model.id.as_str())?;
-    }
-    s.raw_set("created", info.created as f64)?;
-    s.raw_set("updated", info.updated as f64)?;
-    if let Some(t) = t {
-        s.raw_set("messages", t.messages.len() as f64)?;
-    }
+        if !info.model.id.is_empty() {
+            s.str(c"providerId", &info.model.provider);
+            s.str(c"modelId", &info.model.id);
+        }
+        s.num(c"created", info.created as f64);
+        s.num(c"updated", info.updated as f64);
+        if let Some(t) = t {
+            s.num(c"messages", t.messages.len() as f64);
+        }
+    })?;
     Ok(Value::Table(s))
 }
 
@@ -119,16 +130,25 @@ pub fn model_version(app: &App, provider: &str, model: &str) -> u64 {
 
 fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Get", |lua, (provider, model): (String, String)| {
-        cx::read(Dep::Model(provider.clone(), model.clone()));
-        let p = &app_now("Models:Get")?.pickers;
+        let app = app_now("Models:Get")?;
         let key = format!("{provider}:{model}");
-        let listed = p.models.iter().find(|m| m.provider == provider && m.id == model);
-        let provider_name = p.providers.get(&provider).cloned().or_else(|| p.models.iter().any(|m| m.provider == provider).then(|| provider.clone()));
-        let m = lua.create_table()?;
-        m.raw_set("providerName", provider_name)?;
-        m.raw_set("modelName", listed.map(|m| m.name.clone()))?;
-        m.raw_set("contextLimit", p.limits.get(&key).map(|l| *l as f64))?;
-        m.raw_set("paid", p.paid.contains(&key))?;
+        let mut h = std::hash::DefaultHasher::new();
+        (model_version(app, &provider, &model), app.pickers.models.iter().any(|m| m.provider == provider)).hash(&mut h);
+        let m = snapshot(lua, &format!("model:{key}"), h.finish(), || {
+            let p = &app.pickers;
+            let listed = p.models.iter().find(|m| m.provider == provider && m.id == model);
+            let provider_name = p.providers.get(&provider).map(String::as_str).or_else(|| p.models.iter().any(|m| m.provider == provider).then_some(provider.as_str()));
+            record(lua, 4, |m| {
+                m.opt_str(c"providerName", provider_name);
+                m.opt_str(c"modelName", listed.map(|m| m.name.as_str()));
+                if let Some(l) = p.limits.get(&key) {
+                    m.num(c"contextLimit", *l as f64);
+                }
+                m.bool(c"paid", p.paid.contains(&key));
+            })
+            .map(Value::Table)
+        })?;
+        cx::read(Dep::Model(provider, model));
         Ok(m)
     })?;
     lazy_signals(lua, vmx, t, "Models", &["Changed"])
@@ -186,32 +206,35 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 }
 
 fn resource_value(lua: &Lua, r: &mut Resource) -> mlua::Result<Value> {
-    let out = lua.create_table()?;
     let (status, error) = match &r.ticket {
         Ticket::Empty | Ticket::Loading { .. } => ("loading", None),
         Ticket::Ready { .. } => ("ready", None),
         Ticket::Failed { error, .. } => ("error", Some(error.as_str())),
     };
-    out.raw_set("status", status)?;
-    out.raw_set("error", error)?;
-    let Some(body) = r.ticket.body().cloned() else {
-        out.raw_set("generation", 0)?;
+    let generation = r.ticket.body().map_or(0, |b| b.generation);
+    let out = record(lua, 5, |o| {
+        o.str(c"status", status);
+        o.opt_str(c"error", error);
+        o.num(c"generation", generation as f64);
+    })?;
+    let Some(body) = r.ticket.body() else {
         out.raw_set("text", "")?;
         return Ok(Value::Table(out));
     };
-    out.raw_set("generation", body.generation as f64)?;
-    out.raw_set("text", &*body.text)?;
-    let json = match &r.value {
-        Some((g, key)) if *g == body.generation => lua.registry_value::<Value>(key)?,
+    // The answer's text and JSON become Luau values once per answer, not once per read.
+    let (text, json) = match &r.value {
+        Some((g, text, json)) if *g == body.generation => (lua.registry_value::<Value>(text)?, lua.registry_value::<Value>(json)?),
         _ => {
-            let value = match serde_json::from_str::<serde_json::Value>(&body.text) {
+            let text = Value::String(lua.create_string(&*body.text)?);
+            let json = match serde_json::from_str::<serde_json::Value>(&body.text) {
                 Ok(v) => json_to_lua(lua, &v)?,
                 Err(_) => Value::Nil,
             };
-            r.value = Some((body.generation, Rc::new(lua.create_registry_value(value.clone())?)));
-            value
+            r.value = Some((body.generation, Rc::new(lua.create_registry_value(text.clone())?), Rc::new(lua.create_registry_value(json.clone())?)));
+            (text, json)
         }
     };
+    out.raw_set("text", text)?;
     out.raw_set("json", json)?;
     Ok(Value::Table(out))
 }
@@ -242,34 +265,57 @@ pub fn version_hash(v: &Value) -> u64 {
 
 /// `encodeURIComponent`.
 pub fn encode_uri(s: &str) -> String {
-    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.extend(['%', HEX[usize::from(b >> 4)] as char, HEX[usize::from(b & 15)] as char]);
+        }
+    }
+    out
 }
 
 fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "List", |lua, ()| {
         cx::read(Dep::Server);
         let app = app_now("Servers:List")?;
-        let list = lua.create_table()?;
-        let own = lua.create_table()?;
-        own.raw_set("key", "local")?;
-        own.raw_set("name", "Local")?;
-        own.raw_set("state", "ready")?;
-        own.raw_set("isLocal", true)?;
-        own.raw_set("current", app.server_key.is_none())?;
-        list.raw_push(own)?;
         cx::read(Dep::Servers);
-        for s in crate::plugin_host::contributed_servers(app).into_iter().filter(|s| s.rec.listed) {
-            let e = lua.create_table()?;
-            e.raw_set("current", app.server_key.as_deref() == Some(s.key.as_str()))?;
-            e.raw_set("name", s.rec.name.as_str())?;
-            e.raw_set("label", (!s.rec.label.is_empty()).then_some(s.rec.label.as_str()))?;
-            e.raw_set("state", ["stopped", "starting", "auth", "ready", "failed", "incompatible"].get(s.rec.state as usize).copied().unwrap_or("stopped"))?;
-            e.raw_set("isLocal", false)?;
-            e.raw_set("version", app.plugins.shared.facts.health.get(&s.key).cloned())?;
-            e.raw_set("key", s.key)?;
-            list.raw_push(e)?;
-        }
-        Ok(list)
+        // (key, name, label, state, version) of each listed server the plugins contribute.
+        let others: Vec<(String, String, String, &'static str, Option<String>)> = crate::plugin_host::contributed_servers(app)
+            .into_iter()
+            .filter(|s| s.rec.listed)
+            .map(|s| {
+                let state = ["stopped", "starting", "auth", "ready", "failed", "incompatible"].get(s.rec.state as usize).copied().unwrap_or("stopped");
+                let version = app.plugins.shared.facts.health.get(&s.key).cloned();
+                (s.key, s.rec.name.clone(), s.rec.label.clone(), state, version)
+            })
+            .collect();
+        let mut h = std::hash::DefaultHasher::new();
+        (&others, &app.server_key).hash(&mut h);
+        snapshot(lua, "servers", h.finish(), || {
+            let list = lua.create_table_with_capacity(others.len() + 1, 0)?;
+            list.raw_push(record(lua, 5, |own| {
+                own.str(c"key", "local");
+                own.str(c"name", "Local");
+                own.str(c"state", "ready");
+                own.bool(c"isLocal", true);
+                own.bool(c"current", app.server_key.is_none());
+            })?)?;
+            for (key, name, label, state, version) in &others {
+                list.raw_push(record(lua, 7, |e| {
+                    e.bool(c"current", app.server_key.as_deref() == Some(key.as_str()));
+                    e.str(c"key", key);
+                    e.str(c"name", name);
+                    e.opt_str(c"label", (!label.is_empty()).then_some(label.as_str()));
+                    e.str(c"state", state);
+                    e.bool(c"isLocal", false);
+                    e.opt_str(c"version", version.as_deref());
+                })?)?;
+            }
+            Ok(Value::Table(list))
+        })
     })?;
     method(lua, t, "Current", |_, ()| {
         cx::read(Dep::Server);
@@ -294,13 +340,18 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 fn theme(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Current", |lua, ()| {
         let dark = app_now("Theme:Current")?.plugins.luau.dark.get();
-        let p = crate::palette::pal(dark);
-        let info = lua.create_table()?;
-        let theme = session_view::themes::all().get(p.theme);
-        info.raw_set("id", theme.map(|t| t.id.clone()))?;
-        info.raw_set("name", theme.map(|t| t.name.clone()))?;
-        info.raw_set("scheme", if dark { "dark" } else { "light" })?;
-        Ok(info)
+        let index = crate::palette::pal(dark).theme;
+        let theme = session_view::themes::all().get(index);
+        let mut h = std::hash::DefaultHasher::new();
+        (index, dark, theme.map(|t| (&t.id, &t.name))).hash(&mut h);
+        snapshot(lua, "theme", h.finish(), || {
+            record(lua, 3, |info| {
+                info.opt_str(c"id", theme.map(|t| t.id.as_str()));
+                info.opt_str(c"name", theme.map(|t| t.name.as_str()));
+                info.str(c"scheme", if dark { "dark" } else { "light" });
+            })
+            .map(Value::Table)
+        })
     })?;
     method(lua, t, "IsDark", |_, ()| Ok(app_now("Theme:IsDark")?.plugins.luau.dark.get()))?;
     method(lua, t, "Resolve", |_, color: String| {

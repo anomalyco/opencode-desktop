@@ -15,8 +15,8 @@ struct Pool {
     strings: BTreeSet<&'static str>,
     /// Ids are 1-based indexes; 0 is no icon.
     icons: Vec<&'static Icon>,
-    /// `(plugin, name)` → its newest icon's id.
-    named: HashMap<(String, String), u32>,
+    /// Plugin → name → its newest icon's id.
+    named: HashMap<String, HashMap<String, u32>>,
     /// `(name, body)` hash → id, so an icon interned again reuses its slot.
     by_content: HashMap<u64, u32>,
 }
@@ -42,9 +42,8 @@ pub fn intern(s: &str) -> &'static str {
 /// Copies plugin `plugin`'s icon `name` into the pool and returns its id. An empty `body` only
 /// looks the name up (0 when the plugin has none by that name).
 pub fn intern_icon(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
-    let key = (plugin.to_owned(), name.to_owned());
     if body.is_empty() {
-        return pool().as_ref().and_then(|p| p.named.get(&key).copied()).unwrap_or(0);
+        return pool().as_ref().and_then(|p| p.named.get(plugin)?.get(name).copied()).unwrap_or(0);
     }
     let mut h = std::hash::DefaultHasher::new();
     (plugin, name, body, view.to_bits()).hash(&mut h);
@@ -63,7 +62,7 @@ pub fn intern_icon(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
             id
         }
     };
-    pool.named.insert(key, id);
+    pool.named.entry(plugin.to_owned()).or_default().insert(name.to_owned(), id);
     id
 }
 
@@ -99,6 +98,12 @@ pub fn resolve(plugin: &str, name: &str) -> &'static Icon {
     icon(own)
         .or_else(|| icon(host()))
         .or_else(|| super::luau::native::icons::named(name))
-        .or_else(|| (!panel_names.contains(&name)).then(|| rune_theme_opencode::icons::ALL.iter().copied().find(|i| i.name == name)).flatten())
+        .or_else(|| (!panel_names.contains(&name)).then(|| theme_icon(name)).flatten())
         .unwrap_or_else(|| crate::panels::icon_by_name(Some(name)))
+}
+
+/// Desktop's icon named `name`, from a map built on first use.
+fn theme_icon(name: &str) -> Option<&'static Icon> {
+    static BY_NAME: std::sync::OnceLock<HashMap<&'static str, &'static Icon>> = std::sync::OnceLock::new();
+    BY_NAME.get_or_init(|| rune_theme_opencode::icons::ALL.iter().rev().map(|i| (i.name, *i)).collect()).get(name).copied()
 }

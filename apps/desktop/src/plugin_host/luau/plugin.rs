@@ -87,12 +87,12 @@ impl Contribs {
     }
 }
 
-/// A cached server read (`Server:Resource`): its ticket, and the answer's JSON as a Luau value,
-/// decoded once per answer.
+/// A cached server read (`Server:Resource`): its ticket, and the answer's text and JSON as Luau
+/// values, made once per answer.
 #[derive(Default)]
 pub struct Resource {
     pub ticket: super::machines::Ticket,
-    pub value: Option<(i64, Rc<RegistryKey>)>,
+    pub value: Option<(i64, Rc<RegistryKey>, Rc<RegistryKey>)>,
 }
 
 pub struct Half {
