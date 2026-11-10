@@ -2,9 +2,11 @@
 //! from a synthetic fixture. Live, it sends prompts, answers permission requests and questions,
 //! stops runs and starts sessions (`--read-only` turns all of that off).
 
-/// Counts each thread's allocations for the frame diagnostics and the benchmarks.
+/// Counts each thread's allocations for the frame diagnostics and the benchmarks, over mimalloc:
+/// the system heap costs a Luau plugin's rebuild (its tables, strings and elements) about a fifth
+/// more on Windows.
 #[global_allocator]
-static ALLOC: procwatch::alloc::Counting = procwatch::alloc::Counting::system();
+static ALLOC: procwatch::alloc::Counting<mimalloc::MiMalloc> = procwatch::alloc::Counting::new(mimalloc::MiMalloc);
 
 use crate::pickers::PickerHost as _;
 pub use session_view::{

@@ -62,30 +62,40 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     built
 }
 
-/// `--luau-bench`: the first time a surface rebuilds, runs its render 500 more times, each a
-/// memo miss, and prints the p50 and p99 time of one rebuild (script and `El` construction).
+/// `--luau-bench`: the first three times a surface rebuilds (the first often runs before its
+/// data arrives), runs its render 1,000 more times and prints the p50 and p99 time of one
+/// rebuild (script and `El` construction): `rebuild`, every memo missing; `warm`, as a following
+/// frame sees it, the surface missing and the script's own `view:Memo`s holding what didn't change.
 fn bench(app: &App, p: &Pal, script: &rune_luau::Script, surface: &str, f: &Function, props: &Option<Data>) {
     thread_local! {
-        static DONE: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::default();
+        static DONE: std::cell::RefCell<std::collections::HashMap<String, u32>> = std::cell::RefCell::default();
     }
     let Some(props) = props else { return };
     let key = surface.split(':').take(2).collect::<Vec<_>>().join(":");
-    if !DONE.with_borrow_mut(|d| d.insert(key)) {
+    let nth = DONE.with_borrow_mut(|d| {
+        let n = d.entry(key).or_default();
+        *n += 1;
+        *n
+    });
+    if nth > 3 {
         return;
     }
-    let mut times: Vec<f64> = (0..500u64)
-        .map(|n| {
-            let start = rune::time::Instant::now();
-            let built = cx::with_app(app, || script.render_fn::<App>(&format!("bench:{surface}"), n ^ 0x5eed_0000, p.dark, f, props.clone()));
-            let us = start.elapsed().as_secs_f64() * 1e6;
-            drop(built);
-            us
-        })
-        .collect();
-    times.sort_by(f64::total_cmp);
-    eprintln!("luau bench: {} {surface}: rebuild p50 {:.1} us p99 {:.1} us max {:.1} us (n 500)", script.name(), times[249], times[494], times[499]);
+    let id = format!("bench:{surface}");
+    for (name, seed, warm) in [("rebuild", 0x5eed_0000u64, false), ("warm", 0x3eed_0000, true)] {
+        let mut times: Vec<f64> = (0..1000u64)
+            .map(|n| {
+                let start = rune::time::Instant::now();
+                let run = || cx::with_app(app, || script.render_fn::<App>(&id, n ^ seed, p.dark, f, props.clone()));
+                let built = if warm { rune::memo::as_next_build(run) } else { run() };
+                let us = start.elapsed().as_secs_f64() * 1e6;
+                drop(built);
+                us
+            })
+            .collect();
+        times.sort_by(f64::total_cmp);
+        eprintln!("luau bench: {} {surface}: {name}#{nth} p50 {:.1} us p99 {:.1} us max {:.1} us (n 1000)", script.name(), times[499], times[989], times[999]);
+    }
 }
-
 /// Each running plugin's contributions of one kind, with the plugin's index.
 fn each<'a, S: 'a, R>(app: &'a App, pick: impl Fn(&super::plugin::Contribs) -> Vec<R> + 'a) -> Vec<(usize, R)> {
     let _ = std::marker::PhantomData::<S>;
