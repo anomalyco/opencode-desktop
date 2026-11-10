@@ -4,7 +4,7 @@
 //! session data it brings (`peer`), and the plugins' app halves (`plugin_host`).
 //!
 //! New Window (Ctrl+Shift+N, the ≡ menu) opens one with Rune's `open_window`; Close Window
-//! (Ctrl+Shift+W) closes the one in front. Each keeps its tabs, closed tabs, panes, page and
+//! (Ctrl+Shift+W) closes the one in front (`close`). Each keeps its tabs, closed tabs, panes, page and
 //! drafts under its own id (`store`), and every window open at quit opens again where it was.
 //! A tab dragged off the strip opens in a window of its own under the pointer (`tear`).
 
@@ -16,6 +16,9 @@ use rune::{AppHandle, Tx, WindowHandle, WindowPlacement};
 
 use crate::App;
 
+pub mod close;
+#[cfg(test)]
+mod close_tests;
 mod life;
 mod open;
 pub mod peer;
@@ -46,6 +49,8 @@ pub struct Window {
     pub seed: Option<open::Seed>,
     /// How it starts its life: open, or a torn-out tab's window following the pointer.
     pub life: life::Life,
+    /// The last window, hidden by Close Window on macOS while the app keeps running.
+    pub hidden: bool,
 }
 
 impl Window {
@@ -132,11 +137,6 @@ impl App {
         self.window.strip = Some(rect);
         let id = self.window.id.clone();
         OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = Some(rect)));
-    }
-
-    /// Ctrl+Shift+W and Close Window.
-    pub(crate) fn close_window(&mut self, tx: &mut Tx) {
-        tx.close_window();
     }
 
     /// `poll`: twice a second at most, reads where the window is and saves it when it moved,
