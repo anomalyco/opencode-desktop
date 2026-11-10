@@ -36,8 +36,6 @@
   "rune.command.session.find": "Find in session",
   "rune.command.session.stop": "Stop the session",
   "rune.command.tab.goTo": "Go to tab {{number}}",
-  "rune.command.tab.needsYou.next": "Next tab that needs you or is unread",
-  "rune.command.tab.needsYou.previous": "Previous tab that needs you or is unread",
   "rune.command.tab.next": "Next tab",
   "rune.command.tab.previous": "Previous tab",
   "rune.command.terminal.killLine": "Delete line",

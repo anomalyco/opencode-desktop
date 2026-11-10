@@ -13,8 +13,8 @@ pub enum Action {
     ZoomReset,
     /// Previous or next tab, wrapping.
     Tab(i32),
-    /// Previous or next tab that needs you or is unread, wrapping (`needs_you`).
-    NeedsYouTab(i32),
+    /// Previous or next tab with an unread dot, wrapping (`session.previous.unseen`).
+    UnreadTab(i32),
     /// ⌘1 to ⌘9 pick the tab, or inbox row, with that number.
     TabAt(usize),
     NewSession,
@@ -40,8 +40,8 @@ fn resolve(hit: impl Fn(Bind) -> bool) -> Option<Action> {
     const TABLE: [(Bind, Action); 25] = [
         (Bind::SessionPrev, Action::Tab(-1)),
         (Bind::SessionNext, Action::Tab(1)),
-        (Bind::UnseenPrev, Action::NeedsYouTab(-1)),
-        (Bind::UnseenNext, Action::NeedsYouTab(1)),
+        (Bind::UnseenPrev, Action::UnreadTab(-1)),
+        (Bind::UnseenNext, Action::UnreadTab(1)),
         (Bind::TabPrev, Action::Tab(-1)),
         (Bind::TabNext, Action::Tab(1)),
         (Bind::ZoomIn, Action::ZoomIn),
@@ -81,21 +81,6 @@ pub fn adjacent(order: &[&str], current: Option<&str>, offset: i32, include: imp
     (1..n).map(|step| order[(index as i32 + offset * step).rem_euclid(n) as usize]).find(|k| include(k)).map(str::to_owned)
 }
 
-/// ⌥⇧↓'s stops: tabs waiting on your answer, oldest asked first (`asked`), then the unread ones in
-/// tab order.
-pub fn needs_you<'a>(order: &[&'a str], asked: impl Fn(&str) -> Option<i64>, unread: impl Fn(&str) -> bool) -> Vec<&'a str> {
-    let mut waiting: Vec<(i64, &str)> = order.iter().filter_map(|k| asked(k).map(|at| (at, *k))).collect();
-    waiting.sort_by_key(|(at, _)| *at);
-    let unread = order.iter().copied().filter(|k| asked(k).is_none() && unread(k));
-    waiting.into_iter().map(|(_, k)| k).chain(unread).collect()
-}
-
-/// The stop after `current` in `stops` that way, wrapping; from elsewhere, the first (forward) or
-/// last (backward).
-pub fn next_stop(stops: &[&str], current: Option<&str>, offset: i32) -> Option<String> {
-    adjacent(stops, current, offset, |k| Some(k) != current)
-}
-
 pub const ZOOM_MIN: f32 = 0.5;
 pub const ZOOM_MAX: f32 = 3.0;
 
@@ -131,7 +116,7 @@ mod tests {
         let alt = |m: &mut Mods| m.alt = true;
         assert_eq!(action(&ev(Key::Up, alt)), Some(Action::Tab(-1)));
         assert_eq!(action(&ev(Key::Down, alt)), Some(Action::Tab(1)));
-        assert_eq!(action(&ev(Key::Down, |m| (m.alt, m.shift) = (true, true))), Some(Action::NeedsYouTab(1)));
+        assert_eq!(action(&ev(Key::Down, |m| (m.alt, m.shift) = (true, true))), Some(Action::UnreadTab(1)));
         assert_eq!(action(&ev(Key::Up, |_| {})), None);
         assert_eq!(action(&ev(Key::Left, alt)), None);
         assert_eq!(action(&ev(Key::Right, |m| (m.cmd, m.alt) = (true, true))), Some(Action::Tab(1)));
@@ -163,32 +148,6 @@ mod tests {
         assert_eq!(adjacent(&order, None, 1, |_| true).as_deref(), Some("a"));
         assert_eq!(adjacent(&order, None, -1, |_| true).as_deref(), Some("c"));
         assert_eq!(adjacent(&[], Some("a"), 1, |_| true), None);
-    }
-
-    #[test]
-    fn needs_you_puts_oldest_question_first_then_unread() {
-        let order = ["a", "b", "c", "d", "e"];
-        let asked = |k: &str| match k {
-            "d" => Some(10),
-            "b" => Some(30),
-            _ => None,
-        };
-        let unread = |k: &str| matches!(k, "a" | "b" | "e");
-        assert_eq!(needs_you(&order, asked, unread), ["d", "b", "a", "e"]);
-        assert!(needs_you(&order, |_| None, |_| false).is_empty());
-    }
-
-    #[test]
-    fn next_stop_walks_both_ways_and_wraps() {
-        let stops = ["d", "b", "a"];
-        assert_eq!(next_stop(&stops, Some("d"), 1).as_deref(), Some("b"));
-        assert_eq!(next_stop(&stops, Some("a"), 1).as_deref(), Some("d"));
-        assert_eq!(next_stop(&stops, Some("d"), -1).as_deref(), Some("a"));
-        // From a tab that isn't a stop: the first, or backward the last.
-        assert_eq!(next_stop(&stops, Some("c"), 1).as_deref(), Some("d"));
-        assert_eq!(next_stop(&stops, None, -1).as_deref(), Some("a"));
-        assert_eq!(next_stop(&["d"], Some("d"), 1), None);
-        assert_eq!(next_stop(&[], Some("d"), 1), None);
     }
 
     #[test]

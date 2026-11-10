@@ -311,20 +311,16 @@ impl App {
         }
     }
 
-    /// ⌥⇧↓ and ⌥⇧↑: the next tab or inbox row that needs you, oldest question or permission
-    /// first, then the unread ones (`shortcuts::needs_you`), wrapping.
-    pub(crate) fn select_needs_you(&mut self, offset: i32, tx: &mut Tx) {
+    /// ⌥⇧↑ and ⌥⇧↓, Previous and Next unread session: the nearest tab or inbox row that way
+    /// whose dot shows, a question or permission waiting on you or something new, wrapping; none
+    /// without an open tab (`session.previous.unseen`, tab-strip.tsx:578-591, `adjacentTabKey`).
+    pub(crate) fn select_unread(&mut self, offset: i32, tx: &mut Tx) {
         let order = self.nav_order();
+        let Some(current) = self.nav_current().filter(|c| order.contains(c)) else { return };
         let order: Vec<&str> = order.iter().map(String::as_str).collect();
-        let stops = shortcuts::needs_you(&order, |k| self.waiting_since(k), |k| self.tab_unread(k));
-        if let Some(id) = shortcuts::next_stop(&stops, self.nav_current().as_deref(), offset) {
+        let dot = |k: &str| matches!(self.tab_status(k), Some(TabStatus::Attention | TabStatus::Unread | TabStatus::Failed));
+        if let Some(id) = shortcuts::adjacent(&order, Some(&current), offset, dot) {
             self.nav_select(&id, tx);
         }
-    }
-
-    /// When the oldest question or permission in `id`'s family was asked, if one waits on you.
-    fn waiting_since(&self, id: &str) -> Option<i64> {
-        let (permission, form) = self.family_requests(id);
-        permission.into_iter().chain(form).map(|r| self.sidebar_inbox.asked.get(r).copied().unwrap_or(i64::MAX)).min()
     }
 }

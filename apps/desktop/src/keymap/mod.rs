@@ -177,8 +177,8 @@ fn table() -> Vec<Binding> {
         hidden(TabNext, "tab.next", key!("rune.command.tab.next"), Navigation, on("mod+alt+right, ctrl+tab")),
         row(SessionPrev, "session.previous", key!("command.session.previous"), Session, on("alt+up")),
         row(SessionNext, "session.next", key!("command.session.next"), Session, on("alt+down")),
-        row(UnseenPrev, "session.previous.unseen", key!("rune.command.tab.needsYou.previous"), Session, on("shift+alt+up")),
-        row(UnseenNext, "session.next.unseen", key!("rune.command.tab.needsYou.next"), Session, on("shift+alt+down")),
+        row(UnseenPrev, "session.previous.unseen", key!("command.session.previous.unseen"), Session, on("shift+alt+up")),
+        row(UnseenNext, "session.next.unseen", key!("command.session.next.unseen"), Session, on("shift+alt+down")),
         // `use-session-commands.tsx:636-653`.
         row(MessagePrev, "message.previous", key!("command.message.previous"), Session, on("mod+alt+[")),
         row(MessageNext, "message.next", key!("command.message.next"), Session, on("mod+alt+]")),
