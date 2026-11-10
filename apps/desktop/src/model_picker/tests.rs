@@ -162,9 +162,15 @@ fn a_keyboard_scroll_closes_the_flyout_and_keeps_the_keys_row() {
     assert_eq!(flyout(&rt), None, "the keys close the flyout");
     let before = rect(&rt, "picker-scroll");
     let first = rows[0].1[1];
-    for _ in 0..12 {
+    // Down to the last model, out of view at the start (the keys wrap past it to the first).
+    let last = rt.elements().into_iter().filter(|e| !e.exiting).filter_map(|e| e.key.as_deref()?.strip_prefix("option-").map(str::to_owned)).last().expect("models");
+    for _ in 0..20 {
+        if lit(&rt) == last {
+            break;
+        }
         down(&mut rt);
     }
+    assert_eq!(lit(&rt), last);
     play(&mut rt, 0.6);
     assert!(visible(&rt)[0].1[1] != first || rect(&rt, "picker-scroll") != before, "the keys scrolled the list");
     let keyed = lit(&rt);
