@@ -325,8 +325,8 @@ impl App {
         self.show_side_tab(sid, REVIEW_KEY, None);
         self.ensure_session_review(sid);
         let Some(sr) = self.review.sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
-        if !sr.ready {
-            sr.pending_focus = Some((path.to_owned(), anchor.cloned()));
+        if let crate::review::Load::Loading { focus } = &mut sr.load {
+            *focus = Some((path.to_owned(), anchor.cloned()));
             return REVIEW_KEY.to_owned();
         }
         if self.focus_review_change(sid, path, anchor, tx) {
@@ -353,12 +353,6 @@ impl App {
             None => sr.diffs.scroll_to_file(file, tx),
         }
         true
-    }
-
-    /// Changes finished loading: scrolls to the change a step asked for before it had.
-    pub fn apply_pending_review_focus(&mut self, sid: &str, tx: &mut Tx) {
-        let Some((path, anchor)) = self.review.sessions.get_mut(sid).and_then(|sr| sr.pending_focus.take()) else { return };
-        self.focus_review_change(sid, &path, anchor.as_ref(), tx);
     }
 
     /// Esc while a step's view shows: puts the side region back. True when it did.

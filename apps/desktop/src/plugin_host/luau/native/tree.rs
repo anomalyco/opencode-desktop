@@ -147,7 +147,7 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
     if filter.is_empty() {
         return crate::files::view::workspace_tree_view(p, sid, ws, selected.as_deref(), Some(kinds));
     }
-    if ws.search_asked.as_deref() != Some(filter) {
+    if ws.search.asked() != Some(filter) {
         let (id, q) = (sid.to_owned(), filter.to_owned());
         app.later(Box::new(move |s: &mut App, _: &mut Tx| s.request_file_search(&id, &q)));
     }

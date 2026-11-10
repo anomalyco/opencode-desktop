@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rune::{Key, KeyEvent, Modifier, TextEdit, Tx};
+use rune::{Key, KeyEvent, TextEdit, Tx};
+use rune_kit::line_selection::{Column, LineEvent, LineSelection, Lines};
 use rune_kit::syntax::Paint;
 
 use super::{
@@ -18,6 +19,28 @@ pub struct FileLineSelection {
     pub start: u32,
     /// 1-based end line.
     pub end: u32,
+}
+
+impl From<Lines<u32>> for FileLineSelection {
+    fn from(l: Lines<u32>) -> FileLineSelection {
+        FileLineSelection { start: l.start, end: l.end }
+    }
+}
+
+impl From<FileLineSelection> for Lines<u32> {
+    fn from(s: FileLineSelection) -> Lines<u32> {
+        Lines { start: s.start, end: s.end }
+    }
+}
+
+/// What the document holds: Desktop's `workspaces/files/content-machine.ts` `FileEntryState`
+/// (loading, ready, missing), a ready file being text or binary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Content {
+    Loading,
+    Text { size: usize },
+    Binary { size: usize },
+    Missing,
 }
 
 impl FileLineSelection {
@@ -35,19 +58,13 @@ impl FileLineSelection {
 pub struct CodeDocState {
     path: String,
     source: SourceLines,
-    pub ready: bool,
-    pub missing: bool,
-    pub binary: bool,
-    pub size_bytes: usize,
+    content: Content,
     wrap: bool,
     /// The text ends with a newline: the empty line after it shows numbered.
     trailing: bool,
     digits: u32,
-    selection: Option<FileLineSelection>,
-    selecting: bool,
-    selection_at_press: Option<FileLineSelection>,
-    unselect: bool,
-    shift: bool,
+    /// The selected lines and the gesture on the line numbers making them (rune-kit's shared machine).
+    lines: LineSelection<u32>,
     chunks: RefCell<ChunkMap<u32>>,
     pub find_open: bool,
     pub find_input: TextEdit,
@@ -81,18 +98,11 @@ impl CodeDocState {
         let mut s = Self {
             path: path.into(),
             source: SourceLines::default(),
-            ready: false,
-            missing: false,
-            binary: false,
-            size_bytes: 0,
+            content: Content::Loading,
             wrap: false,
             trailing: false,
             digits: 3,
-            selection: None,
-            selecting: false,
-            selection_at_press: None,
-            unselect: false,
-            shift: false,
+            lines: LineSelection::default(),
             chunks: RefCell::new(HashMap::new()),
             find_open: false,
             find_input: TextEdit::new(""),
@@ -115,17 +125,16 @@ impl CodeDocState {
     }
 
     pub fn set_text(&mut self, content: &str) {
-        self.size_bytes = content.len();
-        self.binary = content.contains('\0');
-        self.missing = false;
-        self.ready = true;
-        self.source = if self.binary {
+        let size = content.len();
+        let binary = content.contains('\0');
+        self.content = if binary { Content::Binary { size } } else { Content::Text { size } };
+        self.source = if binary {
             SourceLines::default()
         } else {
             SourceLines::new(content)
         };
         // Pierre numbers the empty line after a file's last newline too.
-        self.trailing = !self.binary && content.ends_with('\n');
+        self.trailing = !binary && content.ends_with('\n');
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
         self.recompute_matches();
@@ -133,22 +142,42 @@ impl CodeDocState {
     }
 
     pub fn set_binary(&mut self, size_bytes: usize) {
-        self.size_bytes = size_bytes;
-        self.binary = true;
-        self.missing = false;
-        self.ready = true;
+        self.content = Content::Binary { size: size_bytes };
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
     }
 
     pub fn set_missing(&mut self) {
-        self.missing = true;
-        self.binary = false;
-        self.ready = true;
+        self.content = Content::Missing;
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
+    }
+
+    pub fn content(&self) -> Content {
+        self.content
+    }
+
+    /// Loaded: text, binary or missing.
+    pub fn ready(&self) -> bool {
+        self.content != Content::Loading
+    }
+
+    pub fn missing(&self) -> bool {
+        self.content == Content::Missing
+    }
+
+    pub fn binary(&self) -> bool {
+        matches!(self.content, Content::Binary { .. })
+    }
+
+    /// The loaded file's size in bytes (0 while loading or missing).
+    pub fn size_bytes(&self) -> usize {
+        match self.content {
+            Content::Text { size } | Content::Binary { size } => size,
+            Content::Loading | Content::Missing => 0,
+        }
     }
 
     fn bump_keys(&mut self) {
@@ -198,18 +227,27 @@ impl CodeDocState {
     }
 
     pub fn selection(&self) -> Option<FileLineSelection> {
-        self.selection
+        self.lines.selected().map(FileLineSelection::from)
     }
 
+    /// Selects `sel`, ending any press on the line numbers.
     pub fn set_selection(&mut self, sel: Option<FileLineSelection>) {
-        if self.selection != sel {
-            self.selection = sel;
+        if self.selection() != sel || self.lines.tracking() {
+            self.step_lines(LineEvent::Set(sel.map(Lines::from)));
+        }
+    }
+
+    /// Steps the line-selection gesture; a change of the selected lines redraws the rows.
+    fn step_lines(&mut self, event: LineEvent<u32>) {
+        let before = self.lines.selected();
+        let _ = self.lines.step(event, |&n| Some(n));
+        if self.lines.selected() != before {
             self.rev += 1;
         }
     }
 
     pub fn selected_text(&self) -> Option<String> {
-        let sel = self.selection?;
+        let sel = self.selection()?;
         let (a, b) = sel.ordered();
         let mut out = Vec::with_capacity((b - a + 1) as usize);
         for n in a..=b {
@@ -218,49 +256,34 @@ impl CodeDocState {
         Some(out.join("\n"))
     }
 
-    pub(crate) fn press_line(&mut self, line: u32) {
-        self.selection_at_press = self.selection;
-        let sel = match self.selection {
-            Some(s) if self.shift => FileLineSelection { start: s.start, end: line },
-            _ => FileLineSelection { start: line, end: line },
-        };
-        self.unselect = !self.shift && self.selection == Some(sel);
-        self.selecting = true;
-        self.selection = Some(sel);
-        self.rev += 1;
+    /// A press on line `line`'s number (rune-kit's shared gesture, as Pierre's line numbers).
+    pub(crate) fn press_line(&mut self, line: u32, shift: bool) {
+        self.step_lines(LineEvent::Press { at: line, column: Column::Numbers, shift });
     }
 
+    /// The held press moved `dy` points from line `start_line`.
     pub(crate) fn drag_to_offset(&mut self, start_line: u32, dy: f32) {
-        if !self.selecting || self.source.is_empty() {
+        if self.source.is_empty() {
             return;
         }
         let delta = (dy / LINE_H).round() as i64;
-        let target = (start_line as i64 + delta).clamp(1, self.lines() as i64) as u32;
-        if let Some(s) = self.selection
-            && s.end != target
-        {
-            self.unselect = false;
-            self.selection = Some(FileLineSelection { start: s.start, end: target });
-            self.rev += 1;
-        }
+        let at = (start_line as i64 + delta).clamp(1, self.lines() as i64) as u32;
+        self.step_lines(LineEvent::Move { at });
+    }
+
+    /// A click on line `line`'s code: it selects that line, or clears it when it was the
+    /// selection (`selection-machine.ts`, the `text` column).
+    pub(crate) fn click_code(&mut self, line: u32) {
+        self.step_lines(LineEvent::Press { at: line, column: Column::Text, shift: false });
+        self.step_lines(LineEvent::Release);
     }
 
     pub(crate) fn release_line(&mut self) {
-        self.selection_at_press = None;
-        if std::mem::take(&mut self.unselect) {
-            self.selection = None;
-            self.rev += 1;
-        }
-        self.selecting = false;
+        self.step_lines(LineEvent::Release);
     }
 
     pub(crate) fn cancel_line(&mut self) {
-        if self.selecting {
-            self.selection = self.selection_at_press.take();
-            self.rev += 1;
-        }
-        self.selecting = false;
-        self.unselect = false;
+        self.step_lines(LineEvent::Cancel);
     }
 
     pub fn scroll_to_line(&mut self, scroll_key: &str, line: u32, select: bool, tx: &mut Tx) {
@@ -269,8 +292,7 @@ impl CodeDocState {
         }
         let clamped = line.clamp(1, self.lines());
         if select {
-            self.selection = Some(FileLineSelection { start: clamped, end: clamped });
-            self.rev += 1;
+            self.set_selection(Some(FileLineSelection { start: clamped, end: clamped }));
         }
         let top_line = clamped.saturating_sub(3).max(1);
         tx.instant();
@@ -281,8 +303,8 @@ impl CodeDocState {
     pub fn scroll_to_lines(&mut self, scroll_key: &str, start: u32, end: u32, tx: &mut Tx) {
         self.scroll_to_line(scroll_key, start, true, tx);
         let lines = self.lines();
-        if let Some(sel) = self.selection.as_mut() {
-            sel.end = end.clamp(sel.start, lines.max(sel.start));
+        if let Some(sel) = self.selection() {
+            self.set_selection(Some(FileLineSelection { end: end.clamp(sel.start, lines.max(sel.start)), ..sel }));
         }
     }
 
@@ -382,11 +404,6 @@ impl CodeDocState {
     }
 
     pub fn handle_key(&mut self, scroll_key: &str, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if let Key::Modifier { modifier: Modifier::ShiftLeft | Modifier::ShiftRight, .. } = &ev.key
-        {
-            self.shift = ev.mods.shift;
-            return false;
-        }
         if crate::keymap::Bind::Find.matches_tx(ev, tx) {
             tx.instant();
             self.find_open = true;
@@ -418,10 +435,9 @@ impl CodeDocState {
                 self.sync_find_query();
                 return true;
             }
-            if self.selection.is_some() {
+            if self.selection().is_some() {
                 tx.instant();
-                self.selection = None;
-                self.rev += 1;
+                self.set_selection(None);
                 return true;
             }
         }

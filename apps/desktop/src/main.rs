@@ -1014,6 +1014,7 @@ impl App {
         self.load_open_in();
         if self.persists() {
             self.files.wrap = files::markdown::WrapPrefs::load();
+            self.panel_sidebar = plugin_host::luau::native::sidebar::PanelSidebar::load();
         }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::load();

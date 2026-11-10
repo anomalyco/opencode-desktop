@@ -265,14 +265,14 @@ impl App {
         self.ensure_session_review(sid);
         let ws = self.files.sessions.entry(sid.to_owned()).or_default();
         // Ask again for a file that wasn't there, or whose answer was lost.
-        if ws.docs.get(path).is_some_and(|d| d.missing || !d.ready) {
+        if ws.docs.get(path).is_some_and(|d| d.missing() || !d.ready()) {
             ws.docs.remove(path);
         }
         self.ensure_file_loaded(sid, path);
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
         let link = super::LinkOpen { lines, heading };
         match ws.docs.get(path) {
-            Some(d) if !d.ready => {
+            Some(d) if !d.ready() => {
                 ws.link_opens.insert(path.to_owned(), link);
             }
             _ => self.finish_file_link(sid, path, link, tx),
@@ -282,7 +282,7 @@ impl App {
     /// The file a link asked for has loaded: opens its tab, or says it isn't there.
     pub(super) fn finish_file_link(&mut self, sid: &str, path: &str, link: super::LinkOpen, tx: &mut Tx) {
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
-        if ws.docs.get(path).is_none_or(|d| d.missing) {
+        if ws.docs.get(path).is_none_or(|d| d.missing()) {
             ws.docs.remove(path);
             ws.known_files.remove(path);
             ws.rebuild_tree();

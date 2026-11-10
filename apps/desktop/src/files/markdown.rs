@@ -109,10 +109,10 @@ impl WrapPrefs {
 pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     let Some(d) = ws.docs.get(path) else { return false };
     let svg = super::image::is_svg(path);
-    if !(is_markdown(path) || svg) || !d.ready || d.missing || d.binary {
+    if !(is_markdown(path) || svg) || !d.ready() || d.missing() || d.binary() {
         return false;
     }
-    ws.md.get(path).and_then(|m| m.rendered).unwrap_or(svg || d.size_bytes <= RENDER_LIMIT)
+    ws.md.get(path).and_then(|m| m.rendered).unwrap_or(svg || d.size_bytes() <= RENDER_LIMIT)
 }
 
 pub fn scroll_key(sid: &str, path: &str) -> String {
@@ -154,13 +154,15 @@ fn headings(src: &str) -> Vec<(usize, String)> {
 /// `layer-01`, a raised `document-surface` sheet 20 in (12 in a view 600 wide or narrower) with its 0.5 pt
 /// `border-base` ring and 8 pt corners, the text 64 from its top and 12.5% in, between 24 and
 /// 134 (32 and 24 in a narrow view), at most 768 wide.
-pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option<&MdView>, page: bool) -> El {
+pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option<&MdView>, paths: Option<&super::code_paths::CodePaths>, page: bool) -> El {
     let find = view.filter(|_| doc.find_open);
     let active = find.map(|v| v.active);
     let find_ver = find.map(|v| (v.applied.clone(), v.matches.len(), v.active));
     let (sid_link, path_link) = (sid.to_owned(), path.to_owned());
     let base = std::rc::Rc::new(opencode_kit::path::parent(path).to_owned());
-    let body = memo(format!("md-body-{sid}-{path}"), (doc.keys_rev, doc.rev, p.dark, find_ver), || {
+    // Inline code naming a file there is a link to it, in `text-code-path` (`markdown.css`).
+    let found: std::rc::Rc<std::collections::HashSet<String>> = std::rc::Rc::new(paths.map(|c| c.found().map(str::to_owned).collect()).unwrap_or_default());
+    let body = memo(format!("md-body-{sid}-{path}"), (doc.keys_rev, doc.rev, p.dark, find_ver, paths.map(|c| c.rev)), || {
         let src = doc.text();
         let marks: Vec<(&[Range<usize>], rune_kit::Highlight)> = find
             .map(|v| v.matches.iter().enumerate().map(|(i, r)| (r.as_slice(), crate::find::markdown_mark(p, i, Some(i) == active))).collect())
@@ -173,6 +175,7 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
             .selectable(true)
             .on_link_tx(move |s: &mut App, url: &str, tx: &mut Tx| s.open_link(&sid_link, Some(&path_link), url, tx))
             .link_help({ let base = base.clone(); move |url| crate::files::link_tip::tip(url, base.as_str()) })
+            .code_link(p.v2.text_code_path, { let found = found.clone(); move |code| found.contains(code).then(|| code.to_owned()) })
             .build(crate::palette::kit(p))
     });
     let key = scroll_key(sid, path);

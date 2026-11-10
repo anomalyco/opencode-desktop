@@ -68,6 +68,50 @@ impl ChangeMode {
     }
 }
 
+/// Where a session's changes stand, as Desktop's `gui-plugins/src/review/machine.ts`
+/// (`ReviewDiffState`) shows them (`ReviewDiffView`): loading, or landed for a mode and file
+/// revision, where a project without a repository has none to show (`no-vcs`). A newer revision
+/// reads again while the landed changes stay shown (`refreshing`).
+#[derive(Debug)]
+pub enum Load {
+    /// The mode's changes haven't landed; `focus` is a change to scroll to once they do.
+    Loading { focus: Option<(String, Option<crate::tool_open::Anchor>)> },
+    Ready { mode: ChangeMode, revision: u64 },
+    NoVcs { mode: ChangeMode, revision: u64 },
+}
+
+impl Load {
+    pub fn ready(&self) -> bool {
+        !matches!(self, Load::Loading { .. })
+    }
+
+    pub fn no_git(&self) -> bool {
+        matches!(self, Load::NoVcs { .. })
+    }
+
+    /// The mode and revision whose changes landed.
+    pub fn loaded_revision(&self) -> Option<(ChangeMode, u64)> {
+        match *self {
+            Load::Loading { .. } => None,
+            Load::Ready { mode, revision } | Load::NoVcs { mode, revision } => Some((mode, revision)),
+        }
+    }
+
+    /// Changes of `mode` at `revision` landed; returns the change waiting to be shown.
+    fn landed(&mut self, mode: ChangeMode, revision: u64, no_git: bool) -> Option<(String, Option<crate::tool_open::Anchor>)> {
+        let next = if no_git { Load::NoVcs { mode, revision } } else { Load::Ready { mode, revision } };
+        match std::mem::replace(self, next) {
+            Load::Loading { focus } => focus,
+            Load::Ready { .. } | Load::NoVcs { .. } => None,
+        }
+    }
+
+    /// Another mode: its changes load from scratch.
+    fn restart(&mut self) {
+        *self = Load::Loading { focus: None };
+    }
+}
+
 pub struct SessionReview {
     pub mode: ChangeMode,
     pub diffs: DiffDocState,
@@ -77,13 +121,9 @@ pub struct SessionReview {
     pub tree: TreeModel<FileNode<ReviewFileMeta>>,
     /// The file the preview shows: the one picked, else the server's first.
     pub active_path: Option<String>,
-    pub ready: bool,
-    pub no_git: bool,
+    pub load: Load,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
-    pub loaded_revision: Option<(ChangeMode, u64)>,
-    /// A tool step's change to scroll to once the diffs load (`tool_open`).
-    pub pending_focus: Option<(String, Option<crate::tool_open::Anchor>)>,
     /// The narrow window's Changes view: its open files (`mobile`).
     pub narrow: mobile::NarrowReview,
     /// Moves with every change a reader can see: the plugin's renders read it.
@@ -99,12 +139,9 @@ impl Default for SessionReview {
             listed: Vec::new(),
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
-            ready: false,
-            no_git: false,
+            load: Load::Loading { focus: None },
             branch_current: None,
             branch_default: None,
-            loaded_revision: None,
-            pending_focus: None,
             narrow: mobile::NarrowReview::default(),
             stamp: 0,
         }
@@ -185,8 +222,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if let Some(fetched) = s.review.diff_fetch.take() {
         tx.instant();
         let sid = fetched.session_id.clone();
-        s.apply_fetched_diffs(fetched);
-        s.apply_pending_review_focus(&sid, tx);
+        if let Some((path, anchor)) = s.apply_fetched_diffs(fetched) {
+            s.focus_review_change(&sid, &path, anchor.as_ref(), tx);
+        }
         changed = true;
     }
     if let Some((session_id, path, content)) = s.review.file_fetch.take()
@@ -256,7 +294,7 @@ impl App {
         let directory = self.session(session_id).map(|i| i.directory.clone()).unwrap_or_default();
         let mode = self.review.sessions.entry(session_id.to_owned()).or_default().mode;
 
-        if self.review.sessions.get(session_id).is_some_and(|sr| sr.loaded_revision == Some((mode, rev))) {
+        if self.review.sessions.get(session_id).is_some_and(|sr| sr.load.loaded_revision() == Some((mode, rev))) {
             if let Some(sr) = self.review.sessions.get_mut(session_id) {
                 sr.diffs.set_mode(diff_mode);
                 sr.diffs.set_expand_mode(expand_mode);
@@ -274,9 +312,7 @@ impl App {
                 for (path, text) in texts {
                     sr.diffs.attach_file_text(&path, &text);
                 }
-                sr.ready = true;
-                sr.no_git = false;
-                sr.loaded_revision = Some((mode, rev));
+                let _ = sr.load.landed(mode, rev, false);
             }
             Source::Live { server, .. } => {
                 let ask = (session_id.to_owned(), mode, rev);
@@ -291,21 +327,20 @@ impl App {
         }
     }
 
-    fn apply_fetched_diffs(&mut self, fetched: FetchedDiffs) {
+    /// Lands a read; returns the change a step asked to show once it did.
+    fn apply_fetched_diffs(&mut self, fetched: FetchedDiffs) -> Option<(String, Option<crate::tool_open::Anchor>)> {
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
         let (files, meta) = parse_diff_list(&fetched.raw_diff);
         let listed = data::listed_paths(&fetched.raw_diff);
         let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
-            return;
+            return None;
         }
         sr.branch_current = fetched.branch_current;
         sr.branch_default = fetched.branch_default;
-        sr.no_git = fetched.no_git;
         sr.land(files, meta, listed, diff_mode, expand_mode);
-        sr.ready = true;
-        sr.loaded_revision = Some((fetched.mode, fetched.revision));
+        sr.load.landed(fetched.mode, fetched.revision, fetched.no_git)
     }
 
     /// Compares `mode` in the routed session's review.
@@ -318,8 +353,7 @@ impl App {
         let sr = self.review.sessions.entry(sid.to_owned()).or_default();
         if sr.mode != mode {
             sr.mode = mode;
-            sr.loaded_revision = None;
-            sr.ready = false;
+            sr.load.restart();
             sr.stamp += 1;
             self.review.asked = None;
         }
@@ -402,8 +436,7 @@ impl App {
             let sr = self.review.sessions.entry(sid.to_owned()).or_default();
             if sr.mode != m {
                 sr.mode = m;
-                sr.loaded_revision = None;
-                sr.ready = false;
+                sr.load.restart();
                 sr.stamp += 1;
                 self.review.asked = None;
             }
@@ -412,10 +445,8 @@ impl App {
         self.ensure_session_review(sid);
         if let Some(p) = path {
             let anchor = line.map(|n| crate::tool_open::Anchor { side: rune_kit::diff::Side::New, text: String::new(), near: Some(n.max(1)) });
-            if self.review.sessions.get(sid).is_some_and(|sr| !sr.ready) {
-                if let Some(sr) = self.review.sessions.get_mut(sid) {
-                    sr.pending_focus = Some((p.to_owned(), anchor));
-                }
+            if let Some(Load::Loading { focus }) = self.review.sessions.get_mut(sid).map(|sr| &mut sr.load) {
+                *focus = Some((p.to_owned(), anchor));
             } else {
                 self.focus_review_change(sid, p, anchor.as_ref(), tx);
             }

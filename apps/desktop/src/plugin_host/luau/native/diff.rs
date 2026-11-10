@@ -29,7 +29,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let mode = ChangeMode::parse(s.source.as_str()).unwrap_or_default();
         let sid = s.session_id;
         let engine = app.review.sessions.get(&sid);
-        if engine.is_none_or(|sr| sr.mode != mode || sr.loaded_revision != Some((mode, app.review.revision))) {
+        if engine.is_none_or(|sr| sr.mode != mode || sr.load.loaded_revision() != Some((mode, app.review.revision))) {
             let id = sid.clone();
             app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
         }
@@ -148,8 +148,8 @@ pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
 /// How session `sr`'s read went (`DiffStatus`).
 pub fn status(sr: Option<&SessionReview>) -> &'static str {
     match sr {
-        Some(sr) if sr.ready && sr.no_git => "no-vcs",
-        Some(sr) if sr.ready => "ready",
+        Some(sr) if sr.load.no_git() => "no-vcs",
+        Some(sr) if sr.load.ready() => "ready",
         _ => "loading",
     }
 }

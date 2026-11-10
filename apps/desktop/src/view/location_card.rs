@@ -173,8 +173,8 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
 fn changes_row(s: &App, sid: &str) -> Item {
     let item = |title: &str| Item::new("changes", title.to_owned()).icon(&ic::REVIEW);
     match s.review.sessions.get(sid) {
-        Some(r) if r.ready && r.meta.is_empty() => item(t!("plugin.details.noChanges")),
-        Some(r) if r.ready => {
+        Some(r) if r.load.ready() && r.meta.is_empty() => item(t!("plugin.details.noChanges")),
+        Some(r) if r.load.ready() => {
             let (added, removed) = r.totals();
             let n = r.meta.len();
             item(&opencode_i18n::plural!("ui.sessionTurn.diffs.changed", n)).diff(added, removed)

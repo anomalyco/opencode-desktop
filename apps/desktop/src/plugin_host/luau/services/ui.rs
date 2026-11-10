@@ -224,7 +224,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         app_now("Layout:TogglePanelSidebar")?.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
             tx.instant();
-            s.panel_sidebar.opened = !s.panel_sidebar.opened;
+            s.panel_sidebar.toggle();
             crate::plugin_host::luau::bump();
         }));
         Ok(())

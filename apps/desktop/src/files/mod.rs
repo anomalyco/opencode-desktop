@@ -2,6 +2,7 @@
 //! the palette, `switcher.rs`, which searches the folder's files)
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
+pub mod code_paths;
 pub mod data;
 pub mod image;
 pub mod link_tip;
@@ -46,17 +47,68 @@ pub struct SessionFiles {
     pub tree: TreeModel<FileNode<bool>>,
     pub recent: Vec<String>,
     pub highlighted_filter_path: Option<String>,
-    pub search_found: Vec<String>,
-    pub search_asked: Option<String>,
+    /// The server's search for the filter's query.
+    pub search: Search,
     pub pending_jump: HashMap<String, (u32, u32)>,
     /// Files a link asked for, opened once they load.
     pub link_opens: HashMap<String, LinkOpen>,
     pub md: HashMap<String, markdown::MdView>,
+    /// Each Markdown file's inline code paths, checked (`code_paths`).
+    pub code_paths: HashMap<String, code_paths::CodePaths>,
     /// Picture files (and SVGs) as decoded images, with their zoom.
     pub images: HashMap<String, image::FileImage>,
     pub ready: bool,
     /// What the narrow window's Files view shows (`narrow`).
     pub narrow: narrow::NarrowFiles,
+}
+
+/// The server's search for the files a filter names, as Desktop's
+/// gui-plugins/src/file/search-machine.ts (FileSearchState): idle, searching a query (the
+/// last results stay listed meanwhile, as its previous), or that query's results.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Search {
+    #[default]
+    Idle,
+    Searching { query: String, previous: Vec<String> },
+    Ready { query: String, files: Vec<String> },
+}
+
+impl Search {
+    /// The query asked last, answered or not.
+    pub fn asked(&self) -> Option<&str> {
+        match self {
+            Search::Idle => None,
+            Search::Searching { query, .. } | Search::Ready { query, .. } => Some(query),
+        }
+    }
+
+    /// The files found: the last answer, while the next query loads too.
+    pub fn found(&self) -> &[String] {
+        match self {
+            Search::Idle => &[],
+            Search::Searching { previous, .. } => previous,
+            Search::Ready { files, .. } => files,
+        }
+    }
+
+    /// Asks for query; false when it was asked already.
+    fn ask(&mut self, query: &str) -> bool {
+        if self.asked() == Some(query) {
+            return false;
+        }
+        let previous = std::mem::take(self).found().to_vec();
+        *self = Search::Searching { query: query.to_owned(), previous };
+        true
+    }
+
+    /// The answer to query; an answer to an earlier query is stale. True when it landed.
+    fn answered(&mut self, query: &str, files: Vec<String>) -> bool {
+        if !matches!(self, Search::Searching { query: q, .. } if q == query) {
+            return false;
+        }
+        *self = Search::Ready { query: query.to_owned(), files };
+        true
+    }
 }
 
 /// Where a link asked to land in the file it opens.
@@ -77,11 +129,11 @@ impl Default for SessionFiles {
             tree: TreeModel::new().key("files-tree"),
             recent: Vec::new(),
             highlighted_filter_path: None,
-            search_found: Vec::new(),
-            search_asked: None,
+            search: Search::Idle,
             pending_jump: HashMap::new(),
             link_opens: HashMap::new(),
             md: HashMap::new(),
+            code_paths: HashMap::new(),
             images: HashMap::new(),
             ready: false,
             narrow: narrow::NarrowFiles::default(),
@@ -200,14 +252,14 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         if let Some(link) = ws.link_opens.remove(&path) {
             s.finish_file_link(&session_id, &path, link, tx);
         }
+        s.check_code_paths(&session_id, &path);
         changed = true;
     }
     if let Some((session_id, query, found)) = s.files.find_fetch.take() {
         if let Some(ws) = s.files.sessions.get_mut(&session_id)
-            && ws.search_asked.as_deref() == Some(query.as_str())
+            && ws.search.answered(&query, found)
         {
             tx.instant();
-            ws.search_found = found;
             changed = true;
         }
     }
@@ -506,7 +558,7 @@ impl App {
 
         if let Some((start, end)) = lines {
             if let Some(doc) = ws.docs.get_mut(path)
-                && doc.ready
+                && doc.ready()
             {
                 let scroll_key = format!("file-code-{sid}-{path}-scroll");
                 doc.scroll_to_lines(&scroll_key, start, end, tx);
@@ -527,7 +579,7 @@ impl App {
         let Some(ws) = self.files.sessions.get(session_id) else {
             return Vec::new();
         };
-        let mut pool: Vec<String> = ws.search_found.clone();
+        let mut pool: Vec<String> = ws.search.found().to_vec();
         for f in &ws.known_files {
             if !pool.contains(f) {
                 pool.push(f.clone());
@@ -566,10 +618,9 @@ impl App {
         }
         let Source::Live { server, .. } = &self.source else { return };
         let ws = self.files.sessions.entry(sid.clone()).or_default();
-        if ws.search_asked.as_deref() == Some(q.as_str()) {
+        if !ws.search.ask(&q) {
             return;
         }
-        ws.search_asked = Some(q.clone());
         let directory = self
             .session(&sid)
             .map(|s| s.directory.clone())

@@ -31,7 +31,7 @@ return plugin.defineWindow(function(ctx)
         -- Desktop's `layout` review style (split) and `review-panel-v2` expand mode (collapse).
         style = Store:Value("diff", { diffStyle = "split" :: panel.DiffStyle }),
         expand = Store:Value("panel", { expandMode = "collapse" :: panel.ExpandMode }),
-        source = Store:SessionValue("session", {} :: { mode: DiffSource? }),
+        source = Store:SessionValue("session", {} :: { mode: DiffSource?, file: string? }),
     }
 
     env.Diff:SetMode(env.style:Get().diffStyle)
@@ -46,7 +46,7 @@ return plugin.defineWindow(function(ctx)
         local doc = panel.doc(env, session.id)
         for _, path in kinds.sorted(kinds.paths(doc:Files())) do
             if string.find(string.lower(path), query, 1, true) then
-                doc:Focus(path)
+                panel.focus(env, session.id, path)
                 return
             end
         end
@@ -164,7 +164,7 @@ return plugin.defineWindow(function(ctx)
                 if path == nil or string.find(`/{path}/`, "/%.%./") then
                     error(`Path '{args.path}' is outside the session folder '{context.directory}'`)
                 end
-                doc:Focus(path :: string)
+                panel.focus(env, sid, path :: string)
             end
             Layout:OpenPanel(TAB, { sessionId = sid })
             local shown: { [string]: string } = { git = "uncommitted", branch = "branch", turn = "turn" }
@@ -189,7 +189,7 @@ return plugin.defineWindow(function(ctx)
         end,
         focus = function(sid: string, path: string)
             show(sid)
-            panel.doc(env, sid):Focus(path)
+            panel.focus(env, sid, path)
         end,
         open = function(sid: string)
             Layout:OpenPanel(TAB, { sessionId = sid })

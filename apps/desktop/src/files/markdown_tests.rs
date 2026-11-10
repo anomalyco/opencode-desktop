@@ -94,7 +94,7 @@ fn a_file_link_in_a_reply_opens_the_file_beside_it() {
     assert!(shows_rendered(&rt.state.files.sessions[THIRD], PROPOSAL));
     assert!(rt.find(&super::markdown::scroll_key(THIRD, PROPOSAL)).is_some(), "rendered page shows");
     // The tree marks what the session changed, as it does from ⌘P.
-    assert!(rt.state.review.sessions.get(THIRD).is_some_and(|r| r.loaded_revision.is_some()));
+    assert!(rt.state.review.sessions.get(THIRD).is_some_and(|r| r.load.loaded_revision().is_some()));
     // The reply keeps focus: the link opened the file, it didn't pull Kit into it.
     assert!(!rt.state.side.focused);
 }

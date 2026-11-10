@@ -230,7 +230,7 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     let editors = app.plugins.luau.editors.borrow();
     let Some(edit) = editors.get(&(plugin.clone(), index)) else { return Ok(el()) };
     if a.string("variant") == Some("filter") {
-        return Ok(filter_field(a, app, edit, plugin, index));
+        return Ok(filter_field(a, edit, plugin, index));
     }
     let edit_plugin = plugin.clone();
     let mut input = rune_kit::TextInput::new(edit)
@@ -288,7 +288,7 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
 
 /// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears
 /// it, then gives up the keyboard; Enter submits.
-fn filter_field(a: &NodeArgs, app: &App, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
+fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
     let placeholder = a.string("placeholder").unwrap_or(opencode_i18n::t!("ui.sessionReviewV2.filterFiles")).to_owned();
     let key = a.string("key").unwrap_or("filter").to_owned();
@@ -309,7 +309,8 @@ fn filter_field(a: &NodeArgs, app: &App, edit: &rune::TextEdit, plugin: String, 
             edit.focused = focused;
             super::bump();
         },
-        app.settings.spellcheck,
+        // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
+        false,
         move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
             if ev.key != rune::Key::Escape {
                 return false;

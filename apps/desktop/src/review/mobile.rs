@@ -163,8 +163,8 @@ fn counts(p: &Pal, adds: u32, dels: u32) -> El {
 
 fn empty_state(p: &Pal, sr: &SessionReview) -> El {
     let msg = match () {
-        _ if !sr.ready => t!("plugin.review.loadingChanges"),
-        _ if sr.no_git => t!("rune.review.noGit"),
+        _ if !sr.load.ready() => t!("plugin.review.loadingChanges"),
+        _ if sr.load.no_git() => t!("rune.review.noGit"),
         _ => sr.mode.empty_label(),
     };
     col().key("narrow-review-empty").w_full().px(8.0).py(8.0).child(text(msg).font(crate::view::UI).color(p.faint))

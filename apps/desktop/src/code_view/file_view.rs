@@ -42,7 +42,7 @@ impl<S: 'static> CodeViewer<S> {
         let root_key = self.key.clone();
         let scroll_key = format!("{root_key}-scroll");
 
-        if !st.ready {
+        if !st.ready() {
             return col()
                 .key(root_key)
                 .w_full()
@@ -52,7 +52,7 @@ impl<S: 'static> CodeViewer<S> {
                 .center()
                 .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted));
         }
-        if st.missing {
+        if st.missing() {
             let name = opencode_kit::path::basename(st.path());
             return col()
                 .key(root_key)
@@ -63,7 +63,7 @@ impl<S: 'static> CodeViewer<S> {
                 .center()
                 .child(text(opencode_i18n::t!("plugin.file.tab.notFound", name = name)).font(look.label).color(look.muted));
         }
-        if st.binary {
+        if st.binary() {
             return col()
                 .key(root_key)
                 .w_full()
@@ -72,7 +72,7 @@ impl<S: 'static> CodeViewer<S> {
                 .fill(p.bg_base)
                 .center()
                 .child(
-                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes))
+                    text(opencode_i18n::t!("rune.file.binary", size = st.size_bytes()))
                         .font(look.label)
                         .color(look.muted),
                 );
@@ -171,7 +171,7 @@ impl<S: 'static> Inner<S> {
                 tx.instant();
                 let st = get_mut(s);
                 match d.phase {
-                    Phase::Down => st.press_line(n),
+                    Phase::Down => st.press_line(n, tx.mods().shift),
                     Phase::Move => st.drag_to_offset(n, d.y),
                     Phase::Up => {
                         if d.cancelled() {
@@ -214,7 +214,13 @@ impl<S: 'static> Inner<S> {
             .fill(fill)
             .role("listitem")
             .child(gutter)
-            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt));
+            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_press_tx({
+                let get_mut = self.v.get_mut.clone();
+                move |s: &mut S, tx: &mut Tx| {
+                    tx.instant();
+                    get_mut(s).click_code(n);
+                }
+            }));
         // A selected line keeps its fill under the pointer, as session-ui sets it outright.
         if selected {
             return line;

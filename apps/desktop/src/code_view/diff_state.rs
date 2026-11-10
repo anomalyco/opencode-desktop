@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use rune_kit::diff::{DiffMode, Expand, FileDiff, Hunk, LineKind, LineRange, Side, SplitRow};
+use rune_kit::diff::{DiffLine, DiffMode, Expand, FileDiff, Hunk, LineKind, Side, SplitRow};
+use rune_kit::line_selection::LineSelection;
 use rune_kit::syntax::Paint;
 
 use super::fold::{ExpandMode, Fold, FoldEffect, FoldEvent, GapFacts, Reveal};
@@ -91,11 +92,8 @@ pub struct DiffDocState {
     pub(super) hide_file_headers: bool,
     /// Draws only this file's rows: Review's single-file preview.
     only: Option<usize>,
-    pub(super) selection: Option<LineRange>,
-    pub(super) selecting: bool,
-    pub(super) selection_at_press: Option<LineRange>,
-    pub(super) unselect: bool,
-    pub(super) shift: bool,
+    /// The selected lines and the gesture on the line numbers making them (rune-kit's shared machine).
+    pub(super) lines: LineSelection<DiffLine>,
     pub(super) copy_side: Side,
     chunks: RefCell<ChunkMap<(u32, Side, u32)>>,
     side_lines: Vec<Vec<[Vec<u32>; 2]>>,
@@ -145,11 +143,7 @@ impl DiffDocState {
             wrap: true,
             hide_file_headers: false,
             only: None,
-            selection: None,
-            selecting: false,
-            selection_at_press: None,
-            unselect: false,
-            shift: false,
+            lines: LineSelection::default(),
             copy_side: Side::New,
             chunks: RefCell::new(HashMap::new()),
             side_lines: Vec::new(),
@@ -186,7 +180,7 @@ impl DiffDocState {
         let file = file.filter(|&f| f < self.files.len());
         if self.only != file {
             self.only = file;
-            self.selection = None;
+            self.set_selection(None);
             self.visible = file.unwrap_or(0);
             self.reported = None;
             self.visible_rows = 0..0;
@@ -245,7 +239,7 @@ impl DiffDocState {
         if let (_, Some(event)) = ExpandMode::Collapse.step(self.expand_mode) {
             self.step_file_folds(None, event);
         }
-        self.selection = None;
+        self.set_selection(None);
         self.chunks.borrow_mut().clear();
         self.visible = 0;
         self.reported = None;

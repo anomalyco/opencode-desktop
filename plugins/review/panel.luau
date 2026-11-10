@@ -25,16 +25,21 @@ export type Env = {
     filter: Editor,
     style: StoreValue<{ diffStyle: DiffStyle }>,
     expand: StoreValue<{ expandMode: ExpandMode }>,
-    -- Each session's source.
-    source: SessionStoreValue<{ mode: DiffSource? }>,
+    -- Each session's source and the file its preview shows (Desktop's session store, `model.ts`).
+    source: SessionStoreValue<{ mode: DiffSource?, file: string? }>,
 }
 
 -- Session `sid`'s changes, read from its source.
 function panel.doc(env: Env, sid: string): DiffDocument
     local doc = env.docs[sid]
     if doc == nil then
-        doc = env.Diff:Open({ sessionId = sid, source = env.source:Get(sid).mode or "git" })
+        local stored = env.source:Get(sid)
+        doc = env.Diff:Open({ sessionId = sid, source = stored.mode or "git" })
         env.docs[sid] = doc
+        -- The file picked last shows again while the changes still list it (`activeFile`).
+        if stored.file then
+            doc:Focus(stored.file)
+        end
     end
     return doc
 end
@@ -47,8 +52,14 @@ function panel.setStyle(env: Env, style: DiffStyle)
 end
 
 function panel.setSource(env: Env, sid: string, mode: DiffSource)
-    env.source:Set(sid, { mode = mode })
+    env.source:Set(sid, { mode = mode, file = env.source:Get(sid).file })
     panel.doc(env, sid):SetSource(mode)
+end
+
+-- Shows `path` in session `sid`'s preview, and remembers it (`focusFile`).
+function panel.focus(env: Env, sid: string, path: string)
+    env.source:Set(sid, { mode = env.source:Get(sid).mode, file = path })
+    panel.doc(env, sid):Focus(path)
 end
 
 local TEXT = { size = 13, weight = "regular" :: FontWeight, lineHeight = 16, tracking = -0.04 }
@@ -192,7 +203,7 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, fil
             pt = 4,
             onSelect = view:Handler(function(event)
                 if event.path then
-                    doc:Focus(event.path)
+                    panel.focus(env, sid, event.path)
                 end
             end),
         })
@@ -223,7 +234,7 @@ local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, ord
         end
         return function()
             local at = if index == 0 then 1 else index
-            doc:Focus(order[(at - 1 + by) % #order + 1])
+            panel.focus(env, sid, order[(at - 1 + by) % #order + 1])
         end
     end
     table.insert(start, arrow(env, view, "review-prev-file", "review-arrow-left", `{env.I18n:T("ui.sessionReviewV2.previousFile")} \u{2190}`, step(-1)))

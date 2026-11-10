@@ -92,7 +92,7 @@ pub(super) fn files_main(
 
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
-    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready && !d.missing && !d.binary);
+    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
     let wrap_on = doc.is_some_and(|d| d.wrap());
@@ -175,17 +175,17 @@ pub(super) fn files_main(
 pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, path: &str, artifact: bool) -> El {
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
-    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready && !d.missing && !d.binary);
+    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
     let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
     // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
-    let text = doc.filter(|d| d.ready && !d.missing && !d.binary).map_or("", |d| d.text());
+    let text = doc.filter(|d| d.ready() && !d.missing() && !d.binary()).map_or("", |d| d.text());
     let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text);
     // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
     // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
     // `ArtifactToolbar`.
-    let toolbar = artifact && (markdown_doc || picture.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary));
+    let toolbar = artifact && (markdown_doc || picture.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
     if artifact && !toolbar {
         out = out.pt(12.0);
     }
@@ -212,7 +212,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         return out.child(super::image::stage(s, p, img));
     }
     if rendered && markdown::is_markdown(path) && let Some(d) = doc {
-        return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path), artifact));
+        return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path), ws.code_paths.get(path), artifact));
     }
 
     let (sid_get, path_get) = (session_id.to_owned(), path.to_owned());

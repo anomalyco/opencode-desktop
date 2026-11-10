@@ -35,13 +35,13 @@ fn a_collapsed_folder_stays_collapsed_across_a_refetch() {
     assert!(tree.is_expanded("src/net") && tree.is_expanded("src/sidebar"));
 
     rt.update(|s, _| s.review.sessions.get_mut(&sid).unwrap().tree.toggle("src/net"));
-    let before = rt.state.review.sessions[&sid].loaded_revision;
+    let before = rt.state.review.sessions[&sid].load.loaded_revision();
     rt.update(|s, _| {
         s.note_review_event("filesystem.changed");
     });
     rt.frame(1.0 / 60.0);
     let sr = &rt.state.review.sessions[&sid];
-    assert_ne!(sr.loaded_revision, before, "the change refetched the diffs");
+    assert_ne!(sr.load.loaded_revision(), before, "the change refetched the diffs");
     assert!(!sr.tree.is_expanded("src/net"), "the folder Kit closed stays closed");
     assert!(sr.tree.is_expanded("src/sidebar"), "other folders stay open");
 }

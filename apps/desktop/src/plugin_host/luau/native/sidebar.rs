@@ -50,7 +50,50 @@ impl Default for PanelSidebar {
 }
 
 impl PanelSidebar {
+    fn file() -> Option<std::path::PathBuf> {
+        crate::dirs::data().map(|d| d.join("review-panel-v2.json"))
+    }
+
+    /// The preference kept across launches (Desktop's `Persist.global("review-panel-v2")`:
+    /// `sidebarOpened`, and `sidebarWidth` within its bounds).
+    pub fn load() -> Self {
+        let v = Self::file()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .unwrap_or_default();
+        Self {
+            opened: v["sidebarOpened"].as_bool().unwrap_or(true),
+            width: v["sidebarWidth"].as_f64().map(|w| (w as f32).clamp(MIN_W, MAX_W)),
+            resize: Resize::Idle,
+        }
+    }
+
+    fn save(&self) {
+        let Some(f) = Self::file() else { return };
+        if crate::headless() || cfg!(test) {
+            return;
+        }
+        let body = serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W) }).to_string();
+        crate::disk::later("review-panel-v2", move || {
+            crate::disk::replace(&f, body.as_bytes());
+        });
+    }
+
+    pub fn toggle(&mut self) {
+        self.opened = !self.opened;
+        self.save();
+    }
+
+    /// Steps the resize gesture; a width it settles on is kept.
     pub fn step(&mut self, event: ResizeEvent) {
+        let before = self.width;
+        self.step_resize(event);
+        if self.resize == Resize::Idle && self.width != before || matches!(event, ResizeEvent::Up { cancelled: false }) {
+            self.save();
+        }
+    }
+
+    fn step_resize(&mut self, event: ResizeEvent) {
         self.resize = match (self.resize, event) {
             (_, ResizeEvent::Down { width }) => Resize::Dragging { from: width, was: self.width },
             (Resize::Dragging { from, was }, ResizeEvent::Move { dx, min, max }) => {
@@ -72,7 +115,7 @@ impl PanelSidebar {
 
 fn toggle(s: &mut App, tx: &mut Tx) {
     tx.instant();
-    s.panel_sidebar.opened = !s.panel_sidebar.opened;
+    s.panel_sidebar.toggle();
     crate::plugin_host::luau::bump();
 }
 

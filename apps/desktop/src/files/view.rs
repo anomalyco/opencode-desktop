@@ -54,7 +54,8 @@ pub(super) fn files_sidebar(
             s.files.filter = TextEdit::new("");
             s.files.filter.focused = f;
         },
-        s.settings.spellcheck,
+        // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
+        false,
         |_: &mut App, _: &rune::KeyEvent, _: &mut Tx| false,
     );
 

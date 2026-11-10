@@ -1,22 +1,24 @@
 //! Selection, scroll reveal, and keyboard navigation (`j`/`k`, `]`/`[`, `←`/`→`, `⌘C`) for [`DiffDocState`].
 
-use rune::{Key, KeyEvent, Modifier, Tx};
-use rune_kit::diff::{Expand, LineRange, LineRef, Side};
+use rune::{Key, KeyEvent, Tx};
+use rune_kit::diff::{DiffLine, Expand, LineRange, LineRef, Side};
+use rune_kit::line_selection::{Column, LineEvent};
 
 use super::HEADER_H;
 use super::diff_state::{DiffDocState, DiffRow};
 
 impl DiffDocState {
     pub fn selection(&self) -> Option<LineRange> {
-        self.selection
+        self.lines.selected().map(LineRange::from)
     }
 
+    /// Selects `sel`, ending any press on the line numbers.
     pub fn set_selection(&mut self, sel: Option<LineRange>) {
-        self.selection = sel;
+        let _ = self.lines.step(LineEvent::Set(sel.map(LineRange::lines)), |_| None);
     }
 
     pub fn selected_text(&self) -> Option<String> {
-        let sel = self.selection?;
+        let sel = self.selection()?;
         let side = sel.start.side;
         let (a, b) = self.selected_rows(&sel)?;
         let mut out = Vec::new();
@@ -34,49 +36,31 @@ impl DiffDocState {
         Some((a.min(b), a.max(b)))
     }
 
-    pub(crate) fn row_selected(&self, r: usize, side: Option<Side>) -> bool {
-        let Some(sel) = self.selection else { return false };
+    pub(crate) fn row_selected(&self, r: usize) -> bool {
+        let Some(sel) = self.selection() else { return false };
         let Some((a, b)) = self.selected_rows(&sel) else { return false };
-        if self.rows[r].file() != sel.file || !(a as usize..=b as usize).contains(&r) {
-            return false;
-        }
-        side.is_none_or(|s| s == sel.start.side || s == sel.end.side)
+        self.rows[r].file() == sel.file && (a as usize..=b as usize).contains(&r)
     }
 
-    pub(crate) fn press_line(&mut self, file: usize, at: LineRef) {
-        self.selection_at_press = self.selection;
-        let sel = match self.selection {
-            Some(s) if self.shift && s.file == file => LineRange { end: at, ..s },
-            _ => LineRange::line(file, at),
-        };
-        self.unselect = !self.shift && self.selection == Some(sel);
-        self.selecting = true;
-        self.selection = Some(sel);
+    /// A press on line `at`'s number (rune-kit's shared gesture, as Pierre's line numbers).
+    pub(crate) fn press_line(&mut self, file: usize, at: LineRef, shift: bool) {
+        let event = LineEvent::Press { at: DiffLine { file, at }, column: Column::Numbers, shift };
+        let row_of = &self.row_of;
+        let _ = self.lines.step(event, |p| row_of.get(&(p.file as u32, p.at.side, p.at.line)).copied());
     }
 
+    /// The held press reached line `at`; a row without one (a fold) sends nothing.
     pub(crate) fn drag_to(&mut self, file: usize, at: LineRef) {
-        if let Some(s) = self.selection.filter(|s| self.selecting && s.file == file && s.end != at)
-        {
-            self.unselect = false;
-            self.selection = Some(LineRange { end: at, ..s });
-        }
+        let _ = self.lines.step(LineEvent::Move { at: DiffLine { file, at } }, |_| None);
     }
 
     pub(crate) fn release_line(&mut self) -> Option<LineRange> {
-        self.selection_at_press = None;
-        if std::mem::take(&mut self.unselect) {
-            self.selection = None;
-        }
-        self.selecting = false;
-        self.selection
+        let _ = self.lines.step(LineEvent::Release, |_| None);
+        self.selection()
     }
 
     pub(crate) fn cancel_line(&mut self) {
-        if self.selecting {
-            self.selection = self.selection_at_press.take();
-        }
-        self.selecting = false;
-        self.unselect = false;
+        let _ = self.lines.step(LineEvent::Cancel, |_| None);
     }
 
     pub(crate) fn copy_side(&self) -> Side {
@@ -181,10 +165,6 @@ impl DiffDocState {
 
     pub fn handle_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         match &ev.key {
-            Key::Modifier { modifier: Modifier::ShiftLeft | Modifier::ShiftRight, .. } => {
-                self.shift = ev.mods.shift;
-                false
-            }
             _ if tx.focused().is_some() && !crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => false,
             Key::Left if !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift => {
                 self.next_file(false, tx)
@@ -199,9 +179,9 @@ impl DiffDocState {
                 "[" => self.next_file(false, tx),
                 _ => false,
             },
-            Key::Escape if self.selection.is_some() => {
+            Key::Escape if self.selection().is_some() => {
                 tx.instant();
-                self.selection = None;
+                self.set_selection(None);
                 true
             }
             _ if crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => match self.selected_text() {

@@ -265,7 +265,7 @@ impl<S: 'static> Inner<S> {
                 let version = (
                     self.look.version,
                     st.rev,
-                    st.row_selected(i, None),
+                    st.row_selected(i),
                     st.copy_side(),
                     st.selection().map(|sel| sel.start.side),
                 );
@@ -334,7 +334,7 @@ impl<S: 'static> Inner<S> {
     /// A unified row: Pierre's one number column, a removed line's old number and any other's
     /// new one, then the code.
     fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>) -> El {
-        let selected = st.row_selected(i, None);
+        let selected = st.row_selected(i);
         let digits = st.digits(f);
         let copy = match c.kind {
             LineKind::Context => true,
@@ -388,7 +388,8 @@ impl<S: 'static> Inner<S> {
                 return h.fill(l.empty_bg);
             };
             let kind = cell.kind;
-            let selected = st.row_selected(i, Some(side));
+            // Pierre selects rows: both sides of a split row light (`[data-selected-line]`).
+            let selected = st.row_selected(i);
             let n = if side == Side::Old { cell.old } else { cell.new };
             if kind == LineKind::Context {
                 cell.text = st.side_line(f, side, n.unwrap_or(1)).unwrap_or(cell.text);
@@ -463,7 +464,7 @@ impl<S: 'static> Inner<S> {
             tx.instant();
             let st = get_mut(s);
             match d.phase {
-                Phase::Down => st.press_line(f, at),
+                Phase::Down => st.press_line(f, at, tx.mods().shift),
                 Phase::Move => {
                     let Some(r_idx) = st.row_from(row_at, d.y) else { return };
                     let r = st.rows[r_idx as usize];

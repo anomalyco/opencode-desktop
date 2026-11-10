@@ -66,7 +66,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             lua.create_function(move |_, this: Table| {
                 let (app, sid, path) = read(&this, "CodeDocument")?;
                 let doc = app.files.sessions.get(&sid).and_then(|w| w.docs.get(&path));
-                Ok(doc.is_some_and(|d| if field == 0 { d.missing } else { d.binary }))
+                Ok(doc.is_some_and(|d| if field == 0 { d.missing() } else { d.binary() }))
             })?,
         )?;
     }
@@ -103,15 +103,16 @@ fn session_for(app: &App, directory: &str) -> Option<String> {
 pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     if let Some(w) = app.files.sessions.get(session) {
-        (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search_found, &w.highlighted_filter_path).hash(&mut h);
+        (w.ready, w.tree.visible_len(), w.known_files.len(), w.known_dirs.len(), w.expanded_dirs.len(), &w.search, &w.highlighted_filter_path).hash(&mut h);
         let mut docs: Vec<_> = w.docs.iter().collect();
         docs.sort_by(|a, b| a.0.cmp(b.0));
         for (path, d) in docs {
-            (path, d.ready, d.missing, d.binary, d.wrap(), d.line_count(), d.find_open, d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
+            (path, d.ready(), d.missing(), d.binary(), d.wrap(), d.line_count(), d.find_open, d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             if let Some(r) = rune::memo::layout(&format!("file-code-{session}-{path}-scroll")) {
                 format!("{r:?}").hash(&mut h);
             }
             w.md.get(path).map(|v| (v.rendered, v.matches.len(), v.active)).hash(&mut h);
+            w.code_paths.get(path).map(|c| c.rev).hash(&mut h);
         }
         // A picture's decode, its zoom and pan, and the stage it fits.
         let mut images: Vec<_> = w.images.iter().collect();
