@@ -251,12 +251,12 @@ pub trait TimelineHost: Sized + 'static {
             model.id.clone()
         }
     }
-    /// A button beside call `call`'s row in session `session`, or beside the row of `file`, one of
-    /// the files it changed: it opens what the call touched in
-    /// the host's side panel (a changed file in its review, a read file at its lines); `None` for
-    /// none. A press on the row itself opens the call inline. Rest its glyph hidden with
-    /// `group_opacity(0.0, 1.0)`, so it shows while the tool is hovered and stays pressable.
-    fn tool_row_action(&self, _p: &palette::Pal, _session: &str, _call: &tools::Call, _file: Option<&str>) -> Option<El> {
+    /// A button beside call `call`'s row in session `session`: it opens what the call touched in
+    /// the host's side panel (a read file at its lines); `None` for none. A press on the row
+    /// itself opens the call inline. Rest its glyph hidden with `group_opacity(0.0, 1.0)`, so it
+    /// shows while the tool is hovered and stays pressable. An edit card's file rows take none,
+    /// as Desktop's `accordion-trigger` has none.
+    fn tool_row_action(&self, _p: &palette::Pal, _session: &str, _call: &tools::Call) -> Option<El> {
         None
     }
     /// Included in a tool row's memo key: what [`Self::tool_row_action`] shows for call `id` can

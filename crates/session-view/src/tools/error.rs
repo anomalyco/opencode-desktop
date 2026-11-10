@@ -59,7 +59,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .child(words)
         .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));
     let mut line = row().key("line").w_full().min_h(line_h).gap(2.0).center_y().child(button);
-    if let Some(action) = s.tool_row_action(p, session, c, None) {
+    if let Some(action) = s.tool_row_action(p, session, c) {
         line = line.child(row().key("actions").child(action));
     }
     let card = col().key("error-card").w_full().hover_group().child(line);

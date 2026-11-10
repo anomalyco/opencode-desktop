@@ -187,7 +187,7 @@ fn group_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], open: bo
     let mut keyed: Vec<&str> = Vec::new();
     for (i, item) in items.iter().enumerate() {
         let owner = item.entries[0].call;
-        // The first row a call shows carries its key, so a press on the host's button keeps it in view.
+        // The first row a call shows carries its key, so opening the call from the host keeps it in view.
         let row_key = if keyed.contains(&owner.id) { format!("file-{}-{i}", first.id) } else { format!("tool-{}", owner.id) };
         keyed.push(owner.id);
         card = card.child(file_item(s, p, cx, first.id, item, row_key, (i == 0, i + 1 == n), open));
@@ -240,9 +240,6 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .center_y()
         .children(change)
         .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("grabber").color(p.text));
-    // The host's button sits beside the row's words, a sibling of its button rather than inside
-    // it; the whole row presses as the button does, and counts as hovered for the host's button.
-    let action = s.tool_row_action(p, cx.session, &owner, Some(item.path));
     // The row eases its hover in and out over 0.15 s (`accordion.css`: `transition:
     // background-color 0.15s ease`).
     let trigger = row()
@@ -260,7 +257,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .on_press_tx(toggle())
         .child(info)
-        .child(row().key("actions").h_full().gap(16.0).center_y().children(action).child(marks));
+        .child(marks);
     // The row sticks over its change as the timeline scrolls, under an open group's label
     // (`sticky-accordion-header`, `message-part.css:1330-1332`), until the change's end takes it
     // away. Square and on `bg-base` behind the row (`[data-scope="apply-patch"]

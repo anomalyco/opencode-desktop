@@ -314,7 +314,7 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .hover_motion(HOVER_FADE, HOVER_FADE)
             .on_press_tx(crate::disclosure::set::<S>(k, d.open(), id));
     }
-    let host = s.tool_row_action(p, cx.session, c, None);
+    let host = s.tool_row_action(p, cx.session, c);
     let actions: Vec<El> = action.into_iter().chain(host).collect();
     let line = row().key("line").w_full().h(28.0).gap(2.0).center_y();
     if actions.is_empty() {
