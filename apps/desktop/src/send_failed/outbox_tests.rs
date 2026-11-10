@@ -165,22 +165,30 @@ fn recovery_reason_is_visible_beside_the_bubble_without_a_toast() {
         let failed = app.unsent.state(&id) == Some(State::Failed);
         let mut rt = app.into_runtime();
         rt.poll = None;
-        let assert_label = |rt: &mut rune::Runtime<App>, prefix: &str| {
+        let assert_label = |rt: &mut rune::Runtime<App>, label: &str| {
             rt.frame(0.);
-            assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|s| s.starts_with(prefix) && s.contains(reason))), "{error}");
+            assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|s| s.starts_with(label))), "{error}: {label}");
             assert_eq!(rt.find("retry-send").is_some(), failed);
             assert!(rt.state.toast.current().is_none());
             assert!(rt.state.transcripts[&session].messages.iter().any(|m| m.id() == id));
         };
-        assert_label(&mut rt, if checking { "Checking delivery" } else { "Not sent" });
+        assert_label(&mut rt, &format!("{} · {reason}", if checking { "Checking delivery" } else { "Not sent" }));
         if checking {
+            // The server may have it: nothing goes again until a receipt says it never arrived.
+            rt.update(|app, _| { app.pump_outbox(); });
+            assert!(writes.try_recv().is_err(), "{error}: sent again before the receipt check");
             rt.update(|app, _| {
                 app.receipts_from(
                     &|p| if p.ends_with("/inbox") { Ok(json!({"data":[]})) } else { Err("http status: 404".into()) },
                     vec![(session.clone(), id.clone())],
                 )
             });
-            assert_label(&mut rt, "Not sent");
+            // Proven missing, it waits for its turn and goes again, once.
+            assert_label(&mut rt, "Not sent · waiting to send");
+            rt.update(|app, _| { app.pump_outbox(); });
+            assert!(matches!(writes.try_recv(), Ok(Write::Send { .. } | Write::SendMovingHome { .. })), "{error}: sent once more");
+            rt.update(|app, _| { app.pump_outbox(); });
+            assert!(writes.try_recv().is_err(), "{error}: and only once");
         }
         std::fs::remove_file(path).unwrap();
     }
