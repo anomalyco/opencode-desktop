@@ -130,24 +130,16 @@ fn run(app: &mut App, effects: Vec<Effect>, tx: &mut Tx) {
     }
 }
 
-/// `useDirectoryPicker`: this machine's folder picker for a server that shares its files; the
-/// folder picked opens as a project there, with a draft in it. Another machine's server shows
-/// on Home, where Add project browses its folders.
+/// `useDirectoryPicker` (`projects::remote_picker`): this machine's folder dialog for a server
+/// that shares its files, the server's own folder browser for another; the folder picked opens
+/// as a project there, with a draft in it (`projects.add`, `tabs.newDraft`).
 fn open_picker(app: &mut App, key: &opencode_kit::servers::ServerKey, title: String, tx: &mut Tx) {
-    let own = crate::servers::runtime::own_server().map(|s| s.base);
-    let local = crate::servers::runtime::listed().into_iter().find(|l| l.key == *key).is_some_and(|l| l.key.is_sidecar() || l.conn.local(own.as_deref()));
-    if !local {
-        return app.focus_server(key, tx);
-    }
     let title = if title.is_empty() { opencode_i18n::t!("command.project.open").to_owned() } else { title };
     let server = key.clone();
-    let options = rune::FileDialogOptions { title: title.into(), ..Default::default() };
-    tx.open_folder(options, move |s: &mut App, result, tx| {
-        let Ok(Some(path)) = result else { return };
+    crate::projects::remote_picker::pick(app, key, title, tx, move |s: &mut App, dir: String, tx: &mut Tx| {
         tx.instant();
         s.close_settings();
         crate::servers::runtime::switch(s, &server);
-        let dir = path.to_string_lossy().into_owned();
         s.open_project_dir(&dir, false, tx);
         s.default_dir = crate::projects::clean_dir(&dir);
         s.open_draft_tab();
