@@ -74,7 +74,10 @@ fn every_icon_button_holds_its_icon_in_the_middle() {
             for (b, button) in els.iter().enumerate().filter(|(_, e)| e.role == "button" && !e.exiting) {
                 let inside: Vec<&ElementInfo> = (0..els.len()).filter(|&i| i != b && within(&els, i, b)).map(|i| &els[i]).collect();
                 let icons: Vec<_> = inside.iter().filter(|e| e.role == "icon" && !e.exiting).collect();
-                if icons.len() != 1 || inside.iter().any(|e| e.text.as_deref().is_some_and(|t| !t.trim().is_empty())) {
+                // A row with a text field in it (the question's "Type your own answer", empty) is no
+                // icon button, whatever else it holds.
+                let field = inside.iter().any(|e| matches!(e.role.as_ref(), "textbox" | "searchbox" | "combobox"));
+                if icons.len() != 1 || field || inside.iter().any(|e| e.text.as_deref().is_some_and(|t| !t.trim().is_empty())) {
                     continue;
                 }
                 let ([bx, by], [ix, iy]) = (centre(button.rect), centre(icons[0].rect));
