@@ -261,12 +261,13 @@ impl CodeDocState {
         self.step_lines(LineEvent::Press { at: line, column: Column::Numbers, shift });
     }
 
-    /// The held press moved `dy` points from line `start_line`.
+    /// The held pointer is `dy` points below the top of line `start_line`'s row (the drag's own
+    /// coordinates): the line under it.
     pub(crate) fn drag_to_offset(&mut self, start_line: u32, dy: f32) {
         if self.source.is_empty() {
             return;
         }
-        let delta = (dy / LINE_H).round() as i64;
+        let delta = (dy / LINE_H).floor() as i64;
         let at = (start_line as i64 + delta).clamp(1, self.lines() as i64) as u32;
         self.step_lines(LineEvent::Move { at });
     }
