@@ -87,7 +87,9 @@ fn a_drop_anywhere_on_the_page_attaches_under_a_fading_overlay() {
     assert_eq!(rt.drop_hovered().as_deref(), Some("panel"));
     let overlay = rect(&rt, "drop-overlay").expect("the overlay shows");
     assert!(overlay.iter().zip(panel).all(|(a, b)| (a - b).abs() < 0.5), "it covers the page: {overlay:?} vs {panel:?}");
-    assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Drop images, PDFs, or files to add")), "Desktop's label");
+    // Desktop's label, naming what the selected model reads (2d2ec170).
+    let labels = ["Drop files to add", "Drop images or files to add", "Drop PDFs or files to add", "Drop images, PDFs, or files to add"];
+    assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|t| labels.contains(&t))), "Desktop's label");
     rt.drop_files(vec![shot.clone(), notes.clone()], Some(at));
     rt.frame(1.0 / 60.0);
     std::fs::remove_dir_all(&dir).ok();
@@ -413,6 +415,8 @@ fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
         prompt.files,
         [FileInput { uri: format!("media:{hash}"), name: "again.png".into(), mime: Some("image/png".into()), mention: None }]
     );
+    // The server takes it, so the outbox lets the next prompt go: it sends one at a time.
+    app.admitted_send(prompt.id.as_deref().unwrap());
     // Queued again, it keeps the ref.
     app.attach.add(media(&hash, "again.png"));
     app.admit("ses_q", opencode_kit::client::Prompt { files: inputs(&app.attach.files), ..Default::default() }, Delivery::Queue);
