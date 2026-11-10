@@ -12,6 +12,9 @@ use crate::App;
 /// Every row needs its reason.
 const ALLOW: &[Allow] = &[
     // (kind, element contains, cell contains, why)
+    ("pop-in", "", "tab-arrive/", "the tab let go mounts exactly in the rect of the gap it opened, in the frame the gap goes, and comes to the front: its session's page shows at once, as a click on a tab shows it (App::select_tab)"),
+    ("pop-out", "", "tab-arrive/", "the gap goes in the frame the tab let go mounts in its rect, and the tab comes to the front: the page before it goes at once, as a click on another tab does (App::select_tab)"),
+    ("jump", "", "tab-arrive/", "the tab let go comes to the front: the header names its session and the tab that was in front takes an inactive tab's width at once, as a click on another tab does (App::select_tab)"),
     ("jerk", "diagram-lightbox", "diagram-full-size/", "an open diagram flies out of its card and back on the image viewer's 0.25 s spring (IMAGE_FLIGHT), from rest over several hundred points, so its first frames speed up by up to ~20 pt a frame (diagram::lightbox)"),
     ("jerk", "fit/", "diagram-full-size/", "the open diagram's lines and labels ride its 0.25 s flight and ⌘0's spring back to the fit (diagram::lightbox)"),
     ("lands-unseen", "fit/", "diagram-full-size/", "two fingers pan the open diagram, a frame at a time, until parts of it are outside the window, where a pan back brings them (diagram::lightbox)"),
@@ -847,6 +850,7 @@ const ACTIONS: &[Action] = &[
     Action { name: "terminal-dock", circs: || vec![Circ::default()], run: super::panels::terminal_dock },
     Action { name: "model-efforts", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: super::model_picker::run },
     Action { name: "layout-switch", circs: || vec![Circ::default()], run: super::layout_switch::run },
+    Action { name: "tab-arrive", circs: || vec![Circ::default()], run: super::tab_arrive::run },
     Action { name: "find", circs: || vec![Circ::default(), Circ { zoomed: true, ..Circ::default() }], run: |r| {
         let mut cmd = Mods::default();
         cmd.cmd = true;

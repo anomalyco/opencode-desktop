@@ -16,6 +16,7 @@ mod history;
 mod home_hold;
 mod image_viewer;
 mod layout_switch;
+mod tab_arrive;
 mod composer_grow;
 mod diagram;
 mod model_picker;

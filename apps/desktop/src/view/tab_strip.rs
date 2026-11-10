@@ -59,11 +59,12 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         })
         .on_reorder(|s: &mut App, r, _| s.move_tab(r.from, r.to));
     // A tab pulled off the strip opens in a window of its own (`windows::tear`): 36 across a
-    // horizontal strip, 48 out of a vertical one.
-    if s.persists() && s.tabs.len() > 1 {
+    // horizontal strip, 48 out of a vertical one. The only tab goes too while another window can
+    // take it.
+    if s.can_tear() {
         let detach_distance = if vertical { 48.0 } else { 36.0 };
         strip = strip
-            .tear_out(Some(TearOutSpec { detach_distance, ..TearOutSpec::default() }))
+            .tear_out(Some(TearOutSpec { detach_distance, lone: true, ..TearOutSpec::default() }))
             .on_tear_move(|s: &mut App, m, tx| s.tear_move(m, tx))
             .on_tear_out(|s: &mut App, t, tx| s.tear_release(t, tx));
     }

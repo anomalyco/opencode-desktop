@@ -24,6 +24,9 @@ mod open;
 pub mod peer;
 pub mod store;
 pub mod tear;
+pub(crate) mod tear_stories;
+#[cfg(test)]
+mod tear_tests;
 
 pub use open::{launch, new_window};
 
@@ -72,11 +75,15 @@ struct Open {
     app: AppHandle<App>,
     strip: Option<[f32; 4]>,
     life: life::Life,
+    /// When it last came to the front (`FOCUSES`): of windows under one point, the latest is on top.
+    focused: u64,
 }
 
 thread_local! {
     /// Every open window, in the order they opened (the UI thread's, which all windows share).
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
+    /// Counts windows coming to the front.
+    static FOCUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Window `id` is on screen: other windows can reach it from now on.
@@ -84,8 +91,18 @@ pub fn register(id: &str, handle: WindowHandle, app: AppHandle<App>, life: life:
     OPEN.with(|o| {
         let mut o = o.borrow_mut();
         o.retain(|w| w.id != id);
-        o.push(Open { id: id.to_owned(), handle, app, strip: None, life });
+        o.push(Open { id: id.to_owned(), handle, app, strip: None, life, focused: 0 });
     });
+    focused(id);
+}
+
+/// Window `id` came to the front.
+pub fn focused(id: &str) {
+    let n = FOCUSES.with(|f| {
+        f.set(f.get() + 1);
+        f.get()
+    });
+    OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.focused = n));
 }
 
 /// Steps window `id`'s life (`life::Life`); the list saved for the next launch follows.
