@@ -16,6 +16,8 @@ pub struct FileImage {
     pub image: Image,
     pub zoom: StageZoom,
     svg: bool,
+    /// The file's size in bytes.
+    bytes: u64,
     /// Its decode has finished and a view has run since.
     landed: bool,
 }
@@ -37,7 +39,20 @@ fn extension(path: &str) -> Option<String> {
 
 impl FileImage {
     pub fn new(cache: &ImageCache, bytes: Vec<u8>, svg: bool) -> FileImage {
-        FileImage { image: cache.load(bytes), zoom: StageZoom::default(), svg, landed: false }
+        FileImage { bytes: bytes.len() as u64, image: cache.load(bytes), zoom: StageZoom::default(), svg, landed: false }
+    }
+
+    /// Its own size in points: an SVG rasterizes at twice its own.
+    fn natural(&self) -> Option<[f32; 2]> {
+        let [w, h] = self.image.size()?;
+        Some(if self.svg { [w as f32 / 2.0, h as f32 / 2.0] } else { [w as f32, h as f32] })
+    }
+
+    /// What the toolbar says of it (`artifact-view.tsx` `meta`): its dimensions once decoded and
+    /// its size, `1200 x 520 · 23 kB`.
+    pub fn meta(&self) -> Vec<String> {
+        let dimensions = self.natural().filter(|[w, h]| *w > 0.0 && *h > 0.0).map(|[w, h]| format!("{} x {}", w.round(), h.round()));
+        dimensions.into_iter().chain([opencode_i18n::bytes(self.bytes)]).collect()
     }
 
     /// True once, when the decode finishes.
@@ -65,8 +80,7 @@ fn zoom(s: &mut App) -> &mut StageZoom {
 /// The stage for `img`, filling the panel under the toolbar.
 pub fn stage(s: &App, p: &Pal, img: &FileImage) -> El {
     let k = crate::palette::kit(p);
-    // An SVG rasterizes at twice its own size.
-    let natural = img.image.size().map_or([1.0, 1.0], |[w, h]| if img.svg { [w as f32 / 2.0, h as f32 / 2.0] } else { [w as f32, h as f32] });
+    let natural = img.natural().unwrap_or([1.0, 1.0]);
     let size = s.files.stage_size.get();
     let picture = el().key("artifact-media").pixels_fit(img.image.pixels(), SurfaceFit::Fill);
     let stage = Stage::new(zoom, natural, picture)

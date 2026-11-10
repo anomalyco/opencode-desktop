@@ -190,3 +190,17 @@ pub fn fraction_digits(n: f64, min_fraction: u8, max_fraction: u8) -> String {
 pub fn usd(n: f64, min_fraction: u8) -> String {
     t!("intl.currency.usd", value = fraction_digits(n, min_fraction, 2))
 }
+
+/// `n` bytes as Desktop's file viewer writes a file's size (`formatBytes`, artifact-view.tsx):
+/// in bytes, kB, MB or GB by the thousands it reaches, as `Intl.NumberFormat`'s unit style writes
+/// them, bytes spelled out and the rest short, with a tenth under 100 (`512 bytes`, `23 kB`,
+/// `1.4 MB`). A whole number takes its plural category, a fraction `other`.
+pub fn bytes(n: u64) -> String {
+    let units = [plural_key!("intl.unit.byte"), plural_key!("intl.unit.kilobyte"), plural_key!("intl.unit.megabyte"), plural_key!("intl.unit.gigabyte")];
+    let index = (1..units.len() as u32).take_while(|&i| n >= 1000u64.pow(i)).count();
+    let value = n as f64 / 1000f64.powi(index as i32);
+    let tenths = if value >= 100.0 || index == 0 { 0 } else { 1 };
+    let shown = (value * 10f64.powi(tenths)).round() / 10f64.powi(tenths);
+    let category = if shown.fract() == 0.0 { plural_category(shown as u64) } else { PluralCategory::Other };
+    render(I18N.plural_form(units[index], category), &[("value", &decimal(value, tenths as u8))])
+}

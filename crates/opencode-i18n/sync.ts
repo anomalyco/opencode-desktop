@@ -168,6 +168,7 @@ function intlMessages(tag: string, spellcheckTags: string[]) {
     "intl.date.weekdays.long": alone({ weekday: "long" }, week),
     ...numbers(),
     ...currency(),
+    ...units(),
     ...lists(),
     ...languageNames(),
     // The locale Desktop's spellcheck menu names and orders its dictionaries in
@@ -294,6 +295,35 @@ function intlMessages(tag: string, spellcheckTags: string[]) {
     const cents = pattern(1234.5, 2)
     if (pattern(1234, 0) !== cents) throw new Error(`${tag}: currency patterns differ: ${cents} ${pattern(1234, 0)}`)
     return { "intl.currency.usd": cents }
+  }
+
+  // File sizes as the file viewer's toolbar writes them (`formatBytes`, artifact-view.tsx:
+  // `Intl.NumberFormat(tag, { style: "unit", unit, unitDisplay })`, bytes long and the rest
+  // short): each unit's pattern around the number for each plural category, a whole number's
+  // where one reaches it and else one tenth's (Russian's `other`), with the number left to the
+  // app's own decimal formatter, which this checks writes the same digits.
+  function units() {
+    const rules = new Intl.PluralRules(tag)
+    const whole = [...Array.from({ length: 2000 }, (_, i) => i), 1_000_000]
+    const tenths = Array.from({ length: 1000 }, (_, i) => i + 0.5)
+    const samples = rules.resolvedOptions().pluralCategories.flatMap((category) => {
+      const n = [...whole, ...tenths].find((n) => rules.select(n) === category)
+      return n === undefined ? [] : [[category, n] as const]
+    })
+    const out: Record<string, string> = {}
+    for (const [unit, unitDisplay] of [["byte", "long"], ["kilobyte", "short"], ["megabyte", "short"], ["gigabyte", "short"]] as const) {
+      for (const [category, n] of samples) {
+        const parts = new Intl.NumberFormat(tag, { style: "unit", unit, unitDisplay, maximumFractionDigits: 1 }).formatToParts(n)
+        const amount = parts.filter((p) => numeric.has(p.type)).map((p) => p.value).join("")
+        const plain = new Intl.NumberFormat(tag, { maximumFractionDigits: 1 }).format(n)
+        if (amount !== plain) throw new Error(`${tag}: ${unit} amount ${amount} is not ${plain}`)
+        out[`intl.unit.${unit}.${category}`] = parts.reduce(
+          (text, p, i) => (numeric.has(p.type) ? (i > 0 && numeric.has(parts[i - 1].type) ? text : text + "{{value}}") : text + p.value),
+          "",
+        )
+      }
+    }
+    return out
   }
 
   // `Intl.DisplayNames(tag, { type: "language" })`, which names the spellcheck dictionaries in

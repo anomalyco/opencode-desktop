@@ -44,6 +44,24 @@ fn tool(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label: &'sta
         .child(icon(glyph, 13.0).color(if on { p.icon } else { p.icon_muted }))
 }
 
+/// A picture's details in the toolbar (`artifact-metadata`): 13 px `text-faint` tabular figures,
+/// 6 apart with a `·` between, 12 before the actions; shown while the pointer is on the toolbar
+/// or focus is in it, and not at all in a view `META_MIN_W` wide or narrower.
+fn picture_meta(p: &Pal, items: Vec<String>) -> El {
+    const META: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).features("'tnum' 1");
+    let mut out = row().key("files-meta").gap(6.0).mr(6.0).center_y().shrink().min_w(0.0).group_opacity(0.0, 1.0);
+    for (i, item) in items.into_iter().enumerate() {
+        if i > 0 {
+            out = out.child(text("·").font(META).color(p.faint));
+        }
+        out = out.child(text(item).font(META).color(p.faint).shrink().min_w(0.0).truncate());
+    }
+    out
+}
+
+/// `artifact-view.css`'s `@container (max-width: 600px)`.
+const META_MIN_W: f32 = 600.0;
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn files_main(
     s: &App,
@@ -114,7 +132,10 @@ pub(super) fn files_main(
         .gap(6.0)
         .center_y()
         .fill(p.bg_base)
+        .hover_group_focus()
+        .hover_motion(INSTANT, INSTANT)
         .child(crumb)
+        .children(picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| picture_meta(p, img.meta())))
         .children(markdown_doc.then(|| {
             let (glyph, label) = if rendered { (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource")) } else { (&READ_ICON, opencode_i18n::t!("plugin.file.view.viewPreview")) };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
