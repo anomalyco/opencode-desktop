@@ -300,7 +300,8 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     if marked {
         r = r.fill(p.hover);
     }
-    let labels = match crate::session_menu_view::field(s, p, &target, UI_MED) {
+    // Home's rename field is 13 on 24 (home/sessions/view.tsx's InlineInput in its 24 pt row).
+    let labels = match crate::session_menu_view::field(s, p, &target, UI_MED.lh(24.0)) {
         Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(field).children(parts.project),
         None => {
             r = r.pointer_buttons([rune::PointerButton::Middle]).on_press_tx(move |s: &mut App, tx: &mut Tx| {

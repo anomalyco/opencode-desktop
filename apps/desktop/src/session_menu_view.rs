@@ -14,12 +14,13 @@ const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 
 /// `s`'s title field, in `style`, when `target` is the one being renamed. Outside a tab it hugs
 /// its text, so what follows stays put and moves only as the title gets longer; one too long for
-/// the room scrolls inside it and fades at the edge.
+/// the room scrolls inside it and fades at the edge. It stands one line of `style` tall, so its
+/// selection is as tall as the line, as a field's is in Chromium.
 pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Option<El> {
     if s.menus.rename.as_ref() != Some(target) {
         return None;
     }
-    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().truncate_fade().h(16.0);
+    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().truncate_fade().h(style.line_px());
     let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
     Some(
         input
