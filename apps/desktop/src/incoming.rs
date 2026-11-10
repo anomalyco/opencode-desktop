@@ -168,7 +168,12 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.add_pending(p);
             }
         }
-        Incoming::Reconnected => return message(s, Incoming::Reconnected, tx),
+        // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
+        // link's inbox gets the same resync.
+        Incoming::Reconnected => {
+            s.resync_shared();
+            return message(s, Incoming::Reconnected, tx);
+        }
         Incoming::Active(ids) => {
             tx.instant();
             s.stops.reconcile(&ids);
