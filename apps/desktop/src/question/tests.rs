@@ -88,6 +88,18 @@ fn shows_composer(rt: &Runtime<App>) -> bool {
     rt.find("prompt").is_some() && rt.find("question").is_none()
 }
 
+fn confirm(rt: &mut Runtime<App>, event: &str) {
+    assert!(rt.state.permission_sent.busy(FORM));
+    assert!(rt.find("question").is_some());
+    let (server, inbox) = std::sync::mpsc::channel();
+    rt.state.inbox = Some(inbox);
+    rt.poll = Some(crate::poll);
+    server.send(opencode_kit::client::Incoming::Event {
+        ty: event.into(), data: json!({ "id": FORM, "sessionID": SESSION }),
+    }).unwrap();
+    rt.frame(1.0 / 120.0);
+}
+
 #[test]
 fn the_composer_becomes_the_question() {
     let (rt, _) = asked(true);
@@ -143,6 +155,7 @@ fn arrows_move_digits_pick_and_enter_submits() {
     let Ok(Write::Form { session, form, answer }) = writes.unwrap().try_recv() else { panic!("no reply") };
     assert_eq!((session.as_str(), form.as_str()), (SESSION, FORM));
     assert_eq!(answer, json!({ "q0": "Only the math", "q1": ["Reset after success", "Jitter stays in range"] }));
+    confirm(&mut rt, "form.replied");
     settle(&mut rt);
     assert!(shows_composer(&rt));
     assert_eq!(rt.state.composer.text, "half a thought");
@@ -155,6 +168,7 @@ fn escape_dismisses() {
     press(&mut rt, ev(Key::Escape));
     let Ok(Write::CancelForm { session, form }) = writes.unwrap().try_recv() else { panic!("no cancel") };
     assert_eq!((session.as_str(), form.as_str()), (SESSION, FORM));
+    confirm(&mut rt, "form.cancelled");
     settle(&mut rt);
     assert!(shows_composer(&rt));
     assert_eq!(rt.state.composer.text, "half a thought");
@@ -195,7 +209,7 @@ fn next_opacity(rt: &Runtime<App>) -> f32 {
 #[test]
 fn next_is_dim_and_inert_until_the_question_is_answered() {
     let (mut rt, writes) = asked(true);
-    assert!(next_opacity(&rt) < 0.5, "dimmed with no answer");
+    assert_eq!(next_opacity(&rt), 0.5, "neutral Next is disabled");
     click(&mut rt, "q-next");
     assert_eq!(rt.state.question.tab, 0, "a click does nothing");
     press(&mut rt, cmd(Key::Enter));
@@ -208,7 +222,7 @@ fn next_is_dim_and_inert_until_the_question_is_answered() {
     assert_eq!(rt.state.question.tab, 1);
 
     settle(&mut rt);
-    assert!(next_opacity(&rt) < 0.5, "the next question starts dim");
+    assert_eq!(next_opacity(&rt), 0.4, "Submit starts disabled");
     press(&mut rt, ev(Key::Left));
     press(&mut rt, ev(Key::Right));
     assert_eq!(rt.state.question.tab, 1);
@@ -220,14 +234,14 @@ fn typing_lights_next_and_clearing_dims_it() {
     let (mut rt, _) = asked(true);
     press(&mut rt, txt("4"));
     settle(&mut rt);
-    assert!(next_opacity(&rt) < 0.5, "an empty field is no answer");
+    assert_eq!(next_opacity(&rt), 0.5, "an empty field is no answer");
     press(&mut rt, txt(" "));
-    assert!(next_opacity(&rt) < 0.5, "spaces are no answer");
+    assert_eq!(next_opacity(&rt), 0.5, "spaces are no answer");
     press(&mut rt, txt("x"));
     assert_eq!(next_opacity(&rt), 1.0, "lit on the first word character");
     press(&mut rt, ev(Key::Backspace));
     press(&mut rt, ev(Key::Backspace));
-    assert!(next_opacity(&rt) < 0.5, "dim again once cleared");
+    assert_eq!(next_opacity(&rt), 0.5, "dim again once cleared");
 }
 
 #[test]

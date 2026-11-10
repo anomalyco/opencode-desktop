@@ -76,6 +76,11 @@ fn shows_composer(rt: &Runtime<App>) -> bool {
     shown(rt, "prompt") && !shown(rt, "permission")
 }
 
+fn accepted(rt: &mut Runtime<App>, id: &str) {
+    assert!(rt.state.permission_sent.busy(id));
+    rt.update(|s, _| { s.apply_event("client.request.replied", &json!({ "requestID": id })); });
+}
+
 #[test]
 fn the_composer_becomes_the_permission() {
     let l = bash();
@@ -130,7 +135,8 @@ fn allow_once_answers_at_once_and_the_composer_comes_back_with_its_draft() {
     let mut l = bash();
     tap(&mut l.rt, "perm-once");
     assert_eq!(decisions(&l.writes), [("per_1".to_owned(), "once".to_owned())]);
-    assert!(l.rt.state.permission_asked().is_none(), "gone on the press");
+    accepted(&mut l.rt, "per_1");
+    assert!(l.rt.state.permission_asked().is_none(), "gone once the reply succeeds");
     settle(&mut l.rt);
     assert!(shows_composer(&l.rt));
     assert_eq!(l.rt.state.composer.text, "half a thought");
@@ -150,13 +156,14 @@ fn a_refused_reply_brings_the_permission_back_with_a_toast() {
     let mut l = bash();
     tap(&mut l.rt, "perm-always");
     settle(&mut l.rt);
-    assert!(shows_composer(&l.rt));
+    assert!(shown(&l.rt, "permission") && l.rt.state.permission_sent.busy("per_1"));
     l.server.send(Incoming::Status(format!("POST /api/session/{MAIN}/permission/per_1/reply: http status: 500"))).unwrap();
     settle(&mut l.rt);
     assert!(shown(&l.rt, "permission"), "back in the composer's place");
     assert_eq!(l.rt.state.permission_asked().map(|p| p.id().to_owned()).as_deref(), Some("per_1"));
     let toast = l.rt.state.toast.current().expect("a toast");
-    assert_eq!(toast.title, "Couldn't answer the permission");
+    assert_eq!(toast.title, "Request failed");
+    assert!(!l.rt.state.permission_sent.busy("per_1"));
     assert_eq!(l.rt.state.composer.text, "half a thought");
 }
 
@@ -165,6 +172,7 @@ fn a_re_read_before_the_server_has_the_reply_doesnt_bring_it_back() {
     let mut l = bash();
     tap(&mut l.rt, "perm-once");
     let again = opencode_kit::model::parse_permission(&json!({ "id": "per_1", "sessionID": MAIN, "action": "bash" })).unwrap();
+    accepted(&mut l.rt, "per_1");
     l.server.send(Incoming::Pending { session: MAIN.into(), items: vec![again] }).unwrap();
     settle(&mut l.rt);
     assert!(shows_composer(&l.rt));
@@ -179,10 +187,12 @@ fn several_wait_one_at_a_time_oldest_first() {
     let mut l = live(&[("per_1", MAIN, "bash", &["one"]), ("per_2", MAIN, "edit", &["two"])]);
     assert_eq!(l.rt.state.permission_asked().map(|p| p.id().to_owned()).as_deref(), Some("per_1"));
     tap(&mut l.rt, "perm-once");
+    accepted(&mut l.rt, "per_1");
     settle(&mut l.rt);
     assert_eq!(l.rt.state.permission_asked().map(|p| p.id().to_owned()).as_deref(), Some("per_2"));
     assert!(shown(&l.rt, "permission"));
     tap(&mut l.rt, "perm-once");
+    accepted(&mut l.rt, "per_2");
     settle(&mut l.rt);
     assert!(shows_composer(&l.rt));
 }
@@ -236,7 +246,7 @@ fn the_face_swap_springs_both_ways() {
     let server = l.server.clone();
     let hs = heights(&mut l.rt, move |_| server.send(Incoming::Event { ty: "permission.asked".into(), data }).unwrap());
     springs(&hs, "opening");
-    let hs = heights(&mut l.rt, |rt| tap(rt, "perm-once"));
+    let hs = heights(&mut l.rt, |rt| { tap(rt, "perm-once"); accepted(rt, "per_1"); });
     springs(&hs, "closing");
     assert!(shows_composer(&l.rt));
 }
