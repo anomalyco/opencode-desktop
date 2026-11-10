@@ -13,6 +13,16 @@ local lists = require("@self/lists")
 -- `Popover.Anchor`, 12 from the end, 10 down, 28 tall).
 local ANCHOR = "session-header-anchor"
 
+-- The card's heading text; frozen, so the host decodes it once.
+local HEADING = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 16,
+    color = "text-faint",
+    truncate = true,
+    shrink = true,
+} :: UiTextProps)
+
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
     local Sessions = ctx:GetService("Sessions")
@@ -74,10 +84,7 @@ return plugin.defineWindow(function(ctx)
     -- A narrow window's rows are 44 tall, the heading's too (`max-width: 767px`).
     local function headingRow(mobile: boolean?): ui.Node
         return ui.row({ w = "full", minH = if mobile then 44 else 28, pl = 12, pr = 36, py = 4, align = "center" }, {
-            ui.text(
-                heading(),
-                { size = 13, weight = "regular", lineHeight = 16, color = "text-faint", truncate = true, shrink = true }
-            ),
+            ui.text(heading(), HEADING),
         })
     end
 

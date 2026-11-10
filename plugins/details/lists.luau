@@ -12,8 +12,10 @@ local lists = {}
 export type Service = string
 
 -- The three lists, in the card's order.
+local ALL: { Service } = table.freeze({ "mcp", "plugins", "skills" })
+
 function lists.all(): { Service }
-    return { "mcp", "plugins", "skills" }
+    return ALL
 end
 
 local PATHS: { [string]: string } = { mcp = "/api/mcp", plugins = "/api/plugin", skills = "/api/skill" }
@@ -147,16 +149,31 @@ end
 
 local FONT = { size = 13, weight = "regular" :: FontWeight, lineHeight = 16 }
 
+-- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
+local LABELS: { [any]: UiTextProps } = {}
+local ICON = table.freeze({ size = 16, color = "icon-weak" } :: UiIconProps)
+local ITEM_NAME = table.freeze({ gap = 8, align = "center", grow = 1, shrink = true, minW = 0 } :: UiBoxProps)
+local ITEM_END = table.freeze({ ml = 8, gap = 8, align = "center" } :: UiBoxProps)
+local DOT_BOX = table.freeze({ w = 16, h = 16, center = true } :: UiBoxProps)
+local RULE = table.freeze({ w = "full", mx = -2, my = 2 } :: UiBoxProps)
+local RULE_LINE = table.freeze({ w = "full", h = 1, fill = "border-weak" } :: UiBoxProps)
+
 local function label(words: string, color: Color?): ui.Node
-    return ui.text(words, {
-        size = FONT.size,
-        weight = FONT.weight,
-        lineHeight = FONT.lineHeight,
-        color = color or "text-chrome",
-        truncate = true,
-        shrink = true,
-        minW = 0,
-    })
+    local ink: any = color or "text-chrome"
+    local props = LABELS[ink]
+    if props == nil then
+        props = table.freeze({
+            size = FONT.size,
+            weight = FONT.weight,
+            lineHeight = FONT.lineHeight,
+            color = ink,
+            truncate = true,
+            shrink = true,
+            minW = 0,
+        } :: UiTextProps)
+        LABELS[ink] = props
+    end
+    return ui.text(words, props)
 end
 
 local function inkOf(status: string?): Color
@@ -190,7 +207,7 @@ local function configRow(
 ): ui.Node
     local children: { ui.Node } = {}
     if glyph then
-        table.insert(children, ui.icon(glyph, { size = 16, color = "icon-weak" }))
+        table.insert(children, ui.icon(glyph, ICON))
     end
     table.insert(children, label(words))
     return ui.row({
@@ -419,11 +436,8 @@ local function itemRow(
             end)
         end
         return ui.row(props, {
-            ui.row(
-                { gap = 8, align = "center", grow = 1, shrink = true, minW = 0 },
-                { dot(item.status, failure), name }
-            ),
-            ui.row({ ml = 8, gap = 8, align = "center" }, {
+            ui.row(ITEM_NAME, { dot(item.status, failure), name }),
+            ui.row(ITEM_END, {
                 ui.box(
                     { opacity = if busy then 0.5 else 1 },
                     { ui.switch({ key = `details-switch-{item.name}`, checked = not disabled }) }
@@ -435,7 +449,7 @@ local function itemRow(
         props.pr = 12
         local children: { ui.Node } = {}
         if item.status then
-            table.insert(children, ui.box({ w = 16, h = 16, center = true }, { dot(item.status, item.error) }))
+            table.insert(children, ui.box(DOT_BOX, { dot(item.status, item.error) }))
         end
         table.insert(children, name)
         return ui.row(props, children)
@@ -451,14 +465,14 @@ local function itemRow(
             env.Links:Open({ href = item.path })
         end
     end)
-    return ui.row(props, { ui.icon("file-document", { size = 16, color = "icon-weak" }), name })
+    return ui.row(props, { ui.icon("file-document", ICON), name })
 end
 
 -- Under the list: a rule, then (when empty, or for skills) the setup row, the configuration file,
 -- and MCP's Manage MCP servers.
 local function footer(env: Env, view: View, service: Service, empty: boolean, directory: string, minH: number): ui.Node
     local rows: { ui.Node } = {
-        ui.col({ w = "full", mx = -2, my = 2 }, { ui.box({ w = "full", h = 1, fill = "border-weak" }) }),
+        ui.col(RULE, { ui.box(RULE_LINE) }),
     }
     if empty or service == "skills" then
         local key = `{service}:setup`

@@ -57,7 +57,53 @@ local function lastWithUsage(raws: { Raw }): Raw?
     return nil
 end
 
-local TEXT = { size = 13, weight = "regular" :: FontWeight }
+-- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
+local STAT = table.freeze({ gap = 4, w = 0, grow = 1, minW = 0 } :: UiBoxProps)
+local STAT_NAME = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19, color = "text-weak" } :: UiTextProps)
+-- Two 19.5 lines on whole pixels: a row is 59 tall, as Desktop's.
+local STAT_VALUE = table.freeze({
+    size = 13,
+    weight = "medium" :: FontWeight,
+    lineHeight = 20,
+    color = "text-strong",
+    selectable = true,
+} :: UiTextProps)
+local STAT_LINE = table.freeze({ w = "full", gap = 16 } :: UiBoxProps)
+local HEADING = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19.5, color = "text-weak" } :: UiTextProps)
+local RAW_NAME = table.freeze({ shrink = true, minW = 0, align = "center" } :: UiBoxProps)
+local RAW_KIND = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 19.5,
+    color = "text-chrome",
+    noWrap = true,
+} :: UiTextProps)
+local RAW_ID = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 19.5,
+    color = "text-base",
+    truncate = true,
+    shrink = true,
+} :: UiTextProps)
+local RAW_END = table.freeze({ gap = 12, align = "center" } :: UiBoxProps)
+local RAW_TIME = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 19.5,
+    color = "text-weak",
+    noWrap = true,
+} :: UiTextProps)
+local RAW_CHEVRON = table.freeze({ size = 14, color = "text-weak" } :: UiIconProps)
+local RAW_JSON = table.freeze({
+    size = 12,
+    weight = "regular" :: FontWeight,
+    lineHeight = 18,
+    mono = true,
+    wrap = true,
+    selectable = true,
+    color = "text-chrome",
+} :: UiTextProps)
 
 local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wide: boolean): ui.Node
     local I18n = env.I18n
@@ -129,14 +175,7 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
         { I18n:T("stats.lastActivity"), time(last and last.value.time and last.value.time.created) },
     }
     local function stat(pair: { string }): ui.Node
-        return ui.col({ gap = 4, w = 0, grow = 1, minW = 0 }, {
-            ui.text(pair[1], { size = TEXT.size, weight = TEXT.weight, lineHeight = 19, color = "text-weak" }),
-            -- Two 19.5 lines on whole pixels: a row is 59 tall, as Desktop's.
-            ui.text(
-                pair[2],
-                { size = 13, weight = "medium", lineHeight = 20, color = "text-strong", selectable = true }
-            ),
-        })
+        return ui.col(STAT, { ui.text(pair[1], STAT_NAME), ui.text(pair[2], STAT_VALUE) })
     end
     local perRow = if wide then 2 else 1
     local lines: { ui.Node } = {}
@@ -145,7 +184,7 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
         for j = i, math.min(i + perRow - 1, #rows) do
             table.insert(cells, stat(rows[j]))
         end
-        table.insert(lines, ui.row({ w = "full", gap = 16 }, cells))
+        table.insert(lines, ui.row(STAT_LINE, cells))
     end
     return ui.col({ key = "context-stats", w = "full", gap = 16 }, lines)
 end
@@ -164,10 +203,7 @@ end
 
 local function systemPrompt(env: Env, prompt: string): ui.Node
     return ui.col({ key = "context-system", w = "full", gap = 8 }, {
-        ui.text(
-            env.I18n:T("systemPrompt.title"),
-            { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }
-        ),
+        ui.text(env.I18n:T("systemPrompt.title"), HEADING),
         ui.col({ w = "full", px = 12, py = 8, radius = 6, border = "border-base", fill = "surface-1" }, {
             ui.text(
                 prompt,
@@ -247,7 +283,7 @@ local function startExport(env: Env, sid: string)
     end)
 end
 
-local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exporting: boolean): ui.Node
+local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exporting: boolean, look: string): ui.Node
     local disabled = exporting or sid == ""
     local export = ui.row({
         key = "context-export",
@@ -284,10 +320,7 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
         ),
     })
     local head = ui.row({ w = "full", align = "center", justify = "between" }, {
-        ui.text(
-            env.I18n:T("rawMessages.title"),
-            { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak" }
-        ),
+        ui.text(env.I18n:T("rawMessages.title"), HEADING),
         export,
     })
     local open = env.state.open
@@ -301,85 +334,55 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
         local top = if i == 1 then lg else 0
         local bottom = if last and not isOpen then lg else 0
         local created = if m.value.time then m.value.time.created else nil
+        -- Each message's row (and its open JSON) is built again only when it changes: opening one
+        -- row, or a new message, rebuilds that row alone.
+        local version = `{kind}:{created}:{isOpen}:{top}:{bottom}:{#m.text}:{look}`
         table.insert(
             list,
-            ui.row({
-                key = `raw-{id}`,
-                role = "button",
-                label = `{kind} {id}`,
-                w = "full",
-                h = 32,
-                px = 12,
-                gap = 8,
-                align = "center",
-                corners = { top, top, bottom, bottom },
-                border = "border-base",
-                fill = "bg-base",
-                hover = "surface-hover",
-                hoverTransition = "instant",
-                mt = if i > 1 then -1 else nil,
-                onPress = view:Handler(function()
-                    open[id] = (if open[id] then nil else true) :: any
-                end),
-            }, {
-                ui.row({ shrink = true, minW = 0, align = "center" }, {
-                    ui.text(
-                        `{kind} `,
-                        { size = 13, weight = "regular", lineHeight = 19.5, color = "text-chrome", noWrap = true }
-                    ),
-                    ui.text(
-                        `\u{2022} {id}`,
-                        {
-                            size = 13,
-                            weight = "regular",
-                            lineHeight = 19.5,
-                            color = "text-base",
-                            truncate = true,
-                            shrink = true,
-                        }
-                    ),
-                }),
-                ui.spacer(),
-                ui.row({ gap = 12, align = "center" }, {
-                    ui.text(
-                        if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-",
-                        { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", noWrap = true }
-                    ),
-                    ui.icon("chevron-grabber-vertical", { size = 14, color = "text-weak" }),
-                }),
-            })
-        )
-        if isOpen then
-            local corner = if last then lg else 0
-            table.insert(
-                list,
-                ui.col(
-                    {
+            view:Memo(`raw-{id}`, version, function(): ui.Node
+                local row = ui.row({
+                    key = `raw-{id}`,
+                    role = "button",
+                    label = `{kind} {id}`,
+                    w = "full",
+                    h = 32,
+                    px = 12,
+                    gap = 8,
+                    align = "center",
+                    corners = { top, top, bottom, bottom },
+                    border = "border-base",
+                    fill = "bg-base",
+                    hover = "surface-hover",
+                    hoverTransition = "instant",
+                    onPress = view:Handler(function()
+                        open[id] = (if open[id] then nil else true) :: any
+                    end),
+                }, {
+                    ui.row(RAW_NAME, { ui.text(`{kind} `, RAW_KIND), ui.text(`\u{2022} {id}`, RAW_ID) }),
+                    ui.spacer(),
+                    ui.row(RAW_END, {
+                        ui.text(
+                            if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-",
+                            RAW_TIME
+                        ),
+                        ui.icon("chevron-grabber-vertical", RAW_CHEVRON),
+                    }),
+                })
+                local body = if isOpen
+                    then ui.col({
                         key = `raw-body-{id}`,
                         w = "full",
                         pad = 12,
-                        corners = { 0, 0, corner, corner },
+                        corners = { 0, 0, if last then lg else 0, if last then lg else 0 },
                         border = "border-base",
                         mt = -1,
                         fill = "bg-base",
-                    },
-                    {
-                        ui.text(
-                            json.pretty(m.text),
-                            {
-                                size = 12,
-                                weight = "regular",
-                                lineHeight = 18,
-                                mono = true,
-                                wrap = true,
-                                selectable = true,
-                                color = "text-chrome",
-                            }
-                        ),
-                    }
-                )
-            )
-        end
+                    }, { ui.text(json.pretty(m.text), RAW_JSON) })
+                    else false
+                -- The memo keys its root, so the row's own key sits a level down.
+                return ui.col({ w = "full", mt = if i > 1 then -1 else nil }, { row, body } :: { any })
+            end) :: ui.Node
+        )
     end
     return ui.col({ key = "context-raw-section", w = "full", gap = 8 }, {
         head,
@@ -400,6 +403,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         table.insert(openIds, id)
     end
     table.sort(openIds)
+    local look = `{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
     local version = table.concat({
         tostring(session and session.version),
         tostring(res.generation),
@@ -408,9 +412,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         tostring(wide),
         tostring(math.round(props.width)),
         props.placement,
-        env.Theme:Current().id,
-        tostring(env.Theme:IsDark()),
-        env.I18n:Locale().id,
+        look,
     }, ":")
     return view:Memo(`panel-{sid}`, version, function()
         -- Split each answer once: a rebuild for anything else reuses it.
@@ -430,8 +432,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         -- The figures and the system prompt move only with the session and its messages: a
         -- rebuild for a raw message opening or an export reuses them.
         local prompt = promptOf(raws)
-        local figures =
-            `{session and session.version}:{res.generation}:{wide}:{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
+        local figures = `{session and session.version}:{res.generation}:{wide}:{look}`
         local content = ui.col(
             { key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 },
             {
@@ -443,7 +444,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
                         return systemPrompt(env, prompt :: string)
                     end)
                     else false,
-                rawMessages(env, view, sid, raws, exporting),
+                rawMessages(env, view, sid, raws, exporting, look),
             } :: { any }
         )
         -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.

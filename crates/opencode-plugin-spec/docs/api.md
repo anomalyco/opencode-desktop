@@ -1307,7 +1307,7 @@ A host-owned text field's content: typing, IME, selection and undo stay in the h
 
 ### UiLayoutProps
 
-Size, spacing, position and accessibility: every `ui.*` node takes these.
+Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`).
 
 | Field | Type | Description |
 |---|---|---|

@@ -43,25 +43,25 @@ local function modelLabel(env: Env, m: machine.ChatModel?): string
     return env.I18n:T("modelVariant", { model = name, variant = capitalize(m.variant) })
 end
 
+local LABEL_ICON = table.freeze({ size = 16, color = "text-muted" } :: UiIconProps)
+local LABEL_TEXT = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 20,
+    color = "text-muted",
+    truncate = true,
+    shrink = true,
+    minW = 0,
+} :: UiTextProps)
+
 function panel.label(env: Env, view: View, props: PanelTabLabelProps): ui.Node?
     local id = props.instance or ""
     local title = machine.tab(env.state, env.saved(props.sessionId), props.sessionId, id) or env.I18n:T("tab.title")
     -- A label of its own keeps the trigger's ink, selected or not (`flex items-center gap-1.5`).
     return view:Memo(`btw-label-{id}`, title, function()
         return ui.row({ shrink = true, minW = 0, gap = 6, align = "center" }, {
-            ui.icon("comment", { size = 16, color = "text-muted" }),
-            ui.text(
-                title,
-                {
-                    size = 13,
-                    weight = "regular",
-                    lineHeight = 20,
-                    color = "text-muted",
-                    truncate = true,
-                    shrink = true,
-                    minW = 0,
-                }
-            ),
+            ui.icon("comment", LABEL_ICON),
+            ui.text(title, LABEL_TEXT),
         })
     end)
 end
@@ -86,27 +86,37 @@ local function copyButton(key: string, copied: boolean, tip: string, onPress: ui
     }, { ui.icon(if copied then "check" else "outline-copy", { size = 14, color = "icon-weak" }) })
 end
 
-local META = {
+-- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
+local META = table.freeze({
     size = 12,
     weight = "regular" :: FontWeight,
     lineHeight = 18,
     tracking = 0.05,
     color = "text-faint" :: Color,
     noWrap = true,
-}
+} :: UiTextProps)
+local META_CUT = table.freeze({
+    size = 12,
+    weight = "regular" :: FontWeight,
+    lineHeight = 18,
+    tracking = 0.05,
+    color = "text-faint" :: Color,
+    noWrap = true,
+    truncate = true,
+    shrink = true,
+    minW = 0,
+} :: UiTextProps)
+local QUESTION = table.freeze({
+    size = 14,
+    weight = "regular" :: FontWeight,
+    lineHeight = 21,
+    color = "text-chrome",
+    wrap = true,
+    selectable = true,
+} :: UiTextProps)
 
 local function meta(words: string, truncate: boolean?): ui.Node
-    return ui.text(words, {
-        size = META.size,
-        weight = META.weight,
-        lineHeight = META.lineHeight,
-        tracking = META.tracking,
-        color = META.color,
-        noWrap = true,
-        truncate = truncate,
-        shrink = truncate,
-        minW = if truncate then 0 else nil,
-    })
+    return ui.text(words, if truncate then META_CUT else META)
 end
 
 -- The question (`user-message`): its bubble at the end, and under it, while hovered, its agent,
@@ -156,17 +166,7 @@ local function prompt(
                     fill = "surface-2",
                 },
                 {
-                    ui.text(
-                        question,
-                        {
-                            size = 14,
-                            weight = "regular",
-                            lineHeight = 21,
-                            color = "text-chrome",
-                            wrap = true,
-                            selectable = true,
-                        }
-                    ),
+                    ui.text(question, QUESTION),
                 }
             ),
         }),
