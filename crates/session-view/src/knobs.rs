@@ -37,10 +37,12 @@ pub const IMAGE_FLIGHT: Knob = Knob::new("Image flight", 0.1, 0.8, 0.25).about("
 
 /// Desktop's Sources experiment (`sources/experiment.ts`, Knobs › Experiments › Sources): a
 /// "N sources" chip under a reply that searched the web, opening the turn's searches in a tab.
-pub const SOURCES_ENABLED: Knob = Knob::choice("Sources", &["Off", "On"], 0).about("Pages a turn searched and read");
+pub const SOURCES_ENABLED: Knob = Knob::choice("Sources", &["Off", "On"], 0).about("Pages a turn searched and read")
+    .hints(&["Hide sources", "Show pages the turn consulted"]);
 /// A site's own icon is fetched from that site, which tells it the page was looked at; letters
 /// stay on this device.
-pub const SOURCES_ICONS: Knob = Knob::choice("Site icons", &["Letters", "Site icon"], 0).about("How a source's site shows");
+pub const SOURCES_ICONS: Knob = Knob::choice("Site icons", &["Letters", "Site icon"], 0).about("How a source's site shows")
+    .hints(&["Show initials without contacting the site", "Fetch the icon from the site"]);
 pub const EXPERIMENTS: Group = Group::new("Experiments", "sources-chip", &[SOURCES_ENABLED, SOURCES_ICONS]);
 
 pub const TIMELINE: &[Knob] = &[
