@@ -1,7 +1,7 @@
 //! The toast that lists the uploads in flight (`attachments/uploads.tsx` `UploadToast`): one
 //! persistent toast while any file is copying, a row per file with its name, its percent and a
-//! bar, and a button that cancels it. It goes when the last upload settles. When a status toast
-//! shows too, the newer one is in front and the other waits behind it as Sonner stacks them.
+//! bar, and a button that cancels it. It goes when the last upload settles. It stacks with the
+//! status toasts (`status_toast`) as Sonner stacks them.
 
 use rune::{El, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -14,29 +14,19 @@ use crate::palette::{Elevate as _, Pal};
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
 const PERCENT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04).features("tnum");
 
-/// Sonner's stack: a toast behind the front one rises 9.5 pt and shrinks by 5% (`toast.css`
-/// `--toasts-before`), as tall as the front one, its contents hidden.
-pub fn behind(card: El, front: &str) -> El {
-    let h = rune::memo::layout_size(front).map_or(0.0, |[_, h]| h);
-    card.offset(0.0, -9.5).scale(0.95).h(h).clip_soft(0.0)
-}
-
-/// The upload toast is newer than the status toast showing, so it's in front.
-pub fn in_front(s: &App) -> bool {
-    s.toast.current.as_ref().is_none_or(|e| e.at <= s.attach.toast_at)
-}
-
-pub fn view(s: &App, p: &Pal) -> Option<El> {
+/// The upload toast's card, which `status_toast::view` places in the stack; its rows hide while
+/// it's behind the front toast of a collapsed stack.
+pub fn card(s: &App, p: &Pal, content_shows: bool) -> El {
     let list = s.attach.uploads.list();
-    if list.is_empty() {
-        return None;
-    }
-    let back = s.toast.current.is_some() && !in_front(s);
-    let content = col().key("upload-toast-content").w_full().gap(4.0).opacity(if back { 0.0 } else { 1.0 }).children(list.iter().enumerate().map(|(i, u)| upload_row(p, u, i > 0)));
-    let card = col()
-        .key("upload-toast")
+    let content = col()
+        .key("upload-toast-content")
+        .w_full()
+        .gap(4.0)
+        .opacity(if content_shows { 1.0 } else { 0.0 })
+        .opacity_motion(rune::Anim::new(rune::Curve::tween(rune_kit::toast_stack::CONTENT_FADE_SECS, rune::Easing::EASE)))
+        .children(list.iter().enumerate().map(|(i, u)| upload_row(p, u, i > 0)));
+    col()
         .role("status")
-        .w(320.0)
         .padding(12.0)
         .radius(8.0)
         .fill(p.layer1)
@@ -44,13 +34,7 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         .transition(Transition::none())
         .motion(Spring::NONE)
         .on_press(|_: &mut App| {})
-        .child(content);
-    let card = if back { behind(card, "status-toast") } else { card };
-    let width = s.layout.narrow.width();
-    if width > 0.0 && width <= 600.0 {
-        return Some(card.w(width - 64.0).pin(Some(16.0), None, None, Some(16.0)).raise());
-    }
-    Some(card.pin(None, None, Some(32.0), Some(48.0)).raise())
+        .child(content)
 }
 
 /// `upload-row`: the name and percent over the bar and its cancel, 4 apart; 8 more above every

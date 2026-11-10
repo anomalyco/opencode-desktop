@@ -169,7 +169,7 @@ fn recovery_reason_is_visible_beside_the_bubble_without_a_toast() {
             rt.frame(0.);
             assert!(rt.elements().iter().any(|e| e.text.as_deref().is_some_and(|s| s.starts_with(prefix) && s.contains(reason))), "{error}");
             assert_eq!(rt.find("retry-send").is_some(), failed);
-            assert!(rt.state.toast.current.is_none());
+            assert!(rt.state.toast.current().is_none());
             assert!(rt.state.transcripts[&session].messages.iter().any(|m| m.id() == id));
         };
         assert_label(&mut rt, if checking { "Checking delivery" } else { "Not sent" });

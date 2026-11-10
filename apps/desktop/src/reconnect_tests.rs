@@ -10,7 +10,7 @@ use crate::{App, FIXTURE, Route, Source};
 const DT: f64 = 1.0 / 60.0;
 
 fn header_status(rt: &Runtime<App>) -> Option<String> {
-    assert!(rt.state.toast.current.is_none(), "recoverable connection trouble never opens a toast");
+    assert!(rt.state.toast.current().is_none(), "recoverable connection trouble never opens a toast");
     rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref()==Some("connection-status")).and_then(|e| e.text)
 }
 

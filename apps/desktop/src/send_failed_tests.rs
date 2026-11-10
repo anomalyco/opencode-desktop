@@ -82,7 +82,7 @@ fn an_offline_timeout_is_unconfirmed_never_failed_or_retried() {
     timeout(&mut app);
     settle(&mut app);
     assert!(has_echo(&app) && app.unsent.sending(ID));
-    assert!(app.toast.current.is_none());
+    assert!(app.toast.current().is_none());
     app.retry_send(ID);
     assert!(writes.try_recv().is_err());
 }
@@ -121,7 +121,7 @@ fn landed_but_unconfirmed_is_found_even_outside_the_latest_page() {
     assert_eq!(app.unsent.state(ID), Some(State::Accepted));
     assert!(has_echo(&app));
     assert!(app.inboxes[SES].items.is_empty());
-    assert!(app.toast.current.is_none());
+    assert!(app.toast.current().is_none());
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn admission_events_win_over_a_timeout_response_or_an_older_absent_receipt() {
             "item": {"type": "user", "delivery": "steer", "payload": {"text": "hey"}}}));
         if before_timeout { timeout(&mut app); } else { settle(&mut app); }
         assert_eq!(app.unsent.state(ID), Some(State::Accepted));
-        assert!(app.toast.current.is_none());
+        assert!(app.toast.current().is_none());
     }
 }
 

@@ -120,7 +120,7 @@ fn line_links_select_lines_and_missing_files_say_so() {
 
     rt.update(|s, tx| s.open_reply_link("docs/nope.md", tx));
     settle(&mut rt);
-    let toast = rt.state.toast.current.clone().expect("a toast");
+    let toast = rt.state.toast.current().cloned().expect("a toast");
     assert_eq!((toast.title.as_str(), toast.description.as_deref()), ("File not found", Some("docs/nope.md")));
     assert!(!rt.state.files.sessions[THIRD].docs.contains_key("docs/nope.md"));
     assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), Some(PROPOSAL));
@@ -131,12 +131,12 @@ fn a_bare_word_link_opens_the_file_when_it_exists_and_says_so_when_it_does_not()
     let mut rt = runtime();
     rt.update(|s, tx| s.open_reply_link("Makefile", tx));
     settle(&mut rt);
-    assert!(rt.state.toast.current.is_none());
+    assert!(rt.state.toast.current().is_none());
     assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), Some("Makefile"));
 
     rt.update(|s, tx| s.open_reply_link("link", tx));
     settle(&mut rt);
-    let toast = rt.state.toast.current.clone().expect("a toast");
+    let toast = rt.state.toast.current().cloned().expect("a toast");
     assert_eq!((toast.title.as_str(), toast.description.as_deref()), ("This link doesn't point anywhere", Some("link")));
     assert!(!rt.state.open_in.busy());
     assert_eq!(active_file(&rt).and_then(|(_, p)| p).as_deref(), Some("Makefile"));
@@ -147,7 +147,7 @@ fn files_outside_the_folder_open_in_their_app_and_web_links_open_no_tab() {
     let mut rt = runtime();
     rt.update(|s, tx| s.open_reply_link("/Users/demo/code/harbor/README.md", tx));
     assert!(rt.state.open_in.busy(), "handed to the default app");
-    assert!(rt.state.toast.current.is_none());
+    assert!(rt.state.toast.current().is_none());
     rt.update(|s, tx| s.open_reply_link("https://example.com/docs/proposal.md", tx));
     settle(&mut rt);
     assert!(active_file(&rt).is_none());

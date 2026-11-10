@@ -155,7 +155,7 @@ fn a_refused_reply_brings_the_permission_back_with_a_toast() {
     settle(&mut l.rt);
     assert!(shown(&l.rt, "permission"), "back in the composer's place");
     assert_eq!(l.rt.state.permission_asked().map(|p| p.id().to_owned()).as_deref(), Some("per_1"));
-    let toast = l.rt.state.toast.current.as_ref().expect("a toast");
+    let toast = l.rt.state.toast.current().expect("a toast");
     assert_eq!(toast.title, "Couldn't answer the permission");
     assert_eq!(l.rt.state.composer.text, "half a thought");
 }

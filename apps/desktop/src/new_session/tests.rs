@@ -92,7 +92,7 @@ fn a_disconnected_start_keeps_its_tab_and_prompt_for_reconnect() {
     assert_eq!(s.route, Route::Session(id.clone()));
     assert_eq!(s.unsent.state(&prompt),Some(crate::send_failed::State::Waiting));
     assert!(s.transcripts[&id].messages.iter().any(|m| m.id()==prompt));
-    assert!(s.toast.current.is_none());
+    assert!(s.toast.current().is_none());
 }
 
 #[test]

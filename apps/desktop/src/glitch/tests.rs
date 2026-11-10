@@ -39,7 +39,7 @@ fn turned_off_nothing_records_and_the_chord_says_how_to_turn_it_on() {
     rt.key(chord());
     rt.frame(1.0 / 60.0);
     assert!(!rt.state.glitch.scrub.is_open());
-    assert!(rt.state.toast.current.is_some());
+    assert!(rt.state.toast.current().is_some());
 }
 
 #[test]

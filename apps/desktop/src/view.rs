@@ -161,15 +161,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
-    // The newer toast paints in front (`attachments::toast`).
-    let uploads_front = crate::attachments::toast::in_front(s);
-    if !uploads_front {
-        inner = inner.children(crate::attachments::toast::view(s, p));
-    }
     inner = inner.children(crate::status_toast::view(s, p));
-    if uploads_front {
-        inner = inner.children(crate::attachments::toast::view(s, p));
-    }
     let sized = if (s.zoom - 1.0).abs() > 1e-4 {
         let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
         if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() }

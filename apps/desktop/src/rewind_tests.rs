@@ -211,7 +211,7 @@ fn server_refusal_rolls_back_timeline_running_state_and_draft_with_fail_toast() 
     assert!(h.rt.state.running.contains(&h.sid), "running state restored");
     assert_eq!(h.rt.state.composer.text, "Unsent before failure", "draft rolled back");
     assert!(shows_text(&h.rt, "Request failed") && shows_text(&h.rt, "Snapshot failed"));
-    assert!(h.rt.state.toast.current.as_ref().unwrap().persistent);
+    assert!(h.rt.state.toast.current().unwrap().persistent);
 }
 
 #[test]

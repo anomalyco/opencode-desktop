@@ -80,7 +80,7 @@ impl Screen {
                 _ => {}
             }
         }
-        s.toast = app.toast.current.as_ref().map(|e| (e.id, e.title.clone(), e.description.clone().unwrap_or_default()));
+        s.toast = app.toast.current().map(|e| (e.id, e.title.clone(), e.description.clone().unwrap_or_default()));
         s
     }
 

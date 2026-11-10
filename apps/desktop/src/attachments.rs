@@ -40,8 +40,6 @@ pub struct Attach {
     pub context: Vec<crate::add_selection::ContextFile>,
     /// Uploads still copying to a remote server; sending waits for them.
     pub uploads: uploads::Uploads,
-    /// When the upload toast came up: the first upload since none were listed.
-    pub toast_at: f64,
     seq: rune::machine::Seq,
     uploads_tx: Sender<Copied>,
     uploads_rx: Receiver<Copied>,
@@ -63,7 +61,6 @@ impl Default for Attach {
             paths: Vec::new(),
             context: Vec::new(),
             uploads: uploads::Uploads::default(),
-            toast_at: 0.0,
             seq: rune::machine::Seq::default(),
             uploads_tx,
             uploads_rx,
@@ -170,17 +167,16 @@ impl App {
         // copies twice and lands once (`addPath` keeps one per path).
         let id = opencode_kit::client::message_id();
         let size = size as u64;
-        let clock = self.clock;
         let a = &mut self.attach;
-        if a.uploads.is_empty() {
-            a.toast_at = clock;
-        }
         let Some(attempt) = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Started { id: &id, name: &name, mime: &mime, size }).into_iter().find_map(|e| match e {
             uploads::Effect::Run(attempt) => Some(attempt),
             _ => None,
         }) else {
             return;
         };
+        // The upload toast comes up with the first upload (`UploadToast`).
+        crate::status_toast::uploads_shown(self);
+        let a = &mut self.attach;
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         a.runs.insert(attempt, stop.clone());
         let (out, wake, directory, path) = (a.uploads_tx.clone(), a.waker.clone(), self.composer_directory(), path.to_owned());

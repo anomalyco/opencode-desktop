@@ -377,7 +377,7 @@ impl App {
             }
             Effect::RestoreDraft { draft } => self.apply_draft(session, draft),
             Effect::DismissToast => {
-                if let Some(e) = &self.toast.current
+                if let Some(e) = self.toast.current()
                     && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
                 {
                     crate::status_toast::dismiss(self);
@@ -433,7 +433,7 @@ impl App {
             }
             t.messages.truncate(keep);
         }
-        if let Some(e) = &self.toast.current
+        if let Some(e) = self.toast.current()
             && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
         {
             crate::status_toast::dismiss(self);

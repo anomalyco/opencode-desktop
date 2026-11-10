@@ -196,7 +196,7 @@ fn carry_out(app: &mut App, i: usize, requests: Vec<Request>, wake_after: Option
                 } else {
                     crate::status_toast::fail(app, title, description);
                 }
-                if let Some(e) = app.toast.current.as_mut() {
+                if let Some(e) = app.toast.current_mut() {
                     if variant == "success" {
                         e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
                     }

@@ -12,7 +12,7 @@ fn play(rt: &mut Runtime<App>, secs: f64) {
 }
 
 fn title(rt: &Runtime<App>) -> Option<String> {
-    rt.state.toast.current.as_ref().map(|e| e.title.clone())
+    rt.state.toast.current().map(|e| e.title.clone())
 }
 
 fn drawn(rt: &Runtime<App>, key: &str) -> Option<rune::ElementInfo> {
@@ -78,10 +78,10 @@ fn server_lines_become_desktops_toasts_and_reads_stay_in_the_debug_bar() {
     ];
     for (line, want) in cases {
         rt.update(|s, _| {
-            s.toast.current = None;
+            s.toast = Default::default();
             from_server(s, line.into());
         });
-        let got = rt.state.toast.current.as_ref().map(|e| (e.title.clone(), e.description.clone().unwrap_or_default()));
+        let got = rt.state.toast.current().map(|e| (e.title.clone(), e.description.clone().unwrap_or_default()));
         assert_eq!(got, want.map(|(t, l)| (t.to_owned(), l.to_owned())), "{line}");
         let kept = want.map_or_else(|| line.split(": ").last().unwrap_or(line).trim_end_matches(" (os error 61)"), |(_, why)| why);
         assert!(rt.state.status.contains(kept), "{line}: the debug bar keeps it");

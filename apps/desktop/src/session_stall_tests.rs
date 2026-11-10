@@ -48,33 +48,33 @@ fn a_short_freeze_is_never_shown() {
     let mut app = open(frozen(2, asked.clone()), Duration::from_secs(30));
     assert!(wait(&mut app, |a| a.transcripts.contains_key(ID)));
     assert_eq!(asked.load(Ordering::SeqCst), 3);
-    assert!(app.toast.current.is_none());
+    assert!(app.toast.current().is_none());
 }
 
 #[test]
 fn a_long_silence_says_still_trying_and_clears_when_it_answers() {
     let asked = Arc::new(AtomicUsize::new(0));
     let mut app = open(frozen(5, asked), Duration::from_millis(60));
-    assert!(wait(&mut app, |a| a.toast.current.is_some()));
-    let toast = app.toast.current.clone().unwrap();
+    assert!(wait(&mut app, |a| a.toast.current().is_some()));
+    let toast = app.toast.current().cloned().unwrap();
     assert_eq!(toast.title, "OpenCode isn't answering. Still trying.");
     assert!(toast.description.is_none());
     assert!(wait(&mut app, |a| a.transcripts.contains_key(ID)));
-    assert!(wait(&mut app, |a| a.toast.current.is_none()));
+    assert!(wait(&mut app, |a| a.toast.current().is_none()));
 }
 
 #[test]
 fn the_event_stream_coming_back_ends_the_silence() {
     let mut app = open(frozen(usize::MAX, Arc::new(AtomicUsize::new(0))), Duration::from_millis(40));
-    assert!(wait(&mut app, |a| a.toast.current.is_some()));
+    assert!(wait(&mut app, |a| a.toast.current().is_some()));
     app.stream_back();
-    assert!(app.toast.current.is_none());
+    assert!(app.toast.current().is_none());
 }
 
 #[test]
 fn a_missing_session_still_fails_at_once_in_plain_words() {
     let fetch: Fetch = Arc::new(|_| Err("GET /api/session/x/message: http status: 404".into()));
     let mut app = open(fetch, Duration::from_secs(30));
-    assert!(wait(&mut app, |a| a.toast.current.is_some()));
-    assert_eq!(app.toast.current.unwrap().title, "Couldn't load this session");
+    assert!(wait(&mut app, |a| a.toast.current().is_some()));
+    assert_eq!(app.toast.current().cloned().unwrap().title, "Couldn't load this session");
 }

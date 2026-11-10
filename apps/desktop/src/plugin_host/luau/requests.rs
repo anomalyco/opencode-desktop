@@ -87,7 +87,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 }
                 _ => crate::status_toast::say(app, title, description),
             }
-            if let Some(e) = app.toast.current.as_mut() {
+            if let Some(e) = app.toast.current_mut() {
                 if variant == "success" {
                     e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
                 }

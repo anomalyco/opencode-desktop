@@ -2,6 +2,7 @@ use super::*;
 use crate::keymap::Bind;
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    crate::status_toast::hotkey(s, ev, tx);
     if crate::popup::key(s, ev, tx) || crate::narrow::key(s, ev, tx) || crate::plugin_host::popover_key(s, ev, tx) || crate::plugin_host::dialog_key(s, ev, tx) || crate::connect::key(s, ev, tx) || crate::mcp::key(s, ev, tx) || crate::view::move_recovery::key(s, ev, tx) || crate::glitch::key(s, ev, tx) || crate::demo::key(s, ev, tx) || crate::diagram::key(s, ev, tx) || s.fork_key(ev, tx) || crate::session_menu::key(s, ev, tx) || crate::dictation::key(s, ev, tx) || knobs::key(s, ev, tx) || s.switcher_key(ev, tx) || s.project_switcher_key(ev, tx) || s.settings_key(ev, tx) || s.panels_key(ev, tx) || (s.opening.is_none() && s.question_key(ev, tx)) || s.add_key(ev, tx) || s.draft_location_key(ev, tx) || crate::app_menu::accelerator(s, ev, tx) || s.shortcut(ev, tx) || s.picker_key(ev, tx) {
         return true;
     }

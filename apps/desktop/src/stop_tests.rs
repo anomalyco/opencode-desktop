@@ -189,7 +189,7 @@ fn an_interrupt_that_fails_puts_the_run_back_and_says_so() {
     l.rt.frame(DT);
     running(&l);
     assert_eq!(l.rt.state.status, "Couldn't stop the session: http status: 500");
-    assert!(l.rt.state.toast.current.as_ref().is_some_and(|t| t.persistent), "a toast that waits for Kit");
+    assert!(l.rt.state.toast.current().is_some_and(|t| t.persistent), "a toast that waits for Kit");
     // ⌃G stops it again, as Esc does.
     l.rt.key(KeyEvent { key: Key::Text("g".into()), mods: Mods { ctrl: true, ..Mods::default() } });
     l.rt.frame(DT);
