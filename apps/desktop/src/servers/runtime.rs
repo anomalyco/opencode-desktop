@@ -24,8 +24,7 @@ use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
 use opencode_kit::client::{Incoming, Server};
-use opencode_kit::servers::plugin_server::PluginStatus;
-use opencode_kit::servers::{HttpBase, ServerConn, ServerKey, controllers};
+use opencode_kit::servers::{ServerConn, ServerKey, controllers};
 use rune::Tx;
 use rune::machine::Attempt;
 
@@ -125,25 +124,8 @@ pub fn label(key: &ServerKey) -> String {
 /// new server, end the ones gone, and start again for an HTTP server with new credentials.
 fn sync(s: &App) {
     let Some(own) = own_server() else { return };
-    let mut inputs: Vec<(ServerConn, String)> = vec![(ServerConn::Sidecar { http: HttpBase::new(&own.base), display_name: None, label: None }, String::new())];
-    for x in crate::servers::list() {
-        let Some(conn) = ServerConn::http_server(&x.url) else { continue };
-        let conn = match conn {
-            ServerConn::Http { http, auth_token, label, .. } => ServerConn::Http { http: HttpBase { url: http.url, password: x.password.clone() }, auth_token, display_name: x.name.clone(), label },
-            other => other,
-        };
-        inputs.push((conn, x.label()));
-    }
-    for c in crate::plugin_host::contributed_servers(s).into_iter().filter(|c| !c.by_address() && c.rec.listed && c.rec.state == opencode_plugin::abi::SERVER_READY && !c.rec.url.is_empty()) {
-        let mut http = HttpBase::new(&c.rec.url);
-        if !c.rec.password.is_empty() {
-            http = http.with_password(&c.rec.password);
-        }
-        let label = (!c.rec.label.is_empty()).then(|| c.rec.label.clone());
-        let plugin = c.key.split(':').next().unwrap_or_default().to_owned();
-        let conn = ServerConn::Plugin { key: ServerKey::new(&c.key), plugin, status: PluginStatus::Ready { http }, managed: false, display_name: Some(c.rec.name.clone()), label };
-        inputs.push((conn, c.rec.name.clone()));
-    }
+    // The servers with an endpoint: a plugin's server that isn't ready has nothing to connect to.
+    let inputs: Vec<(ServerConn, String)> = super::registry::list(s).into_iter().filter(|e| e.conn.http().is_some()).map(|e| (e.conn, e.name)).collect();
     RUNTIME.with_borrow_mut(|r| {
         if r.inputs == inputs {
             return;
@@ -151,19 +133,8 @@ fn sync(s: &App) {
         r.inputs = inputs.clone();
         r.version += 1;
         let conns = inputs.iter().map(|(c, _)| c.clone()).collect();
-        for effect in controllers::step(&mut r.controllers, controllers::Event::ServersSynced(conns)) {
-            match effect {
-                controllers::Effect::Dispose { key, attempt } => {
-                    r.listed.retain(|l| !(l.key == key && l.attempt == attempt));
-                    r.peers.remove(&key);
-                }
-                controllers::Effect::Create { key, attempt, conn } => {
-                    r.listed.retain(|l| l.key != key);
-                    r.listed.push(Listed { key: key.clone(), attempt, server: server_for(&conn, &own), conn, name: String::new() });
-                    controllers::step(&mut r.controllers, controllers::Event::ControllerCreated { key, attempt });
-                }
-            }
-        }
+        let fx = controllers::step(&mut r.controllers, controllers::Event::ServersSynced(conns));
+        apply(r, fx, &own);
         // A server that keeps its controller may still move (the sidecar, a plugin's port): its
         // connection follows, and the copy starts again on the new address.
         for (conn, name) in &inputs {
@@ -179,6 +150,42 @@ fn sync(s: &App) {
         }
         let order: Vec<ServerKey> = inputs.iter().map(|(c, _)| c.key()).collect();
         r.listed.sort_by_key(|l| order.iter().position(|k| *k == l.key));
+    });
+}
+
+/// Runs the controllers' effects: a disposed server leaves the listing and drops its copy; a
+/// created one joins it.
+fn apply(r: &mut Runtime, fx: rune::machine::Effects<controllers::Effect>, own: &Server) {
+    for effect in fx {
+        match effect {
+            controllers::Effect::Dispose { key, attempt } => {
+                r.listed.retain(|l| !(l.key == key && l.attempt == attempt));
+                r.peers.remove(&key);
+            }
+            controllers::Effect::Create { key, attempt, conn } => {
+                let name = r.inputs.iter().find(|(c, _)| c.key() == key).map(|(_, n)| n.clone()).unwrap_or_default();
+                r.listed.retain(|l| l.key != key);
+                r.listed.push(Listed { key: key.clone(), attempt, server: server_for(&conn, own), conn, name });
+                controllers::step(&mut r.controllers, controllers::Event::ControllerCreated { key, attempt });
+            }
+        }
+    }
+    let order: Vec<ServerKey> = r.inputs.iter().map(|(c, _)| c.key()).collect();
+    r.listed.sort_by_key(|l| order.iter().position(|k| *k == l.key));
+}
+
+/// A health probe answered (`health.reported`): a server that rejects its credentials stops its
+/// connection, and starts it again once a probe with the same credentials answers.
+pub fn reported(probe: &opencode_kit::servers::health::Probe) {
+    let Some(own) = own_server() else { return };
+    RUNTIME.with_borrow_mut(|r| {
+        let event = controllers::Event::HealthReported { key: probe.key.clone(), auth: probe.auth.clone(), result: probe.result.clone() };
+        let fx = controllers::step(&mut r.controllers, event);
+        if fx.is_empty() {
+            return;
+        }
+        apply(r, fx, &own);
+        r.version += 1;
     });
 }
 
@@ -223,7 +230,6 @@ pub struct Half {
     jobs: crate::jobs::Jobs,
     request_reads: crate::session_status::RequestReads,
     used: Vec<String>,
-    home_selected: Option<String>,
     /// The server's models, providers and agents (the pickers' catalog).
     pickers: crate::pickers::Pickers,
 }
@@ -240,7 +246,6 @@ impl Half {
         swap(&mut self.jobs, &mut s.jobs);
         swap(&mut self.request_reads, &mut s.request_reads);
         swap(&mut self.used, &mut s.project_state.used);
-        swap(&mut self.home_selected, &mut s.project_state.home_selected);
         let (a, b) = (&mut self.pickers, &mut s.pickers);
         swap(&mut a.models, &mut b.models);
         swap(&mut a.providers, &mut b.providers);
@@ -267,8 +272,6 @@ pub struct Checkout {
     active: ServerKey,
     meta: Meta,
     parked: Vec<(ServerKey, Meta, Half)>,
-    /// The server Home shows (Home's own selection, `notes/multi-server.md` MS-4).
-    pub home: ServerKey,
     /// Each tab's mark on a server the window isn't checked out on, as of its last checkout.
     snaps: HashMap<(ServerKey, String), Option<TabStatus>>,
     pub boot: Boot,
@@ -277,7 +280,7 @@ pub struct Checkout {
 
 impl Default for Checkout {
     fn default() -> Self {
-        Checkout { active: ServerKey::sidecar(), meta: Meta::default(), parked: Vec::new(), home: ServerKey::sidecar(), snaps: HashMap::new(), boot: Boot::default(), synced: 0 }
+        Checkout { active: ServerKey::sidecar(), meta: Meta::default(), parked: Vec::new(), snaps: HashMap::new(), boot: Boot::default(), synced: 0 }
     }
 }
 
@@ -310,8 +313,8 @@ impl App {
 pub fn desired(s: &App) -> ServerKey {
     match &s.route {
         Route::Session { server, .. } => server.clone(),
-        Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| s.checkout.home.clone(), |t| t.server.clone()),
-        Route::Home => s.checkout.home.clone(),
+        Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| crate::projects::home::server(s), |t| t.server.clone()),
+        Route::Home => crate::projects::home::server(s),
     }
 }
 

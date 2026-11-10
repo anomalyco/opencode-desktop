@@ -29,6 +29,7 @@ use crate::{App, Route, Source};
 
 mod poll;
 mod search;
+mod servers;
 mod view;
 pub(crate) use view::relative_time;
 mod session_index;
@@ -55,7 +56,10 @@ pub enum SwitcherMode {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
+    /// A session on the server the window works against.
     Session(String),
+    /// A session on another server (`⇧⌘F` searches them all).
+    RemoteSession { server: opencode_kit::servers::ServerKey, id: String },
     /// A command's id in `commands.rs`.
     Command(&'static str),
     /// A workspace file's path, from the session's folder.
@@ -129,6 +133,8 @@ pub struct Switcher {
     /// What the list shows while its searches run (`shown.rs`).
     shown: Shown,
     restore: Restore,
+    /// The other servers' session sources while it searches sessions (`servers.rs`).
+    pub(crate) remotes: Vec<servers::Remote>,
 }
 
 impl Default for Switcher {
@@ -150,6 +156,7 @@ impl Default for Switcher {
             fixture_find: None,
             shown: Shown::default(),
             restore: Restore::Idle,
+            remotes: Vec::new(),
         }
     }
 }
@@ -212,7 +219,7 @@ pub fn matches(e: &Entry, q: &str) -> bool {
         return true;
     }
     let (id, group) = match &e.action {
-        Action::Session(id) => (id.as_str(), ""),
+        Action::Session(id) | Action::RemoteSession { id, .. } => (id.as_str(), ""),
         Action::Command(_) => ("", e.group),
         Action::File(path) => (path.as_str(), e.group),
         Action::Setting(_) => ("", e.group),
@@ -225,13 +232,13 @@ pub fn matches(e: &Entry, q: &str) -> bool {
 pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
     let kind = |e: &Entry| match e.action {
         Action::Command(_) => 0,
-        Action::Session(_) => 1,
+        Action::Session(_) | Action::RemoteSession { .. } => 1,
         Action::Setting(_) => 2,
         Action::File(_) => 3,
     };
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
-            (Action::Session(_), Action::Session(_)) => b.open.cmp(&a.open).then(b.updated.cmp(&a.updated)),
+            (Action::Session(_) | Action::RemoteSession { .. }, Action::Session(_) | Action::RemoteSession { .. }) => b.open.cmp(&a.open).then(b.updated.cmp(&a.updated)),
             _ => std::cmp::Ordering::Equal,
         })
     });
@@ -352,7 +359,7 @@ impl App {
             let clean = parse_path_and_line(q).0;
             !clean.is_empty() && (sw.files.query() != Some(clean.as_str()) || sw.files.loading())
         };
-        sessions || files
+        sessions || files || self.remotes_searching(q)
     }
 
     /// Whether the server's session search asks about `q`: live, not on commands alone, and
@@ -391,6 +398,13 @@ impl App {
         // A project's tasks live in its inbox.
         let sessions = self.session_matches(q, group, archived);
         if matches!(self.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+            if !self.switcher.remotes.is_empty() {
+                // Every server's sessions, newest first (`session-search.tsx:73-79`).
+                let tag = servers::own_tag(self);
+                let mut all: Vec<Entry> = sessions.into_iter().map(|e| Entry { description: servers::located(&e.description, tag.as_deref()), ..e }).chain(self.remote_matches(q, group, archived)).collect();
+                all.sort_by(|a, b| b.updated.cmp(&a.updated));
+                return all.into_iter().take(if q.is_empty() { RECENT_SESSIONS } else { usize::MAX }).collect();
+            }
             if q.is_empty() {
                 return sessions.into_iter().take(RECENT_SESSIONS).collect();
             }
@@ -532,6 +546,7 @@ impl App {
         self.switcher.sessions = search::Source::default();
         self.switcher.files = search::Source::default();
         self.switcher.restore = Restore::Idle;
+        self.switcher.remotes = servers::open(self);
         self.switcher.shown.step(Event::Opened { now: self.clock });
     }
 
@@ -550,6 +565,7 @@ impl App {
         self.switcher.sessions = search::Source::default();
         self.switcher.files = search::Source::default();
         self.switcher.restore = Restore::Idle;
+        self.switcher.remotes.clear();
         self.composer.focused = restore && self.switcher.restore_composer;
     }
 
@@ -557,6 +573,17 @@ impl App {
         if !self.switcher.open { return; }
         // One pick at a time: Enter or a click while a session restores does nothing.
         if matches!(self.switcher.restore, Restore::Restoring { .. }) { return; }
+        // Another server's session: the window works against its server from here on, and it
+        // opens (or restores) there as one of its own.
+        if let Action::RemoteSession { server, id } = action {
+            let found = self.switcher.remotes.iter().find(|r| r.server == server).and_then(|r| r.session(&id).cloned());
+            crate::servers::runtime::switch(self, &server);
+            if let Some(info) = found.filter(|_| self.session(&id).is_none()) {
+                self.switcher.loaded.push(info);
+                self.switcher.invalidate_sessions();
+            }
+            return self.switcher_run(Action::Session(id), tx);
+        }
         let restore = self.switcher.mode == SwitcherMode::Archived;
         let line = parse_path_and_line(self.switcher.query()).1;
         // An archived session is restored first, and opens once the server has
@@ -586,6 +613,7 @@ impl App {
                 // while the existing page request finishes. Keep its retry/back state.
                 if let Some(open) = &mut self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
             }
+            Action::RemoteSession { .. } => {}
             Action::Command(id) => self.run_command(id, tx),
             // `path:line` (or `path#L12`) opens the file at that line.
             Action::File(path) => self.open_workspace_file(&path, false, line, tx),

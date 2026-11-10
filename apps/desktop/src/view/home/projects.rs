@@ -1,5 +1,6 @@
 use super::*;
 use crate::popup::{self, Item, Menu};
+use opencode_kit::servers::ServerKey;
 use opencode_i18n::t;
 
 // ---------------------------------------------------------------------------------------------
@@ -14,36 +15,27 @@ use opencode_i18n::t;
 /// Stacked above the sessions: 10 down (`mt-2.5`), Settings and Help at the foot.
 pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: bool, page_h: f32) -> El {
     let used = s.used_projects();
-    // `h-7 pl-1.5 pr-3`: Projects in muted 530, and the large ghost-muted folder-add button.
-    let header = row()
-        .key("home-projects-header")
-        .w_full()
-        .h(28.0)
-        .pl(6.0)
-        .pr(12.0)
-        .center_y()
-        .child(text(t!("home.projects")).font(UI_MED).color(p.muted))
-        .child(spacer())
-        .child(
-            el().key("home-add-project")
-                .role("button")
-                .label(t!("home.project.add"))
-                .help(t!("home.project.add"))
-                .size(28.0, 28.0)
-                .radius(6.0)
-                .center()
-                .hover(p.hover)
-                .press(p.pressed)
-                .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
-                .child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)),
-        );
+    let server = crate::servers::runtime::active(s);
+    let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
+    // `h-7 pl-1.5 pr-3`: Projects in muted 530, and, with one server, the large ghost-muted
+    // folder-add button (disabled while it's down).
+    let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(UI_MED).color(p.muted)).child(spacer());
+    if s.home_state.servers.len() <= 1 {
+        let add = el().key("home-add-project").role("button").label(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
+        let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
+        header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
+    }
     // `pr-3`, rows `gap-1`.
     let mut rows = col().key("home-projects-list").w_full().pr(12.0).gap(4.0);
-    if used.is_empty() {
-        rows = rows.child(nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)));
+    if super::servers::grouped(s) {
+        rows = rows.child(super::servers::groups(s, p, false, PROJECTS_W - 12.0));
+    } else if used.is_empty() {
+        // `HomeProjectEmpty`: Add project, disabled (60%) while the server is down.
+        let add = nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full();
+        rows = rows.child(if failed { add.opacity(0.6) } else { add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) });
     } else {
         for proj in used {
-            rows = rows.child(project_row(s, p, proj, selected.is_some_and(|sel| sel.id == proj.id), PROJECTS_W - 12.0));
+            rows = rows.child(project_row(s, p, server, proj, selected.is_some_and(|sel| sel.id == proj.id), PROJECTS_W - 12.0));
         }
     }
     if !wide {
@@ -105,10 +97,11 @@ fn menu_key(id: &str) -> String {
 /// hovered, layer-03 selected), and at its end, while hovered or its menu is open, More options
 /// and New session (small ghost-muted IconButtons, `right-1 gap-1 pl-2`) over an 8 pt fade into
 /// the row's surface. A click scopes Home to it; a right-click opens its menu.
-fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32) -> El {
+pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Project, active: bool, width: f32) -> El {
     let menu = menu_key(&proj.id);
     let menu_open = s.popup.open_at(&menu);
-    let (id, menu_id, ctx_id, new_dir) = (proj.id.clone(), proj.id.clone(), proj.id.clone(), proj.directory.clone());
+    let (menu_id, ctx_id, new_dir, dir) = (proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.directory.clone());
+    let (menu_server, ctx_server, new_server, server) = (server.clone(), server.clone(), server.clone(), server.clone());
     let surface = if active { p.layer3 } else { p.layer1 };
     // `pl-2`, two 20 pt buttons `gap-1`: the fade runs over the first 8.
     let actions_w = 8.0 + 20.0 + 4.0 + 20.0;
@@ -122,9 +115,12 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
         .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, surface.alpha(0.0)), (8.0 / actions_w, surface), (1.0, surface)])
         .child(
             icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_id, tx)),
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_server, &menu_id, tx)),
         )
-        .child(icon_button(p, &format!("hp-new-{}", proj.id), t!("command.session.new"), &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| s.new_session_in(&new_dir, tx)));
+        .child(icon_button(p, &format!("hp-new-{}", proj.id), t!("command.session.new"), &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            crate::servers::runtime::switch(s, &new_server);
+            s.new_session_in(&new_dir, tx);
+        }));
     // The nav button: hovered itself, its label goes to the text colour; the pointer on the
     // actions leaves it muted while the row keeps its hover surface.
     let nav = row()
@@ -139,7 +135,11 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
         .gap(8.0)
         .center_y()
         .hover_group()
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_home_project(&id, tx))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            crate::projects::home::toggle(s, &server, &dir);
+            s.project_state.home_menu_open = false;
+        })
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
         .child(text(proj.name.clone()).key("label").font(UI).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
     let mut r = row()
@@ -150,7 +150,7 @@ fn project_row(s: &App, p: &Pal, proj: &model::Project, active: bool, width: f32
         .radius(6.0)
         .hover_group()
         .hover(surface)
-        .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_menu(s, &ctx_id, tx))
+        .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_menu(s, &ctx_server, &ctx_id, tx))
         .child(nav)
         .child(if menu_open { actions } else { actions.group_opacity(0.0, 1.0) });
     if active || menu_open {
@@ -177,13 +177,15 @@ pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon,
 
 /// `ProjectMenuItems`: New session, Import session, Edit project, Reveal in File Explorer (a
 /// local server's), Clear notifications (while any of its sessions is unread), then Close.
-fn open_menu(s: &mut App, id: &str, tx: &mut Tx) {
-    open_project_menu(s, id, menu_key(id), tx);
+/// Server `server`'s project `id`: the menu reads it there, and its picks act there.
+fn open_menu(s: &mut App, server: &ServerKey, id: &str, tx: &mut Tx) {
+    crate::servers::runtime::with_server(s, server, |s| open_project_menu(s, id, menu_key(id), tx));
 }
 
-/// `open_menu` under the element keyed `anchor`.
+/// `open_menu` under the element keyed `anchor`, for the server the window works against.
 pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut Tx) {
     let Some(proj) = s.project(id).cloned() else { return };
+    let server = crate::servers::runtime::active(s).clone();
     let unread = project_unread(s, &proj).next().is_some();
     let local = matches!(&s.source, crate::Source::Live { server, .. } if server.is_local());
     let mut menu = Menu::new(t!("command.category.project"))
@@ -198,18 +200,24 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
     }
     menu = menu.item(Item::new("clear", t!("sidebar.project.clearNotifications")).enabled(unread)).separator().item(Item::new("close", t!("common.close")));
     tx.instant();
-    popup::open_drawn(s, menu, anchor, tx, move |s: &mut App, picked, tx| match picked {
-        Some("new-session") => s.new_session_in(&proj.directory, tx),
-        Some("import") => s.import_session(&proj.directory, tx),
-        Some("edit") => s.edit_project(&proj.directory, tx),
-        Some("reveal") => {
-            if let Err(e) = super::super::location_card::reveal(&proj.directory) {
-                crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
-            }
+    popup::open_drawn(s, menu, anchor, tx, move |s: &mut App, picked, tx| {
+        // A New session leaves Home for the project's server; the rest act on it from here.
+        if picked == Some("new-session") {
+            crate::servers::runtime::switch(s, &server);
         }
-        Some("clear") => s.clear_project_notifications(&proj, tx),
-        Some("close") => s.hide_project(&proj.id, tx),
-        _ => {}
+        crate::servers::runtime::with_server(s, &server, |s| match picked {
+            Some("new-session") => s.new_session_in(&proj.directory, tx),
+            Some("import") => s.import_session(&proj.directory, tx),
+            Some("edit") => s.edit_project(&proj.directory, tx),
+            Some("reveal") => {
+                if let Err(e) = super::super::location_card::reveal(&proj.directory) {
+                    crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), e);
+                }
+            }
+            Some("clear") => s.clear_project_notifications(&proj, tx),
+            Some("close") => s.hide_project(&proj.id, tx),
+            _ => {}
+        });
     });
 }
 
@@ -306,6 +314,14 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         None => icon(&ic::FOLDER, 14.0).color(p.text),
     };
     let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
+    // With several servers, the focused one's name under it, muted at 70%
+    // (`leading-[var(--line-height-compact)]`).
+    let name = text(label.to_owned()).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
+    let server = (s.home_state.servers.len() > 1).then(|| {
+        let key = crate::projects::home::server(s);
+        s.home_state.servers.iter().find(|v| v.key == key).map(|v| text(v.label.clone()).key("server").font(UI).color(p.muted).opacity(0.7).truncate().dir(rune::Direction::Auto))
+    });
+    let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).child(name).children(server.flatten());
     row()
         .key("home-projects-trigger")
         .role("button")
@@ -330,7 +346,7 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
             s.project_state.home_menu_open = !s.project_state.home_menu_open;
         })
         .child(lead)
-        .child(text(label.to_owned()).font(UI).color(p.text).grow(1.0).shrink().truncate())
+        .child(labels)
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted))
 }
 
@@ -340,17 +356,30 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     if s.route != Route::Home || !s.project_state.home_menu_open {
         return None;
     }
-    let selected_id = s.project_state.home_selected.as_deref();
+    let selected_id = s.home_selected().map(|p| p.id.as_str());
     let width = s.project_state.trigger_w.max(160.0);
-    let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
-    if selected_id.is_none() {
-        all = all.fill(p.layer3);
-    }
-    let mut list = col().key("home-projects-options").w_full().gap(4.0);
-    for proj in s.used_projects() {
-        list = list.child(project_row(s, p, proj, selected_id == Some(proj.id.as_str()), width - 12.0));
-    }
-    let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx));
+    let server = crate::servers::runtime::active(s);
+    let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
+    let scroll = col().key("home-projects-scroll").w_full().max_h(320.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0));
+    // Grouped by server, the rows are the whole panel (`view.tsx:236-325`): no All projects, no
+    // Add project row.
+    let (all, body, add) = if super::servers::grouped(s) {
+        // `max-h-[min(60dvh,…)]`: the whole panel is the list.
+        let window_h = rune::memo::layout_with("window", |r| r[3]).unwrap_or(800.0);
+        (None, scroll.max_h(0.6 * window_h - 12.0).child(super::servers::groups(s, p, true, width - 12.0)), None)
+    } else {
+        let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
+        if selected_id.is_none() {
+            all = all.fill(p.layer3);
+        }
+        let mut list = col().key("home-projects-options").w_full().gap(4.0);
+        for proj in s.used_projects() {
+            list = list.child(project_row(s, p, server, proj, selected_id == Some(proj.id.as_str()), width - 12.0));
+        }
+        let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0);
+        let add = if failed { add.opacity(0.6) } else { add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
+        (Some(all), scroll.child(list), Some(add))
+    };
     let menu = col()
         .key("home-projects-popover")
         .role("menu")
@@ -364,9 +393,9 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         .transition(rune::Transition::none())
         .motion(Spring::NONE)
         .on_press(|_: &mut App| {})
-        .child(all)
-        .child(col().key("home-projects-scroll").w_full().max_h(320.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0)).child(list))
-        .child(add);
+        .children(all)
+        .child(body)
+        .children(add);
     let dismiss = el().key("home-projects-dismiss").absolute(0.0, 0.0).w_full().h_full().on_press_tx(|s: &mut App, tx: &mut Tx| {
         tx.instant();
         s.project_state.home_menu_open = false;

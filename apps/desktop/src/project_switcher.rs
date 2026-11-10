@@ -20,6 +20,8 @@ use crate::{App, Route};
 use opencode_i18n::t;
 
 mod location;
+mod servers;
+pub(crate) use servers::poll;
 
 /// The dialog's step (`LocationDialogState.type`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,8 +29,11 @@ pub enum StepMode {
     #[default]
     Projects,
     Others,
-    /// A project's worktrees; `direct` when the dialog opened on them.
-    Worktrees { project: String, direct: bool },
+    /// Add project with several servers: which one (`servers`).
+    Servers,
+    /// A project's worktrees, on `server` (None: the window's); `direct` when the dialog opened
+    /// on them.
+    Worktrees { project: String, server: Option<opencode_kit::servers::ServerKey>, direct: bool },
 }
 
 #[derive(Default)]
@@ -44,16 +49,21 @@ pub struct ProjectSwitcher {
     /// The pointer's last point on a row: only a pointer that moved takes one (`dialog.tsx:395-399`).
     pointer: Option<[f32; 2]>,
     restore_composer: bool,
+    /// Every ready server's projects, when more than one is listed (`servers.rs`).
+    pub(crate) servers: Vec<servers::Listed>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowKind {
-    Project { id: String, directory: String, used: bool, drillable: bool },
-    Worktree { project_id: String, directory: String, main: bool },
+    /// `server`: another server's (None: the window's own).
+    Project { id: String, directory: String, used: bool, drillable: bool, server: Option<opencode_kit::servers::ServerKey> },
+    Worktree { project_id: String, directory: String, main: bool, server: Option<opencode_kit::servers::ServerKey> },
     /// New worktree: the session starts in a worktree made from the project's checkout.
-    Create { project_id: String, directory: String },
+    Create { project_id: String, directory: String, server: Option<opencode_kit::servers::ServerKey> },
     Other { count: usize },
     Add,
+    /// A server Add project adds to (the Servers step).
+    Server { key: opencode_kit::servers::ServerKey },
 }
 
 #[derive(Clone, Debug)]
@@ -108,7 +118,18 @@ impl ProjectSwitcher {
 impl App {
     pub fn project_switcher_rows(&self) -> Vec<SwitcherRow> {
         let q = self.project_switcher.query();
+        if !self.project_switcher.servers.is_empty() {
+            return match &self.project_switcher.mode {
+                StepMode::Worktrees { project, server, .. } => {
+                    let server = server.clone().unwrap_or_else(|| crate::servers::runtime::active(self).clone());
+                    servers::worktree_rows(self, &server, project).into_iter().filter(|r| matches_query(q, &[&r.title, &r.subtitle])).collect()
+                }
+                StepMode::Servers => servers::server_rows(self, q),
+                mode => servers::project_rows(self, q, *mode == StepMode::Others),
+            };
+        }
         match &self.project_switcher.mode {
+            StepMode::Servers => Vec::new(),
             StepMode::Worktrees { project: pid, .. } => {
                 let Some(project) = self.project(pid) else { return Vec::new() };
                 let (id, root) = (project.id.clone(), project.directory.clone());
@@ -118,21 +139,21 @@ impl App {
                     title: project.name.clone(),
                     subtitle: root.clone(),
                     section: "Worktrees",
-                    kind: RowKind::Worktree { project_id: id.clone(), directory: root.clone(), main: true },
+                    kind: RowKind::Worktree { project_id: id.clone(), directory: root.clone(), main: true, server: None },
                 };
                 let create = SwitcherRow {
                     key: format!("wt:create:{id}"),
                     title: t!("workspace.new").into(),
                     subtitle: t!("session.new.workspace.new.tooltip").into(),
                     section: "Worktrees",
-                    kind: RowKind::Create { project_id: id.clone(), directory: root.clone() },
+                    kind: RowKind::Create { project_id: id.clone(), directory: root.clone(), server: None },
                 };
                 let worktrees = self.project_worktrees(&id, &root).into_iter().map(|dir| SwitcherRow {
                     key: format!("wt:{dir}"),
                     title: folder_name(&dir),
                     subtitle: dir.clone(),
                     section: "Worktrees",
-                    kind: RowKind::Worktree { project_id: id.clone(), directory: dir, main: false },
+                    kind: RowKind::Worktree { project_id: id.clone(), directory: dir, main: false, server: None },
                 });
                 [main, create].into_iter().chain(worktrees).filter(|r| matches_query(q, &[&r.title, &r.subtitle])).collect()
             }
@@ -219,6 +240,7 @@ impl App {
         self.project_switcher.search.focused = true;
         self.project_switcher.active.clear();
         self.project_switcher.pointer = None;
+        self.project_switcher.servers = servers::read(self);
     }
 
     /// Opens the dialog on `project`'s worktrees, Choose worktree's way
@@ -230,7 +252,7 @@ impl App {
         tx.instant();
         let ps = &mut self.project_switcher;
         ps.history = vec![location::Frame { mode: StepMode::Projects, query: String::new(), active: Some(format!("project:{project}")) }];
-        ps.mode = StepMode::Worktrees { project: project.to_owned(), direct: true };
+        ps.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true };
     }
 
     pub fn close_project_switcher(&mut self, restore: bool) {
@@ -242,6 +264,7 @@ impl App {
         self.project_switcher.search.cancel_composition();
         self.project_switcher.mode = StepMode::Projects;
         self.project_switcher.history.clear();
+        self.project_switcher.servers.clear();
         if restore && self.project_switcher.restore_composer && self.stage.is_none() {
             self.composer.focused = true;
         }
@@ -254,7 +277,27 @@ impl App {
         }
         self.list_worktrees(project_id);
         let active = Some(format!("project:{project_id}"));
-        self.location_event(location::Event::Drilled { project: project_id.to_owned(), active }, tx);
+        self.location_event(location::Event::Drilled { project: project_id.to_owned(), server: None, active }, tx);
+    }
+
+    /// Asks `server` (None: the window's own) for project `id`'s worktrees.
+    fn list_worktrees_on(&mut self, server: Option<&opencode_kit::servers::ServerKey>, id: &str) {
+        match server {
+            Some(k) => {
+                crate::servers::runtime::with_server(self, k, |s| s.list_worktrees(id));
+            }
+            None => self.list_worktrees(id),
+        }
+    }
+
+    /// A row's chevron: steps into `project_id`'s worktrees on `server`; `key` is lit again on
+    /// the way back.
+    fn drill_server_worktrees(&mut self, server: Option<opencode_kit::servers::ServerKey>, project_id: &str, key: String, tx: &mut Tx) {
+        if server.is_none() && !drillable(self, project_id) {
+            return;
+        }
+        self.list_worktrees_on(server.as_ref(), project_id);
+        self.location_event(location::Event::Drilled { project: project_id.to_owned(), server, active: Some(key) }, tx);
     }
 
     pub fn project_switcher_back(&mut self, tx: &mut Tx) {
@@ -291,15 +334,46 @@ impl App {
     pub fn project_switcher_choose(&mut self, key: &str, tx: &mut Tx) {
         let Some(row) = self.project_switcher_rows().into_iter().find(|r| r.key == key) else { return };
         let worktree = matches!(row.kind, RowKind::Worktree { main: false, .. });
-        match row.kind {
+        // Another server's row: the new session moves there first (`selectProject`).
+        let elsewhere = match &row.kind {
+            RowKind::Project { server: Some(k), .. } | RowKind::Worktree { server: Some(k), .. } | RowKind::Create { server: Some(k), .. } if k != crate::servers::runtime::active(self) => Some(k.clone()),
+            _ => None,
+        };
+        if let Some(server) = elsewhere {
+            let (RowKind::Project { directory, .. } | RowKind::Worktree { directory, .. } | RowKind::Create { directory, .. }) = &row.kind else { return };
+            tx.instant();
+            self.close_project_switcher(false);
+            servers::select(self, &server, directory.clone(), tx);
+            if !matches!(row.kind, RowKind::Project { .. }) {
+                // The worktree step's own choices (New worktree, a worktree) run there now.
+                return self.project_switcher_choose_here(row.kind, worktree, tx);
+            }
+            if self.stage.is_none() {
+                self.composer.focused = true;
+            }
+            return;
+        }
+        self.project_switcher_choose_here(row.kind, worktree, tx);
+    }
+
+    fn project_switcher_choose_here(&mut self, kind: RowKind, worktree: bool, tx: &mut Tx) {
+        match kind {
             RowKind::Other { .. } => {
                 let active = self.project_switcher_active(&self.project_switcher_rows());
                 self.location_event(location::Event::Others { active }, tx);
             }
+            // With several servers Add project asks which one first (`choosesServer`).
+            RowKind::Add if !self.project_switcher.servers.is_empty() => {
+                self.location_event(location::Event::Servers { active: Some("+add".into()) }, tx);
+            }
             RowKind::Add => {
                 self.open_project_dialog(tx);
             }
-            RowKind::Create { project_id, directory } => {
+            RowKind::Server { key } => {
+                tx.instant();
+                servers::add(self, &key, tx);
+            }
+            RowKind::Create { project_id, directory, .. } => {
                 tx.instant();
                 self.close_project_switcher(false);
                 if !matches!(self.route, Route::Draft(_)) {
@@ -355,16 +429,19 @@ impl App {
         if pressed != location::Pressed::Other {
             let rows = self.project_switcher_rows();
             let active = self.project_switcher_active(&rows).and_then(|a| rows.into_iter().find(|r| r.key == a)).map(|r| match r.kind {
-                RowKind::Project { id, .. } => location::Lit::Project { drillable: drillable(self, &id), key: r.key, id },
+                RowKind::Project { id, drillable: d, server: Some(server), .. } => location::Lit::Project { drillable: d, key: r.key, id, server: Some(server) },
+                RowKind::Project { id, .. } => location::Lit::Project { drillable: drillable(self, &id), key: r.key, id, server: None },
                 RowKind::Other { .. } => location::Lit::Other,
+                RowKind::Add if !self.project_switcher.servers.is_empty() => location::Lit::Add,
                 _ => location::Lit::Row,
             });
             let k = location::KeyDown { key: pressed, at_start, at_end, empty: text_len == 0, active };
-            if let Some(location::Lit::Project { id, drillable: true, .. }) = &k.active
+            if let Some(location::Lit::Project { id, drillable: true, server, .. }) = &k.active
                 && pressed == location::Pressed::Forward
                 && at_end
             {
-                self.list_worktrees(&id.clone());
+                let (id, server) = (id.clone(), server.clone());
+                self.list_worktrees_on(server.as_ref(), &id);
             }
             if self.location_event(location::Event::Key(k), tx) {
                 return true;
@@ -413,7 +490,7 @@ fn project_row_item(p: &Project, used: bool) -> SwitcherRow {
         title: p.name.clone(),
         subtitle: p.directory.clone(),
         section: if used { "Projects" } else { "Other projects" },
-        kind: RowKind::Project { id: p.id.clone(), directory: p.directory.clone(), used, drillable: project_git(&p.id) },
+        kind: RowKind::Project { id: p.id.clone(), directory: p.directory.clone(), used, drillable: project_git(&p.id), server: None },
     }
 }
 
@@ -430,6 +507,7 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
     let key = r.key.clone();
     let hover = r.key.clone();
     let option = matches!(r.kind, RowKind::Other { .. } | RowKind::Add);
+    let multi = !s.project_switcher.servers.is_empty();
     let title_ink = if option { p.muted } else { p.text };
     let title = highlighted(&r.title, q, TITLE, title_ink, p.accent);
     let description = |t: &str| highlighted(t, q, UI, p.faint, p.accent).grow(1.0).shrink().min_w(0.0);
@@ -439,9 +517,18 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
     let named = |t: El, share: f32| row().key("name").max_w(text_w * share).center_y().child(t.shrink().min_w(0.0));
     let main = row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y();
     let main = match &r.kind {
-        RowKind::Project { id, .. } | RowKind::Worktree { project_id: id, main: true, .. } => main
-            .child(crate::icons::badge(s, p, s.project(id), &r.title))
-            .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(named(title, 0.55)).child(description(&r.subtitle))),
+        RowKind::Project { id, server, .. } | RowKind::Worktree { project_id: id, main: true, server, .. } => {
+            // Another server's project shows its server's tag after its name (`ServerTag`).
+            let (project, tag) = match server {
+                Some(k) => (servers::project(s, k, id), servers::tag(s, p, k)),
+                None => (s.project(id), None),
+            };
+            let name = row().key("name").max_w(text_w * 0.55).gap(6.0).center_y().child(title.shrink().min_w(0.0)).children(tag);
+            main.child(crate::icons::badge(s, p, project, &r.title)).child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(name).child(description(&r.subtitle)))
+        }
+        RowKind::Server { key } => main
+            .child(icon(servers::glyph(servers::kind(s, key)), 16.0).color(p.icon_muted))
+            .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title.shrink().min_w(0.0)).children((!r.subtitle.is_empty()).then(|| description(&r.subtitle)))),
         RowKind::Worktree { main: false, .. } | RowKind::Create { .. } => {
             let glyph = if matches!(r.kind, RowKind::Create { .. }) { &ic::PLUS } else { &ic::OUTLINE_WORKTREE };
             main.child(icon(glyph, 16.0).color(p.icon_muted))
@@ -477,11 +564,12 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.project_switcher_choose(&key, tx))
         .child(main);
     match &r.kind {
+        RowKind::Add if multi => line.child(crate::keymap::keycaps(p, crate::keymap::Bind::OpenProject)).child(drill(p, "psw-drill-servers", t!("session.new.location.servers"), |s: &mut App, tx: &mut Tx| s.project_switcher_choose("+add", tx))),
         RowKind::Add => line.child(crate::keymap::keycaps(p, crate::keymap::Bind::OpenProject)),
         RowKind::Other { .. } => line.child(drill(p, "psw-drill-other", t!("session.new.location.otherProjects"), |s: &mut App, tx: &mut Tx| s.project_switcher_choose("other", tx))),
-        RowKind::Project { id, drillable: true, .. } => {
-            let pid = id.clone();
-            line.child(drill(p, &format!("psw-drill-{id}"), t!("session.new.location.worktrees"), move |s: &mut App, tx: &mut Tx| s.drill_project_worktrees(&pid, tx)))
+        RowKind::Project { id, drillable: true, server, .. } => {
+            let (pid, server, key) = (id.clone(), server.clone(), r.key.clone());
+            line.child(drill(p, &format!("psw-drill-{id}"), t!("session.new.location.worktrees"), move |s: &mut App, tx: &mut Tx| s.drill_server_worktrees(server.clone(), &pid, key.clone(), tx)))
         }
         _ => line,
     }
@@ -523,6 +611,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let (placeholder, step_title) = match &s.project_switcher.mode {
         StepMode::Projects => (t!("session.new.project.search"), None),
         StepMode::Others => (t!("session.new.project.search"), Some(t!("session.new.location.otherProjects"))),
+        StepMode::Servers => (t!("session.new.location.servers.search"), Some(t!("session.new.location.servers"))),
         StepMode::Worktrees { .. } => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
     };
     let search = row()

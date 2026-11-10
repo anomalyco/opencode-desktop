@@ -222,7 +222,7 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
     rt.frame(1.0 / 60.0);
     assert!(rt.elements().iter().any(|e| !e.exiting && e.key.as_deref() == Some("home-projects")));
     tap(&mut rt, &format!("hp-{harbor_id}"));
-    assert_eq!(rt.state.project_state.home_selected.as_deref(), Some(harbor_id.as_str()));
+    assert_eq!(rt.state.home_selected_id().as_deref(), Some(harbor_id.as_str()));
 
     let session_rows: Vec<String> = rt
         .elements()
@@ -243,7 +243,7 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
     rt.set_viewport((1200.0, 820.0), 1.0);
     rt.update(|s, tx| {
         s.zoom = 1.6;
-        s.project_state.home_selected = None;
+        s.clear_home_project(tx);
         s.go_home(tx);
     });
     rt.frame(1.0 / 60.0);
@@ -260,7 +260,7 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
 
     tap(&mut rt, &format!("hp-{harbor_id}"));
     assert!(!rt.state.project_state.home_menu_open);
-    assert_eq!(rt.state.project_state.home_selected.as_deref(), Some(harbor_id.as_str()));
+    assert_eq!(rt.state.home_selected_id().as_deref(), Some(harbor_id.as_str()));
 
     // Escape closes an open Home projects popover.
     tap(&mut rt, "home-projects-trigger");

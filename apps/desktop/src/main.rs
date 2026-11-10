@@ -414,6 +414,10 @@ pub struct App {
     pub switcher: switcher::Switcher,
     pub project_switcher: project_switcher::ProjectSwitcher,
     pub project_state: projects::ProjectsState,
+    /// Home across servers: its selection, its servers and its list's phase (`projects::home`).
+    pub home_state: projects::home::Home,
+    /// A server's folder picker, while one is open (`projects::remote_picker`).
+    pub remote_picker: projects::remote_picker::Picker,
     pub settings: settings::Settings,
     /// Settings' Providers, Models and Extensions pages (`settings::pages`).
     pub settings_pages: settings::pages::State,
@@ -1131,10 +1135,7 @@ impl App {
     pub fn new_session(&mut self, tx: &mut Tx) {
         let dir = if self.settings.open || self.route == Route::Home {
             let project = self
-                .project_state
-                .home_selected
-                .as_deref()
-                .and_then(|id| self.project(id))
+                .home_selected()
                 .or_else(|| self.used_projects().into_iter().next())
                 .or_else(|| self.projects.first());
             let Some(project) = project else { return };
@@ -1173,6 +1174,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = windows::peer::behind(s);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
+    changed |= servers::health::poll(s, tx);
+    changed |= projects::home::poll(s, tx);
+    changed |= project_switcher::poll(s);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);

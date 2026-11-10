@@ -1,0 +1,106 @@
+//! Every server the app knows, as Desktop's registry lists them (`runtime/server/registry.tsx`):
+//! the app's own (`"sidecar"`), the servers added by address (`servers.json`), then the plugins'
+//! listed servers, ready or not (a WSL distro starting, an SSH host waiting for its sign-in), so
+//! Home and the health checks see them all. The runtime connects to the ones with an endpoint
+//! (`servers::runtime`); what lists call each is [`label`].
+
+use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
+use opencode_kit::servers::registry::{server_hint, server_label};
+use opencode_kit::servers::{HttpBase, ServerConn, ServerKey};
+use opencode_plugin::abi;
+
+use crate::App;
+
+/// A listed server and the name its source gives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub conn: ServerConn,
+    pub name: String,
+}
+
+impl Entry {
+    pub fn key(&self) -> ServerKey {
+        self.conn.key()
+    }
+}
+
+/// The registry in Desktop's order (`resolveServerList`): the app's own server first, then the
+/// servers added by address, then the plugins'. A run without a server (a fixture, a story) lists
+/// only its own.
+pub fn list(s: &App) -> Vec<Entry> {
+    let own = crate::servers::runtime::own_server();
+    let own_base = own.as_ref().map(|o| o.base.clone()).unwrap_or_else(|| s.server_base().to_owned());
+    let mut out = vec![Entry { conn: ServerConn::Sidecar { http: HttpBase::new(&own_base), display_name: None, label: None }, name: String::new() }];
+    if own.is_none() {
+        return out;
+    }
+    for x in crate::servers::list() {
+        let Some(ServerConn::Http { http, auth_token, label, .. }) = ServerConn::http_server(&x.url) else { continue };
+        let conn = ServerConn::Http { http: HttpBase { url: http.url, password: x.password.clone() }, auth_token, display_name: x.name.clone(), label };
+        out.push(Entry { conn, name: x.label() });
+    }
+    for c in crate::plugin_host::contributed_servers(s).into_iter().filter(|c| !c.by_address() && c.rec.listed) {
+        let status = match c.rec.state {
+            abi::SERVER_READY if !c.rec.url.is_empty() => {
+                let mut http = HttpBase::new(&c.rec.url);
+                if !c.rec.password.is_empty() {
+                    http = http.with_password(&c.rec.password);
+                }
+                PluginStatus::Ready { http }
+            }
+            abi::SERVER_STARTING => PluginStatus::Stage(PluginStage::Starting),
+            abi::SERVER_AUTH => PluginStatus::Stage(PluginStage::Auth),
+            abi::SERVER_INCOMPATIBLE => PluginStatus::Stage(PluginStage::Incompatible),
+            abi::SERVER_FAILED | abi::SERVER_READY => PluginStatus::Stage(PluginStage::Failed),
+            _ => PluginStatus::Stage(PluginStage::Stopped),
+        };
+        let label = (!c.rec.label.is_empty()).then(|| c.rec.label.clone());
+        let plugin = c.key.split(':').next().unwrap_or_default().to_owned();
+        let conn = ServerConn::Plugin { key: ServerKey::new(&c.key), plugin, status, managed: false, display_name: Some(c.rec.name.clone()), label };
+        out.push(Entry { conn, name: c.rec.name.clone() });
+    }
+    out
+}
+
+/// The servers Home lists: those not hidden from it, and when every one is, the app's own anyway
+/// (`resolveVisibleServers`).
+pub fn visible(s: &App) -> Vec<Entry> {
+    let all = list(s);
+    let hidden = crate::projects::home::hidden();
+    let shown: Vec<Entry> = all.iter().filter(|e| !hidden.contains(&e.key())).cloned().collect();
+    if !shown.is_empty() || all.is_empty() {
+        return shown;
+    }
+    all.into_iter().take(1).collect()
+}
+
+/// What lists call `conn` (`servers.label`): its own name; the app's own server by the hostname it
+/// last reported, else "This computer"; another by its address.
+pub fn label(conn: &ServerConn) -> String {
+    let hostname = conn.builtin().then(|| crate::servers::health::hostname(&conn.key())).flatten();
+    server_label(conn, conn.builtin(), hostname.as_deref(), opencode_i18n::t!("server.thisComputer"))
+}
+
+/// "This computer" beside the app's own server, unless its name says it (`servers.hint`).
+pub fn hint(conn: &ServerConn) -> Option<String> {
+    server_hint(conn.builtin(), &label(conn), opencode_i18n::t!("server.thisComputer"))
+}
+
+/// `label` for the server keyed `key`.
+pub fn label_of(s: &App, key: &ServerKey) -> String {
+    list(s).into_iter().find(|e| e.key() == *key).map_or_else(|| crate::servers::runtime::label(key), |e| label(&e.conn))
+}
+
+/// The connection to `conn`'s server the probes and the folder picker use: the app's own as
+/// launch found it, another with its password.
+pub fn server_for(conn: &ServerConn) -> Option<opencode_kit::client::Server> {
+    if conn.builtin() {
+        return crate::servers::runtime::own_server();
+    }
+    let http = conn.http()?;
+    let server = opencode_kit::client::Server::new(&http.url);
+    Some(match &http.password {
+        Some(p) => server.with_password(p),
+        None => server,
+    })
+}

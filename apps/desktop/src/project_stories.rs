@@ -65,7 +65,7 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
     s.close_picker(false);
     s.close_project_switcher(false);
     s.project_state.home_menu_open = false;
-    s.project_state.home_selected = None;
+    s.clear_home_project(&mut Tx::default());
     match s.variant {
         1 => {
             s.open_project_switcher();
@@ -78,14 +78,14 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
         2 => {
             s.route = Route::Home;
             if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
-                s.project_state.home_selected = Some(id);
+                s.toggle_home_project(&id, &mut Tx::default());
             }
             s.project_state.home_menu_open = true;
         }
         3 => {
             s.route = Route::Home;
             if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
-                s.project_state.home_selected = Some(id);
+                s.toggle_home_project(&id, &mut Tx::default());
             }
         }
         _ => {

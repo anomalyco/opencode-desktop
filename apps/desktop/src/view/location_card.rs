@@ -140,7 +140,8 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     let root = project.as_ref().map(|p| p.directory.clone());
     popup::open_drawn(s, menu, TRIGGER, tx, move |s, picked, tx| match picked {
         Some("project") => {
-            s.project_state.home_selected = project_id.clone();
+            let server = crate::servers::runtime::active(s).clone();
+            crate::projects::home::show(s, &server, root.as_deref());
             s.go_home(tx);
         }
         Some("copy-branch") => copied(s, branch.as_deref().unwrap_or_default(), tx),

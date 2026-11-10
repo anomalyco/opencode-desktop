@@ -15,12 +15,13 @@ use rune::{FileDialogOptions, Tx};
 
 use crate::{App, Source, tabs};
 
+pub mod home;
+pub mod remote_picker;
+
 #[derive(Default)]
 pub struct ProjectsState {
     /// Projects this client has opened or used, most recent first.
     pub used: Vec<String>,
-    /// Selected project ID filtering Home's session list (`None` shows all projects).
-    pub home_selected: Option<String>,
     /// Whether Home's compact project filter popover is open.
     pub home_menu_open: bool,
     /// The narrow Home's projects dropdown's width: its popover takes it (`sameWidth`).
@@ -199,26 +200,26 @@ impl App {
             .map(|p| p.id.clone())
             .collect();
         self.project_state.used.retain(|x| !drop_ids.contains(x) && x != id);
-        if self.project_state.home_selected.as_deref() == Some(id) {
-            self.project_state.home_selected = None;
-        }
         self.project_state.home_menu_open = false;
         self.save_used_projects();
     }
 
+    /// A Home project row: selects project `id` of the server the window works against, or, when
+    /// it's selected, goes back to all of the server's projects (`project.toggled`).
     pub fn toggle_home_project(&mut self, id: &str, tx: &mut Tx) {
         tx.instant();
-        if self.project_state.home_selected.as_deref() == Some(id) {
-            self.project_state.home_selected = None;
-        } else if self.project(id).is_some() {
-            self.project_state.home_selected = Some(id.to_owned());
+        let server = crate::servers::runtime::active(self).clone();
+        if let Some(dir) = self.project(id).map(|p| p.directory.clone()) {
+            home::toggle(self, &server, &dir);
         }
         self.project_state.home_menu_open = false;
     }
 
+    /// All projects: Home focuses the server it shows (`server.focused`).
     pub fn clear_home_project(&mut self, tx: &mut Tx) {
         tx.instant();
-        self.project_state.home_selected = None;
+        let server = home::server(self);
+        home::focus(self, &server);
         self.project_state.home_menu_open = false;
     }
 

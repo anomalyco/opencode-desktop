@@ -7,6 +7,7 @@ pub(crate) mod fold;
 pub(crate) mod list;
 pub(crate) mod projects;
 mod search;
+mod servers;
 #[cfg(test)]
 mod list_tests;
 
@@ -61,10 +62,11 @@ const SESSIONS_MAX: f32 = 720.0;
 
 /// Home in the panel `panel` big, in a window `window` big (zeros when unknown: a story).
 pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32; 2]) -> El {
-    if crate::launch::offline(s) {
+    // One server that didn't answer shows the setup card; with several, Home lists them.
+    if crate::launch::offline(s) && !servers::grouped(s) {
         return no_server_home(s, p);
     }
-    let selected = s.project_state.home_selected.as_deref().and_then(|id| s.project(id));
+    let selected = s.home_selected();
     let panel = if panel_w > 0.0 { panel_w } else { 1280.0 / s.zoom.max(1e-3) - s.sidebar_shown_w() - 16.0 };
     let window_w = if window[0] > 0.0 { window[0] } else { panel + s.sidebar_shown_w() + 16.0 };
     let window_h = if window[1] > 0.0 { window[1] } else { 800.0 };
@@ -196,6 +198,28 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     if count == 0 && !crate::launch::waiting(s) {
         list = list.child(empty(p, can_create));
     }
+    // The focused server's list phase (`load-machine.ts`): placeholder rows while it connects, a
+    // notice while it can't be reached, signs us out or is too old, or its list failed.
+    use opencode_kit::servers::home_load::{Failure, ListView, Unavailable};
+    let list = match crate::projects::home::list_view(s) {
+        ListView::Ready { .. } => list,
+        ListView::Loading { skeleton } => col().key("groups").w_full().children(skeleton.then(|| placeholder_rows(p, tier, show_project))),
+        ListView::Unavailable(reason) => {
+            let title = match reason {
+                Unavailable::Offline => t!("session.error.unreachable"),
+                Unavailable::Auth => t!("session.error.signedOut"),
+                Unavailable::Incompatible => t!("session.error.incompatible"),
+            };
+            col().key("groups").w_full().child(unavailable(p, title, None, reason == Unavailable::Offline))
+        }
+        ListView::Error(failure) => {
+            let why = match failure {
+                Failure::Timeout => t!("home.sessions.load.timeout").to_owned(),
+                Failure::Rejected(message) => message,
+            };
+            col().key("groups").w_full().child(unavailable(p, t!("home.sessions.load.failed"), Some(why), true))
+        }
+    };
     // `HomeSessionsView`'s `<section>` reveals the page's thumb (`thumbHoverTarget`). Only the
     // wide grid caps it (`lg:grid-cols-[280px_minmax(0,720px)]`); below that it takes the grid.
     let column = col().key("home-column").grow(1.0).shrink().min_w(0.0);
@@ -257,6 +281,50 @@ fn empty(p: &Pal, can_create: bool) -> El {
         );
     }
     e
+}
+
+/// `HomeSessionsUnavailable`: centred 52 below the list's top, 16 apart: the title (13 at 530),
+/// what went wrong (13 on 20, muted), and Try again (a neutral button).
+fn unavailable(p: &Pal, title: &str, description: Option<String>, retry: bool) -> El {
+    let mut e = col().key("home-sessions-unavailable").role("status").w_full().px(24.0).pt(52.0).gap(16.0).items_center().child(text(title.to_owned()).font(UI_MED).color(p.text));
+    if let Some(d) = description {
+        e = e.child(text(d).font(UI.lh(20.0)).color(p.muted).wrap().align(rune::Align::Center).mb(4.0));
+    }
+    if retry {
+        e = e.child(
+            crate::widgets::button(t!("common.retry"), rune_kit::ButtonVariant::Neutral)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| crate::projects::home::retry(s, tx))
+                .build(crate::palette::kit(p))
+                .key("home-sessions-retry"),
+        );
+    }
+    e
+}
+
+/// `HomeSessionSkeleton`: past the 28 pt header's room, six 40 pt rows `gap-px` (`pt-2
+/// md:pt-4`): a 16 pt square and a bar, each in layer-02 (the project's bar in layer-01 when
+/// rows show it), the bars as wide as Desktop's.
+fn placeholder_rows(p: &Pal, tier: Tier, show_project: bool) -> El {
+    const WIDTHS: [f32; 6] = [56.0, 38.0, 66.0, 46.0, 30.0, 52.0];
+    let mut rows = col().key("home-session-skeleton").w_full().pt(if tier == Tier::Narrow { 4.0 } else { 12.0 }).pr(12.0).child(el().h(28.0)).child(el().h(if tier == Tier::Narrow { 8.0 } else { 16.0 }));
+    for (i, width) in WIDTHS.iter().enumerate() {
+        let bar = row().key("bar").grow(1.0).shrink().min_w(0.0).child(el().w_frac(width / 100.0).h(8.0).radius(4.0).fill(p.layer2));
+        rows = rows.child(
+            row()
+                .key(format!("placeholder-{i}"))
+                .w_full()
+                .h(if tier == Tier::Narrow && show_project { 48.0 } else { 40.0 })
+                .pl(if tier == Tier::Narrow { 6.0 } else { 12.0 })
+                .pr(if tier == Tier::Narrow { 12.0 } else { 40.0 })
+                .gap(if tier == Tier::Narrow { 8.0 } else { 6.0 })
+                .mb(1.0)
+                .center_y()
+                .child(el().size(16.0, 16.0).radius(4.0).fill(p.layer2))
+                .child(bar)
+                .children(show_project.then(|| el().w(64.0).h(8.0).radius(4.0).fill(p.layer1))),
+        );
+    }
+    rows
 }
 
 /// One session in Home's list (`HomeSessionRow`): 40 tall, `ps-3 pe-3`, the overlay hover,

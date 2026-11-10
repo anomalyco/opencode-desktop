@@ -143,7 +143,7 @@ impl App {
         }
         let m = ev.mods;
         if !m.alt && !m.cmd && !m.ctrl && self.home_search_open() {
-            let selected = self.project_state.home_selected.as_deref().and_then(|id| self.project(id)).cloned();
+            let selected = self.home_selected().cloned();
             let ids: Vec<String> = self.home_search_results(selected.as_ref()).into_iter().map(|s| s.id.clone()).collect();
             match ev.key {
                 Key::Down | Key::Up if !m.shift && !ids.is_empty() => {

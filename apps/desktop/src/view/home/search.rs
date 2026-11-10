@@ -7,7 +7,7 @@ use super::*;
 /// `h-9 rounded-[6px] py-1 ps-3 pe-2 gap-2`, `bg-layer-02/60`, `bg-layer-02` hovered or focused.
 pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool) -> El {
     let open = s.home_search_open();
-    let placeholder = selected.map_or_else(|| opencode_i18n::t!("home.sessions.search.placeholder").into(), |proj| opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = proj.name));
+    let placeholder = placeholder(s, selected);
     // Not `search`: that key is the titlebar's and the sidebar's Search sessions button.
     let mut field = row()
         .key("home-search")
@@ -59,6 +59,19 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         return root.child(field);
     }
     root.child(panel(s, p, selected, width, window_h, narrow)).child(field)
+}
+
+/// `search.ts:101-113`: "Search sessions in <project>" for a selected project; with several
+/// servers, "Search sessions in <server>"; else "Search sessions".
+fn placeholder(s: &App, selected: Option<&model::Project>) -> String {
+    if let Some(proj) = selected {
+        return opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = proj.name);
+    }
+    let key = crate::projects::home::server(s);
+    match s.home_state.servers.iter().find(|v| v.key == key).filter(|_| s.home_state.servers.len() > 1) {
+        Some(v) => opencode_i18n::t!("home.sessions.search.placeholder.scoped", scope = v.label),
+        None => opencode_i18n::t!("home.sessions.search.placeholder").into(),
+    }
 }
 
 /// The results panel: `rounded-[12px] bg-base`, the floating elevation, 6 out from the field on

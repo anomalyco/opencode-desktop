@@ -61,6 +61,8 @@ impl App {
                 tx.wake_at(*due);
             }
         }
+        // The other servers' sessions (`servers.rs`), each source on its own.
+        changed |= self.poll_remotes(now, tx);
         let (sessions_were, files_were) = (self.switcher.sessions.status(), self.switcher.files.status());
         self.switcher_sessions_step(search::Event::Tick { now }, tx);
         self.switcher_files_step(search::Event::Tick { now }, tx);

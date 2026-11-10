@@ -561,7 +561,7 @@ impl App {
             return;
         }
         tx.instant();
-        self.checkout.home = key.clone();
+        crate::projects::home::focus(self, key);
         self.opening = None;
         self.route = Route::Home;
         crate::servers::runtime::switch(self, key);

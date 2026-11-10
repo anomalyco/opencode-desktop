@@ -16,8 +16,10 @@ pub(crate) struct Frame {
 }
 
 pub(crate) enum Event {
-    /// → on a Git project, or its chevron (`drilled`).
-    Drilled { project: String, active: Option<String> },
+    /// → on a Git project, or its chevron (`drilled`), on `server` (None: the window's).
+    Drilled { project: String, server: Option<opencode_kit::servers::ServerKey>, active: Option<String> },
+    /// Add project with several servers: which server (`chosen` with `add`, `choosesServer`).
+    Servers { active: Option<String> },
     /// Other projects, chosen (`chosen` with an `other` entry).
     Others { active: Option<String> },
     /// The step's title, or a key that steps back (`back`).
@@ -46,8 +48,10 @@ pub(crate) enum Pressed {
 
 /// What the lit row is, for the keys that act on it.
 pub(crate) enum Lit {
-    Project { id: String, key: String, drillable: bool },
+    Project { id: String, server: Option<opencode_kit::servers::ServerKey>, key: String, drillable: bool },
     Other,
+    /// Add project, while it asks which server.
+    Add,
     Row,
 }
 
@@ -63,11 +67,18 @@ pub(crate) enum Effect {
 /// The dialog's step machine. Returns the effects and whether the key was the dialog's.
 pub(crate) fn step(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, event: Event) -> (Effects<Effect>, bool) {
     match event {
-        Event::Drilled { project, active } => {
+        Event::Drilled { project, server, active } => {
             if !matches!(mode, StepMode::Projects | StepMode::Others) {
                 return (Effects::none(), false);
             }
-            (enter(mode, query, history, active, StepMode::Worktrees { project, direct: false }), false)
+            (enter(mode, query, history, active, StepMode::Worktrees { project, server, direct: false }), false)
+        }
+        // Picking a server again from the server step keeps its search and the way back.
+        Event::Servers { active } => {
+            if *mode == StepMode::Servers {
+                return (Effects::none(), false);
+            }
+            (enter(mode, query, history, active, StepMode::Servers), false)
         }
         Event::Others { active } => {
             if *mode != StepMode::Projects {
@@ -83,8 +94,9 @@ pub(crate) fn step(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, e
 fn key(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, k: KeyDown) -> (Effects<Effect>, bool) {
     if k.key == Pressed::Forward && k.at_end {
         match k.active {
-            Some(Lit::Project { id, key, drillable: true }) => return (step(mode, query, history, Event::Drilled { project: id, active: Some(key) }).0, true),
+            Some(Lit::Project { id, server, key, drillable: true }) => return (step(mode, query, history, Event::Drilled { project: id, server, active: Some(key) }).0, true),
             Some(Lit::Other) if *mode == StepMode::Projects => return (step(mode, query, history, Event::Others { active: Some("other".into()) }).0, true),
+            Some(Lit::Add) => return (step(mode, query, history, Event::Servers { active: Some("+add".into()) }).0, true),
             _ => {}
         }
     }

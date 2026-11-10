@@ -21,7 +21,7 @@ use crate::reconnect::ServerId;
 use crate::{App, Source};
 
 /// A link waiting for its server: the folder an `open?project=` link names, on the server it
-/// opens on (the window's, today; `notes/multi-server.md` MS-2 routes it by server).
+/// opens on (the app's own: a folder on this computer).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Queued {
     pub server: ServerId,
@@ -49,8 +49,8 @@ pub enum DeepLinkEvent {
 pub enum DeepLinkEffect {
     /// The window comes forward, as Desktop's `window.focus` command.
     Focus,
-    /// Opens `dir` as a project with a new session.
-    Open(String),
+    /// Opens `dir` as a project with a new session on `server`.
+    Open { server: ServerId, dir: String },
 }
 
 impl DeepLinks {
@@ -69,7 +69,7 @@ impl DeepLinks {
         }
         let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|q| ready(&q.server));
         for q in now {
-            effects.push(DeepLinkEffect::Open(q.dir));
+            effects.push(DeepLinkEffect::Open { server: q.server, dir: q.dir });
         }
         if !later.is_empty() { *self = DeepLinks::Waiting(later); }
         effects
@@ -93,8 +93,8 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     }
     match (project(url, crate::launch::product().scheme()), server_of(s)) {
         (Some(dir), Some(server)) => {
-            let ready = ready_server(s);
-            let effects = s.deep_links.step(DeepLinkEvent::Received(Queued { server, dir }), |server| ready.as_deref() == Some(server));
+            let ready = ready_servers(s);
+            let effects = s.deep_links.step(DeepLinkEvent::Received(Queued { server, dir }), |server| ready.iter().any(|r| r == server));
             run(s, effects, tx);
         }
         _ => eprintln!("opencode-rune: ignored a link it doesn't open: {url}"),
@@ -106,9 +106,9 @@ pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
     if !s.deep_links.is_waiting() {
         return false;
     }
-    let Some(server) = ready_server(s) else { return false };
-    let ready = Some(server.clone());
-    let effects = s.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.as_deref() == Some(server));
+    let ready = ready_servers(s);
+    let Some(server) = ready.first().cloned() else { return false };
+    let effects = s.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
     run(s, effects, tx)
 }
 
@@ -118,8 +118,10 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
         match effect {
             DeepLinkEffect::Focus if s.live() => rune_notify::bring_to_front(),
             DeepLinkEffect::Focus => {}
-            DeepLinkEffect::Open(dir) => {
+            DeepLinkEffect::Open { server, dir } => {
                 s.close_settings();
+                // The project opens on its server, whichever the window shows.
+                crate::servers::runtime::switch(s, &opencode_kit::servers::ServerKey::new(&server));
                 s.open_project_dir(&dir, true, tx);
                 changed = true;
             }
@@ -133,12 +135,11 @@ fn server_of(_: &App) -> Option<ServerId> {
     Some(opencode_kit::servers::ServerKey::SIDECAR.to_owned())
 }
 
-/// The server the window works against, once it can take writes.
-fn ready_server(s: &App) -> Option<ServerId> {
-    match &s.source {
-        Source::Live { writes: Some(_), .. } | Source::Fixture => crate::launch::window_server(s),
-        Source::Live { .. } => None,
-    }
+/// The servers the window has a half of that can take writes: a link waits only for its own
+/// server, not for the one the window shows.
+fn ready_servers(s: &mut App) -> Vec<ServerId> {
+    let can_write = |s: &mut App| matches!(&s.source, Source::Live { writes: Some(_), .. } | Source::Fixture);
+    s.checkout.keys().into_iter().filter(|k| crate::servers::runtime::with_server(s, k, can_write).unwrap_or(false)).map(|k| k.as_str().to_owned()).collect()
 }
 
 /// The folder an `open?project=<folder>` link on `opencode` or `own` names.

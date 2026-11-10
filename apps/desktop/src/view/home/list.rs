@@ -154,7 +154,7 @@ impl App {
     }
 
     fn home_order(&self) -> Hold {
-        let selected = self.project_state.home_selected.as_deref().and_then(|id| self.project(id));
+        let selected = self.home_selected();
         let mut at = HashMap::new();
         for group in self.home_groups(selected) {
             for ses in group.rows.iter().chain(group.folds.iter().flat_map(|f| &f.sessions)) {

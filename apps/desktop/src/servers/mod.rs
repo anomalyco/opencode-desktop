@@ -6,8 +6,10 @@
 //! window. Add server and Edit server are [`dialog`], over [`machine`].
 
 pub mod dialog;
+pub mod health;
 pub mod machine;
 pub mod pairing;
+pub mod registry;
 pub mod runtime;
 
 use std::cell::{Cell, RefCell};

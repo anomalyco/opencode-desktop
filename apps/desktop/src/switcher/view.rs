@@ -187,7 +187,11 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
     let keyed = e.action.clone();
     let hover = e.key.clone();
     let (lead, trailing) = match &e.action {
-        Action::Session(id) => session_parts(s, p, e, id),
+        Action::Session(id) => session_parts(s, p, e, id, s.project(&e.project), None),
+        Action::RemoteSession { server, id } => {
+            let remote = s.switcher.remotes.iter().find(|r| r.server == *server);
+            session_parts(s, p, e, id, remote.and_then(|r| r.project(&e.project)), remote.and_then(|r| r.session(id)))
+        }
         Action::Command(_) => (None, command_keys(p, e)),
         Action::File(_) | Action::Setting(_) => (None, None),
     };
@@ -274,11 +278,15 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) 
 
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
 /// and its age, or the activity ring while it works (`PaletteSessionRow`).
-fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(El, f32)>) {
+fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, project: Option<&opencode_kit::model::Project>, remote: Option<&opencode_kit::model::SessionInfo>) -> (Option<El>, Option<(El, f32)>) {
     let marks = s.marks(id);
-    // The open session reads itself, so only a request waiting in it marks it.
-    let unread = !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::here(id.to_owned())));
-    let avatar = crate::icons::session_avatar(s, p, s.project(&e.project), &e.description, e.open, unread);
+    // The open session reads itself, so only a request waiting in it marks it. Another server's
+    // session is unread as its server last said.
+    let unread = match remote {
+        Some(info) => info.unread(),
+        None => !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::here(id.to_owned()))),
+    };
+    let avatar = crate::icons::session_avatar(s, p, project, &e.description, e.open, unread);
     if marks.busy {
         let ring = row().key("meta").size(14.0, 16.0).center().child(session_view::style::activity_ring(p));
         return (Some(avatar), Some((ring, 14.0)));
