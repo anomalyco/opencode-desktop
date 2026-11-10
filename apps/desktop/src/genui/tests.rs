@@ -15,6 +15,18 @@ fn settle(rt: &mut Runtime<App>) {
     }
 }
 
+/// The fixture with the built-in plugins running: since 4319ca82 a reply's ```ui outlines draw
+/// as parts only while the Rune UI plugin renders ui code blocks.
+fn runtime() -> Runtime<App> {
+    let mut rt = crate::fixture_runtime();
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
+    settle(&mut rt);
+    rt
+}
+
 fn fixture_texts() -> Vec<String> {
     let f: serde_json::Value = serde_json::from_str(crate::FIXTURE).expect("fixture");
     let mut out = Vec::new();
@@ -149,7 +161,7 @@ fn every_theme_colours_parts() {
 
 #[test]
 fn a_mixed_reply_draws_its_outlines_beside_code_and_mermaid() {
-    let mut rt = crate::fixture_runtime();
+    let mut rt = runtime();
     rt.update(|s, _| add_mixed(s, MAIN));
     settle(&mut rt);
     let els = rt.elements();
@@ -183,7 +195,7 @@ fn find_paints_a_match_inside_an_outline() {
 
 #[test]
 fn a_streamed_outline_grows_without_its_source_showing() {
-    let mut rt = crate::fixture_runtime();
+    let mut rt = runtime();
     rt.update(|s, _| {
         s.finish_stream();
         s.route = crate::Route::here(MAIN.into());
@@ -220,7 +232,7 @@ fn a_streamed_outline_grows_without_its_source_showing() {
 
 #[test]
 fn copying_a_whole_outline_copies_it_as_plain_lines() {
-    let mut rt = crate::fixture_runtime();
+    let mut rt = runtime();
     rt.update(|s, _| add_mixed(s, MAIN));
     settle(&mut rt);
     let clipboard = rune::clipboard::memory();
@@ -241,7 +253,7 @@ fn copying_a_whole_outline_copies_it_as_plain_lines() {
 
 #[test]
 fn a_drag_from_prose_into_an_outline_copies_both_as_drawn() {
-    let mut rt = crate::fixture_runtime();
+    let mut rt = runtime();
     rt.update(|s, _| add_mixed(s, MAIN));
     settle(&mut rt);
     let clipboard = rune::clipboard::memory();
