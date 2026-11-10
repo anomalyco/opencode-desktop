@@ -174,6 +174,11 @@ impl SessionInfo {
         Some((m["id"].as_str()?, m["since"].as_i64()?))
     }
 
+    /// When it was last active: `time.updated`, else `time.created` (`updated ?? created`).
+    pub fn active_ms(&self) -> i64 {
+        if self.updated > 0 { self.updated } else { self.created }
+    }
+
     pub fn unread(&self) -> bool {
         self.idle.is_some_and(|i| self.viewed.is_none_or(|v| i > v))
     }

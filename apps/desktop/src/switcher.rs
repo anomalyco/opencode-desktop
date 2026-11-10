@@ -303,7 +303,9 @@ impl App {
             }
         }
         let mut all: Vec<&SessionInfo> = by_id.into_values().collect();
-        all.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
+        // `compareSessionTime` (`shell/layout/helpers.ts`): newest `updated ?? created` first,
+        // then by id, a code unit at a time.
+        all.sort_by(|a, b| b.active_ms().cmp(&a.active_ms()).then_with(|| a.id.encode_utf16().cmp(b.id.encode_utf16())));
         all
     }
 
