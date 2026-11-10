@@ -81,7 +81,9 @@ fn check(word: f64, reveal: Reveal) {
     let looks = run(word, reveal);
     // No word of the reply draws below its row's moving edge, and nothing lands on Working.
     for l in &looks {
-        assert!(!l.above.starts_with("t-") || l.words <= l.bottom + 0.5, "{reveal:?}, {word}s a word, {:.3}s: words draw to {}, under {}'s edge at {}", l.t, l.words, l.above, l.bottom);
+        // A text's box is its exact line box (Rune 1571ad57) while rows round to the pixel grid,
+        // so the last line's leading may sit a point past the row's edge; its ink doesn't.
+        assert!(!l.above.starts_with("t-") || l.words <= l.bottom + 1.5, "{reveal:?}, {word}s a word, {:.3}s: words draw to {}, under {}'s edge at {}", l.t, l.words, l.above, l.bottom);
         assert!(l.words <= l.working, "{reveal:?}, {word}s a word, {:.3}s: words draw to {}, over Working at {}", l.t, l.words, l.working);
     }
     // Thinking, a tool, the answer, a tool, the end: Working is its lane's gap under the last
