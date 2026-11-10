@@ -205,13 +205,36 @@ struct Shared {
 }
 
 struct InnerState {
-    stopped: bool,
-    dialing: bool,
-    status: ClientMcpStatus,
-    ready_since: Option<Instant>,
+    conn: Conn,
     tools: Vec<McpTool>,
-    active_tcp: Option<TcpStream>,
-    active_out: Option<Sender<Outbound>>,
+}
+
+/// The socket's life, one state at a time (`ClientMcpStatus` reads it). Official
+/// `packages/client/src/mcp.ts` keeps the same lifecycle in `disposed`, `delay`, `timer` and
+/// `socket`.
+enum Conn {
+    /// The worker is opening a socket.
+    Dialing,
+    /// Waiting out a backoff before the next dial; `unsupported`: the server lacks the route.
+    Waiting { unsupported: bool },
+    /// The socket is open; `ready` once `tools/list` was answered on it, since then.
+    Open { tcp: Option<TcpStream>, out: Sender<Outbound>, ready: Option<Instant> },
+    /// Closed for good (`close`, or the call receiver went away).
+    Closed,
+}
+
+impl Conn {
+    fn status(&self) -> ClientMcpStatus {
+        match self {
+            Conn::Dialing | Conn::Waiting { unsupported: false } => ClientMcpStatus::Connecting,
+            Conn::Waiting { unsupported: true } => ClientMcpStatus::Unsupported,
+            Conn::Open { ready: None, .. } => ClientMcpStatus::Handshaking,
+            Conn::Open { ready: Some(_), .. } => ClientMcpStatus::Ready,
+            Conn::Closed => ClientMcpStatus::Closed,
+        }
+    }
+
+    fn closed(&self) -> bool { matches!(self, Conn::Closed) }
 }
 
 /// Handle to a background client MCP WebSocket worker. Closes cleanly when dropped.
@@ -222,27 +245,26 @@ pub struct ClientMcp {
 
 impl ClientMcp {
     pub fn status(&self) -> ClientMcpStatus {
-        lock(&self.shared.state).status
+        lock(&self.shared.state).conn.status()
     }
 
     /// True only after `tools/list` has been answered and flushed on the current socket.
     pub fn is_ready(&self) -> bool {
-        lock(&self.shared.state).status == ClientMcpStatus::Ready
+        self.status() == ClientMcpStatus::Ready
     }
 
     /// True when `tools/list` has been answered for at least `min_age` (useful for waiting past the
     /// server's 100 ms tool-registry debounce in tests or automated launches).
     pub fn ready_for(&self, min_age: Duration) -> bool {
-        let st = lock(&self.shared.state);
-        st.status == ClientMcpStatus::Ready && st.ready_since.is_some_and(|at| at.elapsed() >= min_age)
+        matches!(lock(&self.shared.state).conn, Conn::Open { ready: Some(at), .. } if at.elapsed() >= min_age)
     }
 
     /// Replaces the advertised tool list and notifies the server (`notifications/tools/list_changed`).
     pub fn set_tools(&self, tools: Vec<McpTool>) {
         let mut st = lock(&self.shared.state);
         st.tools = tools;
-        if let Some(tx) = &st.active_out {
-            tx.send(Outbound::ToolsChanged).ok();
+        if let Conn::Open { out, .. } = &st.conn {
+            out.send(Outbound::ToolsChanged).ok();
         }
     }
 
@@ -250,16 +272,12 @@ impl ClientMcp {
     pub fn close(&mut self) {
         let can_join = {
             let mut st = lock(&self.shared.state);
-            if !st.stopped {
-                st.stopped = true;
-                st.status = ClientMcpStatus::Closed;
-                st.ready_since = None;
-                st.active_out = None;
-                if let Some(tcp) = st.active_tcp.take() {
-                    tcp.shutdown(Shutdown::Read).ok();
-                }
+            // A dial in flight can take its whole timeout: don't wait for it.
+            let dialing = matches!(st.conn, Conn::Dialing);
+            if let Conn::Open { tcp: Some(tcp), .. } = std::mem::replace(&mut st.conn, Conn::Closed) {
+                tcp.shutdown(Shutdown::Read).ok();
             }
-            !st.dialing
+            !dialing
         };
         self.shared.cv.notify_all();
         if let Some(h) = self.handle.take()
@@ -313,15 +331,7 @@ impl Server {
     /// Connects a client MCP WebSocket forwarding incoming `tools/call` requests into `calls`.
     pub fn connect_client_mcp_with(&self, options: ClientMcpOptions, calls: Sender<McpCall>, waker: Waker) -> ClientMcp {
         let shared = Arc::new(Shared {
-            state: Mutex::new(InnerState {
-                stopped: false,
-                dialing: true,
-                status: ClientMcpStatus::Connecting,
-                ready_since: None,
-                tools: options.tools.clone(),
-                active_tcp: None,
-                active_out: None,
-            }),
+            state: Mutex::new(InnerState { conn: Conn::Dialing, tools: options.tools.clone() }),
             cv: Condvar::new(),
         });
         let worker_shared = shared.clone();
@@ -368,18 +378,18 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn set_status(shared: &Shared, status: ClientMcpStatus, waker: &Waker) -> bool {
+/// Moves the socket's state to `next` unless it was closed; false when it was. Wakes the app when
+/// the status changed.
+fn transition(shared: &Shared, next: impl FnOnce(&mut Conn) -> Option<Conn>, waker: &Waker) -> bool {
     let mut st = lock(&shared.state);
-    if st.stopped {
+    if st.conn.closed() {
         return false;
     }
-    let changed = st.status != status;
-    st.status = status;
-    if status != ClientMcpStatus::Ready {
-        st.ready_since = None;
-    } else if st.ready_since.is_none() {
-        st.ready_since = Some(Instant::now());
+    let before = st.conn.status();
+    if let Some(next) = next(&mut st.conn) {
+        st.conn = next;
     }
+    let changed = st.conn.status() != before;
     drop(st);
     if changed {
         waker();
@@ -387,13 +397,24 @@ fn set_status(shared: &Shared, status: ClientMcpStatus, waker: &Waker) -> bool {
     true
 }
 
-fn wait_backoff(shared: &Shared, delay: Duration) -> bool {
-    let st = lock(&shared.state);
-    if st.stopped {
+/// `tools/list` was answered on the open socket: it's ready from now.
+fn mark_ready(shared: &Shared, waker: &Waker) {
+    transition(shared, |conn| {
+        if let Conn::Open { ready: ready @ None, .. } = conn {
+            *ready = Some(Instant::now());
+        }
+        None
+    }, waker);
+}
+
+/// Waits out `delay` before the next dial; false when the socket was closed meanwhile.
+fn wait_backoff(shared: &Shared, delay: Duration, unsupported: bool, waker: &Waker) -> bool {
+    if !transition(shared, |_| Some(Conn::Waiting { unsupported }), waker) {
         return false;
     }
+    let st = lock(&shared.state);
     let (st, _) = shared.cv.wait_timeout(st, delay).unwrap_or_else(|e| e.into_inner());
-    !st.stopped
+    !st.conn.closed()
 }
 
 enum ConnectOutcome {
@@ -456,29 +477,21 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
     let mut delay = options.reconnect_min;
 
     loop {
-        {
-            let mut st = lock(&shared.state);
-            if st.stopped {
-                st.dialing = false;
-                return;
-            }
-            st.dialing = true;
+        if !transition(&shared, |_| Some(Conn::Dialing), &waker) {
+            return;
         }
         let outcome = dial(&server, &url);
-        lock(&shared.state).dialing = false;
 
         let mut ws = match outcome {
             ConnectOutcome::Connected(ws) => *ws,
             ConnectOutcome::Unsupported => {
-                if !set_status(&shared, ClientMcpStatus::Unsupported, &waker)
-                    || !wait_backoff(&shared, options.unsupported_retry)
-                {
+                if !wait_backoff(&shared, options.unsupported_retry, true, &waker) {
                     return;
                 }
                 continue;
             }
             ConnectOutcome::Failed => {
-                if !set_status(&shared, ClientMcpStatus::Connecting, &waker) || !wait_backoff(&shared, delay) {
+                if !wait_backoff(&shared, delay, false, &waker) {
                     return;
                 }
                 delay = delay.saturating_mul(2).min(options.reconnect_max);
@@ -487,18 +500,12 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
         };
 
         let (out_tx, out_rx) = channel::<Outbound>();
-        {
-            let mut st = lock(&shared.state);
-            if st.stopped {
-                send_normal_close(&mut ws);
-                return;
-            }
-            st.status = ClientMcpStatus::Handshaking;
-            st.ready_since = None;
-            st.active_tcp = tcp_ref(&ws).try_clone().ok();
-            st.active_out = Some(out_tx.clone());
+        let tcp = tcp_ref(&ws).try_clone().ok();
+        let out = out_tx.clone();
+        if !transition(&shared, move |_| Some(Conn::Open { tcp, out, ready: None }), &waker) {
+            send_normal_close(&mut ws);
+            return;
         }
-        waker();
 
         let mut initialized = false;
         let disconnected = serve_socket(&mut ws, &options, &calls, &waker, &shared, &out_tx, &out_rx, &mut initialized);
@@ -506,28 +513,15 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
             delay = options.reconnect_min;
         }
 
-        let stopping = {
-            let mut st = lock(&shared.state);
-            st.active_tcp = None;
-            st.active_out = None;
-            st.ready_since = None;
-            if st.stopped {
-                st.status = ClientMcpStatus::Closed;
-                true
-            } else {
-                st.status = ClientMcpStatus::Connecting;
-                false
-            }
-        };
-
-        if stopping || matches!(disconnected, LoopExit::ReceiverDropped) {
+        let stopping = matches!(disconnected, LoopExit::ReceiverDropped) || !transition(&shared, |_| Some(Conn::Waiting { unsupported: false }), &waker);
+        if stopping {
+            lock(&shared.state).conn = Conn::Closed;
             send_normal_close(&mut ws);
             waker();
             return;
         }
 
-        waker();
-        if !wait_backoff(&shared, delay) {
+        if !wait_backoff(&shared, delay, false, &waker) {
             return;
         }
         delay = delay.saturating_mul(2).min(options.reconnect_max);
@@ -555,7 +549,7 @@ fn serve_socket(
     tcp_ref(ws).set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
 
     loop {
-        if lock(&shared.state).stopped || !drain_outbound(ws, out_rx, &mut in_flight) {
+        if lock(&shared.state).conn.closed() || !drain_outbound(ws, out_rx, &mut in_flight) {
             return LoopExit::SocketClosed;
         }
 
@@ -651,7 +645,7 @@ fn handle_frame(
         "tools/list" => {
             let tools_json: Vec<Value> = lock(&shared.state).tools.iter().map(tool_descriptor_json).collect();
             if send_json(ws, &json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools_json } })) {
-                set_status(shared, ClientMcpStatus::Ready, waker);
+                mark_ready(shared, waker);
             }
         }
         "tools/call" => {
