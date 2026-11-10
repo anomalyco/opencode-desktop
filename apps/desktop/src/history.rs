@@ -121,6 +121,11 @@ impl History {
 /// that types no ASCII there falls back to the physical key, so it works on any layout.
 pub fn bracket(ev: &KeyEvent, physical: Option<PhysicalKeyCode>) -> Option<bool> {
     let Key::Command(c) = ev.key else { return None };
+    // Desktop's mod+[ has no Shift, and ⇧⌘[ is the side panel's previous tab: the keybind's
+    // match lets Shift through on punctuation, so Back must say no to it itself.
+    if ev.mods.shift {
+        return None;
+    }
     let key = match (c.is_ascii(), physical) {
         (false, Some(PhysicalKeyCode::BracketLeft)) => '[',
         (false, Some(PhysicalKeyCode::BracketRight)) => ']',
