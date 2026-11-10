@@ -130,7 +130,7 @@ export type ControlSize = "small" | "normal" | "large"
 export type Elevation = "raised" | "floating" | "overlay"
 
 --- An element's accessibility role.
-export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "heading" | "img" | "status" | "alert"
+export type Role = "none" | "group" | "region" | "button" | "link" | "switch" | "checkbox" | "radio" | "tab" | "list" | "listitem" | "heading" | "img" | "status" | "timer" | "alert"
 
 --- The state of a contract another plugin provides.
 export type LiveState = "pending" | "active" | "inactive" | "failed"

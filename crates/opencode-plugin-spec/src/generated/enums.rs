@@ -366,6 +366,8 @@ string_enum! {
         Img = "img",
         /// A live status message.
         Status = "status",
+        /// A countdown or clock, which assistive technology leaves unannounced as it changes.
+        Timer = "timer",
         /// An urgent message that assistive technology announces at once, such as a failure.
         Alert = "alert",
     }

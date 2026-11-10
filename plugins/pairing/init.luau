@@ -12,7 +12,7 @@ local machine = require("@self/machine")
 local copy = require("@self/copy")
 
 -- `text-13-regular` as the page's alerts draw it.
-local ALERT = { size = 13, weight = "regular", lineHeight = 20, color = "status-danger", role = "alert" }
+local ALERT: UiTextProps = { size = 13, weight = "regular", lineHeight = 20, color = "status-danger", role = "alert" }
 
 -- The origin of the HTTPS address among the server's URLs: it listens over plain HTTP, so that
 -- one is its remote access tunnel.

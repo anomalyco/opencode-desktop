@@ -216,6 +216,7 @@
       { "value": "heading", "doc": "A heading." },
       { "value": "img", "doc": "An image. Give it a `label`." },
       { "value": "status", "doc": "A live status message." },
+      { "value": "timer", "doc": "A countdown or clock, which assistive technology leaves unannounced as it changes." },
       { "value": "alert", "doc": "An urgent message that assistive technology announces at once, such as a failure." }
     ] },
     { "name": "LiveState", "rust": true, "doc": "The state of a contract another plugin provides.", "values": [

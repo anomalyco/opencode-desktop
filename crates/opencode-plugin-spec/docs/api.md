@@ -918,6 +918,7 @@ An element's accessibility role.
 | `"heading"` | A heading. |
 | `"img"` | An image. Give it a `label`. |
 | `"status"` | A live status message. |
+| `"timer"` | A countdown or clock, which assistive technology leaves unannounced as it changes. |
 | `"alert"` | An urgent message that assistive technology announces at once, such as a failure. |
 
 ### LiveState
