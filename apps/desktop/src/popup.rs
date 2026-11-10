@@ -555,7 +555,10 @@ fn row_key(id: &str) -> String { format!("popup-item-{id}") }
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
 pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let Some(shown) = &s.popup.shown else { return vec![] };
+    // A press outside focuses the scroll region it lands on ("scrollable content"), as one
+    // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, restore::Reason::Outside, tx))
+        .press_focuses_below()
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),

@@ -8,7 +8,8 @@
 //!   (`selectMenuRestoreTriggerWithoutRing`).
 //! - **A press outside** a dropdown, which is modal, puts it back on the trigger the same way: the
 //!   press reached nothing under the menu. A context menu's outside press (`outside.interacted`)
-//!   leaves focus where that press put it.
+//!   leaves focus where that press put it: on the scroll region it landed on, which the scrim
+//!   focuses (`El::press_focuses_below`), else nowhere.
 //! - **A pick** puts it back on the trigger too, unless the pick moved it on (a dialog, a field,
 //!   another menu), as Kobalte's restore finds it outside the menu and leaves it.
 //!
@@ -53,7 +54,7 @@ pub(crate) enum Reason {
 pub(crate) enum Effect {
     /// Focus `key`, its ring showing when `ring`.
     Focus { key: String, ring: bool },
-    /// Drop focus: a context menu's outside press reached nothing that takes it.
+    /// Drop focus: the keys closed a context menu opened where nothing had focus.
     Blur,
 }
 
@@ -79,6 +80,8 @@ pub(crate) fn closing(opened: Opened, reason: Reason, keys: bool) -> Option<Effe
         (Origin::Trigger(key), Reason::Keys) => Some(Effect::Focus { key, ring: keyboard }),
         (Origin::Trigger(key), Reason::Outside) => Some(Effect::Focus { key, ring: false }),
         (Origin::Point { focused: Some(key) }, Reason::Keys) => Some(Effect::Focus { key, ring: true }),
-        (Origin::Point { .. }, _) => Some(Effect::Blur),
+        // The press focused the scroll region it landed on, or nothing (`press_focuses_below`).
+        (Origin::Point { .. }, Reason::Outside) => None,
+        (Origin::Point { focused: None }, Reason::Keys) => Some(Effect::Blur),
     }
 }
