@@ -25,9 +25,32 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         (false, false) => Some(one_line(command)),
     };
     let t = Trigger { title: opencode_i18n::t!("ui.tool.shell").into(), compact: true, subtitle, code: !writing, ..Default::default() };
+    // A shell its result doesn't finish shows the output its host read from it (`viewShellRun`).
+    let streamed = follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).filter(|o| !o.is_empty());
+    let out = streamed.unwrap_or_else(|| output(c));
     disclosure(trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
-        body(console(s, p, c.id, (!command.is_empty()).then_some(command), &clean(output(c))), false, 8.0)
+        body(console(s, p, c.id, (!command.is_empty()).then_some(command), &clean(out)), false, 8.0)
     })
+}
+
+/// The shell a shell call's console reads its output from, and whether it reads it again each
+/// second, as Desktop's `run-machine.ts` decides: a call the model is still writing, or whose
+/// result carries the shell's final output (`completed`, `exited`, `timeout`, `killed`), reads
+/// nothing; one running, or whose shell the server still lists as running (`running`), polls;
+/// any other reads once. None for a call with no shell.
+pub fn follow<'a>(c: &Call<'a>, running: impl Fn(&str) -> bool) -> Option<(&'a str, bool)> {
+    let id = field(c.metadata, "shellID")?;
+    let saved = c.metadata["status"].as_str().is_some_and(|s| matches!(s, "completed" | "exited" | "timeout" | "killed"));
+    if saved || *c.status == opencode_kit::model::ToolStatus::Pending {
+        return None;
+    }
+    Some((id, *c.status == opencode_kit::model::ToolStatus::Running || running(id)))
+}
+
+/// Whether shell call `c`'s console shows: Desktop reads a shell's output only while its
+/// console is mounted, as its card is open.
+pub fn console_open<S: TimelineHost>(s: &S, c: &Call) -> bool {
+    crate::disclosure::is_open(s, &super::key(c.id), super::default_open(s, c))
 }
 
 /// A console's command scrolls past this, eight lines and its padding.

@@ -34,6 +34,7 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, TOOL_CODE, UI, UI_MED, arrow, readable};
 
+pub use console::{console_open, follow as shell_follow};
 pub use details::overlay as details_overlay;
 pub use files::{group as file_group, is_file_tool, shut_group};
 pub use lists::{read_group, skill_group, skill_name};
@@ -212,6 +213,8 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         (c.id, c.name, std::mem::discriminant(c.status), s.tool_row_action_version(c.id)).hash(&mut h);
         fingerprint(c.input, &mut h);
         fingerprint(c.metadata, &mut h);
+        // The output the host read from the call's shell (`console::follow`).
+        console::follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).map(str::len).hash(&mut h);
         let own = key(c.id);
         let mut open: Vec<&String> = s.expanded().iter().filter(|k| k.starts_with(&own)).collect();
         open.sort();

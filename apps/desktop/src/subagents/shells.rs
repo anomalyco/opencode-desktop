@@ -13,6 +13,7 @@ use rune::Tx;
 use serde_json::Value;
 
 use super::activity::{self, Activity, Effect, EndInfo, EndStatus, Event, Timer, Work};
+use super::shell_follow::{self, Followers};
 use super::shell_tail::{Page, TailEffect, TailEvent};
 use crate::{App, Route, Source};
 
@@ -34,6 +35,8 @@ enum Landed {
     Output { id: String, attempt: u64, page: Result<Page, bool> },
     Ended { attempt: u64, info: Option<EndInfo> },
     Stopped { attempt: u64, ok: bool },
+    /// A read for a timeline console's follower (`shell_follow`).
+    Follow { id: String, generation: u64, attempt: u64, page: Result<Page, bool> },
 }
 
 /// A timer the list's machine started, due on the app clock (ms).
@@ -41,6 +44,7 @@ enum Landed {
 enum Due {
     Machine { attempt: u64, timer: Timer },
     TailWait { attempt: u64 },
+    FollowWait { id: String, generation: u64, attempt: u64 },
 }
 
 #[derive(Default)]
@@ -48,6 +52,8 @@ pub struct Shells {
     running: Vec<Shell>,
     listed: HashSet<String>,
     pub activity: Activity,
+    /// The timeline consoles' followers.
+    pub follow: Followers,
     /// The work the machine last heard of, so a change is told to it once.
     work: Work,
     timers: Vec<(i64, Due)>,
@@ -182,6 +188,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 }
             }
             Landed::Ended { attempt, info } => dispatch(s, Event::EndedSettled { attempt, info, now }),
+            Landed::Follow { id, generation, attempt, page } => {
+                let effects = s.shells.follow.landed(&id, generation, attempt, page);
+                run_follow(s, effects);
+            }
             Landed::Stopped { attempt, ok } => {
                 if !ok {
                     crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), String::new());
@@ -197,11 +207,18 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             Due::Machine { attempt, timer: Timer::Stopping } => dispatch(s, Event::StopTimedOut { attempt }),
             Due::Machine { attempt, timer: Timer::Ending } => dispatch(s, Event::EndedTimedOut { attempt, now }),
             Due::TailWait { attempt } => dispatch(s, Event::Tail(TailEvent::WaitElapsed { attempt })),
+            Due::FollowWait { id, generation, attempt } => {
+                let effects = s.shells.follow.elapsed(&id, generation, attempt);
+                run_follow(s, effects);
+            }
         }
     }
     if work(s) != s.shells.work {
         dispatch(s, Event::WorkSynced);
     }
+    let shown = followed(s);
+    let effects = s.shells.follow.sync(&shown);
+    run_follow(s, effects);
     if let Some(next) = s.shells.timers.iter().map(|(at, _)| *at).min() {
         tx.wake_after(std::time::Duration::from_millis((next - now).max(0) as u64));
     }
@@ -212,6 +229,51 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         changed |= std::mem::replace(&mut s.shells.ticked, second) != second;
     }
     changed || s.shells.activity != before
+}
+
+/// The open shell consoles of the open session that read their shell, each
+/// `(shell, directory, running)` (`tools::shell_follow`).
+fn followed(s: &App) -> Vec<(String, String, bool)> {
+    let Route::Session(id) = &s.route else { return Vec::new() };
+    let Some(t) = s.transcripts.get(id) else { return Vec::new() };
+    let directory = s.session(id).map(|i| i.directory.clone()).unwrap_or_default();
+    let running = |shell: &str| s.shells.running.iter().any(|r| r.id == shell);
+    let steps = t.messages.iter().filter_map(|m| match m {
+        Message::Assistant(a) => Some(a),
+        Message::Note { step, .. } => Some(&**step),
+        _ => None,
+    });
+    steps
+        .flat_map(|a| a.parts.iter())
+        .filter_map(|p| match p {
+            Part::Tool { id, name, status, input, metadata, .. } if name == "shell" => {
+                let call = session_view::tools::Call { id, name, status, input, metadata };
+                if !session_view::tools::console_open(s, &call) {
+                    return None;
+                }
+                session_view::tools::shell_follow(&call, running).map(|(shell, live)| (shell.to_owned(), directory.clone(), live))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Runs the reads and waits of the timeline consoles' followers.
+fn run_follow(s: &mut App, effects: Vec<shell_follow::Effect>) {
+    let now = s.now_ms;
+    for e in effects {
+        match e.effect {
+            TailEffect::Wait { attempt, ms } => s.shells.timers.push((now + ms, Due::FollowWait { id: e.id, generation: e.generation, attempt })),
+            TailEffect::Read { attempt, cursor } => {
+                let path = format!("/api/shell/{}/output?{}&cursor={cursor}", crate::switcher::encode(&e.id), location(&e.directory));
+                let (id, generation) = (e.id, e.generation);
+                request(s, move |server| {
+                    let page = server.get(&path).map(|v| page_of(&v)).map_err(|e| e.contains("404"));
+                    Landed::Follow { id, generation, attempt, page }
+                });
+            }
+        }
+    }
 }
 
 fn run(s: &mut App, effect: Effect) {

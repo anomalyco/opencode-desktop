@@ -152,7 +152,7 @@ impl RowSpec {
                     // at all once the turn ends.
                     let tick = if *live { thinking_tick(s, t, *start, *end, *block) } else { None };
                     let detail = s.timeline_detail();
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail, s.shell_output_version()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);

@@ -7,6 +7,7 @@
 
 pub mod activity;
 pub mod reply;
+mod shell_follow;
 mod shell_tail;
 pub mod shells;
 mod shells_view;

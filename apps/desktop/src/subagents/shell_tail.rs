@@ -65,6 +65,17 @@ pub fn start(running: bool) -> (Tail, Vec<TailEffect>) {
     (Tail::Reading { attempt: 1, text: Text::default(), running, last: !running, failures: 0 }, vec![TailEffect::Read { attempt: 1, cursor: 0 }])
 }
 
+/// The follower of a shell shown again with `text` read before (`createShellFollowerState` with
+/// it cached): a shell read to its end and still stopped reads nothing; any other carries on
+/// from the cursor.
+pub fn resume(text: Text, complete: bool, running: bool) -> (Tail, Vec<TailEffect>) {
+    if complete && !running {
+        return (Tail::Complete { text }, Vec::new());
+    }
+    let cursor = text.cursor;
+    (Tail::Reading { attempt: 1, text, running, last: !running, failures: 0 }, vec![TailEffect::Read { attempt: 1, cursor }])
+}
+
 /// `transitionShellFollower`.
 pub fn step(state: Tail, event: TailEvent) -> (Tail, Vec<TailEffect>) {
     if matches!(state, Tail::Missing { .. }) {

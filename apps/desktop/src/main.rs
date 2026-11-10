@@ -561,6 +561,12 @@ impl session_view::TimelineHost for App {
     fn code_block(&self, p: &palette::Pal, language: &str, key: &str, code: &str, streaming: bool, version: u64, native: rune::El) -> Option<rune::El> {
         plugin_host::luau::surfaces::code_block(self, p, language, key, code, streaming, version, native)
     }
+    fn shell_output(&self, shell: &str) -> Option<&str> {
+        self.shells.follow.output(shell)
+    }
+    fn shell_output_version(&self) -> u64 {
+        self.shells.follow.version()
+    }
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
     }

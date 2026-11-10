@@ -215,6 +215,15 @@ pub trait TimelineHost: Sized + 'static {
     fn reveal_file(&mut self, path: &std::path::Path) -> bool {
         images::menu::reveal_with_system(path)
     }
+    /// The output the host read from shell shell while its console shows (`tools::shell_follow`),
+    /// which the console shows in place of its call's.
+    fn shell_output(&self, _shell: &str) -> Option<&str> {
+        None
+    }
+    /// Changes whenever any [`TimelineHost::shell_output`] does, so the rows showing them build again.
+    fn shell_output_version(&self) -> u64 {
+        0
+    }
     fn reply_link_help(_url: &str) -> Option<String> {
         None
     }
