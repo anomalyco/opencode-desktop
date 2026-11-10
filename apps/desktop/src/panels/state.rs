@@ -238,11 +238,19 @@ impl App {
     /// Lands a tab shown with `show` at once when its pane was already on screen, as switching
     /// tabs does; a pane it opens flies on `SIDE_SPRING`, as the region's toggle does.
     pub fn show_pane_tab(&mut self, tx: &mut Tx, show: impl FnOnce(&mut Self)) {
-        let was = (self.side_stored_open(), self.bottom_stored_open());
+        let was = self.panes_shown();
         show(self);
-        if (self.side_stored_open(), self.bottom_stored_open()) == was {
+        if self.panes_shown() == was {
             tx.instant();
         }
+    }
+
+    /// Whether the side region and the bottom pane are on screen. The bottom pane can be stored
+    /// open with no tab in it, which draws nothing: its first tab opens it.
+    fn panes_shown(&self) -> (bool, bool) {
+        let bottom = self.bottom_stored_open()
+            && self.resolve_side_region().is_some_and(|r| !r.pane_entries(SessionPane::Bottom).is_empty());
+        (self.side_stored_open(), bottom)
     }
 
     pub fn session_side(&self, session_id: &str) -> Option<&SessionSideState> {

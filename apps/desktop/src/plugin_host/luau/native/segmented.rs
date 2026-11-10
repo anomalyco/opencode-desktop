@@ -1,8 +1,9 @@
 //! `ui.segmented`: the app's segmented control (`segmented-control-v2`): a 28 pt track on
 //! `layer-01` under a 0.5 pt `border-base` ring, each item 40 × 28 with its 16 pt icon, the picked
-//! one on `bg-base` with a 0.5 pt `border-strong` ring. An item's label is its tooltip.
+//! one on `bg-base` with a 0.5 pt `border-strong` ring. An item's label is its tooltip. A pick
+//! lands at once, as the native review toolbar's did (the motion gate's review script expects it).
 
-use rune::{Color, Cursor, El, Icon, el, icon, row};
+use rune::{Color, Cursor, El, Icon, Spring, el, icon, row};
 use rune_luau::{Data, NodeArgs};
 
 use super::p;
@@ -31,6 +32,7 @@ fn button(p: &Pal, key: String, glyph: &'static Icon, active: bool, help: String
         .radius(6.0)
         .center()
         .cursor(Cursor::Pointer)
+        .motion(Spring::NONE)
         .fill(if active { p.bg_base } else { Color::TRANSPARENT })
         .box_shadow(Pal::ring_out(if active { p.q.border_strong } else { Color::TRANSPARENT }))
         .role("button")

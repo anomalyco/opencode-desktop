@@ -36,8 +36,8 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Available", |_, ()| Ok(!crate::flag("--read-only")))?;
     method(lua, t, "New", |_, sid: Option<String>| {
+        // The terminal's pane opens on SIDE_SPRING; `show_pane_tab` lands a tab switch at once.
         app_now("Terminal:New")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
             if sid.as_deref().is_none_or(|id| s.active_session_id() == Some(id)) {
                 s.create_terminal_tab(None, tx);
             }
@@ -46,7 +46,6 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Toggle", |_, ()| {
         app_now("Terminal:Toggle")?.later(Box::new(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
             s.toggle_terminal(tx);
         }));
         Ok(())
