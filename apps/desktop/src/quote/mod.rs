@@ -26,6 +26,7 @@ pub use session_view::user_parts::OUTLINE_QUOTE;
 pub mod comment;
 pub mod editor;
 pub mod machine;
+pub use editor::send_result;
 use machine::Ident;
 
 /// The quotes waiting in the composer, the comment editor, and the toolbar's machine.

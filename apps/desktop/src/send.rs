@@ -187,6 +187,36 @@ impl App {
         self.composer.clear();
     }
 
+    /// Desktop's `quote.send` (`composer/machine.ts` `quote`, `submit.ts:144-166`): a prompt of
+    /// quote `key` alone, with its comment, in the delivery Return doesn't use; the draft and the
+    /// composer's other quotes and files stay, and so does this quote, which leaves only once
+    /// the send went (`quote::editor`). The id it went out under, `None` when nothing went, or
+    /// `Some(None)` when it went with no id to wait on (a fixture's).
+    pub(crate) fn send_quote(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
+        let quote = self.quote.items.iter().find(|q| q.key == key)?.clone();
+        let before = self.newest_send(None);
+        // What the composer holds steps aside while the quote goes on its own.
+        let composer = std::mem::replace(&mut self.composer, TextEdit::new(""));
+        let others: Vec<_> = self.quote.items.iter().filter(|q| q.key != key).cloned().collect();
+        self.quote.items = vec![quote.clone()];
+        let files = std::mem::take(&mut self.attach.files);
+        let paths = std::mem::take(&mut self.attach.paths);
+        let context = std::mem::take(&mut self.attach.context);
+        let comment = std::mem::take(&mut self.quote.comment);
+        self.send_prompt(true, tx);
+        let went = self.quote.items.is_empty();
+        self.composer = composer;
+        self.attach.files = files;
+        self.attach.paths = paths;
+        self.attach.context = context;
+        self.quote.comment = comment;
+        self.quote.items = others;
+        // In its place, until its send settles.
+        let at = self.quote.items.iter().position(|q| q.key > key).unwrap_or(self.quote.items.len());
+        self.quote.items.insert(at, quote);
+        went.then(|| self.newest_send(before.as_deref()))
+    }
+
     /// Steers still wait after their run stopped: the server delivers them before any later
     /// prompt, so one sent now waits behind them rather than landing above them. A staged
     /// revert drops them, so a send from it goes straight in.

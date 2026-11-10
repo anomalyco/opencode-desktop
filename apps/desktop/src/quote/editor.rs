@@ -10,6 +10,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
+use crate::send_failed::SendResult;
 use crate::quote::comment::{self, Anchor, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
 
 /// `quote-comment.tsx` `GAP`, `WIDTH`.
@@ -90,8 +91,11 @@ fn send_available(s: &App) -> bool {
     matches!(s.route, crate::Route::Session(_)) && s.attach.uploads.is_empty() && s.opening.is_none()
 }
 
-/// The alternate action (`quoteComment.send`): the prompt goes with this comment on its quote,
-/// as Ctrl+Return sends it; the editor closes when it went and says so when it didn't.
+/// The alternate action (`quoteComment.send`): this quote goes with this comment, on its own, as
+/// Ctrl+Return sends it (`App::send_quote`). The editor stays, read-only, until the send's
+/// result comes back (`send_result`), as Desktop's waits for the request: it closes once the
+/// server has the prompt or the outbox keeps it, and says so, the draft and quote kept, when
+/// it failed.
 fn send(s: &mut App, tx: &mut Tx) {
     let q = &mut s.quote;
     for effect in comment::step(&mut q.comment_seq, &mut q.comment, Event::SendRequested) {
@@ -99,10 +103,41 @@ fn send(s: &mut App, tx: &mut Tx) {
         if let Some(item) = s.quote.items.iter_mut().find(|q| q.key == key) {
             item.quote.comment = Some(comment);
         }
-        s.submit(true, tx);
-        let sent = !s.quote.items.iter().any(|q| q.key == key);
-        let q = &mut s.quote;
-        comment::step(&mut q.comment_seq, &mut q.comment, Event::SendSettled { attempt, sent });
+        let result = match s.send_quote(key, tx) {
+            None => Some(SendResult::Failed),
+            Some(None) => Some(SendResult::Accepted),
+            Some(Some(id)) => {
+                let q = &mut s.quote;
+                comment::step(&mut q.comment_seq, &mut q.comment, Event::SendOut { attempt, prompt: id.clone() });
+                s.send_result(&id)
+            }
+        };
+        if let Some(result) = result {
+            settle(s, attempt, result);
+        }
+    }
+}
+
+/// A send's result (`send_failed::SendResult`), for the editor's send waiting on prompt `id`.
+pub fn send_result(s: &mut App, id: &str, result: SendResult) {
+    match s.quote.comment.send() {
+        Some((attempt, Some(prompt))) if prompt == id => settle(s, attempt, result),
+        _ => {}
+    }
+}
+
+/// The send settles (`send.settled`): it went, so its quote leaves the composer; or it failed,
+/// and the failed prompt goes too, so only the editor's send can try it again.
+fn settle(s: &mut App, attempt: rune::machine::Attempt, result: SendResult) {
+    let Some(key) = s.quote.comment.key() else { return };
+    let prompt = s.quote.comment.send().and_then(|(_, p)| p.map(str::to_owned));
+    let sent = result != SendResult::Failed;
+    let q = &mut s.quote;
+    comment::step(&mut q.comment_seq, &mut q.comment, Event::SendSettled { attempt, sent });
+    if sent {
+        s.quote.remove(key);
+    } else if let Some(id) = prompt {
+        s.outbox_action(&id, "outbox-delete");
     }
 }
 

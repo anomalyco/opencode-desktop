@@ -36,8 +36,9 @@ pub enum Comment {
     Closed,
     Open { key: u64, draft: TextEdit, anchor: Option<Anchor>, field: Field },
     /// A direct send of the draft is in flight: the field is read-only and chip toggles do
-    /// nothing until the composer's submit settles.
-    Sending { key: u64, attempt: Attempt, draft: TextEdit, anchor: Option<Anchor>, field: Field },
+    /// nothing until the send's result comes back (`send_failed::SendResult`) for `prompt`, the
+    /// id it went out under.
+    Sending { key: u64, attempt: Attempt, draft: TextEdit, anchor: Option<Anchor>, field: Field, prompt: Option<String> },
     /// The send didn't go: the draft stays, with an alert until the next edit.
     Failed { key: u64, draft: TextEdit, anchor: Option<Anchor>, field: Field },
 }
@@ -50,6 +51,8 @@ pub enum Event {
     Edited,
     /// The draft goes out with the prompt (`send.requested`).
     SendRequested,
+    /// The send went out under prompt id `prompt`; its result settles it.
+    SendOut { attempt: Attempt, prompt: String },
     SendSettled { attempt: Attempt, sent: bool },
     /// The quotes still in the composer (`retained`).
     Retained(Vec<u64>),
@@ -108,6 +111,14 @@ impl Comment {
         matches!(self, Comment::Sending { .. })
     }
 
+    /// The send in flight: its attempt, and the prompt id it went out under once it did.
+    pub fn send(&self) -> Option<(Attempt, Option<&str>)> {
+        match self {
+            Comment::Sending { attempt, prompt, .. } => Some((*attempt, prompt.as_deref())),
+            _ => None,
+        }
+    }
+
     pub fn failed(&self) -> bool {
         matches!(self, Comment::Failed { .. })
     }
@@ -129,7 +140,13 @@ pub fn step(seq: &mut Seq, state: &mut Comment, event: Event) -> Effects<Effect>
         }
         return Effects::none();
     }
-    if let Comment::Sending { attempt, .. } = state {
+    if let Comment::Sending { attempt, prompt, .. } = state {
+        if let Event::SendOut { attempt: a, prompt: id } = event {
+            if a == *attempt {
+                *prompt = Some(id);
+            }
+            return Effects::none();
+        }
         let Event::SendSettled { attempt: a, sent } = event else { return Effects::none() };
         if a != *attempt {
             return Effects::none();
@@ -165,10 +182,10 @@ pub fn step(seq: &mut Seq, state: &mut Comment, event: Event) -> Effects<Effect>
             let Some(e) = state.take() else { return Effects::none() };
             let attempt = seq.next();
             let comment = e.draft.text.trim().to_owned();
-            *state = Comment::Sending { key: e.key, attempt, draft: e.draft, anchor: e.anchor, field: e.field };
+            *state = Comment::Sending { key: e.key, attempt, draft: e.draft, anchor: e.anchor, field: e.field, prompt: None };
             Effects::one(Effect::Send { attempt, key: state.key().unwrap_or_default(), comment })
         }
-        Event::SendSettled { .. } | Event::Retained(_) => Effects::none(),
+        Event::SendOut { .. } | Event::SendSettled { .. } | Event::Retained(_) => Effects::none(),
     }
 }
 

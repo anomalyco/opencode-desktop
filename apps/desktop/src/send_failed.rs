@@ -37,6 +37,16 @@ pub enum State {
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash)]
 pub enum AfterCheck { Edit, Delete }
 
+/// How a send ended, for whoever waits on it (the quote comment editor's send): the server has
+/// it, it failed for good, or the outbox keeps it to send when it can (waiting for the link, or
+/// for a receipt).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendResult {
+    Accepted,
+    Failed,
+    Queued,
+}
+
 /// One prompt in the outbox: what was typed, what went out, and where it is (`phase`).
 #[derive(Clone)]
 pub struct Sent {
@@ -168,6 +178,17 @@ impl Sent {
         }
     }
 
+    /// How it ended so far; `None` while it's on its way for the first time.
+    pub fn result(&self) -> Option<SendResult> {
+        match &self.phase {
+            Phase::Accepted => Some(SendResult::Accepted),
+            Phase::Failed { .. } => Some(SendResult::Failed),
+            Phase::Unconfirmed { .. } => Some(SendResult::Queued),
+            Phase::Waiting { why } if !why.is_empty() => Some(SendResult::Queued),
+            Phase::Waiting { .. } | Phase::Sending { .. } => None,
+        }
+    }
+
     /// The Edit or Delete waiting on the server's answer.
     pub fn then(&self) -> Option<AfterCheck> {
         match self.phase {
@@ -181,12 +202,27 @@ impl App {
     /// Steps prompt `id`'s machine and carries out what it says.
     pub(crate) fn step_send(&mut self, id: &str, event: Event) -> bool {
         let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id) else { return false };
+        let before = s.result();
         let effects = machine::step(s, event);
+        let after = s.result();
         let changed = !effects.is_empty();
         for effect in effects {
             self.send_effect(id, effect);
         }
+        if let Some(result) = after.filter(|r| before != Some(*r)) {
+            crate::quote::send_result(self, id, result);
+        }
         changed
+    }
+
+    /// How prompt `id`'s send ended so far.
+    pub(crate) fn send_result(&self, id: &str) -> Option<SendResult> {
+        self.unsent.get(id).and_then(Sent::result)
+    }
+
+    /// The prompt the outbox took last, if it took one since it held `before`.
+    pub(crate) fn newest_send(&self, before: Option<&str>) -> Option<String> {
+        self.unsent.sent.last().map(|s| s.id.clone()).filter(|id| Some(id.as_str()) != before)
     }
 
     fn send_effect(&mut self, id: &str, effect: Effect) {
