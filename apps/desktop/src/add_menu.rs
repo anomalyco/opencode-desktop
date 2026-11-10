@@ -211,6 +211,7 @@ impl App {
 
     /// Steps the composer's mode and runs what it asks; true when it took the key.
     pub fn composer_mode(&mut self, event: Event) -> bool {
+        let was = self.add.shell();
         let step = mode::step(&mut self.add.mode, event);
         for effect in step.effects {
             match effect {
@@ -218,8 +219,11 @@ impl App {
                 Effect::ClearDraft => self.composer.clear(),
             }
         }
-        // The suggestion lists hear the mode (`mode.shell`, `mode.normal`).
-        self.suggest_mode();
+        // The suggestion lists hear the mode when it changes (`mode.shell`, `mode.normal`), not
+        // on every keystroke, which would close the @ list a shell command's `@` opened.
+        if self.add.shell() != was {
+            self.suggest_mode();
+        }
         step.handled
     }
 
@@ -624,10 +628,14 @@ mod tests {
         tap(&mut rt, "add");
         assert!(!rt.state.add.open(), "the + is off in shell mode");
         tap(&mut rt, "prompt");
-        typed(&mut rt, "l@");
+        // An `@` that starts a word, as Desktop's `(?:^|\s)@` asks.
+        typed(&mut rt, "l @");
         assert!(rt.state.suggest.state.context().is_some(), "the @ list opens in shell mode too, as Desktop's does");
-        key(&mut rt, Key::Backspace);
-        key(&mut rt, Key::Backspace);
+        typed(&mut rt, "s");
+        assert!(rt.state.suggest.state.context().is_some_and(|l| l.query == "s"), "and stays open as the query grows");
+        for _ in 0..4 {
+            key(&mut rt, Key::Backspace);
+        }
         assert!(rt.state.add.shell());
         key(&mut rt, Key::Backspace);
         assert!(!rt.state.add.shell());
