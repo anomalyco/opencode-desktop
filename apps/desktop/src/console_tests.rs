@@ -6,7 +6,7 @@ use rune::{ElementInfo, Runtime};
 use crate::App;
 
 const DT: f64 = 1.0 / 60.0;
-/// The output's cap (`tools::console::MAX_H`).
+/// The cap the command and output share (`tools::console::MAX_H`).
 const MAX_H: f32 = 240.0;
 
 fn scene(name: &str) -> Runtime<App> {
@@ -42,7 +42,9 @@ fn a_long_shell_console_keeps_its_ring_and_insets() {
     }
     assert!(near(command[1] - card[1], 0.5), "the command sits 0.5 under the ring's top: {command:?} in {card:?}");
     assert!(near(card[1] + card[3] - result[1] - result[3], 0.5), "the result sits 0.5 over the ring's bottom: {result:?} in {card:?}");
-    assert!(near(result[3], MAX_H), "the long output stops at its cap: {result:?}");
+    // The command and its output stand at most the cap together, the output giving way, as
+    // Desktop's one bash-scroll region does (c87a627a).
+    assert!(near(command[3] + result[3], MAX_H), "the long output stops at the shared cap: {command:?} over {result:?}");
     // The viewport fills the section, so its text keeps its 12 pt inset at the bottom, the
     // cut text feathering out over it.
     let scroll = rect(&els, "result", "scroll");
