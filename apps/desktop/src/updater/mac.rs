@@ -2,7 +2,7 @@
 //! verified (size, SHA-256, code signature, signing team, Gatekeeper) and unpacked into a private
 //! folder under `~/Library/Caches/anomaly.opencode-rune/Updates`; Restart to update checks the
 //! staged bundle again, swaps it in atomically (the old bundle comes back when the move fails),
-//! and opens the new one. Local dev bundles (`anomaly.opencode-rune.dev`) and bare `cargo`
+//! and the app starts again from it as the app menu's Restart does (`Tx::relaunch`). Local dev bundles (`anomaly.opencode-rune.dev`) and bare `cargo`
 //! binaries never update.
 
 use std::io;
@@ -138,8 +138,12 @@ impl Platform for Mac {
     }
 
     fn install(&self) -> Result<(), String> {
-        self.apply()?;
-        relaunch(&self.bundle.path)
+        self.apply()
+    }
+
+    /// The swapped bundle sits where this one ran, so the app's own relaunch opens it.
+    fn relaunches(&self) -> bool {
+        true
     }
 
     fn auto_install(&self) -> bool {
@@ -271,15 +275,6 @@ fn move_bundle(from: &Path, to: &Path) -> io::Result<()> {
         }
         other => other,
     }
-}
-
-/// Opens the swapped bundle as a new instance; the host then quits this one.
-fn relaunch(app: &Path) -> Result<(), String> {
-    let status = Command::new("/usr/bin/open").arg("-n").arg(app).status().map_err(|e| format!("could not relaunch {}: {e}", app.display()))?;
-    if !status.success() {
-        return Err(format!("open -n exited with {status}"));
-    }
-    Ok(())
 }
 
 fn sweep_old_stages(root: &Path) {

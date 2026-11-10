@@ -220,17 +220,19 @@ pub fn start_if_packaged(s: &mut App) {
 /// so the update opens each of them again.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let Driver::Service(service) = &s.updater.driver else { return false };
-    let (quit, state, revision) = {
+    let (quit, relaunch, state, revision) = {
         let mut service = service.borrow_mut();
         service.poll();
         if service.revision() == s.updater.seen && !service.quit_pending() {
             return false;
         }
-        (service.take_quit(), UpdateState::from(&service.snapshot().state), service.revision())
+        (service.take_quit(), service.relaunches(), UpdateState::from(&service.snapshot().state), service.revision())
     };
     s.updater.seen = revision;
-    if quit {
-        tx.quit();
+    match (quit, relaunch) {
+        (true, true) => tx.relaunch(),
+        (true, false) => tx.quit(),
+        (false, _) => {}
     }
     if s.updater.state == state {
         return false;

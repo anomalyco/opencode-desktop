@@ -163,6 +163,11 @@ impl UpdaterService {
         std::mem::take(&mut self.quit)
     }
 
+    /// Whether that quit starts the app again ([`Platform::relaunches`]).
+    pub fn relaunches(&self) -> bool {
+        self.platform.relaunches()
+    }
+
     /// Feeds the worker's results to the machine; true when the snapshot changed. At rest: one
     /// empty channel read and two atomic loads, no allocation.
     pub fn poll(&mut self) -> bool {

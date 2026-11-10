@@ -53,13 +53,15 @@ fn items() -> Vec<MenuItem<App>> {
 /// The app menu after About: the updater's Check for Updates… (Desktop's `MenubarItem { menu:
 /// "app", after: "about" }`), which checks as Settings > Updates' Check now does and does
 /// nothing in a build without an updater; then Settings, Reload Webview (Rune's Reload, which
-/// reads the server again) and Export Logs. Install CLI and Restart aren't here: Rune ships no
-/// CLI of its own and can't start itself again yet.
+/// reads the server again), Restart (Desktop's `app.relaunch`: the app quits, saving every
+/// window, and starts again) and Export Logs. Install CLI isn't here: Desktop's installs the CLI
+/// it bundles (`desktop-cli.ts`), and Rune bundles none; it attaches to the CLI's service.
 fn app() -> Vec<MenuItem<App>> {
     vec![
         MenuItem::new(t!("plugin.updater.menu.check"), |s: &mut App, tx: &mut Tx| s.run_command("updater.check", tx)).id("App/CheckForUpdates"),
         keyed(MenuItem::new(t!("desktop.menu.settings"), |s: &mut App, tx: &mut Tx| run(s, Act::Settings, tx)).id("App/Settings"), Bind::Settings).keys_first(),
         MenuItem::new(t!("desktop.menu.reloadWebview"), |s: &mut App, tx: &mut Tx| run(s, Act::Reload, tx)).id("App/ReloadWebview"),
+        MenuItem::new(t!("desktop.menu.restart"), |_: &mut App, tx: &mut Tx| tx.relaunch()).id("App/Restart"),
         MenuItem::new(t!("desktop.menu.exportLogs"), |s: &mut App, tx: &mut Tx| run(s, Act::ExportLogs, tx)).id("App/ExportLogs"),
     ]
 }
