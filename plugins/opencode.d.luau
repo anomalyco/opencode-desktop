@@ -351,7 +351,7 @@ export type Editor = {
     Submitted: Signal<string>,
 }
 
---- Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`).
+--- Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`). A node whose props are partly its own takes the frozen style first and a small table of its own props after it, laid over the style: `ui.row(ROW, { key = id, onPress = open }, children)`, `ui.text(words, LABEL, { color = ink })`, `ui.icon(name, ICON, { color = ink })`. Only those are decoded; a prop in both takes the second table's value.
 export type UiLayoutProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -2175,6 +2175,10 @@ export type UiVirtualListProps = {
     estimatedRowHeight: number,
     --- Change it when rows change. While it stays the same, scrolling builds only rows that enter the view.
     version: MemoVersion,
+    --- Each row's own version, beside `version`: a row is built again when `version` or its own changes, so opening one row rebuilds that row alone.
+    rowVersions: { MemoVersion }?,
+    --- `false`: the list has no scroll of its own. It sits in a scrolling column (`scrollY = true` on an ancestor), under or among other content, and builds the rows that column shows. Defaults to `true`: the list is its own scroll.
+    scrollY: boolean?,
     --- Builds row `index`, from 1. It must not yield.
     renderRow: (index: number) -> UiNode,
     --- A stable identity for row `index`, so rows keep their state as the list changes. Defaults to the index.
@@ -5072,19 +5076,19 @@ end
 --- `require("@opencode/ui")`: declarative node constructors. Nodes build host elements directly; there is no virtual DOM.
 export type UiLibrary = {
     --- A container with no direction of its own: children stack on top of each other.
-    box: (props: UiBoxProps, children: { UiNode }?) -> UiNode,
+    box: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- A horizontal stack.
-    row: (props: UiBoxProps, children: { UiNode }?) -> UiNode,
+    row: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- A vertical stack.
-    col: (props: UiBoxProps, children: { UiNode }?) -> UiNode,
+    col: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- Flexible space in a stack.
     spacer: (props: UiSpacerProps?) -> UiNode,
     --- A hairline rule.
     divider: (props: UiDividerProps?) -> UiNode,
-    --- Text.
-    text: (content: string, props: UiTextProps?) -> UiNode,
+    --- Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are.
+    text: ((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode),
     --- One of the app's icons.
-    icon: (name: IconName, props: UiIconProps?) -> UiNode,
+    icon: ((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode),
     --- An image the host holds.
     image: (props: UiImageProps) -> UiNode,
     --- A number shown as text. Hosts that can animate changed digits do.
@@ -5149,6 +5153,8 @@ export type UiLibrary = {
     genUi: (props: UiGenUiProps) -> UiNode,
     --- A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme.
     hex: (color: string) -> HexColor,
+    --- A node for each item, as children to pass on: `build(item, index)`, memoized per item as `view:Memo` is, by its key and version. A render builds again only the items whose version changed. `key` and `version` are field names (`"id"`) or functions of the item. An item's key becomes its node's key, so keep keys unique in the render. Put everything the row draws with, the theme among it, in its version.
+    each: <T>(items: { T }, key: string | ((item: T, index: number) -> string | number), version: string | ((item: T, index: number) -> MemoVersion), build: (item: T, index: number) -> UiNode) -> { UiNode },
 }
 
 --- `require("@opencode/plugin")`: defines a plugin's halves.

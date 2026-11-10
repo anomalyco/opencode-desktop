@@ -32,6 +32,7 @@ Every [UI node](#ui-nodes) constructor, and:
 | Member | Type | Description |
 |---|---|---|
 | `.hex` | `(color: string) -> HexColor` | A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme. |
+| `.each` | `<T>(items: { T }, key: string \| ((item: T, index: number) -> string \| number), version: string \| ((item: T, index: number) -> MemoVersion), build: (item: T, index: number) -> UiNode) -> { UiNode }` | A node for each item, as children to pass on: `build(item, index)`, memoized per item as `view:Memo` is, by its key and version. A render builds again only the items whose version changed. `key` and `version` are field names (`"id"`) or functions of the item. An item's key becomes its node's key, so keep keys unique in the render. Put everything the row draws with, the theme among it, in its version. |
 
 The module also exports the `Ui*` types without their prefix: `ui.Node`, `ui.BoxProps`, `ui.Event`. Every other contract type is a global type.
 
@@ -499,13 +500,13 @@ The plugin's own messages in the interface language, and numbers, dates and list
 
 | Constructor | Category | Props | Description |
 |---|---|---|---|
-| `ui.box(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A container with no direction of its own: children stack on top of each other. |
-| `ui.row(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A horizontal stack. |
-| `ui.col(props: UiBoxProps, children: { UiNode }?) -> UiNode` | layout | [`UiBoxProps`](#uiboxprops) | A vertical stack. |
+| `ui.box((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A container with no direction of its own: children stack on top of each other. |
+| `ui.row((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A horizontal stack. |
+| `ui.col((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)` | layout | [`UiBoxProps`](#uiboxprops) | A vertical stack. |
 | `ui.spacer(props: UiSpacerProps?) -> UiNode` | layout | [`UiSpacerProps`](#uispacerprops) | Flexible space in a stack. |
 | `ui.divider(props: UiDividerProps?) -> UiNode` | layout | [`UiDividerProps`](#uidividerprops) | A hairline rule. |
-| `ui.text(content: string, props: UiTextProps?) -> UiNode` | content | [`UiTextProps`](#uitextprops) | Text. |
-| `ui.icon(name: IconName, props: UiIconProps?) -> UiNode` | content | [`UiIconProps`](#uiiconprops) | One of the app's icons. |
+| `ui.text((content: string, props: UiTextProps?, ...string \| number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string \| number) -> UiNode)` | content | [`UiTextProps`](#uitextprops) | Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are. |
+| `ui.icon((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode)` | content | [`UiIconProps`](#uiiconprops) | One of the app's icons. |
 | `ui.image(props: UiImageProps) -> UiNode` | content | [`UiImageProps`](#uiimageprops) | An image the host holds. |
 | `ui.metric(props: UiMetricProps) -> UiNode` | content | [`UiMetricProps`](#uimetricprops) | A number shown as text. Hosts that can animate changed digits do. |
 | `ui.shimmer(content: string, props: UiTextProps?) -> UiNode` | content | [`UiTextProps`](#uitextprops) | Text with the app's loading shimmer. |
@@ -1347,7 +1348,7 @@ A host-owned text field's content: typing, IME, selection and undo stay in the h
 
 ### UiLayoutProps
 
-Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`).
+Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = "text-weak" })`). A node whose props are partly its own takes the frozen style first and a small table of its own props after it, laid over the style: `ui.row(ROW, { key = id, onPress = open }, children)`, `ui.text(words, LABEL, { color = ink })`, `ui.icon(name, ICON, { color = ink })`. Only those are decoded; a prop in both takes the second table's value.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1740,6 +1741,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `count` | `number` | How many rows. |
 | `estimatedRowHeight` | `number` | A row's height before it is measured. |
 | `version` | `MemoVersion` | Change it when rows change. While it stays the same, scrolling builds only rows that enter the view. |
+| `rowVersions` | `{ MemoVersion }?` | Each row's own version, beside `version`: a row is built again when `version` or its own changes, so opening one row rebuilds that row alone. |
+| `scrollY` | `boolean?` | `false`: the list has no scroll of its own. It sits in a scrolling column (`scrollY = true` on an ancestor), under or among other content, and builds the rows that column shows. Defaults to `true`: the list is its own scroll. |
 | `renderRow` | `(index: number) -> UiNode` | Builds row `index`, from 1. It must not yield. |
 | `rowKey` | `((index: number) -> string)?` | A stable identity for row `index`, so rows keep their state as the list changes. Defaults to the index. |
 | `gap` | `number?` | Space between rows. |

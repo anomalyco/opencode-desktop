@@ -64,12 +64,21 @@ export type Env = {
 -- drawer (`session-service-drawer`), `compact` below 640 points, where an MCP row is 44 tall.
 export type Placement = { kind: "flyout" } | { kind: "drawer", compact: boolean }
 
+-- Each directory's query, and each list's path for it, made once.
+local LOCATIONS: { [string]: string } = {}
+local READ_PATHS: { [string]: { [string]: string } } = { mcp = {}, plugins = {}, skills = {} }
+
 -- `?location[directory]=…`, or nothing for the server's default location.
 function lists.location(env: Env, directory: string): string
     if directory == "" then
         return ""
     end
-    return `?location%5Bdirectory%5D={env.Server:EncodeUri(directory)}`
+    local found = LOCATIONS[directory]
+    if found == nil then
+        found = `?location%5Bdirectory%5D={env.Server:EncodeUri(directory)}`
+        LOCATIONS[directory] = found
+    end
+    return found
 end
 
 local function str(v: any): string?
@@ -128,7 +137,12 @@ local synced: (env: Env, directory: string, items: { Item }) -> ()
 
 -- `service`'s list for directory `directory`, as read for this open.
 function lists.read(env: Env, service: Service, directory: string): (Load, number)
-    local path = PATHS[service] .. lists.location(env, directory)
+    local paths = READ_PATHS[service]
+    local path = paths[directory]
+    if path == nil then
+        path = PATHS[service] .. lists.location(env, directory)
+        paths[directory] = path
+    end
     local res = env.Server:Resource(path, env.state.opens)
     if res.status == "error" then
         return { kind = "failed" }, res.generation
@@ -193,18 +207,64 @@ local FONT = { size = 13, weight = "regular" :: FontWeight, lineHeight = 16 }
 -- A row's words; `name` (a server's, a plugin's, a skill's) reads in its own direction, as
 -- `TruncatedText` does.
 -- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
-local LABELS: { [string]: UiTextProps } = {}
+local LABELS: { [any]: { [boolean]: UiTextProps } } = {}
 local ICON = table.freeze({ size = 16, color = "icon-weak" } :: UiIconProps)
 local ITEM_NAME = table.freeze({ gap = 8, align = "center", grow = 1, shrink = true, minW = 0 } :: UiBoxProps)
 local ITEM_END = table.freeze({ ml = 8, gap = 8, align = "center" } :: UiBoxProps)
 local DOT_BOX = table.freeze({ w = 16, h = 16, center = true } :: UiBoxProps)
 local RULE = table.freeze({ w = "full", mx = -2, my = 2 } :: UiBoxProps)
 local RULE_LINE = table.freeze({ w = "full", h = 1, fill = "border-weak" } :: UiBoxProps)
+-- A list's rows, by kind: frozen, each row's key, top margin and handler laid over.
+local MCP_ROW = table.freeze({
+    w = "full",
+    minH = 28,
+    pl = 12,
+    pr = 6,
+    py = 4,
+    gap = 8,
+    align = "center",
+    radius = 4,
+    hoverTransition = "instant",
+} :: UiBoxProps)
+local MCP_ROW_COMPACT = table.freeze({
+    w = "full",
+    minH = 44,
+    pl = 12,
+    pr = 6,
+    py = 8,
+    gap = 8,
+    align = "center",
+    radius = 4,
+    hoverTransition = "instant",
+} :: UiBoxProps)
+local PLUGIN_ROW = table.freeze({ w = "full", minH = 28, pl = 12, pr = 12, py = 4, gap = 8, align = "center", radius = 4 } :: UiBoxProps)
+local SKILL_ROW = table.freeze({
+    role = "button",
+    w = "full",
+    minH = 28,
+    pl = 12,
+    pr = 12,
+    py = 4,
+    gap = 8,
+    align = "center",
+    radius = 4,
+    hover = "surface-hover",
+    hoverTransition = "instant",
+} :: UiBoxProps)
+local LIST = table.freeze({ w = "full", px = 2, shrink = true, minH = 0, scrollY = true } :: UiBoxProps)
+local PANE = table.freeze({ role = "group", w = "full", maxH = 480 } :: UiBoxProps)
+local FOOTER_FLYOUT = table.freeze({ w = "full", pt = 6, px = 2 } :: UiBoxProps)
+local FOOTER_DRAWER = table.freeze({ w = "full", pt = 6 } :: UiBoxProps)
 
 local function label(words: string, color: Color?, name: boolean?): ui.Node
     local ink: any = color or "text-chrome"
-    local key = `{if type(ink) == "string" then ink else tostring(ink)}:{name == true}`
-    local props = LABELS[key]
+    local named = name == true
+    local byInk = LABELS[ink]
+    if byInk == nil then
+        byInk = {}
+        LABELS[ink] = byInk
+    end
+    local props = byInk[named]
     if props == nil then
         props = table.freeze({
             size = FONT.size,
@@ -216,7 +276,7 @@ local function label(words: string, color: Color?, name: boolean?): ui.Node
             minW = 0,
             dir = if name then "auto" else nil,
         } :: UiTextProps)
-        LABELS[key] = props
+        byInk[named] = props
     end
     return ui.text(words, props)
 end
@@ -224,9 +284,16 @@ end
 -- `.session-service-dot`'s colour: Desktop's v1 `--icon-success-base`, `--icon-critical-base` and
 -- `--icon-warning-base` on the default theme (the app's `widgets::status_dot`), a chosen theme's
 -- state colours, else `icon-faint`.
+-- The theme as a list's rows draw with it, read once per list (`body`).
+local look = { v1 = false, dark = false, key = "" }
+
+local function readLook()
+    local id, dark = Theme:Current().id, Theme:IsDark()
+    look = { v1 = id == "oc-2", dark = dark, key = `{id}:{dark}` }
+end
+
 local function inkOf(status: string?): Color
-    local v1 = Theme:Current().id == "oc-2"
-    local dark = Theme:IsDark()
+    local v1, dark = look.v1, look.dark
     if status == "connected" or status == "active" then
         return if v1 then ui.hex(if dark then "#089b00" else "#0abe00") else "status-success"
     elseif status == "failed" then
@@ -237,14 +304,20 @@ local function inkOf(status: string?): Color
     return "icon-weaker"
 end
 
+local DOT = table.freeze({ w = 6, h = 6, radius = 3 } :: UiBoxProps)
+local RING = table.freeze({ w = 6, h = 6, radius = 3, borderWidth = 1 } :: UiBoxProps)
+
 -- A 6 dot: filled, or a hollow ring for a disabled server, its error on hover.
 local function dot(status: string?, err: string?): ui.Node
     local ink = inkOf(status) :: any
     if status == "disabled" then
-        return ui.box({ w = 6, h = 6, radius = 3, border = ink, borderWidth = 1, help = err })
+        return ui.box(RING, { border = ink, help = err })
     end
-    return ui.box({ w = 6, h = 6, radius = 3, fill = ink, help = err })
+    return ui.box(DOT, { fill = ink, help = err })
 end
+
+-- A menu row's style, by height: frozen, made once.
+local CONFIG_ROWS: { [number]: UiBoxProps } = {}
 
 -- `session-service-config`: an icon and a label, as a menu row.
 local function configRow(
@@ -260,19 +333,25 @@ local function configRow(
         table.insert(children, ui.icon(glyph, ICON))
     end
     table.insert(children, label(words))
-    return ui.row({
+    local style = CONFIG_ROWS[minH]
+    if style == nil then
+        style = table.freeze({
+            role = "button",
+            w = "full",
+            minH = minH,
+            px = 12,
+            py = 4,
+            gap = 8,
+            align = "center",
+            radius = 4,
+            hoverTransition = "instant",
+        } :: UiBoxProps)
+        CONFIG_ROWS[minH] = style
+    end
+    return ui.row(style, {
         key = key,
-        role = "button",
         label = words,
-        w = "full",
-        minH = minH,
-        px = 12,
-        py = 4,
-        gap = 8,
-        align = "center",
-        radius = 4,
         hover = if disabled then nil else "surface-hover",
-        hoverTransition = "instant",
         onPress = if disabled then nil else onPress,
     }, children)
 end
@@ -450,7 +529,7 @@ end
 
 -- `session-mcp-row`: its status dot and name, then its switch, or Sign in for a server that needs
 -- one. A press follows the row: a failed server opens its error, any other turns over.
-local function mcpRow(env: Env, view: View, item: Item, directory: string, base: any, compact: boolean): ui.Node
+local function mcpRow(env: Env, view: View, item: Item, directory: string, key: string, mt: number?, compact: boolean): ui.Node
     local state = mcp.state(env.mcp, directory)
     local busy, pending = machine.mcpRow(state, item.name, item.status)
     local disabled = item.status == "disabled"
@@ -465,16 +544,9 @@ local function mcpRow(env: Env, view: View, item: Item, directory: string, base:
         end
         change(item.status == "needs_auth" or disabled)
     end)
-    local props = table.clone(base)
-    props.pr = 6
     -- Below 640 points every MCP row stands 44 tall, 8 in above and below.
-    if compact then
-        props.minH = 44
-        props.py = 8
-    end
-    props.hover = if pending then nil else "surface-hover"
-    props.hoverTransition = "instant"
-    props.onPress = follow
+    local props: UiBoxProps =
+        { key = key, mt = mt, hover = (if pending then nil else "surface-hover") :: Color?, onPress = follow }
     local trailing = if item.status == "needs_auth" and item.integrationID
         then signInButton(env, item, busy, pending, follow)
         -- `ui.switch` keeps a settings row's 4 around it; here the 16 switch sits 6 from the
@@ -489,7 +561,7 @@ local function mcpRow(env: Env, view: View, item: Item, directory: string, base:
                 end),
             }),
         })
-    return ui.row(props, {
+    return ui.row(if compact then MCP_ROW_COMPACT else MCP_ROW, props, {
         ui.row(ITEM_NAME, {
             mcpDot(env, view, item, directory),
             label(item.name, if disabled then "text-muted" else nil, true),
@@ -507,46 +579,33 @@ local function itemRow(
     placement: Placement,
     first: boolean
 ): ui.Node
-    local base = {
-        key = `details-item-{item.name}`,
-        w = "full",
-        minH = 28,
-        pl = 12,
-        py = 4,
-        gap = 8,
-        align = "center",
-        radius = 4,
-        mt = if first then nil else 2,
-    }
+    local key = `details-item-{item.name}`
+    local mt = if first then nil else 2
     if service == "mcp" then
-        return mcpRow(env, view, item, directory, base, placement.kind == "drawer" and placement.compact)
+        return mcpRow(env, view, item, directory, key, mt, placement.kind == "drawer" and placement.compact)
     end
     local name = label(item.name, if item.status == "disabled" then "text-muted" else nil, true)
     if service == "plugins" then
-        local props = table.clone(base) :: any
-        props.pr = 12
         local children: { ui.Node } = {}
         if item.status then
             table.insert(children, ui.box(DOT_BOX, { dot(item.status, item.error) }))
         end
         table.insert(children, name)
-        return ui.row(props, children)
+        return ui.row(PLUGIN_ROW, { key = key, mt = mt }, children)
     end
-    local props = table.clone(base) :: any
-    props.pr = 12
-    props.role = "button"
-    props.hover = "surface-hover"
-    props.hoverTransition = "instant"
-    -- A skill opens its SKILL.md in a side tab; the popover closes as it does.
-    props.onPress = view:Handler(function()
-        if item.path then
-            env.Links:Open({ href = item.path })
-        end
-        if placement.kind == "flyout" then
-            env.Popover:Close()
-        end
-    end)
-    return ui.row(props, { ui.icon("file-document", ICON), name })
+    return ui.row(SKILL_ROW, {
+        key = key,
+        mt = mt,
+        -- A skill opens its SKILL.md in a side tab; the popover closes as it does.
+        onPress = view:Handler(function()
+            if item.path then
+                env.Links:Open({ href = item.path })
+            end
+            if placement.kind == "flyout" then
+                env.Popover:Close()
+            end
+        end),
+    }, { ui.icon("file-document", ICON), name })
 end
 
 -- Under the list (`session-service-footer`): a rule, then (when empty, or for skills) the setup
@@ -613,8 +672,7 @@ local function footer(env: Env, view: View, service: Service, empty: boolean, di
             )
         )
     end
-    local inset = if placement.kind == "flyout" then 2 else nil
-    return ui.col({ key = `details-footer-{service}`, w = "full", pt = 6, px = inset }, rows)
+    return ui.col(if placement.kind == "flyout" then FOOTER_FLYOUT else FOOTER_DRAWER, { key = `details-footer-{service}` }, rows)
 end
 
 -- A list's body (`ServiceBody`): Loading, Request failed with Retry, the empty state, or its rows.
@@ -666,11 +724,22 @@ local function body(env: Env, view: View, service: Service, load: Load, director
             }),
         }
     end
-    local rows: { ui.Node } = {}
-    for i, item in load.items do
-        table.insert(rows, itemRow(env, view, service, item, directory, placement, i == 1))
-    end
-    return rows
+    -- Each row is built again only when what it shows changes.
+    readLook()
+    local state = if service == "mcp" then mcp.state(env.mcp, directory) else nil
+    local compact = placement.kind == "drawer" and placement.compact
+    local locale = env.I18n:Locale().id
+    return ui.each(load.items, function(item: Item): string
+        return `details-item-{item.name}`
+    end, function(item: Item, i: number): string
+        local busy, pending = false, false
+        if state then
+            busy, pending = machine.mcpRow(state, item.name, item.status)
+        end
+        return `{service}:{placement.kind}:{compact}:{directory}:{item.status}:{item.error}:{item.path}:{item.integrationID}:{busy}:{pending}:{i == 1}:{look.key}:{locale}`
+    end, function(item: Item, i: number): ui.Node
+        return itemRow(env, view, service, item, directory, placement, i == 1)
+    end)
 end
 
 -- A list's rows, then its footer, beside the card (`session-service-pane`: the rows scroll in
@@ -679,18 +748,12 @@ function lists.pane(env: Env, view: View, service: Service, directory: string): 
     local placement: Placement = { kind = "flyout" }
     local load = lists.read(env, service, directory)
     local children: { ui.Node } = {
-        ui.col({ w = "full", px = 2, shrink = true, minH = 0, scrollY = true }, body(env, view, service, load, directory, placement)),
+        ui.col(LIST, body(env, view, service, load, directory, placement)),
     }
     if load.kind == "ready" then
         table.insert(children, footer(env, view, service, #load.items == 0, directory, placement))
     end
-    return ui.col({
-        key = `details-pane-{service}`,
-        role = "group",
-        label = env.I18n:T(service),
-        w = "full",
-        maxH = 480,
-    }, children)
+    return ui.col(PANE, { key = `details-pane-{service}`, label = env.I18n:T(service) }, children)
 end
 
 -- A list as the narrow window's More drawer shows it in its own view (`session-summary-card

@@ -16,6 +16,7 @@ local BUBBLE_MAX = 565
 export type Env = {
     I18n: I18nService,
     Models: ModelsService,
+    Theme: ThemeService,
     System: SystemService,
     state: machine.State,
     saved: (session: string) -> { machine.Saved },
@@ -68,22 +69,23 @@ end
 
 -- Desktop's `IconButton size="normal" variant="ghost-muted"` with the copy glyph (a check once
 -- copied) at 14, its tooltip above.
+local COPY = table.freeze({
+    role = "button",
+    helpSide = "top",
+    w = 24,
+    h = 24,
+    center = true,
+    radius = 6,
+    hover = "surface-hover",
+    press = "surface-press",
+    hoverTransition = "instant",
+} :: UiBoxProps)
+local COPY_ICON = table.freeze({ size = 14, color = "icon-weak" } :: UiIconProps)
+
 local function copyButton(key: string, copied: boolean, tip: string, onPress: ui.Handler): ui.Node
-    return ui.row({
-        key = key,
-        role = "button",
-        label = tip,
-        help = tip,
-        helpSide = "top",
-        w = 24,
-        h = 24,
-        center = true,
-        radius = 6,
-        hover = "surface-hover",
-        press = "surface-press",
-        hoverTransition = "instant",
-        onPress = onPress,
-    }, { ui.icon(if copied then "check" else "outline-copy", { size = 14, color = "icon-weak" }) })
+    return ui.row(COPY, { key = key, label = tip, help = tip, onPress = onPress }, {
+        ui.icon(if copied then "check" else "outline-copy", COPY_ICON),
+    })
 end
 
 -- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
@@ -114,6 +116,50 @@ local QUESTION = table.freeze({
     wrap = true,
     selectable = true,
 } :: UiTextProps)
+
+local FULL = table.freeze({ w = "full" } :: UiBoxProps)
+local PROMPT = table.freeze({ w = "full", align = "end", hoverGroup = true } :: UiBoxProps)
+local BUBBLE = table.freeze({
+    key = "btw-question",
+    maxW = BUBBLE_MAX,
+    shrink = true,
+    px = 12,
+    py = 8,
+    radius = 10,
+    fill = "surface-2",
+} :: UiBoxProps)
+local PROMPT_FOOTER = table.freeze({
+    key = "btw-question-footer",
+    w = "full",
+    h = 20,
+    mt = 8,
+    gap = 8,
+    align = "center",
+    revealOnHover = true,
+} :: UiBoxProps)
+local PROMPT_META = table.freeze({ key = "btw-question-meta", minW = 0, shrink = true, align = "center" } :: UiBoxProps)
+local ANSWER = table.freeze({ key = "btw-answer", w = "full", mt = 24, hoverGroup = true } :: UiBoxProps)
+local ANSWER_COPY = table.freeze({ ml = -2 } :: UiBoxProps)
+local ANSWER_FOOTER = table.freeze({
+    key = "btw-answer-footer",
+    h = 20,
+    mt = 8,
+    gap = 4,
+    align = "center",
+    revealOnHover = true,
+} :: UiBoxProps)
+local PANEL = table.freeze({ key = "session-btw-panel", w = "full", h = "full", fill = "bg-base" } :: UiBoxProps)
+local SCROLL = table.freeze({
+    key = "btw-scroll",
+    w = "full",
+    grow = 1,
+    minH = 0,
+    scrollY = true,
+    align = "center",
+} :: UiBoxProps)
+local CONTENT = table.freeze({ key = "btw-content", w = "full", maxW = SESSION_W, px = 24, pt = 24, pb = 32 } :: UiBoxProps)
+local WORKING = table.freeze({ key = "btw-working", role = "status", h = 36, pt = 12, align = "center" } :: UiBoxProps)
+local WORKING_TEXT = table.freeze({ size = 13, weight = "medium" :: FontWeight, lineHeight = 16 } :: UiTextProps)
 
 local function meta(words: string, truncate: boolean?): ui.Node
     return ui.text(words, if truncate then META_CUT else META)
@@ -152,29 +198,16 @@ local function prompt(
     end
     local tip = I18n:T(if copied then "copied" else "copyMessage")
     local question = info.question
-    return ui.col({ key = `btw-prompt-{id}`, w = "full", align = "end", hoverGroup = true }, {
-        ui.row({ w = "full" }, {
+    return ui.col(PROMPT, { key = `btw-prompt-{id}` }, {
+        ui.row(FULL, {
             ui.spacer(),
-            ui.row(
-                {
-                    key = "btw-question",
-                    maxW = BUBBLE_MAX,
-                    shrink = true,
-                    px = 12,
-                    py = 8,
-                    radius = 10,
-                    fill = "surface-2",
-                },
-                {
-                    ui.text(question, QUESTION),
-                }
-            ),
+            ui.row(BUBBLE, { ui.text(question, QUESTION) }),
         }),
         ui.row(
-            { key = "btw-question-footer", w = "full", h = 20, mt = 8, gap = 8, align = "center", revealOnHover = true },
+            PROMPT_FOOTER,
             {
                 ui.spacer(),
-                ui.row({ key = "btw-question-meta", minW = 0, shrink = true, align = "center" }, line),
+                ui.row(PROMPT_META, line),
                 copyButton(
                     "btw-copy-question",
                     copied,
@@ -222,7 +255,7 @@ local function answered(
         end
     end
     local footer: { ui.Node } = {
-        ui.box({ ml = -2 }, {
+        ui.box(ANSWER_COPY, {
             copyButton(
                 "btw-copy-answer",
                 copied,
@@ -239,9 +272,9 @@ local function answered(
     if #parts > 0 then
         table.insert(footer, meta(table.concat(parts, " \u{b7} "), true))
     end
-    return ui.col({ key = "btw-answer", w = "full", mt = 24, hoverGroup = true }, {
+    return ui.col(ANSWER, {
         ui.markdown({ source = answer, lineHeight = 25.2, w = "full" }),
-        ui.row({ key = "btw-answer-footer", h = 20, mt = 8, gap = 4, align = "center", revealOnHover = true }, footer),
+        ui.row(ANSWER_FOOTER, footer),
     })
 end
 
@@ -288,23 +321,35 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node?
         local agent = capitalize(info.agent)
         local model = modelLabel(env, info.model)
         local stamp = if info.created then env.I18n:Date(info.created, "time") else ""
-        table.insert(body, prompt(env, view, id, info, agent, model, stamp))
+        local look = `{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
+        local marks = env.copied[id]
+        -- The question and the answer are each built again only when what they show changes:
+        -- copying one keeps the other.
+        local asked = marks ~= nil and marks.question == info.question
+        table.insert(
+            body,
+            view:Memo(`btw-prompt-{id}`, `{info.question}:{agent}:{model}:{stamp}:{asked}:{look}`, function()
+                return prompt(env, view, id, info, agent, model, stamp)
+            end) :: ui.Node
+        )
         if phase.kind == "running" then
-            table.insert(
-                body,
-                ui.row({ key = "btw-working", role = "status", h = 36, pt = 12, align = "center" }, {
-                    ui.shimmer(env.I18n:T("working"), { size = 13, weight = "medium", lineHeight = 16 }),
-                })
-            )
+            table.insert(body, ui.row(WORKING, { ui.shimmer(env.I18n:T("working"), WORKING_TEXT) }))
         elseif phase.kind == "failed" then
             table.insert(body, failed(env, view, session, id, phase.failure))
         elseif phase.kind == "answered" then
-            table.insert(body, answered(env, view, id, phase.answer, agent, model, phase.duration))
+            local answer, duration = phase.answer, phase.duration
+            local took = marks ~= nil and marks.answer == answer
+            table.insert(
+                body,
+                view:Memo(`btw-answer-{id}`, `{answer}:{agent}:{model}:{duration}:{took}:{look}`, function()
+                    return answered(env, view, id, answer, agent, model, duration)
+                end) :: ui.Node
+            )
         end
     end
-    return ui.col({ key = "session-btw-panel", w = "full", h = "full", fill = "bg-base" }, {
-        ui.col({ key = "btw-scroll", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
-            ui.col({ key = "btw-content", w = "full", maxW = SESSION_W, px = 24, pt = 24, pb = 32 }, body),
+    return ui.col(PANEL, {
+        ui.col(SCROLL, {
+            ui.col(CONTENT, body),
         }),
     })
 end

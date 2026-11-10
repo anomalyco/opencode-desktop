@@ -16,7 +16,7 @@ string_enum! {
         Spacer = "spacer",
         /// A hairline rule.
         Divider = "divider",
-        /// Text.
+        /// Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are.
         Text = "text",
         /// One of the app's icons.
         Icon = "icon",
@@ -512,6 +512,8 @@ pub static UI_VIRTUAL_LIST_PROPS: PropsSpec = PropsSpec::new("UiVirtualListProps
     PropSpec::new("count", PropType::Integer, true),
     PropSpec::new("estimatedRowHeight", PropType::Number, true),
     PropSpec::new("version", PropType::MemoVersion, true),
+    PropSpec::new("rowVersions", PropType::List("MemoVersion"), false),
+    PropSpec::new("scrollY", PropType::Bool, false),
     PropSpec::new("renderRow", PropType::Function, true),
     PropSpec::new("rowKey", PropType::Function, false),
     PropSpec::new("gap", PropType::Number, false),

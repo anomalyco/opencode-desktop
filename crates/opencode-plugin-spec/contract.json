@@ -441,7 +441,7 @@
       { "name": "Submitted", "kind": "signal", "payload": "string", "doc": "Fires with the text when the user presses Enter." }
     ] },
 
-    { "name": "UiLayoutProps", "kind": "record", "doc": "Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = \"text-weak\" })`).", "fields": [
+    { "name": "UiLayoutProps", "kind": "record", "doc": "Size, spacing, position and accessibility: every `ui.*` node takes these. A props table frozen with `table.freeze` is decoded once and its node copied after that, so keep styles many nodes share in frozen tables made once (`local LABEL = table.freeze({ size = 13, color = \"text-weak\" })`). A node whose props are partly its own takes the frozen style first and a small table of its own props after it, laid over the style: `ui.row(ROW, { key = id, onPress = open }, children)`, `ui.text(words, LABEL, { color = ink })`, `ui.icon(name, ICON, { color = ink })`. Only those are decoded; a prop in both takes the second table's value.", "fields": [
       { "name": "key", "type": "string?", "doc": "Identity among siblings across renders, and the anchor key for popovers and menus." },
       { "name": "w", "type": "UiSize?", "doc": "Width." },
       { "name": "h", "type": "UiSize?", "doc": "Height." },
@@ -662,6 +662,8 @@
       { "name": "count", "type": "integer", "doc": "How many rows." },
       { "name": "estimatedRowHeight", "type": "number", "doc": "A row's height before it is measured." },
       { "name": "version", "type": "MemoVersion", "doc": "Change it when rows change. While it stays the same, scrolling builds only rows that enter the view." },
+      { "name": "rowVersions", "type": "{ MemoVersion }?", "doc": "Each row's own version, beside `version`: a row is built again when `version` or its own changes, so opening one row rebuilds that row alone." },
+      { "name": "scrollY", "type": "boolean?", "doc": "`false`: the list has no scroll of its own. It sits in a scrolling column (`scrollY = true` on an ancestor), under or among other content, and builds the rows that column shows. Defaults to `true`: the list is its own scroll." },
       { "name": "renderRow", "type": "(index: number) -> UiNode", "doc": "Builds row `index`, from 1. It must not yield." },
       { "name": "rowKey", "type": "((index: number) -> string)?", "doc": "A stable identity for row `index`, so rows keep their state as the list changes. Defaults to the index." },
       { "name": "gap", "type": "number?", "doc": "Space between rows." },
@@ -1692,13 +1694,13 @@
     { "name": "FocusChanged", "halves": ["window"], "payload": "boolean", "doc": "Fires as the window gains or loses focus." }
   ],
   "nodes": [
-    { "name": "box", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A container with no direction of its own: children stack on top of each other." },
-    { "name": "row", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A horizontal stack." },
-    { "name": "col", "category": "layout", "sig": "(props: UiBoxProps, children: { UiNode }?) -> UiNode", "props": "UiBoxProps", "doc": "A vertical stack." },
+    { "name": "box", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A container with no direction of its own: children stack on top of each other." },
+    { "name": "row", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A horizontal stack." },
+    { "name": "col", "category": "layout", "sig": "((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode)", "props": "UiBoxProps", "doc": "A vertical stack." },
     { "name": "spacer", "category": "layout", "sig": "(props: UiSpacerProps?) -> UiNode", "props": "UiSpacerProps", "doc": "Flexible space in a stack." },
     { "name": "divider", "category": "layout", "sig": "(props: UiDividerProps?) -> UiNode", "props": "UiDividerProps", "doc": "A hairline rule." },
-    { "name": "text", "category": "content", "sig": "(content: string, props: UiTextProps?) -> UiNode", "props": "UiTextProps", "doc": "Text." },
-    { "name": "icon", "category": "content", "sig": "(name: IconName, props: UiIconProps?) -> UiNode", "props": "UiIconProps", "doc": "One of the app's icons." },
+    { "name": "text", "category": "content", "sig": "((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode)", "props": "UiTextProps", "doc": "Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text(\"{1} / {2}\", VALUE, read, write)`. Other braces stay as they are." },
+    { "name": "icon", "category": "content", "sig": "((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode)", "props": "UiIconProps", "doc": "One of the app's icons." },
     { "name": "image", "category": "content", "sig": "(props: UiImageProps) -> UiNode", "props": "UiImageProps", "doc": "An image the host holds." },
     { "name": "metric", "category": "content", "sig": "(props: UiMetricProps) -> UiNode", "props": "UiMetricProps", "doc": "A number shown as text. Hosts that can animate changed digits do." },
     { "name": "shimmer", "category": "content", "sig": "(content: string, props: UiTextProps?) -> UiNode", "props": "UiTextProps", "doc": "Text with the app's loading shimmer." },
@@ -1732,7 +1734,8 @@
     { "name": "genUi", "category": "native", "sig": "(props: UiGenUiProps) -> UiNode", "props": "UiGenUiProps", "doc": "An interactive UI outline, from a ```` ```ui ```` code block.", "native": { "engine": "UI outline renderer", "native": "Outline parsing, widget primitives and their motion", "luau": "Which blocks render, through `AddCodeBlock`" } }
   ],
   "uiExtras": [
-    { "name": "hex", "kind": "function", "sig": "(color: string) -> HexColor", "doc": "A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme." }
+    { "name": "hex", "kind": "function", "sig": "(color: string) -> HexColor", "doc": "A literal color from `#RRGGBB` or `#RRGGBBAA`. Prefer a semantic token, which follows the theme." },
+    { "name": "each", "kind": "function", "generics": "T", "sig": "(items: { T }, key: string | ((item: T, index: number) -> string | number), version: string | ((item: T, index: number) -> MemoVersion), build: (item: T, index: number) -> UiNode) -> { UiNode }", "doc": "A node for each item, as children to pass on: `build(item, index)`, memoized per item as `view:Memo` is, by its key and version. A render builds again only the items whose version changed. `key` and `version` are field names (`\"id\"`) or functions of the item. An item's key becomes its node's key, so keep keys unique in the render. Put everything the row draws with, the theme among it, in its version." }
   ],
   "pluginModule": [
     { "name": "contract", "kind": "field", "type": "string", "doc": "The contract version the host implements, such as `\"1.0\"`." },

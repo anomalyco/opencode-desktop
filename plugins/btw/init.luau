@@ -153,6 +153,7 @@ return plugin.defineWindow(function(ctx)
     local env: panel.Env = {
         I18n = I18n,
         Models = ctx:GetService("Models"),
+        Theme = ctx:GetService("Theme"),
         System = System,
         state = state,
         saved = saved,

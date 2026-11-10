@@ -13,11 +13,13 @@ local tab = {}
 export type Export = { kind: "idle" } | { kind: "exporting", sessionId: string }
 
 -- One raw message: its text as the server wrote it and what the tab reads off it.
-type Raw = { text: string, value: any }
+type Raw = { text: string, value: any, id: string, kind: string }
 
 export type State = {
     -- Raw message rows shown open, by message id.
     open: { [string]: boolean },
+    -- Moves each time a row opens or shuts, for the tab's memo version.
+    toggles: number,
     export: Export,
     -- Each session's messages as last read, split once per answer.
     parsed: { [string]: { generation: number, raws: { Raw } } },
@@ -69,8 +71,88 @@ local STAT_VALUE = table.freeze({
     selectable = true,
 } :: UiTextProps)
 local STAT_LINE = table.freeze({ w = "full", gap = 16 } :: UiBoxProps)
+local STATS = table.freeze({ key = "context-stats", w = "full", gap = 16 } :: UiBoxProps)
+local PERCENT = table.freeze({ style = "percent" } :: NumberFormat)
+local CURRENCY = table.freeze({ style = "currency" } :: NumberFormat)
 local HEADING = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19.5, color = "text-weak" } :: UiTextProps)
-local RAW_NAME = table.freeze({ shrink = true, minW = 0, align = "center" } :: UiBoxProps)
+local SYSTEM = table.freeze({ key = "context-system", w = "full", gap = 8 } :: UiBoxProps)
+local SYSTEM_BOX =
+    table.freeze({ w = "full", px = 12, py = 8, radius = 6, border = "border-base", fill = "surface-1" } :: UiBoxProps)
+local SYSTEM_TEXT = table.freeze({
+    size = 13,
+    weight = "regular" :: FontWeight,
+    lineHeight = 19.5,
+    wrap = true,
+    selectable = true,
+    color = "text-chrome",
+} :: UiTextProps)
+local CONTENT = table.freeze({ key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 } :: UiBoxProps)
+local TAB = table.freeze({ key = "context-tab", w = "full", h = "full", pt = 8 } :: UiBoxProps)
+local TAB_MOBILE = table.freeze({ key = "context-tab", w = "full", h = "full", pt = 0 } :: UiBoxProps)
+local SCROLL = table.freeze({ key = "context-scroll", w = "full", grow = 1, minH = 0, scrollY = true } :: UiBoxProps)
+local EXPORT = table.freeze({
+    key = "context-export",
+    role = "button",
+    h = 24,
+    px = 8,
+    gap = 6,
+    align = "center",
+    radius = 4,
+    hover = "surface-hover",
+    press = "surface-press",
+    hoverTransition = "instant",
+    hoverGroup = true,
+} :: UiBoxProps)
+local EXPORT_ICON = table.freeze({ size = 14, color = "text-weak", hoverGroupColor = "text-chrome" } :: UiIconProps)
+local EXPORT_TEXT = table.freeze({
+    size = 13,
+    weight = "medium" :: FontWeight,
+    lineHeight = 20,
+    tracking = -0.04,
+    tabular = true,
+    color = "text-weak",
+    hoverGroupColor = "text-chrome",
+} :: UiTextProps)
+local RAW_SECTION = table.freeze({ key = "context-raw-section", w = "full", gap = 8 } :: UiBoxProps)
+local RAW_HEAD = table.freeze({ w = "full", align = "center", justify = "between" } :: UiBoxProps)
+-- A message's row: its kind and id at the start (the id cut to fit), its time and the chevron
+-- at the end. One row of four: the id grows into the space between, 16 short of the time, as
+-- the kind and id's group, a spacer and the time's group laid out 8 apart.
+local RAW_ROW = table.freeze({
+    role = "button",
+    w = "full",
+    h = 32,
+    px = 12,
+    gap = 8,
+    align = "center",
+    border = "border-base",
+    fill = "bg-base",
+    hover = "surface-hover",
+    hoverTransition = "instant",
+} :: UiBoxProps)
+-- By whether the row starts the list, then whether it ends it shut: its corners.
+local RAW_CORNERS = table.freeze({
+    [0] = table.freeze({ [0] = table.freeze({ 0, 0, 0, 0 }), [1] = table.freeze({ 0, 0, 8, 8 }) }),
+    [1] = table.freeze({ [0] = table.freeze({ 8, 8, 0, 0 }), [1] = table.freeze({ 8, 8, 8, 8 }) }),
+})
+local RAW_BODY = table.freeze({
+    w = "full",
+    pad = 12,
+    corners = { 0, 0, 0, 0 },
+    border = "border-base",
+    mt = -1,
+    fill = "bg-base",
+} :: UiBoxProps)
+local RAW_BODY_LAST = table.freeze({
+    w = "full",
+    pad = 12,
+    corners = { 0, 0, 8, 8 },
+    border = "border-base",
+    mt = -1,
+    fill = "bg-base",
+} :: UiBoxProps)
+local RAW_WRAP_FIRST = table.freeze({ w = "full" } :: UiBoxProps)
+local RAW_WRAP = table.freeze({ w = "full" } :: UiBoxProps)
 local RAW_KIND = table.freeze({
     size = 13,
     weight = "regular" :: FontWeight,
@@ -85,16 +167,19 @@ local RAW_ID = table.freeze({
     color = "text-base",
     truncate = true,
     shrink = true,
+    minW = 0,
+    grow = 1,
+    ml = -8,
 } :: UiTextProps)
-local RAW_END = table.freeze({ gap = 12, align = "center" } :: UiBoxProps)
 local RAW_TIME = table.freeze({
     size = 13,
     weight = "regular" :: FontWeight,
     lineHeight = 19.5,
     color = "text-weak",
     noWrap = true,
+    ml = 8,
 } :: UiTextProps)
-local RAW_CHEVRON = table.freeze({ size = 14, color = "text-weak" } :: UiIconProps)
+local RAW_CHEVRON = table.freeze({ size = 14, color = "text-weak", ml = 4 } :: UiIconProps)
 local RAW_JSON = table.freeze({
     size = 12,
     weight = "regular" :: FontWeight,
@@ -156,37 +241,41 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
     local modelName = if model and catalog then catalog.modelName or model else "-"
     local title = if session then session.title elseif sid == "" then "-" else sid
     local messages = if #raws == 0 then (if session then session.messages or 0 else 0) else #raws
-    local rows: { { string } } = {
-        { I18n:T("stats.session"), title },
-        { I18n:T("stats.messages"), I18n:Number(messages) },
-        { I18n:T("stats.provider"), providerName },
-        { I18n:T("stats.model"), modelName },
-        { I18n:T("stats.limit"), num(limit) },
-        { I18n:T("stats.totalTokens"), num(total) },
-        { I18n:T("stats.usage"), if usage then I18n:Number(usage / 100, { style = "percent" }) else "-" },
-        { I18n:T("stats.inputTokens"), num(tokens and tokens.input) },
-        { I18n:T("stats.outputTokens"), num(tokens and tokens.output) },
-        { I18n:T("stats.reasoningTokens"), num(tokens and tokens.reasoning) },
-        { I18n:T("stats.cacheTokens"), `{num(tokens and tokens.read)} / {num(tokens and tokens.write)}` },
-        { I18n:T("stats.userMessages"), I18n:Number(count("user")) },
-        { I18n:T("stats.assistantMessages"), I18n:Number(count("assistant")) },
-        { I18n:T("stats.totalCost"), I18n:Number(if session then session.cost else 0, { style = "currency" }) },
-        { I18n:T("stats.sessionCreated"), time(session and session.created) },
-        { I18n:T("stats.lastActivity"), time(last and last.value.time and last.value.time.created) },
+    local function stat(name: string, value: string): ui.Node
+        return ui.col(STAT, { ui.text(I18n:T(name), STAT_NAME), ui.text(value, STAT_VALUE) })
+    end
+    local cells: { ui.Node } = {
+        stat("stats.session", title),
+        stat("stats.messages", I18n:Number(messages)),
+        stat("stats.provider", providerName),
+        stat("stats.model", modelName),
+        stat("stats.limit", num(limit)),
+        stat("stats.totalTokens", num(total)),
+        stat("stats.usage", if usage then I18n:Number(usage / 100, PERCENT) else "-"),
+        stat("stats.inputTokens", num(tokens and tokens.input)),
+        stat("stats.outputTokens", num(tokens and tokens.output)),
+        stat("stats.reasoningTokens", num(tokens and tokens.reasoning)),
+        ui.col(STAT, {
+            ui.text(I18n:T("stats.cacheTokens"), STAT_NAME),
+            ui.text("{1} / {2}", STAT_VALUE, num(tokens and tokens.read), num(tokens and tokens.write)),
+        }),
+        stat("stats.userMessages", I18n:Number(count("user"))),
+        stat("stats.assistantMessages", I18n:Number(count("assistant"))),
+        stat("stats.totalCost", I18n:Number(if session then session.cost else 0, CURRENCY)),
+        stat("stats.sessionCreated", time(session and session.created)),
+        stat("stats.lastActivity", time(last and last.value.time and last.value.time.created)),
     }
-    local function stat(pair: { string }): ui.Node
-        return ui.col(STAT, { ui.text(pair[1], STAT_NAME), ui.text(pair[2], STAT_VALUE) })
-    end
-    local perRow = if wide then 2 else 1
-    local lines: { ui.Node } = {}
-    for i = 1, #rows, perRow do
-        local cells: { ui.Node } = {}
-        for j = i, math.min(i + perRow - 1, #rows) do
-            table.insert(cells, stat(rows[j]))
+    local lines: { ui.Node } = table.create(if wide then 8 else 16)
+    if wide then
+        for i = 1, #cells, 2 do
+            table.insert(lines, ui.row(STAT_LINE, { cells[i], cells[i + 1] }))
         end
-        table.insert(lines, ui.row(STAT_LINE, cells))
+    else
+        for _, cell in cells do
+            table.insert(lines, ui.row(STAT_LINE, { cell }))
+        end
     end
-    return ui.col({ key = "context-stats", w = "full", gap = 16 }, lines)
+    return ui.col(STATS, lines)
 end
 
 -- The latest system message's text, trimmed; nil when there is none.
@@ -202,21 +291,9 @@ local function promptOf(raws: { Raw }): string?
 end
 
 local function systemPrompt(env: Env, prompt: string): ui.Node
-    return ui.col({ key = "context-system", w = "full", gap = 8 }, {
+    return ui.col(SYSTEM, {
         ui.text(env.I18n:T("systemPrompt.title"), HEADING),
-        ui.col({ w = "full", px = 12, py = 8, radius = 6, border = "border-base", fill = "surface-1" }, {
-            ui.text(
-                prompt,
-                {
-                    size = 13,
-                    weight = "regular",
-                    lineHeight = 19.5,
-                    wrap = true,
-                    selectable = true,
-                    color = "text-chrome",
-                }
-            ),
-        }),
+        ui.col(SYSTEM_BOX, { ui.text(prompt, SYSTEM_TEXT) }),
     })
 end
 
@@ -283,21 +360,19 @@ local function startExport(env: Env, sid: string)
     end)
 end
 
-local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exporting: boolean, look: string): ui.Node
+local function rawMessages(
+    env: Env,
+    view: View,
+    sid: string,
+    raws: { Raw },
+    generation: number,
+    exporting: boolean,
+    look: string
+): ui.Node
     local disabled = exporting or sid == ""
-    local export = ui.row({
-        key = "context-export",
-        role = "button",
-        label = env.I18n:T("export.session"),
-        h = 24,
-        px = 8,
-        gap = 6,
-        align = "center",
-        radius = 4,
-        hover = "surface-hover",
-        press = "surface-press",
-        hoverTransition = "instant",
-        hoverGroup = true,
+    local words = env.I18n:T("export.session")
+    local export = ui.row(EXPORT, {
+        label = words,
         opacity = if disabled then 0.5 else 1,
         onPress = if disabled
             then nil
@@ -305,88 +380,63 @@ local function rawMessages(env: Env, view: View, sid: string, raws: { Raw }, exp
                 startExport(env, sid)
             end),
     }, {
-        ui.icon("download", { size = 14, color = "text-weak", hoverGroupColor = "text-chrome" }),
-        ui.text(
-            env.I18n:T("export.session"),
-            {
-                size = 13,
-                weight = "medium",
-                lineHeight = 20,
-                tracking = -0.04,
-                tabular = true,
-                color = "text-weak",
-                hoverGroupColor = "text-chrome",
-            }
-        ),
+        ui.icon("download", EXPORT_ICON),
+        ui.text(words, EXPORT_TEXT),
     })
-    local head = ui.row({ w = "full", align = "center", justify = "between" }, {
+    local head = ui.row(RAW_HEAD, {
         ui.text(env.I18n:T("rawMessages.title"), HEADING),
         export,
     })
     local open = env.state.open
-    local list: { ui.Node } = {}
-    local lg = 8
+    -- Each row's own version: whether it shows its JSON. The list's moves with the messages and
+    -- the look, so opening one row rebuilds that row alone.
+    local opened: { boolean } = table.create(#raws)
     for i, m in raws do
-        local id = tostring(m.value.id or "")
-        local kind = tostring(m.value.type or "")
-        local isOpen = open[id] == true
-        local last = i == #raws
-        local top = if i == 1 then lg else 0
-        local bottom = if last and not isOpen then lg else 0
-        local created = if m.value.time then m.value.time.created else nil
-        -- Each message's row (and its open JSON) is built again only when it changes: opening one
-        -- row, or a new message, rebuilds that row alone.
-        local version = `{kind}:{created}:{isOpen}:{top}:{bottom}:{#m.text}:{look}`
-        table.insert(
-            list,
-            view:Memo(`raw-{id}`, version, function(): ui.Node
-                local row = ui.row({
-                    key = `raw-{id}`,
-                    role = "button",
-                    label = `{kind} {id}`,
-                    w = "full",
-                    h = 32,
-                    px = 12,
-                    gap = 8,
-                    align = "center",
-                    corners = { top, top, bottom, bottom },
-                    border = "border-base",
-                    fill = "bg-base",
-                    hover = "surface-hover",
-                    hoverTransition = "instant",
-                    onPress = view:Handler(function()
-                        open[id] = (if open[id] then nil else true) :: any
-                    end),
-                }, {
-                    ui.row(RAW_NAME, { ui.text(`{kind} `, RAW_KIND), ui.text(`\u{2022} {id}`, RAW_ID) }),
-                    ui.spacer(),
-                    ui.row(RAW_END, {
-                        ui.text(
-                            if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-",
-                            RAW_TIME
-                        ),
-                        ui.icon("chevron-grabber-vertical", RAW_CHEVRON),
-                    }),
-                })
-                local body = if isOpen
-                    then ui.col({
-                        key = `raw-body-{id}`,
-                        w = "full",
-                        pad = 12,
-                        corners = { 0, 0, if last then lg else 0, if last then lg else 0 },
-                        border = "border-base",
-                        mt = -1,
-                        fill = "bg-base",
-                    }, { ui.text(json.pretty(m.text), RAW_JSON) })
-                    else false
-                -- The memo keys its root, so the row's own key sits a level down.
-                return ui.col({ w = "full", mt = if i > 1 then -1 else nil }, { row, body } :: { any })
-            end) :: ui.Node
-        )
+        opened[i] = open[m.id] == true
     end
-    return ui.col({ key = "context-raw-section", w = "full", gap = 8 }, {
+    local function row(i: number): ui.Node
+        local m = raws[i]
+        local id, kind, isOpen = m.id, m.kind, opened[i]
+        local last = i == #raws
+        local created = if m.value.time then m.value.time.created else nil
+        local header = ui.row(RAW_ROW, {
+            key = `raw-{id}`,
+            label = `{kind} {id}`,
+            corners = RAW_CORNERS[if i == 1 then 1 else 0][if last and not isOpen then 1 else 0],
+            onPress = view:Handler(function()
+                open[id] = (if open[id] then nil else true) :: any
+                env.state.toggles += 1
+            end),
+        }, {
+            ui.text("{1} ", RAW_KIND, kind),
+            ui.text("\u{2022} {1}", RAW_ID, id),
+            ui.text(if type(created) == "number" then env.I18n:Date(created, "dateTime") else "-", RAW_TIME),
+            ui.icon("chevron-grabber-vertical", RAW_CHEVRON),
+        })
+        local body = if isOpen
+            then ui.col(
+                if last then RAW_BODY_LAST else RAW_BODY,
+                { key = `raw-body-{id}` },
+                { ui.text(json.pretty(m.text), RAW_JSON) }
+            )
+            else false
+        -- The list keys a row's root, so the row's own key sits a level down.
+        return ui.col(if i > 1 then RAW_WRAP else RAW_WRAP_FIRST, { header, body } :: { any })
+    end
+    return ui.col(RAW_SECTION, {
         head,
-        ui.col({ key = "context-raw", w = "full" }, list),
+        -- Only the rows the scroll shows are built, as they come into view.
+        ui.virtualList({
+            key = "context-raw",
+            scrollY = false,
+            gap = -1,
+            w = "full",
+            count = #raws,
+            estimatedRowHeight = 32,
+            version = `{generation}:{look}`,
+            rowVersions = opened,
+            renderRow = row,
+        }),
     })
 end
 
@@ -398,22 +448,9 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
     local wide = props.width >= 512
     local export = env.state.export
     local exporting = export.kind == "exporting" and export.sessionId == sid
-    local openIds: { string } = {}
-    for id in env.state.open do
-        table.insert(openIds, id)
-    end
-    table.sort(openIds)
     local look = `{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
-    local version = table.concat({
-        tostring(session and session.version),
-        tostring(res.generation),
-        table.concat(openIds, ","),
-        tostring(exporting),
-        tostring(wide),
-        tostring(math.round(props.width)),
-        props.placement,
-        look,
-    }, ":")
+    local version =
+        `{session and session.version}:{res.generation}:{env.state.toggles}:{exporting}:{wide}:{math.round(props.width)}:{props.placement}:{look}`
     return view:Memo(`panel-{sid}`, version, function()
         -- Split each answer once: a rebuild for anything else reuses it.
         local cached = env.state.parsed[sid]
@@ -425,7 +462,8 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
             local values = if type(res.json) == "table" and type(res.json.data) == "table" then res.json.data else {}
             raws = {}
             for i, text in texts do
-                table.insert(raws, { text = text, value = values[i] or {} })
+                local value = values[i] or {}
+                table.insert(raws, { text = text, value = value, id = tostring(value.id or ""), kind = tostring(value.type or "") })
             end
             env.state.parsed[sid] = { generation = res.generation, raws = raws }
         end
@@ -433,27 +471,21 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         -- rebuild for a raw message opening or an export reuses them.
         local prompt = promptOf(raws)
         local figures = `{session and session.version}:{res.generation}:{wide}:{look}`
-        local content = ui.col(
-            { key = "session-usage-content", w = "full", pl = 24, pr = 32, pt = 16, pb = 40, gap = 40 },
-            {
-                view:Memo(`stats-{sid}`, figures, function()
-                    return stats(env, session, sid, raws, wide)
-                end),
-                if prompt
-                    then view:Memo(`system-{sid}`, figures, function()
-                        return systemPrompt(env, prompt :: string)
-                    end)
-                    else false,
-                rawMessages(env, view, sid, raws, exporting, look),
-            } :: { any }
-        )
+        local content = ui.col(CONTENT, {
+            view:Memo(`stats-{sid}`, figures, function()
+                return stats(env, session, sid, raws, wide)
+            end),
+            if prompt
+                then view:Memo(`system-{sid}`, figures, function()
+                    return systemPrompt(env, prompt :: string)
+                end)
+                else false,
+            rawMessages(env, view, sid, raws, res.generation, exporting, look),
+        } :: { any })
         -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.
-        return ui.col(
-            { key = "context-tab", w = "full", h = "full", pt = if props.placement == "mobile" then 0 else 8 },
-            {
-                ui.col({ key = "context-scroll", w = "full", grow = 1, minH = 0, scrollY = true }, { content }),
-            }
-        )
+        return ui.col(if props.placement == "mobile" then TAB_MOBILE else TAB, {
+            ui.col(SCROLL, { content }),
+        })
     end)
 end
 

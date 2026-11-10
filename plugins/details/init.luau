@@ -25,6 +25,18 @@ local HEADING = table.freeze({
     shrink = true,
     dir = "auto",
 } :: UiTextProps)
+local HEADING_ROW = table.freeze({ w = "full", minH = 28, pl = 12, pr = 36, py = 4, align = "center" } :: UiBoxProps)
+local HEADING_ROW_MOBILE = table.freeze({ w = "full", minH = 44, pl = 12, pr = 36, py = 4, align = "center" } :: UiBoxProps)
+local POPOVER = table.freeze({ key = "session-summary-popover" } :: UiBoxProps)
+local ROWS = table.freeze({ key = "session-summary-rows", w = "full", gap = 2 } :: UiBoxProps)
+local FLYOUT = table.freeze({
+    key = "details-flyout",
+    w = 280,
+    py = 2,
+    radius = 6,
+    fill = "surface-1",
+    shadow = "floating",
+} :: UiBoxProps)
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
@@ -120,9 +132,7 @@ return plugin.defineWindow(function(ctx)
 
     -- A narrow window's rows are 44 tall, the heading's too (`max-width: 767px`).
     local function headingRow(mobile: boolean?): ui.Node
-        return ui.row({ w = "full", minH = if mobile then 44 else 28, pl = 12, pr = 36, py = 4, align = "center" }, {
-            ui.text(heading(), HEADING),
-        })
+        return ui.row(if mobile then HEADING_ROW_MOBILE else HEADING_ROW, { ui.text(heading(), HEADING) })
     end
 
     -- Present while the routed session belongs to a project, as Desktop's popover owns it.
@@ -209,7 +219,7 @@ return plugin.defineWindow(function(ctx)
                     })
                 )
             end
-            return ui.col({ key = "session-summary-popover" }, {
+            return ui.col(POPOVER, {
                 ui.col({
                     key = "session-summary-card",
                     role = "group",
@@ -222,7 +232,7 @@ return plugin.defineWindow(function(ctx)
                     shadow = "floating",
                 }, {
                     headingRow(),
-                    ui.col({ key = "session-summary-rows", w = "full", gap = 2 }, rows),
+                    ui.col(ROWS, rows),
                 }),
             })
         end,
@@ -238,14 +248,7 @@ return plugin.defineWindow(function(ctx)
                 return nil
             end
             local service = data.service :: lists.Service
-            return ui.col({
-                key = "details-flyout",
-                w = 280,
-                py = 2,
-                radius = 6,
-                fill = "surface-1",
-                shadow = "floating",
-            }, { lists.pane(env, view, service, session.directory) })
+            return ui.col(FLYOUT, { lists.pane(env, view, service, session.directory) })
         end,
     })
 
@@ -364,7 +367,7 @@ return plugin.defineWindow(function(ctx)
                     shadow = "raised",
                 }, {
                     headingRow(true),
-                    ui.col({ key = "session-summary-rows", w = "full", gap = 2 }, rows),
+                    ui.col(ROWS, rows),
                 }),
             })
         end,
