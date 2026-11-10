@@ -58,8 +58,13 @@ impl HomeSearch {
         self.fetch = Latest::new(waker).debounce(Duration::from_millis(100));
     }
 
-    pub fn activate(&mut self, id: String, query: &str) {
-        self.active.set(id, query.to_owned());
+    pub fn activate(&mut self, id: String) {
+        self.active.set(id);
+    }
+
+    /// The query changed: the first result lights (search-machine.ts:87).
+    pub fn query_changed(&mut self) {
+        self.active.clear();
     }
 }
 
@@ -125,7 +130,7 @@ impl App {
         if !self.home_search_open() || ids.is_empty() {
             return None;
         }
-        self.home_search.active.resolve(&self.search.text, ids.iter().map(String::as_str))
+        self.home_search.active.resolve(ids.iter().map(String::as_str))
     }
 
     pub fn home_search_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -146,8 +151,7 @@ impl App {
                     let from = ids.iter().position(|id| Some(id) == active.as_ref());
                     let next = cycle(ids.len(), from, if ev.key == Key::Down { 1 } else { -1 });
                     let picked = ids[next].clone();
-                    let query = self.search.text.clone();
-                    self.home_search.activate(picked.clone(), &query);
+                    self.home_search.activate(picked.clone());
                     self.prefetch_session(&picked);
                     tx.instant();
                     tx.scroll_into_view_in("home-search-list", format!("sr-{picked}"));

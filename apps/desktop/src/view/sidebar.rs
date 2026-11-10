@@ -207,7 +207,7 @@ pub(crate) fn peek(s: &App, p: &Pal) -> Vec<El> {
         .w(w + CORRIDOR)
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
-            let keep_open = inside || s.popup.is_open() || s.menus.rename.is_some();
+            let keep_open = inside || s.popup.is_open() || s.menus.renaming().is_some();
             s.queue_peek(PeekEvent::Pointer { can_start_edge: false, keep_open }, tx);
         })
         .child(surface);
@@ -216,7 +216,7 @@ pub(crate) fn peek(s: &App, p: &Pal) -> Vec<El> {
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
 fn can_peek(s: &App) -> bool {
-    !s.popup.is_open() && s.tab_drag.dragging().is_none() && s.sidebar_drag.is_none() && s.menus.confirm.is_none()
+    !s.popup.is_open() && s.tab_drag.dragging().is_none() && s.sidebar_drag.is_none() && s.menus.confirming().is_none()
 }
 
 /// The sidebar edge's resize handle: an 8px hit area across the gap, with a pill that waits a

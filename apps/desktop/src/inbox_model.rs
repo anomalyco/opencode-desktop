@@ -185,10 +185,16 @@ impl App {
 
     /// Unarchive: it comes back to its group (`inbox.unarchive`).
     pub fn unarchive_session(&mut self, id: &str) {
-        self.sidebar_inbox.archived.retain(|a| a.id != id);
-        let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
-        info.archived = None;
+        self.unarchive_session_locally(id);
         self.write(opencode_kit::client::Write::Unarchive(id.to_owned()));
+    }
+
+    /// Shows the session as restored: off the archived list and not archived.
+    pub(crate) fn unarchive_session_locally(&mut self, id: &str) {
+        self.sidebar_inbox.archived.retain(|a| a.id != id);
+        if let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) {
+            info.archived = None;
+        }
     }
 }
 

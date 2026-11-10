@@ -6,7 +6,7 @@
 
 use rune::{El, Icon, Shadow, TextStyle, Tx, col, el, icon, row, text};
 
-use super::{Entry, Menu, SubOpen, choose, choose_sub, hover, hover_sub, open_sub, row_key};
+use super::{Entry, Menu, SubOpen, choose, choose_sub, focus_lit, hover, hover_sub, key, open_sub, row_key, takes_focus};
 use crate::App;
 use crate::palette::Pal;
 
@@ -30,24 +30,27 @@ pub(super) fn root(p: &Pal, menu: &Menu, active: Option<usize>, sub: Option<SubO
         let lit = active == Some(n) || sub.is_some_and(|o| o.at == n);
         match entry {
             Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, lit)
-                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, tx, |s| hover(s, n)))
+                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| choose(s, n, tx)),
             Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, true, lit)
                 .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon))
-                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, tx, |s| hover(s, n)))
+                .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| open_sub(s, n, false, tx)),
             Entry::Separator => rule(p, n),
             Entry::Group(title) => heading(p, n, title),
         }
     });
-    surface(p, "popup-menu", menu).w(menu.min_w).children(rows.collect::<Vec<_>>())
+    // It holds focus and takes the keys from there, as Kobalte's menus do (`menu-v2-content`).
+    surface(p, "popup-menu", menu).w(menu.min_w).focusable(true).tab_index(-1).no_focus_ring()
+        .on_key(|s: &mut App, ev, tx: &mut Tx| key(s, ev, tx))
+        .children(rows.collect::<Vec<_>>())
 }
 
 /// A submenu, row `active` lit.
-pub(super) fn sub(p: &Pal, menu: &Menu, active: Option<usize>, keeps_focus: bool) -> El {
+pub(super) fn sub(p: &Pal, menu: &Menu, active: Option<usize>) -> El {
     let rows = menu.entries.iter().enumerate().map(|(m, entry)| match entry {
         Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, active == Some(m))
-            .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, tx, |s| hover_sub(s, m)))
+            .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, 1, tx, |s| hover_sub(s, m)))
             .on_press_tx(move |s: &mut App, tx: &mut Tx| choose_sub(s, m, tx)),
         Entry::Separator => rule(p, m),
         Entry::Group(title) => heading(p, m, title),
@@ -55,8 +58,7 @@ pub(super) fn sub(p: &Pal, menu: &Menu, active: Option<usize>, keeps_focus: bool
         Entry::Sub(_) => el(),
     });
     let w = (2.0 * (PAD + crate::view::chrome().hairline) + menu.entries.iter().map(row_w).fold(0.0, f32::max)).max(SUB_MIN_W);
-    let menu = Menu { keeps_focus, ..menu.clone() };
-    surface(p, "popup-submenu", &menu).w(w).children(rows.collect::<Vec<_>>())
+    surface(p, "popup-submenu", menu).w(w).children(rows.collect::<Vec<_>>())
 }
 
 /// A row's width with nothing to squeeze it: its label, its shortcut 8pt after, and its padding.
@@ -71,18 +73,20 @@ fn row_w(entry: &Entry) -> f32 {
     }
 }
 
-/// The pointer entering a row lights it at once: `on_hover`'s commit would spring the fill.
-fn enter(s: &mut App, inside: bool, tx: &mut Tx, f: impl FnOnce(&mut App)) {
+/// The pointer entering a row of the menu `level` deep lights it at once (`on_hover`'s commit
+/// would spring the fill), and focus moves onto it without a ring.
+fn enter(s: &mut App, inside: bool, level: usize, tx: &mut Tx, f: impl FnOnce(&mut App)) {
     if inside {
         tx.instant();
         f(s);
+        focus_lit(s, level, false, tx);
     }
 }
 
 fn surface(p: &Pal, key: &str, menu: &Menu) -> El {
     let hair = crate::view::chrome().hairline;
     let shadow = |y, blur, spread, light, dark| Shadow { y, blur, spread, color: rune::Color::BLACK.alpha(if p.dark { dark } else { light }), ..Shadow::default() };
-    let surface = col()
+    col()
         .key(key.to_owned())
         .role("menu")
         .label(menu.label.clone())
@@ -97,8 +101,7 @@ fn surface(p: &Pal, key: &str, menu: &Menu) -> El {
         .transition(rune::Transition::none())
         .motion(rune::Spring::NONE)
         .instant_changes()
-        .on_press(|_: &mut App| {});
-    if menu.keeps_focus { surface.keeps_text_selection() } else { surface }
+        .on_press(|_: &mut App| {})
 }
 
 /// A row: its label, and a shortcut at its end. A disabled one is faint and neither lights nor
@@ -116,7 +119,7 @@ fn item(p: &Pal, key: &str, title: &str, shortcut: Option<&str>, enabled: bool, 
         .fill(if lit && enabled { p.standard.hover } else { rune::Color::TRANSPARENT })
         .child(text(title.to_owned()).key("label").font(LABEL).color(if enabled { p.standard.text } else { p.standard.weak }).grow(1.0))
         .children(shortcut.map(|keys| text(keys.to_owned()).key("shortcut").font(SHORTCUT).color(p.faint)));
-    if enabled { r } else { r.disabled(true) }
+    if enabled { takes_focus(r) } else { r.disabled(true) }
 }
 
 /// A group's title.

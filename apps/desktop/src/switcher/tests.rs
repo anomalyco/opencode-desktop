@@ -323,13 +323,14 @@ fn a_failed_search_says_so() {
     let mut a = app();
     a.open_switcher();
     query(&mut a, "zzz");
-    a.switcher.searched = "zzz".into();
+    let attempt = rune::machine::Attempt(7);
+    a.switcher.sessions = super::search::Source::Loading { attempt, query: "zzz".into(), due: f64::MAX, settled: Default::default() };
     a.switcher.fetch = rune::Latest::default();
-    a.switcher.fetch.request((), |()| Found { query: "zzz".into(), sessions: vec![], failed: true });
+    a.switcher.fetch.request((), move |()| Reply { attempt, items: Err(()) });
     while a.switcher.fetch.is_pending() {
         std::thread::yield_now();
     }
     assert!(a.poll_switcher(&mut Tx::default()));
-    assert_eq!(a.switcher.failed.as_deref(), Some("zzz"));
+    assert!(a.switcher.failed_now());
     assert!(!a.switcher.fetch.is_pending());
 }

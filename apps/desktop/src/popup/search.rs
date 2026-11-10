@@ -2,7 +2,7 @@
 
 use rune::{El, Key, TextEdit, TextStyle, Tx, el, row};
 
-use super::{choose, key, refresh};
+use super::{choose, key, query_changed, refresh};
 use crate::App;
 use crate::palette::Pal;
 
@@ -26,6 +26,7 @@ pub(super) fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
         .placeholder(placeholder.to_owned(), p.faint)
         .caret(p.text, p.selection).selection_style(p.field_selection)
         .on_edit(|s: &mut App| &mut s.popup.query)
+        .on_input_change(|s: &mut App, _: &mut Tx| query_changed(s))
         .on_input_key(|s: &mut App, ev, tx: &mut Tx| matches!(ev.key, Key::Up | Key::Down | Key::Escape | Key::Tab | Key::PageUp | Key::PageDown) && key(s, ev, tx))
         .on_submit(|s: &mut App, tx: &mut Tx| {
             refresh(s);
@@ -63,6 +64,7 @@ pub(super) fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
                     tx.instant();
                     s.popup.query = TextEdit::new("");
                     s.popup.query.focused = true;
+                    query_changed(s);
                 })
                 .child(rune::icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint).group_color(p.icon)),
         );

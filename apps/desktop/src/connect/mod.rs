@@ -31,12 +31,10 @@ pub struct Open {
     pub search: TextEdit,
     /// The list's lit row, by integration id.
     pub active: Option<String>,
-    /// The API key or the pasted code.
+    /// The API key or the pasted code; a new step starts it empty.
     pub entry: TextEdit,
-    /// A form step's text, or its own answer.
+    /// A form step's text, or its own answer; a new step starts it on its default.
     pub field: TextEdit,
-    /// Which step `entry` and `field` belong to; a new step starts them empty.
-    pub inputs_for: String,
     /// The account whose options are open.
     pub menu: Option<String>,
     pub rename: TextEdit,
@@ -73,10 +71,10 @@ impl App {
             active: None,
             entry: TextEdit::new(""),
             field: TextEdit::new(""),
-            inputs_for: String::new(),
             menu: None,
             rename: TextEdit::new(""),
         });
+        self.fresh_inputs();
         self.sync_catalogs(dir, |_, _, _| {});
         if let Some(id) = provider {
             let accounts = self.accounts_of(id);
@@ -121,8 +119,12 @@ impl App {
     pub(crate) fn connect_event(&mut self, event: Event, tx: &mut Tx) {
         let Some(open) = self.connect.open.as_mut() else { return };
         let (next, effects) = dialog::transition(&open.dialog, event);
+        // A transition to another step (or method, or form) starts its inputs afresh.
+        let moved = steps::inputs_id(&open.dialog) != steps::inputs_id(&next);
         open.dialog = next;
-        self.fresh_inputs();
+        if moved {
+            self.fresh_inputs();
+        }
         for effect in effects {
             self.run_connect(effect, tx);
         }
@@ -131,11 +133,6 @@ impl App {
     /// A new step's inputs start empty, its first one taking the keys.
     fn fresh_inputs(&mut self) {
         let Some(open) = self.connect.open.as_mut() else { return };
-        let id = steps::inputs_id(&open.dialog);
-        if open.inputs_for == id {
-            return;
-        }
-        open.inputs_for = id;
         let value = steps::field_default(&open.dialog);
         open.field = focused(&value);
         open.entry = focused("");

@@ -57,8 +57,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                s.open_project_switcher();
-                s.drill_project_worktrees(&id, tx);
+                s.open_project_worktrees(&id, tx);
             })
             .child(icon(glyph, size).color(p.icon_muted))
             .child(text(label).font(UI).color(p.muted).group_color(p.text).truncate_fade())

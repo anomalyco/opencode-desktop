@@ -146,6 +146,10 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.pump_outbox();
                 return admitted;
             }
+            if ty == "client.session.write" {
+                s.session_write_replied(&data, tx);
+                return true;
+            }
             s.motion_events.note(&ty);
             return s.apply_event(&ty, &data);
         }

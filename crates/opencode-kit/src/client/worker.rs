@@ -102,6 +102,14 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Form { form, .. } | Write::CancelForm { form, .. } => Some(form.clone()),
                         _ => None,
                     };
+                    // A rename, delete or restore: its answer goes back to the machine that sent it
+                    // (`client.session.write`), failures included.
+                    let session_write = match &w {
+                        Write::Rename { session, title } => Some(serde_json::json!({ "kind": "rename", "sessionID": session, "title": title })),
+                        Write::Delete(session) => Some(serde_json::json!({ "kind": "delete", "sessionID": session })),
+                        Write::Unarchive(session) => Some(serde_json::json!({ "kind": "unarchive", "sessionID": session })),
+                        _ => None,
+                    };
                     let result = match w {
                         Write::Prompt { session, text } => server.send_prompt(&session, &text),
                         Write::Permission { session, request, decision } => server.reply_permission(&session, &request, &decision),
@@ -190,6 +198,17 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     }
                     if result.is_ok() && let Some((session,id)) = &prompt_id {
                         let _ = inbox_tx.send(Incoming::Event { ty: "client.prompt.accepted".into(), data: serde_json::json!({"sessionID":session,"id":id}) });
+                    }
+                    if let Some(mut data) = session_write {
+                        data["ok"] = serde_json::json!(result.is_ok());
+                        if let Err(e) = &result {
+                            data["error"] = serde_json::json!(e);
+                        }
+                        if inbox_tx.send(Incoming::Event { ty: "client.session.write".into(), data }).is_err() {
+                            return;
+                        }
+                        wake();
+                        continue;
                     }
                     if let Err(e) = result {
                         let told = match prompt_id {

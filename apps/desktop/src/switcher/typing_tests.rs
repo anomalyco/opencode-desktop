@@ -109,15 +109,14 @@ fn a_stale_file_answer_is_dropped() {
     let ios = seen(&rt).rows;
     // An answer to an older query that lands after a newer one was asked never shows.
     rt.update(|s, _| {
-        s.switcher.files_asked = Some("iosx".into());
         s.switcher.files_fetch = rune::Latest::default();
-        s.switcher.files_fetch.request((), |()| ("io".to_owned(), vec!["stale/io.rs".to_owned()]));
+        s.switcher.files_fetch.request((), |()| super::Reply { attempt: rune::machine::Attempt(0), items: Ok(vec!["stale/io.rs".to_owned()]) });
     });
     while rt.state.switcher.files_fetch.is_pending() {
         std::thread::yield_now();
     }
     rt.frame(FRAME);
-    assert_ne!(rt.state.switcher.files.0, "io");
+    assert_ne!(rt.state.switcher.files.settled().map(|f| f.query.as_str()), Some("io"));
     assert!(!seen(&rt).rows.iter().any(|k| k.contains("stale/io.rs")));
     assert!(ios.iter().any(|k| k.starts_with("sw-file:")));
 }

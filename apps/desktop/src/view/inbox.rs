@@ -322,7 +322,10 @@ fn open_menu(s: &mut App, id: &str, at: rune::PointerPress, tx: &mut Tx) {
         match picked {
             Some("archive") => s.archive_session(&id, tx),
             Some("unarchive") => s.unarchive_session(&id),
-            Some("delete") => s.menus.confirm = Some(id.clone()),
+            Some("delete") => {
+                crate::popup::hand_off(s);
+                s.ask_delete(&id);
+            }
             _ => {}
         }
     });

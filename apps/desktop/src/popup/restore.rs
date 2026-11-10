@@ -1,10 +1,19 @@
-//! Where focus goes as a drawn menu closes, as Desktop's menu machine has it
-//! (`ui/src/navigation/menu/machine.ts`): Escape or Tab puts it back on the trigger, without a
-//! ring when the pointer opened the menu (`selectMenuRestoreTriggerWithoutRing`); a press outside
-//! leaves it where that press put it; a pick leaves it to what the pick does, as a dialog the pick
-//! opens has taken it before Kobalte's restore runs. A menu at a point (a context menu) runs no
-//! machine in Desktop: Kobalte puts focus back where the right-click left it, and as the keys
-//! closed it (Escape, or Return on an item), Chromium rings it.
+//! Where focus goes while a drawn menu is open and as it closes, as Desktop's menu machine has
+//! it (`ui/src/navigation/menu/machine.ts`, `menu.tsx:333-356`).
+//!
+//! An open menu holds focus, as Kobalte's does: one the pointer opened focuses its own surface
+//! (`menu-v2-content`), one the keyboard opened its first row with the ring, and the row the
+//! pointer or the keys light takes it from there. As it closes:
+//! - **Escape or Tab** put it back on the trigger, without a ring when the pointer opened the menu
+//!   (`selectMenuRestoreTriggerWithoutRing`).
+//! - **A press outside** a dropdown, which is modal, puts it back on the trigger the same way: the
+//!   press reached nothing under the menu. A context menu's outside press (`outside.interacted`)
+//!   leaves focus where that press put it.
+//! - **A pick** puts it back on the trigger too, unless the pick moved it on (a dialog, a field,
+//!   another menu), as Kobalte's restore finds it outside the menu and leaves it.
+//!
+//! A menu at a point (a context menu) has no trigger: Kobalte puts focus back where the
+//! right-click left it, and as the keys closed it, Chromium rings it.
 
 /// How the menu opened (`MenuOpenModality`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -14,12 +23,20 @@ pub(crate) enum Modality {
     Keyboard,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum MenuFocus {
-    #[default]
-    Closed,
-    /// `trigger` is the key of the control it opened from; a menu at a point has none.
-    Open { modality: Modality, trigger: Option<String> },
+/// An open menu's focus facts (`MenuState`'s `open`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Opened {
+    pub modality: Modality,
+    pub origin: Origin,
+}
+
+/// What the menu opened from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// A control's key: a dropdown.
+    Trigger(String),
+    /// A point (a context menu), and the element focused as it opened.
+    Point { focused: Option<String> },
 }
 
 /// Why it closed.
@@ -32,25 +49,36 @@ pub(crate) enum Reason {
     Picked,
 }
 
-pub(crate) enum Event {
-    Opened { modality: Modality, trigger: Option<String> },
-    Closed(Reason),
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Effect {
-    FocusTrigger { key: String, ring: bool },
-    /// The focus the menu leaves shows its ring, when keys closed it.
-    RingFocused,
+    /// Focus `key`, its ring showing when `ring`.
+    Focus { key: String, ring: bool },
+    /// Drop focus: a context menu's outside press reached nothing that takes it.
+    Blur,
 }
 
-pub(crate) fn step(state: MenuFocus, event: Event) -> (MenuFocus, Option<Effect>) {
-    match (state, event) {
-        (_, Event::Opened { modality, trigger }) => (MenuFocus::Open { modality, trigger }, None),
-        (MenuFocus::Open { modality, trigger: Some(key) }, Event::Closed(Reason::Keys)) => {
-            (MenuFocus::Closed, Some(Effect::FocusTrigger { key, ring: modality == Modality::Keyboard }))
-        }
-        (MenuFocus::Open { trigger: None, .. }, Event::Closed(Reason::Keys | Reason::Picked)) => (MenuFocus::Closed, Some(Effect::RingFocused)),
-        (_, Event::Closed(_)) => (MenuFocus::Closed, None),
+/// What opening focuses, and whether its ring shows: the keyboard focuses the lit row, the
+/// pointer the surface.
+pub(crate) fn opening(opened: &Opened, surface: &str, lit: Option<String>) -> (String, bool) {
+    match (opened.modality, lit) {
+        (Modality::Keyboard, Some(key)) => (key, true),
+        _ => (surface.to_owned(), false),
+    }
+}
+
+/// What closing for `reason` does once the pick has run.
+/// `keys` is whether a key closed it, which a context menu's ring follows (Chromium's
+/// `:focus-visible` after Kobalte puts focus back).
+pub(crate) fn closing(opened: Opened, reason: Reason, keys: bool) -> Option<Effect> {
+    let keyboard = opened.modality == Modality::Keyboard;
+    match (opened.origin, reason) {
+        // Kobalte restores the trigger after a pick too, with the ring when the keys opened it.
+        (Origin::Trigger(key), Reason::Picked) => Some(Effect::Focus { key, ring: keyboard }),
+        (Origin::Point { focused: Some(key) }, Reason::Picked) => Some(Effect::Focus { key, ring: keys }),
+        (Origin::Point { focused: None }, Reason::Picked) => None,
+        (Origin::Trigger(key), Reason::Keys) => Some(Effect::Focus { key, ring: keyboard }),
+        (Origin::Trigger(key), Reason::Outside) => Some(Effect::Focus { key, ring: false }),
+        (Origin::Point { focused: Some(key) }, Reason::Keys) => Some(Effect::Focus { key, ring: true }),
+        (Origin::Point { .. }, _) => Some(Effect::Blur),
     }
 }

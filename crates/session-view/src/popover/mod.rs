@@ -28,7 +28,7 @@ use crate::TimelineHost;
 use crate::palette::{Elevate as _, Pal};
 use crate::style::UI;
 
-pub use nav::{Highlight, Nav, cycle, nav, nav_step};
+pub use nav::{Highlight, HighlightEvent, Lit, Nav, cycle, nav, nav_step};
 pub use slide::jump as jump_highlight;
 
 /// A popover's metrics.
@@ -229,6 +229,12 @@ impl Opt {
 /// An option row: the highlight follows the pointer at once (`hover`) and a press picks it. A
 /// disabled one does neither.
 pub fn option<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S) + 'static, pick: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    option_tx(p, look, o, move |s: &mut S, _: &mut Tx| hover(s), pick)
+}
+
+/// [`option`] whose `hover` gets the change's [`Tx`]: a menu that moves focus to the row the
+/// pointer lights, as Kobalte's menu items take focus on hover.
+pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S, &mut Tx) + 'static, pick: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     let slides = o.slides;
     let r = row()
         .key(o.key)
@@ -253,7 +259,7 @@ pub fn option<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S) + 
                 if inside {
                     tx.instant();
                     if slides { slide::jump(); }
-                    hover(s);
+                    hover(s, tx);
                 }
             })
             .on_press_tx(pick)

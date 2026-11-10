@@ -14,26 +14,27 @@
 
 use crate::pickers::PickerHost as _;
 use std::collections::HashMap;
-use std::time::Duration;
 
+use rune::machine::Seq;
 use rune::{Key, KeyEvent, Latest, TextEdit, Tx, Waker};
 
 use opencode_kit::model::SessionInfo;
 
 use crate::files::data::{file_tab_path, parse_path_and_line};
 use crate::keymap::Bind;
-use crate::mentions::list::{Highlight, cycle, upsert_sessions};
+use crate::mentions::list::{Highlight, cycle};
+use crate::popover::HighlightEvent;
 use crate::view::title_of;
 use crate::{App, Route, Source};
 
+mod poll;
+mod search;
 mod view;
 pub(crate) use view::relative_time;
 mod session_index;
 mod shown;
-mod fetch;
 pub use view::{dialog, view};
-use shown::{Effect, Event, Shown};
-
+use shown::{Event, Shown};
 /// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
 /// recent sessions (`RECENT_LIMIT`); and a query's local session matches (`ENTRY_LIMIT * 10`).
 const RECENT: usize = 5;
@@ -82,42 +83,52 @@ pub struct Entry {
     pub open: bool,
 }
 
-/// A server search's answer.
-struct Found {
-    query: String,
-    sessions: Vec<SessionInfo>,
-    failed: bool,
+/// `SESSION_RESTORE_TIMEOUT_MS`: how long the dialog waits for a restore before it gives
+/// control back (the request itself keeps running).
+const RESTORE_TIMEOUT: f64 = 15.0;
+
+/// The session search's pick (`SessionSearchState`): an archived session restores before it
+/// opens.
+#[derive(Clone, Debug, Default, PartialEq)]
+enum Restore {
+    #[default]
+    Idle,
+    Restoring { session: String, due: f64 },
+}
+
+/// A source's answer to the request that carried `attempt`; `Err` when it failed.
+struct Reply<T> {
+    attempt: rune::machine::Attempt,
+    items: Result<Vec<T>, ()>,
 }
 
 pub struct Switcher {
     pub open: bool,
     pub mode: SwitcherMode,
     pub search: TextEdit,
-    /// The highlighted row and the query it was picked under; a new query starts from its first row.
+    /// The lit row: the first until the keys or the pointer choose one, and the first again
+    /// for each new query (`SearchList`).
     active: Highlight,
-    /// The row the pointer took and the query it took it under, and the pointer's last point on
-    /// a row (`SearchList`'s `pointed`): late results leave the list where it is for that row.
-    pointed: Option<(String, String)>,
+    /// The pointer's last point on a row: only a pointer that moved takes a row (`onMouseMove`'s
+    /// movement check).
     pointer: Option<[f32; 2]>,
     restore_composer: bool,
-    /// Sessions the server found while this was open, kept for later keystrokes.
+    /// Sessions the server found while this was open, kept for later keystrokes
+    /// (`SessionSourceState.loaded`).
     pub(crate) loaded: Vec<SessionInfo>,
     index: std::cell::RefCell<Option<session_index::Index>>,
-    /// The query last sent to the server and the one that failed.
-    searched: String,
-    failed: Option<String>,
-    fetch: Latest<Found>,
-    /// The archived search has asked for its first list.
-    listed_archived: bool,
-    /// The files the server found for a query, and that query (`file.searchFiles`).
-    pub(crate) files: (String, Vec<String>),
-    /// The file query last sent.
-    files_asked: Option<String>,
-    files_fetch: Latest<(String, Vec<String>)>,
+    seq: Seq,
+    /// The server's sessions for the query, and the folder's files (`file.searchFiles`), each a
+    /// source machine (`search.rs`).
+    sessions: search::Source<()>,
+    pub(crate) files: search::Source<String>,
+    fetch: Latest<Reply<SessionInfo>>,
+    files_fetch: Latest<Reply<String>>,
     /// The fixture's answer to the file query and when it lands (its `find_ms`, as a server's).
-    fixture_find: Option<(f64, (String, Vec<String>))>,
+    fixture_find: Option<(f64, Reply<String>)>,
     /// What the list shows while its searches run (`shown.rs`).
     shown: Shown,
+    restore: Restore,
 }
 
 impl Default for Switcher {
@@ -127,20 +138,18 @@ impl Default for Switcher {
             mode: SwitcherMode::All,
             search: TextEdit::new(""),
             active: Highlight::default(),
-            pointed: None,
             pointer: None,
             restore_composer: false,
             loaded: Vec::new(),
             index: Default::default(),
-            searched: String::new(),
-            failed: None,
-            fetch: Latest::default().debounce(Duration::from_millis(150)),
-            listed_archived: false,
-            files: (String::new(), Vec::new()),
-            files_asked: None,
+            seq: Seq::default(),
+            sessions: search::Source::default(),
+            files: search::Source::default(),
+            fetch: Latest::default(),
             files_fetch: Latest::default(),
             fixture_find: None,
             shown: Shown::default(),
+            restore: Restore::Idle,
         }
     }
 }
@@ -150,31 +159,29 @@ impl Switcher {
         *self.index.get_mut() = None;
     }
     pub fn set_waker(&mut self, waker: Waker) {
-        self.fetch = Latest::new(waker.clone()).debounce(Duration::from_millis(150));
+        self.fetch = Latest::new(waker.clone());
         self.files_fetch = Latest::new(waker);
     }
 
     /// The keys highlight row `key`.
     pub fn activate(&mut self, key: String) {
-        self.pointed = None;
-        self.active.set(key, self.search.text.clone());
+        self.active.set(key);
     }
 
     /// The pointer moved on row `key` to `at`, in window points (`SearchList`'s `onMouseMove`):
     /// only a moving pointer takes the row, so rows the keys, the wheel or late results carry
     /// under a still one leave the highlight alone. True when the highlight changed.
     pub fn point(&mut self, key: &str, at: [f32; 2]) -> bool {
-        if self.pointer.replace(at) == Some(at) || self.pointed(key) {
+        if self.pointer.replace(at) == Some(at) || self.active.pointed(key) {
             return false;
         }
-        self.active.set(key.to_owned(), self.search.text.clone());
-        self.pointed = Some((key.to_owned(), self.search.text.clone()));
+        self.active.step(HighlightEvent::Pointer(key.to_owned()));
         true
     }
 
-    /// The pointer took row `key` under this query, and the keys haven't moved on since.
-    fn pointed(&self, key: &str) -> bool {
-        self.pointed.as_ref().is_some_and(|(k, q)| k == key && *q == self.search.text)
+    /// The field's text changed: the list starts again from its first row.
+    pub fn query_changed(&mut self) {
+        self.active.step(HighlightEvent::QueryChanged);
     }
 
     pub fn query(&self) -> &str {
@@ -185,9 +192,9 @@ impl Switcher {
         self.restore_composer
     }
 
-    /// The typed query's session search failed.
+    /// The typed query's session search failed (`selectPaletteSearchFailed`).
     fn failed_now(&self) -> bool {
-        self.failed.as_deref() == Some(self.query())
+        self.sessions.failed() && self.sessions.query() == Some(self.query())
     }
 }
 
@@ -196,7 +203,6 @@ fn subsequence(hay: &str, needle: &str) -> bool {
     let mut letters = hay.chars();
     needle.chars().all(|c| letters.any(|h| h == c))
 }
-
 /// `matchesCommandPaletteEntry`: a case-insensitive substring of the title, description, id or,
 /// for commands, the group name (the server matches sessions by title, so "Session" must not
 /// match every session).
@@ -340,18 +346,22 @@ impl App {
     pub(crate) fn switcher_searching(&self) -> bool {
         let sw = &self.switcher;
         let q = sw.query();
-        let archived = sw.mode == SwitcherMode::Archived;
-        let sessions = sw.mode != SwitcherMode::Commands
-            && matches!(self.source, Source::Live { .. })
-            && (!q.is_empty() || archived)
-            && (sw.searched != q || sw.fetch.is_pending() || (archived && !sw.listed_archived));
+        // A source that hasn't heard the typed query yet is about to search it.
+        let sessions = self.switcher_asks_sessions(q) && (sw.sessions.query() != Some(q) || sw.sessions.loading());
         let files = self.switcher_files_session().is_some() && {
             let clean = parse_path_and_line(q).0;
-            !clean.is_empty()
-                && sw.files.0 != clean
-                && (sw.files_asked.as_deref() != Some(clean.as_str()) || sw.files_fetch.is_pending() || sw.fixture_find.is_some())
+            !clean.is_empty() && (sw.files.query() != Some(clean.as_str()) || sw.files.loading())
         };
         sessions || files
+    }
+
+    /// Whether the server's session search asks about `q`: live, not on commands alone, and
+    /// typed or the archived list (archived sessions aren't loaded, so it lists the newest with
+    /// no query).
+    fn switcher_asks_sessions(&self, q: &str) -> bool {
+        self.switcher.mode != SwitcherMode::Commands
+            && matches!(self.source, Source::Live { .. })
+            && (!q.is_empty() || self.switcher.mode == SwitcherMode::Archived)
     }
 
     /// Everything matching `q`: commands, sessions, settings and files.
@@ -441,12 +451,12 @@ impl App {
     fn switcher_found_files(&self, q: &str) -> Vec<Entry> {
         let Some(sid) = self.switcher_files_session() else { return Vec::new() };
         let clean = parse_path_and_line(q).0;
-        let (asked, found) = &self.switcher.files;
-        if *asked == clean {
-            return found.iter().cloned().map(file_entry).collect();
+        let found = self.switcher.files.settled();
+        if found.is_some_and(|f| f.query == clean) {
+            return found.into_iter().flat_map(|f| f.items.iter().cloned()).map(file_entry).collect();
         }
         let needle = clean.to_lowercase();
-        let found = found.iter().filter(|p| subsequence(&p.to_lowercase(), &needle));
+        let found = found.into_iter().flat_map(|f| f.items.iter()).filter(|p| subsequence(&p.to_lowercase(), &needle));
         let known = self.files.sessions.get(sid).into_iter().flat_map(|w| w.known_files.iter()).filter(|p| p.to_lowercase().contains(&needle));
         let mut out: Vec<String> = Vec::new();
         for p in found.chain(known) {
@@ -459,7 +469,7 @@ impl App {
 
     /// The highlighted row's key: the one picked under this query, else the first.
     pub fn switcher_active(&self, entries: &[Entry]) -> Option<String> {
-        self.switcher.active.resolve(&self.switcher.search.text, entries.iter().map(|e| e.key.as_str()))
+        self.switcher.active.resolve(entries.iter().map(|e| e.key.as_str()))
     }
 
     pub fn open_switcher(&mut self) {
@@ -514,17 +524,14 @@ impl App {
         self.switcher.search = TextEdit::new("");
         self.switcher.search.focused = true;
         self.switcher.active.clear();
-        self.switcher.pointed = None;
         self.switcher.pointer = None;
         self.switcher.loaded.clear();
-        self.switcher.searched.clear();
         self.switcher.fetch.cancel();
-        self.switcher.failed = None;
-        self.switcher.listed_archived = false;
-        self.switcher.files = (String::new(), Vec::new());
-        self.switcher.files_asked = None;
         self.switcher.files_fetch.cancel();
         self.switcher.fixture_find = None;
+        self.switcher.sessions = search::Source::default();
+        self.switcher.files = search::Source::default();
+        self.switcher.restore = Restore::Idle;
         self.switcher.shown.step(Event::Opened { now: self.clock });
     }
 
@@ -539,25 +546,34 @@ impl App {
         self.switcher.search.cancel_composition();
         self.switcher.fetch.cancel();
         self.switcher.files_fetch.cancel();
+        self.switcher.fixture_find = None;
+        self.switcher.sessions = search::Source::default();
+        self.switcher.files = search::Source::default();
+        self.switcher.restore = Restore::Idle;
         self.composer.focused = restore && self.switcher.restore_composer;
     }
 
     fn switcher_run(&mut self, action: Action, tx: &mut Tx) {
         if !self.switcher.open { return; }
+        // One pick at a time: Enter or a click while a session restores does nothing.
+        if matches!(self.switcher.restore, Restore::Restoring { .. }) { return; }
         let restore = self.switcher.mode == SwitcherMode::Archived;
         let line = parse_path_and_line(self.switcher.query()).1;
+        // An archived session is restored first, and opens once the server has
+        // (`session-search-machine.ts`): the dialog waits for it.
+        if let (true, Action::Session(id)) = (restore, &action) {
+            let due = tx.clock() + RESTORE_TIMEOUT;
+            self.switcher.restore = Restore::Restoring { session: id.clone(), due };
+            tx.wake_at(due);
+            if !self.write(opencode_kit::client::Write::Unarchive(id.clone())) || self.stage.is_some() {
+                let ok = self.stage.is_some();
+                self.switcher_restore_replied(id.clone(), ok, "", tx);
+            }
+            return;
+        }
         self.close_switcher(false);
         match action {
-            // An archived session is restored as it opens.
-            Action::Session(id) if restore => {
-                if self.session(&id).is_none()
-                    && let Some(s) = self.switcher.loaded.iter().find(|s| s.id == id).cloned()
-                {
-                    self.sessions.push(s);
-                }
-                self.unarchive_session(&id);
-                self.open_inbox_session(&id, tx);
-            }
+            Action::Session(_) if restore => {}
             Action::Session(id) => {
                 // A session only the search knows joins the list, so its tab has a title.
                 if self.session(&id).is_none()
@@ -579,6 +595,35 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The server answered a restore of archived session `id` (or it timed out, `ok` false).
+    pub(crate) fn switcher_restore_replied(&mut self, id: String, ok: bool, why: &str, tx: &mut Tx) {
+        let ours = matches!(&self.switcher.restore, Restore::Restoring { session, .. } if *session == id);
+        if !ours {
+            // Restored after the dialog stopped waiting: it shows as restored, and no tab opens.
+            match ok {
+                true => self.unarchive_session_locally(&id),
+                // An Unarchive from the Inbox says it failed as any write does.
+                false if !why.is_empty() => crate::status_toast::from_server(self, why.to_owned()),
+                false => {}
+            }
+            return;
+        }
+        self.switcher.restore = Restore::Idle;
+        if !ok {
+            let title = opencode_i18n::t!("common.requestFailed");
+            crate::status_toast::fail(self, title, if why.is_empty() { title } else { why });
+            return;
+        }
+        if self.session(&id).is_none()
+            && let Some(s) = self.switcher.loaded.iter().find(|s| s.id == id).cloned()
+        {
+            self.sessions.push(s);
+        }
+        self.unarchive_session_locally(&id);
+        self.close_switcher(false);
+        self.open_inbox_session(&id, tx);
     }
 
     /// ⌘K and ⇧⌘P toggle "Search everything", ⇧⌘F "Search sessions" and ⌘P,
@@ -657,78 +702,6 @@ impl App {
             }
             _ => false,
         }
-    }
-
-    /// Takes in server results, and sends a changed query to the server.
-    pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
-        let mut changed = false;
-        if let Some(f) = self.switcher.fetch.take() {
-            if !f.sessions.is_empty() { self.switcher.invalidate_sessions(); }
-            upsert_sessions(&mut self.switcher.loaded, f.sessions);
-            if self.switcher.searched == f.query {
-                self.switcher.failed = f.failed.then_some(f.query);
-            }
-            changed = true;
-        }
-        if let Some(found) = self.switcher.files_fetch.take() {
-            if self.switcher.files_asked.as_deref() == Some(found.0.as_str()) {
-                self.switcher.files = found;
-            }
-            changed = true;
-        }
-        if let Some((at, _)) = &self.switcher.fixture_find {
-            if self.clock >= *at {
-                let (_, found) = self.switcher.fixture_find.take().unwrap();
-                if self.switcher.files_asked.as_deref() == Some(found.0.as_str()) {
-                    self.switcher.files = found;
-                }
-                changed = true;
-            } else {
-                tx.wake_after(Duration::from_secs_f64(at - self.clock));
-            }
-        }
-        if !self.switcher.open {
-            return changed;
-        }
-        let landed = changed;
-        // Results land at once: no row fades in or slides to its place.
-        if landed {
-            tx.instant();
-            let entries = self.switcher_entries();
-            let active = self.switcher_active(&entries);
-            // They bring a row the keys chose back into view (`SearchList`), but leave the list
-            // where the wheel put it while the first row is the highlight or the pointer took it.
-            if let Some(key) = active.filter(|k| entries.first().is_some_and(|e| &e.key != k) && !self.switcher.pointed(k)) {
-                tx.scroll_into_view_in("switcher-scroll", format!("sw-{key}"));
-            }
-        }
-        changed |= self.request_switcher_files();
-        changed |= self.request_switcher_sessions(tx);
-        changed | self.step_switcher_shown(landed, tx)
-    }
-
-    /// Steps what the list shows (`shown.rs`) when the query changed, answers landed, or it waits.
-    fn step_switcher_shown(&mut self, landed: bool, tx: &mut Tx) -> bool {
-        let before = self.switcher.shown.clone();
-        let now = self.clock;
-        let q = self.switcher.query().to_owned();
-        let mut effects = vec![self.switcher.shown.step(Event::Tick { now })];
-        if landed || self.switcher.shown.query() != q || matches!(self.switcher.shown, Shown::Waiting { .. }) {
-            let rows = !self.switcher_matches(&q).is_empty();
-            let (searching, failed) = (self.switcher_searching(), self.switcher.failed_now());
-            effects.push(self.switcher.shown.step(Event::Seen { query: &q, rows, searching, failed, now }));
-        }
-        for effect in effects {
-            if let Effect::WakeAt(at) = effect {
-                tx.wake_after(Duration::from_secs_f64((at - now).max(0.0)));
-            }
-        }
-        // "Loading" and "No results" appear in place, as rows do.
-        let changed = self.switcher.shown != before;
-        if changed {
-            tx.instant();
-        }
-        changed
     }
 }
 

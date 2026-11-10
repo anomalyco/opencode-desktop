@@ -187,7 +187,7 @@ fn menu(s: &App) -> Menu {
         let sub = theirs.into_iter().fold(sub, |menu, (_, key, title)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone())));
         (m, title, sub)
     });
-    menus.fold(Menu::new(opencode_i18n::t!("desktop.menu.app")).standard(W).keeps_focus().group(opencode_i18n::t!("desktop.menu.app")), |menu, (m, title, sub)| {
+    menus.fold(Menu::new(opencode_i18n::t!("desktop.menu.app")).standard(W).remembers_focus().group(opencode_i18n::t!("desktop.menu.app")), |menu, (m, title, sub)| {
         menu.submenu(format!("app-menu-{m}"), title, sub)
     })
 }
@@ -238,7 +238,13 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
         }
         Act::CloseTab => s.close_tab_key(tx),
         Act::CloseWindow => s.close_window(tx),
-        Act::Edit(key) => tx.send_key(edit_key(key)),
+        Act::Edit(key) => {
+            // Back to the field focused as the menu opened, then the key (`windows-menu.tsx:69`).
+            if let Some(field) = s.popup.remembered().map(str::to_owned) {
+                tx.focus(field, false);
+            }
+            tx.send_key(edit_key(key));
+        }
         Act::ToggleSidebar => {
             s.toggle_sidebar(tx);
         }

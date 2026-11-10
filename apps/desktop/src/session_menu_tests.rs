@@ -122,14 +122,14 @@ fn double_clicking_a_tab_edits_its_title_and_enter_saves_it() {
     let before = titled(&rt, &id);
     let k = tab_key(&rt, 1);
     double_click(&mut rt, &k);
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Tab)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Tab)));
     assert_eq!(rt.state.menus.edit.text, before, "it starts on the current title");
     assert_eq!(rt.state.menus.edit.selected(), before, "all of it selected");
     assert!(rt.find("rename").is_some(), "the title is a field");
 
     type_text(&mut rt, "  Reconnect jitter  ");
     press_key(&mut rt, Key::Enter);
-    assert_eq!(rt.state.menus.rename, None);
+    assert_eq!(rt.state.menus.renaming(), None);
     assert_eq!(titled(&rt, &id), "Reconnect jitter", "trimmed, and shown at once");
     let Ok(Write::Rename { session, title }) = writes.try_recv() else { panic!("no rename sent") };
     assert_eq!((session.as_str(), title.as_str()), (id.as_str(), "Reconnect jitter"));
@@ -145,7 +145,7 @@ fn escape_cancels_a_rename_and_sends_nothing() {
     double_click(&mut rt, &k);
     type_text(&mut rt, "Something else");
     press_key(&mut rt, Key::Escape);
-    assert_eq!(rt.state.menus.rename, None);
+    assert_eq!(rt.state.menus.renaming(), None);
     assert_eq!(titled(&rt, &id), before);
     assert!(writes.try_recv().is_err());
 }
@@ -176,7 +176,7 @@ fn a_click_away_saves_a_tab_title() {
     let (x, y) = rt.find("search").or_else(|| rt.find("sidebar-header")).unwrap_or((600.0, 400.0));
     press(&mut rt, x, y);
     frames(&mut rt, 3);
-    assert_eq!(rt.state.menus.rename, None, "the edit ended");
+    assert_eq!(rt.state.menus.renaming(), None, "the edit ended");
     assert_eq!(titled(&rt, &id), "Saved by clicking away");
     assert!(matches!(writes.try_recv(), Ok(Write::Rename { .. })));
 }
@@ -191,7 +191,7 @@ fn right_clicking_a_tab_opens_its_menu_and_each_item_acts() {
     assert_eq!(rt.state.menus.on, Some(Target::new(&id, Spot::Tab)), "the row is marked while it shows");
     pick(&mut rt, "rename");
     assert_eq!(rt.state.menus.on, None);
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Tab)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Tab)));
     press_key(&mut rt, Key::Escape);
 
     let count = rt.state.tabs.len();
@@ -210,12 +210,12 @@ fn delete_asks_first_then_removes_the_session_and_its_tab() {
     let k = tab_key(&rt, 1);
     open_menu(&mut rt, &k, &["delete"]);
     pick(&mut rt, "delete");
-    assert_eq!(rt.state.menus.confirm.as_deref(), Some(id.as_str()));
+    assert_eq!(rt.state.menus.confirming().as_deref(), Some(id.as_str()));
     assert!(rt.find("delete-confirm").is_some(), "the confirmation shows");
     assert!(writes.try_recv().is_err(), "nothing is sent yet");
 
     press_key(&mut rt, Key::Escape);
-    assert_eq!(rt.state.menus.confirm, None, "Esc cancels");
+    assert_eq!(rt.state.menus.confirming(), None, "Esc cancels");
     assert!(rt.state.session(&id).is_some());
 
     let k = tab_key(&rt, 1);
@@ -223,7 +223,7 @@ fn delete_asks_first_then_removes_the_session_and_its_tab() {
     pick(&mut rt, "delete");
     let (x, y) = rt.find("delete-cancel").unwrap();
     press(&mut rt, x, y);
-    assert_eq!(rt.state.menus.confirm, None, "Cancel cancels");
+    assert_eq!(rt.state.menus.confirming(), None, "Cancel cancels");
     assert!(writes.try_recv().is_err());
 
     let k = tab_key(&rt, 1);
@@ -232,7 +232,7 @@ fn delete_asks_first_then_removes_the_session_and_its_tab() {
     let (x, y) = rt.find("delete-confirm").unwrap();
     press(&mut rt, x, y);
     frames(&mut rt, 3);
-    assert_eq!(rt.state.menus.confirm, None);
+    assert_eq!(rt.state.menus.confirming(), None);
     assert!(rt.state.session(&id).is_none() && rt.state.tabs.iter().all(|t| t.id != id));
     assert_eq!(rt.state.tabs.len(), count - 1);
     let Ok(Write::Delete(sent)) = writes.try_recv() else { panic!("no delete sent") };
@@ -252,7 +252,7 @@ fn a_home_rows_menu_renames_exports_and_deletes() {
 
     open_menu(&mut rt, &key, &["rename"]);
     pick(&mut rt, "rename");
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Row)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Row)));
     type_text(&mut rt, "Row rename");
     press_key(&mut rt, Key::Enter);
     assert_eq!(titled(&rt, &id), "Row rename");
@@ -261,7 +261,7 @@ fn a_home_rows_menu_renames_exports_and_deletes() {
 
     open_menu(&mut rt, &key, &["delete"]);
     pick(&mut rt, "delete");
-    assert_eq!(rt.state.menus.confirm, Some(id));
+    assert_eq!(rt.state.menus.confirming(), Some(id));
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn a_home_row_that_loses_focus_cancels_as_desktops_does() {
     type_text(&mut rt, "Not saved");
     press(&mut rt, 640.0, 790.0);
     frames(&mut rt, 3);
-    assert_eq!(rt.state.menus.rename, None);
+    assert_eq!(rt.state.menus.renaming(), None);
     assert_eq!(titled(&rt, &id), before);
     assert!(writes.try_recv().is_err());
 }
@@ -296,12 +296,12 @@ fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
     let menu = rt.popup_menu().expect("the ⋯ button opens the menu");
     assert!(menu.find("rename").is_some() && menu.find("delete").is_some());
     pick(&mut rt, "rename");
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Header)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)));
     press_key(&mut rt, Key::Escape);
 
     let (x, y) = rt.find("title").unwrap();
     press(&mut rt, x, y);
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Header)), "a click on the title edits it");
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)), "a click on the title edits it");
     type_text(&mut rt, "Header rename");
     press_key(&mut rt, Key::Enter);
     let Ok(Write::Rename { title, .. }) = writes.try_recv() else { panic!("no rename sent") };
@@ -316,7 +316,7 @@ fn the_headers_rename_field_hugs_its_title_so_the_more_button_moves_only_with_ty
     let (tx, ty) = rt.find("title").unwrap();
     press(&mut rt, tx, ty);
     frames(&mut rt, 3);
-    assert!(rt.state.menus.rename.is_some());
+    assert!(rt.state.menus.renaming().is_some());
     assert!((x(&rt, "header-more") - rest).abs() < 0.5, "⋯ stays where it was: {rest} → {}", x(&rt, "header-more"));
 
     press_key(&mut rt, Key::End);
@@ -340,7 +340,7 @@ fn control_r_renames_the_open_session() {
     let Route::Session(id) = rt.state.route.clone() else { panic!("open session") };
     rt.key(KeyEvent { key: Key::Text("r".into()), mods: Mods { ctrl: true, ..Mods::default() } });
     frames(&mut rt, 2);
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Header)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)));
 }
 
 
@@ -391,5 +391,5 @@ fn the_menu_key_and_shift_f10_open_the_same_menu_as_a_right_click() {
     let menu = rt.popup_menu().expect("⇧F10 opens the focused row's menu");
     assert!(menu.find("export").is_some() && menu.find("delete").is_some());
     pick(&mut rt, "rename");
-    assert_eq!(rt.state.menus.rename, Some(Target::new(&id, Spot::Row)));
+    assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Row)));
 }

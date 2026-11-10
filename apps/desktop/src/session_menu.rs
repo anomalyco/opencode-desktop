@@ -13,12 +13,16 @@
 //! Home row cancels, as Desktop's does). Double-clicking a tab and clicking a root session's
 //! header title start it, and ⌃R does for the open session. Delete asks first.
 
+use rune::machine::Seq;
 use rune::{Key, KeyEvent, PopupAnchor, TextEdit, Tx};
 
 use opencode_kit::client::Write;
 
 use crate::popup::{self, Menu};
 use crate::{App, Route};
+
+mod delete;
+mod rename;
 
 /// Where a session's title is drawn: each has its own menu and its own blur rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,15 +49,43 @@ impl Target {
 pub struct Menus {
     /// The menu showing now, so its row draws marked.
     pub on: Option<Target>,
-    /// The title being edited, and its text.
-    pub rename: Option<Target>,
+    /// The title being edited (`rename`), its field's text, and its save.
+    rename: rename::Edit,
     pub edit: TextEdit,
-    /// The field has had focus: losing it afterwards is a click away.
-    pub seen: bool,
-    /// A session waiting on Delete's confirmation.
-    pub confirm: Option<String>,
+    save: rename::Save,
+    seq: Seq,
+    /// Delete's confirmation.
+    delete: delete::Delete,
     /// The storybook's drawn menu lights this item.
     pub hot: Option<String>,
+}
+
+impl Menus {
+    /// The title being edited.
+    pub fn renaming(&self) -> Option<Target> {
+        match &self.rename {
+            rename::Edit::Arming { target, .. } | rename::Edit::Editing { target, .. } => Some(target.clone()),
+            rename::Edit::Idle => None,
+        }
+    }
+
+    /// Whether `t`'s title is being edited.
+    pub fn renames(&self, t: &Target) -> bool {
+        matches!(&self.rename, rename::Edit::Arming { target, .. } | rename::Edit::Editing { target, .. } if target == t)
+    }
+
+    /// The session Delete's confirmation is for, while it shows.
+    pub fn confirming(&self) -> Option<String> {
+        match &self.delete {
+            delete::Delete::Confirming { session } | delete::Delete::Deleting { session, .. } => Some(session.clone()),
+            delete::Delete::Closed => None,
+        }
+    }
+
+    /// The delete is on its way: the dialog's buttons are off (`selectSessionDeleteView`).
+    pub fn deleting(&self) -> bool {
+        matches!(self.delete, delete::Delete::Deleting { .. })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,7 +152,7 @@ pub fn menu(lines: &[Line]) -> Menu {
 /// Opens `t`'s menu at `at`, marking its row until it closes. A Home row being renamed keeps
 /// the plain field, as Desktop keeps the native menu there.
 pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
-    if s.menus.rename.as_ref().is_some_and(|r| r.spot == Spot::Row) {
+    if s.menus.renaming().is_some_and(|r| r.spot == Spot::Row) {
         return;
     }
     let lines = lines(s, &t);
@@ -162,40 +194,70 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
         "export" => {
             s.write(Write::Export(t.id.clone()));
         }
-        "delete" => s.menus.confirm = Some(t.id.clone()),
+        "delete" => {
+            crate::popup::hand_off(s);
+            s.ask_delete(&t.id);
+        }
         _ => {}
     }
 }
 
 impl App {
-    /// Starts editing `t`'s title in place, all of it selected.
+    /// Starts editing `t`'s title in place, all of it selected; one open elsewhere ends first.
     pub fn begin_rename(&mut self, t: &Target) {
         let Some(title) = self.session(&t.id).map(|i| i.title.clone()) else { return };
         self.finish_rename(true);
-        let mut edit = TextEdit::new(title);
-        // The caret sits at the start, so a long title shows from its first word.
-        edit.anchor = edit.text.len();
-        edit.focus = 0;
-        edit.focused = true;
-        self.menus.edit = edit;
-        self.menus.rename = Some(t.clone());
-        self.menus.seen = false;
-        self.composer.focused = false;
-        self.search.focused = false;
+        self.rename_event(rename::Event::Start { target: t.clone(), title }, "");
     }
 
     /// Ends the edit: with `save`, a changed, non-empty title is sent. Nothing when none is open.
     pub fn finish_rename(&mut self, save: bool) {
-        let Some(t) = self.menus.rename.take() else { return };
-        self.menus.edit.focused = false;
-        if save {
-            let title = self.menus.edit.text.clone();
-            self.rename_session(&t.id, &title);
+        let draft = self.menus.edit.text.clone();
+        let event = if save { rename::Event::Submit { draft: &draft, now: self.clock } } else { rename::Event::Cancel };
+        self.rename_event(event, "");
+    }
+
+    /// Runs `event` through the rename machine and carries out what it asks.
+    fn rename_event(&mut self, event: rename::Event<'_>, why: &str) {
+        let m = &mut self.menus;
+        for effect in rename::step(&mut m.seq, &mut m.rename, &mut m.save, event) {
+            match effect {
+                rename::Effect::Arm(title) => {
+                    let mut edit = TextEdit::new(title);
+                    // The caret sits at the start, so a long title shows from its first word.
+                    edit.anchor = edit.text.len();
+                    edit.focus = 0;
+                    edit.focused = true;
+                    self.menus.edit = edit;
+                    self.composer.focused = false;
+                    self.search.focused = false;
+                }
+                rename::Effect::Disarm => self.menus.edit.focused = false,
+                rename::Effect::Remember { session, title } => {
+                    if let Some(info) = self.sessions.iter_mut().find(|s| s.id == session) {
+                        info.title = title;
+                        self.save_tabs();
+                    }
+                }
+                rename::Effect::Save { session, title } => {
+                    // A story's write goes nowhere and a build that can't write sends none: each
+                    // answers at once.
+                    let sent = self.write(Write::Rename { session: session.clone(), title: title.clone() });
+                    if self.stage.is_some() || !sent {
+                        let current = self.session(&session).map(|i| i.title.clone());
+                        return self.rename_event(rename::Event::Replied { session: &session, title: &title, ok: sent, current: current.as_deref() }, why);
+                    }
+                }
+                // `poll_rename` keeps the save's deadline.
+                rename::Effect::WakeAt(_) => {}
+                rename::Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), if why.is_empty() { opencode_i18n::t!("common.requestFailed") } else { why }),
+            }
         }
     }
 
-    /// Desktop's rename: the trimmed title, unless it's empty or the same, goes to
-    /// `session.update`. The list and the tab show it at once; the server's event confirms it.
+    /// Desktop's rename from a dialog or a palette command: the trimmed title, unless it's empty
+    /// or the same, goes to `session.update`. The list and the tab show it at once; the server's
+    /// event confirms it.
     pub fn rename_session(&mut self, id: &str, title: &str) -> bool {
         let title = title.trim();
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return false };
@@ -208,25 +270,70 @@ impl App {
         true
     }
 
-    /// Whether the field lost focus since it had it: a click elsewhere. Home's row cancels,
-    /// the tab and the header save (Desktop's blur handlers).
-    pub fn poll_rename(&mut self) -> bool {
-        let Some(t) = self.menus.rename.clone() else { return false };
-        if self.menus.edit.focused {
-            self.menus.seen = true;
-            return false;
+    /// The field's focus and the save's deadline: focus arms the edit, and losing it afterwards
+    /// is a click away (Home's row cancels, the tab and the header save, as Desktop's blur
+    /// handlers do).
+    pub fn poll_rename(&mut self, now: f64, tx: &mut Tx) -> bool {
+        let before = self.menus.renaming();
+        let focused = self.menus.edit.focused;
+        let arming = matches!(self.menus.rename, rename::Edit::Arming { .. });
+        let editing = matches!(self.menus.rename, rename::Edit::Editing { .. });
+        if arming && focused {
+            self.rename_event(rename::Event::Armed, "");
+        } else if editing && !focused {
+            let draft = self.menus.edit.text.clone();
+            self.rename_event(rename::Event::Blurred { draft: &draft, now }, "");
         }
-        if !self.menus.seen {
-            return false;
+        let current = |s: &App, id: &str| s.session(id).map(|i| i.title.clone());
+        if let rename::Save::Saving { session, due, .. } = &self.menus.save {
+            let (session, due) = (session.clone(), *due);
+            let title = current(self, &session);
+            self.rename_event(rename::Event::Tick { now, current: title.as_deref() }, "");
+            if matches!(self.menus.save, rename::Save::Saving { .. }) {
+                tx.wake_at(due);
+            }
         }
-        self.finish_rename(t.spot != Spot::Row);
-        true
+        before != self.menus.renaming()
     }
 
-    /// Deletes a session and its subagents: they leave the list and the tabs now, and the open
-    /// page goes Home if it was theirs.
+    /// The server answered a rename, a delete or a restore this window sent (`client.session.write`).
+    pub(crate) fn session_write_replied(&mut self, data: &serde_json::Value, tx: &mut Tx) {
+        let session = data["sessionID"].as_str().unwrap_or_default().to_owned();
+        let ok = data["ok"].as_bool() == Some(true);
+        let why = data["error"].as_str().map(crate::status_toast::plain).unwrap_or_default();
+        let why = why.as_str();
+        match data["kind"].as_str() {
+            Some("rename") => {
+                let title = data["title"].as_str().unwrap_or_default().to_owned();
+                let current = self.session(&session).map(|i| i.title.clone());
+                let ours = matches!(&self.menus.save, rename::Save::Saving { session: s, optimistic, .. } if *s == session && *optimistic == title);
+                // A rename this edit didn't send (the rename dialog's) says so as any write does.
+                if !ours && !ok {
+                    crate::status_toast::from_server(self, why.to_owned());
+                }
+                self.rename_event(rename::Event::Replied { session: &session, title: &title, ok, current: current.as_deref() }, why);
+            }
+            Some("delete") => self.delete_event(delete::Event::Replied { session, ok }, why, tx),
+            Some("unarchive") => self.switcher_restore_replied(session, ok, why, tx),
+            _ => {}
+        }
+        if !ok && let Some(e) = data["error"].as_str() {
+            crate::status_toast::from_server(self, e.to_owned());
+        }
+    }
+
+    /// Asks before deleting `id`.
+    pub fn ask_delete(&mut self, id: &str) {
+        self.delete_event(delete::Event::Ask(id.to_owned()), "", &mut Tx::default());
+    }
+
+    /// Cancel, Escape or a press outside Delete's confirmation; nothing while the delete runs.
+    pub fn cancel_delete(&mut self, tx: &mut Tx) {
+        self.delete_event(delete::Event::Cancel, "", tx);
+    }
+
+    /// Delete: the session and its subagents leave the list, and the server's answer decides.
     pub fn delete_session(&mut self, id: &str, tx: &mut Tx) {
-        self.menus.confirm = None;
         let mut gone = vec![id.to_owned()];
         let mut at = 0;
         while at < gone.len() {
@@ -234,7 +341,51 @@ impl App {
             gone.extend(self.sessions.iter().filter(|s| s.parent.as_deref() == Some(&parent)).map(|s| s.id.clone()));
             at += 1;
         }
-        tx.instant();
+        let tree = gone.iter().filter_map(|g| self.session(g).cloned()).collect();
+        self.delete_event(delete::Event::Confirm { tree, now: tx.clock() }, "", tx);
+    }
+
+    /// The delete's deadline.
+    pub fn poll_delete(&mut self, now: f64, tx: &mut Tx) -> bool {
+        let before = self.menus.confirming();
+        self.delete_event(delete::Event::Tick { now }, "", tx);
+        if let delete::Delete::Deleting { due, .. } = self.menus.delete {
+            tx.wake_at(due);
+        }
+        before != self.menus.confirming()
+    }
+
+    /// Runs `event` through Delete's machine and carries out what it asks.
+    fn delete_event(&mut self, event: delete::Event, why: &str, tx: &mut Tx) {
+        for effect in delete::step(&mut self.menus.delete, event) {
+            tx.instant();
+            match effect {
+                delete::Effect::Hide(ids) => self.sessions.retain(|s| !ids.contains(&s.id)),
+                delete::Effect::Run(id) => {
+                    // A story's write goes nowhere and a build that can't write sends none: each
+                    // answers at once.
+                    let sent = self.write(Write::Delete(id.clone()));
+                    if self.stage.is_some() || !sent {
+                        return self.delete_event(delete::Event::Replied { session: id, ok: sent }, why, tx);
+                    }
+                }
+                delete::Effect::WakeAt(due) => tx.wake_at(due),
+                delete::Effect::Restore(hidden) => {
+                    for s in hidden {
+                        if self.session(&s.id).is_none() {
+                            self.sessions.push(s);
+                        }
+                    }
+                }
+                delete::Effect::Removed(gone) => self.session_removed(&gone),
+                delete::Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("session.delete.failed.title"), why),
+            }
+        }
+    }
+
+    /// The server deleted these sessions: their tabs and history go, and the open page goes
+    /// Home if it was theirs (`notifySessionTabsRemoved`).
+    fn session_removed(&mut self, gone: &[String]) {
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
         let open_gone = matches!(&self.route, Route::Session(open) if gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
@@ -244,21 +395,19 @@ impl App {
             self.route = Route::Home;
         }
         self.save_tabs();
-        self.write(Write::Delete(id.to_owned()));
     }
 }
 
 /// ⌃R renames the open session; Esc and ⏎ end an edit; Esc closes Delete's confirmation.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.menus.confirm.is_some() {
+    if s.menus.confirming().is_some() {
         if ev.key == Key::Escape {
-            tx.instant();
-            s.menus.confirm = None;
+            s.cancel_delete(tx);
             return true;
         }
         return false;
     }
-    if s.menus.rename.is_some() {
+    if s.menus.renaming().is_some() {
         if s.menus.edit.is_composing() {
             return false;
         }

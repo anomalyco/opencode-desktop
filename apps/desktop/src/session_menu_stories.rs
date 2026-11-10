@@ -19,7 +19,7 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'm', label: "Open the real menu", run: |s, tx| native(s, tx) },
     Trigger { key: 'n', label: "Light the next item", run: |s, tx| next(s, tx) },
     Trigger { key: 'e', label: "Rename", run: |s, _| start(s, true) },
-    Trigger { key: 'd', label: "Ask to delete", run: |s, _| s.menus.confirm = Some(first(s)) },
+    Trigger { key: 'd', label: "Ask to delete", run: |s, _| { let id = first(s); s.ask_delete(&id) } },
 ];
 
 fn spot(v: usize) -> Spot {
@@ -51,7 +51,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
             s.menus.hot = Some("rename".into());
         }
         3..=5 => start(s, false),
-        _ => s.menus.confirm = Some(first(s)),
+        _ => { let id = first(s); s.ask_delete(&id) }
     }
 }
 

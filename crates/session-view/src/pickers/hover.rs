@@ -128,7 +128,7 @@ pub trait ModelHover: PickerHost + Sized + 'static {
                 Effect::Activate(id) => {
                     tx.instant();
                     crate::popover::jump_highlight();
-                    self.pickers_mut().activate(id);
+                    self.pickers_mut().point(id);
                 }
                 Effect::Schedule { kind, attempt, delay } => {
                     let at = tx.clock() + delay;

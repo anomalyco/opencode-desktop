@@ -296,7 +296,18 @@ impl Pickers {
 
     /// Lights the row `key` (Desktop's `list.setActive`).
     pub fn activate(&mut self, key: String) {
-        self.active.set(key, self.search.text.clone());
+        self.active.set(key);
+    }
+
+    /// The pointer moved onto row `key` (`list-machine.ts` `pointer.move`).
+    pub fn point(&mut self, key: String) {
+        self.active.step(crate::popover::HighlightEvent::Pointer(key));
+    }
+
+    /// The search's text changed: a new query lights its first row (`list-machine.ts`
+    /// `query.change`, whose answer opens on `keys[0]`).
+    pub fn query_changed(&mut self) {
+        self.active.step(crate::popover::HighlightEvent::QueryChanged);
     }
 
     /// Picking the model `key` now runs it with `effort` ("" for its default).

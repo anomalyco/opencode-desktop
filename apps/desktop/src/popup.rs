@@ -6,17 +6,19 @@
 //! they take the theme, the keyboard, the window's zoom and headless captures. A menu drawn on
 //! every platform (the side panel's) opens with [`open_drawn`].
 
-use rune::{Align, El, Icon, Key, KeyEvent, PopupAnchor, PopupItem, PopupMenu, Side, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, El, Icon, PopupAnchor, PopupItem, PopupMenu, Side, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::App;
 use crate::palette::Pal;
 use crate::popover::{self, MENU, Opt};
 
 pub mod context;
+mod keys;
 mod restore;
 mod search;
 mod standard;
 
+pub use keys::key;
 use search::{SEARCH_H, search_field};
 
 /// Native menus where Kit chose them.
@@ -167,8 +169,8 @@ pub struct Menu {
     look: Look,
     /// Which side of an element it opens on, flipping when it doesn't fit.
     side: Side,
-    /// Presses on it leave the focused field focused (`El::keeps_text_selection`).
-    keeps_focus: bool,
+    /// Remembers the field focused as it opens, for its Edit items (`windows-menu.tsx`).
+    remembers_focus: bool,
     search: Option<Search>,
     /// Its distance from the element it opens beside (Kobalte's `gutter`), when not the default.
     gap: Option<f32>,
@@ -177,7 +179,7 @@ pub struct Menu {
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, keeps_focus: false, search: None, gap: None }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None }
     }
 
     /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
@@ -236,9 +238,9 @@ impl Menu {
         self.min_w = min_w;
         self
     }
-    /// Presses on the menu leave the focused field focused, so its Edit items reach it, as
-    /// Desktop's app menu puts focus back before it runs them (`windows-menu.tsx`).
-    pub fn keeps_focus(mut self) -> Menu { self.keeps_focus = true; self }
+    /// Remembers the field focused as it opens ([`remembered`]), so its Edit items reach it, as
+    /// Desktop's app menu puts focus back before it runs them (`windows-menu.tsx:50-70`).
+    pub fn remembers_focus(mut self) -> Menu { self.remembers_focus = true; self }
 
     pub(crate) fn native(&self) -> PopupMenu {
         let menu = self.entries.iter().fold(PopupMenu::new(), |m, e| match e {
@@ -276,6 +278,11 @@ impl Menu {
         }
     }
 
+    /// Whether the open menu takes focus, as Kobalte's do: not one whose search field keeps it.
+    fn holds_focus(&self) -> bool {
+        self.search.is_none()
+    }
+
     /// The enabled rows' indices, in order: items and submenus.
     fn offered(&self) -> Vec<usize> {
         (0..self.entries.len()).filter(|&n| self.item_at(n).is_some_and(|i| i.enabled) || self.sub_at(n).is_some()).collect()
@@ -293,6 +300,8 @@ struct Shown {
     /// The submenus open beside their rows, outermost first: one opened from the root's row,
     /// then one from a row of that, and so on.
     subs: Vec<SubOpen>,
+    /// How it opened and from what: where focus goes as it closes.
+    opened: restore::Opened,
     pick: Pick,
 }
 
@@ -334,19 +343,49 @@ struct SubOpen {
 #[derive(Default)]
 pub struct Popup {
     shown: Option<Shown>,
-    /// Where focus goes as it closes.
-    focus: restore::MenuFocus,
-    /// A searchable menu's field, and the query its rows were last lit for.
+    /// A searchable menu's field.
     query: TextEdit,
-    lit_for: String,
+    /// The element focused as a [`Menu::remembers_focus`] menu opened.
+    remembered: Option<String>,
+    /// The closing menu's pick opened a dialog that takes focus ([`hand_off`]).
+    handed_off: bool,
 }
 
 impl Popup {
     pub fn is_open(&self) -> bool { self.shown.is_some() }
 
+    /// The element focused as the last [`Menu::remembers_focus`] menu opened: its Edit items
+    /// put focus back there before they send their keys.
+    pub fn remembered(&self) -> Option<&str> { self.remembered.as_deref() }
+
     /// Whether the menu showing now is anchored at element `key`.
     pub fn open_at(&self, key: &str) -> bool {
         self.shown.as_ref().is_some_and(|m| matches!(&m.anchor, PopupAnchor::Key(k) if k == key))
+    }
+}
+
+/// The root surface's key, which an open menu focuses.
+const SURFACE: &str = "popup-menu";
+
+/// The key of row `n` of `menu`: an item's or a submenu's.
+fn key_at(menu: &Menu, n: usize) -> Option<String> {
+    match menu.entries.get(n)? {
+        Entry::Item(i) => Some(row_key(&i.id)),
+        Entry::Sub(sub) => Some(row_key(&sub.id)),
+        _ => None,
+    }
+}
+
+/// Moves focus onto the lit row of the menu `level` deep, as Kobalte's items take focus; a
+/// searchable menu keeps it in its field.
+fn focus_lit(s: &App, level: usize, ring: bool, tx: &mut Tx) {
+    let Some(shown) = &s.popup.shown else { return };
+    if !shown.menu.holds_focus() {
+        return;
+    }
+    let key = shown.active_at(level).and_then(|n| key_at(shown.menu_at(level)?, n));
+    if let Some(key) = key {
+        tx.focus(key, ring);
     }
 }
 
@@ -364,26 +403,34 @@ pub fn open(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx
 pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx, pick: impl FnOnce(&mut App, Option<&str>, &mut Tx) + 'static) {
     close(s, None, restore::Reason::Outside, tx);
     let anchor = anchor.into();
-    let trigger = match &anchor {
-        PopupAnchor::Key(key) => Some(key.clone()),
-        PopupAnchor::Point(..) => None,
+    let origin = match &anchor {
+        PopupAnchor::Key(key) => restore::Origin::Trigger(key.clone()),
+        PopupAnchor::Point(..) => restore::Origin::Point { focused: tx.focused().filter(|k| !k.starts_with('#')).map(str::to_owned) },
     };
-    // A menu opened while the keyboard drives (Return or Space on its trigger) hands focus back
-    // with the ring.
-    let modality = if tx.focus_visible() { restore::Modality::Keyboard } else { restore::Modality::Pointer };
-    s.popup.focus = restore::step(std::mem::take(&mut s.popup.focus), restore::Event::Opened { modality, trigger }).0;
-    let active = menu.selected.as_deref().and_then(|id| menu.entries.iter().position(|e| matches!(e, Entry::Item(i) if i.id == id)));
+    // A menu opened while the keyboard drives (Return or Space on its trigger) lights its first
+    // row and hands focus back with the ring.
+    let modality = if tx.by_keys() { restore::Modality::Keyboard } else { restore::Modality::Pointer };
+    let opened = restore::Opened { modality, origin };
+    let selected = menu.selected.as_deref().and_then(|id| menu.entries.iter().position(|e| matches!(e, Entry::Item(i) if i.id == id)));
+    let first = menu.offered().first().copied();
+    let active = selected.or(first.filter(|_| modality == restore::Modality::Keyboard));
     if let Some(id) = menu.selected.clone() {
         tx.scroll_into_view(row_key(&id));
     }
-    // The search field takes the keys while it's open, as Desktop's does once it opens.
+    // The search field takes the keys while it's open, as Desktop's does once it opens; any
+    // other menu takes focus itself.
     s.popup.query = TextEdit::new("");
     s.popup.query.focused = menu.search.is_some();
-    s.popup.lit_for.clear();
+    s.popup.remembered = menu.remembers_focus.then(|| tx.focused().filter(|k| !k.starts_with('#')).map(str::to_owned)).flatten();
     if menu.search.is_some() {
         s.composer.focused = false;
+    } else if menu.holds_focus() {
+        let lit = active.filter(|_| modality == restore::Modality::Keyboard).and_then(|n| key_at(&menu, n));
+        let (key, ring) = restore::opening(&opened, SURFACE, lit);
+        s.composer.focused = false;
+        tx.focus(key, ring);
     }
-    s.popup.shown = Some(Shown { menu, anchor, active, subs: Vec::new(), pick: Box::new(pick) });
+    s.popup.shown = Some(Shown { menu, anchor, active, subs: Vec::new(), opened, pick: Box::new(pick) });
     refresh(s);
     popover::motion::opening(&s.knobs, tx);
 }
@@ -393,18 +440,26 @@ pub fn dismiss(s: &mut App, tx: &mut Tx) {
     close(s, None, restore::Reason::Outside, tx);
 }
 
-/// A searchable menu's rows for what's typed now; when the query changed since its rows were
-/// lit, the first one it lists lights.
+/// A searchable menu's rows for what's typed now; when they changed, the first one it lists
+/// lights (`list-machine.ts`: each result set opens on its first row).
 fn refresh(s: &mut App) {
     let Some(search) = s.popup.shown.as_ref().and_then(|m| m.menu.search.clone()) else { return };
     let query = s.popup.query.text.clone();
     let menu = Menu { search: Some(search.clone()), ..(search.rows)(s, &query) };
     let Some(shown) = s.popup.shown.as_mut() else { return };
-    let changed = s.popup.lit_for != query || shown.menu.entries != menu.entries;
+    let changed = shown.menu.entries != menu.entries;
     shown.menu = menu;
     if changed {
         shown.active = shown.menu.offered().first().copied();
-        s.popup.lit_for = query;
+    }
+}
+
+/// The search field's text changed: its rows for the new query, the first lit
+/// (`search-list.tsx:261-265`).
+fn query_changed(s: &mut App) {
+    refresh(s);
+    if let Some(shown) = s.popup.shown.as_mut() {
+        shown.active = shown.menu.offered().first().copied();
     }
 }
 
@@ -413,18 +468,31 @@ fn refresh(s: &mut App) {
 fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx) {
     let Some(shown) = s.popup.shown.take() else { return };
     s.popup.query.focused = false;
-    let (focus, effect) = restore::step(std::mem::take(&mut s.popup.focus), restore::Event::Closed(reason));
-    s.popup.focus = focus;
+    // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
+    let trigger = matches!(shown.opened.origin, restore::Origin::Trigger(_));
+    let effect = match (shown.menu.holds_focus(), reason, trigger) {
+        (true, ..) | (false, restore::Reason::Keys, true) => restore::closing(shown.opened, reason, tx.by_keys()),
+        _ => None,
+    };
+    popover::motion::closing(&s.knobs, tx);
+    s.popup.handed_off = false;
+    (shown.pick)(s, picked, tx);
+    // A pick that opened a dialog or another menu has focus where that put it, as Kobalte's
+    // restore finds focus outside the menu and leaves it (menu.tsx:349-352); a field it
+    // focused through its model wins over this anyway.
+    if s.popup.handed_off || s.popup.shown.is_some() {
+        return;
+    }
     match effect {
-        Some(restore::Effect::FocusTrigger { key, ring }) => tx.focus(key, ring),
-        // Only a key handler knows what has focus: a press that picked leaves no ring.
-        Some(restore::Effect::RingFocused) => {
-            if let Some(key) = tx.focused().filter(|k| !k.starts_with('#')).map(str::to_owned) { tx.focus(key, true); }
-        }
+        Some(restore::Effect::Focus { key, ring }) => tx.focus(key, ring),
+        Some(restore::Effect::Blur) => tx.blur(),
         None => {}
     }
-    popover::motion::closing(&s.knobs, tx);
-    (shown.pick)(s, picked, tx);
+}
+
+/// A pick's dialog takes focus: the menu leaves it there as it closes.
+pub fn hand_off(s: &mut App) {
+    s.popup.handed_off = true;
 }
 
 /// Picks row `n`, if it's offered.
@@ -467,95 +535,6 @@ fn open_sub_at(s: &mut App, level: usize, n: usize, keys: bool, tx: &mut Tx) {
     }
 }
 
-/// The drawn menu's keys:   Home End light a row, a letter lights the next one it starts,
-/// → or Enter opens a submenu and ← closes it, Enter or Space picks, Esc and Tab dismiss. It
-/// takes every key while it's open.
-pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if s.popup.shown.as_ref().is_some_and(|m| m.menu.search.is_some()) {
-        refresh(s);
-        // Typing and moving in the search field are the field's; the rest move in the menu.
-        let field = !matches!(ev.key, Key::Escape | Key::Tab | Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Enter);
-        if field {
-            return false;
-        }
-    }
-    let Some(shown) = s.popup.shown.as_mut() else { return false };
-    // The keys move in the deepest open menu with a lit row.
-    let level = shown.key_level();
-    let lit = shown.active_at(level);
-    let opens = |shown: &Shown, n: usize| shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
-    match &ev.key {
-        Key::Escape | Key::Tab => {
-            close(s, None, restore::Reason::Keys, tx);
-            return true;
-        }
-        Key::Left if level > 0 => {
-            shown.subs.truncate(level - 1);
-            tx.instant();
-            return true;
-        }
-        Key::Right => {
-            if let Some(n) = lit.filter(|&n| opens(shown, n)) {
-                open_sub_at(s, level, n, true, tx);
-                tx.instant();
-            }
-            return true;
-        }
-        Key::Enter | Key::Text(_) if is_space_or_enter(&ev.key) => {
-            match lit {
-                Some(n) if opens(shown, n) => {
-                    open_sub_at(s, level, n, true, tx);
-                    tx.instant();
-                }
-                Some(n) => choose_at(s, level, n, tx),
-                None => {}
-            }
-            return true;
-        }
-        _ => {}
-    }
-    let Some(menu) = shown.menu_at(level) else { return true };
-    let Some(next) = step(menu, lit, &ev.key) else { return true };
-    let id = menu.item_at(next).map(|i| i.id.clone());
-    shown.set_active(level, next);
-    // The keys leave a submenu the pointer opened as they move off its row.
-    if shown.subs.get(level).is_some_and(|o| o.at != next) {
-        shown.subs.truncate(level);
-    }
-    if let Some(id) = id {
-        tx.scroll_into_view(row_key(&id));
-    }
-    tx.instant();
-    true
-}
-
-/// The row `key` lights in `menu`, from row `active`: arrows step and wrap, Home and End go to
-/// the ends, a letter goes to the next row it starts. None for any other key.
-fn step(menu: &Menu, active: Option<usize>, key: &Key) -> Option<usize> {
-    let offered = menu.offered();
-    let at = active.and_then(|a| offered.iter().position(|&n| n == a));
-    let last = offered.len().saturating_sub(1);
-    let i = match key {
-        Key::Down => at.map_or(0, |i| if i >= last { 0 } else { i + 1 }),
-        Key::Up => at.map_or(last, |i| if i == 0 { last } else { i - 1 }),
-        Key::Home | Key::PageUp => 0,
-        Key::End | Key::PageDown => last,
-        Key::Text(t) => {
-            let c = t.chars().next()?.to_lowercase().to_string();
-            let starts = |&&n: &&usize| menu.title_at(n).is_some_and(|title| title.to_lowercase().starts_with(&c));
-            let after = at.map_or(0, |i| i + 1);
-            let n = offered.iter().skip(after).find(starts).or_else(|| offered.iter().find(starts))?;
-            offered.iter().position(|o| o == n)?
-        }
-        _ => return None,
-    };
-    offered.get(i).copied()
-}
-
-fn is_space_or_enter(key: &Key) -> bool {
-    matches!(key, Key::Enter) || matches!(key, Key::Text(t) if t == " ")
-}
-
 fn row_key(id: &str) -> String { format!("popup-item-{id}") }
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
@@ -576,7 +555,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         layer.push(popover::place(&s.knobs, standard::root(p, &shown.menu, shown.active, first), &anchor, side, align, gap));
         let sub = first.and_then(|o| Some((o, shown.menu.entries.get(o.at)?)));
         if let Some((o, Entry::Sub(sub))) = sub {
-            layer.push(popover::place(&s.knobs, standard::sub(p, &sub.menu, o.active, shown.menu.keeps_focus), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
+            layer.push(popover::place(&s.knobs, standard::sub(p, &sub.menu, o.active), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
         }
         return layer;
     }
@@ -584,7 +563,8 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let fresh = shown.menu.search.as_ref().map(|search| {
         let query = &s.popup.query.text;
         let menu = Menu { search: Some(search.clone()), ..(search.rows)(s, query) };
-        let active = if s.popup.lit_for == *query { shown.active } else { menu.offered().first().copied() };
+        // Rows that changed since the menu last lit one light their first (`refresh`).
+        let active = if menu.entries == shown.menu.entries { shown.active } else { menu.offered().first().copied() };
         (menu, active)
     });
     let (listed, active) = match &fresh {
@@ -669,11 +649,11 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     _ => o,
                 };
                 let row = if nested {
-                    popover::option::<App>(p, MENU, o, move |s| hover_at(s, level, n), move |s, tx| choose_at(s, level, n, tx))
+                    popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| choose_at(s, level, n, tx))
                 } else {
-                    popover::option::<App>(p, MENU, o, move |s| hover(s, n), move |s, tx| choose(s, n, tx))
+                    popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, 0, n, tx), move |s, tx| choose(s, n, tx))
                 };
-                list.row(row);
+                list.row(if i.enabled { takes_focus(row) } else { row });
             }
             Entry::Separator => {
                 // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`):
@@ -698,11 +678,16 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                list.row(popover::option::<App>(p, MENU, o, move |s| hover_at(s, level, n), move |s, tx| open_sub_at(s, level, n, false, tx)));
+                list.row(takes_focus(popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| open_sub_at(s, level, n, false, tx))));
             }
         }
     }
-    let surface = popover::surface::<App>(p, MENU, &name("popup-menu", "popup-submenu"), menu.label.clone()).min_w(menu.min_w);
+    let surface = popover::surface::<App>(p, MENU, &name(SURFACE, "popup-submenu"), menu.label.clone()).min_w(menu.min_w);
+    // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
+    let surface = match s {
+        Some(_) if menu.holds_focus() => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut App, ev, tx: &mut Tx| key(s, ev, tx)),
+        _ => surface,
+    };
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {
@@ -710,6 +695,12 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
         None => surface,
     };
     surface.child(list.build(&name("popup-scroll", "popup-sub-scroll"), menu.max_h))
+}
+
+/// A row of a menu that holds focus: Kobalte's items take it (tabindex -1), the lit one showing
+/// it by its fill, not a ring.
+fn takes_focus(row: El) -> El {
+    row.focusable(true).tab_index(-1).no_focus_ring()
 }
 
 /// The widest row of `menu`, its glyph, label and shortcut with the row's padding and the
@@ -758,6 +749,13 @@ fn detail_row(p: &Pal, key: &str, i: &Item) -> El {
 fn hover(s: &mut App, n: usize) {
     refresh(s);
     hover_at(s, 0, n);
+}
+
+/// The pointer over row `n` of the menu `level` deep, which takes focus without a ring, as a
+/// Kobalte item does on hover.
+fn hover_focus(s: &mut App, level: usize, n: usize, tx: &mut Tx) {
+    if level == 0 { hover(s, n) } else { hover_at(s, level, n) }
+    focus_lit(s, level, false, tx);
 }
 
 /// The pointer over row `m` of the first open submenu.

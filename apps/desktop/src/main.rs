@@ -1241,7 +1241,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands(tx);
     changed |= s.poll_suggestions(tx);
-    changed |= s.poll_rename();
+    changed |= s.poll_rename(now, tx);
+    changed |= s.poll_branch_picker(now, tx);
+    changed |= s.poll_delete(now, tx);
     changed |= s.poll_uploads(tx);
     changed |= s.attach.poll();
     changed |= s.poll_panels(tx);

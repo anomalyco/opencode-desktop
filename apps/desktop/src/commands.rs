@@ -255,7 +255,7 @@ fn toggle_shell(s: &mut App, tx: &mut Tx) {
 fn delete(s: &mut App, tx: &mut Tx) {
     let Some(id) = s.open_root() else { return };
     tx.instant();
-    s.menus.confirm = Some(id);
+    s.ask_delete(&id);
 }
 
 fn in_session(s: &App) -> bool {
@@ -316,7 +316,6 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home),
     Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
     Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
-    Cmd::new("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
     Cmd::new("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
     Cmd::new("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
     Cmd::new("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
@@ -389,6 +388,8 @@ rune_register::register!(COMMANDS: Cmd = [
         s.copy_id(id, tx);
     })
     .when(has_project),
+    // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
+    Cmd::new("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
     // `use-session-commands.tsx:636-653`: offered over any open session.
     Cmd::new("message.previous", opencode_i18n::key!("command.message.previous"), |s, tx| s.navigate_message(-1, tx))
         .describe(opencode_i18n::key!("command.message.previous.description"))

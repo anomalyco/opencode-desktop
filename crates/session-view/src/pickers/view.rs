@@ -148,7 +148,7 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
             p,
             MENU,
             o,
-            move |s: &mut S| s.pickers_mut().activate(hover_key.clone()),
+            move |s: &mut S| s.pickers_mut().point(hover_key.clone()),
             move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&key, tx),
         );
         if is_add {

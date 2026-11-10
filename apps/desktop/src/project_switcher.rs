@@ -19,19 +19,16 @@ use crate::view::{UI, UI_MED};
 use crate::{App, Route};
 use opencode_i18n::t;
 
+mod location;
+
+/// The dialog's step (`LocationDialogState.type`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum StepMode {
     #[default]
     Projects,
     Others,
-    Worktrees(String),
-}
-
-#[derive(Clone, Debug)]
-struct SavedStep {
-    query: String,
-    active: String,
-    others: bool,
+    /// A project's worktrees; `direct` when the dialog opened on them.
+    Worktrees { project: String, direct: bool },
 }
 
 #[derive(Default)]
@@ -39,9 +36,14 @@ pub struct ProjectSwitcher {
     pub open: bool,
     pub search: TextEdit,
     pub mode: StepMode,
+    /// The steps to step back through, innermost last.
+    history: Vec<location::Frame>,
+    /// The lit row: the first until one's chosen, which holds while the step lists it
+    /// (`dialog.tsx:212-217`); typing keeps it.
     active: Highlight,
+    /// The pointer's last point on a row: only a pointer that moved takes one (`dialog.tsx:395-399`).
+    pointer: Option<[f32; 2]>,
     restore_composer: bool,
-    back: Option<SavedStep>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,7 +84,16 @@ fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: C
 
 impl ProjectSwitcher {
     pub fn activate(&mut self, key: String) {
-        self.active.set(key, self.search.text.clone());
+        self.active.set(key);
+    }
+
+    /// The pointer moved on row `key` to `at`: it takes the row only when it moved.
+    fn point(&mut self, key: &str, at: [f32; 2]) -> bool {
+        if self.pointer.replace(at) == Some(at) || self.active.pointed(key) {
+            return false;
+        }
+        self.active.step(crate::popover::HighlightEvent::Pointer(key.to_owned()));
+        true
     }
 
     pub fn query(&self) -> &str {
@@ -98,7 +109,7 @@ impl App {
     pub fn project_switcher_rows(&self) -> Vec<SwitcherRow> {
         let q = self.project_switcher.query();
         match &self.project_switcher.mode {
-            StepMode::Worktrees(pid) => {
+            StepMode::Worktrees { project: pid, .. } => {
                 let Some(project) = self.project(pid) else { return Vec::new() };
                 let (id, root) = (project.id.clone(), project.directory.clone());
                 // The checkout and New worktree, then the worktrees (`dialog.tsx:156-173`).
@@ -169,16 +180,22 @@ impl App {
     }
 
     pub fn project_switcher_active(&self, rows: &[SwitcherRow]) -> Option<String> {
-        self.project_switcher.active.resolve(&self.project_switcher.search.text, rows.iter().map(|r| r.key.as_str()))
+        self.project_switcher.active.resolve(rows.iter().map(|r| r.key.as_str()))
     }
 
     pub fn toggle_project_switcher(&mut self, tx: &mut Tx) {
         tx.instant();
         if self.project_switcher.open {
             self.close_project_switcher(true);
-        } else {
-            self.open_project_switcher();
+            return;
         }
+        // Outside a new session's page it opens one and searches there, so the pick is that
+        // draft's project (`titlebar.tsx:478-492`); the page's own command searches in place.
+        if !matches!(self.route, Route::Draft(_)) && self.stage.is_none() {
+            self.open_draft_tab();
+            self.composer.focused = true;
+        }
+        self.open_project_switcher();
     }
 
     pub fn open_project_switcher(&mut self) {
@@ -197,10 +214,23 @@ impl App {
         self.project_switcher.open = true;
         self.project_switcher.restore_composer = restore;
         self.project_switcher.mode = StepMode::Projects;
-        self.project_switcher.back = None;
+        self.project_switcher.history.clear();
         self.project_switcher.search = TextEdit::new("");
         self.project_switcher.search.focused = true;
         self.project_switcher.active.clear();
+        self.project_switcher.pointer = None;
+    }
+
+    /// Opens the dialog on `project`'s worktrees, Choose worktree's way
+    /// (`createLocationDialogState(drilled)`): Escape there closes it, and ← or Backspace with
+    /// nothing typed step back to the projects with `project` lit.
+    pub fn open_project_worktrees(&mut self, project: &str, tx: &mut Tx) {
+        self.open_project_switcher();
+        self.list_worktrees(project);
+        tx.instant();
+        let ps = &mut self.project_switcher;
+        ps.history = vec![location::Frame { mode: StepMode::Projects, query: String::new(), active: Some(format!("project:{project}")) }];
+        ps.mode = StepMode::Worktrees { project: project.to_owned(), direct: true };
     }
 
     pub fn close_project_switcher(&mut self, restore: bool) {
@@ -211,7 +241,7 @@ impl App {
         self.project_switcher.search.focused = false;
         self.project_switcher.search.cancel_composition();
         self.project_switcher.mode = StepMode::Projects;
-        self.project_switcher.back = None;
+        self.project_switcher.history.clear();
         if restore && self.project_switcher.restore_composer && self.stage.is_none() {
             self.composer.focused = true;
         }
@@ -222,38 +252,40 @@ impl App {
         if !drillable(self, project_id) {
             return;
         }
-        tx.instant();
         self.list_worktrees(project_id);
-        let active = format!("project:{project_id}");
-        self.project_switcher.back = Some(SavedStep {
-            query: self.project_switcher.search.text.clone(),
-            active,
-            others: self.project_switcher.mode == StepMode::Others,
-        });
-        self.project_switcher.mode = StepMode::Worktrees(project_id.to_owned());
-        self.project_switcher.search = TextEdit::new("");
-        self.project_switcher.search.focused = true;
-        self.project_switcher.active.clear();
+        let active = Some(format!("project:{project_id}"));
+        self.location_event(location::Event::Drilled { project: project_id.to_owned(), active }, tx);
     }
 
     pub fn project_switcher_back(&mut self, tx: &mut Tx) {
-        tx.instant();
-        let saved = self.project_switcher.back.take();
-        let (query, active, others) = match (&self.project_switcher.mode, saved) {
-            (StepMode::Others, _) => (String::new(), "other".to_owned(), false),
-            (_, Some(s)) => (s.query, s.active, s.others),
-            _ => (String::new(), String::new(), false),
-        };
-        self.project_switcher.mode = if others { StepMode::Others } else { StepMode::Projects };
-        self.project_switcher.search = TextEdit::new(&query);
-        self.project_switcher.search.anchor = query.len();
-        self.project_switcher.search.focus = query.len();
-        self.project_switcher.search.focused = true;
-        if active.is_empty() {
-            self.project_switcher.active.clear();
-        } else {
-            self.project_switcher.active.set(active, query);
+        self.location_event(location::Event::Back, tx);
+    }
+
+    /// Runs `event` through the step machine and its effects; true when it took the key.
+    fn location_event(&mut self, event: location::Event, tx: &mut Tx) -> bool {
+        let ps = &mut self.project_switcher;
+        let (effects, handled) = location::step(&mut ps.mode, &ps.search.text, &mut ps.history, event);
+        for effect in effects {
+            tx.instant();
+            match effect {
+                location::Effect::Query(query) => {
+                    let ps = &mut self.project_switcher;
+                    ps.search = TextEdit::new(&query);
+                    ps.search.anchor = query.len();
+                    ps.search.focus = query.len();
+                }
+                location::Effect::Focus(active) => {
+                    let ps = &mut self.project_switcher;
+                    ps.search.focused = true;
+                    match active {
+                        Some(key) => ps.active.set(key),
+                        None => ps.active.clear(),
+                    }
+                }
+                location::Effect::Close => self.close_project_switcher(true),
+            }
         }
+        handled
     }
 
     pub fn project_switcher_choose(&mut self, key: &str, tx: &mut Tx) {
@@ -261,11 +293,8 @@ impl App {
         let worktree = matches!(row.kind, RowKind::Worktree { main: false, .. });
         match row.kind {
             RowKind::Other { .. } => {
-                tx.instant();
-                self.project_switcher.mode = StepMode::Others;
-                self.project_switcher.search = TextEdit::new("");
-                self.project_switcher.search.focused = true;
-                self.project_switcher.active.clear();
+                let active = self.project_switcher_active(&self.project_switcher_rows());
+                self.location_event(location::Event::Others { active }, tx);
             }
             RowKind::Add => {
                 self.open_project_dialog(tx);
@@ -309,38 +338,37 @@ impl App {
         if self.project_switcher.search.is_composing() {
             return false;
         }
-        let text_len = self.project_switcher.search.text.len();
-        let at_end = self.project_switcher.search.anchor == text_len && self.project_switcher.search.focus == text_len;
-        let at_start = self.project_switcher.search.anchor == 0 && self.project_switcher.search.focus == 0;
-        let stepped = self.project_switcher.mode != StepMode::Projects;
-
-        if ev.key == Key::Right && !ev.mods.shift && !ev.mods.cmd && !ev.mods.alt && at_end {
+        let search = &self.project_switcher.search;
+        let text_len = search.text.len();
+        let at_end = search.anchor == text_len && search.focus == text_len;
+        let at_start = search.anchor == 0 && search.focus == 0;
+        let plain = !ev.mods.shift && !ev.mods.cmd && !ev.mods.alt;
+        // Right to left, ← goes forward (`machine.ts:152-153`).
+        let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+        let pressed = match ev.key {
+            Key::Right if plain => if rtl { location::Pressed::Backward } else { location::Pressed::Forward },
+            Key::Left if plain => if rtl { location::Pressed::Forward } else { location::Pressed::Backward },
+            Key::Backspace => location::Pressed::Backspace,
+            Key::Escape => location::Pressed::Escape,
+            _ => location::Pressed::Other,
+        };
+        if pressed != location::Pressed::Other {
             let rows = self.project_switcher_rows();
-            if let Some(active) = self.project_switcher_active(&rows)
-                && let Some(r) = rows.iter().find(|r| r.key == active)
+            let active = self.project_switcher_active(&rows).and_then(|a| rows.into_iter().find(|r| r.key == a)).map(|r| match r.kind {
+                RowKind::Project { id, .. } => location::Lit::Project { drillable: drillable(self, &id), key: r.key, id },
+                RowKind::Other { .. } => location::Lit::Other,
+                _ => location::Lit::Row,
+            });
+            let k = location::KeyDown { key: pressed, at_start, at_end, empty: text_len == 0, active };
+            if let Some(location::Lit::Project { id, drillable: true, .. }) = &k.active
+                && pressed == location::Pressed::Forward
+                && at_end
             {
-                match &r.kind {
-                    RowKind::Project { id, drillable: true, .. } => {
-                        let id = id.clone();
-                        self.drill_project_worktrees(&id, tx);
-                        return true;
-                    }
-                    RowKind::Other { .. } => {
-                        self.project_switcher_choose("other", tx);
-                        return true;
-                    }
-                    _ => {}
-                }
+                self.list_worktrees(&id.clone());
             }
-        }
-
-        if stepped
-            && ((ev.key == Key::Left && !ev.mods.shift && !ev.mods.cmd && !ev.mods.alt && at_start)
-                || (ev.key == Key::Backspace && text_len == 0)
-                || ev.key == Key::Escape)
-        {
-            self.project_switcher_back(tx);
-            return true;
+            if self.location_event(location::Event::Key(k), tx) {
+                return true;
+            }
         }
 
         if let Some(mv) = move_for(ev) {
@@ -438,11 +466,13 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
         .transition(Transition::none())
         .motion(Spring::NONE)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
-        .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
-            if inside {
-                tx.instant();
-                s.project_switcher.activate(hover.clone());
+        // Only a moving pointer takes the row (`dialog.tsx:395-399`), so rows the keys scroll
+        // under a still one leave the highlight alone.
+        .on_pointer_move_local(move |s: &mut App, ev: rune::PointerEvent, tx: &mut Tx| {
+            if !s.project_switcher.point(&hover, [ev.window_x, ev.window_y]) {
+                return tx.live_only();
             }
+            tx.instant();
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.project_switcher_choose(&key, tx))
         .child(main);
@@ -493,7 +523,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let (placeholder, step_title) = match &s.project_switcher.mode {
         StepMode::Projects => (t!("session.new.project.search"), None),
         StepMode::Others => (t!("session.new.project.search"), Some(t!("session.new.location.otherProjects"))),
-        StepMode::Worktrees(_) => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
+        StepMode::Worktrees { .. } => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
     };
     let search = row()
         .key("project-switcher-field")

@@ -59,6 +59,7 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
     let pk = s.pickers();
     let field = pop::search_field(p, "picker-search", &pk.search, opencode_i18n::t!("dialog.model.search.placeholder"))
         .on_edit(|s: &mut S| &mut s.pickers_mut().search)
+        .on_input_change(|s: &mut S, _: &mut Tx| s.pickers_mut().query_changed())
         .on_input_key(|s: &mut S, ev, tx| s.picker_key(ev, tx) || s.picker_search_key(ev, tx));
     let trailing: Vec<El> = s.picker_model_actions().into_iter().map(|a| model_action::<S>(p, a)).collect();
     col()

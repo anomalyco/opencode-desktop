@@ -177,7 +177,7 @@ fn shift_cmd_o_switches_recent_projects_worktrees_and_other_projects() {
 
     // → on lumen drills into existing worktrees (main + reconnect-fix, never "New worktree").
     key(&mut rt, Key::Right);
-    assert!(matches!(rt.state.project_switcher.mode, StepMode::Worktrees(_)));
+    assert!(matches!(rt.state.project_switcher.mode, StepMode::Worktrees { .. }));
     let wt_rows = rt.state.project_switcher_rows();
     let wt_titles: Vec<&str> = wt_rows.iter().map(|r| r.title.as_str()).collect();
     assert_eq!(wt_titles, ["lumen", "reconnect-fix"]);

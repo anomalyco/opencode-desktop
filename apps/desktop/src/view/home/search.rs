@@ -34,6 +34,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .placeholder(placeholder, p.faint)
                 .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.search)
+                .on_input_change(|s: &mut App, _: &mut Tx| s.home_search.query_changed())
                 .on_input_key(|s: &mut App, ev, tx| s.home_search_key(ev, tx)),
         );
     if !s.search.text.is_empty() {
@@ -130,8 +131,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .hover(p.hover)
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
-                let q = s.search.text.clone();
-                s.home_search.activate(hover_id.clone(), &q);
+                s.home_search.activate(hover_id.clone());
             }
             super::hover_session(s, &hover_id, inside, tx);
             if inside {

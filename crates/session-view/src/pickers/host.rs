@@ -179,7 +179,7 @@ pub trait PickerHost: ComposerHost {
     fn picker_active(&self) -> Option<String> {
         let items = self.picker_items();
         let pk = self.pickers();
-        pk.active.resolve(&pk.search.text, items.iter().map(|i| i.key.as_str()))
+        pk.active.resolve(items.iter().map(|i| i.key.as_str()))
     }
 
     fn open_picker(&mut self, kind: Kind) {
@@ -196,7 +196,7 @@ pub trait PickerHost: ComposerHost {
             pk.active.clear();
         } else {
             let current = self.picker_current(kind);
-            self.pickers_mut().active.set(current, String::new());
+            self.pickers_mut().active.set(current);
         }
         self.composer_edit_mut().focused = false;
     }

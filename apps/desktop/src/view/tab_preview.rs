@@ -164,7 +164,7 @@ impl App {
     /// rename, its menu.
     fn preview_blocked(&self, id: &str) -> bool {
         self.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
-            || self.menus.rename.as_ref().is_some_and(|t| t.id == id)
+            || self.menus.renaming().is_some_and(|t| t.id == id)
             || self.menus.on.as_ref().is_some_and(|t| t.id == id)
     }
 

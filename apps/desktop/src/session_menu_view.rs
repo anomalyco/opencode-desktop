@@ -17,7 +17,7 @@ const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 /// the room scrolls inside it and fades at the edge. It stands one line of `style` tall, so its
 /// selection is as tall as the line, as a field's is in Chromium.
 pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Option<El> {
-    if s.menus.rename.as_ref() != Some(target) {
+    if !s.menus.renames(target) {
         return None;
     }
     let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().truncate_fade().h(style.line_px());
@@ -39,15 +39,14 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
 /// its scrim, the title group in its header and a ghost Cancel beside the danger button in its
 /// footer.
 pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
-    let Some(id) = &s.menus.confirm else { return vec![] };
-    let name = s.session(id).map_or_else(|| t!("command.session.new").to_owned(), crate::view::title_of);
+    let Some(id) = s.menus.confirming() else { return vec![] };
+    let busy = s.menus.deleting();
+    let name = s.session(&id).map_or_else(|| t!("command.session.new").to_owned(), crate::view::title_of);
     let id = id.clone();
     let kit = crate::palette::kit(p);
     let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Ghost)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.menus.confirm = None;
-        })
+        .disabled(busy)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.cancel_delete(tx))
         .build(kit)
         .key("delete-cancel")
         .autofocus();
@@ -56,6 +55,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     // where the theme's token is flattened over `bg-base`. Opaque, as the elevation's ring and
     // drop would show through a translucent fill.
     let delete = crate::widgets::button(t!("session.delete.button"), ButtonVariant::Danger)
+        .disabled(busy)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx))
         .build(kit)
         .key("delete-confirm");
@@ -74,10 +74,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
         .clip_soft(0.0)
         // Rune's modal: Tab stays inside, Escape and a press outside cancel, Cancel opens focused
         // (`autofocus` in `controller.tsx`) and closing hands focus back.
-        .modal_tx(true, |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.menus.confirm = None;
-        })
+        .modal_tx(true, |s: &mut App, tx: &mut Tx| s.cancel_delete(tx))
         .child(
             col()
                 .key("delete-header")

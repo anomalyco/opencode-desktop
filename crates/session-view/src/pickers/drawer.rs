@@ -41,6 +41,7 @@ fn models<S: PickerHost>(s: &S, p: &Pal) -> El {
     let pk = s.pickers();
     let field = pop::search_field(p, "picker-search", &pk.search, opencode_i18n::t!("dialog.model.search.placeholder"))
         .on_edit(|s: &mut S| &mut s.pickers_mut().search)
+        .on_input_change(|s: &mut S, _: &mut Tx| s.pickers_mut().query_changed())
         .on_input_key(|s: &mut S, ev, tx| s.picker_key(ev, tx) || s.picker_search_key(ev, tx));
     // `text-input-v2` on the base surface: 28 tall, 6 pt corners, the query 8 in.
     let search = row()

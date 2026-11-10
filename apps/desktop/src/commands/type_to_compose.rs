@@ -69,8 +69,8 @@ impl App {
             && !self.search.focused
             && !self.browser.address.focused
             && self.menus.on.is_none()
-            && self.menus.rename.is_none()
-            && self.menus.confirm.is_none()
+            && self.menus.renaming().is_none()
+            && self.menus.confirming().is_none()
             && self.pickers.open.is_none()
             && self.rewind.menu.is_none()
             && !self.popup.is_open()

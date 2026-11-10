@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use crate::popover::Highlight;
+
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::{project_git, project_sandboxes};
 use opencode_kit::path;
@@ -41,43 +43,51 @@ enum Place {
     Existing(String),
 }
 
+mod typeahead;
+
 /// The branch a new worktree starts from: Desktop's `Typeahead` in a popover under the
-/// `from <branch>` trigger. Each query asks the server (`GET /api/vcs/branch`, 50 at most),
-/// so a branch past the first 50 is found by typing; while one is on its way the rows
-/// narrow to what's typed, or stay dimmed when none would remain (`typeahead/machine.ts`).
+/// `from <branch>` trigger (`new-session/workspace/branch-machine.ts`, `selector.tsx`). Every
+/// open revalidates the checkout's list while the last one stays on screen; each typed query
+/// asks the server (`GET /api/vcs/branch`, 50 at most), so a branch past the first 50 is found
+/// by typing ([`typeahead`]). Escape or a pick hands focus back to the composer; a press
+/// outside leaves it where it landed.
 #[derive(Default)]
 pub struct BranchPicker {
-    pub open: bool,
+    popover: Popover,
     pub search: TextEdit,
     /// The checkout whose branches it lists.
     directory: String,
-    /// The rows of the last answer for the query typed then.
-    shown: Vec<String>,
-    /// Each query's answer while the picker is open: a query typed again answers at once.
-    cache: HashMap<String, Vec<String>>,
-    failed: bool,
-    active: Option<String>,
+    /// The checkout's whole list as last listed (`initial`), for the next open.
+    listed: Option<Vec<String>>,
+    typeahead: typeahead::Typeahead,
+    /// The lit row: the first until one's chosen, held while it's listed (`controller.ts`).
+    active: Highlight,
+}
+
+/// `BranchPickerState`'s `popover`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Popover {
+    #[default]
+    Closed,
+    Open,
+}
+
+/// Why the picker closed: Escape and a pick give the composer focus (`focus.composer`), a press
+/// outside doesn't (`popover: "outside"`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Close {
+    Keys,
+    Outside,
 }
 
 impl BranchPicker {
-    /// The query: what's typed, trimmed.
-    fn query(&self) -> &str {
-        self.search.text.trim()
+    pub fn is_open(&self) -> bool {
+        self.popover == Popover::Open
     }
 
-    /// The rows, and whether they are stale: the query's answer, else the last answer
-    /// narrowed to the query, else the last answer dimmed.
+    /// The rows, and whether they are stale (dimmed while a query the rows don't match waits).
     fn rows(&self) -> (Vec<String>, bool) {
-        let q = self.query();
-        if self.failed {
-            return (Vec::new(), false);
-        }
-        if let Some(rows) = self.cache.get(q) {
-            return (rows.clone(), false);
-        }
-        let lower = q.to_lowercase();
-        let narrowed: Vec<String> = self.shown.iter().filter(|b| b.to_lowercase().contains(&lower)).cloned().collect();
-        if narrowed.is_empty() { (self.shown.clone(), !self.shown.is_empty()) } else { (narrowed, false) }
+        (self.typeahead.shown.clone(), self.typeahead.stale)
     }
 }
 
@@ -120,7 +130,7 @@ impl App {
             if !self.draft_creates() || self.sidebar_inbox.branches.get(self.draft_dir()).is_none() {
                 return false;
             }
-            if self.new_worktree.picker.open { self.close_branch_picker(tx) } else { self.open_branch_picker(tx) }
+            if self.new_worktree.picker.is_open() { self.close_branch_picker(tx) } else { self.open_branch_picker(tx) }
             return true;
         }
         let Some(project) = self.draft_project().filter(|p| project_git(&p.id)).map(|p| (p.id.clone(), p.directory.clone())) else {
@@ -129,8 +139,7 @@ impl App {
         if Bind::LocationSelect.matches_tx(ev, tx) {
             tx.instant();
             self.close_branch_picker(tx);
-            self.open_project_switcher();
-            self.drill_project_worktrees(&project.0, tx);
+            self.open_project_worktrees(&project.0, tx);
             return true;
         }
         if Bind::LocationCycle.matches_tx(ev, tx) {
@@ -154,8 +163,9 @@ impl App {
             .get(project)
             .filter(|d| self.project_worktrees(project, &root).iter().any(|w| path::trim(w) == path::trim(d)))
             .cloned();
-        if self.new_worktree.picker.open {
-            self.new_worktree.picker.open = false;
+        // A new target closes the picker (`retarget`).
+        if self.new_worktree.picker.is_open() {
+            self.new_worktree.picker.popover = Popover::Closed;
             self.new_worktree.picker.search.focused = false;
         }
         match (place, existing) {
@@ -289,18 +299,17 @@ impl App {
                     return false;
                 }
                 let failed = data["failed"].as_bool() == Some(true);
-                let current = search == picker.query();
-                if !failed {
-                    let branches: Vec<String> = data["branches"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-                    picker.cache.insert(search.to_owned(), branches.clone());
-                    if current {
-                        picker.shown = branches;
-                    }
+                let branches: Option<Vec<String>> = (!failed).then(|| data["branches"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect());
+                picker.typeahead.step(typeahead::Event::Answered { query: search, items: branches.clone() });
+                // The checkout's whole list: what the next open starts on, and what an open
+                // picker on the empty query shows once it's revalidated (a failed one keeps the last).
+                if search.is_empty() && let Some(list) = branches {
+                    picker.typeahead.step(typeahead::Event::Synced(&list));
+                    picker.listed = Some(list);
                 }
-                if current {
-                    picker.failed = failed;
-                }
-                picker.open && current
+                let keys: Vec<&str> = picker.typeahead.shown.iter().map(String::as_str).collect();
+                picker.active.step(crate::popover::HighlightEvent::Rows(&keys));
+                picker.is_open()
             }
             _ => false,
         }
@@ -311,41 +320,63 @@ impl App {
         tx.instant();
         let directory = self.draft_dir().to_owned();
         let picker = &mut self.new_worktree.picker;
-        picker.open = true;
-        picker.search = TextEdit::new("");
-        picker.search.focused = true;
-        picker.failed = false;
-        picker.active = None;
-        // Every open asks again (`branch-machine.ts`), keeping the last list on screen meanwhile.
-        picker.cache.clear();
+        // A new checkout drops the last one's list (`retarget`).
         if picker.directory != directory {
-            picker.shown.clear();
+            picker.listed = None;
             picker.directory = directory;
         }
+        picker.popover = Popover::Open;
+        picker.search = TextEdit::new("");
+        picker.search.focused = true;
+        picker.active.clear();
+        let initial = picker.listed.clone();
+        let effects = picker.typeahead.step(typeahead::Event::Opened { initial: initial.as_deref(), failed: false, now: tx.clock() });
         self.composer.focused = false;
-        self.ask_branches();
+        self.branch_effects(effects, tx);
+        // Every open revalidates the list, keeping the last on screen meanwhile (`branch-machine.ts:159-172`).
+        if initial.is_some() {
+            self.ask_branches(String::new());
+        }
     }
 
     pub fn close_branch_picker(&mut self, tx: &mut Tx) {
+        self.close_branch_picker_for(Close::Keys, tx);
+    }
+
+    fn close_branch_picker_for(&mut self, why: Close, tx: &mut Tx) {
         tx.instant();
         let picker = &mut self.new_worktree.picker;
-        picker.open = false;
+        picker.popover = Popover::Closed;
         picker.search.focused = false;
-        if self.stage.is_none() {
+        if why == Close::Keys && self.stage.is_none() {
             self.composer.focused = true;
         }
     }
 
-    /// Asks the server for the query's branches, unless this open already has them.
-    fn ask_branches(&mut self) {
-        let picker = &mut self.new_worktree.picker;
-        picker.failed = false;
-        if let Some(rows) = picker.cache.get(picker.query()) {
-            picker.shown = rows.clone();
-            return;
+    /// The typeahead's timers.
+    pub(crate) fn poll_branch_picker(&mut self, now: f64, tx: &mut Tx) -> bool {
+        if !self.new_worktree.picker.typeahead.pending() {
+            return false;
         }
+        let before = self.new_worktree.picker.typeahead.phase.clone();
+        let effects = self.new_worktree.picker.typeahead.step(typeahead::Event::Tick { now });
+        self.branch_effects(effects, tx);
+        before != self.new_worktree.picker.typeahead.phase
+    }
+
+    fn branch_effects(&mut self, effects: rune::machine::Effects<typeahead::Effect>, tx: &mut Tx) {
+        for effect in effects {
+            match effect {
+                typeahead::Effect::WakeAt(due) => tx.wake_at(due),
+                typeahead::Effect::Request(query) => self.ask_branches(query),
+            }
+        }
+    }
+
+    /// Asks the server for the checkout's branches matching `search`.
+    fn ask_branches(&mut self, search: String) {
         if let Source::Live { requests: Some(r), .. } = &self.source {
-            let _ = r.send(Request::Branches { directory: picker.directory.clone(), search: picker.query().to_owned() });
+            let _ = r.send(Request::Branches { directory: self.new_worktree.picker.directory.clone(), search });
         }
     }
 
@@ -354,8 +385,7 @@ impl App {
     }
 
     fn active_branch(&self, rows: &[String]) -> Option<String> {
-        let picker = &self.new_worktree.picker;
-        picker.active.clone().filter(|a| rows.contains(a)).or_else(|| rows.first().cloned())
+        self.new_worktree.picker.active.resolve(rows.iter().map(String::as_str))
     }
 
     fn choose_branch(&mut self, branch: String, tx: &mut Tx) {
@@ -375,10 +405,11 @@ impl App {
                 tx.instant();
                 let i = step(if ev.key == Key::Down { 1 } else { -1 });
                 tx.scroll_into_view_in("branch-picker-scroll", format!("branch-{}", rows[i]));
-                self.new_worktree.picker.active = Some(rows[i].clone());
+                self.new_worktree.picker.active.set(rows[i].clone());
             }
             Key::Enter => {
-                if let Some(i) = at {
+                // The user's choice never rests on a row the pending query hasn't confirmed.
+                if let Some(i) = at.filter(|_| !self.new_worktree.picker.typeahead.stale) {
                     self.choose_branch(rows[i].clone(), tx);
                 }
             }
@@ -389,8 +420,12 @@ impl App {
 
     fn branch_search_changed(&mut self, tx: &mut Tx) {
         tx.instant();
-        self.new_worktree.picker.active = None;
-        self.ask_branches();
+        let picker = &mut self.new_worktree.picker;
+        let input = picker.search.text.clone();
+        let effects = picker.typeahead.step(typeahead::Event::Input { input: &input, now: tx.clock() });
+        let keys: Vec<&str> = picker.typeahead.shown.iter().map(String::as_str).collect();
+        picker.active.step(crate::popover::HighlightEvent::Rows(&keys));
+        self.branch_effects(effects, tx);
     }
 }
 
@@ -398,7 +433,7 @@ impl App {
 /// branch-out glyph and before a small chevron, muted until the pointer is over it or its
 /// picker is open, its 4 pt corners lit with the hover overlay (the pressed one while open).
 pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
-    let open = s.new_worktree.picker.open;
+    let open = s.new_worktree.picker.is_open();
     let branch = s.draft_base().unwrap_or(current);
     row()
         .key(TRIGGER)
@@ -416,7 +451,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
         .radius(4.0)
         .fill(if open { p.pressed } else { Color::TRANSPARENT })
         .hover(p.hover)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| if s.new_worktree.picker.open { s.close_branch_picker(tx) } else { s.open_branch_picker(tx) })
+        .on_press_tx(|s: &mut App, tx: &mut Tx| if s.new_worktree.picker.is_open() { s.close_branch_picker(tx) } else { s.open_branch_picker(tx) })
         .child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted))
         .child(text(format!("from {branch}")).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade())
         .child(icon(&ic::CHEVRON_DOWN, 14.0).ml(-2.0).color(p.icon_muted))
@@ -424,7 +459,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
 
 /// The open picker under its trigger, and the layer that closes it.
 pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
-    if !s.new_worktree.picker.open || !matches!(s.route, Route::Draft(_)) {
+    if !s.new_worktree.picker.is_open() || !matches!(s.route, Route::Draft(_)) {
         return None;
     }
     let picker = &s.new_worktree.picker;
@@ -471,7 +506,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
     let mut list = col().key("branch-picker-rows").w_full().padding(4.0);
     let list_h = 8.0 + if rows.is_empty() { 36.0 } else { 28.0 * rows.len() as f32 };
     if rows.is_empty() {
-        let words = if picker.failed { opencode_i18n::t!("rune.branch.loadFailed") } else { opencode_i18n::t!("palette.empty") };
+        let words = if picker.typeahead.failed() { opencode_i18n::t!("rune.branch.loadFailed") } else { opencode_i18n::t!("palette.empty") };
         list = list.child(row().key("branch-picker-empty").h(36.0).mx(4.0).px(8.0).py(4.0).center_y().child(text(words).font(UI).color(p.faint)));
     }
     for b in &rows {
@@ -493,7 +528,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
                     if inside {
                         tx.instant();
-                        s.new_worktree.picker.active = Some(hover.clone());
+                        s.new_worktree.picker.active.step(crate::popover::HighlightEvent::Pointer(hover.clone()));
                     }
                 })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_branch(pick.clone(), tx))
@@ -525,6 +560,6 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         .h_full()
         .transition(Transition::none())
         .focusable(false)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_branch_picker(tx));
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_branch_picker_for(Close::Outside, tx));
     Some([scrim, surface.anchored_fit(TRIGGER.to_owned(), Side::Bottom, Align::Start, 4.0)])
 }

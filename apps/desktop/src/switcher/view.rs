@@ -95,6 +95,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
                 .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.switcher.search)
+                .on_input_change(|s: &mut App, _: &mut Tx| s.switcher.query_changed())
                 .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),
         );
 
