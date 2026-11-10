@@ -14,6 +14,10 @@ const EDIT: &str = "call_edit_50000";
 const READ: &str = "call_read_28000";
 
 fn runtime() -> Runtime<App> {
+    runtime_with(|_| {})
+}
+
+fn runtime_with(more: fn(&mut App)) -> Runtime<App> {
     let s = spec(|| {
         let mut a = App::empty();
         a.load_fixture(FIXTURE);
@@ -23,9 +27,16 @@ fn runtime() -> Runtime<App> {
         a.expanded.insert("c-call_grep_27000".into());
         a
     });
-    let mut rt = Runtime::new((s.init)(), s.view, (1440.0, 900.0), Env::new(true, 2.0));
+    let mut app = (s.init)();
+    more(&mut app);
+    let mut rt = Runtime::new(app, s.view, (1440.0, 900.0), Env::new(true, 2.0));
     rt.poll = s.poll;
     rt.on_key = s.on_key;
+    // Files and Changes, where steps open, are the Luau file and review plugins (5d58890d).
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
     rt.frame(0.0);
     rt
 }
@@ -96,51 +107,85 @@ fn locate_finds_the_run_nearest_the_hint() {
     assert_eq!(locate(&fd, &gone), None);
 }
 
+/// A read standing alone after the reply's words, so its row is its own (consecutive reads
+/// merge into one row, which has no button).
+const LONE: &str = "call_read_lone";
+
+fn with_lone_read(a: &mut App) {
+    let sid = a.active_session_id().unwrap().to_owned();
+    let t = a.transcripts.get_mut(&sid).unwrap();
+    let Some(opencode_kit::model::Message::Assistant(m)) = t.messages.iter_mut().rev().find(|m| matches!(m, opencode_kit::model::Message::Assistant(_))) else { unreachable!() };
+    m.parts.push(opencode_kit::model::Part::Text { text: "One more look.".into() });
+    m.parts.push(opencode_kit::model::Part::Tool {
+        id: LONE.into(),
+        name: "read".into(),
+        status: ToolStatus::Completed,
+        title: String::new(),
+        input: json!({ "filePath": format!("{DIR}/src/net/stream.ts"), "offset": 11, "limit": 20 }),
+        files: Vec::new(),
+        metadata: json!(null),
+    });
+}
+
+/// A read's button opens its lines; an edit, write or patch shows in a card of file rows with
+/// no button, as Desktop's (a4db05f6, fc0989f3), and still opens its change when pressed from
+/// elsewhere.
 #[test]
-fn an_edit_opens_its_change_and_the_same_click_shuts_it() {
-    let mut rt = runtime();
+fn a_reads_button_opens_its_lines_and_the_same_click_shuts_them() {
+    let mut rt = runtime_with(with_lone_read);
     assert!(!rt.state.side_open());
-    let key = format!("open-{EDIT}");
+    assert!(rt.find(&format!("open-{EDIT}")).is_none(), "an edit's card has no button");
+    let key = format!("open-{LONE}");
     let y0 = tap(&mut rt, &key);
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
     assert!((rt.find(&key).unwrap().1 - y0).abs() < 1.0, "the pressed row stays where it was");
     assert!(rt.state.side_open(), "the side region opens");
-    assert_eq!(active(&rt).as_deref(), Some(REVIEW_KEY));
+    assert_eq!(active(&rt), Some(file_tab_key("src/net/stream.ts")));
     assert!(!rt.state.side.focused, "focus stays in the timeline");
+    tap(&mut rt, &key);
+    assert!(!rt.state.side_open(), "the same click shuts what it opened");
+}
+
+#[test]
+fn an_edit_opens_its_change() {
+    let mut rt = runtime();
+    press(&mut rt, EDIT);
+    assert!(rt.state.side_open());
+    assert_eq!(active(&rt).as_deref(), Some(REVIEW_KEY));
     let sid = rt.state.active_session_id().unwrap().to_owned();
     let sr = &rt.state.review.sessions[&sid];
     assert_eq!(sr.active_path.as_deref(), Some("src/net/stream.ts"));
     let file = sr.diffs.file_index("src/net/stream.ts").unwrap();
     let want = LineRange { file, start: LineRef::new(Side::New, 14), end: LineRef::new(Side::New, 15) };
     assert_eq!(sr.diffs.selection(), Some(want), "the edit's new lines are selected");
-    tap(&mut rt, &key);
-    assert!(!rt.state.side_open(), "the same click shuts what it opened");
 }
 
 #[test]
 fn a_read_opens_its_lines_and_esc_goes_back_to_the_tab_before() {
     let mut rt = runtime();
-    rt.update(|s, tx| s.toggle_side_region(tx));
+    // Changes open first: the side region alone opens on Desktop's empty New tab now.
+    rt.update(|s, tx| {
+        let sid = s.active_session_id().unwrap().to_owned();
+        s.show_review(&sid, tx);
+    });
     rt.frame(1.0 / 60.0);
     let before = active(&rt);
+    assert_eq!(before.as_deref(), Some(REVIEW_KEY));
     press(&mut rt, READ);
     let key = file_tab_key("src/net/stream.ts");
     assert_eq!(active(&rt).as_deref(), Some(key.as_str()));
     let sid = rt.state.active_session_id().unwrap().to_owned();
     let doc = &rt.state.files.sessions[&sid].docs["src/net/stream.ts"];
     assert_eq!(doc.selection(), Some(FileLineSelection { start: 11, end: 30 }));
-    // Opening another step from there still goes back to the first tab.
-    press(&mut rt, EDIT);
-    assert_eq!(active(&rt).as_deref(), Some(REVIEW_KEY));
     esc(&mut rt);
     assert!(rt.state.side_open());
     assert_eq!(active(&rt), before);
     assert!(rt.state.tool_open.is_none());
-    // Nothing left to undo: Esc does what it did before (here, back home).
+    // Nothing left to undo: Esc does what it does without a step, never the step's tab again.
     esc(&mut rt);
-    assert_eq!(rt.state.route, crate::Route::Home);
+    assert_ne!(active(&rt).as_deref(), Some(key.as_str()));
 }
 
 #[test]
@@ -155,8 +200,8 @@ fn esc_shuts_a_side_region_the_step_opened() {
 
 #[test]
 fn a_double_click_leaves_the_step_open() {
-    let mut rt = runtime();
-    let key = format!("open-{EDIT}");
+    let mut rt = runtime_with(with_lone_read);
+    let key = format!("open-{LONE}");
     let (x, y) = rt.find(&key).unwrap();
     rt.wheel(x, 450.0, 450.0 - y);
     rt.frame(1.0 / 60.0);
@@ -168,5 +213,5 @@ fn a_double_click_leaves_the_step_open() {
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
     assert!(rt.state.side_open(), "a double-click opens it, and leaves it open");
-    assert_eq!(active(&rt).as_deref(), Some(REVIEW_KEY));
+    assert_eq!(active(&rt), Some(file_tab_key("src/net/stream.ts")));
 }
