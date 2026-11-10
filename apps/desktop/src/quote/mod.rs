@@ -60,6 +60,8 @@ pub struct Quotes {
 pub struct Pending {
     pub key: u64,
     pub quote: Quote,
+    /// Where in the timeline it was quoted from, lit while its comment editor is open.
+    pub source: Vec<rune::TextMark>,
 }
 
 /// A timeline selection as heard.
@@ -69,6 +71,8 @@ struct Heard {
     text: String,
     backward: bool,
     ident: Ident,
+    /// The selected bytes of each text, to light once quoted.
+    source: Vec<rune::TextMark>,
 }
 
 impl Quotes {
@@ -95,8 +99,13 @@ impl Quotes {
 
     /// Adds a quote to the composer; its key.
     pub fn push(&mut self, quote: Quote) -> u64 {
+        self.push_from(quote, Vec::new())
+    }
+
+    /// [`Self::push`] for a quote taken from the timeline at `source`.
+    pub fn push_from(&mut self, quote: Quote, source: Vec<rune::TextMark>) -> u64 {
         self.next += 1;
-        self.items.push(Pending { key: self.next, quote });
+        self.items.push(Pending { key: self.next, quote, source });
         self.next
     }
 
@@ -153,7 +162,8 @@ pub fn selection_changed(s: &mut App, change: &SelectionChange, tx: &mut Tx) {
         return s.quote.step(machine::Event::Reset, tx);
     };
     let ident = sel.texts().iter().filter(|t| t.is_selected()).map(|t| (t.path().to_owned(), t.range())).collect();
-    s.quote.selection = Some(Heard { session, text: sel.text().to_owned(), backward: sel.backward(), ident });
+    let source = sel.texts().iter().filter(|t| t.is_selected()).map(|t| t.mark()).collect();
+    s.quote.selection = Some(Heard { session, text: sel.text().to_owned(), backward: sel.backward(), ident, source });
     s.quote.step(machine::Event::Changed { cleared: false, dragging: false, now }, tx);
 }
 
@@ -214,6 +224,14 @@ pub fn dismiss(s: &mut App, tx: &mut Tx) -> bool {
     true
 }
 
+/// The timeline text the open comment editor's quote came from, lit in the timeline's
+/// selection colour while the editor is open and the composer can take quotes
+/// (`createTimelineQuoteHighlight`, `selectQuoteHighlightKey`).
+pub fn marks(s: &App) -> Vec<rune::TextMark> {
+    let key = s.quote.comment.key().filter(|_| available(s).is_some());
+    key.and_then(|k| s.quote.items.iter().find(|q| q.key == k)).map(|q| q.source.clone()).unwrap_or_default()
+}
+
 /// Typing in the composer leaves the timeline's selection behind, as a page's selection moves
 /// into the field typed in.
 pub fn typed(s: &mut App, tx: &mut Tx) {
@@ -260,9 +278,9 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
     tx.clear_text_selection();
     // The card lands in the click, with nothing moving, as in Desktop.
     tx.instant();
-    s.quote.selection = None;
+    let source = s.quote.selection.take().map(|h| h.source).unwrap_or_default();
     s.quote.step(machine::Event::Reset, tx);
-    let key = s.quote.push(quote);
+    let key = s.quote.push_from(quote, source);
     if comment {
         let anchor = s.quote.placed.borrow_mut().take();
         editor::open(s, key, anchor);

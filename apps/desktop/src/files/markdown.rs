@@ -166,7 +166,8 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
             .map(|v| v.matches.iter().enumerate().map(|(i, r)| (r.as_slice(), crate::find::markdown_mark(p, i, Some(i) == active))).collect())
             .unwrap_or_default();
         Markdown::new(src)
-            .style(crate::view::markdown_style(p, p.text, READ_W))
+            // Outside the timeline, so not its selection colour (`quote-highlight.css`).
+            .style(crate::view::markdown_style(p, p.text, READ_W).selection(p.selection))
             .highlights(marks)
             .block_keys(headings(src).into_iter().map(|(at, s)| (at, heading_key(&s))))
             .selectable(true)

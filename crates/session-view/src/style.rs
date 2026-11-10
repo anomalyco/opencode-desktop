@@ -223,6 +223,8 @@ fn hit_bg(p: &Pal) -> Color {
 /// the theme's `syntax-*` (shell commands plain on `layer-02`), invisible rules, outside list
 /// markers, the browser's disabled checkboxes, and the Console's data table. Quotes take a
 /// calmer look than its hairline: a 2 pt rounded rule, 12 pt in, and text a step towards muted.
+/// Selected text, and a quote's source while its comment is written, takes the timeline's
+/// selection colour (`quote-highlight.css`).
 pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
     let k = crate::palette::kit(p);
     let [h1, h2, h3, h4] = MD_H;
@@ -263,7 +265,7 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .table_scroll_bar(p.border_muted, p.q.border_strong)
         .link_icons(14.0, 4.0)
         .code_block_font(CODE)
-        .selection(p.selection)
+        .selection(p.timeline_selection)
         .diagram_max_width(width)
         // However wide, a diagram draws whole; it opens full size to be read (`diagram`).
         .diagram_min_scale(0.0)

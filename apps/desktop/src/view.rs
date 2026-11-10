@@ -89,6 +89,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     cx.web_focus();
     // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
     cx.help_look(rune_kit::TooltipStyle::from_kit(crate::palette::kit(p), rune_kit::TooltipAppearance::Compact).help_look());
+    // A quote's source stays lit in the timeline while its comment is written.
+    cx.mark_texts(crate::quote::marks(s));
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);
