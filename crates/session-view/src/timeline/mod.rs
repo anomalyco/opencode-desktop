@@ -127,10 +127,12 @@ impl RowSpec {
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part));
                         // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
                         let copied = body.contains("```").then(|| crate::copied::current(s)).flatten();
-                        // A picture landing (an image, a link's favicon) or the viewer opening one rebuilds the row.
+                        // A picture landing (an image, a link's favicon), the viewer opening one, or
+                        // the session's directory its paths read from becoming known rebuilds the row.
                         let pictures = (body.contains("![") || body.contains("://")).then(|| {
                             let m = s.media_store();
-                            (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()))
+                            let directory = s.active_session_id().and_then(|id| s.session_directory(id));
+                            (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory)
                         });
                         let footer = footer_text(t, *message, *part);
                         // A session id it names being looked up, renamed, starting or stopping.

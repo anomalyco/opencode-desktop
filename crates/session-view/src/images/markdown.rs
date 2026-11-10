@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
 use rune::{Image, ImageCache, Pixels, Waker};
@@ -32,15 +32,68 @@ enum Slot {
     Failed,
 }
 
+/// Where pictures are fetched from: the live server's file reads and the web.
+#[derive(Clone)]
+struct Fetches {
+    files: FileFetch,
+    web: WebFetch,
+}
+
+/// Whether markdown can fetch pictures yet. A window draws a restored session from its saved
+/// copy before it connects, so images wait for the host's waker and fetches; the worker starts
+/// with the first image asked for, and a new fetch (a reconnect, another server) or waker
+/// starts a new one, the old one finishing what it was asked first.
+enum Fetcher {
+    Unset { waker: Option<Waker>, fetch: Option<Fetches> },
+    Ready { waker: Waker, fetch: Fetches },
+    Running { waker: Waker, fetch: Fetches, jobs: Sender<Source> },
+}
+
+impl Default for Fetcher {
+    fn default() -> Self {
+        Fetcher::Unset { waker: None, fetch: None }
+    }
+}
+
+enum FetcherEvent {
+    Waker(Waker),
+    Fetch(Fetches),
+    /// An image asked for a fetch.
+    Start,
+}
+
+/// Start the worker on this queue.
+struct Spawn {
+    receive: Receiver<Source>,
+    fetch: Fetches,
+    waker: Waker,
+}
+
+fn step(state: Fetcher, event: FetcherEvent) -> (Fetcher, Option<Spawn>) {
+    use Fetcher::{Ready, Running, Unset};
+    let ready = |waker: Option<Waker>, fetch: Option<Fetches>| match (waker, fetch) {
+        (Some(waker), Some(fetch)) => Ready { waker, fetch },
+        (waker, fetch) => Unset { waker, fetch },
+    };
+    match (state, event) {
+        (Unset { fetch, .. }, FetcherEvent::Waker(waker)) => (ready(Some(waker), fetch), None),
+        (Ready { fetch, .. } | Running { fetch, .. }, FetcherEvent::Waker(waker)) => (Ready { waker, fetch }, None),
+        (Unset { waker, .. }, FetcherEvent::Fetch(fetch)) => (ready(waker, Some(fetch)), None),
+        (Ready { waker, .. } | Running { waker, .. }, FetcherEvent::Fetch(fetch)) => (Ready { waker, fetch }, None),
+        (Ready { waker, fetch }, FetcherEvent::Start) => {
+            let (jobs, receive) = channel();
+            (Running { waker: waker.clone(), fetch: fetch.clone(), jobs }, Some(Spawn { receive, fetch, waker }))
+        }
+        (state @ (Unset { .. } | Running { .. }), FetcherEvent::Start) => (state, None),
+    }
+}
+
 /// The pictures markdown in replies shows, shared by every reply's view (`Rc`, so a view's
 /// closures can hold it).
 #[derive(Default)]
 pub struct MdStore {
-    files: RefCell<Option<FileFetch>>,
-    web: RefCell<Option<WebFetch>>,
-    waker: RefCell<Option<Waker>>,
+    fetcher: RefCell<Fetcher>,
     cache: RefCell<Option<ImageCache>>,
-    jobs: RefCell<Option<Sender<Source>>>,
     slots: RefCell<HashMap<Source, Slot>>,
     /// Bytes (or a failure) the worker fetched, waiting for the view to decode them.
     fetched: Arc<Mutex<Vec<(Source, Result<Vec<u8>, String>)>>>,
@@ -55,14 +108,30 @@ const IMAGE_TYPES: [&str; 9] = ["png", "jpeg", "jpg", "gif", "webp", "svg", "avi
 
 impl MdStore {
     pub fn set_waker(&self, waker: Waker) {
-        *self.waker.borrow_mut() = Some(waker);
+        self.send(FetcherEvent::Waker(waker));
+        self.changed();
     }
 
     /// Where files and web pictures come from (the live server, the web); without them every
-    /// image shows its alt text and every link its globe.
+    /// image shows its alt text and every link its globe. Pictures that failed are asked for
+    /// again, as the new server may have them.
     pub fn set_fetch(&self, files: FileFetch, web: WebFetch) {
-        *self.files.borrow_mut() = Some(files);
-        *self.web.borrow_mut() = Some(web);
+        self.send(FetcherEvent::Fetch(Fetches { files, web }));
+        self.slots.borrow_mut().retain(|_, slot| !matches!(slot, Slot::Failed));
+        self.changed();
+    }
+
+    /// Rows that showed alt text while pictures couldn't be fetched build again.
+    fn changed(&self) {
+        self.version.fetch_add(1, Ordering::AcqRel);
+        self.landed.store(true, Ordering::Release);
+    }
+
+    fn send(&self, event: FetcherEvent) -> Option<Spawn> {
+        let mut fetcher = self.fetcher.borrow_mut();
+        let (next, spawn) = step(std::mem::take(&mut *fetcher), event);
+        *fetcher = next;
+        spawn
     }
 
     /// Changes whenever a picture lands or decodes: a memoized row that draws pictures keys on it.
@@ -107,8 +176,8 @@ impl MdStore {
             };
         }
         let jobs = self.jobs()?;
-        self.slots.borrow_mut().insert(source.clone(), Slot::Fetching);
-        let _ = jobs.send(source);
+        let slot = if jobs.send(source.clone()).is_ok() { Slot::Fetching } else { Slot::Failed };
+        self.slots.borrow_mut().insert(source, slot);
         None
     }
 
@@ -132,7 +201,10 @@ impl MdStore {
 
     fn cache(&self) -> Option<std::cell::Ref<'_, ImageCache>> {
         if self.cache.borrow().is_none() {
-            let waker = self.waker.borrow().clone()?;
+            let waker = match &*self.fetcher.borrow() {
+                Fetcher::Unset { waker, .. } => waker.clone()?,
+                Fetcher::Ready { waker, .. } | Fetcher::Running { waker, .. } => waker.clone(),
+            };
             let (landed, version) = (self.landed.clone(), self.version.clone());
             *self.cache.borrow_mut() = Some(ImageCache::new(Arc::new(move || {
                 version.fetch_add(1, Ordering::AcqRel);
@@ -143,31 +215,28 @@ impl MdStore {
         std::cell::Ref::filter_map(self.cache.borrow(), Option::as_ref).ok()
     }
 
-    /// The worker's queue, started on first use.
+    /// The worker's queue, started on first use; `None` until the host gives a waker and fetches.
     fn jobs(&self) -> Option<Sender<Source>> {
-        if let Some(jobs) = self.jobs.borrow().as_ref() {
-            return Some(jobs.clone());
-        }
-        let (files, web, waker) = (self.files.borrow().clone()?, self.web.borrow().clone()?, self.waker.borrow().clone()?);
-        let (send, receive) = channel::<Source>();
-        let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
-        std::thread::Builder::new()
-            .name("markdown-media".into())
-            .spawn(move || {
-                while let Ok(source) = receive.recv() {
+        if let Some(spawn) = self.send(FetcherEvent::Start) {
+            let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
+            // A worker that can't start drops its queue, so what's sent to it fails.
+            let _ = std::thread::Builder::new().name("markdown-media".into()).spawn(move || {
+                while let Ok(source) = spawn.receive.recv() {
                     let bytes = match &source {
-                        Source::File { directory, path } => files(directory, path),
-                        Source::Web(url) => web(url),
+                        Source::File { directory, path } => (spawn.fetch.files)(directory, path),
+                        Source::Web(url) => (spawn.fetch.web)(url),
                     };
                     fetched.lock().unwrap_or_else(|e| e.into_inner()).push((source, bytes));
                     version.fetch_add(1, Ordering::AcqRel);
                     landed.store(true, Ordering::Release);
-                    waker();
+                    (spawn.waker)();
                 }
-            })
-            .ok()?;
-        *self.jobs.borrow_mut() = Some(send.clone());
-        Some(send)
+            });
+        }
+        match &*self.fetcher.borrow() {
+            Fetcher::Running { jobs, .. } => Some(jobs.clone()),
+            Fetcher::Unset { .. } | Fetcher::Ready { .. } => None,
+        }
     }
 }
 
