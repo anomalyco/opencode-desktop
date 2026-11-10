@@ -12,24 +12,38 @@ fn press(rt: &mut Runtime<App>, key: Key, mods: Mods) {
     rt.frame(1.0 / 60.0);
 }
 
+/// The built-in plugins running: Terminal's commands are the Luau terminal plugin's (1b9a4d22).
+fn with_plugins(rt: &mut Runtime<App>) {
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
+    rt.frame(1.0 / 60.0);
+}
+
 fn cmd_shift_p(rt: &mut Runtime<App>) {
     press(rt, Key::Command('p'), Mods { cmd: true, shift: true, ..Default::default() });
 }
 
 #[test]
 fn ids_and_slashes_are_unique_and_desktops_are_there() {
-    let rt = runtime();
+    let mut rt = runtime();
+    with_plugins(&mut rt);
+    // /agent is offered while the agent shows, as Desktop's (c86d13b7).
+    rt.state.settings.show_agent = true;
     let all = rt.state.commands();
     let ids: HashSet<&str> = all.iter().map(|c| c.id).collect();
     assert_eq!(ids.len(), all.len(), "one id each");
     let slashes: Vec<&str> = all.iter().filter_map(|c| c.slash).collect();
     assert_eq!(slashes.iter().collect::<HashSet<_>>().len(), slashes.len(), "one /name each");
-    for want in ["new", "model", "agent", "compact", "terminal", "open", "rename", "export"] {
+    // /rename left Desktop's list (4a327249); /open and /terminal are the file and terminal plugins'.
+    for want in ["new", "model", "agent", "compact", "terminal", "open", "export"] {
         assert!(slashes.contains(&want), "/{want} is listed in a session");
     }
-    for want in ["sidebar", "settings", "zoom-in", "copy-session", "copy-project", "focus", "find", "review", "file", "terminal", "browser"] {
-        assert!(ids.contains(want), "{want} is a command");
-    }
+    // Review, Files and Terminal are Luau plugins, whose commands are `<plugin>.<id>`; Toggle
+    // sidebar isn't offered in Top tabs (42172690).
+    let missing: Vec<_> = ["side", "settings", "zoom-in", "copy-session", "copy-project", "focus", "find", "review.open", "file.browse", "terminal.toggle", "browser"].into_iter().filter(|w| !ids.contains(w)).collect();
+    assert!(missing.is_empty(), "missing commands: {missing:?} of {ids:?}");
 }
 
 #[test]
@@ -91,6 +105,7 @@ fn cmd_shift_p_searches_commands_alone() {
 #[test]
 fn palette_runs_commands_with_their_keys_shown() {
     let mut rt = runtime();
+    with_plugins(&mut rt);
     press(&mut rt, Key::Command('k'), Mods { cmd: true, ..Default::default() });
     typed(&mut rt, "copy session");
     let entries = rt.state.switcher_entries();

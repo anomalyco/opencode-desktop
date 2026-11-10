@@ -2,7 +2,6 @@ use opencode_kit::client::{Incoming, Write};
 use opencode_kit::model::{LocationInfo, Project, ProjectIcon, SessionInfo};
 use rune::{FileDialogKind, Key, KeyEvent, Mods, Runtime, Tx};
 
-use crate::pickers::{ADD_PROJECT_KEY, Kind};
 use crate::project_switcher::StepMode;
 use crate::{App, Route, fixture_runtime};
 
@@ -82,10 +81,11 @@ fn draft_project_picker_add_project_and_cmd_k_trigger_open_project() {
     rt.update(|s, tx| s.new_session(tx));
     rt.frame(1.0 / 60.0);
 
+    // The project button opens Desktop's location dialog, whose last row adds a project (b005ad28).
     tap(&mut rt, "project");
-    assert_eq!(rt.state.pickers.open, Some(Kind::Project));
-    tap(&mut rt, &format!("option-{ADD_PROJECT_KEY}"));
-    assert_eq!(rt.state.pickers.open, None);
+    assert!(rt.state.project_switcher.open);
+    tap(&mut rt, "psw-+add");
+    assert!(!rt.state.project_switcher.open);
     assert_eq!(rt.file_dialog().map(|(k, _)| k), Some(FileDialogKind::Folder));
     rt.resolve_file_dialog(Some("/Users/demo/code/nova".into())).unwrap();
     rt.frame(1.0 / 60.0);
@@ -238,7 +238,9 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
     assert!(matches!(rt.state.route, Route::Draft(_)));
     assert_eq!(rt.state.draft_dir(), "/Users/demo/code/harbor");
 
-    // At zoom 1.6 (panel ~524pt), Home switches to the compact dropdown whose popover scales with zoom.
+    // Below 768 pt (1200 px at zoom 1.6), Home's projects are Desktop's dropdown, whose popover
+    // scales with zoom (408fcd21).
+    rt.set_viewport((1200.0, 820.0), 1.0);
     rt.update(|s, tx| {
         s.zoom = 1.6;
         s.project_state.home_selected = None;
@@ -252,10 +254,11 @@ fn home_projects_filter_sessions_and_follow_zoom_at_1_6x() {
 
     let pop = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("home-projects-popover")).expect("popover");
     let trigger = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("home-projects-trigger")).expect("trigger");
-    assert!((pop.rect[2] - 232.0 * 1.6).abs() < 1.0, "popover width scales by 1.6x zoom: {:?}", pop.rect);
+    // As wide as its full-width trigger (408fcd21).
+    assert!((pop.rect[2] - trigger.rect[2]).abs() < 1.0, "popover takes its trigger's width: {:?} {:?}", pop.rect, trigger.rect);
     assert!((pop.rect[0] - trigger.rect[0]).abs() < 1.5, "popover aligns with trigger start");
 
-    tap(&mut rt, &format!("hpm-{harbor_id}"));
+    tap(&mut rt, &format!("hp-{harbor_id}"));
     assert!(!rt.state.project_state.home_menu_open);
     assert_eq!(rt.state.project_state.home_selected.as_deref(), Some(harbor_id.as_str()));
 
