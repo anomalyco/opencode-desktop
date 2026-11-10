@@ -31,7 +31,7 @@ fn report_metric(name: &str, values: &mut [f64]) {
 }
 
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn scroll_100k_cat_benchmark() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
 

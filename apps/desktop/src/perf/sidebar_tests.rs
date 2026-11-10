@@ -26,8 +26,9 @@ fn sidebar() -> Runtime<App> {
     rt
 }
 
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "release fixture timing; run --release --ignored --nocapture"]
+#[ignore = "release fixture timing; run --release --features frame-profile --ignored --nocapture"]
 fn sidebar_update_benchmark() {
     use std::time::Instant;
     let mut rt = sidebar();

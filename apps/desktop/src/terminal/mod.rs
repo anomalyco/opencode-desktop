@@ -1,7 +1,7 @@
 //! Native Ghostty terminal pane (a side panel, `⌃\``), workspace tabs, persistence,
 //! theme sync, and knobs (`apps/desktop/src/terminal/`).
 
-#[cfg(test)]
+#[cfg(all(test, feature = "frame-profile"))]
 mod bench;
 mod draw;
 pub mod grid;

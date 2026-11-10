@@ -504,7 +504,7 @@ mod stories;
 pub(crate) mod leave_tests;
 #[cfg(test)]
 mod scroll_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "frame-profile"))]
 mod switch_bench;
 
 #[cfg(test)]

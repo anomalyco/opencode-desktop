@@ -28,7 +28,7 @@ fn send_frames(steer: bool) -> Vec<[f64; 7]> {
 }
 
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn send_frame_benchmark() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
     for (steer, name) in [(false, "send"), (true, "steer")] {

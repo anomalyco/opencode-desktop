@@ -5,6 +5,7 @@ use rune::{Env, Runtime};
 
 #[path = "perf/sidebar_tests.rs"]
 mod sidebar_tests;
+#[cfg(feature = "frame-profile")]
 #[path = "perf/send_tests.rs"]
 mod send_tests;
 
@@ -42,8 +43,9 @@ pub(crate) fn report(name: &str, values: &mut [f64]) {
     println!("METRIC name={name} p50={:.4} p95={:.4} max={:.4} n={}", at(0.5), at(0.95), at(1.0), values.len());
 }
 
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn timeline_benchmark() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
     let mut open = [vec![], vec![]];
@@ -121,22 +123,27 @@ fn timeline_benchmark() {
     }
 }
 
+#[cfg(feature = "frame-profile")]
 thread_local! {
     /// The candidate side of `frame_benchmark`'s A/B: whether each frame sends its diagnostics
     /// record, as `on_frame_encoded` does in a live window.
     static CANDIDATE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
+#[cfg(feature = "frame-profile")]
 thread_local! {
     /// The recorder the `Diagnostics` experiment sends to, writing to a scratch directory.
     static DIAGNOSTICS: crate::diagnostics::Diagnostics =
         crate::diagnostics::Diagnostics::at(&std::env::temp_dir().join(format!("opencode-desktop-bench-perf-{}", std::process::id())));
 }
 
+#[cfg(feature = "frame-profile")]
 const SCENARIOS: [&str; 7] = ["scroll", "stream", "arrival", "switch", "typing", "idle", "background"];
+#[cfg(feature = "frame-profile")]
 const METRICS: [&str; 7] = ["cpu_ms", "view_ms", "commit_ms", "layout_ms", "text_ms", "allocations", "commits"];
 
 /// One frame's CPU, phases, allocations and commits.
+#[cfg(feature = "frame-profile")]
 fn measured(rt: &mut Runtime<App>, step: impl FnOnce(&mut Runtime<App>)) -> [f64; 7] {
     rune::take_frame_phases();
     let commits = rt.stats.commits;
@@ -164,8 +171,9 @@ fn settle(rt: &mut Runtime<App>) {
 /// The whole app, with its poll hook, at 120 Hz: open, scroll, stream, arrival, switch,
 /// composer typing, idle (must commit nothing) and another session streaming.
 /// Alternates `CANDIDATE` off/on per sample (AB, BA, ...); the first two pairs are warmup.
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn frame_benchmark() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
     let mut open: [Vec<[f64; 7]>; 2] = [vec![], vec![]];
@@ -289,8 +297,9 @@ fn only_the_open_family_streams_commit() {
 }
 
 /// Where a commit's time goes before Rune sees the tree: the row descriptions, and the poll hook.
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "CPU probe; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU probe; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn view_parts_probe() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
     let mut app = fixture();
@@ -319,8 +328,9 @@ fn view_parts_probe() {
 
 /// Opt-in GET-only live benchmark. No setup(), writes, saved UI, window or GPU.
 /// Capture private pages with scripts/bench-cold-fetch.py, then set COLD_SESSION_DIR.
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "live GET benchmark; COLD_SESSION_DIR=... cargo test --release -p opencode-desktop cold_session_benchmark -- --ignored --nocapture"]
+#[ignore = "live GET benchmark; COLD_SESSION_DIR=... cargo test --release -p opencode-desktop --features frame-profile cold_session_benchmark -- --ignored --nocapture"]
 fn cold_session_benchmark() {
     use opencode_kit::{client::{self, Incoming, Request, Server}, model};
     use std::{sync::{Arc, mpsc::channel}, time::{Duration, Instant}};
@@ -535,8 +545,9 @@ fn prefetched_image_benchmark() {
 /// `sync_before` runs the TCP probe + `sqlite3` Beta tab read before frame 0 (the old `init`
 /// path); `deferred_after` paints the last-known local state on frame 0 and leaves the probe
 /// and `sqlite3` read to `on_ready`.
+#[cfg(feature = "frame-profile")]
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn launch_first_frame_benchmark() {
     use std::process::Command;
     use std::time::Instant;

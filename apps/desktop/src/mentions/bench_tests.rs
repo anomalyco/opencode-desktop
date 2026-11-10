@@ -23,7 +23,7 @@ pub(crate) fn large(rt: &mut Runtime<App>) {
 }
 
 #[test]
-#[ignore = "CPU benchmark; run --profile perf --ignored --nocapture --test-threads=1"]
+#[ignore = "CPU benchmark; run --profile perf --features frame-profile --ignored --nocapture --test-threads=1"]
 fn mention_typing_benchmark() {
     assert!(!cfg!(debug_assertions), "use --profile perf");
     let mut rt = runtime();

@@ -411,5 +411,5 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 
 #[cfg(test)]
 pub(crate) mod tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "frame-profile"))]
 mod bench_tests;
