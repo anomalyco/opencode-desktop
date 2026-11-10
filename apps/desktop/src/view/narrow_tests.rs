@@ -56,24 +56,26 @@ fn apart(pieces: &[&ElementInfo], what: &str) {
     }
 }
 
-/// The header's pieces and the toggles over it sit apart, inside the header, with the cost
-/// whole; the toolbar's buttons sit apart inside the composer, with Send whole.
+/// The header's pieces sit apart inside the header; the toolbar's buttons sit apart inside the
+/// composer, with Send whole. Below Desktop's 768 pt breakpoint the header hides under the view
+/// switcher (`screen.tsx`'s `hideHeader`), and its usage is the context plugin's ring among its
+/// actions (3609b1dd).
 fn check(width: f32, zoom: f32, sidebar: bool) {
     let rt = runtime(width, zoom, sidebar);
     let els = live(&rt);
     let what = format!("window {width} zoom {zoom} sidebar {sidebar}");
 
-    let header = one(&els, "header");
-    // The usage row counts as one piece: its odometers' boxes run under each other's fades.
-    let mut pieces = children(&els, one(&els, "crumbs"));
-    pieces.push(one(&els, "usage"));
-    for p in &pieces {
-        assert!(inside(p.rect, header.rect), "{what}: {} {:?} leaves the header {:?}", name(p), p.rect, header.rect);
+    if rt.state.narrow() {
+        assert!(els.iter().all(|e| e.key.as_deref() != Some("header")), "{what}: a narrow window hides the header");
+    } else {
+        let header = one(&els, "header");
+        let mut pieces = children(&els, one(&els, "crumbs"));
+        pieces.extend(children(&els, one(&els, "header-actions")));
+        for p in &pieces {
+            assert!(inside(p.rect, header.rect), "{what}: {} {:?} leaves the header {:?}", name(p), p.rect, header.rect);
+        }
+        apart(&pieces, &what);
     }
-    pieces.extend(["sidebar-toggle", "side-toggle"].map(|k| one(&els, k)));
-    apart(&pieces, &what);
-    let cost = els.iter().find(|e| e.path.starts_with(&one(&els, "usage").path) && e.text.as_deref() == Some("$1.84")).expect("the cost");
-    assert!(cost.rect[2] > 20.0 * zoom, "{what}: the cost shows whole {:?}", cost.rect);
 
     let composer = one(&els, "composer");
     let tools: Vec<_> = children(&els, one(&els, "toolbar")).into_iter().filter(|e| e.key.as_deref() != Some("room")).collect();
