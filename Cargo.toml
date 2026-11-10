@@ -5,6 +5,7 @@ members = [
     "apps/installer",
     "crates/browser-pane",
     "crates/hex-client",
+    "crates/office-preview",
     "crates/opencode-i18n",
     "crates/opencode-kit",
     "crates/opencode-plugin",
@@ -44,6 +45,10 @@ rune-register = { git = "https://github.com/anomalyco/rune", rev = "45eb5cab8240
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }
 ureq = { version = "3.4", default-features = false }
+
+# BetterOffice's Word engine builds against its own yrs fork, as its workspace patches it.
+[patch.crates-io]
+yrs = { git = "https://github.com/openooxml/y-crdt.git", rev = "e785c00611ebce79ece115defa25295982cac165" }
 
 [profile.dev.package."*"]
 debug = false

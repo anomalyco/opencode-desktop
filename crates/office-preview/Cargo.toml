@@ -1,0 +1,36 @@
+[package]
+name = "office-preview"
+version = "0.1.0"
+description = "Read-only Word, Excel and PowerPoint previews: BetterOffice's engines lay the files out, and their display lists become Vello scenes a GPU draws at any scale"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
+rustybuzz = "0.20"
+serde_json.workspace = true
+sha2 = "0.10"
+vello = { version = "0.11", default-features = false }
+# BetterOffice (Apache-2.0), pinned to a `main` commit: its font packs and the engines that use them
+# are not on crates.io yet. The Latin and international packs are compiled in; the CJK pack is
+# fetched on first need (`FontPacks::with_cjk`), so it never ships in the binary.
+betteroffice-base-latin = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+betteroffice-docx-edit = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["base-latin"] }
+betteroffice-docx-layout = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["base-latin", "font-registration"] }
+betteroffice-docx-parse = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["tiff"] }
+betteroffice-docx-raster = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+betteroffice-drawingml = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["tiff"] }
+betteroffice-fonts = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["manager", "fonts-latin", "fonts-intl"] }
+betteroffice-ooxml-text = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", features = ["base-latin"] }
+betteroffice-opc = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+betteroffice-pptx = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", default-features = false, features = ["raster", "fonts", "fonts-latin", "fonts-intl"] }
+betteroffice-pptx-render = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+betteroffice-xlsx = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd", default-features = false, features = ["raster", "fonts", "fonts-latin", "fonts-intl"] }
+betteroffice-xlsx-raster = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+betteroffice-xlsx-render = { git = "https://github.com/openooxml/betteroffice", rev = "ed0a3cea5bd24119c4f2e144a978849177e06fcd" }
+
+[lints]
+workspace = true
