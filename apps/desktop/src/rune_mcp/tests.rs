@@ -163,6 +163,14 @@ fn with_plugins(app: &mut App) {
     crate::plugin_host::contrib_sync_luau(app);
 }
 
+/// What a frame runs for a tool call: its routing, the plugin whose tool it is, and what the
+/// plugin asked of the app.
+fn pump(app: &mut App, tx: &mut Tx) {
+    super::poll(app, tx);
+    app.poll_panels(tx);
+    app.poll_jobs(tx);
+}
+
 #[test]
 fn handshake_readiness_gap_and_full_tool_list() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -218,8 +226,8 @@ fn handshake_readiness_gap_and_full_tool_list() {
             "browser_screenshot",
             "browser_cdp",
             "open_file",
-            "open_terminal",
             "open_diff",
+            "open_terminal",
         ]
     );
     wait_until(Duration::from_secs(2), || app.rune_mcp_ready("/work/repo"));
@@ -298,6 +306,10 @@ fn e2e_headless_runtime_open_vs_unopened_session_and_side_panel_tools() {
     assert_ne!(file_reply["result"]["isError"], Value::Bool(true), "{file_reply}");
     let file_meta: Value = serde_json::from_str(file_reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(file_meta, json!({ "path": "src/runtime.rs", "lines": [2, 4] }));
+    // The tool answers first; its tab opens, and its panel hears, at the next polls.
+    for _ in 0..3 {
+        rt.frame(DT);
+    }
     assert!(rt.state.side_open());
     assert!(rt.state.composer.focused, "must not steal composer focus");
 
@@ -323,7 +335,10 @@ fn e2e_headless_runtime_open_vs_unopened_session_and_side_panel_tools() {
     let term_meta: Value = serde_json::from_str(term_reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(term_meta["open"], true);
     assert!(rt.state.side_open() || rt.state.bottom_open());
-    assert!(rt.state.composer.focused);
+    for _ in 0..3 {
+        rt.frame(DT);
+    }
+    assert!(rt.state.composer.focused, "the terminal's panel leaves the keyboard where it was");
 
     // 6. Browser lifecycle (`browser_open` -> `browser_tabs` -> `browser_navigate` -> `browser_focus` -> `browser_close`).
     send_rpc(&mut ws, call_tool_msg(15, "browser_open", json!({ "url": ":3000" }), Some(MAIN)));
@@ -362,6 +377,9 @@ fn e2e_headless_runtime_open_vs_unopened_session_and_side_panel_tools() {
     });
     let close_meta: Value = serde_json::from_str(close_b["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(close_meta["closedTabID"], tab_id);
+    for _ in 0..3 {
+        rt.frame(DT);
+    }
     assert!(rt.state.browser.host.tabs().is_empty());
 
     // Path traversal outside workspace is rejected.
@@ -431,8 +449,8 @@ fn multi_window_shares_one_connection_and_routes_by_session_and_subagent() {
     send_rpc(&mut ws, call_tool_msg(1, "browser_open", json!({ "url": ":4001" }), Some("ses_w1")));
     let r1 = recv_rpc_while(&mut ws, || {
         let mut tx = Tx::default();
-        super::poll(&mut win1, &mut tx);
-        super::poll(&mut win2, &mut tx);
+        pump(&mut win1, &mut tx);
+        pump(&mut win2, &mut tx);
     });
     assert_ne!(r1["result"]["isError"], Value::Bool(true));
     assert_eq!(win1.browser.host.tabs().len(), 1);
@@ -442,8 +460,8 @@ fn multi_window_shares_one_connection_and_routes_by_session_and_subagent() {
     send_rpc(&mut ws, call_tool_msg(2, "browser_open", json!({ "url": ":4002" }), Some("ses_w2_sub")));
     let r2 = recv_rpc_while(&mut ws, || {
         let mut tx = Tx::default();
-        super::poll(&mut win1, &mut tx);
-        super::poll(&mut win2, &mut tx);
+        pump(&mut win1, &mut tx);
+        pump(&mut win2, &mut tx);
     });
     assert_ne!(r2["result"]["isError"], Value::Bool(true));
     assert_eq!(win1.browser.host.tabs().len(), 1);
@@ -474,8 +492,8 @@ fn multi_window_shares_one_connection_and_routes_by_session_and_subagent() {
             let _ = http_s.write_all(resp.as_bytes());
         }
         let mut tx = Tx::default();
-        super::poll(&mut win1, &mut tx);
-        super::poll(&mut win2, &mut tx);
+        pump(&mut win1, &mut tx);
+        pump(&mut win2, &mut tx);
     });
     assert_ne!(r3["result"]["isError"], Value::Bool(true));
     assert_eq!(win2.browser.host.tabs().len(), 2);
@@ -662,7 +680,7 @@ fn browser_cdp_snapshot_highlight_evaluate_and_screenshot_with_image() {
     let step = |app: &mut App| {
         let mut tx = Tx::default();
         app.poll_browser(&mut tx);
-        super::poll(app, &mut tx);
+        pump(app, &mut tx);
     };
 
     // 1. Open tab -> attaches to mock sidecar and waits for Ready.
