@@ -89,11 +89,17 @@ fn it_opens_from_its_card_zooms_and_pans_on_the_fingers_and_flies_back() {
         assert!(((open[0] + open[2] / 2.0) - w / 2.0).abs() < 1.0 && ((open[1] + open[3] / 2.0) - h / 2.0).abs() < 1.0, "centred: {what}");
         assert!(open[2] > card[2] * 1.2 && inside(open, [0.0, 0.0, w, h]), "bigger, and in the window: {what}");
 
+        let full = rt.state.diagram.fit.get().size;
+        assert!(full[0] > card[2], "it draws again full size, not the column's shrunk card: {what}, drawing {full:?}");
+        let drawing = get(&rt, "diagram-lightbox-drawing", "").rect;
+        assert!(inside(drawing, open) && (open[2] - drawing[2] - 32.0 * zoom).abs() < 1.0, "its card pads it 16 points a side, unscaled: {what}, drawing {drawing:?}");
+
         // A pinch: the point under the fingers stays under them, in the same frame.
+        let open = drawing;
         let p = [open[0] + open[2] * 0.3, open[1] + open[3] * 0.4];
         rt.magnify_event(MagnifyEvent::new(0.5).at(p[0], p[1]));
         rt.frame(DT);
-        let pinched = get(&rt, "diagram-lightbox", "").rect;
+        let pinched = get(&rt, "diagram-lightbox-drawing", "").rect;
         let u = |r: [f32; 4]| [(p[0] - r[0]) / r[2], (p[1] - r[1]) / r[3]];
         let what = format!("zoom {zoom}: open {open:?}, pinched {pinched:?}");
         assert!((pinched[2] / open[2] - 1.5).abs() < 0.01, "1.5 times as big at once: {what}");
@@ -102,13 +108,13 @@ fn it_opens_from_its_card_zooms_and_pans_on_the_fingers_and_flies_back() {
         // Two fingers: it moves as far as they do, in the same frame.
         rt.wheel_event(WheelEvent::new(30.0, -20.0).at(p[0], p[1]).precise(true));
         rt.frame(DT);
-        let panned = get(&rt, "diagram-lightbox", "").rect;
+        let panned = get(&rt, "diagram-lightbox-drawing", "").rect;
         let what = format!("zoom {zoom}: pinched {pinched:?}, panned {panned:?}");
         assert!((panned[0] - pinched[0] - 30.0).abs() < 0.5 && (panned[1] - pinched[1] + 20.0).abs() < 0.5, "on the fingers: {what}");
 
         rt.key(KeyEvent { key: Key::Command('0'), mods: Mods { cmd: true, ..Default::default() } });
         frames(&mut rt, 60);
-        assert!(near(get(&rt, "diagram-lightbox", "").rect, open, 1.0), "⌘0 fits it again, zoom {zoom}");
+        assert!(near(get(&rt, "diagram-lightbox-drawing", "").rect, open, 1.0), "⌘0 fits it again, zoom {zoom}");
         assert!((rt.state.zoom - zoom).abs() < 1e-4, "and leaves the app's zoom alone");
 
         rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
@@ -146,21 +152,21 @@ fn a_click_outside_closes_it_and_a_double_click_on_it_zooms_in() {
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     frames(&mut rt, 60);
-    let open = get(&rt, "diagram-lightbox", "").rect;
+    let open = get(&rt, "diagram-lightbox-drawing", "").rect;
     let (cx, cy) = (open[0] + open[2] / 2.0, open[1] + open[3] / 2.0);
     for _ in 0..2 {
         rt.pointer_down(cx, cy);
         rt.pointer_up(cx, cy);
     }
     frames(&mut rt, 60);
-    let zoomed = get(&rt, "diagram-lightbox", "").rect;
+    let zoomed = get(&rt, "diagram-lightbox-drawing", "").rect;
     assert!((zoomed[2] / open[2] - 2.0).abs() < 0.01, "a double-click doubles it: {open:?} {zoomed:?}");
     for _ in 0..2 {
         rt.pointer_down(cx, cy);
         rt.pointer_up(cx, cy);
     }
     frames(&mut rt, 60);
-    assert!(near(get(&rt, "diagram-lightbox", "").rect, open, 1.0), "and another fits it again");
+    assert!(near(get(&rt, "diagram-lightbox-drawing", "").rect, open, 1.0), "and another fits it again");
     rt.pointer_down(4.0, 4.0);
     rt.pointer_up(4.0, 4.0);
     frames(&mut rt, 60);
