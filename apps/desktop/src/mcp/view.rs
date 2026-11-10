@@ -233,6 +233,6 @@ fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) ->
         .child(header)
         .child(col().key("mcp-error-details").w_full().px(16.0).pb(16.0).gap(12.0)
             .child(col().w_full().py(8.0).px(12.0).radius(6.0).fill(p.layer3)
-                .child(text(error.to_owned()).font(ERROR).color(p.text).wrap_anywhere().selectable(true)))
+                .child(text(error.to_owned()).font(ERROR).color(p.text).wrap_anywhere().selectable(true).selection_style(p.field_selection)))
             .child(actions))
 }

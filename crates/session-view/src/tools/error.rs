@@ -90,12 +90,15 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
             }
         })
         .child(crate::copied::glyph_of(s, &copy_key, 16.0, p.text, &rune_theme_opencode::icons::COPY));
+    // `tool-error-card.css:151-172`: a selection in the content is state-bg-danger under text-base,
+    // the window active or not.
+    let picked = rune::SelectionStyle::new(p.danger_bg).ink(p.text).inactive(p.danger_bg, Some(p.text));
     let mut content = col().key("error").w_full().pl(24.0).pr(40.0);
     if let Some(t) = sub.filter(|_| clipped) {
         let full = col().key("subtitle-full").w_full().max_h(super::console::MAX_H).mb(4.0).scroll(rune::ScrollSpec { stick_bottom: false });
-        content = content.child(full.child(readable(p, text(t).font(if shell { TOOL_CODE } else { UI.lh(20.0) }).color(p.muted).wrap_anywhere()).w_full()));
+        content = content.child(full.child(readable(p, text(t).font(if shell { TOOL_CODE } else { UI.lh(20.0) }).color(p.muted).wrap_anywhere()).selection_style(picked).w_full()));
     }
-    content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
+    content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).selection_style(picked).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
     card.child(content)
 }
 
