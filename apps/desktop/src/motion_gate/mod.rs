@@ -14,6 +14,7 @@ mod flights;
 mod genui;
 mod history;
 mod home_hold;
+mod image_viewer;
 mod layout_switch;
 mod composer_grow;
 mod diagram;

@@ -11,7 +11,7 @@ use rune::{El, FileDialogOptions, Icon, SurfaceFit, Tx, el, icon, row};
 
 use crate::TimelineHost;
 use crate::composer::attachments::{card, type_label};
-use crate::images::{Fetched, identity, opens};
+use crate::images::{Fetched, gallery_id, opens};
 use crate::palette::Pal;
 use crate::style::BUBBLE_MAX;
 
@@ -63,7 +63,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachmen
             let (w, h) = THUMB;
             let thumb = tile(w, h).pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring(w, h));
             let held = el().key(format!("{key}-held")).size(w, h);
-            opens(s, thumb, held, format!("user-attachments:{}", identity(f)), f, img, Some(message))
+            opens(s, thumb, held, gallery_id(&format!("user-attachments:{message}"), i), f, img, Some(message))
         }
         None if store.fetched(f) == Some(Fetched::Loading) => tile(PLACEHOLDER, PLACEHOLDER).child(ring(PLACEHOLDER, PLACEHOLDER)),
         None => {

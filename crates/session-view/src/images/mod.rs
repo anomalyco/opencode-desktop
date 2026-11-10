@@ -390,6 +390,7 @@ pub fn md_media<S: TimelineHost>(s: &S) -> markdown::MdMedia {
         viewing: store.viewing.as_ref().map(|v| v.id.clone()),
         flight: viewer::flight(s),
         message: None,
+        scope: None,
     }
 }
 
@@ -398,21 +399,32 @@ pub fn md_media<S: TimelineHost>(s: &S) -> markdown::MdMedia {
 /// flies into the viewer and back.
 pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::MdMedia) -> rune_kit::Markdown {
     let (images, favicons) = (m.clone(), m.store.clone());
+    let seen = RefCell::new(HashMap::<String, usize>::new());
     md.images(move |src| images.store.image(images.directory.as_deref(), src))
         .link_favicon(move |url| favicons.favicon(url))
         .image_frame(move |img, f| {
-            let id = format!("md-image:{}:{}", f.src, f.alt);
+            // Keyed by its place: the reply's row, then the image's turn among the same picture
+            // in it, so the same picture in two replies (or twice in one) flies from its own.
+            let place = format!("{}:{}:{}", m.scope.as_deref().or(m.message.as_deref()).unwrap_or(""), f.src, f.alt);
+            let nth = {
+                let mut seen = seen.borrow_mut();
+                let n = seen.entry(place.clone()).or_insert(0);
+                *n += 1;
+                *n - 1
+            };
+            let id = format!("md-image:{place}:{nth}");
             // While the viewer shows it, its place holds empty, keyed apart so the image flies.
+            // The markdown keys the block itself, so the picture and its stand-in sit inside it.
             if m.viewing.as_deref() == Some(id.as_str()) {
-                return img.key("held").opacity(0.0);
+                return el().w_full().child(img.key(viewer::HELD).opacity(0.0));
             }
             let name = if f.alt.is_empty() { opencode_i18n::t!("ui.imagePreview.alt").to_owned() } else { f.alt.to_owned() };
             let image = f.image.clone();
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
             let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
-            img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
+            el().w_full().child(img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
                 viewer::open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() }, tx);
-            })
+            }))
         })
 }
 
@@ -424,6 +436,9 @@ pub fn shows(files: &[Attachment]) -> bool {
 /// Images in the transcript, right-aligned for a user: one at its own shape (at most 320×240
 /// points, 2× pixels), several in a bento block (`bento`). A ref still on its way holds a tile;
 /// one whose bytes are gone shows the server's placeholder as a chip.
+///
+/// `key` names the gallery, and must be unique in the window: each image's shared-element id
+/// is its place in it ([`gallery_id`]), which a refreshed page keeps.
 ///
 /// `message`: the message the images belong to, whose items follow theirs in a right-click menu.
 pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool, message: Option<&str>) -> Option<El> {
@@ -438,25 +453,25 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
     for (i, f) in images.into_iter().enumerate() {
         let k = format!("img-{i}");
         match store.image(f) {
-            Some(img) if img.error().is_none() => shown.push((k, f, Some(img))),
-            None if store.fetched(f) == Some(Fetched::Loading) => shown.push((format!("{k}-loading"), f, None)),
+            Some(img) if img.error().is_none() => shown.push((i, k, f, Some(img))),
+            None if store.fetched(f) == Some(Fetched::Loading) => shown.push((i, format!("{k}-loading"), f, None)),
             _ => {
                 let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
                 chips.push(row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted)));
             }
         }
     }
-    let sizes: Vec<_> = shown.iter().map(|(_, f, img)| if img.is_some() { store.thumbnail_size(f) } else { (160.0, 120.0) }).collect();
+    let sizes: Vec<_> = shown.iter().map(|(_, _, f, img)| if img.is_some() { store.thumbnail_size(f) } else { (160.0, 120.0) }).collect();
     let ((bw, bh), tiles) = bento::tiles(&sizes);
     let mut block = el().key(key).size(bw, bh);
-    for ((k, f, img), [x, y, w, h]) in shown.into_iter().zip(tiles) {
+    for ((i, k, f, img), [x, y, w, h]) in shown.into_iter().zip(tiles) {
         let tile = el().key(k.clone()).label(f.name.clone()).size(w, h).radius(bento::RADIUS).fill(p.layer2);
         block = block.child(match img {
             Some(img) => {
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
                 let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
-                opens(s, thumb, held, format!("{key}:{}", identity(f)), f, img, message)
+                opens(s, thumb, held, gallery_id(key, i), f, img, message)
             }
             None => tile.absolute(x, y),
         });
@@ -475,8 +490,13 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
     Some(out)
 }
 
-/// One attachment's bytes (or, for a ref, the attachment itself), so each thumbnail has its own
-/// shared-element id.
+/// The shared-element id of the `index`th image in the gallery keyed `key`: its place, not its
+/// bytes' address, which changes when a page is read again while the viewer shows it.
+pub fn gallery_id(key: &str, index: usize) -> String {
+    format!("{key}:{index}")
+}
+
+/// One attachment's bytes (or, for a ref, the attachment itself): a composer chip's id.
 pub fn identity(f: &Attachment) -> String {
     match &f.media {
         Some(hash) => format!("{:x}:{hash}", std::ptr::from_ref(f) as usize),

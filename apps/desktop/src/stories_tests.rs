@@ -351,3 +351,36 @@ const STORY_PATHS: &[&str] = &[
     "Composer/Subagent reply",
     "Timeline/Open tool step",
 ];
+
+/// The images story's reply shows its picture inline, and once the story has played a press on
+/// it opens the viewer from that spot; Escape flies it back.
+#[test]
+fn the_images_story_opens_the_replys_picture_from_its_place() {
+    let mut rt = storybook();
+    rt.state.waker = Some(std::sync::Arc::new(|| {}));
+    rt.open_playground("Timeline/Images", None);
+    let picture = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.role == "button" && e.label.as_deref() == Some("The sidebar after the fix") && e.rect[3] > 40.0).map(|e| e.rect);
+    for _ in 0..240 {
+        rt.update(|_, _| {});
+        rt.frame(DT);
+        if picture(&rt).is_some() { break; }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // The story opens, zooms and closes the prompt's first image by 4.4 s.
+    run(&mut rt, 4.4);
+    assert!(world(&rt).attach.viewing.is_none());
+    let home = picture(&rt).expect("the reply's picture shows inline");
+    let (x, y) = (home[0] + home[2] / 2.0, home[1] + home[3] / 2.0);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(DT);
+    let viewer = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("image-viewer")).map(|e| e.rect);
+    let first = viewer(&rt).expect("the viewer opens");
+    assert!((first[1] - home[1]).abs() < 30.0 && (first[2] - home[2]).abs() < home[2] * 0.3, "it leaves the reply: {home:?} → {first:?}");
+    run(&mut rt, 0.6);
+    rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+    run(&mut rt, 0.6);
+    assert!(viewer(&rt).is_none());
+    let back = picture(&rt).expect("back in the reply");
+    assert!((0..4).all(|i| (back[i] - home[i]).abs() < 0.5), "home: {back:?} vs {home:?}");
+}

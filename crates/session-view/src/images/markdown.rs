@@ -337,4 +337,6 @@ pub struct MdMedia {
     pub flight: rune::Spring,
     /// The message the markdown is, whose items follow an image's in its right-click menu.
     pub message: Option<Rc<str>>,
+    /// Where the markdown shows (its row's key), which scopes its images' shared-element ids.
+    pub scope: Option<Rc<str>>,
 }

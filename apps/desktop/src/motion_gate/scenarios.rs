@@ -17,6 +17,9 @@ const ALLOW: &[Allow] = &[
     ("lands-unseen", "fit/", "diagram-full-size/", "two fingers pan the open diagram, a frame at a time, until parts of it are outside the window, where a pan back brings them (diagram::lightbox)"),
     ("fade-snap", "t-msg_zzwide1-0/#0/#0/b1/#0", "diagram-full-size/", "the reply's card shows again in the frame the open diagram, landed exactly over it, unmounts: one picture handed over in place (diagram::poll)"),
     ("pop-out", "/diagram-stage", "diagram-full-size/", "the open diagram unmounts once it has landed exactly over its card, which shows again in that frame (diagram::poll)"),
+    ("pop-out", "image-preview-body/image-viewer", "image-viewer", "the open picture hands over to its place in the reply, which flies home from the picture's last rect, zoomed or not, in that frame (El::matched); the gate doesn't pair the picture that leaves with the flight that takes its place (images::viewer)"),
+    ("text-swap", "image-preview-zoom-level/", "image-viewer", "the zoom bar reads the live level as a zoom glides, as Desktop's image-preview does (rune_kit::image_zoom)"),
+    ("jerk", "image-preview-body/image-viewer", "image-viewer-double-click/", "a double-click zooms the picture about the pointer on the preview's 0.3 s spring from rest, so its first frames speed up by up to ~20 pt a frame, as the open diagram's do (rune_kit::image_zoom::glide)"),
     ("snap", "(pixels)", "diagram-full-size/", "once a pinch rests, the scaled diagram's text draws crisp again at its new size, in place (El::scale)"),
     ("stop-start", "", "steer-live/", "a steer lands as separate events a few frames apart (its echo, the running reply's tool row, the next step and its tool), each a row arriving that the timeline glides to in turn; no text is streaming then (p191)"),
     ("stop-start", "", "demo/", "a streaming reply opens each line it wraps onto on its own ~80 ms spring (Timeline › Line grow, p252), so the pinned timeline and Working step down a line at a time and rest between lines rather than creeping at the stream's pace"),
@@ -421,6 +424,11 @@ const ACTIONS: &[Action] = &[
         let base = Circ::default();
         vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
     }, run: super::diagram::open_zoom_close },
+    Action { name: "image-viewer", circs: || {
+        let base = Circ::default();
+        vec![base, Circ { narrow: true, ..base }, Circ { zoomed: true, ..base }]
+    }, run: super::image_viewer::open_zoom_close },
+    Action { name: "image-viewer-double-click", circs: || vec![Circ::default()], run: super::image_viewer::double_click },
     Action { name: "tool-expand", circs: || wide_and_narrow(Circ::default()), run: |r| {
         // The narrow window's pinned tail can hold no tool group: scroll one into view.
         for _ in 0..4 {
