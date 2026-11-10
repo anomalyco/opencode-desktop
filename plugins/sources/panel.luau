@@ -24,8 +24,14 @@ export type Env = {
     Links: LinksService,
     I18n: I18nService,
     Theme: ThemeService,
+    Images: ImagesService,
+    Diagnostics: DiagnosticsService,
     state: State,
 }
+
+-- How a site shows (Knobs > Experiments > Site icons, `experiment.ts`): its letter, or its own
+-- favicon over a quiet tile, which the site learns of, so letters are the default.
+export type IconMode = "letters" | "site"
 
 -- The project avatar colours, so a site's tile reads like the app's other letter tiles.
 local COLORS: { Color } = {
@@ -106,7 +112,7 @@ end
 
 -- A site's letter tile (`SiteIcon` in letters mode): 16 round, on the avatar colour its name
 -- hashes to, the letter at 9/530 in the avatar ink, a hairline inside.
-local function siteIcon(site: string): ui.Node
+local function letterTile(site: string): ui.Node
     local color = COLORS[hash(site) % #COLORS + 1]
     local first = ""
     for _, cp in utf8.codes(site) do
@@ -119,6 +125,34 @@ local function siteIcon(site: string): ui.Node
             ui.text(first, { size = 9, weight = "medium", lineHeight = 9, color = "avatar-text" }),
         }
     )
+end
+
+-- The favicon a site serves at its root, as Desktop asks the site itself (`site-icon.tsx:27`).
+local function favicon(host: string): string
+    return `https://{host}/favicon.ico`
+end
+
+local FAVICON = table.freeze({
+    w = 16,
+    h = 16,
+    radius = 8,
+    fit = "cover" :: ImageFit,
+    placeholder = "surface-2" :: Color,
+    fadeIn = true,
+    border = "avatar-ring",
+    borderWidth = 0.5,
+})
+
+-- A site's icon (`SiteIcon`, `site-icon.tsx:11-44`, `sources.css` `site-icon`): in letters mode
+-- its letter tile; in site mode its favicon covering the tile, on layer-02 while it loads
+-- (`[data-state]`) and fading in over 150 ms once it has, and the letter tile in its place once
+-- it failed. A failed favicon stays failed for the window, so later tiles of that host show the
+-- letter at once (`failed`).
+local function siteIcon(env: Env, site: string, host: string, mode: IconMode): ui.Node
+    if mode ~= "site" then
+        return letterTile(site)
+    end
+    return ui.image(FAVICON, { image = env.Images:Load(favicon(host)) }, letterTile(site))
 end
 
 local function labelText(words: string): ui.Node
@@ -173,7 +207,7 @@ local function words(lines: { ui.Node? }): ui.Node
 end
 
 -- One result: its site's tile, then its title over its site (`sources-result`).
-local function result(env: Env, view: View, r: turn.Source): ui.Node
+local function result(env: Env, view: View, r: turn.Source, mode: IconMode): ui.Node
     local title = r.title or r.url
     return ui.row({
         key = `sources-result-{r.url}`,
@@ -190,7 +224,7 @@ local function result(env: Env, view: View, r: turn.Source): ui.Node
             env.Links:Open({ href = r.url })
         end),
     }, {
-        siteIcon(r.site),
+        siteIcon(env, r.site, r.host, mode),
         ui.col({ grow = 1, shrink = true, minW = 0 }, {
             ui.text(
                 title,
@@ -215,7 +249,7 @@ end
 local MONO =
     { size = 13, weight = "regular" :: FontWeight, lineHeight = 16, tracking = -0.04, mono = true, noWrap = true }
 
-local function search(env: Env, view: View, s: any): ui.Node
+local function search(env: Env, view: View, s: any, mode: IconMode): ui.Node
     local I18n = env.I18n
     local open = env.state.expand[s.id] == "open"
     local expandable = #s.results > 0
@@ -263,7 +297,7 @@ local function search(env: Env, view: View, s: any): ui.Node
     if open and expandable then
         local rows: { ui.Node } = {}
         for _, r in s.results do
-            table.insert(rows, result(env, view, r))
+            table.insert(rows, result(env, view, r, mode))
         end
         table.insert(step, ui.col({ key = `sources-results-{s.id}`, w = "full", clip = true, pt = 2, pb = 6 }, rows))
     end
@@ -317,18 +351,26 @@ end
 function panel.render(env: Env, view: View, props: PanelProps): ui.Node?
     local from = props.instance or ""
     local sources, generation = sourcesOf(env, props.sessionId, from)
+    local mode: IconMode = if env.Diagnostics:Get("sources.icons") == "site" then "site" else "letters"
     local open: { string } = {}
+    -- What the shown favicons are doing, so the panel rebuilds as each lands or fails.
+    local icons: { string } = {}
     for _, s in sources.steps do
         if s.kind == "search" and env.state.expand[s.id] == "open" then
             table.insert(open, s.id)
+            if mode == "site" then
+                for _, r in s.results do
+                    table.insert(icons, env.Images:State(env.Images:Load(favicon(r.host))).status)
+                end
+            end
         end
     end
     local version =
-        `{generation}:{table.concat(open, ",")}:{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
+        `{generation}:{table.concat(open, ",")}:{mode}:{table.concat(icons, ",")}:{env.Theme:Current().id}:{env.Theme:IsDark()}:{env.I18n:Locale().id}`
     return view:Memo(`sources-{props.sessionId}-{from}`, version, function()
         local steps: { ui.Node } = {}
         for _, s in sources.steps do
-            table.insert(steps, if s.kind == "search" then search(env, view, s) else fetch(env, view, s))
+            table.insert(steps, if s.kind == "search" then search(env, view, s, mode) else fetch(env, view, s))
         end
         return ui.col({ key = "session-sources-panel", w = "full", h = "full", fill = "bg-base" }, {
             ui.col({ key = "sources-scroll", w = "full", grow = 1, minH = 0, scrollY = true }, {

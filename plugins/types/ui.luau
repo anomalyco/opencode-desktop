@@ -16,6 +16,7 @@ export type SpacerProps = UiSpacerProps
 export type DividerProps = UiDividerProps
 export type IconProps = UiIconProps
 export type ImageProps = UiImageProps
+export type VideoProps = UiVideoProps
 export type MetricProps = UiMetricProps
 export type ButtonProps = UiButtonProps
 export type IconButtonProps = UiIconButtonProps

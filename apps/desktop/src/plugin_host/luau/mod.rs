@@ -348,6 +348,7 @@ fn stop(app: &mut App, i: usize, script: Script) {
     *half.contribs.borrow_mut() = plugin::Contribs::default();
     services::reap(&half, None);
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
+    app.plugins.shared.images.borrow_mut().forget(&half.id);
     app.plugins.luau.overlay.close_for(&half.id);
 }
 
@@ -440,6 +441,8 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let mut changed = std::mem::take(&mut app.plugins.luau.asked);
     changed |= app_half::poll(app, now, tx);
     project_request::poll(app, tx);
+    // Images that landed or settled: the surfaces that drew them read them again.
+    changed |= app.plugins.shared.images.borrow_mut().poll();
     // A flyout row's aim came due: the row under the resting pointer takes over.
     if let Overlay::Popover { flyout, .. } = &app.plugins.luau.overlay
         && let Some((attempt, due)) = flyout.due()

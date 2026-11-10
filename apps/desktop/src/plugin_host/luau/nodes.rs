@@ -15,7 +15,8 @@ pub fn all() -> Vec<HostNode> {
     let mut all = vec![
         HostNode::new("divider", divider),
         HostNode::new("icon", icon),
-        HostNode::new("image", |_| Ok(el())),
+        HostNode::new("image", super::services::images::node),
+        HostNode::new("video", super::services::images::video_node),
         HostNode::new("metric", metric),
         HostNode::new("shimmer", shimmer),
         HostNode::new("keybind", keybind),
@@ -158,7 +159,13 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
     let words = a.string("text").unwrap_or_default().to_owned();
     let (disabled, loading) = (a.flag("disabled"), a.flag("loading"));
     let small = a.string("size") == Some("small");
-    let size = if small { rune_kit::ButtonSize::Small } else { rune_kit::ButtonSize::Normal };
+    // Desktop's button sizes (`button.css`): small 24 tall, normal 28, large 32 with 15 a side.
+    #[allow(deprecated)]
+    let size = match a.string("size") {
+        Some("small") => rune_kit::ButtonSize::Small,
+        Some("large") => rune_kit::ButtonSize::Large,
+        _ => rune_kit::ButtonSize::Normal,
+    };
     let v = if loading && !small { ButtonVariant::Loading } else { variant(a.string("variant")) };
     let mut b = crate::widgets::button(words.clone(), v).size(size).disabled(disabled);
     if let Some(lead) = a.string("icon") {

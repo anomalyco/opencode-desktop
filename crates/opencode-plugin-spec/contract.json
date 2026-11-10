@@ -297,6 +297,11 @@
       { "value": "cover", "doc": "Fills the box, aspect kept, cropped." },
       { "value": "fill", "doc": "Stretched to the box." }
     ] },
+    { "name": "ImageStatus", "doc": "Where an image stands (`Images:State`): an explicit machine, loading then loaded or failed.", "values": [
+      { "value": "loading", "doc": "Its bytes are on their way or decoding, off the UI thread." },
+      { "value": "loaded", "doc": "Decoded, with a size." },
+      { "value": "failed", "doc": "It could not be read or decoded, or it has no pixels. It stays failed for the window's life, so later loads of the same source fail at once, as a browser remembers a broken image." }
+    ] },
     { "name": "OfficeKind", "rust": true, "doc": "An Office document's format.", "values": [
       { "value": "docx", "doc": "Word." },
       { "value": "xlsx", "doc": "Excel." },
@@ -558,9 +563,18 @@
       { "name": "hoverGroupColor", "type": "Color?", "doc": "The color while the nearest hover group is hovered." },
       { "name": "revealOnHover", "type": "boolean?", "doc": "Shows only while the nearest hover group is hovered." }
     ] },
-    { "name": "UiImageProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.image` props.", "fields": [
-      { "name": "image", "type": "ImageId", "doc": "The image, from the `Images` service or an `Async` render." },
+    { "name": "UiImageProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.image` props. Give it a size (`w`, `h`); without one it takes the image's own size in points once it has loaded. Inside a `view:Memo`, put `Images:State(image).status` in the memo's version, so the memo rebuilds as the image lands or fails.", "fields": [
+      { "name": "image", "type": "ImageId?", "doc": "The image, from the `Images` service or an `Async` render." },
+      { "name": "src", "type": "string?", "doc": "Instead of `image`: the source `Images:Load` takes (a URL, a server path, a data URL or a file of the plugin's folder)." },
       { "name": "fit", "type": "ImageFit?", "doc": "How it fills its box." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius." },
+      { "name": "placeholder", "type": "Color?", "doc": "The fill under the image: shown while it loads and through its transparent pixels." },
+      { "name": "fadeIn", "type": "boolean?", "doc": "Fades in over 150 ms as it lands, at once with reduced motion. Off by default." },
+      { "name": "preview", "type": "boolean?", "doc": "A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it." }
+    ] },
+    { "name": "UiVideoProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.video` props. Give it a size.", "fields": [
+      { "name": "src", "type": "string", "doc": "An `https:` or `http:` URL of the video." },
+      { "name": "fit", "type": "ImageFit?", "doc": "How it fills its box: `contain` letterboxes it, `cover` crops it." },
       { "name": "radius", "type": "number?", "doc": "Corner radius." }
     ] },
     { "name": "UiMetricProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.metric` props: a number shown as text.", "fields": [
@@ -757,8 +771,9 @@
       { "name": "document", "type": "OfficeDocument", "doc": "A Word document or a deck, from `Office:OpenAsync`." },
       { "name": "labels", "type": "OfficePagesLabels", "doc": "The words it shows." }
     ] },
-    { "name": "UiOfficeSheetProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.", "fields": [
-      { "name": "document", "type": "OfficeDocument", "doc": "A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose." }
+    { "name": "UiOfficeSheetProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers, the selection and copying stay in the host.", "fields": [
+      { "name": "document", "type": "OfficeDocument", "doc": "A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose." },
+      { "name": "labels", "type": "OfficeSheetLabels?", "doc": "The words the grid says, in the plugin's language." }
     ] },
     { "name": "UiGenUiProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.", "fields": [
       { "name": "source", "type": "string", "doc": "The ```` ```ui ```` outline source." },
@@ -1179,6 +1194,11 @@
       { "name": "speakerNotes", "type": "string?", "doc": "The label of a slide's notes." },
       { "name": "layoutFailed", "type": "string?", "doc": "Under the last page when the rest could not be laid out." }
     ] },
+    { "name": "OfficeSheetLabels", "kind": "record", "doc": "The words `ui.officeSheet` says: the grid's name for screen readers, and the notices a copy shows.", "fields": [
+      { "name": "name", "type": "string?", "doc": "The grid's accessible name: the sheet's name." },
+      { "name": "copyTooLarge", "type": "string?", "doc": "The toast when a copy holds more than 200,000 cells." },
+      { "name": "copyFailed", "type": "string?", "doc": "The toast when the cells could not be read." }
+    ] },
     { "name": "UpdaterState", "kind": "record", "rust": true, "doc": "Where the app updater stands.", "fields": [
       { "name": "phase", "type": "UpdaterPhase", "doc": "The phase." },
       { "name": "version", "type": "string?", "doc": "The available version." },
@@ -1193,6 +1213,12 @@
       { "name": "size", "type": "integer", "doc": "Modules per side." },
       { "name": "modules", "type": "{ boolean }", "doc": "`size * size` modules, row by row: true is dark." },
       { "name": "icon", "type": "IconName", "doc": "Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color." }
+    ] },
+    { "name": "ImageState", "kind": "record", "doc": "Where an image stands, from `Images:State`.", "fields": [
+      { "name": "status", "type": "ImageStatus", "doc": "Loading, loaded or failed." },
+      { "name": "width", "type": "number?", "doc": "Its width in pixels, once loaded." },
+      { "name": "height", "type": "number?", "doc": "Its height in pixels, once loaded." },
+      { "name": "error", "type": "string?", "doc": "Why it failed." }
     ] },
     { "name": "AskpassPrompt", "kind": "object", "doc": "A credential prompt from a child process.", "members": [
       { "name": "Id", "kind": "field", "type": "string", "doc": "Its id within the listener, as `Cleared` names it." },
@@ -1765,7 +1791,9 @@
     { "name": "Askpass", "halves": ["app"], "doc": "Credential prompts from child processes such as `ssh`.", "members": [
       { "name": "Listen", "kind": "method", "sig": "() -> AskpassListener", "doc": "Starts a loopback prompt endpoint." }
     ] },
-    { "name": "Images", "halves": ["window", "app"], "doc": "Images handed to the host for `ui.image`.", "members": [
+    { "name": "Images", "halves": ["window"], "doc": "Images for `ui.image`: loaded from a source or handed over, decoded off the UI thread by the window's image cache (PNG and APNG, JPEG, GIF, WebP, BMP, ICO, AVIF, ICNS and SVG).", "members": [
+      { "name": "Load", "kind": "method", "sig": "(src: string) -> ImageId", "doc": "The image at `src`, loading off the UI thread: an `https:` or `http:` URL, fetched as a browser loads an image (no credentials, 15 s, at most 8 MB); a path from `/`, read from the window's server with its sign-in (`/api/...`); a `data:` URL; or a file of the plugin's own folder by its relative path (`icons/logo.svg`). The same source is the same image, and its state is shared: one that failed fails again at once. `Images:State` says where it stands." },
+      { "name": "State", "kind": "method", "sig": "(image: ImageId) -> ImageState", "doc": "Where the image stands. Read in a render, it redraws as the image lands or fails." },
       { "name": "FromEncoded", "kind": "method", "sig": "(data: buffer | string) -> ImageId?", "doc": "A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused." },
       { "name": "FromSvg", "kind": "method", "sig": "(svg: string) -> ImageId?", "doc": "An SVG image." },
       { "name": "FromRgba", "kind": "method", "sig": "(pixels: buffer, width: number, height: number) -> ImageId?", "doc": "Straight-alpha RGBA8 pixels." },
@@ -1797,7 +1825,8 @@
     { "name": "divider", "category": "layout", "sig": "(props: UiDividerProps?) -> UiNode", "props": "UiDividerProps", "doc": "A hairline rule." },
     { "name": "text", "category": "content", "sig": "((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode)", "props": "UiTextProps", "doc": "Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text(\"{1} / {2}\", VALUE, read, write)`. Other braces stay as they are." },
     { "name": "icon", "category": "content", "sig": "((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode)", "props": "UiIconProps", "doc": "One of the app's icons." },
-    { "name": "image", "category": "content", "sig": "(props: UiImageProps) -> UiNode", "props": "UiImageProps", "doc": "An image the host holds." },
+    { "name": "image", "category": "content", "sig": "((props: UiImageProps, fallback: UiNode?) -> UiNode) & ((style: UiImageProps, props: UiImageProps, fallback: UiNode?) -> UiNode)", "props": "UiImageProps", "doc": "An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon)." },
+    { "name": "video", "category": "content", "sig": "(props: UiVideoProps) -> UiNode", "props": "UiVideoProps", "doc": "A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box." },
     { "name": "metric", "category": "content", "sig": "(props: UiMetricProps) -> UiNode", "props": "UiMetricProps", "doc": "A number shown as text. Hosts that can animate changed digits do." },
     { "name": "shimmer", "category": "content", "sig": "(content: string, props: UiTextProps?) -> UiNode", "props": "UiTextProps", "doc": "Text with the app's loading shimmer." },
     { "name": "keybind", "category": "content", "sig": "(props: UiKeybindProps) -> UiNode", "props": "UiKeybindProps", "doc": "A keyboard shortcut chip." },
@@ -1826,7 +1855,7 @@
     { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
     { "name": "openInButton", "category": "native", "sig": "(props: UiOpenInButtonProps) -> UiNode", "props": "UiOpenInButtonProps", "doc": "The app's Open in split button for a path.", "native": { "engine": "The system's app registry", "native": "Finding installed apps and their marks, launching them, the remembered choice", "luau": "Which path it opens" } },
     { "name": "officePages", "category": "native", "sig": "(props: UiOfficePagesProps) -> UiNode", "props": "UiOfficePagesProps", "doc": "A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom", "luau": "Opening the file, its binary placeholder, the words" } },
-    { "name": "officeSheet", "category": "native", "sig": "(props: UiOfficeSheetProps) -> UiNode", "props": "UiOfficeSheetProps", "doc": "A workbook's sheet: its headers and the cells under the scroll position.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Frames of the sheet drawn as it scrolls, headers, the active cell", "luau": "Opening the file, the sheet tabs" } },
+    { "name": "officeSheet", "category": "native", "sig": "(props: UiOfficeSheetProps) -> UiNode", "props": "UiOfficeSheetProps", "doc": "A workbook's sheet: its headers and the cells under the scroll position.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Frames of the sheet drawn as it scrolls, headers, the selection (click, Shift-click, drag, header and corner presses, Excel's keys), copying cells as tab-separated text and an HTML table, and the cell text screen readers read", "luau": "Opening the file, the sheet tabs, the words" } },
     { "name": "genUi", "category": "native", "sig": "(props: UiGenUiProps) -> UiNode", "props": "UiGenUiProps", "doc": "An interactive UI outline, from a ```` ```ui ```` code block.", "native": { "engine": "UI outline renderer", "native": "Outline parsing, widget primitives and their motion", "luau": "Which blocks render, through `AddCodeBlock`" } }
   ],
   "uiExtras": [

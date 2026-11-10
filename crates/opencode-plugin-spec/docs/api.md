@@ -98,7 +98,7 @@ What a plugin half's setup function receives.
 | `contract` | `string` | The contract version the host implements, such as `"1.0"`. |
 | `CreateSignal` | `<T...>() -> ScriptSignal<T...>` | A signal this plugin fires itself. |
 | `BindHotState` | `(save: () -> any, load: (state: any) -> ()) -> ()` | Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new. |
-| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`Images`](#images), [`I18n`](#i18n). |
+| `GetService` | `(name) -> <Name>Service` | One of: [`Sessions`](#sessions), [`Models`](#models), [`Server`](#server), [`Servers`](#servers), [`Http`](#http), [`Process`](#process), [`Store`](#store), [`Contracts`](#contracts), [`Console`](#console), [`Toast`](#toast), [`Theme`](#theme), [`App`](#app), [`System`](#system), [`Notifications`](#notifications), [`Workspace`](#workspace), [`Terminal`](#terminal), [`Updater`](#updater), [`Diagnostics`](#diagnostics), [`Power`](#power), [`Qr`](#qr), [`Askpass`](#askpass), [`I18n`](#i18n). |
 | `AddMenubarItem` | `(spec: MenubarItemSpec) -> Contribution` | Adds an item to the app menu bar. |
 | `AddServerSource` | `(spec: ServerSourceSpec) -> ServerSource` | Adds a source of servers. Add it in the app half so every window shares one list. |
 | `AddMcpTool` | `(spec: McpToolSpec) -> Contribution` | Adds a tool to the app's client MCP server. |
@@ -488,10 +488,12 @@ Credential prompts from child processes such as `ssh`. Halves: app.
 
 ### Images
 
-Images handed to the host for `ui.image`. Halves: window, app.
+Images for `ui.image`: loaded from a source or handed over, decoded off the UI thread by the window's image cache (PNG and APNG, JPEG, GIF, WebP, BMP, ICO, AVIF, ICNS and SVG). Halves: window.
 
 | Member | Type | Description |
 |---|---|---|
+| `:Load` | `(src: string) -> ImageId` | The image at `src`, loading off the UI thread: an `https:` or `http:` URL, fetched as a browser loads an image (no credentials, 15 s, at most 8 MB); a path from `/`, read from the window's server with its sign-in (`/api/...`); a `data:` URL; or a file of the plugin's own folder by its relative path (`icons/logo.svg`). The same source is the same image, and its state is shared: one that failed fails again at once. `Images:State` says where it stands. |
+| `:State` | `(image: ImageId) -> ImageState` | Where the image stands. Read in a render, it redraws as the image lands or fails. |
 | `:FromEncoded` | `(data: buffer \| string) -> ImageId?` | A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused. |
 | `:FromSvg` | `(svg: string) -> ImageId?` | An SVG image. |
 | `:FromRgba` | `(pixels: buffer, width: number, height: number) -> ImageId?` | Straight-alpha RGBA8 pixels. |
@@ -528,7 +530,8 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.divider(props: UiDividerProps?) -> UiNode` | layout | [`UiDividerProps`](#uidividerprops) | A hairline rule. |
 | `ui.text((content: string, props: UiTextProps?, ...string \| number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string \| number) -> UiNode)` | content | [`UiTextProps`](#uitextprops) | Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are. |
 | `ui.icon((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode)` | content | [`UiIconProps`](#uiiconprops) | One of the app's icons. |
-| `ui.image(props: UiImageProps) -> UiNode` | content | [`UiImageProps`](#uiimageprops) | An image the host holds. |
+| `ui.image((props: UiImageProps, fallback: UiNode?) -> UiNode) & ((style: UiImageProps, props: UiImageProps, fallback: UiNode?) -> UiNode)` | content | [`UiImageProps`](#uiimageprops) | An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon). |
+| `ui.video(props: UiVideoProps) -> UiNode` | content | [`UiVideoProps`](#uivideoprops) | A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box. |
 | `ui.metric(props: UiMetricProps) -> UiNode` | content | [`UiMetricProps`](#uimetricprops) | A number shown as text. Hosts that can animate changed digits do. |
 | `ui.shimmer(content: string, props: UiTextProps?) -> UiNode` | content | [`UiTextProps`](#uitextprops) | Text with the app's loading shimmer. |
 | `ui.keybind(props: UiKeybindProps) -> UiNode` | content | [`UiKeybindProps`](#uikeybindprops) | A keyboard shortcut chip. |
@@ -577,7 +580,7 @@ Heavy engines stay native in the host. Luau composes them as opaque nodes and dr
 | `ui.panelSidebar` | Pointer capture | The resize drag and the width it leaves | Whether it shows and what it holds |
 | `ui.openInButton` | The system's app registry | Finding installed apps and their marks, launching them, the remembered choice | Which path it opens |
 | `ui.officePages` | Office engines and a GPU vector renderer | Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom | Opening the file, its binary placeholder, the words |
-| `ui.officeSheet` | Office engines and a GPU vector renderer | Frames of the sheet drawn as it scrolls, headers, the active cell | Opening the file, the sheet tabs |
+| `ui.officeSheet` | Office engines and a GPU vector renderer | Frames of the sheet drawn as it scrolls, headers, the selection (click, Shift-click, drag, header and corner presses, Excel's keys), copying cells as tab-separated text and an HTML table, and the cell text screen readers read | Opening the file, the sheet tabs, the words |
 | `ui.genUi` | UI outline renderer | Outline parsing, widget primitives and their motion | Which blocks render, through `AddCodeBlock` |
 
 ## Semantic tokens
@@ -1071,6 +1074,16 @@ How an image fills its box.
 | `"cover"` | Fills the box, aspect kept, cropped. |
 | `"fill"` | Stretched to the box. |
 
+### ImageStatus
+
+Where an image stands (`Images:State`): an explicit machine, loading then loaded or failed.
+
+| Value | Meaning |
+|---|---|
+| `"loading"` | Its bytes are on their way or decoding, off the UI thread. |
+| `"loaded"` | Decoded, with a size. |
+| `"failed"` | It could not be read or decoded, or it has no pixels. It stays failed for the window's life, so later loads of the same source fail at once, as a browser remembers a broken image. |
+
 ### OfficeKind
 
 An Office document's format.
@@ -1539,14 +1552,30 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 ### UiImageProps
 
-`ui.image` props.
+`ui.image` props. Give it a size (`w`, `h`); without one it takes the image's own size in points once it has loaded. Inside a `view:Memo`, put `Images:State(image).status` in the memo's version, so the memo rebuilds as the image lands or fails.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | `ImageId` | The image, from the `Images` service or an `Async` render. |
+| `image` | `ImageId?` | The image, from the `Images` service or an `Async` render. |
+| `src` | `string?` | Instead of `image`: the source `Images:Load` takes (a URL, a server path, a data URL or a file of the plugin's folder). |
 | `fit` | `ImageFit?` | How it fills its box. |
+| `radius` | `number?` | Corner radius. |
+| `placeholder` | `Color?` | The fill under the image: shown while it loads and through its transparent pixels. |
+| `fadeIn` | `boolean?` | Fades in over 150 ms as it lands, at once with reduced motion. Off by default. |
+| `preview` | `boolean?` | A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it. |
+
+### UiVideoProps
+
+`ui.video` props. Give it a size.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `src` | `string` | An `https:` or `http:` URL of the video. |
+| `fit` | `ImageFit?` | How it fills its box: `contain` letterboxes it, `cover` crops it. |
 | `radius` | `number?` | Corner radius. |
 
 ### UiMetricProps
@@ -1937,13 +1966,14 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 ### UiOfficeSheetProps
 
-`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.
+`ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers, the selection and copying stay in the host.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
 | `document` | `OfficeDocument` | A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose. |
+| `labels` | `OfficeSheetLabels?` | The words the grid says, in the plugin's language. |
 
 ### UiGenUiProps
 
@@ -2652,6 +2682,16 @@ The words `ui.officePages` shows, in the plugin's language.
 | `speakerNotes` | `string?` | The label of a slide's notes. |
 | `layoutFailed` | `string?` | Under the last page when the rest could not be laid out. |
 
+### OfficeSheetLabels
+
+The words `ui.officeSheet` says: the grid's name for screen readers, and the notices a copy shows.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string?` | The grid's accessible name: the sheet's name. |
+| `copyTooLarge` | `string?` | The toast when a copy holds more than 200,000 cells. |
+| `copyFailed` | `string?` | The toast when the cells could not be read. |
+
 ### UpdaterState
 
 Where the app updater stands.
@@ -2681,6 +2721,17 @@ A QR code's module matrix.
 | `size` | `number` | Modules per side. |
 | `modules` | `{ boolean }` | `size * size` modules, row by row: true is dark. |
 | `icon` | `IconName` | Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color. |
+
+### ImageState
+
+Where an image stands, from `Images:State`.
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `ImageStatus` | Loading, loaded or failed. |
+| `width` | `number?` | Its width in pixels, once loaded. |
+| `height` | `number?` | Its height in pixels, once loaded. |
+| `error` | `string?` | Why it failed. |
 
 ### AskpassPrompt
 

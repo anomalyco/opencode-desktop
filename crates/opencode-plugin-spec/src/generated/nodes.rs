@@ -20,8 +20,10 @@ string_enum! {
         Text = "text",
         /// One of the app's icons.
         Icon = "icon",
-        /// An image the host holds.
+        /// An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon).
         Image = "image",
+        /// A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box.
+        Video = "video",
         /// A number shown as text. Hosts that can animate changed digits do.
         Metric = "metric",
         /// Text with the app's loading shimmer.
@@ -103,7 +105,7 @@ impl NodeKind {
     pub fn category(self) -> NodeCategory {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
-            Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
+            Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
@@ -123,6 +125,7 @@ impl NodeKind {
             Self::Text | Self::Shimmer => &UI_TEXT_PROPS,
             Self::Icon => &UI_ICON_PROPS,
             Self::Image => &UI_IMAGE_PROPS,
+            Self::Video => &UI_VIDEO_PROPS,
             Self::Metric => &UI_METRIC_PROPS,
             Self::Keybind => &UI_KEYBIND_PROPS,
             Self::Button => &UI_BUTTON_PROPS,
@@ -305,9 +308,13 @@ pub static UI_ICON_PROPS: PropsSpec = PropsSpec::new("UiIconProps", Some(&UI_LAY
 
 /// `UiImageProps`.
 pub static UI_IMAGE_PROPS: PropsSpec = PropsSpec::new("UiImageProps", Some(&UI_LAYOUT_PROPS), &[
-    PropSpec::new("image", PropType::Handle("ImageId"), true),
+    PropSpec::new("image", PropType::Handle("ImageId"), false),
+    PropSpec::new("src", PropType::String, false),
     PropSpec::new("fit", PropType::Enum("ImageFit"), false),
     PropSpec::new("radius", PropType::Number, false),
+    PropSpec::new("placeholder", PropType::Color, false),
+    PropSpec::new("fadeIn", PropType::Bool, false),
+    PropSpec::new("preview", PropType::Bool, false),
 ]);
 
 /// `UiKeybindProps`.
@@ -387,6 +394,7 @@ pub static UI_OFFICE_PAGES_PROPS: PropsSpec = PropsSpec::new("UiOfficePagesProps
 /// `UiOfficeSheetProps`.
 pub static UI_OFFICE_SHEET_PROPS: PropsSpec = PropsSpec::new("UiOfficeSheetProps", Some(&UI_LAYOUT_PROPS), &[
     PropSpec::new("document", PropType::Record("OfficeDocument"), true),
+    PropSpec::new("labels", PropType::Record("OfficeSheetLabels"), false),
 ]);
 
 /// `UiOpenInButtonProps`.
@@ -508,6 +516,13 @@ pub static UI_TEXT_PROPS: PropsSpec = PropsSpec::new("UiTextProps", Some(&UI_LAY
     PropSpec::new("textAlign", PropType::Enum("Align"), false),
     PropSpec::new("hoverGroupColor", PropType::Color, false),
     PropSpec::new("revealOnHover", PropType::Bool, false),
+]);
+
+/// `UiVideoProps`.
+pub static UI_VIDEO_PROPS: PropsSpec = PropsSpec::new("UiVideoProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("src", PropType::String, true),
+    PropSpec::new("fit", PropType::Enum("ImageFit"), false),
+    PropSpec::new("radius", PropType::Number, false),
 ]);
 
 /// `UiVirtualListProps`.

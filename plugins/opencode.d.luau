@@ -174,6 +174,9 @@ export type BrowserZoom = "in" | "out" | "reset"
 --- How an image fills its box.
 export type ImageFit = "contain" | "cover" | "fill"
 
+--- Where an image stands (`Images:State`): an explicit machine, loading then loaded or failed.
+export type ImageStatus = "loading" | "loaded" | "failed"
+
 --- An Office document's format.
 export type OfficeKind = "docx" | "xlsx" | "pptx"
 
@@ -859,7 +862,7 @@ export type UiIconProps = {
     revealOnHover: boolean?,
 }
 
---- `ui.image` props.
+--- `ui.image` props. Give it a size (`w`, `h`); without one it takes the image's own size in points once it has loaded. Inside a `view:Memo`, put `Images:State(image).status` in the memo's version, so the memo rebuilds as the image lands or fails.
 export type UiImageProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -922,8 +925,86 @@ export type UiImageProps = {
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The image, from the `Images` service or an `Async` render.
-    image: ImageId,
+    image: ImageId?,
+    --- Instead of `image`: the source `Images:Load` takes (a URL, a server path, a data URL or a file of the plugin's folder).
+    src: string?,
     --- How it fills its box.
+    fit: ImageFit?,
+    --- Corner radius.
+    radius: number?,
+    --- The fill under the image: shown while it loads and through its transparent pixels.
+    placeholder: Color?,
+    --- Fades in over 150 ms as it lands, at once with reduced motion. Off by default.
+    fadeIn: boolean?,
+    --- A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it.
+    preview: boolean?,
+}
+
+--- `ui.video` props. Give it a size.
+export type UiVideoProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- An `https:` or `http:` URL of the video.
+    src: string,
+    --- How it fills its box: `contain` letterboxes it, `cover` crops it.
     fit: ImageFit?,
     --- Corner radius.
     radius: number?,
@@ -2877,7 +2958,7 @@ export type UiOfficePagesProps = {
     labels: OfficePagesLabels,
 }
 
---- `ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers and the active cell stay in the host.
+--- `ui.officeSheet` props. Native: frames of the sheet as it scrolls, its headers, the selection and copying stay in the host.
 export type UiOfficeSheetProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -2941,6 +3022,8 @@ export type UiOfficeSheetProps = {
     dir: ("ltr" | "rtl" | "auto")?,
     --- A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose.
     document: OfficeDocument,
+    --- The words the grid says, in the plugin's language.
+    labels: OfficeSheetLabels?,
 }
 
 --- `ui.genUi` props. Native: the outline parser and its animated widgets stay in the host.
@@ -3899,6 +3982,16 @@ export type OfficePagesLabels = {
     layoutFailed: string?,
 }
 
+--- The words `ui.officeSheet` says: the grid's name for screen readers, and the notices a copy shows.
+export type OfficeSheetLabels = {
+    --- The grid's accessible name: the sheet's name.
+    name: string?,
+    --- The toast when a copy holds more than 200,000 cells.
+    copyTooLarge: string?,
+    --- The toast when the cells could not be read.
+    copyFailed: string?,
+}
+
 --- Where the app updater stands.
 export type UpdaterState = {
     --- The phase.
@@ -3927,6 +4020,18 @@ export type QrCode = {
     modules: { boolean },
     --- Its dark modules inside a 4-module quiet zone, as an icon `ui.icon` draws crisp at any size in its color.
     icon: IconName,
+}
+
+--- Where an image stands, from `Images:State`.
+export type ImageState = {
+    --- Loading, loaded or failed.
+    status: ImageStatus,
+    --- Its width in pixels, once loaded.
+    width: number?,
+    --- Its height in pixels, once loaded.
+    height: number?,
+    --- Why it failed.
+    error: string?,
 }
 
 --- A credential prompt from a child process.
@@ -5005,8 +5110,12 @@ export type AskpassService = {
     Listen: (self: AskpassService) -> AskpassListener,
 }
 
---- Images handed to the host for `ui.image`. Both halves: `ctx:GetService("Images")`.
+--- Images for `ui.image`: loaded from a source or handed over, decoded off the UI thread by the window's image cache (PNG and APNG, JPEG, GIF, WebP, BMP, ICO, AVIF, ICNS and SVG). The window half only: `ctx:GetService("Images")`.
 export type ImagesService = {
+    --- The image at `src`, loading off the UI thread: an `https:` or `http:` URL, fetched as a browser loads an image (no credentials, 15 s, at most 8 MB); a path from `/`, read from the window's server with its sign-in (`/api/...`); a `data:` URL; or a file of the plugin's own folder by its relative path (`icons/logo.svg`). The same source is the same image, and its state is shared: one that failed fails again at once. `Images:State` says where it stands.
+    Load: (self: ImagesService, src: string) -> ImageId,
+    --- Where the image stands. Read in a render, it redraws as the image lands or fails.
+    State: (self: ImagesService, image: ImageId) -> ImageState,
     --- A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused.
     FromEncoded: (self: ImagesService, data: buffer | string) -> ImageId?,
     --- An SVG image.
@@ -5179,51 +5288,49 @@ declare extern type AppContext with
     CreateSignal: AppContextCreateSignal
     --- Carries plain data across a hot reload: the host calls `save` on the old code and `load` on the new.
     function BindHotState(self, save: () -> any, load: (state: any) -> ()): ()
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Sessions"): SessionsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Models"): ModelsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Server"): ServerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Servers"): ServersService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Http"): HttpService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Process"): ProcessService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Store"): StoreService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Contracts"): ContractsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Console"): ConsoleService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Toast"): ToastService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Theme"): ThemeService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "App"): AppService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "System"): SystemService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Notifications"): NotificationsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Workspace"): WorkspaceService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Terminal"): TerminalService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Updater"): UpdaterService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Diagnostics"): DiagnosticsService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Power"): PowerService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Qr"): QrService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "Askpass"): AskpassService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
-    function GetService(self, name: "Images"): ImagesService
-    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office.
+    --- Returns a host service by name; each overload narrows the type. The window half alone has: Popover, Dialog, Menu, Layout, Links, Commands, Diff, Browser, Composer, Office, Images.
     function GetService(self, name: "I18n"): I18nService
     --- Adds an item to the app menu bar.
     function AddMenubarItem(self, spec: MenubarItemSpec): Contribution
@@ -5253,8 +5360,10 @@ export type UiLibrary = {
     text: ((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode),
     --- One of the app's icons.
     icon: ((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode),
-    --- An image the host holds.
-    image: (props: UiImageProps) -> UiNode,
+    --- An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon).
+    image: ((props: UiImageProps, fallback: UiNode?) -> UiNode) & ((style: UiImageProps, props: UiImageProps, fallback: UiNode?) -> UiNode),
+    --- A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box.
+    video: (props: UiVideoProps) -> UiNode,
     --- A number shown as text. Hosts that can animate changed digits do.
     metric: (props: UiMetricProps) -> UiNode,
     --- Text with the app's loading shimmer.

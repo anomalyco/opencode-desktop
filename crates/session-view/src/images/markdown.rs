@@ -32,6 +32,13 @@ enum Slot {
     Failed,
 }
 
+/// Where a site's favicon stands (`site-icon.tsx`'s `loading | loaded | failed`).
+pub enum SiteIcon {
+    Loading,
+    Loaded(Pixels),
+    Failed,
+}
+
 /// Where pictures are fetched from: the live server's file reads and the web.
 #[derive(Clone)]
 struct Fetches {
@@ -165,6 +172,25 @@ impl MdStore {
         let host = favicon_host(url)?;
         let image = self.get(Source::Web(format!("https://www.google.com/s2/favicons?domain={}&sz=32", encode(&host))))?;
         (image.is_ready() && image.error().is_none() && image.size().is_some_and(|[w, _]| w > 0)).then(|| image.pixels().clone())
+    }
+
+    /// Site `host`'s own favicon, as the Sources experiment's site icons ask the site for it
+    /// (`site-icon.tsx`: `https://<host>/favicon.ico`), and where it stands. A favicon that failed
+    /// stays failed until the fetches change, so later tiles of its host show the letter at once.
+    pub fn site_icon(&self, host: &str) -> SiteIcon {
+        let source = Source::Web(format!("https://{host}/favicon.ico"));
+        let image = self.get(source.clone());
+        if matches!(self.slots.borrow().get(&source), Some(Slot::Failed)) {
+            return SiteIcon::Failed;
+        }
+        match image {
+            Some(image) if image.is_ready() => match (image.error(), image.size()) {
+                // As Desktop checks `naturalWidth > 0`.
+                (None, Some([w, h])) if w > 0 && h > 0 => SiteIcon::Loaded(image.pixels().clone()),
+                _ => SiteIcon::Failed,
+            },
+            _ => SiteIcon::Loading,
+        }
     }
 
     fn get(&self, source: Source) -> Option<Image> {

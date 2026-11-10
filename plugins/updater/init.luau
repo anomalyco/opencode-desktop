@@ -28,6 +28,8 @@ return plugin.defineWindow(function(ctx)
     local Contracts = ctx:GetService("Contracts")
     local App = ctx:GetService("App")
     local Http = ctx:GetService("Http")
+    local Images = ctx:GetService("Images")
+    local Theme = ctx:GetService("Theme")
     local releaseNotes = Store:Value("releaseNotes", { enabled = true }) :: StoreValue<ReleaseNotes>
     local seen = Store:Value("seen", {} :: Seen) :: StoreValue<Seen>
     local changed = ctx:CreateSignal()
@@ -244,10 +246,16 @@ return plugin.defineWindow(function(ctx)
         size = "large",
         render = function(v, props)
             local data = (props.data or {}) :: any
-            return v:Memo("release-dialog", `{highlightIndex}:{I18n:Locale().id}`, function()
+            -- The shown feature's picture landing or failing rebuilds the dialog.
+            local feature = (data.highlights or {})[highlightIndex]
+            local media = feature and feature.media
+            local picture = if media and media.type == "image" then Images:State(Images:Load(media.src)).status else ""
+            local dark = Theme:IsDark()
+            return v:Memo("release-dialog", `{highlightIndex}:{picture}:{dark}:{I18n:Locale().id}`, function()
                 return view.highlights(I18n, v, {
                     highlights = data.highlights or {},
                     index = highlightIndex,
+                    dark = dark,
                     go = function(i)
                         highlightIndex = i
                         changed:Fire()

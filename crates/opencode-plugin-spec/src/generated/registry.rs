@@ -189,7 +189,7 @@ string_enum! {
         Qr = "Qr",
         /// Credential prompts from child processes such as `ssh`.
         Askpass = "Askpass",
-        /// Images handed to the host for `ui.image`.
+        /// Images for `ui.image`: loaded from a source or handed over, decoded off the UI thread by the window's image cache (PNG and APNG, JPEG, GIF, WebP, BMP, ICO, AVIF, ICNS and SVG).
         Images = "Images",
         /// The plugin's own messages in the interface language, and numbers, dates and lists written the way the app writes them. A plugin's catalogs are `locales/<id>.json` in its folder: flat objects of message keys, the app's format.
         I18n = "I18n",
@@ -231,7 +231,7 @@ impl ServiceName {
             Self::Power => &[Half::Window, Half::App],
             Self::Qr => &[Half::Window, Half::App],
             Self::Askpass => &[Half::App],
-            Self::Images => &[Half::Window, Half::App],
+            Self::Images => &[Half::Window],
             Self::I18n => &[Half::Window, Half::App],
         }
     }
@@ -270,7 +270,7 @@ impl ServiceName {
             Self::Power => &["KeepAwake"],
             Self::Qr => &["Encode"],
             Self::Askpass => &["Listen"],
-            Self::Images => &["FromEncoded", "FromSvg", "FromRgba", "Release"],
+            Self::Images => &["Load", "State", "FromEncoded", "FromSvg", "FromRgba", "Release"],
             Self::I18n => &["T", "Has", "Locale", "Direction", "Plural", "Number", "Date", "RelativeTime", "RelativeDay", "List", "Changed"],
         }
     }

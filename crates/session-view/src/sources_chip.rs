@@ -15,11 +15,12 @@ pub const LINK: &str = "opencode-sources:";
 
 const COLORS: [&str; 8] = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"];
 
-/// What the chip shows of a turn: its prompt's id, how many pages it met, their first three sites.
+/// What the chip shows of a turn: its prompt's id, how many pages it met, their first three
+/// sites (each with the host it was met on, whose favicon a site icon shows).
 pub struct Chip {
     pub prompt: String,
     pub count: usize,
-    pub sites: Vec<String>,
+    pub sites: Vec<(String, String)>,
 }
 
 /// The turn that reply `message` ends: its web searches' results and the pages it opened,
@@ -30,17 +31,17 @@ pub fn of(t: &Transcript, message: usize) -> Option<Chip> {
     let end = t.messages[start + 1..].iter().position(|m| matches!(m, Message::User { .. })).map_or(t.messages.len(), |n| start + 1 + n);
     let mut steps = 0;
     let mut seen: Vec<String> = Vec::new();
-    let mut sites: Vec<String> = Vec::new();
+    let mut sites: Vec<(String, String)> = Vec::new();
     let mut count = 0;
     let mut meet = |url: &str| {
-        let Some((site, key)) = page(url) else { return };
+        let Some((site, key, host)) = page(url) else { return };
         if seen.contains(&key) {
             return;
         }
         seen.push(key);
         count += 1;
-        if !sites.contains(&site) {
-            sites.push(site);
+        if !sites.iter().any(|(s, _)| *s == site) {
+            sites.push((site, host));
         }
     };
     for m in &t.messages[start + 1..end] {
@@ -87,9 +88,9 @@ fn results(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// A web page's site (its host without `www.`) and its identity: the site, path without a
-/// trailing slash, and query.
-fn page(url: &str) -> Option<(String, String)> {
+/// A web page's site (its host without `www.`), its identity (the site, path without a
+/// trailing slash, and query) and its host.
+fn page(url: &str) -> Option<(String, String, String)> {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let host = rest[..end].rsplit('@').next()?.split(':').next()?.to_lowercase();
@@ -99,7 +100,7 @@ fn page(url: &str) -> Option<(String, String)> {
     let site = host.strip_prefix("www.").unwrap_or(&host).to_owned();
     let tail = rest[end..].split('#').next().unwrap_or_default();
     let (path, query) = tail.split_once('?').map_or((tail, String::new()), |(p, q)| (p, format!("?{q}")));
-    Some((site.clone(), format!("{site}{}{query}", path.trim_end_matches('/'))))
+    Some((site.clone(), format!("{site}{}{query}", path.trim_end_matches('/')), host))
 }
 
 /// The chip (`sources-chip`): 20 tall, 2 then 8 in, fully round on the hover overlay, its tiles
@@ -120,15 +121,16 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
         // The first tile on top, ringed in the chip's surface: the gap each later tile's mask
         // cuts round the one before it.
         let n = chip.sites.len();
+        let site_icons = s.knobs().get(&crate::knobs::SOURCES_ICONS) > 0.5;
         let mut stack = el().w(16.0 + 13.0 * (n - 1) as f32).h(16.0);
-        for (i, site) in chip.sites.iter().enumerate().rev() {
-            let tile = tile(p, site).absolute(13.0 * i as f32, 0.0);
+        for (i, (site, host)) in chip.sites.iter().enumerate().rev() {
+            let shown = if site_icons { site_icon(s, p, site, host) } else { tile(p, site) };
+            let tile = shown.key(format!("site-{i}")).absolute(13.0 * i as f32, 0.0);
             stack = stack.child(if i + 1 < n { tile.outline(1.5, 0.0, behind) } else { tile });
         }
         row().child(stack)
     };
     let href = format!("{LINK}{}", chip.prompt);
-    let _ = s;
     row()
         .key("sources-chip")
         .role("button")
@@ -145,6 +147,25 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
         .child(icons)
         .child(text(label).font(rune::TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05)).color(p.muted).group_color(p.text).single_line())
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_link(&href, tx))
+}
+
+/// A site's own icon (`site-icon`, site): its favicon covering a 16 round tile on layer-02
+/// (`[data-state]`), fading in over 150 ms once it loaded (`transition: opacity 150ms ease-out`),
+/// and the letter tile in its place once it failed (`site-icon.tsx:13-44`).
+fn site_icon<S: TimelineHost>(s: &S, p: &Pal, site: &str, host: &str) -> El {
+    let pixels = match s.media_store().markdown.site_icon(host) {
+        crate::images::markdown::SiteIcon::Failed => return tile(p, site),
+        crate::images::markdown::SiteIcon::Loading => None,
+        crate::images::markdown::SiteIcon::Loaded(pixels) => Some(pixels),
+    };
+    let token = |name: &str| crate::palette::token(p.dark, name);
+    let ring = token("alpha-dark-12").unwrap_or(p.border);
+    let ease = rune::Curve::tween(0.15, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
+    let mut icon = el().key("favicon").size(16.0, 16.0).opacity(if pixels.is_some() { 1.0 } else { 0.0 }).opacity_motion(ease);
+    if let Some(pixels) = &pixels {
+        icon = icon.pixels_fit(pixels, rune::SurfaceFit::Fill);
+    }
+    el().size(16.0, 16.0).radius(8.0).fill(p.layer2).box_shadow(Shadow { spread: 0.5, color: ring, inset: true, ..Shadow::default() }).clip_rounded(8.0).child(icon)
 }
 
 /// A site's letter tile (`site-icon`, letters): 16 round on its avatar colour.

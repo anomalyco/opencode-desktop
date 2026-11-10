@@ -12,6 +12,7 @@ mod app;
 pub mod askpass;
 pub mod diag;
 mod i18n;
+pub mod images;
 mod net;
 pub mod power;
 #[cfg(feature = "office")]
@@ -43,12 +44,10 @@ pub use ui::panel_state as ui_panel_state;
 pub use watch::fire_watched;
 
 /// Services later packages bring, and which.
-const PENDING: &[(&str, &str)] = &[
-    ("Images", "LU-5"),
-];
+const PENDING: &[(&str, &str)] = &[];
 
 /// Window-half-only services.
-const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff", "Office", "Browser", "Composer"];
+const WINDOW_ONLY: &[&str] = &["Popover", "Dialog", "Menu", "Layout", "Links", "Commands", "Diff", "Office", "Browser", "Composer", "Images"];
 
 /// App-half-only services.
 const APP_ONLY: &[&str] = &["Askpass"];
@@ -117,6 +116,7 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
         "Updater" => updater::build(lua, vmx, &t)?,
+        "Images" => images::build(lua, vmx, &t)?,
         #[cfg(feature = "office")]
         "Office" => office::build(lua, vmx, &t)?,
         "Diff" | "Terminal" | "Browser" | "Composer" => super::native::build(lua, vmx, name, &t)?,
@@ -437,6 +437,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Sidebar => (app.panel_sidebar.opened, app.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
         Dep::Plugin(id) => app.plugins.luau.plugins.iter().find(|p| p.half.id == *id).map(|p| (p.script().map(|s| s.version()), p.half.epoch.get())).hash(&mut h),
         Dep::Updater => app.updater.revision().hash(&mut h),
+        Dep::Image(plugin, id) => app.plugins.shared.images.borrow().get(plugin, *id).map(crate::plugin_host::images::load::Load::status).hash(&mut h),
         #[cfg(feature = "office")]
         Dep::Office(id) => crate::office::registry::version(*id).hash(&mut h),
         #[cfg(not(feature = "office"))]

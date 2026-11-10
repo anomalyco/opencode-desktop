@@ -144,6 +144,8 @@ pub enum Dep {
     /// The window's browser: its pages, the sessions they belong to, where the keyboard is
     /// among them, and the engine's state (`Browser`).
     Browser,
+    /// Where a plugin's image stands (`Images:State`, `ui.image`).
+    Image(Rc<str>, u32),
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

@@ -21,6 +21,8 @@ return plugin.defineWindow(function(ctx)
         Links = ctx:GetService("Links"),
         I18n = I18n,
         Theme = ctx:GetService("Theme"),
+        Images = ctx:GetService("Images"),
+        Diagnostics = Diagnostics,
         state = { expand = {}, parsed = {} },
     }
 

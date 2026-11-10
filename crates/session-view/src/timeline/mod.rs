@@ -129,12 +129,14 @@ impl RowSpec {
                         let copied = body.contains("```").then(|| crate::copied::current(s));
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
-                        let pictures = (body.contains("![") || body.contains("://")).then(|| {
+                        let footer = footer_text(t, *message, *part);
+                        // The footer's Sources chip shows its sites' favicons with site icons on.
+                        let favicons = footer && k.get(&crate::knobs::SOURCES_ENABLED) > 0.5 && k.get(&crate::knobs::SOURCES_ICONS) > 0.5;
+                        let pictures = (body.contains("![") || body.contains("://") || favicons).then(|| {
                             let m = s.media_store();
                             let directory = s.active_session_id().and_then(|id| s.session_directory(id));
-                            (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory)
+                            (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory, favicons)
                         });
-                        let footer = footer_text(t, *message, *part);
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
                         let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips));
