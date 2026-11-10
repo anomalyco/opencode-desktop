@@ -362,8 +362,6 @@ pub struct Popup {
     query: TextEdit,
     /// The element focused as a [`Menu::remembers_focus`] menu opened.
     remembered: Option<String>,
-    /// The closing menu's pick opened a dialog that takes focus ([`hand_off`]).
-    handed_off: bool,
 }
 
 impl Popup {
@@ -490,24 +488,19 @@ fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx
         _ => None,
     };
     popover::motion::closing(&s.knobs, tx);
-    s.popup.handed_off = false;
     (shown.pick)(s, picked, tx);
-    // A pick that opened a dialog or another menu has focus where that put it, as Kobalte's
-    // restore finds focus outside the menu and leaves it (menu.tsx:349-352); a field it
-    // focused through its model wins over this anyway.
-    if s.popup.handed_off || s.popup.shown.is_some() {
+    // A pick that opened another menu has focus where that put it, as Kobalte's restore finds
+    // focus outside the menu and leaves it (menu.tsx:349-352); a field it focused through its
+    // model wins over this anyway. A dialog it opened keeps focus too, and hands it back as a
+    // web dialog opened from a menu item does (`Tx::return_focus`).
+    if s.popup.shown.is_some() {
         return;
     }
     match effect {
-        Some(restore::Effect::Focus { key, ring }) => tx.focus(key, ring),
+        Some(restore::Effect::Focus { key, ring }) => tx.return_focus(key, ring),
         Some(restore::Effect::Blur) => tx.blur(),
         None => {}
     }
-}
-
-/// A pick's dialog takes focus: the menu leaves it there as it closes.
-pub fn hand_off(s: &mut App) {
-    s.popup.handed_off = true;
 }
 
 /// Picks row `n`, if it's offered.

@@ -194,10 +194,7 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
         "export" => {
             s.write(Write::Export(t.id.clone()));
         }
-        "delete" => {
-            crate::popup::hand_off(s);
-            s.ask_delete(&t.id);
-        }
+        "delete" => s.ask_delete(&t.id),
         _ => {}
     }
 }

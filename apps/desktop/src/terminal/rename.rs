@@ -119,15 +119,11 @@ impl Renames {
 }
 
 /// Turns tab `id`'s title into a field holding it, all of it selected.
-pub(super) fn start(s: &mut App, id: &str, source: Source, tx: &mut Tx) {
+pub(super) fn start(s: &mut App, id: &str, _source: Source, tx: &mut Tx) {
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     let ws = s.terminal_workspace_key_for_session(&sid);
     let Some(tab) = s.terminal.workspaces.get(&ws).and_then(|w| w.tabs.iter().find(|t| t.id == id)) else { return };
     let title = tab.title.clone();
-    // A menu pick hands focus to the field rather than back to the menu's trigger.
-    if source == Source::Menu {
-        popup::hand_off(s);
-    }
     let effects = s.terminal.renaming.step(Event::Start { ws, id: id.to_owned(), title });
     run(s, effects, tx);
 }
