@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Ստիպել հավելվածի ամբողջական դասավորության ուղղությունը՝ առանց ընտրված լեզուն փոխելու",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Հարցումը ձախողվեց"
 }

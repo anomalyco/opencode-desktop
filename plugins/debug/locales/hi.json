@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "चुनी गई भाषा बदले बिना पूरे ऐप की लेआउट दिशा ज़बरदस्ती सेट करें",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "अनुरोध विफल रहा"
 }

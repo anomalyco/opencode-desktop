@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "තෝරාගත් භාෂාව වෙනස් නොකර සම්පූර්ණ යෙදුම් පිරිසැලසුම් දිශාව බල කරන්න",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "ඉල්ලීම අසාර්ථක විය"
 }

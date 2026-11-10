@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Tanlangan tilni oʻzgartirmasdan ilovaning toʻliq joylashuvi yoʻnalishini majburlang",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Soʻrov bajarilmadi"
 }

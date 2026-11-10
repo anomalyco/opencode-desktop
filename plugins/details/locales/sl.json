@@ -31,5 +31,6 @@
   "workspace.local": "Lokalno skladišče",
   "workspace.existing": "Delovno drevo",
   "workspace.new": "Nov delovni prostor",
-  "mcp.interactiveAuth": "MCP strežnik {{name}} zahteva interaktivni obrazec za overjanje"
+  "mcp.interactiveAuth": "MCP strežnik {{name}} zahteva interaktivni obrazec za overjanje",
+  "continue": "Nadaljuj"
 }

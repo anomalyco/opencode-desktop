@@ -15,5 +15,6 @@
   "direction.label": "VIRZIENS",
   "direction.tip": "Piespiedu kārtā lietot pilnu lietotnes izkārtojuma virzienu, nemainot izvēlēto valodu",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Pieprasījums neizdevās"
 }

@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "चयन गरिएको भाषा परिवर्तन नगरी पूर्ण एप लेआउट दिशा बल गर्नुहोस्",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "अनुरोध असफल भयो"
 }

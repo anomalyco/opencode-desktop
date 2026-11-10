@@ -31,5 +31,6 @@
   "workspace.local": "Локално хранилище",
   "workspace.existing": "Работно дърво",
   "workspace.new": "Ново работно пространство",
-  "mcp.interactiveAuth": "MCP сървърът {{name}} изисква интерактивен формуляр за удостоверяване"
+  "mcp.interactiveAuth": "MCP сървърът {{name}} изисква интерактивен формуляр за удостоверяване",
+  "continue": "Продължи"
 }

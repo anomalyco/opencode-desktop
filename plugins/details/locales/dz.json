@@ -31,5 +31,6 @@
   "workspace.local": "ས་གནས་ཀྱི་མཛོད་ཁང་།",
   "workspace.existing": "Git worktree",
   "workspace.new": "ལཱ་གི་ས་སྒོ་གསརཔ།",
-  "mcp.interactiveAuth": "MCP སར་བར་ {{name}} ལུ་ འབྲེལ་མཐུན་བདེན་བཤད་འབྲི་ཤོག་ཅིག་དགོཔ་ཨིན།"
+  "mcp.interactiveAuth": "MCP སར་བར་ {{name}} ལུ་ འབྲེལ་མཐུན་བདེན་བཤད་འབྲི་ཤོག་ཅིག་དགོཔ་ཨིན།",
+  "continue": "འཕྲོ༌མཐུད"
 }

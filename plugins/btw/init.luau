@@ -182,12 +182,12 @@ return plugin.defineWindow(function(ctx)
         section = "session",
         slash = { name = "btw", arguments = true },
         hidden = true,
+        -- Offered only while a session is open in a desktop-width window.
         requiresSession = true,
+        enabled = function()
+            return not Layout:Narrow()
+        end,
         run = function(input)
-            -- Offered only in a desktop-width window.
-            if Layout:Narrow() then
-                return false
-            end
             local question = (input or ""):match("^%s*(.-)%s*$") or ""
             if question == "" then
                 Toast:Info(I18n:T("question.required"))

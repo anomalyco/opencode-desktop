@@ -31,5 +31,6 @@
   "workspace.local": "Локальний репозиторій",
   "workspace.existing": "Робоче дерево",
   "workspace.new": "Нова робоча область",
-  "mcp.interactiveAuth": "Сервер MCP {{name}} потребує інтерактивної форми автентифікації"
+  "mcp.interactiveAuth": "Сервер MCP {{name}} потребує інтерактивної форми автентифікації",
+  "continue": "Продовжити"
 }

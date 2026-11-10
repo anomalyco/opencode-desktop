@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Layoutrichtung für die gesamte App erzwingen, ohne die ausgewählte Sprache zu ändern",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Anfrage fehlgeschlagen"
 }

@@ -15,5 +15,6 @@
   "direction.label": "DIR།",
   "direction.tip": "སེལ་འཐུ་འབད་ཡོད་པའི་སྐད་ཡིག་བསྒྱུར་བཅོས་མ་འབད་བར་ གློག་རིམ་ཆ་ཚང་སྒྲིག་བཀོད་ཁ་ཕྱོགས་བང་བཙོང་འབད།",
   "direction.ltr": "LTR།",
-  "direction.rtl": "RTL།"
+  "direction.rtl": "RTL།",
+  "requestFailed": "ཞུ་བ་འཐུས་ཤོར་འབྱུང་ཡོདཔ།"
 }

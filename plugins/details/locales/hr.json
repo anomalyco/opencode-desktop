@@ -31,5 +31,6 @@
   "workspace.local": "Lokalno spremište",
   "workspace.existing": "Radno stablo",
   "workspace.new": "Novi radni prostor",
-  "mcp.interactiveAuth": "MCP poslužitelj {{name}} zahtijeva interaktivni obrazac za autentikaciju"
+  "mcp.interactiveAuth": "MCP poslužitelj {{name}} zahtijeva interaktivni obrazac za autentikaciju",
+  "continue": "Nastaviti"
 }

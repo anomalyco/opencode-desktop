@@ -31,5 +31,6 @@
   "workspace.local": "Орон нутгийн хадгалах газар",
   "workspace.existing": "Worktree",
   "workspace.new": "Шинэ ажлын талбар",
-  "mcp.interactiveAuth": "MCP сервер {{name}} интерактив баталгаажуулах маягт шаарддаг"
+  "mcp.interactiveAuth": "MCP сервер {{name}} интерактив баталгаажуулах маягт шаарддаг",
+  "continue": "Үргэлжлүүлэх"
 }

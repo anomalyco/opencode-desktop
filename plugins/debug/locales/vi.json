@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Buộc đặt hướng bố cục cho toàn bộ ứng dụng mà không thay đổi ngôn ngữ đã chọn",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Không thực hiện được yêu cầu"
 }

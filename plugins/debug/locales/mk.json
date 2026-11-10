@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Присилете ја насоката на целосниот распоред на апликацијата без да го менувате избраниот јазик",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Барањето не успеа"
 }

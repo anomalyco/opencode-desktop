@@ -31,5 +31,6 @@
   "workspace.local": "Mahalliy ombor",
   "workspace.existing": "Worktree",
   "workspace.new": "Yangi ish maydoni",
-  "mcp.interactiveAuth": "MCP server {{name}} interaktiv autentifikatsiya shaklini talab qiladi"
+  "mcp.interactiveAuth": "MCP server {{name}} interaktiv autentifikatsiya shaklini talab qiladi",
+  "continue": "Davom eting"
 }

@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Vsili celotno smer postavitve aplikacije brez spreminjanja izbranega jezika",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Zahteva ni uspela"
 }

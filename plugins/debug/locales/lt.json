@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Priverskite visą programos išdėstymo kryptį nekeisdami pasirinktos kalbos",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Užklausa nepavyko"
 }

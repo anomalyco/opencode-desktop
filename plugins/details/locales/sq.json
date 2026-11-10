@@ -31,5 +31,6 @@
   "workspace.local": "Depo lokale",
   "workspace.existing": "Pemë pune",
   "workspace.new": "Hapësirë e re pune",
-  "mcp.interactiveAuth": "Serveri MCP {{name}} kërkon një formular vërtetimi interaktiv"
+  "mcp.interactiveAuth": "Serveri MCP {{name}} kërkon një formular vërtetimi interaktiv",
+  "continue": "Vazhdoni"
 }

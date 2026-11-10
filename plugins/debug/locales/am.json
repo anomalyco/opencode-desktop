@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "የተመረጠውን ቋንቋ ሳይቀይሩ ሙሉውን የመተግበሪያ አቀማመጥ አቅጣጫ ያስገድዱ",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "ጥያቄው አልተሳካም"
 }

@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "چُنی ہوئی زبان نوں بدلے بغیر پوری ایپ دے لے آؤٹ دی سمت لازمی مقرر کرو",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "درخواست ناکام ہو گئی"
 }

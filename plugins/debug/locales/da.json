@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Gennemtving layoutretningen for hele appen uden at ændre det valgte sprog",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Forespørgsel mislykkedes"
 }

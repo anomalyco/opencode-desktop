@@ -31,5 +31,6 @@
   "workspace.local": "Helyi adattár",
   "workspace.existing": "Munkafa",
   "workspace.new": "Új munkaterület",
-  "mcp.interactiveAuth": "A MCP szerver A {{name}} interaktív hitelesítési űrlapot igényel"
+  "mcp.interactiveAuth": "A MCP szerver A {{name}} interaktív hitelesítési űrlapot igényel",
+  "continue": "Folytatás"
 }

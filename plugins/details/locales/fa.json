@@ -31,5 +31,6 @@
   "workspace.local": "مخزن محلی",
   "workspace.existing": "ورک‌تری",
   "workspace.new": "فضای کاری جدید",
-  "mcp.interactiveAuth": "سرور MCP با نام ⁨{{name}}⁩ به فرم احراز هویت تعاملی نیاز دارد"
+  "mcp.interactiveAuth": "سرور MCP با نام ⁨{{name}}⁩ به فرم احراز هویت تعاملی نیاز دارد",
+  "continue": "ادامه دهید"
 }

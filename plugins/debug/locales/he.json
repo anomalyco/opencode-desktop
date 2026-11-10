@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "כפה את כיוון פריסת האפליקציה המלא מבלי לשנות את השפה שנבחרה",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "הבקשה נכשלה"
 }

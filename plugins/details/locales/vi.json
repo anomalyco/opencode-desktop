@@ -31,5 +31,6 @@
   "workspace.local": "Kho lưu trữ cục bộ",
   "workspace.existing": "cây làm việc",
   "workspace.new": "Không gian làm việc mới",
-  "mcp.interactiveAuth": "Máy chủ MCP {{name}} yêu cầu một biểu mẫu xác thực tương tác"
+  "mcp.interactiveAuth": "Máy chủ MCP {{name}} yêu cầu một biểu mẫu xác thực tương tác",
+  "continue": "Tiếp tục"
 }

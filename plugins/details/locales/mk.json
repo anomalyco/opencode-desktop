@@ -31,5 +31,6 @@
   "workspace.local": "Локално складиште",
   "workspace.existing": "Работно дрво",
   "workspace.new": "Нов работен простор",
-  "mcp.interactiveAuth": "MCP сервер {{name}} бара интерактивна форма за автентикација"
+  "mcp.interactiveAuth": "MCP сервер {{name}} бара интерактивна форма за автентикација",
+  "continue": "Продолжи"
 }

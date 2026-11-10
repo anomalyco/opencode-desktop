@@ -31,5 +31,6 @@
   "workspace.local": "مقامی مخزن",
   "workspace.existing": "ورک ٹری",
   "workspace.new": "نویں ورک سپیس",
-  "mcp.interactiveAuth": "MCP سرور ⁨{{name}}⁩ کو ایک انٹرایکٹو تصدیقی فارم درکار اے۔"
+  "mcp.interactiveAuth": "MCP سرور ⁨{{name}}⁩ کو ایک انٹرایکٹو تصدیقی فارم درکار اے۔",
+  "continue": "جاری رکھو"
 }

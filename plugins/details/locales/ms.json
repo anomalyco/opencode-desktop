@@ -31,5 +31,6 @@
   "workspace.local": "Repositori setempat",
   "workspace.existing": "Worktree",
   "workspace.new": "Ruang kerja baharu",
-  "mcp.interactiveAuth": "Pelayan MCP {{name}} memerlukan borang pengesahan interaktif"
+  "mcp.interactiveAuth": "Pelayan MCP {{name}} memerlukan borang pengesahan interaktif",
+  "continue": "Teruskan"
 }

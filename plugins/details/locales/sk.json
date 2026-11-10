@@ -31,5 +31,6 @@
   "workspace.local": "Lokálne úložisko",
   "workspace.existing": "Pracovný strom",
   "workspace.new": "Nový pracovný priestor",
-  "mcp.interactiveAuth": "MCP server {{name}} vyžaduje interaktívny autentifikačný formulár"
+  "mcp.interactiveAuth": "MCP server {{name}} vyžaduje interaktívny autentifikačný formulár",
+  "continue": "Pokračovať"
 }

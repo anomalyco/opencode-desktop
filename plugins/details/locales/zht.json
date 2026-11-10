@@ -31,5 +31,6 @@
   "workspace.local": "本機儲存庫",
   "workspace.existing": "工作樹",
   "workspace.new": "新增工作區",
-  "mcp.interactiveAuth": "MCP 伺服器 {{name}} 需要互動式認證表單"
+  "mcp.interactiveAuth": "MCP 伺服器 {{name}} 需要互動式認證表單",
+  "continue": "繼續"
 }

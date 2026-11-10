@@ -31,5 +31,6 @@
   "workspace.local": "ພື້ນທີ່ເກັບຂໍ້ມູນທ້ອງຖິ່ນ",
   "workspace.existing": "Worktree",
   "workspace.new": "ພື້ນທີ່ເຮັດວຽກໃໝ່",
-  "mcp.interactiveAuth": "MCP server {{name}} ຕ້ອງການແບບຟອມການຢືນຢັນຕົວຕົນແບບປະຕິບັດງານ"
+  "mcp.interactiveAuth": "MCP server {{name}} ຕ້ອງການແບບຟອມການຢືນຢັນຕົວຕົນແບບປະຕິບັດງານ",
+  "continue": "ສືບຕໍ່"
 }

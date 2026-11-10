@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Сонгосон хэлийг өөрчлөхгүйгээр програмын бүдүүвчийг бүхэлд нь чиглүүлэх",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Хүсэлт амжилтгүй боллоо"
 }

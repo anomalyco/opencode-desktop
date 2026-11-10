@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Seçili dili değiştirmeden tüm uygulamanın düzen yönünü zorla ayarla",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "İstek başarısız"
 }

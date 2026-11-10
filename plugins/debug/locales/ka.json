@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "აპის სრული განლაგების მიმართულების იძულება არჩეული ენის შეცვლის გარეშე",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "მოთხოვნა ვერ მოხერხდა"
 }

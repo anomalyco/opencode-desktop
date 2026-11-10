@@ -31,5 +31,6 @@
   "workspace.local": "စက်တွင်းသိုလှောင်မှု",
   "workspace.existing": "Worktree",
   "workspace.new": "အလုပ်နေရာအသစ်",
-  "mcp.interactiveAuth": "MCP server {{name}} သည် အပြန်အလှန်အတည်ပြုမှုဖောင် လိုအပ်သည်"
+  "mcp.interactiveAuth": "MCP server {{name}} သည် အပြန်အလှန်အတည်ပြုမှုဖောင် လိုအပ်သည်",
+  "continue": "ဆက်ရန်"
 }

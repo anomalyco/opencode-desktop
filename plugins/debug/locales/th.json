@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "บังคับกำหนดทิศทางเค้าโครงของทั้งแอปโดยไม่เปลี่ยนภาษาที่เลือก",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "คำขอล้มเหลว"
 }

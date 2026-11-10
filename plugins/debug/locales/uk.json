@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Примусово задати напрямок макета всієї програми, не змінюючи вибрану мову",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Запит не виконано"
 }

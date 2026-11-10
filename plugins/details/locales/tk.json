@@ -31,5 +31,6 @@
   "workspace.local": "Localerli ammar",
   "workspace.existing": "Worktree",
   "workspace.new": "Täze workspace",
-  "mcp.interactiveAuth": "MCP serweri {{name}} interaktiw tanamak formasyny talap edýär"
+  "mcp.interactiveAuth": "MCP serweri {{name}} interaktiw tanamak formasyny talap edýär",
+  "continue": "Dowam et"
 }

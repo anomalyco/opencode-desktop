@@ -31,5 +31,6 @@
   "workspace.local": "本地仓库",
   "workspace.existing": "工作树",
   "workspace.new": "新建工作区",
-  "mcp.interactiveAuth": "MCP 服务器 {{name}} 需要交互式身份验证表单"
+  "mcp.interactiveAuth": "MCP 服务器 {{name}} 需要交互式身份验证表单",
+  "continue": "继续"
 }

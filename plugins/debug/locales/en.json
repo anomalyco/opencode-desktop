@@ -57,5 +57,6 @@
   "console.target.tip": "The plugin the command bar runs in. Click for the next one.",
   "console.placeholder": "Luau: an expression or a chunk, Enter to run",
   "console.costs": "{{plugin}} · {{kb}} KB · {{us}} µs per render · {{hits}} memo hits",
-  "console.stopped": "{{plugin}} · not running"
+  "console.stopped": "{{plugin}} · not running",
+  "requestFailed": "Request failed"
 }

@@ -5,8 +5,16 @@
 
 local ui = require("@opencode/ui")
 local machine = require("./machine")
+local mcp = require("./mcp")
 
 local lists = {}
+
+local Theme: ThemeService = nil :: any
+
+-- The theme service, for the status dots.
+function lists.init(theme: ThemeService)
+    Theme = theme
+end
 
 -- "mcp", "plugins" or "skills".
 export type Service = string
@@ -21,8 +29,8 @@ end
 local PATHS: { [string]: string } = { mcp = "/api/mcp", plugins = "/api/plugin", skills = "/api/skill" }
 local ICONS: { [string]: string } = { mcp = "mcp", plugins = "cube", skills = "graduation-cap" }
 
--- One row of a list: its name, status, error and (a skill's) file.
-export type Item = { name: string, status: string?, error: string?, path: string? }
+-- One row of a list: its name, status, error, (a skill's) file and (an MCP server's) sign-in.
+export type Item = { name: string, status: string?, error: string?, path: string?, integrationID: string? }
 
 -- A list as read for this open: loading, failed, or its items sorted by name.
 export type Load = { kind: "loading" } | { kind: "failed" } | { kind: "ready", items: { Item } }
@@ -32,12 +40,8 @@ export type State = {
     opens: number,
     -- Each list's items, parsed once per answer.
     parsed: { [string]: { generation: number, items: { Item } } },
-    -- Each MCP server's switch.
-    toggles: { [string]: machine.ToggleState },
     -- Each footer action, by `<service>:<action>`.
     actions: { [string]: machine.ConfigState },
-    -- The narrow window's drawer: the card, or one list in its place.
-    drawer: Service?,
 }
 
 export type Env = {
@@ -51,8 +55,14 @@ export type Env = {
     System: SystemService,
     Toast: ToastService,
     state: State,
+    -- The MCP servers' toggles, sign-ins and error dialog.
+    mcp: mcp.Env,
     redraw: () -> (),
 }
+
+-- Where a list shows: beside the card (`session-service-pane`), or in the narrow window's More
+-- drawer (`session-service-drawer`), `compact` below 640 points, where an MCP row is 44 tall.
+export type Placement = { kind: "flyout" } | { kind: "drawer", compact: boolean }
 
 -- `?location[directory]=…`, or nothing for the server's default location.
 function lists.location(env: Env, directory: string): string
@@ -83,7 +93,10 @@ local function parse(service: Service, json: any): { Item }
             local name = str(m.name)
             local status = if type(m.status) == "table" then m.status else {}
             if name then
-                table.insert(items, { name = name, status = str(status.status), error = str(status.error) })
+                table.insert(
+                    items,
+                    { name = name, status = str(status.status), error = str(status.error), integrationID = str(m.integrationID) }
+                )
             end
         elseif service == "plugins" then
             local source = if type(m.source) == "table" then m.source else {}
@@ -111,6 +124,8 @@ local function parse(service: Service, json: any): { Item }
     return items
 end
 
+local synced: (env: Env, directory: string, items: { Item }) -> ()
+
 -- `service`'s list for directory `directory`, as read for this open.
 function lists.read(env: Env, service: Service, directory: string): (Load, number)
     local path = PATHS[service] .. lists.location(env, directory)
@@ -127,7 +142,33 @@ function lists.read(env: Env, service: Service, directory: string): (Load, numbe
     end
     local items = parse(service, res.json)
     env.state.parsed[path] = { generation = res.generation, items = items }
+    if service == "mcp" then
+        synced(env, directory, items)
+    end
     return { kind = "ready", items = items }, res.generation
+end
+
+-- The error dialog follows its server's status, which changes here and anywhere else: a new
+-- answer of the list reaches the machine (`server.synced`) once the render is done.
+synced = function(env: Env, directory: string, items: { Item })
+    local dialog = mcp.state(env.mcp, directory).dialog
+    if dialog.status ~= "open" then
+        return
+    end
+    local attempt, status = dialog.attempt, nil
+    for _, item in items do
+        if item.name == dialog.name then
+            status = { status = item.status or "pending", error = item.error }
+        end
+    end
+    task.defer(function()
+        mcp.dispatch(env.mcp, directory, { type = "server.synced", attempt = attempt, loaded = true, status = status })
+    end)
+end
+
+-- `/api/mcp`'s servers, for the MCP controller.
+function lists.servers(json: any): { Item }
+    return parse("mcp", json)
 end
 
 function lists.icon(service: Service): string
@@ -149,8 +190,10 @@ end
 
 local FONT = { size = 13, weight = "regular" :: FontWeight, lineHeight = 16 }
 
+-- A row's words; `name` (a server's, a plugin's, a skill's) reads in its own direction, as
+-- `TruncatedText` does.
 -- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
-local LABELS: { [any]: UiTextProps } = {}
+local LABELS: { [string]: UiTextProps } = {}
 local ICON = table.freeze({ size = 16, color = "icon-weak" } :: UiIconProps)
 local ITEM_NAME = table.freeze({ gap = 8, align = "center", grow = 1, shrink = true, minW = 0 } :: UiBoxProps)
 local ITEM_END = table.freeze({ ml = 8, gap = 8, align = "center" } :: UiBoxProps)
@@ -158,9 +201,10 @@ local DOT_BOX = table.freeze({ w = 16, h = 16, center = true } :: UiBoxProps)
 local RULE = table.freeze({ w = "full", mx = -2, my = 2 } :: UiBoxProps)
 local RULE_LINE = table.freeze({ w = "full", h = 1, fill = "border-weak" } :: UiBoxProps)
 
-local function label(words: string, color: Color?): ui.Node
+local function label(words: string, color: Color?, name: boolean?): ui.Node
     local ink: any = color or "text-chrome"
-    local props = LABELS[ink]
+    local key = `{if type(ink) == "string" then ink else tostring(ink)}:{name == true}`
+    local props = LABELS[key]
     if props == nil then
         props = table.freeze({
             size = FONT.size,
@@ -170,19 +214,25 @@ local function label(words: string, color: Color?): ui.Node
             truncate = true,
             shrink = true,
             minW = 0,
+            dir = if name then "auto" else nil,
         } :: UiTextProps)
-        LABELS[ink] = props
+        LABELS[key] = props
     end
     return ui.text(words, props)
 end
 
+-- `.session-service-dot`'s colour: Desktop's v1 `--icon-success-base`, `--icon-critical-base` and
+-- `--icon-warning-base` on the default theme (the app's `widgets::status_dot`), a chosen theme's
+-- state colours, else `icon-faint`.
 local function inkOf(status: string?): Color
+    local v1 = Theme:Current().id == "oc-2"
+    local dark = Theme:IsDark()
     if status == "connected" or status == "active" then
-        return "status-success"
+        return if v1 then ui.hex(if dark then "#089b00" else "#0abe00") else "status-success"
     elseif status == "failed" then
-        return "status-danger"
+        return if v1 then ui.hex(if dark then "#cb321c" else "#fa3012") else "status-danger"
     elseif status == "needs_auth" then
-        return "status-warning"
+        return if v1 then ui.hex(if dark then "#fbb73c" else "#ebb76e") else "status-warning"
     end
     return "icon-weaker"
 end
@@ -352,47 +402,100 @@ local function configAction(env: Env, service: Service, directory: string, setup
     end)
 end
 
--- Steps MCP server `name`'s switch.
-local function stepToggle(env: Env, name: string, event: machine.ToggleEvent, run: ((attempt: number) -> ())?)
-    local state, effects = machine.toggle(env.state.toggles[name] or machine.toggleIdle, event)
-    env.state.toggles[name] = state
-    for _, effect in effects do
-        if effect.type == "run" and run then
-            run(effect.attempt)
-        elseif effect.type == "refresh" then
-            env.Server:Invalidate("/api/mcp")
-        elseif effect.type == "toast-failed" then
-            env.Toast:Error(env.I18n:T("requestFailed"), effect.error)
-        elseif effect.type == "toast-read-only" then
-            env.Toast:Error(env.I18n:T("requestFailed"), env.I18n:T("readOnly"))
-        end
+-- `StatusDot` of an MCP row (`.session-mcp-name .session-service-dot`): the 6 dot alone. A failed
+-- one shows its error on hover, and a press on it, 16 around, opens the full error.
+local function mcpDot(env: Env, view: View, item: Item, directory: string): ui.Node
+    local failure = if item.status == "failed" then item.error else nil
+    if failure == nil then
+        return dot(item.status, nil)
     end
-    env.redraw()
+    return ui.box({
+        key = `details-dot-{item.name}`,
+        role = "button",
+        label = env.I18n:T("mcp.error.actionLabel", { name = item.name }),
+        help = failure,
+        helpSide = "top",
+        w = 16,
+        h = 16,
+        m = -5,
+        center = true,
+        onPress = view:Handler(function()
+            mcp.dispatch(env.mcp, directory, { type = "error.opened", name = item.name, error = failure :: string })
+        end),
+    }, { dot(item.status, nil) })
 end
 
--- Desktop's `follow`: a press asks for the switch's other side, or signs in.
-local function toggleMcp(env: Env, item: Item, directory: string)
-    local enable = item.status == "needs_auth" or item.status == "disabled"
-    stepToggle(env, item.name, { type = "requested", writable = env.Server:CanWrite() }, function(attempt)
-        local settled = false
-        task.delay(machine.TOGGLE_TIMEOUT, function()
-            if not settled then
-                stepToggle(env, item.name, { type = "timed-out", attempt = attempt })
-            end
-        end)
-        task.spawn(function()
-            local verb = if enable then "connect" else "disconnect"
-            local path =
-                `/api/experimental/mcp/{env.Server:EncodeUri(item.name)}/{verb}{lists.location(env, directory)}`
-            local res = env.Server:RequestAsync("POST", path)
-            settled = true
-            stepToggle(
-                env,
-                item.name,
-                { type = "settled", attempt = attempt, error = if res.ok then nil else (res.error or "") }
-            )
-        end)
+-- `.session-mcp-sign-in`: a quiet small ghost-muted button in the switch's place, 20 tall, 5 in
+-- and 5 out at the end, 11 on 16 at 440, tracking 0.05; Signing in while its toggle runs.
+local function signInButton(env: Env, item: Item, busy: boolean, pending: boolean, onPress: ui.Handler): ui.Node
+    local words = env.I18n:T(if busy then "mcp.signingIn" else "mcp.signIn")
+    return ui.row({
+        key = `details-sign-in-{item.name}`,
+        role = "button",
+        label = env.I18n:T("mcp.signIn.open", { name = item.name }),
+        h = 20,
+        px = 5,
+        mr = -5,
+        center = true,
+        radius = 4,
+        opacity = if pending then 0.5 else nil,
+        hover = if pending then nil else "surface-hover",
+        press = if pending then nil else "surface-press",
+        hoverTransition = "instant",
+        onPress = if pending then nil else onPress,
+    }, {
+        ui.text(words, { size = 11, weight = "regular", lineHeight = 16, tracking = 0.05, color = "text-muted", noWrap = true }),
+    })
+end
+
+-- `session-mcp-row`: its status dot and name, then its switch, or Sign in for a server that needs
+-- one. A press follows the row: a failed server opens its error, any other turns over.
+local function mcpRow(env: Env, view: View, item: Item, directory: string, base: any, compact: boolean): ui.Node
+    local state = mcp.state(env.mcp, directory)
+    local busy, pending = machine.mcpRow(state, item.name, item.status)
+    local disabled = item.status == "disabled"
+    local failure = if item.status == "failed" then item.error else nil
+    local function change(enabled: boolean)
+        mcp.dispatch(env.mcp, directory, { type = "toggle.requested", name = item.name, enabled = enabled, status = item.status })
+    end
+    local follow = view:Handler(function()
+        if failure then
+            mcp.dispatch(env.mcp, directory, { type = "error.opened", name = item.name, error = failure })
+            return
+        end
+        change(item.status == "needs_auth" or disabled)
     end)
+    local props = table.clone(base)
+    props.pr = 6
+    -- Below 640 points every MCP row stands 44 tall, 8 in above and below.
+    if compact then
+        props.minH = 44
+        props.py = 8
+    end
+    props.hover = if pending then nil else "surface-hover"
+    props.hoverTransition = "instant"
+    props.onPress = follow
+    local trailing = if item.status == "needs_auth" and item.integrationID
+        then signInButton(env, item, busy, pending, follow)
+        -- `ui.switch` keeps a settings row's 4 around it; here the 16 switch sits 6 from the
+        -- row's top, bottom and end (`.session-mcp-row`).
+        else ui.box({ m = -4, opacity = if pending then 0.5 else nil }, {
+            ui.switch({
+                key = `details-switch-{item.name}`,
+                checked = not disabled,
+                disabled = pending,
+                onChange = view:Handler(function(event)
+                    change(event.checked == true)
+                end),
+            }),
+        })
+    return ui.row(props, {
+        ui.row(ITEM_NAME, {
+            mcpDot(env, view, item, directory),
+            label(item.name, if disabled then "text-muted" else nil, true),
+        }),
+        ui.row(ITEM_END, { trailing }),
+    })
 end
 
 local function itemRow(
@@ -401,13 +504,13 @@ local function itemRow(
     service: Service,
     item: Item,
     directory: string,
-    minH: number,
+    placement: Placement,
     first: boolean
 ): ui.Node
     local base = {
         key = `details-item-{item.name}`,
         w = "full",
-        minH = minH,
+        minH = 28,
         pl = 12,
         py = 4,
         gap = 8,
@@ -415,36 +518,11 @@ local function itemRow(
         radius = 4,
         mt = if first then nil else 2,
     }
-    local disabled = item.status == "disabled"
-    local name = label(item.name, if disabled then "text-muted" else nil)
     if service == "mcp" then
-        local toggle = env.state.toggles[item.name]
-        local busy = toggle ~= nil and toggle.status == "toggling"
-        local failure = if item.status == "failed" then item.error else nil
-        local props = table.clone(base) :: any
-        props.pr = 6
-        props.hover = "surface-hover"
-        props.hoverTransition = "instant"
-        if not busy then
-            props.onPress = view:Handler(function()
-                if failure then
-                    env.Popover:Close()
-                    env.Commands:Run("mcp.toggle")
-                    return
-                end
-                toggleMcp(env, item, directory)
-            end)
-        end
-        return ui.row(props, {
-            ui.row(ITEM_NAME, { dot(item.status, failure), name }),
-            ui.row(ITEM_END, {
-                ui.box(
-                    { opacity = if busy then 0.5 else 1 },
-                    { ui.switch({ key = `details-switch-{item.name}`, checked = not disabled }) }
-                ),
-            }),
-        })
-    elseif service == "plugins" then
+        return mcpRow(env, view, item, directory, base, placement.kind == "drawer" and placement.compact)
+    end
+    local name = label(item.name, if item.status == "disabled" then "text-muted" else nil, true)
+    if service == "plugins" then
         local props = table.clone(base) :: any
         props.pr = 12
         local children: { ui.Node } = {}
@@ -459,18 +537,23 @@ local function itemRow(
     props.role = "button"
     props.hover = "surface-hover"
     props.hoverTransition = "instant"
+    -- A skill opens its SKILL.md in a side tab; the popover closes as it does.
     props.onPress = view:Handler(function()
-        env.Popover:Close()
         if item.path then
             env.Links:Open({ href = item.path })
+        end
+        if placement.kind == "flyout" then
+            env.Popover:Close()
         end
     end)
     return ui.row(props, { ui.icon("file-document", ICON), name })
 end
 
--- Under the list: a rule, then (when empty, or for skills) the setup row, the configuration file,
--- and MCP's Manage MCP servers.
-local function footer(env: Env, view: View, service: Service, empty: boolean, directory: string, minH: number): ui.Node
+-- Under the list (`session-service-footer`): a rule, then (when empty, or for skills) the setup
+-- row, the configuration file, and MCP's Manage MCP servers; 6 under the list, and 2 in from
+-- the flyout's edges as the list is (the drawer's card already insets it).
+local function footer(env: Env, view: View, service: Service, empty: boolean, directory: string, placement: Placement): ui.Node
+    local minH = 28
     local rows: { ui.Node } = {
         ui.col(RULE, { ui.box(RULE_LINE) }),
     }
@@ -530,31 +613,47 @@ local function footer(env: Env, view: View, service: Service, empty: boolean, di
             )
         )
     end
-    return ui.col({ key = `details-footer-{service}`, w = "full", pt = 6, px = 2 }, rows)
+    local inset = if placement.kind == "flyout" then 2 else nil
+    return ui.col({ key = `details-footer-{service}`, w = "full", pt = 6, px = inset }, rows)
 end
 
--- A list's rows, then its footer: the flyout beside the card, or the narrow window's drawer.
-function lists.pane(env: Env, view: View, service: Service, directory: string, mobile: boolean): ui.Node
-    local load = lists.read(env, service, directory)
-    local minH = if mobile then 44 else 28
-    local body: { ui.Node } = {}
+-- A list's body (`ServiceBody`): Loading, Request failed with Retry, the empty state, or its rows.
+local function body(env: Env, view: View, service: Service, load: Load, directory: string, placement: Placement): { ui.Node }
     if load.kind == "loading" then
-        body = { message(env.I18n:T("loading")) }
+        return { message(env.I18n:T("loading")) }
     elseif load.kind == "failed" then
-        body = {
-            message(env.I18n:T("requestFailed")),
-            configRow(
-                "details-retry",
-                nil,
-                env.I18n:T("retry"),
-                minH,
-                view:Handler(function()
-                    env.Server:Invalidate("/api/")
-                end)
-            ),
+        -- `session-service-message` holds the words and the Retry row (`session-summary-row`, 36
+        -- clear at its end on the drawer's card).
+        return {
+            ui.col({ key = "details-failed", role = "alert", w = "full", px = 12, py = 6 }, {
+                ui.text(env.I18n:T("requestFailed"), {
+                    size = FONT.size,
+                    weight = FONT.weight,
+                    lineHeight = FONT.lineHeight,
+                    color = "text-faint",
+                    wrap = true,
+                }),
+                ui.row({
+                    key = "details-retry",
+                    role = "button",
+                    label = env.I18n:T("retry"),
+                    w = "full",
+                    minH = 28,
+                    pl = 12,
+                    pr = if placement.kind == "drawer" then 36 else 12,
+                    py = 4,
+                    align = "center",
+                    radius = 4,
+                    hover = "surface-hover",
+                    hoverTransition = "instant",
+                    onPress = view:Handler(function()
+                        env.Server:Invalidate("/api/")
+                    end),
+                }, { label(env.I18n:T("retry")) }),
+            }),
         }
     elseif #load.items == 0 then
-        body = {
+        return {
             ui.col({ w = "full" }, {
                 ui.text(env.I18n:T(`{service}.empty`), {
                     size = FONT.size,
@@ -566,23 +665,54 @@ function lists.pane(env: Env, view: View, service: Service, directory: string, m
                 }),
             }),
         }
-    else
-        for i, item in load.items do
-            table.insert(body, itemRow(env, view, service, item, directory, minH, i == 1))
-        end
     end
+    local rows: { ui.Node } = {}
+    for i, item in load.items do
+        table.insert(rows, itemRow(env, view, service, item, directory, placement, i == 1))
+    end
+    return rows
+end
+
+-- A list's rows, then its footer, beside the card (`session-service-pane`: the rows scroll in
+-- 480 at most, 2 in from the flyout's edges).
+function lists.pane(env: Env, view: View, service: Service, directory: string): ui.Node
+    local placement: Placement = { kind = "flyout" }
+    local load = lists.read(env, service, directory)
     local children: { ui.Node } = {
-        ui.col({ w = "full", px = 2, shrink = true, minH = 0, scrollY = true }, body),
+        ui.col({ w = "full", px = 2, shrink = true, minH = 0, scrollY = true }, body(env, view, service, load, directory, placement)),
     }
     if load.kind == "ready" then
-        table.insert(children, footer(env, view, service, #load.items == 0, directory, minH))
+        table.insert(children, footer(env, view, service, #load.items == 0, directory, placement))
     end
     return ui.col({
         key = `details-pane-{service}`,
         role = "group",
         label = env.I18n:T(service),
         w = "full",
-        maxH = if mobile then nil else 480,
+        maxH = 480,
+    }, children)
+end
+
+-- A list as the narrow window's More drawer shows it in its own view (`session-summary-card
+-- session-service-drawer`): one card, its rows and footer straight on it, 2 between rows and 2
+-- more above each row after the first.
+function lists.drawer(env: Env, view: View, service: Service, directory: string, compact: boolean, dark: boolean): ui.Node
+    local placement: Placement = { kind = "drawer", compact = compact }
+    local load = lists.read(env, service, directory)
+    local children = body(env, view, service, load, directory, placement)
+    if load.kind == "ready" then
+        table.insert(children, footer(env, view, service, #load.items == 0, directory, placement))
+    end
+    return ui.col({
+        key = `details-drawer-{service}`,
+        role = "group",
+        label = env.I18n:T(service),
+        w = "full",
+        pad = 2,
+        gap = 2,
+        radius = 6,
+        fill = if dark then "surface-1" else "bg-base",
+        shadow = "raised",
     }, children)
 end
 

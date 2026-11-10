@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Saýlanan dili üýtgetmän doly programma düzüliş ugruny mejbur ediň",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Talap başa barmady"
 }

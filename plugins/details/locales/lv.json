@@ -31,5 +31,6 @@
   "workspace.local": "Lokālais repozitorijs",
   "workspace.existing": "Darba koks",
   "workspace.new": "Jauna darba vide",
-  "mcp.interactiveAuth": "MCP serverim {{name}} ir nepieciešama interaktīva autentifikācijas veidlapa"
+  "mcp.interactiveAuth": "MCP serverim {{name}} ir nepieciešama interaktīva autentifikācijas veidlapa",
+  "continue": "Turpināt"
 }

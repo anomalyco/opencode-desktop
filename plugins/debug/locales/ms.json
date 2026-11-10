@@ -15,5 +15,6 @@
   "direction.label": "ARAH",
   "direction.tip": "Paksa arah tataletak aplikasi penuh tanpa menukar bahasa terpilih",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Permintaan gagal"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "Repositori local",
   "workspace.existing": "Arbre de treball",
   "workspace.new": "Nou espai de treball",
-  "mcp.interactiveAuth": "El servidor MCP {{name}} requereix un formulari d'autenticació interactiu"
+  "mcp.interactiveAuth": "El servidor MCP {{name}} requereix un formulari d'autenticació interactiu",
+  "continue": "Continua"
 }

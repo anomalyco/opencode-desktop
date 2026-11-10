@@ -37,9 +37,12 @@ return plugin.defineWindow(function(ctx)
     local bar = Store:Value("bar", { visible = false, motion = false }) :: StoreValue<Bar>
     -- Whether the bar's MEMLOG turned memory diagnostics on, kept across launches.
     local memory = Store:Value("memory", false) :: StoreValue<boolean>
-    -- Local and Beta builds run memory diagnostics and have the motion tools.
+    -- Local and Beta builds run memory diagnostics and have the motion tools; local builds (the
+    -- dev server's) also the layout tools, DIR and FOCUS.
     local debugBuild = App.Channel == "local" or App.Channel == "beta"
+    local devTools = App.Channel == "local"
     local heap = machine.idle
+    local focus = machine.focusIdle
     local state: console.State = { target = nil }
     local editor = ctx:CreateEditor()
     local consoleEnv: console.Env = {
@@ -107,17 +110,39 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
+    -- FOCUS: every control draws its focus ring (Desktop forces `:focus-visible` over CDP).
+    local function runFocus(event: machine.FocusEvent)
+        local nextState, effects = machine.focus(focus, event)
+        focus = nextState
+        for _, effect in effects do
+            if effect.type == "set" then
+                Diagnostics:Set("forceFocus", effect.enabled)
+                local attempt = effect.attempt
+                task.defer(function()
+                    runFocus({ type = "set.succeeded", attempt = attempt })
+                end)
+            elseif effect.type == "reset" then
+                Diagnostics:Set("forceFocus", false)
+            elseif effect.type == "notify-failed" then
+                Toast:Info(I18n:T("requestFailed"))
+            end
+        end
+    end
+    ctx.Disposing:Connect(function()
+        runFocus({ type = "disposed" })
+    end)
+
     ctx:AddCommand({
         id = "toggle",
         title = I18n:T("command.toggle"),
         group = I18n:T("category.view"),
         keywords = "dev bar developer tools diagnostics",
-        run = function()
+        -- Running diagnostics keep the bar open.
+        enabled = function()
             local visible, closable = view()
-            -- Running diagnostics keep the bar open.
-            if visible and not closable then
-                return false
-            end
+            return closable or not visible
+        end,
+        run = function()
             show(not bar:Get().visible)
             return nil
         end,
@@ -128,6 +153,10 @@ return plugin.defineWindow(function(ctx)
         title = I18n:T("command.heap"),
         description = I18n:T("command.heap.description"),
         group = I18n:T("category.settings"),
+        -- One capture at a time.
+        enabled = function()
+            return heap.status == "idle"
+        end,
         run = function()
             runHeap({ type = "requested" })
             return nil
@@ -174,7 +203,8 @@ return plugin.defineWindow(function(ctx)
         at = "window.bottom",
         render = function(v, props)
             local visible, closable = view()
-            if not visible then
+            -- `hidden md:block`: the bar shows from 768 points up.
+            if not visible or Layout:Narrow() then
                 return nil
             end
             local dark = Theme:IsDark()
@@ -183,6 +213,8 @@ return plugin.defineWindow(function(ctx)
             local speed = if debugBuild then (Diagnostics:Get("speed") or 1) :: number else 1
             local slow = debugBuild and Diagnostics:Get("slow") == true
             local knobs = debugBuild and Diagnostics:Get("knobs") == true
+            local direction = if devTools then (Diagnostics:Get("direction") or "ltr") :: string else "ltr"
+            local focused = devTools and machine.focusActive(focus)
             local version = table.concat({
                 tostring(t.duration),
                 tostring(t.tps),
@@ -191,6 +223,8 @@ return plugin.defineWindow(function(ctx)
                 tostring(speed),
                 tostring(slow),
                 tostring(knobs),
+                direction,
+                tostring(focused),
                 tostring(dark),
                 Theme:Current().id,
                 I18n:Locale().id,
@@ -211,6 +245,7 @@ return plugin.defineWindow(function(ctx)
                         color = dim,
                         noWrap = true,
                         mt = mt,
+                        dir = "ltr",
                     })
                 end
                 -- A reading (`Cell`): its name and value on one baseline; the 10 pt name sits 1.4
@@ -227,6 +262,7 @@ return plugin.defineWindow(function(ctx)
                                 tabular = true,
                                 color = if isDim then dim else ink,
                                 noWrap = true,
+                                dir = "ltr",
                             }),
                         }),
                     })
@@ -260,7 +296,7 @@ return plugin.defineWindow(function(ctx)
                             name(label, 0.9),
                             ui.text(
                                 value:upper(),
-                                { size = 11, weight = "bold", lineHeight = 11, mono = true, color = ink, noWrap = true }
+                                { size = 11, weight = "bold", lineHeight = 11, mono = true, color = ink, noWrap = true, dir = "ltr" }
                             ),
                         }),
                     })
@@ -303,9 +339,41 @@ return plugin.defineWindow(function(ctx)
                     cells,
                     cell("debug-bar-tps", I18n:T("tps.label"), I18n:T("tps.tip"), tps or na, tps == nil)
                 )
+                -- The dev server's layout tools: the layout direction and forced focus styles.
+                if devTools then
+                    local rtl = direction == "rtl"
+                    table.insert(
+                        cells,
+                        toggle(
+                            "debug-bar-direction",
+                            I18n:T("direction.label"),
+                            I18n:T("direction.tip"),
+                            I18n:T(`direction.{direction}`),
+                            rtl,
+                            v:Handler(function()
+                                Diagnostics:Set("direction", if rtl then "ltr" else "rtl")
+                            end)
+                        )
+                    )
+                    table.insert(
+                        cells,
+                        toggle(
+                            "debug-bar-focus",
+                            I18n:T("focus.label"),
+                            I18n:T("focus.tip"),
+                            I18n:T(if focused then "focus.on" else "focus.off"),
+                            focused,
+                            v:Handler(function()
+                                runFocus({ type = "toggle" })
+                            end)
+                        )
+                    )
+                end
                 if debugBuild then
                     local env = logState == "env"
-                    local value = if env then I18n:T("memory.env") elseif logState == "on" then "ON" else "OFF"
+                    local value = if env
+                        then I18n:T("memory.env")
+                        else I18n:T(if logState == "on" then "focus.on" else "focus.off")
                     table.insert(
                         cells,
                         toggle(
@@ -375,7 +443,7 @@ return plugin.defineWindow(function(ctx)
                             "debug-bar-slow",
                             I18n:T("slow.label"),
                             I18n:T("slow.tip"),
-                            if slow then "ON" else "OFF",
+                            I18n:T(if slow then "focus.on" else "focus.off"),
                             slow,
                             v:Handler(function()
                                 Diagnostics:Set("slow", not slow)
@@ -385,7 +453,7 @@ return plugin.defineWindow(function(ctx)
                             "debug-bar-knobs",
                             I18n:T("motion.label"),
                             I18n:T("motion.tip"),
-                            if knobs then "ON" else "OFF",
+                            I18n:T(if knobs then "focus.on" else "focus.off"),
                             knobs,
                             v:Handler(function()
                                 local b = bar:Get()

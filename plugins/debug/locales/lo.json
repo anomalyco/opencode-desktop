@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "ບັງຄັບທິດທາງການຈັດວາງແອັບເຕັມໂດຍບໍ່ປ່ຽນພາສາທີ່ເລືອກ",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "ການຮ້ອງຂໍລົ້ມເຫລວ"
 }

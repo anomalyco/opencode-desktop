@@ -31,5 +31,6 @@
   "workspace.local": "Анбори маҳаллӣ",
   "workspace.existing": "Git worktree",
   "workspace.new": "Майдони нави корӣ",
-  "mcp.interactiveAuth": "Сервери MCP {{name}} шакли интерактивии аутентификатсияро талаб мекунад"
+  "mcp.interactiveAuth": "Сервери MCP {{name}} шакли интерактивии аутентификатсияро талаб мекунад",
+  "continue": "Давом додан"
 }

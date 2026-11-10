@@ -31,5 +31,6 @@
   "workspace.local": "المستودع المحلي",
   "workspace.existing": "شجرة عمل",
   "workspace.new": "مساحة عمل جديدة",
-  "mcp.interactiveAuth": "يتطلب خادم MCP المسمى ⁨{{name}}⁩ نموذج مصادقة تفاعليًا"
+  "mcp.interactiveAuth": "يتطلب خادم MCP المسمى ⁨{{name}}⁩ نموذج مصادقة تفاعليًا",
+  "continue": "متابعة"
 }

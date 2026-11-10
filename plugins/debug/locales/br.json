@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Forçar a direção do layout de todo o aplicativo sem alterar o idioma selecionado",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Requisição falhou"
 }

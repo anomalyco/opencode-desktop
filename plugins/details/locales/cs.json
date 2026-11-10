@@ -31,5 +31,6 @@
   "workspace.local": "Místní úložiště",
   "workspace.existing": "Pracovní strom",
   "workspace.new": "Nový pracovní prostor",
-  "mcp.interactiveAuth": "Server MCP {{name}} vyžaduje interaktivní ověřovací formulář"
+  "mcp.interactiveAuth": "Server MCP {{name}} vyžaduje interaktivní ověřovací formulář",
+  "continue": "Pokračujte"
 }

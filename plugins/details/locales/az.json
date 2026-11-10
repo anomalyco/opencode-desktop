@@ -31,5 +31,6 @@
   "workspace.local": "Yerli depo",
   "workspace.existing": "Worktree",
   "workspace.new": "Yeni iş sahəsi",
-  "mcp.interactiveAuth": "MCP server {{name}} interaktiv autentifikasiya forması tələb edir"
+  "mcp.interactiveAuth": "MCP server {{name}} interaktiv autentifikasiya forması tələb edir",
+  "continue": "Davam et"
 }

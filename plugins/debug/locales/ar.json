@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "فرض اتجاه التخطيط على التطبيق بالكامل دون تغيير اللغة المحددة",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "فشل الطلب"
 }

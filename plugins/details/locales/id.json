@@ -31,5 +31,6 @@
   "workspace.local": "Repositori lokal",
   "workspace.existing": "Worktree",
   "workspace.new": "Ruang kerja baru",
-  "mcp.interactiveAuth": "Server MCP {{name}} memerlukan formulir autentikasi interaktif"
+  "mcp.interactiveAuth": "Server MCP {{name}} memerlukan formulir autentikasi interaktif",
+  "continue": "Lanjutkan"
 }

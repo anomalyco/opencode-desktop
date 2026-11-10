@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "নির্বাচিত ভাষা পরিবর্তন না করে সম্পূর্ণ অ্যাপ লেআউটের দিকনির্দেশ জোর করে",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "অনুরোধ ব্যর্থ হয়েছে"
 }

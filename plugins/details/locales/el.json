@@ -31,5 +31,6 @@
   "workspace.local": "Τοπικό αποθετήριο",
   "workspace.existing": "Δέντρο εργασίας",
   "workspace.new": "Νέος χώρος εργασίας",
-  "mcp.interactiveAuth": "Ο διακομιστής MCP Ο {{name}} απαιτεί μια διαδραστική φόρμα ελέγχου ταυτότητας"
+  "mcp.interactiveAuth": "Ο διακομιστής MCP Ο {{name}} απαιτεί μια διαδραστική φόρμα ελέγχου ταυτότητας",
+  "continue": "Συνέχεια"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "Paikallinen säilö",
   "workspace.existing": "Työpuu",
   "workspace.new": "Uusi työtila",
-  "mcp.interactiveAuth": "MCP-palvelin {{name}} vaatii interaktiivisen todennuslomakkeen"
+  "mcp.interactiveAuth": "MCP-palvelin {{name}} vaatii interaktiivisen todennuslomakkeen",
+  "continue": "Jatka"
 }

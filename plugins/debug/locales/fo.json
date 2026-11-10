@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Tvinga alla app-uppsetingina uttan at broyta valda málið",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Umbønin miseydnaðist"
 }

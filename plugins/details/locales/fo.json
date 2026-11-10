@@ -31,5 +31,6 @@
   "workspace.local": "Lokal goymsla",
   "workspace.existing": "Arbeiðstræ",
   "workspace.new": "Nýtt workspace",
-  "mcp.interactiveAuth": "MCP ambætarin {{name}} krevur eitt samvirkið sannroyndarblað"
+  "mcp.interactiveAuth": "MCP ambætarin {{name}} krevur eitt samvirkið sannroyndarblað",
+  "continue": "Halt fram"
 }

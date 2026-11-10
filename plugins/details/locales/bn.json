@@ -31,5 +31,6 @@
   "workspace.local": "স্থানীয় সংগ্রহস্থল",
   "workspace.existing": "ওয়ার্কট্রি",
   "workspace.new": "নতুন ওয়ার্কস্পেস",
-  "mcp.interactiveAuth": "MCP সার্ভার {{name}} একটি ইন্টারেক্টিভ প্রমাণীকরণ ফর্ম প্রয়োজন৷"
+  "mcp.interactiveAuth": "MCP সার্ভার {{name}} একটি ইন্টারেক্টিভ প্রমাণীকরণ ফর্ম প্রয়োজন৷",
+  "continue": "চালিয়ে যান"
 }

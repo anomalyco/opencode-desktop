@@ -15,5 +15,6 @@
   "direction.label": "ޑރ",
   "direction.tip": "ހޮވާފައިވާ ބަހަށް ބަދަލެއް ނުގެނެސް ފުލް އެޕް ލޭއައުޓް ޑިރެކްޝަން ފޯސް ކުރާށެވެ",
   "direction.ltr": "LTR އެވެ",
-  "direction.rtl": "RTL އެވެ"
+  "direction.rtl": "RTL އެވެ",
+  "requestFailed": "ރިކުއެސްޓް ފެއިލްވިއެވެ"
 }

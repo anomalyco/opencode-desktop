@@ -31,5 +31,6 @@
   "workspace.local": "स्थानीय रिपॉजिटरी",
   "workspace.existing": "वर्कट्री",
   "workspace.new": "नया वर्कस्पेस",
-  "mcp.interactiveAuth": "MCP सर्वर {{name}} को एक इंटरैक्टिव प्रमाणीकरण फॉर्म की आवश्यकता होती है"
+  "mcp.interactiveAuth": "MCP सर्वर {{name}} को एक इंटरैक्टिव प्रमाणीकरण फॉर्म की आवश्यकता होती है",
+  "continue": "जारी रखें"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "Lokalt depot",
   "workspace.existing": "Worktree",
   "workspace.new": "Nytt arbeidsområde",
-  "mcp.interactiveAuth": "MCP server {{name}} krever et interaktivt autentiseringsskjema"
+  "mcp.interactiveAuth": "MCP server {{name}} krever et interaktivt autentiseringsskjema",
+  "continue": "Fortsett"
 }

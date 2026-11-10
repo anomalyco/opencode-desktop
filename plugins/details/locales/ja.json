@@ -31,5 +31,6 @@
   "workspace.local": "ローカルリポジトリ",
   "workspace.existing": "ワークツリー",
   "workspace.new": "新しいワークスペース",
-  "mcp.interactiveAuth": "MCPサーバー {{name}} はインタラクティブな認証フォームを必要とします"
+  "mcp.interactiveAuth": "MCPサーバー {{name}} はインタラクティブな認証フォームを必要とします",
+  "continue": "続行"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "Lokale repository",
   "workspace.existing": "Worktree",
   "workspace.new": "Nieuwe werkruimte",
-  "mcp.interactiveAuth": "MCP-server {{name}} vereist een interactief authenticatieformulier"
+  "mcp.interactiveAuth": "MCP-server {{name}} vereist een interactief authenticatieformulier",
+  "continue": "Doorgaan"
 }

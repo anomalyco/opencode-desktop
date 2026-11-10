@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Forțează direcția completă a layoutului aplicației fără a schimba limba selectată",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Solicitarea a eșuat"
 }

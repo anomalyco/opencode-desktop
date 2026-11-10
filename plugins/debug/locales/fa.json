@@ -15,5 +15,6 @@
   "direction.label": "مدیر",
   "direction.tip": "بدون تغییر زبان انتخابی، جهت طرح بندی کامل برنامه را اجباری کنید",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "درخواست ناموفق بود"
 }

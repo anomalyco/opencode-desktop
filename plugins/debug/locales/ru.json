@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Принудительно задать направление макета всего приложения, не меняя выбранный язык",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Запрос не выполнен"
 }

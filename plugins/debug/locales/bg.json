@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Принудително насочване на цялата посока на оформлението на приложението, без да променя избрания език",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Неуспешна заявка"
 }

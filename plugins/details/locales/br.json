@@ -31,5 +31,6 @@
   "workspace.local": "Repositório local",
   "workspace.existing": "Worktree",
   "workspace.new": "Novo espaço de trabalho",
-  "mcp.interactiveAuth": "Servidor MCP {{name}} requer um formulário de autenticação interativo"
+  "mcp.interactiveAuth": "Servidor MCP {{name}} requer um formulário de autenticação interativo",
+  "continue": "Continuar"
 }

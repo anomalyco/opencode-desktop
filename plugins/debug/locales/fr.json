@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Forcer le sens de disposition de toute l’application sans changer la langue sélectionnée",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "La demande a échoué"
 }

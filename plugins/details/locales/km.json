@@ -31,5 +31,6 @@
   "workspace.local": "ឃ្លាំងមូលដ្ឋាន",
   "workspace.existing": "Worktree",
   "workspace.new": "កន្លែងធ្វើការថ្មី។",
-  "mcp.interactiveAuth": "MCP server {{name}} ត្រូវការផ្ទៀងផ្ទាត់ជាមួយទម្រង់ផ្ទាល់ខ្លួន"
+  "mcp.interactiveAuth": "MCP server {{name}} ត្រូវការផ្ទៀងផ្ទាត់ជាមួយទម្រង់ផ្ទាល់ខ្លួន",
+  "continue": "បន្ត"
 }

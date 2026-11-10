@@ -31,5 +31,6 @@
   "workspace.local": "Տեղական պահոց",
   "workspace.existing": "Աշխատանքային ծառ",
   "workspace.new": "Նոր աշխատանքային տարածք",
-  "mcp.interactiveAuth": "MCP սերվերը {{name}} պահանջում է ինտերակտիվ հավատարմագրման ձև"
+  "mcp.interactiveAuth": "MCP սերվերը {{name}} պահանջում է ինտերակտիվ հավատարմագրման ձև",
+  "continue": "Շարունակել"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "รีโพซิทอรีในเครื่อง",
   "workspace.existing": "เวิร์กทรี",
   "workspace.new": "พื้นที่ทำงานใหม่",
-  "mcp.interactiveAuth": "เซิร์ฟเวอร์ MCP {{name}} ต้องการฟอร์มการตรวจสอบสิทธิ์แบบโต้ตอบ"
+  "mcp.interactiveAuth": "เซิร์ฟเวอร์ MCP {{name}} ต้องการฟอร์มการตรวจสอบสิทธิ์แบบโต้ตอบ",
+  "continue": "ดำเนินการต่อ"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "ადგილობრივი საცავი",
   "workspace.existing": "სამუშაო ხე",
   "workspace.new": "ახალი სამუშაო სივრცე",
-  "mcp.interactiveAuth": "MCP სერვერს {{name}} სჭირდება ინტერაქტიული ავტენთიკაციის ფორმა"
+  "mcp.interactiveAuth": "MCP სერვერს {{name}} სჭირდება ინტერაქტიული ავტენთიკაციის ფორმა",
+  "continue": "გაგრძელება"
 }

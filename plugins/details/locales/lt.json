@@ -31,5 +31,6 @@
   "workspace.local": "Vietinė saugykla",
   "workspace.existing": "Darbinis medis",
   "workspace.new": "Nauja darbo vieta",
-  "mcp.interactiveAuth": "MCP serveriui {{name}} reikalinga interaktyvi autentifikavimo forma"
+  "mcp.interactiveAuth": "MCP serveriui {{name}} reikalinga interaktyvi autentifikavimo forma",
+  "continue": "Tęsti"
 }

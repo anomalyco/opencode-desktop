@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Бе тағир додани забони интихобшуда самти тарҳбандии пурраи барномаро маҷбур кунед",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Дархост иҷро нашуд"
 }

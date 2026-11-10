@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Επιβολή της κατεύθυνσης της πλήρους διάταξης εφαρμογής χωρίς αλλαγή της επιλεγμένης γλώσσας",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Το αίτημα απέτυχε"
 }

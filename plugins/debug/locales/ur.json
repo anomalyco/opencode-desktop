@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "منتخب زبان تبدیل کیے بغیر پوری ایپ کے لے آؤٹ کی سمت لازماً مقرر کریں",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "درخواست ناکام ہوگئی"
 }

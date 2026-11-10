@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "A teljes alkalmazáselrendezési irány kényszerítése a kiválasztott nyelv megváltoztatása nélkül",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "A kérés sikertelen"
 }

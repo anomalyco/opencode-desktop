@@ -31,5 +31,6 @@
   "workspace.local": "Yerel depo",
   "workspace.existing": "Çalışma ağacı",
   "workspace.new": "Yeni çalışma alanı",
-  "mcp.interactiveAuth": "MCP sunucusu {{name}} etkileşimli bir kimlik doğrulama formu gerektirir"
+  "mcp.interactiveAuth": "MCP sunucusu {{name}} etkileşimli bir kimlik doğrulama formu gerektirir",
+  "continue": "Devam et"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "Lokalne repozytorium",
   "workspace.existing": "Drzewo robocze",
   "workspace.new": "Nowa przestrzeń robocza",
-  "mcp.interactiveAuth": "Serwer MCP {{name}} wymaga interaktywnego formularza uwierzytelniania"
+  "mcp.interactiveAuth": "Serwer MCP {{name}} wymaga interaktywnego formularza uwierzytelniania",
+  "continue": "Kontynuuj"
 }

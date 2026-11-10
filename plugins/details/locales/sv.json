@@ -31,5 +31,6 @@
   "workspace.local": "Lokalt arkiv",
   "workspace.existing": "Worktree",
   "workspace.new": "Ny arbetsyta",
-  "mcp.interactiveAuth": "MCP server {{name}} kräver ett interaktivt autentiseringsformulär"
+  "mcp.interactiveAuth": "MCP server {{name}} kräver ett interaktivt autentiseringsformulär",
+  "continue": "Fortsätt"
 }

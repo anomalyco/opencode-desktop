@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Dwing de lay-outrichting voor de hele app af zonder de geselecteerde taal te wijzigen",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Verzoek mislukt"
 }

@@ -31,5 +31,6 @@
   "workspace.local": "स्थानीय भण्डार",
   "workspace.existing": "वर्कट्री",
   "workspace.new": "नयाँ कार्यस्थान",
-  "mcp.interactiveAuth": "MCP सर्भर {{name}} लाई अन्तरक्रियात्मक प्रमाणीकरण फारम चाहिन्छ"
+  "mcp.interactiveAuth": "MCP सर्भर {{name}} लाई अन्तरक्रियात्मक प्रमाणीकरण फारम चाहिन्छ",
+  "continue": "जारी राख्नुहोस्"
 }

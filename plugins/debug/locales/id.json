@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Paksa arah tata letak seluruh aplikasi tanpa mengubah bahasa yang dipilih",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Permintaan gagal"
 }

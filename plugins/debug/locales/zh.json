@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "在不更改所选语言的情况下，强制设置整个应用的布局方向",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "请求失败"
 }

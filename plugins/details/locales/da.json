@@ -31,5 +31,6 @@
   "workspace.local": "Lokalt repository",
   "workspace.existing": "Worktree",
   "workspace.new": "Nyt arbejdsområde",
-  "mcp.interactiveAuth": "MCP server {{name}} kræver en interaktiv godkendelsesformular"
+  "mcp.interactiveAuth": "MCP server {{name}} kræver en interaktiv godkendelsesformular",
+  "continue": "Fortsæt"
 }

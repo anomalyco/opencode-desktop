@@ -31,5 +31,6 @@
   "workspace.local": "Dépôt local",
   "workspace.existing": "Arbre de travail",
   "workspace.new": "Nouvel espace de travail",
-  "mcp.interactiveAuth": "Serveur MCP {{name}} nécessite un formulaire d'authentification interactif"
+  "mcp.interactiveAuth": "Serveur MCP {{name}} nécessite un formulaire d'authentification interactif",
+  "continue": "Continuer"
 }

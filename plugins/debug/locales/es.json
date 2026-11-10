@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Forzar la dirección del diseño de toda la aplicación sin cambiar el idioma seleccionado",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Solicitud fallida"
 }

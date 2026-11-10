@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "선택한 언어를 변경하지 않고 전체 앱의 레이아웃 방향 강제 설정",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "요청 실패"
 }

@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Seçilmiş dili dəyişmədən bütün tətbiq üçün tərtibat istiqamətini məcburi təyin et",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Sorğu uğursuz oldu"
 }

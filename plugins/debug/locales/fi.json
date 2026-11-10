@@ -15,5 +15,6 @@
   "direction.label": "DIR",
   "direction.tip": "Pakota koko sovelluksen asettelun suunta valittua kieltä muuttamatta",
   "direction.ltr": "LTR",
-  "direction.rtl": "RTL"
+  "direction.rtl": "RTL",
+  "requestFailed": "Pyyntö epäonnistui"
 }
