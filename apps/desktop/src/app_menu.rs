@@ -23,6 +23,7 @@ pub(crate) enum Act {
     NewSession,
     Settings,
     NewWindow,
+    CloseTab,
     CloseWindow,
     /// An Edit item: the key it sends to the focused field.
     Edit(EditKey),
@@ -78,6 +79,7 @@ const MENUS: [(&str, opencode_i18n::Key, &[Row]); 6] = [
         it(opencode_i18n::key!("desktop.menu.settings"), Act::Settings, Keys::Command(Bind::Settings)),
         it(opencode_i18n::key!("desktop.menu.newWindow"), Act::NewWindow, Keys::Fixed("Ctrl+Shift+N")),
         None,
+        it(opencode_i18n::key!("command.tab.close"), Act::CloseTab, Keys::Command(Bind::TabClose)),
         it(opencode_i18n::key!("desktop.menu.closeWindow"), Act::CloseWindow, Keys::Fixed("Ctrl+Shift+W")),
     ]),
     ("Edit", opencode_i18n::key!("desktop.menu.edit"), &[
@@ -220,6 +222,8 @@ fn enabled(s: &App, act: Act) -> bool {
 }
 
 pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
+    // An item that acts in the window brings back the last window Close Window hid.
+    let revealed = !matches!(act, Act::CloseWindow | Act::Open(_) | Act::ExportLogs) && s.reveal();
     match act {
         Act::NewSession => s.new_session(tx),
         Act::Settings => {
@@ -227,8 +231,12 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
             s.open_settings();
         }
         Act::NewWindow => {
-            crate::windows::new_window(s);
+            // A hidden last window came back instead.
+            if !revealed {
+                crate::windows::new_window(s);
+            }
         }
+        Act::CloseTab => s.close_tab_key(tx),
         Act::CloseWindow => s.close_window(tx),
         Act::Edit(key) => tx.send_key(edit_key(key)),
         Act::ToggleSidebar => {

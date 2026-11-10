@@ -68,11 +68,14 @@ fn app() -> Vec<MenuItem<App>> {
 
 /// New Window and Close Window take ⇧⌘N and ⇧⌘W before the window sees them, as Electron's
 /// menu accelerators do (no command binds them on macOS; Close Tab's ⌘W would take ⇧⌘W).
+/// Close Tab is Safari's: ⌘W goes to the window first (a focused panel's tab closes), and comes
+/// ahead of the Window menu's Close, so it never closes the last window.
 fn file() -> Vec<MenuItem<App>> {
     vec![
         keyed_as(MenuItem::new(t!("desktop.menu.newSession"), |s: &mut App, tx: &mut Tx| run(s, Act::NewSession, tx)).id("File/NewSession").menu("File"), Bind::TabNew, "mod+n").keys_first(),
         fixed(MenuItem::new(t!("desktop.menu.newWindow"), |s: &mut App, tx: &mut Tx| run(s, Act::NewWindow, tx)).id("File/NewWindow").menu("File"), "mod+shift+n"),
         MenuItem::separator().menu("File"),
+        keyed(MenuItem::new(t!("command.tab.close"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseTab, tx)).id("File/CloseTab").menu("File"), Bind::TabClose).keys_first(),
         fixed(MenuItem::new(t!("desktop.menu.closeWindow"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseWindow, tx)).id("File/CloseWindow").menu("File"), "mod+shift+w"),
     ]
 }

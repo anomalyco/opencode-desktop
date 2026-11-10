@@ -163,6 +163,8 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             }
             motion_log.frame(rt);
         })
+        // Back on screen (the Dock icon, the Window menu): no longer the hidden last window.
+        .on_focus(|s, focused, _| s.window.hidden &= !focused)
         .on_quit(|s, _| s.save_on_quit())
         .on_close(|s, _| {
             s.updater.closing();

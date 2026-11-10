@@ -1061,11 +1061,7 @@ impl App {
             Action::SelectProject => self.toggle_project_switcher(tx),
             Action::Settings => self.toggle_settings(tx),
             Action::AutoAccept => self.toggle_auto_accept(tx),
-            Action::CloseTab => {
-                if let Some(id) = self.current_tab() {
-                    self.close_tab(&id, tx);
-                }
-            }
+            Action::CloseTab => self.close_tab_key(tx),
             Action::ReopenTab => self.reopen_tab(tx),
         }
         true
