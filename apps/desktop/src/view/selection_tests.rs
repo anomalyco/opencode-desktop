@@ -126,18 +126,18 @@ fn a_double_click_in_a_tool_row_selects_a_word_and_leaves_the_row_open() {
     assert_eq!(rt.state.expanded.len(), group + 1, "a click on the disclosure opens it");
     settle(&mut rt);
     let steps = format!("{}/steps-box/steps/", trigger.path.trim_end_matches("/trigger"));
-    let tool = |rt: &Runtime<App>, name: &str| find(rt, |e| e.path.starts_with(&steps) && e.text.as_deref() == Some(name));
-    // Grep's row opens nothing (a Read's opens the file, `tool_open`), so a double-click selects.
-    let grep = tool(&rt, "Grep");
-    let word = (grep.rect[0] + grep.rect[2] / 2.0, grep.rect[1] + grep.rect[3] / 2.0);
+    // A tool's name is chrome, as a trigger's words are (5c434f78); what it worked on is text.
+    let what = |rt: &Runtime<App>, key: &str| find(rt, |e| e.path.starts_with(&steps) && e.key.as_deref() == Some(key));
+    let args = what(&rt, "arg-0");
+    let files = what(&rt, "subtitle");
+    let word = (files.rect[0] + 12.0, files.rect[1] + files.rect[3] / 2.0);
     click(&mut rt, word);
     click(&mut rt, word);
-    assert_eq!(rt.selected_text().as_deref(), Some("Grep"));
+    assert_eq!(rt.selected_text().as_deref(), Some("stream.ts"));
     assert_eq!(rt.state.expanded.len(), group + 1, "the group stays open");
     // A drag across two tools selects them without closing the group.
-    let name = tool(&rt, "Read");
-    drag(&mut rt, (grep.rect[0] + 1.0, word.1), (name.rect[0] + name.rect[2] - 1.0, name.rect[1] + name.rect[3] / 2.0));
-    assert_eq!(rt.selected_text().as_deref(), Some("Grep\tEventSource|heartbeat\nRead"));
+    drag(&mut rt, (args.rect[0] + 1.0, word.1 - 36.0), (files.rect[0] + files.rect[2] - 1.0, word.1));
+    assert_eq!(rt.selected_text().as_deref(), Some("pattern=EventSource|heartbeat\nstream.ts  offset=11  limit=20, backoff.ts"));
     assert_eq!(rt.state.expanded.len(), group + 1);
 }
 
@@ -225,6 +225,14 @@ fn last_text(rt: &Runtime<App>) -> (ElementInfo, String) {
     (last, row)
 }
 
+/// [`last_text`] among the texts that show whole.
+fn last_whole_text(rt: &Runtime<App>) -> (ElementInfo, String) {
+    let texts = rt.elements().into_iter().filter(|e| !e.exiting && e.visible[3] > 0.0 && (e.visible[3] - e.rect[3]).abs() < 0.5 && e.text.as_deref().is_some_and(|t| !t.trim().is_empty()) && e.path.contains("/timeline/t-msg_"));
+    let last = texts.max_by(|a, b| (a.rect[1] + a.rect[3]).total_cmp(&(b.rect[1] + b.rect[3]))).expect("reply text");
+    let row = last.path.split("/timeline/").nth(1).and_then(|r| r.split('/').next()).expect("row").to_owned();
+    (last, row)
+}
+
 fn on_screen(rt: &Runtime<App>, start: &str) -> bool {
     rt.elements().iter().any(|e| !e.exiting && e.visible[3] > 0.0 && e.text.as_deref().is_some_and(|t| t.starts_with(start)))
 }
@@ -260,13 +268,11 @@ fn scrolled_out_selection(capsule: bool) {
     click(&mut rt, from);
     rt.update(move |_, tx| tx.scroll_into_view(last_row));
     settle(&mut rt);
-    // At the very end, so the last line stands clear of the capsule's lane.
-    if capsule {
-        rt.update(|s, tx| tx.scroll_to_bottom_instant(format!("scroll-{}", crate::stories::sid(s))));
-        settle(&mut rt);
-    }
     assert!(!on_screen(&rt, "The event stream drops"), "the prompt's row is scrolled out");
-    let (end, _) = last_text(&rt);
+    // The reply's last words, whole on screen: the timeline now ends in the turn's footer and
+    // tail (4ca5e343), not words, and the click lands at the line's end, clear of the capsule
+    // at the lane's start.
+    let (end, _) = last_whole_text(&rt);
     rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
     click(&mut rt, last_line(&end));
     rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
