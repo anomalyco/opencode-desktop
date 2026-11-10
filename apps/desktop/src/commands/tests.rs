@@ -116,7 +116,8 @@ fn ctrl_l_focuses_the_composer() {
 
 #[test]
 fn the_commands_story_shows_each_list() {
-    for (variant, key) in [("Slash", "command-builtin.new"), ("Commands", "sw-command:new"), ("Search", "sw-command:sidebar")] {
+    // Toggle sidebar isn't offered in Top tabs, the default layout since 42172690.
+    for (variant, key) in [("Slash", "command-builtin.new"), ("Commands", "sw-command:new"), ("Search", "sw-command:side")] {
         let rt = crate::stories::story("Composer/Commands", Some(variant));
         let w = crate::stories::world(&rt);
         assert!(rt.playground_element(key).is_some(), "{variant}: {key} on stage; composer {:?} focused {} switcher {}", w.composer.text, w.composer.focused, w.switcher.open);
