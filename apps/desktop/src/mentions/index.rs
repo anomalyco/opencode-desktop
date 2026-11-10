@@ -113,14 +113,15 @@ impl App {
     }
 
     /// The server's latest file search, which stays listed until the next answers; in the fixture,
-    /// its files as a search would find them (fuzzysort standing in for the server's).
+    /// its files as a search would find them (fuzzysort standing in for the server's), and none
+    /// for a query the live search skips (`search::next_files`).
     fn searched_files(&self, query: &str) -> Vec<String> {
         match &self.source {
             Source::Live { .. } => self.mentions.search.files().iter().map(|p| shown_path(p)).collect(),
             _ => {
                 let index = &self.mentions.file_index;
-                if query.is_empty() {
-                    return index.iter().take(FILE_LIMIT).map(|p| shown_path(p)).collect();
+                if query.trim().is_empty() || query.chars().any(char::is_whitespace) {
+                    return Vec::new();
                 }
                 let targets: Vec<[Target; 1]> = index.iter().map(|p| [Target::new(&shown_path(p))]).collect();
                 let objects: Vec<&[Target]> = targets.iter().map(|t| &t[..]).collect();

@@ -273,8 +273,9 @@ fn files_rank_with_sessions_and_pick_into_a_pill() {
     typed(&mut rt, "@");
     assert!(keys(&rt).iter().all(|k| !k.starts_with("file:")), "no file search without a query");
     typed(&mut rt, "rec");
-    // A word that starts with "rec" beats "Re…c…" across a title.
-    assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs", "session:ses_fx0007aaaaaaaaaaaaaaaaaa"]);
+    // A session is listed when each word of the query starts a word of its title (9ceb264b), so
+    // "Retry uploads after a dropped connection" isn't.
+    assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs"]);
     typed(&mut rt, "onnect.rs");
     assert_eq!(keys(&rt), ["file:src/stream/reconnect.rs"]);
     let row = shown(&rt, "mention-file:src/stream/reconnect.rs").expect("the row shows");
