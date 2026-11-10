@@ -8,6 +8,8 @@
 local plugin = require("@opencode/plugin")
 local dialog = require("@self/dialog")
 local row = require("@self/row")
+local cover = require("@self/cover")
+local command = require("@self/command")
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
@@ -16,6 +18,7 @@ return plugin.defineWindow(function(ctx)
     local Menu = ctx:GetService("Menu")
     local System = ctx:GetService("System")
     local Contracts = ctx:GetService("Contracts")
+    local Layout = ctx:GetService("Layout")
     local live = Contracts:Use("ssh")
     local target = ctx:CreateEditor("")
     local name = ctx:CreateEditor("")
@@ -123,8 +126,15 @@ return plugin.defineWindow(function(ctx)
                 request("cancel", { id = nextState.id })
             elseif effect.type == "complete" then
                 -- A ready server joins the app's registry of servers; no window switches to it.
+                -- Opened from the palette, the dialog then asks for a folder on it (`onOpenProject`).
+                local it = item(nextState.id)
+                local open = controller.openProject
                 Dialog:Close()
                 controller.state = nil
+                controller.openProject = false
+                if open and it then
+                    Layout:OpenProject(`ssh:{nextState.id}`, I18n:T("project", { host = command.name(it.config) }))
+                end
             end
         end
         rev:Fire()
@@ -143,8 +153,9 @@ return plugin.defineWindow(function(ctx)
         dispatch({ type = "responded", snapshot = controller.snapshot() })
     end
 
-    local function openDialog(config: any?, promptOnly: boolean)
+    local function openDialog(config: any?, promptOnly: boolean, openProject: boolean?)
         local id = if config then config.id else System:RandomId()
+        controller.openProject = openProject == true
         target:SetText(if config then config.target else "")
         name:SetText(if config then config.name else "")
         response:SetText("")
@@ -212,12 +223,36 @@ return plugin.defineWindow(function(ctx)
         controller.respond()
     end)
 
+    -- `entry.connect` (Home's Authenticate, a signed-out tab's Sign in): a new attempt this
+    -- window answers, done once the host is ready, or failed.
+    local function connectAndWait(id: string): boolean
+        env.connect(id)
+        local deadline = System:Now() + 120000
+        while System:Now() < deadline do
+            local it = item(id)
+            if not it or it.stage == "failed" or it.stage == "incompatible" then
+                return false
+            elseif it.stage == "ready" then
+                return true
+            end
+            task.wait(0.25)
+        end
+        return false
+    end
+
     ctx:AddServerSource({
         id = "ssh",
         title = I18n:T("label"),
         order = 2,
         row = function(v, props)
             return row.render(env, v, props)
+        end,
+        cover = function(v, props)
+            return cover.render(env, v, props)
+        end,
+        connect = connectAndWait,
+        remove = function(id: string)
+            env.forget(id)
         end,
     })
 
@@ -237,7 +272,7 @@ return plugin.defineWindow(function(ctx)
         group = I18n:T("command.category.server"),
         keywords = "server ssh remote host",
         run = function()
-            openDialog(nil, false)
+            openDialog(nil, false, true)
         end,
     })
 

@@ -44,6 +44,9 @@ pub struct Entry {
     pub entity: bool,
     pub project: Option<String>,
     pub icon: &'static Icon,
+    /// The server whose page it's on, when Settings lists more than one: opening it shows that
+    /// server's pages.
+    pub server: Option<opencode_kit::servers::ServerKey>,
 }
 
 /// The rail's search: its field, the lit and opened results, and the row being revealed.
@@ -139,7 +142,14 @@ pub fn index(s: &App) -> Vec<Entry> {
         e.id = format!("{}:{target}", page.id());
         out.push(e);
     };
+    // A server's own rows are indexed only for the server its pages show, while they can load
+    // (`canIndexServerSettings`).
+    let servers = super::pages::servers::inventory::list(s);
+    let selected = servers.iter().find(|x| x.key == s.settings_pages.server.key).unwrap_or(&servers[0]).clone();
     for (page, target, title, section, description, keywords) in ROWS {
+        if *page == Page::Servers && !selected.availability.can_index() {
+            continue;
+        }
         add(page.clone(), target, *title, *section, *description, keywords);
     }
     if !s.browser_unsupported() {
@@ -159,20 +169,40 @@ pub fn index(s: &App) -> Vec<Entry> {
         out.push(e);
     }
     plugin_entries(s, &mut out);
-    let server = super::pages::servers::name(s);
-    out.push(Entry { id: format!("server:{server}"), title: server.clone(), where_: t!("settings.server.section.connection").into(), owner: t!("settings.tab.servers").into(), entity: true, ..entry(&Page::Servers, "", "", None, "", "", false) });
-    for project in s.projects.iter() {
-        let name = super::pages::projects::name(project);
+    let multiple = servers.len() > 1;
+    for e in out.iter_mut().filter(|e| e.page.per_server() || e.target.as_deref() == Some("settings-shell")) {
+        if multiple {
+            e.owner = selected.name.clone();
+            e.server = Some(selected.key.clone());
+        }
+    }
+    for server in &servers {
         out.push(Entry {
-            id: format!("project:{}", project.directory),
-            title: name,
-            where_: t!("settings.tab.projects").into(),
-            owner: server.clone(),
+            id: format!("server:{}", server.key),
+            title: server.name.clone(),
+            where_: t!("settings.server.section.connection").into(),
+            owner: t!("settings.tab.servers").into(),
             entity: true,
-            project: Some(project.directory.clone()),
-            target: Some(format!("project-{}", project.directory)),
-            ..entry(&Page::Projects, "", "", None, "", "", false)
+            server: multiple.then(|| server.key.clone()),
+            ..entry(&Page::Servers, "", "", None, "", "", false)
         });
+    }
+    // The projects of the server the pages show, once the window has read them.
+    if selected.availability.can_index() && *crate::servers::runtime::active(s) == selected.key {
+        for project in s.projects.iter() {
+            let name = super::pages::projects::name(project);
+            out.push(Entry {
+                id: format!("project:{}:{}", selected.key, project.directory),
+                title: name,
+                where_: t!("settings.tab.projects").into(),
+                owner: selected.name.clone(),
+                entity: true,
+                project: Some(project.directory.clone()),
+                target: Some(format!("project-{}", project.directory)),
+                server: multiple.then(|| selected.key.clone()),
+                ..entry(&Page::Projects, "", "", None, "", "", false)
+            });
+        }
     }
     out
 }
@@ -192,6 +222,7 @@ fn entry(page: &Page, title: &str, where_: &str, target: Option<&str>, keywords:
         entity: false,
         project: None,
         icon: page.icon(),
+        server: None,
     }
 }
 
@@ -364,7 +395,11 @@ pub fn reveal(s: &mut App, e: &Entry, tx: &mut Tx) {
 
 fn reveal_entry(s: &mut App, e: &Entry, tx: &mut Tx) {
     tx.instant();
-    if s.settings_pages.page != e.page {
+    let moved = e.server.as_ref().is_some_and(|server| *server != s.settings_pages.server.key);
+    if let Some(server) = &e.server {
+        s.settings_pages.server.key = server.clone();
+    }
+    if s.settings_pages.page != e.page || moved {
         s.show_settings_page(e.page.clone());
     }
     if let Some(tab) = e.subtab {

@@ -137,6 +137,7 @@ pub(super) unsafe extern "C" fn set_servers(ctx: *mut c_void, source: AbiStr, en
             url: text(e.url).to_owned(),
             password: text(e.password).to_owned(),
             listed: e.flags & SERVER_LISTED != 0,
+            managed: false,
         })
         .collect();
     requests.push(Request::SetServers { source, list, ready: flags & SOURCE_READY != 0 });

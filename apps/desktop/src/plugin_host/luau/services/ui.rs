@@ -206,6 +206,17 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         Ok(())
     })?;
     let q = p.clone();
+    method(lua, t, "OpenDraft", move |lua, spec: Value| {
+        let spec: opencode_plugin_spec::DraftSpec = Data::from_lua(spec, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("DraftSpec: {e}")))?;
+        cx::ask(&q, Request::OpenDraft { server: spec.server_key, directory: spec.directory, prompt: spec.prompt.unwrap_or_default() });
+        Ok(())
+    })?;
+    let q = p.clone();
+    method(lua, t, "OpenProject", move |_, (server, title): (String, Option<String>)| {
+        cx::ask(&q, Request::OpenProject { server, title: title.unwrap_or_default() });
+        Ok(())
+    })?;
+    let q = p.clone();
     method(lua, t, "OpenDrawerView", move |lua, (title, data): (String, Value)| {
         let data = Data::from_lua(data, lua)?;
         cx::ask(&q, Request::DrawerView { title, data });

@@ -381,7 +381,7 @@ pub struct FileViewerSpec {
 }
 impl_record!(FileViewerSpec, ["id", "title", "extensions"], ["render"], []);
 
-/// A source of servers, such as SSH hosts or WSL distributions.
+/// A source of servers, such as SSH hosts or WSL distributions. Add it in the app half to list entries, and in each window half to draw them: the host runs a window half's `row`, `cover`, `connect`, `reconnect` and `remove`, else the app half's.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -393,7 +393,7 @@ pub struct ServerSourceSpec {
     /// Ascending order among sources.
     pub order: Option<i64>,
 }
-impl_record!(ServerSourceSpec, ["id", "title", "order"], ["row", "connect", "remove"], []);
+impl_record!(ServerSourceSpec, ["id", "title", "order"], ["row", "cover", "connect", "reconnect", "remove"], []);
 
 /// A modal dialog, opened with `Dialog:Open`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -156,7 +156,7 @@ The server's model catalog. Halves: window, app.
 
 ### Server
 
-The OpenCode server this window is connected to. In the app half, the app's own server. Halves: window, app.
+The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server. Halves: window, app.
 
 | Member | Type | Description |
 |---|---|---|
@@ -177,9 +177,9 @@ The servers the app lists. Halves: window, app.
 | Member | Type | Description |
 |---|---|---|
 | `:List` | `() -> { ServerInfo }` | Every listed server. |
-| `:Current` | `() -> string?` | The key of the server this window is connected to. |
+| `:Current` | `() -> string?` | The key of the server this window works with now. |
 | `:Health` | `(key: string) -> ServerHealth?` | A server's latest health check. |
-| `:Connect` | `(key: string) -> ()` | Connects this window to a server and goes to its Home. |
+| `:Connect` | `(key: string) -> ()` | Shows a listed server on Home. Every listed server stays connected, so nothing switches and no tab closes. |
 | `.Changed` | `Signal<()>` | Fires when the list or a server's state changes. |
 
 ### Http
@@ -206,7 +206,7 @@ Values the host saves for this plugin. Both halves and every window share one co
 | Member | Type | Description |
 |---|---|---|
 | `:Value` | `<T>(name: string, default: T) -> StoreValue<T>` | A global value. |
-| `:SessionValue` | `<T>(name: string, default: T) -> SessionStoreValue<T>` | A value per session. |
+| `:SessionValue` | `<T>(name: string, default: T) -> SessionStoreValue<T>` | A value per session, kept apart for each server. |
 
 ### Contracts
 
@@ -283,6 +283,8 @@ Panels, settings and drafts in this window. Halves: window.
 | `:PanelState` | `(panelId: string, sessionId: string?) -> PanelState` | Where a panel is in a session. Defaults to the routed session. |
 | `:OpenSettings` | `(pageId: string?) -> ()` | Opens Settings at one of this plugin's pages, or at the top. |
 | `:NewDraft` | `(directory: string, prompt: string?) -> ()` | Opens a new session's draft in a folder, with a prompt typed in. |
+| `:OpenDraft` | `(spec: DraftSpec) -> ()` | Opens a new session's draft in a folder on a listed server, with a prompt typed in. Does nothing while the server is not listed. |
+| `:OpenProject` | `(serverKey: string, title: string?) -> ()` | Asks for a folder on a server and opens a draft there, as Add project does: the system's folder picker for this machine's server, the server's own folder browser for another. A server that is not listed yet (one the plugin just started) gets 30 seconds to be listed; a newer request replaces a waiting one. |
 | `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
 | `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
 | `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
@@ -2011,7 +2013,7 @@ A session as the app holds it.
 | Field | Type | Description |
 |---|---|---|
 | `id` | `string` | The session id. |
-| `serverId` | `string` | The key of the server that owns it. |
+| `serverId` | `string` | The key of the server that owns it: a `ServerInfo.key`, `local` for the app's own server. |
 | `directory` | `string` | Its workspace folder. |
 | `title` | `string` | Its title. |
 | `parentId` | `string?` | The parent session of a subagent's session. |
@@ -2074,7 +2076,7 @@ One event from the server's event stream.
 |---|---|---|
 | `type` | `string` | The event type, such as `"session.updated"`. |
 | `data` | `any` | The event's payload. |
-| `serverId` | `string` | The key of the server that sent it. |
+| `serverId` | `string` | The key of the server that sent it: a `ServerInfo.key`, `local` for the app's own server. |
 | `directory` | `string?` | The workspace folder it concerns. |
 
 ### ServerInfo
@@ -2083,12 +2085,12 @@ A server the app lists.
 
 | Field | Type | Description |
 |---|---|---|
-| `key` | `string` | Its key: `local`, or `<plugin>:<id>` for a contributed server. |
+| `key` | `string` | Its key: `local` for the app's own server, `<plugin>:<id>` for a contributed server, or the address of a server added by address. |
 | `name` | `string` | Its display name. |
 | `label` | `string?` | Its badge, such as `"SSH"`. |
 | `state` | `ServerState` | Where it stands. |
 | `isLocal` | `boolean` | It runs on this machine. |
-| `current` | `boolean` | This window is connected to it. |
+| `current` | `boolean` | This window works with it now: the server of the session or draft it shows, or of its Home. |
 | `version` | `string?` | The version it reported. |
 
 ### ServerHealth
@@ -2122,6 +2124,7 @@ One server a server source lists. Its key is `<plugin>:<id>`.
 | `label` | `string?` | A short badge after the name, such as `"WSL"`. |
 | `state` | `ServerState` | Where it stands. |
 | `listed` | `boolean?` | False keeps it out of the app's server list. Settings still shows it. Defaults to true. |
+| `managed` | `boolean?` | The plugin keeps it reachable, as an SSH tunnel does: while the app checks a new endpoint, it shows a connecting spinner, not an unknown dot. Defaults to false. |
 | `http` | `ServerEndpoint?` | Its endpoint, once `ready`. |
 
 ### BasicAuth
@@ -2315,6 +2318,16 @@ A menu to open beside an element.
 | `align` | `Align?` | Alignment along that side. Defaults to start. |
 | `minWidth` | `number?` | Its minimum width in points. |
 | `width` | `number?` | Its width in points. |
+
+### DraftSpec
+
+A new session's draft, opened with `Layout:OpenDraft`.
+
+| Field | Type | Description |
+|---|---|---|
+| `serverKey` | `string?` | The server it runs on: a `ServerInfo.key`. Defaults to the server this window works with. |
+| `directory` | `string` | Its workspace folder on that server. |
+| `prompt` | `string?` | Text typed into its composer. |
 
 ### OpenPanelOptions
 
@@ -3139,9 +3152,19 @@ What a server source's row render receives.
 | `key` | `string` | Its key: `<plugin>:<id>`. |
 | `health` | `ServerHealth?` | Its latest health check. |
 
+### ServerCoverProps
+
+What a server source's cover render receives.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The entry's id. |
+| `key` | `string` | Its key: `<plugin>:<id>`. |
+| `tab` | `string` | The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft. |
+
 ### ServerSourceSpec
 
-A source of servers, such as SSH hosts or WSL distributions. Desktop's plugin API calls it `Server`.
+A source of servers, such as SSH hosts or WSL distributions. Add it in the app half to list entries, and in each window half to draw them: the host runs a window half's `row`, `cover`, `connect`, `reconnect` and `remove`, else the app half's. Desktop's plugin API calls it `Server`.
 
 | Field | Type | Description |
 |---|---|---|
@@ -3149,8 +3172,10 @@ A source of servers, such as SSH hosts or WSL distributions. Desktop's plugin AP
 | `title` | `string` | Its name in Settings › Servers. |
 | `order` | `number?` | Ascending order among sources. |
 | `row` | `((view: View, props: ServerRowProps) -> UiNode?)?` | Draws an entry's connection row in Settings › Servers. Window halves only. |
-| `connect` | `((id: string) -> boolean)?` | Starts an entry that is not ready, as a coroutine. Return true once it is. |
-| `remove` | `((id: string) -> ())?` | Runs before the host forgets an entry. |
+| `cover` | `((view: View, props: ServerCoverProps) -> UiNode?)?` | Draws over a session or draft tab of an entry that is not `ready`, such as a disconnected SSH host's Reconnect panel. The tab stays mounted under it. Window halves only. |
+| `connect` | `((id: string) -> boolean)?` | Starts or signs in to an entry that is not ready, as a coroutine. Home's Authenticate and a signed-out tab's Sign in run it. Return true once it is ready. The host gives up after 120 seconds. |
+| `reconnect` | `((id: string) -> ())?` | Runs when the event stream of a `managed` entry drops, so the plugin can reach it again, for example through a new tunnel. |
+| `remove` | `((id: string) -> ())?` | Runs before the host forgets an entry that Settings › Servers removes. Raise an error to keep the entry. |
 
 ### ServerSource
 

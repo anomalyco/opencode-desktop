@@ -293,6 +293,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .motion(crate::panels::view::SIDE_SPRING),
         );
     }
+    // A plugin's cover over a tab whose server isn't ready (`PluginServerCover`): the whole main
+    // area, the page and its panels mounted under it.
+    if let Some(cover) = (!s.settings.open).then(|| crate::plugin_host::server_cover(s, p)).flatten() {
+        root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().top()), Some(0.0), Some(chrome().foot())));
+    }
     if open {
         root = root.child(resize_handle(s, p, w));
     }

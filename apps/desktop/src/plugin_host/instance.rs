@@ -167,6 +167,9 @@ pub struct ServerRec {
     pub password: String,
     /// It joins the app's servers rather than only showing in Settings.
     pub listed: bool,
+    /// Its plugin keeps it reachable (an SSH tunnel): a check of its new address shows the
+    /// connecting spinner (`ServerEntry.managed`).
+    pub managed: bool,
 }
 
 /// What a setup registered.

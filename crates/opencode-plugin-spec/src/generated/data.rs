@@ -144,7 +144,7 @@ impl_record!(SessionUsage, ["input", "output", "reasoning", "cacheRead", "cacheW
 pub struct Session {
     /// The session id.
     pub id: String,
-    /// The key of the server that owns it.
+    /// The key of the server that owns it: a `ServerInfo.key`, `local` for the app's own server.
     pub server_id: String,
     /// Its workspace folder.
     pub directory: String,
@@ -246,7 +246,7 @@ pub struct ServerEvent {
     pub r#type: String,
     /// The event's payload.
     pub data: Value,
-    /// The key of the server that sent it.
+    /// The key of the server that sent it: a `ServerInfo.key`, `local` for the app's own server.
     pub server_id: String,
     /// The workspace folder it concerns.
     pub directory: Option<String>,
@@ -258,7 +258,7 @@ impl_record!(ServerEvent, ["type", "data", "serverId", "directory"], [], []);
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct ServerInfo {
-    /// Its key: `local`, or `<plugin>:<id>` for a contributed server.
+    /// Its key: `local` for the app's own server, `<plugin>:<id>` for a contributed server, or the address of a server added by address.
     pub key: String,
     /// Its display name.
     pub name: String,
@@ -268,7 +268,7 @@ pub struct ServerInfo {
     pub state: ServerState,
     /// It runs on this machine.
     pub is_local: bool,
-    /// This window is connected to it.
+    /// This window works with it now: the server of the session or draft it shows, or of its Home.
     pub current: bool,
     /// The version it reported.
     pub version: Option<String>,
@@ -318,10 +318,12 @@ pub struct ServerEntry {
     pub state: ServerState,
     /// False keeps it out of the app's server list. Settings still shows it. Defaults to true.
     pub listed: Option<bool>,
+    /// The plugin keeps it reachable, as an SSH tunnel does: while the app checks a new endpoint, it shows a connecting spinner, not an unknown dot. Defaults to false.
+    pub managed: Option<bool>,
     /// Its endpoint, once `ready`.
     pub http: Option<ServerEndpoint>,
 }
-impl_record!(ServerEntry, ["id", "name", "label", "state", "listed", "http"], [], []);
+impl_record!(ServerEntry, ["id", "name", "label", "state", "listed", "managed", "http"], [], []);
 
 /// HTTP basic credentials.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -551,6 +553,20 @@ pub struct MenuOpenSpec {
     pub width: Option<f64>,
 }
 impl_record!(MenuOpenSpec, ["anchorKey", "items", "label", "side", "align", "minWidth", "width"], [], []);
+
+/// A new session's draft, opened with `Layout:OpenDraft`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct DraftSpec {
+    /// The server it runs on: a `ServerInfo.key`. Defaults to the server this window works with.
+    pub server_key: Option<String>,
+    /// Its workspace folder on that server.
+    pub directory: String,
+    /// Text typed into its composer.
+    pub prompt: Option<String>,
+}
+impl_record!(DraftSpec, ["serverKey", "directory", "prompt"], [], []);
 
 /// How to open a panel tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

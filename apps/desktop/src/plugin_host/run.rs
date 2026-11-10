@@ -384,6 +384,7 @@ pub fn commands(app: &App, offered: bool) -> Vec<crate::commands::Command> {
 /// plugin.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     sync_experiments(app);
+    super::servers::poll_actions(app, tx);
     let mut changed = super::luau::poll(app, tx);
     changed |= deliver_events(app, tx);
     let now = app.clock;

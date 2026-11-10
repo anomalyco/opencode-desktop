@@ -10,7 +10,7 @@
 //! dialog read it ([`get`], [`indicator`]).
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use opencode_kit::servers::health::{self, Effect, Event, Health, Indicator, Input, ProbeResult};
@@ -45,12 +45,14 @@ struct Runtime {
     hostnames: HashMap<ServerKey, String>,
     answers: (Sender<Answer>, Receiver<Answer>),
     waiters: u64,
+    /// `retry` callers whose every probe answered, until they ask ([`resolved`]).
+    resolved: HashSet<u64>,
     version: u64,
 }
 
 impl Default for Runtime {
     fn default() -> Self {
-        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), answers: channel(), waiters: 0, version: 0 }
+        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), answers: channel(), waiters: 0, resolved: HashSet::new(), version: 0 }
     }
 }
 
@@ -78,16 +80,23 @@ pub fn version() -> u64 {
     HEALTH.with_borrow(|h| h.version)
 }
 
-/// Probes every server now (`retry`), as Home's Retry does.
-pub fn retry(s: &App, tx: &mut Tx) {
+/// Probes every server now (`retry`), as Home's and Settings' Retry do; [`resolved`] says when
+/// each answered. None without a server.
+pub fn retry(s: &App, tx: &mut Tx) -> Option<u64> {
     if !s.live() {
-        return;
+        return None;
     }
-    let fx = HEALTH.with_borrow_mut(|h| {
+    let (id, fx) = HEALTH.with_borrow_mut(|h| {
         h.waiters += 1;
-        health::step(&mut h.state, Event::RetryRequested(h.waiters))
+        (h.waiters, health::step(&mut h.state, Event::RetryRequested(h.waiters)))
     });
     run(s, fx, tx);
+    Some(id)
+}
+
+/// Whether `retry` caller `id`'s probes have all answered (it's forgotten once asked).
+pub fn resolved(id: u64) -> bool {
+    HEALTH.with_borrow_mut(|h| h.resolved.remove(&id))
 }
 
 /// Each poll: the registry's changes reach the machine, answers that came in land, and a due
@@ -154,7 +163,10 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
                 tx.wake_at(s.clock + interval);
             }
             Effect::TimerStop => HEALTH.with_borrow_mut(|h| h.timer = Timer::Stopped),
-            Effect::ResolveWaiters(_) => changed = true,
+            Effect::ResolveWaiters(ids) => {
+                HEALTH.with_borrow_mut(|h| h.resolved.extend(ids));
+                changed = true;
+            }
         }
     }
     // Every step that settles a slot changes what rows show.

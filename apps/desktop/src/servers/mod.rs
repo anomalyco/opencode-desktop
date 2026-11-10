@@ -7,6 +7,7 @@
 
 pub mod dialog;
 pub mod health;
+pub mod indicator;
 pub mod machine;
 pub mod pairing;
 pub mod registry;

@@ -29,8 +29,9 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
     }
 }
 
-pub fn asyncs(host: &Host<'_>, t: &Table, _half: &Rc<Half>) -> mlua::Result<()> {
-    t.raw_set("Server.RequestAsync", host.async_function("Server:RequestAsync", request)?)?;
+pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
+    let app_half = half.kind == crate::plugin_host::luau::plugin::Kind::App;
+    t.raw_set("Server.RequestAsync", host.async_function("Server:RequestAsync", move |lua, a, done| request(lua, a, done, app_half))?)?;
     t.raw_set("Http.FetchAsync", host.async_function("Http:FetchAsync", fetch)?)?;
     t.raw_set("Workspace.ReadFileAsync", host.async_function("Workspace:ReadFileAsync", read_file)?)?;
     t.raw_set("Workspace.SaveDownloadAsync", host.async_function("Workspace:SaveDownloadAsync", save_download)?)?;
@@ -41,10 +42,12 @@ fn args<T: mlua::FromLuaMulti>(lua: &Lua, args: MultiValue) -> mlua::Result<T> {
     T::from_lua_multi(args, lua)
 }
 
-/// `Server:RequestAsync(method, path, body?)`: on the window's server (`local:` asks the app's
-/// own); resumes with a `ServerResponse`.
-fn request(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+/// `Server:RequestAsync(method, path, body?)`: on the server the window works with now, the
+/// routed tab's (`local:`, and every request of the app half, asks the app's own); resumes with a
+/// `ServerResponse`.
+fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::Result<()> {
     let (method, path, body): (String, String, Value) = args(lua, a)?;
+    let path = if app_half && !path.starts_with("local:") { format!("local:{path}") } else { path };
     let body = match body {
         Value::Nil => None,
         other => Some(Data::from_lua(other, lua)?.to_json()),

@@ -86,6 +86,8 @@ return plugin.defineApp(function(ctx)
                     -- Every saved host is in the app's registry, up or not, as Desktop lists it
                     -- (renderer.tsx sets no `listed`): Home shows its lock, spinner or red dot.
                     listed = true,
+                    -- Its tunnel keeps it reachable: a check of a new port shows the spinner.
+                    managed = true,
                     http = item.http,
                 })
             end

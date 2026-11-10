@@ -104,7 +104,9 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         // Each key's value as last parsed, by its version: a render reads it every time it runs.
         let parsed: Rc<std::cell::RefCell<std::collections::HashMap<String, (u64, Data)>>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
-            let key = crate::plugin_host::shared::key(&name, session);
+            let app = app_now("Store")?;
+            let scoped = scope_session(app, session);
+            let key = crate::plugin_host::shared::key(&name, &scoped);
             cx::read(Dep::Store(plugin.clone(), key.clone()));
             let version = store_version(&plugin, &key);
             if let Some((v, data)) = parsed.borrow().get(&key)
@@ -112,7 +114,9 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
             {
                 return data.clone().into_lua(lua);
             }
-            let text = app_now("Store")?.plugins.shared.stores.text(&plugin, &name, session);
+            // A value saved before values were kept per server is under the bare session id.
+            let stores = &app.plugins.shared.stores;
+            let text = stores.text(&plugin, &name, &scoped).or_else(|| (scoped != session).then(|| stores.text(&plugin, &name, session)).flatten());
             let data = text.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).map_or_else(|| default.clone(), |j| super::json_to_data(&j));
             parsed.borrow_mut().insert(key, (version, data.clone()));
             data.into_lua(lua)
@@ -122,8 +126,10 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         let (plugin, name) = (plugin.clone(), name.clone());
         move |lua: &Lua, session: &str, value: Value| -> mlua::Result<()> {
             let json = Data::from_lua(value, lua)?.to_json().to_string();
-            app_now("Store")?.plugins.shared.stores.set(&plugin, &name, session, &json);
-            store_changed(&plugin, &crate::plugin_host::shared::key(&name, session));
+            let app = app_now("Store")?;
+            let scoped = scope_session(app, session);
+            app.plugins.shared.stores.set(&plugin, &name, &scoped, &json);
+            store_changed(&plugin, &crate::plugin_host::shared::key(&name, &scoped));
             Ok(())
         }
     };
@@ -143,6 +149,20 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
     })?;
     o.raw_set("Changed", signal(lua, vmx, &format!("Store.{name}.Changed"))?)?;
     Ok(o)
+}
+
+/// Where session `session`'s values live (`SessionStateKey`): its server's scope (`local` for
+/// the app's own), then its folder in base64 and its id; the session of a tab on another server
+/// takes that tab's server. A global value (no session) stays as it is.
+fn scope_session(app: &crate::App, session: &str) -> String {
+    use opencode_kit::servers::key::{base64_url_encode, session_route_key, session_state_key};
+    if session.is_empty() {
+        return String::new();
+    }
+    let tab = app.tabs.iter().find(|t| t.id == session && !t.is_draft());
+    let server = tab.map_or_else(|| crate::servers::runtime::active(app).clone(), |t| t.server.clone());
+    let directory = app.session(session).filter(|_| server == *crate::servers::runtime::active(app)).map(|s| s.directory.clone()).or_else(|| tab.map(|t| t.directory.clone())).unwrap_or_default();
+    session_state_key(&server.scope(), &session_route_key(Some(&base64_url_encode(directory.as_bytes())), Some(session)))
 }
 
 /// The generation of contract `id` (0 when nothing provides it).

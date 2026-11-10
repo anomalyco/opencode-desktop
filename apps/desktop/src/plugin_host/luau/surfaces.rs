@@ -331,14 +331,40 @@ pub fn dialog_view(app: &App, p: &Pal) -> Vec<El> {
 
 /// A Luau server source's entry `rec` (key `key`), as its window half's `row` draws it in
 /// Settings › Servers, with its latest health check.
-pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec, health: Option<String>) -> Option<El> {
+pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec) -> Option<El> {
     let plugin = key.split_once(':')?.0;
     let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
         (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("row").cloned())).flatten().map(|f| (i, f))
     })?;
-    let health = health.map_or(Data::Nil, |v| map([("healthy", Data::Bool(true)), ("version", Data::String(v))]));
+    let health = health_data(crate::servers::health::get(&opencode_kit::servers::ServerKey::new(key)).as_ref());
     let props = map([("id", Data::String(rec.id.clone())), ("key", Data::String(key.to_owned())), ("health", health)]);
     Some(render(app, p, i, &format!("server:{key}"), &f, props))
+}
+
+/// A server's health as plugins read it (`ServerHealth`, `toPluginHealth`): it has no stages,
+/// so a server that isn't ready, or not checked yet, has none.
+pub fn health_data(health: Option<&opencode_kit::servers::health::Health>) -> Data {
+    use opencode_kit::servers::health::{Health, ProbeResult};
+    match health {
+        Some(Health::Probe(ProbeResult::Healthy { version, .. })) => map([("healthy", Data::Bool(true)), ("version", version.clone().map_or(Data::Nil, Data::String))]),
+        Some(Health::Checking { managed: true }) => map([("healthy", Data::Bool(false)), ("checking", Data::Bool(true))]),
+        Some(Health::Probe(ProbeResult::Unreachable | ProbeResult::Unauthorized)) => map([("healthy", Data::Bool(false))]),
+        Some(Health::Incompatible) => map([("healthy", Data::Bool(false)), ("incompatible", Data::Bool(true))]),
+        _ => Data::Nil,
+    }
+}
+
+/// A Luau server source's cover over tab `tab` of its entry `rec` (key `key`), which isn't ready
+/// (`PluginServerCover`): its window half's `cover`, filling the tab's area. None when the
+/// source draws none.
+pub fn server_cover(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec, tab: &str) -> Option<El> {
+    let plugin = key.split_once(':')?.0;
+    let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
+        (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("cover").cloned())).flatten().map(|f| (i, f))
+    })?;
+    let props = map([("id", Data::String(rec.id.clone())), ("key", Data::String(key.to_owned())), ("tab", Data::String(tab.to_owned()))]);
+    let body = render(app, p, i, &format!("cover:{key}"), &f, props);
+    Some(col().key(format!("plugin-server-cover-{key}")).w_full().h_full().fill(p.bg_base).on_press(|_: &mut App| {}).child(body))
 }
 
 // ---- Settings ----------------------------------------------------------------------------------

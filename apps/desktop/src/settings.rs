@@ -320,6 +320,11 @@ impl App {
         self.close_picker(false);
         self.close_switcher(false);
         self.composer.focused = false;
+        // Settings' per-server pages start on the server of the page it opens over
+        // (`SettingsSurface.server`'s `sourceServer`).
+        if !self.settings.open {
+            self.settings_pages.server.key = crate::servers::runtime::desired(self);
+        }
         self.settings.open = true;
         self.show_settings_page(page);
     }

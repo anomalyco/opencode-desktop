@@ -69,7 +69,7 @@ use rune::Waker;
 pub use contrib::sync_luau as contrib_sync_luau;
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
 pub use dialog::{key as dialog_key, view as dialog_view};
-pub use servers::{all as contributed_servers, changed as servers_changed, connect as connect_server, row as server_row};
+pub use servers::{all as contributed_servers, authenticating as server_authenticating, changed as servers_changed, connect as connect_server, cover as server_cover, row as server_row, stage as servers_stage};
 pub use editors::PluginEditors;
 pub use popover::{key as popover_key, view as popover_view};
 pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};

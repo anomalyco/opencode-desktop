@@ -3131,7 +3131,7 @@ export type SessionUsage = {
 export type Session = {
     --- The session id.
     id: string,
-    --- The key of the server that owns it.
+    --- The key of the server that owns it: a `ServerInfo.key`, `local` for the app's own server.
     serverId: string,
     --- Its workspace folder.
     directory: string,
@@ -3217,7 +3217,7 @@ export type ServerEvent = {
     type: string,
     --- The event's payload.
     data: any,
-    --- The key of the server that sent it.
+    --- The key of the server that sent it: a `ServerInfo.key`, `local` for the app's own server.
     serverId: string,
     --- The workspace folder it concerns.
     directory: string?,
@@ -3225,7 +3225,7 @@ export type ServerEvent = {
 
 --- A server the app lists.
 export type ServerInfo = {
-    --- Its key: `local`, or `<plugin>:<id>` for a contributed server.
+    --- Its key: `local` for the app's own server, `<plugin>:<id>` for a contributed server, or the address of a server added by address.
     key: string,
     --- Its display name.
     name: string,
@@ -3235,7 +3235,7 @@ export type ServerInfo = {
     state: ServerState,
     --- It runs on this machine.
     isLocal: boolean,
-    --- This window is connected to it.
+    --- This window works with it now: the server of the session or draft it shows, or of its Home.
     current: boolean,
     --- The version it reported.
     version: string?,
@@ -3273,6 +3273,8 @@ export type ServerEntry = {
     state: ServerState,
     --- False keeps it out of the app's server list. Settings still shows it. Defaults to true.
     listed: boolean?,
+    --- The plugin keeps it reachable, as an SSH tunnel does: while the app checks a new endpoint, it shows a connecting spinner, not an unknown dot. Defaults to false.
+    managed: boolean?,
     --- Its endpoint, once `ready`.
     http: ServerEndpoint?,
 }
@@ -3509,6 +3511,16 @@ export type MenuOpenSpec = {
     minWidth: number?,
     --- Its width in points.
     width: number?,
+}
+
+--- A new session's draft, opened with `Layout:OpenDraft`.
+export type DraftSpec = {
+    --- The server it runs on: a `ServerInfo.key`. Defaults to the server this window works with.
+    serverKey: string?,
+    --- Its workspace folder on that server.
+    directory: string,
+    --- Text typed into its composer.
+    prompt: string?,
 }
 
 --- How to open a panel tab.
@@ -4487,7 +4499,17 @@ export type ServerRowProps = {
     health: ServerHealth?,
 }
 
---- A source of servers, such as SSH hosts or WSL distributions. Desktop's plugin API calls it `Server`.
+--- What a server source's cover render receives.
+export type ServerCoverProps = {
+    --- The entry's id.
+    id: string,
+    --- Its key: `<plugin>:<id>`.
+    key: string,
+    --- The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft.
+    tab: string,
+}
+
+--- A source of servers, such as SSH hosts or WSL distributions. Add it in the app half to list entries, and in each window half to draw them: the host runs a window half's `row`, `cover`, `connect`, `reconnect` and `remove`, else the app half's. Desktop's plugin API calls it `Server`.
 export type ServerSourceSpec = {
     --- Its id within the plugin.
     id: string,
@@ -4497,9 +4519,13 @@ export type ServerSourceSpec = {
     order: number?,
     --- Draws an entry's connection row in Settings › Servers. Window halves only.
     row: ((view: View, props: ServerRowProps) -> UiNode?)?,
-    --- Starts an entry that is not ready, as a coroutine. Return true once it is.
+    --- Draws over a session or draft tab of an entry that is not `ready`, such as a disconnected SSH host's Reconnect panel. The tab stays mounted under it. Window halves only.
+    cover: ((view: View, props: ServerCoverProps) -> UiNode?)?,
+    --- Starts or signs in to an entry that is not ready, as a coroutine. Home's Authenticate and a signed-out tab's Sign in run it. Return true once it is ready. The host gives up after 120 seconds.
     connect: ((id: string) -> boolean)?,
-    --- Runs before the host forgets an entry.
+    --- Runs when the event stream of a `managed` entry drops, so the plugin can reach it again, for example through a new tunnel.
+    reconnect: ((id: string) -> ())?,
+    --- Runs before the host forgets an entry that Settings › Servers removes. Raise an error to keep the entry.
     remove: ((id: string) -> ())?,
 }
 
@@ -4603,7 +4629,7 @@ export type ModelsService = {
     Changed: Signal<()>,
 }
 
---- The OpenCode server this window is connected to. In the app half, the app's own server. Both halves: `ctx:GetService("Server")`.
+--- The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server. Both halves: `ctx:GetService("Server")`.
 export type ServerService = {
     --- Sends a request with a JSON body, off the UI thread. Yields: call it from a handler, a task or a signal callback.
     RequestAsync: (self: ServerService, method: HttpMethod, path: string, body: any?) -> ServerResponse,
@@ -4629,11 +4655,11 @@ export type ServerService = {
 export type ServersService = {
     --- Every listed server.
     List: (self: ServersService) -> { ServerInfo },
-    --- The key of the server this window is connected to.
+    --- The key of the server this window works with now.
     Current: (self: ServersService) -> string?,
     --- A server's latest health check.
     Health: (self: ServersService, key: string) -> ServerHealth?,
-    --- Connects this window to a server and goes to its Home.
+    --- Shows a listed server on Home. Every listed server stays connected, so nothing switches and no tab closes.
     Connect: (self: ServersService, key: string) -> (),
     --- Fires when the list or a server's state changes.
     Changed: Signal<()>,
@@ -4657,7 +4683,7 @@ export type ProcessService = {
 export type StoreService = {
     --- A global value.
     Value: <T>(self: StoreService, name: string, default: T) -> StoreValue<T>,
-    --- A value per session.
+    --- A value per session, kept apart for each server.
     SessionValue: <T>(self: StoreService, name: string, default: T) -> SessionStoreValue<T>,
 }
 
@@ -4741,6 +4767,10 @@ export type LayoutService = {
     OpenSettings: (self: LayoutService, pageId: string?) -> (),
     --- Opens a new session's draft in a folder, with a prompt typed in.
     NewDraft: (self: LayoutService, directory: string, prompt: string?) -> (),
+    --- Opens a new session's draft in a folder on a listed server, with a prompt typed in. Does nothing while the server is not listed.
+    OpenDraft: (self: LayoutService, spec: DraftSpec) -> (),
+    --- Asks for a folder on a server and opens a draft there, as Add project does: the system's folder picker for this machine's server, the server's own folder browser for another. A server that is not listed yet (one the plugin just started) gets 30 seconds to be listed; a newer request replaces a waiting one.
+    OpenProject: (self: LayoutService, serverKey: string, title: string?) -> (),
     --- The window is narrow-screen sized.
     Narrow: (self: LayoutService) -> boolean,
     --- The file sidebar `ui.panelSidebar` draws.

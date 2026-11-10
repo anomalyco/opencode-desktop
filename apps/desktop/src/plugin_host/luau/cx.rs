@@ -70,6 +70,10 @@ pub enum Request {
     DismissToast(u64),
     OpenSettings(Option<String>),
     NewDraft { directory: String, prompt: String },
+    /// A draft on a listed server (`Layout:OpenDraft`); `server` None for the window's.
+    OpenDraft { server: Option<String>, directory: String, prompt: String },
+    /// A folder on a server to open a draft in (`Layout:OpenProject`).
+    OpenProject { server: String, title: String },
     RunCommand { id: String, input: Option<String> },
     OpenLink { href: String },
     OpenExternal(String),

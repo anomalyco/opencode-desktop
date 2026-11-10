@@ -450,6 +450,8 @@ pub fn servers_version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     super::servers::version().hash(&mut h);
     crate::servers::version().hash(&mut h);
+    crate::servers::runtime::version().hash(&mut h);
+    crate::servers::health::version().hash(&mut h);
     let mut health: Vec<_> = app.plugins.shared.facts.health.iter().collect();
     health.sort();
     health.hash(&mut h);

@@ -56,7 +56,7 @@ pub fn list(s: &App) -> Vec<Entry> {
         };
         let label = (!c.rec.label.is_empty()).then(|| c.rec.label.clone());
         let plugin = c.key.split(':').next().unwrap_or_default().to_owned();
-        let conn = ServerConn::Plugin { key: ServerKey::new(&c.key), plugin, status, managed: false, display_name: Some(c.rec.name.clone()), label };
+        let conn = ServerConn::Plugin { key: ServerKey::new(&c.key), plugin, status, managed: c.rec.managed, display_name: Some(c.rec.name.clone()), label };
         out.push(Entry { conn, name: c.rec.name.clone() });
     }
     out

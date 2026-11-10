@@ -124,6 +124,26 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             app.composer.replace_text(prompt);
             tx.settle();
         }
+        Request::OpenDraft { server, directory, prompt } => {
+            let key = match server.as_deref() {
+                None => crate::servers::runtime::active(app).clone(),
+                Some(opencode_kit::servers::ServerScope::LOCAL) => opencode_kit::servers::ServerKey::sidecar(),
+                Some(key) => opencode_kit::servers::ServerKey::new(key),
+            };
+            if !crate::servers::runtime::listed().iter().any(|l| l.key == key) {
+                return;
+            }
+            tx.instant();
+            app.close_settings();
+            crate::servers::runtime::switch(app, &key);
+            if !directory.is_empty() {
+                app.default_dir = directory;
+            }
+            app.open_draft_tab();
+            app.composer.replace_text(prompt);
+            tx.settle();
+        }
+        Request::OpenProject { server, title } => super::project_request::request(app, server, title, tx),
         Request::RunCommand { id, input } => match (id.strip_prefix("server:"), input) {
             (Some(key), _) => crate::plugin_host::connect_server(app, key, tx),
             (None, Some(input)) => {

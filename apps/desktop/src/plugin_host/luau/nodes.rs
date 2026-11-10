@@ -270,7 +270,6 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
     let pal = p(a);
     let health = a.data("health");
     let field = |k: &str| health.as_ref().map(|h| h.get(k).clone()).unwrap_or(Data::Nil);
-    let token = |name: &str, fallback| session_view::palette::token(pal.dark, name).unwrap_or(fallback);
     let slot = || row().w(6.0).h(14.0).center();
     if a.flag("auth") {
         return Ok(slot().role("status").child(rune::icon(named_icon("lock"), 12.0).color(pal.icon_muted)));
@@ -279,11 +278,12 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
         return Ok(slot().role("status").child(Loader::new().size(12.0).build(kit(&pal))));
     }
     if field("incompatible") == Data::Bool(true) {
-        return Ok(rune::icon(named_icon("warning"), 16.0).color(token("icon-warning-base", pal.warning)));
+        return Ok(rune::icon(named_icon("warning"), 16.0).color(pal.v1_icon_warning));
     }
+    // Desktop's v1 status colours, as the host's own server rows draw them.
     let color = match field("healthy") {
-        Data::Bool(true) => token("icon-success-base", pal.success),
-        Data::Bool(false) => token("icon-critical-base", pal.danger),
+        Data::Bool(true) => crate::widgets::status_ink(&pal, "connected"),
+        Data::Bool(false) => crate::widgets::status_ink(&pal, "failed"),
         _ => pal.icon_faint,
     };
     Ok(el().size(6.0, 6.0).my(3.5).radius(3.0).fill(color))

@@ -122,6 +122,12 @@ impl Page {
         }
     }
 
+    /// It shows one server's settings (`serverTabs` and a project's pages): Settings' own server
+    /// ([`servers::Scope`]), with the switcher, or the unavailable page while it can't load.
+    pub fn per_server(&self) -> bool {
+        matches!(self, Page::Providers | Page::Models | Page::Extensions | Page::Projects | Page::Worktrees | Page::Project(..))
+    }
+
     /// Its rail icon (`pageIcons`).
     pub fn icon(&self) -> &'static Icon {
         match self {
@@ -177,6 +183,8 @@ pub struct State {
     pub projects: projects::State,
     pub worktrees: worktrees::State,
     pub servers: servers::State,
+    /// The server the per-server pages show, and their Retry while it can't be reached.
+    pub server: servers::Scope,
     /// Preferences' Timeline section.
     pub timeline: timeline::State,
     /// A project's own pages.
@@ -215,6 +223,14 @@ impl App {
         self.settings_pages.menu = None;
         self.settings_pages.shortcuts.capture = None;
         self.settings_pages.blur_fields();
+        // A per-server page reads and writes Settings' own server: the window works with it
+        // from here (`servers::runtime::desired`).
+        // One that isn't listed (stopped, waiting for a sign-in) has nothing to read: its pages
+        // show it can't be reached.
+        let key = self.settings_pages.server.key.clone();
+        if page.per_server() && crate::servers::runtime::listed().iter().any(|l| l.key == key) {
+            crate::servers::runtime::switch(self, &key);
+        }
         match &page {
             Page::Providers | Page::Models => self.sync_catalogs(None, |_, _, _| {}),
             Page::Extensions => {
@@ -405,9 +421,21 @@ pub fn no_results_words(p: &Pal, query: &str) -> Vec<El> {
     }).collect()
 }
 
-/// The content of the open page.
+/// The content of the open page: a per-server page of a server that can't be reached shows
+/// `SettingsServerUnavailable` under its own header.
 pub fn view(s: &App, p: &Pal) -> El {
-    match &s.settings_pages.page {
+    let page = &s.settings_pages.page;
+    if page.per_server() && servers::inventory::selected(s).availability.pages_connection().is_none() {
+        let (key, title, description) = match page {
+            Page::Providers => ("settings-providers-page", t!("settings.providers.title"), t!("settings.providers.description")),
+            Page::Models => ("settings-models-page", t!("settings.models.title"), t!("settings.models.description")),
+            Page::Extensions => ("settings-extensions-page", t!("settings.tab.extensions"), t!("settings.extensions.description")),
+            Page::Worktrees => ("settings-workspaces-page", t!("settings.tab.workspaces"), t!("settings.workspaces.description")),
+            _ => ("settings-projects-page", t!("settings.projects.title"), t!("settings.projects.description")),
+        };
+        return servers::unavailable::view(s, p, key, title, description);
+    }
+    match page {
         Page::Providers => providers::view(s, p),
         Page::Models => models::view(s, p),
         Page::Extensions => extensions::view(s, p),

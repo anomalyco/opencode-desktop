@@ -58,6 +58,10 @@ pub struct Item {
     detail: bool,
     /// Lines added and removed after the title, in the diff's inks (drawn menus only).
     diff: Option<(u32, u32)>,
+    /// A muted "· hint" after the title (`ServerLabel`'s "This computer"; drawn menus only).
+    hint: Option<String>,
+    /// A faint word at the row's end (the server switcher's "Unreachable"; drawn menus only).
+    note: Option<String>,
 }
 
 /// A row's icon, the same when it's the same icon.
@@ -69,14 +73,18 @@ enum Glyph {
     Weak(&'static Icon),
     /// An app's 16 pt mark in its own colours (`AppIcon`), by its id, in the appearance's variant.
     App(&'static str),
+    /// 16 pt in a 16 pt slot, in `icon-muted` (the server switcher's Manage servers).
+    Slot(&'static Icon),
+    /// A server's health mark (`ServerHealthIndicator`) in a 16 pt slot.
+    Status(opencode_kit::servers::health::Indicator),
 }
 
 impl Glyph {
     /// A one-colour glyph's icon; None for an app's mark.
     fn mono(self) -> Option<&'static Icon> {
         match self {
-            Glyph::Ink(g) | Glyph::Weak(g) => Some(g),
-            Glyph::App(_) => None,
+            Glyph::Ink(g) | Glyph::Weak(g) | Glyph::Slot(g) => Some(g),
+            Glyph::App(_) | Glyph::Status(_) => None,
         }
     }
 }
@@ -84,8 +92,9 @@ impl Glyph {
 impl PartialEq for Glyph {
     fn eq(&self, other: &Glyph) -> bool {
         match (self, other) {
-            (Glyph::Ink(a), Glyph::Ink(b)) | (Glyph::Weak(a), Glyph::Weak(b)) => std::ptr::eq(*a, *b),
+            (Glyph::Ink(a), Glyph::Ink(b)) | (Glyph::Weak(a), Glyph::Weak(b)) | (Glyph::Slot(a), Glyph::Slot(b)) => std::ptr::eq(*a, *b),
             (Glyph::App(a), Glyph::App(b)) => a == b,
+            (Glyph::Status(a), Glyph::Status(b)) => a == b,
             _ => false,
         }
     }
@@ -93,8 +102,16 @@ impl PartialEq for Glyph {
 
 impl Item {
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Item {
-        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, keycaps: Vec::new(), glyph: None, detail: false, diff: None }
+        Item { id: id.into(), title: title.into(), enabled: true, checked: false, danger: false, project: None, shortcut: None, keycaps: Vec::new(), glyph: None, detail: false, diff: None, hint: None, note: None }
     }
+    /// A 16 pt icon in a 16 pt slot, in the muted icon ink (`settings-server-switcher-icon`).
+    pub fn slot_icon(mut self, glyph: &'static Icon) -> Item { self.glyph = Some(Glyph::Slot(glyph)); self }
+    /// A server's health mark in a 16 pt slot before the title.
+    pub fn status(mut self, indicator: opencode_kit::servers::health::Indicator) -> Item { self.glyph = Some(Glyph::Status(indicator)); self }
+    /// A muted "· hint" after the title, as a server's "This computer".
+    pub fn hint(mut self, hint: impl Into<String>) -> Item { self.hint = Some(hint.into()); self }
+    /// A faint word at the row's end, as a server's "Unreachable".
+    pub fn note(mut self, note: impl Into<String>) -> Item { self.note = Some(note.into()); self }
     pub fn enabled(mut self, on: bool) -> Item { self.enabled = on; self }
     /// A check at the row's end, as a picker marks its current value.
     pub fn checked(mut self, on: bool) -> Item { self.checked = on; self }
@@ -184,12 +201,14 @@ pub struct Menu {
     search: Option<Search>,
     /// Its distance from the element it opens beside (Kobalte's `gutter`), when not the default.
     gap: Option<f32>,
+    /// Its rows' start padding, when not the look's (`.settings-server-switcher-menu`'s 8).
+    item_inset: Option<f32>,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None, item_inset: None }
     }
 
     /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
@@ -241,12 +260,15 @@ impl Menu {
     pub fn above(mut self) -> Menu { self.side = Side::Top; self }
     /// At least `w` wide, as menu-v2's content is 160 pt (`menu.css:12`).
     pub fn min_width(mut self, w: f32) -> Menu { self.min_w = w; self }
-    /// As wide as its widest row (`menu-v2`'s `w-max`), its entries added.
-    pub fn hug(mut self) -> Menu { self.width = Some(hug_width(&self)); self }
+    /// As wide as its widest row (`menu-v2`'s `w-max`), its entries added, and at least its
+    /// [`Menu::min_width`].
+    pub fn hug(mut self) -> Menu { self.width = Some(hug_width(&self).max(self.min_w)); self }
     /// Beside an element, which of its edges the drawn menu lines up with (its start by default).
     pub fn align(mut self, align: Align) -> Menu { self.align = align; self }
     /// Opens `gap` from its element rather than 4 (`gutter={6}`).
     pub fn gap(mut self, gap: f32) -> Menu { self.gap = Some(gap); self }
+    /// Its rows start `pad` in rather than the look's 12.
+    pub fn item_inset(mut self, pad: f32) -> Menu { self.item_inset = Some(pad); self }
     /// Drawn in menu-v2's standard look, at least `min_w` wide, as Desktop's app menu is.
     pub fn standard(mut self, min_w: f32) -> Menu {
         self.look = Look::Standard;
@@ -642,6 +664,8 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                         Some(g) => o.lead(icon(g, 16.0)),
                         None => o.lead(el().size(16.0, 16.0)),
                     },
+                    Some(Glyph::Slot(g)) => o.lead(row().size(16.0, 16.0).center().child(icon(g, 16.0).color(p.icon_muted))),
+                    Some(Glyph::Status(ind)) => o.lead(row().size(16.0, 16.0).center().child(crate::servers::indicator::mark(p, ind))),
                     None => o,
                 };
                 let o = match &i.shortcut {
@@ -649,6 +673,19 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     Some(keys) => o.trailing(popover::hint(p, keys)),
                     None => o,
                 };
+                let o = match &i.hint {
+                    // `ServerLabel`'s `gap-1`: 4 from the name.
+                    Some(hint) => o.after(text(format!("· {hint}")).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.muted).ml(4.0 - MENU.gap)),
+                    None => o,
+                };
+                // A status word sits at the words' end, before the check (`settings-server-switcher-status`).
+                let o = match &i.note {
+                    Some(note) => o.after(el().grow(1.0)).after(text(note.clone()).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.faint)),
+                    None => o,
+                };
+                // A server row keeps its check's column when unchecked, as a radio item's indicator does.
+                let o = if matches!(i.glyph, Some(Glyph::Status(_))) && !i.checked { o.trailing(el().size(16.0, 16.0)) } else { o };
+                let look = menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU });
                 let o = match i.diff {
                     Some((a, d)) => o.after(diff_note(p, a, d)),
                     None => o,
@@ -661,9 +698,9 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     _ => o,
                 };
                 let row = if nested {
-                    popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| choose_at(s, level, n, tx))
+                    popover::option_tx::<App>(p, look, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| choose_at(s, level, n, tx))
                 } else {
-                    popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, 0, n, tx), move |s, tx| choose(s, n, tx))
+                    popover::option_tx::<App>(p, look, o, move |s, tx| hover_focus(s, 0, n, tx), move |s, tx| choose(s, n, tx))
                 };
                 list.row(if i.enabled { takes_focus(row) } else { row });
             }
@@ -722,13 +759,15 @@ fn hug_width(menu: &Menu) -> f32 {
     let w = |s: &str, st| rune::text::measure(s, &[], st, None).0;
     let rows = menu.entries.iter().map(|e| match e {
         Entry::Item(i) => {
-            i.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&i.title, label) + i.shortcut.as_deref().map_or(0.0, |k| MENU.gap + w(k, popover::HINT))
+            let words = |s: &Option<String>, prefix: &str, gap: f32| s.as_deref().map_or(0.0, |t| gap + w(&format!("{prefix}{t}"), label));
+            let check = if i.checked || matches!(i.glyph, Some(Glyph::Status(_))) { MENU.gap + 16.0 } else { 0.0 };
+            i.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&i.title, label) + i.shortcut.as_deref().map_or(0.0, |k| MENU.gap + w(k, popover::HINT)) + words(&i.hint, "· ", 4.0) + words(&i.note, "", MENU.gap) + check
         }
         Entry::Group(t) => w(t, GROUP),
         Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
         Entry::Separator => 0.0,
     });
-    rows.fold(0.0, f32::max) + MENU.pad_l + MENU.pad_r + 2.0 * MENU.inset + 2.0
+    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + MENU.pad_r + 2.0 * MENU.inset + 2.0
 }
 
 /// `menu-v2-item-chevron`: a submenu row's end.

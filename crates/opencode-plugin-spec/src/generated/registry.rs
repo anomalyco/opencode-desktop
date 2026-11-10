@@ -131,7 +131,7 @@ string_enum! {
         Sessions = "Sessions",
         /// The server's model catalog.
         Models = "Models",
-        /// The OpenCode server this window is connected to. In the app half, the app's own server.
+        /// The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server.
         Server = "Server",
         /// The servers the app lists.
         Servers = "Servers",
@@ -252,7 +252,7 @@ impl ServiceName {
             Self::Popover => &["Open", "Toggle", "Close", "IsOpen"],
             Self::Dialog => &["Open", "Close", "IsOpen"],
             Self::Menu => &["OpenAsync"],
-            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView", "RegionOpen"],
+            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "OpenDraft", "OpenProject", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView", "RegionOpen"],
             Self::Links => &["Open", "Exists"],
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],

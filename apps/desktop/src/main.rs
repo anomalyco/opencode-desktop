@@ -1190,6 +1190,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     text_rendering::poll(s, tx);
     changed |= language::poll(s, tx);
     changed |= settings::search::poll(s, tx);
+    settings::pages::servers::unavailable::poll(s, tx);
     changed |= notifications::poll(s, tx);
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);

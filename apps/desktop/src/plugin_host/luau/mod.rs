@@ -33,6 +33,7 @@ mod nodes;
 mod office_nodes;
 pub mod panels;
 mod plugin;
+pub mod project_request;
 pub mod requests;
 pub mod servers;
 pub mod services;
@@ -191,6 +192,9 @@ pub struct Host {
     /// Surface renders that ran a script, and those a memo answered, for the metrics.
     pub renders: Cell<u64>,
     pub hits: Cell<u64>,
+    /// A plugin's `Layout:OpenProject` waiting for its server, and the last request's attempt.
+    pub project: project_request::State,
+    pub project_attempt: rune::machine::Attempt,
     /// The poll clock of the last poll.
     clock: Cell<f64>,
     /// The epoch the registries read off the app's state were last mirrored at.
@@ -436,6 +440,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     mark(&app.plugins.luau, now);
     let mut changed = std::mem::take(&mut app.plugins.luau.asked);
     changed |= app_half::poll(app, now, tx);
+    project_request::poll(app, tx);
     // A flyout row's aim came due: the row under the resting pointer takes over.
     if let Overlay::Popover { flyout, .. } = &app.plugins.luau.overlay
         && let Some((attempt, due)) = flyout.due()

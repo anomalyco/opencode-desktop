@@ -309,8 +309,13 @@ impl App {
     }
 }
 
-/// The server the window's page is on: a session's, a draft tab's, else Home's.
+/// The server the window's page is on: Settings' own on its per-server pages, else a session's,
+/// a draft tab's, else Home's.
 pub fn desired(s: &App) -> ServerKey {
+    // Settings' per-server pages work with Settings' own server while it's listed.
+    if s.settings.open && s.settings_pages.page.per_server() && listed().iter().any(|l| l.key == s.settings_pages.server.key) {
+        return s.settings_pages.server.key.clone();
+    }
     match &s.route {
         Route::Session { server, .. } => server.clone(),
         Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| crate::projects::home::server(s), |t| t.server.clone()),

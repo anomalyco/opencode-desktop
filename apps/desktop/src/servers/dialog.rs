@@ -127,13 +127,25 @@ fn run(s: &mut App, effect: Effect) {
             });
         }
         Effect::TimerStop => {}
-        Effect::Save(Save::Add(server)) => super::add(s, server),
+        // Settings' per-server pages follow the server saved (`onServerChange` selects it).
+        Effect::Save(Save::Add(server)) => {
+            follow(s, &server.http.url);
+            super::add(s, server);
+        }
         // The edit moved the server: the registry keeps it at its new address only.
         Effect::Save(Save::Replace { original, server }) => {
+            follow(s, &server.http.url);
             super::remove(&original);
             super::add(s, server);
         }
         Effect::Close { .. } => s.settings_pages.servers.dialog.state = None,
+    }
+}
+
+/// Settings' own server becomes the one saved at `url`.
+fn follow(s: &mut App, url: &str) {
+    if let Some(key) = pairing::normalize(url).and_then(|u| opencode_kit::servers::ServerConn::http_server(&u)).map(|c| c.key()) {
+        s.settings_pages.server.key = key;
     }
 }
 
