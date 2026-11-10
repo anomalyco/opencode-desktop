@@ -131,14 +131,13 @@ fn preview_tab_replacement_in_file_find_and_reopen_closed_tab() {
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
     rt.frame(1.0 / 60.0);
-    assert_eq!(
-        rt.state.resolve_side_region().and_then(|r| r.active).as_deref(),
-        Some("review:changes")
-    );
+    // It was the panel's last tab, so the panel shuts with it (ad582786).
+    assert_eq!(rt.state.resolve_side_region().and_then(|r| r.active).as_deref(), None);
 
-    rt.key(KeyEvent {
-        key: Key::Command('t'),
-        mods: Mods { cmd: true, shift: true, logo: true, ..Default::default() },
+    // With the panel shut, ⇧⌘T is the window's (session tabs); the panel's Recently closed brings
+    // the file back.
+    rt.update(|s, tx| {
+        assert!(s.reopen_closed_side_tab(None, tx));
     });
     rt.frame(1.0 / 60.0);
     assert_eq!(
@@ -154,7 +153,8 @@ fn fifty_thousand_line_source_file_virtualizes_smoothly() {
         src.push_str(&format!("pub fn item_{i}() -> usize {{ {i} }}\n"));
     }
     let doc = CodeDocState::new("src/generated.rs", &src);
-    assert_eq!(doc.line_count(), 50_000);
+    // The viewer numbers the empty line after the last newline, as Desktop's (826dfb5a).
+    assert_eq!(doc.line_count(), 50_001);
 
     let mut rt = Runtime::new(
         doc,
