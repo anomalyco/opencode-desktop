@@ -2,6 +2,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant};
 
 use opencode_kit::client::{Incoming, Request, Server};
+use opencode_kit::servers::ServerKey;
 use rune::{Env, Runtime, Tx};
 
 use super::RECONNECTING;
@@ -89,7 +90,7 @@ fn a_drop_that_comes_back_quickly_says_nothing() {
 fn a_never_reached_server_shows_the_card_only_after_the_grace() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.launch.set_phase("http://127.0.0.1:9", crate::launch::Phase::Waiting { beta_tabs: false });
+    app.launch.set_phase(ServerKey::SIDECAR, crate::launch::Phase::Waiting { beta_tabs: false });
     app.launch.grace = Some(Duration::from_millis(800));
     app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let start = Instant::now();
@@ -150,7 +151,7 @@ fn a_suspect_link_whose_stream_stays_up_clears_on_its_own() {
     assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
     // The stream would have dropped by now if the link were dead.
     let since = rt.state.clock - super::STREAM_IDLE.as_secs_f64() - super::QUIET;
-    rt.state.server_links.set("http://127.0.0.1:9", super::Link::Suspect { since, notice: super::Notice::Shown });
+    rt.state.server_links.set(ServerKey::SIDECAR, super::Link::Suspect { since, notice: super::Notice::Shown });
     frames(&mut rt, 0.2);
     assert_eq!(header_status(&rt), None);
     assert!(!super::down(&rt.state));
@@ -168,14 +169,14 @@ fn a_failed_launch_never_saves_away_a_tab() {
     let home = crate::tabs::Tab::session("ses_home_not_in_list", "HOME", "/w");
     app.tabs = vec![home.clone()];
     let (out, rx) = channel();
-    app.launch.set_first("http://127.0.0.1:9", rx);
+    app.launch.set_first(ServerKey::SIDECAR, rx);
     out.send(Ready { server: None, beta_tabs: None, first: Some(Err("No OpenCode server responded at http://127.0.0.1:9".into())) }).unwrap();
     assert!(crate::launch::poll(&mut app, &mut Tx::default()));
     assert!(crate::launch::offline(&app) && app.tabs == vec![home.clone()], "the tabs stay while the server is away");
 
     // The server answers; its session list doesn't name the tab (a page past it, or a drop).
     let (out, rx) = channel();
-    app.launch.set_first("http://127.0.0.1:9", rx);
+    app.launch.set_first(ServerKey::SIDECAR, rx);
     let first = First::from_parts(fixture["projects"].clone(), Some(fixture["sessions"].clone()));
     out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
     assert!(crate::launch::poll(&mut app, &mut Tx::default()));
