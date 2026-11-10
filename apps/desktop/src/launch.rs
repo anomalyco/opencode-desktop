@@ -390,7 +390,6 @@ pub fn checking(s: &App) -> bool { window_phase(s).is_some_and(Phase::checking) 
 
 /// Coalesce a burst into one quiet poll. An ordinary window wake requests a drawable even
 /// when the batch only updated a background session; a timer lets Rune skip that present.
-#[cfg(not(feature = "hot"))]
 pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
     let pending = Arc::new(AtomicBool::new(false));
