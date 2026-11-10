@@ -13,6 +13,7 @@ pub mod icons;
 pub mod open_in;
 pub mod segmented;
 pub mod sidebar;
+pub mod terminal;
 pub mod tree;
 
 use std::rc::Rc;
@@ -34,6 +35,8 @@ pub fn nodes() -> Vec<HostNode> {
         HostNode::new("panelSidebar", sidebar::view),
         HostNode::new("openInButton", open_in::view),
         HostNode::new("segmented", segmented::view),
+        HostNode::new("terminalSurface", terminal::view),
+        HostNode::new("terminalTabLabel", terminal::label),
     ]
 }
 
@@ -44,13 +47,18 @@ pub(crate) fn icon(name: &str) -> &'static rune::Icon {
 
 /// Lands what the engines read, and reads again what file events made stale.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    crate::review::poll(app, tx) | files::poll(app, tx)
+    crate::review::poll(app, tx) | files::poll(app, tx) | terminal::poll(app, tx)
 }
 
-/// Keys for the native views on screen: the panel sidebar's toggle, then the review's diff and
-/// the open file.
+/// IME for the native view that has the keyboard: the terminal's.
+pub fn on_ime(app: &mut App, ime: &rune::Ime) -> bool {
+    terminal::ime(app, ime)
+}
+
+/// Keys for the native views on screen: the terminal that has the keyboard, the panel sidebar's
+/// toggle, then the review's diff and the open file.
 pub fn on_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    sidebar::key(app, ev, tx) || diff::key(app, ev, tx) || files::key(app, ev, tx)
+    terminal::key(app, ev, tx) || sidebar::key(app, ev, tx) || diff::key(app, ev, tx) || files::key(app, ev, tx)
 }
 
 /// The palette a node draws in.
@@ -90,6 +98,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
     match name {
         "Diff" => diff::build(lua, vmx, t),
         "Workspace" => files::build(lua, t),
+        "Terminal" => terminal::build(lua, t),
         _ => Ok(()),
     }
 }

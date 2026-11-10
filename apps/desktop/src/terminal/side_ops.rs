@@ -11,63 +11,25 @@ use super::{grid, input, workspace_key};
 use crate::App;
 use crate::keymap::Bind;
 use crate::palette::Pal;
-use crate::panels::{
-    PanelLauncherDesc, PanelSessionCtx, PanelTabDesc, PanelViewCtx, SessionPane, panel_key,
-};
+use crate::panels::{SessionPane, panel_key};
 
 /// Every terminal tab's key starts so: `terminal:{pty id}`.
 pub(crate) const PLUGIN: &str = "terminal";
 
-/// One tab per terminal of the session. Until the session's terminals load, the stored tabs stay
-/// listed, hidden, so a restore keeps them; a list that failed shows them, over its notice.
-pub(super) fn list_tabs(s: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
-    let wk = workspace_key(s.server_id_str(), ctx.session_id);
-    let tab = |id: &str, title: String| PanelTabDesc::new(id, title).icon(&grid::TERMINAL_ICON).group("terminal");
-    match s.terminal.workspaces.get(&wk) {
-        Some(ws) if !ws.tabs.is_empty() || ws.failure.is_none() => ws.tabs.iter().map(|t| tab(&t.id, t.display_title())).collect(),
-        Some(_) => ctx.open_ids.iter().map(|id| tab(id, opencode_i18n::t!("plugin.terminal.tab.title").into())).collect(),
-        None => ctx.open_ids.iter().map(|id| tab(id, opencode_i18n::t!("plugin.terminal.tab.title").into()).hidden()).collect(),
-    }
-}
-
-/// The `+` menu's and New tab's Terminal row (order 20): it opens a new terminal. A read-only
-/// window offers none.
-pub(super) fn launcher_desc(_s: &App, _ctx: &PanelSessionCtx) -> Option<PanelLauncherDesc> {
-    (!crate::flag("--read-only")).then(|| PanelLauncherDesc::new("new", opencode_i18n::t!("plugin.terminal.tab.title"), &grid::TERMINAL_ICON, 20).shortcut(&[Bind::TerminalNew]))
-}
-
-/// The pane a new terminal opens in beside no other: Settings' terminal placement.
-pub(super) fn placed(s: &App) -> SessionPane {
-    match s.dock_placement() {
-        crate::panels::DockPlacement::Side => SessionPane::Side,
-        crate::panels::DockPlacement::Bottom => SessionPane::Bottom,
-    }
-}
-
-pub(super) fn open_from_launcher(s: &mut App, pane: SessionPane, tx: &mut Tx) {
-    s.create_terminal_tab(Some(pane), tx);
-}
-
-/// `terminal.new` (⌃⌥T): a new terminal, its tab selected.
-pub(super) fn shortcut_new_terminal(s: &mut App, tx: &mut Tx) {
-    s.create_terminal_tab(None, tx);
-}
-
 /// A terminal's label (`TerminalTabLabel`): Desktop's prompt glyph, then its title, at most 160
 /// wide; a double-click on the title or the label's own menu renames it in a field over it.
-pub(super) fn tab_lead(s: &App, p: &Pal, tab: &PanelTabDesc, active: bool) -> Option<El> {
-    let field = super::rename::field(s, p, &tab.id);
-    let (rename_id, menu_id) = (tab.id.clone(), tab.id.clone());
-    Some(
-        row()
-            .key(format!("terminal-label-{}", tab.id))
+pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -> El {
+    let field = super::rename::field(s, p, id);
+    let (rename_id, menu_id) = (id.to_owned(), id.to_owned());
+    row()
+        .key(format!("terminal-label-{id}"))
             .gap(6.0)
             .center_y()
             .min_w(0.0)
             .on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| super::rename::menu(s, &menu_id, press, tx))
             .child(icon(&grid::TERMINAL_ICON, 16.0).color(if active { p.icon } else { p.icon_muted }))
             .child(
-                text(tab.title.clone())
+                text(title.to_owned())
                     .key("terminal-tab-title")
                     .font(crate::view::UI)
                     .color(if active { p.text } else { p.muted })
@@ -77,18 +39,18 @@ pub(super) fn tab_lead(s: &App, p: &Pal, tab: &PanelTabDesc, active: bool) -> Op
                     .opacity(if field.is_some() { 0.0 } else { 1.0 })
                     .on_double_press_tx(move |s: &mut App, tx: &mut Tx| super::rename::start(s, &rename_id, tx)),
             )
-            .children(field),
-    )
+            .children(field)
 }
 
-pub(super) fn render(s: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
+/// Terminal `id` of session `sid` filling a pane `size` big, at `scale` device pixels a point.
+pub(crate) fn surface(s: &App, p: &Pal, sid: &str, id: &str, size: (f32, f32), scale: f32, focused: bool) -> El {
     s.terminal.painted_dark.set(Some(p.dark));
-    let ws_key = workspace_key(s.server_id_str(), ctx.session_id);
-    grid::render_terminal_pane(s, p, &ws_key, Some(&ctx.tab.id), ctx.pane_size, ctx.env_scale, ctx.focused && !s.composer.focused)
+    let ws_key = workspace_key(s.server_id_str(), sid);
+    grid::render_terminal_pane(s, p, &ws_key, Some(id), size, scale, focused && !s.composer.focused)
 }
 
 /// A selected terminal tab selects its terminal, and takes the keyboard unless restored.
-pub(super) fn on_focus(s: &mut App, session_id: &str, tab_id: &str, restored: bool) {
+pub(crate) fn on_focus(s: &mut App, session_id: &str, tab_id: &str, restored: bool) {
     let wk = s.terminal_workspace_key_for_session(session_id);
     s.ensure_terminal_workspace_hydrated(&wk);
     if let Some(ws) = s.terminal.workspaces.get_mut(&wk)
@@ -103,21 +65,11 @@ pub(super) fn on_focus(s: &mut App, session_id: &str, tab_id: &str, restored: bo
     }
 }
 
-pub(super) fn on_enter(s: &mut App, session_id: &str, tab_id: &str) {
-    on_focus(s, session_id, tab_id, false);
-}
-
-/// Closing a terminal's tab ends its shell, as Desktop's does.
-pub(super) fn on_close(s: &mut App, session_id: &str, tab_id: &str, tx: &mut Tx) {
-    let wk = s.terminal_workspace_key_for_session(session_id);
-    s.close_terminal_tab(&wk, tab_id, tx);
-}
-
-pub(super) fn poll_panel(s: &mut App, tx: &mut Tx) -> bool {
+pub(crate) fn poll_panel(s: &mut App, tx: &mut Tx) -> bool {
     super::rename::poll(s, tx) | s.poll_terminal(tx)
 }
 
-pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some((wk, id)) = s.terminal_focus() else { return false };
 
     // ⌘W closes the terminal (Desktop's scoped `terminal.close`); the strip's tab keys stay the strip's.
@@ -154,7 +106,7 @@ pub(super) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
 }
 
-pub(super) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
+pub(crate) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
     let Some((wk, id)) = s.terminal_focus() else { return false };
     let consumed = {
         let Some(ws) = s.terminal.workspaces.get(&wk) else { return false };

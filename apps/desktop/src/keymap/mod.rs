@@ -73,9 +73,7 @@ pub enum Bind {
     Stop,
     FileOpen,
     BrowserOpen,
-    DockToggle,
     BottomToggle,
-    TerminalNew,
     PaneTabNew,
     PaneTabPrev,
     PaneTabNext,
@@ -226,11 +224,9 @@ fn table() -> Vec<Binding> {
         // The GUI plugins' launchers (`gui-plugins/src/{browser,file,review}/renderer.tsx`):
         // ⌃⌘ on macOS, Ctrl+Alt elsewhere, so they keep clear of Ctrl+B, Ctrl+P and Ctrl+R.
             row(BrowserOpen, "browser.open", key!("plugin.browser.command.open"), General, on("ctrl+mod+b").on(Windows, "ctrl+alt+b").on(Linux, "ctrl+alt+b")),
-            // Desktop's `terminal.toggle` (Ctrl+`) and this app's ⌘J dock toggle: the label reads ⌘J on
-        // macOS, as it always has here, and Ctrl+` elsewhere, as Desktop's does.
-        row(DockToggle, "terminal.toggle", key!("plugin.terminal.command.toggle"), Terminal, on("ctrl+`")),
+        // Desktop's `terminal.toggle` (Ctrl+`) and `terminal.new` are the terminal plugin's
+        // (`TERMINAL_TOGGLE`, `TERMINAL_NEW`).
         row(BottomToggle, "bottom.toggle", key!("command.bottom.toggle"), General, on("mod+j")),
-        row(TerminalNew, "terminal.new", key!("plugin.terminal.command.new"), Terminal, on("ctrl+alt+t")),
         hidden(PaneTabNew, "file.tab.new", key!("rune.command.file.tab.new"), Navigation, on("mod+t")),
         hidden(PaneTabPrev, "file.tab.prev", key!("rune.command.file.tab.previous"), Navigation, on("mod+shift+[")),
         hidden(PaneTabNext, "file.tab.next", key!("rune.command.file.tab.next"), Navigation, on("mod+shift+]")),
@@ -396,6 +392,50 @@ impl Bind {
 }
 
 pub use session_view::keymap::{caps, label};
+
+/// A built-in plugin's command that the shell's own menus and key routing name: its id and the
+/// chord its plugin binds it to, which Settings › Shortcuts can change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PluginBind {
+    pub id: &'static str,
+    pub default: &'static str,
+}
+
+/// The terminal plugin's `terminal.toggle` (`plugins/terminal`).
+pub const TERMINAL_TOGGLE: PluginBind = PluginBind { id: "terminal.toggle", default: "ctrl+`" };
+/// The terminal plugin's `terminal.new`.
+pub const TERMINAL_NEW: PluginBind = PluginBind { id: "terminal.new", default: "ctrl+alt+t" };
+
+impl PluginBind {
+    fn keybind(self) -> Keybind {
+        overrides::command(self.id).cloned().unwrap_or_else(|| Keybind::new(self.default))
+    }
+
+    /// The first chord here, if any.
+    pub fn chord(self) -> Option<Chord> {
+        self.keybind().chords().first().copied()
+    }
+
+    /// How the first chord reads here; "" when unbound.
+    pub fn label(self) -> String {
+        self.chord().map_or_else(String::new, label)
+    }
+
+    /// One string per keycap, modifiers first.
+    pub fn keycaps(self) -> Vec<String> {
+        self.chord().map_or_else(Vec::new, caps)
+    }
+
+    /// The first chord as a menu item's key equivalent.
+    pub fn shortcut(self) -> Option<rune::Shortcut> {
+        self.chord().and_then(|c| c.to_string().parse().ok())
+    }
+
+    /// Whether `ev` is one of its chords here.
+    pub fn matches(self, ev: &KeyEvent) -> bool {
+        self.keybind().matches(ev)
+    }
+}
 
 /// The chord published command `id` answers to here: the user's own, else its default.
 pub fn command_chord(app: &crate::App, id: &str) -> Option<Chord> {

@@ -711,6 +711,22 @@ pub struct TerminalSpec {
 }
 impl_record!(TerminalSpec, ["directory", "cwd", "title", "command", "args"], [], []);
 
+/// One terminal of a session, as its tab lists it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct TerminalInfo {
+    /// The server's id for it.
+    pub id: String,
+    /// Its title, as the shell or a rename set it. Empty before the server names it.
+    pub title: String,
+    /// Its place among the session's terminals, from 1: what a default title says.
+    pub number: i64,
+    /// Listed only to hold a restored tab until the server lists the session's terminals.
+    pub hidden: bool,
+}
+impl_record!(TerminalInfo, ["id", "title", "number", "hidden"], [], []);
+
 /// A page to open.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -831,8 +847,10 @@ pub struct PanelTab {
     pub draggable: Option<bool>,
     /// Selected when the selected tab closes.
     pub fallback: Option<bool>,
+    /// Listed but not drawn in the strip: it holds a restored selection until the panel can show it.
+    pub hidden: Option<bool>,
 }
-impl_record!(PanelTab, ["instance", "title", "pinned", "missing", "file", "icon", "transient", "draggable", "fallback"], [], []);
+impl_record!(PanelTab, ["instance", "title", "pinned", "missing", "file", "icon", "transient", "draggable", "fallback", "hidden"], [], []);
 
 /// What a titlebar item shows.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

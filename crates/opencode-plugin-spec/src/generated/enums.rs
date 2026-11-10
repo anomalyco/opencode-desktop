@@ -490,6 +490,8 @@ string_enum! {
         Side = "side",
         /// The bottom pane, under the conversation and the side pane.
         Bottom = "bottom",
+        /// Where Settings › Terminal places a new terminal: the side or the bottom pane.
+        Dock = "dock",
     }
 }
 

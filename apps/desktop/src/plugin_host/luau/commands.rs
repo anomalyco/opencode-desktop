@@ -101,6 +101,18 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     hit.is_some_and(|c| run(app, c.id, None, tx))
 }
 
+/// A chord (with Ctrl, Alt or the primary key) of a command of a plugin with panels, ahead of the
+/// pane that has the keyboard, as the side region's own commands are: Toggle terminal and New
+/// terminal answer inside a focused terminal, Open review inside a focused file.
+pub fn panel_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt) {
+        return false;
+    }
+    let panels: Vec<&str> = super::panels::providers(app).iter().map(|p| p.plugin).collect();
+    let hit = all(app).into_iter().find(|c| offered(app, c) && panels.iter().any(|p| c.id.strip_prefix(*p).is_some_and(|r| r.starts_with('.'))) && c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)));
+    hit.is_some_and(|c| run(app, c.id, None, tx))
+}
+
 // ---- Menu items, links, code blocks, MCP and the app menu ------------------------------------------
 
 /// Luau menu items of host menu `menu` (`session.panel`, `server.add`, `server.row`), as

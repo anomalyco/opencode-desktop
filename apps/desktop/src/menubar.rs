@@ -26,6 +26,14 @@ pub fn keyed(item: MenuItem<App>, bind: Bind) -> MenuItem<App> {
     }
 }
 
+/// `keyed` for a built-in plugin's command.
+fn keyed_plugin(item: MenuItem<App>, bind: crate::keymap::PluginBind) -> MenuItem<App> {
+    match bind.shortcut() {
+        Some(keys) => item.key_equivalent(keys),
+        None => item,
+    }
+}
+
 /// `keyed`, but showing Desktop's accelerator `chord` while the command still answers to it
 /// (New Session's ⌘N, where the command's first chord is ⌘T).
 fn keyed_as(item: MenuItem<App>, bind: Bind, chord: &str) -> MenuItem<App> {
@@ -90,7 +98,7 @@ fn edit() -> Vec<MenuItem<App>> {
 fn view() -> Vec<MenuItem<App>> {
     vec![
         keyed(MenuItem::new(t!("desktop.menu.toggleSidebar"), |s: &mut App, tx: &mut Tx| run(s, Act::ToggleSidebar, tx)).id("View/ToggleSidebar").menu("View"), Bind::Sidebar).keys_first(),
-        keyed(MenuItem::new(t!("desktop.menu.toggleTerminal"), |s: &mut App, tx: &mut Tx| run(s, Act::ToggleTerminal, tx)).id("View/ToggleTerminal").menu("View"), Bind::DockToggle).keys_first(),
+        keyed_plugin(MenuItem::new(t!("desktop.menu.toggleTerminal"), |s: &mut App, tx: &mut Tx| run(s, Act::ToggleTerminal, tx)).id("View/ToggleTerminal").menu("View"), crate::keymap::TERMINAL_TOGGLE).keys_first(),
         MenuItem::separator().menu("View"),
         fixed(MenuItem::new(t!("desktop.menu.reload"), |s: &mut App, tx: &mut Tx| run(s, Act::Reload, tx)).id("View/Reload").menu("View"), "mod+r").keys_first(),
         fixed(MenuItem::new(t!("desktop.menu.toggleDeveloperTools"), |s: &mut App, tx: &mut Tx| run(s, Act::DevTools, tx)).id("View/ToggleDeveloperTools").menu("View"), "mod+alt+i").keys_first(),

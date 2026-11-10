@@ -181,7 +181,7 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
         return true;
     }
     // Rename, Move to background and the terminal toggle, whose chords name Ctrl.
-    if [Bind::Rename, Bind::Background, Bind::DockToggle].iter().any(|b| b.matches(ev)) {
+    if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {
         return true;
     }
     // Shell, side-region, picker, knobs, storybook, and dictation chords: any with the primary key.

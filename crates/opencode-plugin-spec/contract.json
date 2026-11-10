@@ -267,7 +267,8 @@
     ] },
     { "name": "PanelPane", "rust": true, "doc": "A pane of the session's side region.", "values": [
       { "value": "side", "doc": "The side pane. The default." },
-      { "value": "bottom", "doc": "The bottom pane, under the conversation and the side pane." }
+      { "value": "bottom", "doc": "The bottom pane, under the conversation and the side pane." },
+      { "value": "dock", "doc": "Where Settings › Terminal places a new terminal: the side or the bottom pane." }
     ] },
     { "name": "FieldVariant", "rust": true, "doc": "A text field's look.", "values": [
       { "value": "default", "doc": "The app's bordered field." },
@@ -646,10 +647,19 @@
       { "name": "onVisibleRows", "type": "UiHandler?", "doc": "Runs as the visible rows change, with `event.first` and `event.last`." }
     ] },
     { "name": "UiTerminalSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.terminalSurface` props. Native: the VT parser, scrollback, glyph grid, IME and PTY stream stay in the host.", "fields": [
-      { "name": "session", "type": "PtySession", "doc": "The terminal session, from the `Terminal` service." },
+      { "name": "session", "type": "PtySession?", "doc": "The terminal session, from the `Terminal` service." },
       { "name": "fontFamily", "type": "string?", "doc": "A font family. Defaults to the user's code font." },
       { "name": "fontSize", "type": "number?", "doc": "Font size in points." },
-      { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." }
+      { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." },
+      { "name": "width", "type": "number?", "doc": "The pane's width in points (`PanelProps.width`): the grid's columns fit it." },
+      { "name": "height", "type": "number?", "doc": "The pane's height in points: the grid's rows fit it." },
+      { "name": "narrow", "type": "boolean?", "doc": "The narrow window's Terminal view of session `sessionId`: its terminals' tabs over the active one." },
+      { "name": "sessionId", "type": "string?", "doc": "The session a `narrow` view shows." }
+    ] },
+    { "name": "UiTerminalTabLabelProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.terminalTabLabel` props.", "fields": [
+      { "name": "session", "type": "PtySession", "doc": "The terminal the tab shows." },
+      { "name": "title", "type": "string", "doc": "Its label." },
+      { "name": "selected", "type": "boolean?", "doc": "The tab is selected." }
     ] },
     { "name": "UiBrowserSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.", "fields": [
       { "name": "tab", "type": "BrowserTab", "doc": "The page, from the `Browser` service." },
@@ -1024,6 +1034,12 @@
       { "name": "Exited", "kind": "signal", "payload": "number?", "doc": "Fires with the exit code as its process exits." },
       { "name": "TitleChanged", "kind": "signal", "payload": "string", "doc": "Fires with the new title." }
     ] },
+    { "name": "TerminalInfo", "kind": "record", "rust": true, "doc": "One terminal of a session, as its tab lists it.", "fields": [
+      { "name": "id", "type": "string", "doc": "The server's id for it." },
+      { "name": "title", "type": "string", "doc": "Its title, as the shell or a rename set it. Empty before the server names it." },
+      { "name": "number", "type": "integer", "doc": "Its place among the session's terminals, from 1: what a default title says." },
+      { "name": "hidden", "type": "boolean", "doc": "Listed only to hold a restored tab until the server lists the session's terminals." }
+    ] },
     { "name": "BrowserOpenSpec", "kind": "record", "rust": true, "doc": "A page to open.", "fields": [
       { "name": "url", "type": "string", "doc": "The URL." },
       { "name": "sessionId", "type": "string?", "doc": "The session the page belongs to." },
@@ -1133,6 +1149,7 @@
       { "name": "instance", "type": "string?", "doc": "An instance panel's tab." },
       { "name": "active", "type": "boolean", "doc": "The tab is selected." },
       { "name": "placement", "type": "\"side\" | \"mobile\"", "doc": "Where it renders." },
+      { "name": "restored", "type": "boolean?", "doc": "In `onFocus`: the selection came back with a restored strip rather than from the user." },
       { "name": "width", "type": "number", "doc": "The pane's width in points: lay out for it as a container query would." },
       { "name": "height", "type": "number", "doc": "The pane's height in points." }
     ] },
@@ -1151,7 +1168,8 @@
       { "name": "icon", "type": "IconName?", "doc": "Its icon, instead of the panel's. A tab showing `file` defaults to the file's type icon." },
       { "name": "transient", "type": "boolean?", "doc": "A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed." },
       { "name": "draggable", "type": "boolean?", "doc": "Drags between panes. Defaults to true." },
-      { "name": "fallback", "type": "boolean?", "doc": "Selected when the selected tab closes." }
+      { "name": "fallback", "type": "boolean?", "doc": "Selected when the selected tab closes." },
+      { "name": "hidden", "type": "boolean?", "doc": "Listed but not drawn in the strip: it holds a restored selection until the panel can show it." }
     ] },
     { "name": "ClosedTab", "kind": "record", "rust": true, "doc": "What Recently closed lists for a panel's closed tab.", "fields": [
       { "name": "title", "type": "string?", "doc": "Its title, instead of the tab's." },
@@ -1563,7 +1581,12 @@
     ] },
     { "name": "Terminal", "halves": ["window", "app"], "doc": "Terminal sessions on the server, for `ui.terminalSurface`.", "members": [
       { "name": "Create", "kind": "method", "sig": "(spec: TerminalSpec) -> PtySession", "doc": "Starts a terminal session." },
-      { "name": "Attach", "kind": "method", "sig": "(id: string) -> PtySession?", "doc": "Reattaches to a running session by id." }
+      { "name": "Attach", "kind": "method", "sig": "(id: string) -> PtySession?", "doc": "Reattaches to a running session by id." },
+      { "name": "List", "kind": "method", "sig": "(sessionId: string, open: { string }) -> { TerminalInfo }", "doc": "Session `sessionId`'s terminals in strip order. Until the server lists them, the stored tabs `open` names, hidden; after a list that failed, those tabs shown." },
+      { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "This window can start terminals: its server has them and the window isn't read-only." },
+      { "name": "New", "kind": "method", "sig": "(sessionId: string?) -> ()", "doc": "Starts a terminal in the session (the routed one by default) and opens its tab beside its others, or where Settings place a first one; it takes the keyboard." },
+      { "name": "Toggle", "kind": "method", "sig": "() -> ()", "doc": "`terminal.toggle`: a new terminal when the routed session has none; the active terminal's pane hides while its tab shows; otherwise its tab opens and takes the keyboard." },
+      { "name": "Select", "kind": "method", "sig": "(sessionId: string, id: string, focus: boolean) -> ()", "doc": "Makes terminal `id` the session's active one, and with `focus` gives it the keyboard." }
     ] },
     { "name": "Browser", "halves": ["window", "app"], "doc": "Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them.", "members": [
       { "name": "Open", "kind": "method", "sig": "(spec: BrowserOpenSpec) -> BrowserTab", "doc": "Opens a page." },
@@ -1648,7 +1671,8 @@
     { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
     { "name": "markdown", "category": "native", "sig": "(props: UiMarkdownProps) -> UiNode", "props": "UiMarkdownProps", "doc": "Markdown, as the timeline draws a reply.", "native": { "engine": "Markdown renderer with Mermaid diagrams", "native": "Parsing and AST caching, paragraph shaping, code fences, Mermaid layout", "luau": "What to show, streaming state, highlights" } },
     { "name": "virtualList", "category": "native", "sig": "(props: UiVirtualListProps) -> UiNode", "props": "UiVirtualListProps", "doc": "A long list that builds only its visible rows.", "native": { "engine": "Virtualized rows", "native": "Viewport windowing, height cache, scroll anchoring, incremental mounting", "luau": "Row count, version and each row's content" } },
-    { "name": "terminalSurface", "category": "native", "sig": "(props: UiTerminalSurfaceProps) -> UiNode", "props": "UiTerminalSurfaceProps", "doc": "A terminal.", "native": { "engine": "Terminal emulator over the server's PTY stream", "native": "VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream", "luau": "Tabs, numbering and renaming, commands, persistence, MCP tools" } },
+    { "name": "terminalSurface", "category": "native", "sig": "(props: UiTerminalSurfaceProps) -> UiNode", "props": "UiTerminalSurfaceProps", "doc": "A terminal.", "native": { "engine": "Terminal emulator over the server's PTY stream", "native": "VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream", "luau": "Tabs and their titles, commands, the + menu row, the narrow view" } },
+    { "name": "terminalTabLabel", "category": "native", "sig": "(props: UiTerminalTabLabelProps) -> UiNode", "props": "UiTerminalTabLabelProps", "doc": "A terminal tab's label: its prompt glyph and title, at most 160 wide.", "native": { "engine": "The terminal's rename", "native": "Double-click and the label's menu rename it in a field over the title", "luau": "The title it shows" } },
     { "name": "browserSurface", "category": "native", "sig": "(props: UiBrowserSurfaceProps) -> UiNode", "props": "UiBrowserSurfaceProps", "doc": "A web page.", "native": { "engine": "Embedded browser engine", "native": "The out-of-process browser, GPU texture sharing, the DevTools transport, input forwarding", "luau": "Address bar, history, element picker notes, commands, MCP tools" } },
     { "name": "codeView", "category": "native", "sig": "(props: UiCodeViewProps) -> UiNode", "props": "UiCodeViewProps", "doc": "A highlighted file.", "native": { "engine": "Code view with an asynchronous highlighter", "native": "Highlighting, the line buffer, the virtualized gutter, selection, find in file", "luau": "Tab routing, breadcrumb header, line links, viewer choice, MCP tools" } },
     { "name": "diffView", "category": "native", "sig": "(props: UiDiffViewProps) -> UiNode", "props": "UiDiffViewProps", "doc": "Changes, split or unified.", "native": { "engine": "Diff engine and code view", "native": "Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors", "luau": "Source switcher, totals, split and unified toggle, contracts, MCP tools" } },

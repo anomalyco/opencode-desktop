@@ -160,7 +160,7 @@ export type DiffStatus = "loading" | "ready" | "no-vcs" | "offline" | "error"
 export type ChangeKind = "add" | "del" | "mix"
 
 --- A pane of the session's side region.
-export type PanelPane = "side" | "bottom"
+export type PanelPane = "side" | "bottom" | "dock"
 
 --- A text field's look.
 export type FieldVariant = "default" | "filter"
@@ -2118,13 +2118,89 @@ export type UiTerminalSurfaceProps = {
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
     --- The terminal session, from the `Terminal` service.
-    session: PtySession,
+    session: PtySession?,
     --- A font family. Defaults to the user's code font.
     fontFamily: string?,
     --- Font size in points.
     fontSize: number?,
     --- Takes keyboard focus.
     focused: boolean?,
+    --- The pane's width in points (`PanelProps.width`): the grid's columns fit it.
+    width: number?,
+    --- The pane's height in points: the grid's rows fit it.
+    height: number?,
+    --- The narrow window's Terminal view of session `sessionId`: its terminals' tabs over the active one.
+    narrow: boolean?,
+    --- The session a `narrow` view shows.
+    sessionId: string?,
+}
+
+--- `ui.terminalTabLabel` props.
+export type UiTerminalTabLabelProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- The terminal the tab shows.
+    session: PtySession,
+    --- Its label.
+    title: string,
+    --- The tab is selected.
+    selected: boolean?,
 }
 
 --- `ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.
@@ -3335,6 +3411,18 @@ export type PtySession = {
     TitleChanged: Signal<string>,
 }
 
+--- One terminal of a session, as its tab lists it.
+export type TerminalInfo = {
+    --- The server's id for it.
+    id: string,
+    --- Its title, as the shell or a rename set it. Empty before the server names it.
+    title: string,
+    --- Its place among the session's terminals, from 1: what a default title says.
+    number: number,
+    --- Listed only to hold a restored tab until the server lists the session's terminals.
+    hidden: boolean,
+}
+
 --- A page to open.
 export type BrowserOpenSpec = {
     --- The URL.
@@ -3551,6 +3639,8 @@ export type PanelProps = {
     active: boolean,
     --- Where it renders.
     placement: "side" | "mobile",
+    --- In `onFocus`: the selection came back with a restored strip rather than from the user.
+    restored: boolean?,
     --- The pane's width in points: lay out for it as a container query would.
     width: number,
     --- The pane's height in points.
@@ -3589,6 +3679,8 @@ export type PanelTab = {
     draggable: boolean?,
     --- Selected when the selected tab closes.
     fallback: boolean?,
+    --- Listed but not drawn in the strip: it holds a restored selection until the panel can show it.
+    hidden: boolean?,
 }
 
 --- What Recently closed lists for a panel's closed tab.
@@ -4349,6 +4441,16 @@ export type TerminalService = {
     Create: (self: TerminalService, spec: TerminalSpec) -> PtySession,
     --- Reattaches to a running session by id.
     Attach: (self: TerminalService, id: string) -> PtySession?,
+    --- Session `sessionId`'s terminals in strip order. Until the server lists them, the stored tabs `open` names, hidden; after a list that failed, those tabs shown.
+    List: (self: TerminalService, sessionId: string, open: { string }) -> { TerminalInfo },
+    --- This window can start terminals: its server has them and the window isn't read-only.
+    Available: (self: TerminalService) -> boolean,
+    --- Starts a terminal in the session (the routed one by default) and opens its tab beside its others, or where Settings place a first one; it takes the keyboard.
+    New: (self: TerminalService, sessionId: string?) -> (),
+    --- `terminal.toggle`: a new terminal when the routed session has none; the active terminal's pane hides while its tab shows; otherwise its tab opens and takes the keyboard.
+    Toggle: (self: TerminalService) -> (),
+    --- Makes terminal `id` the session's active one, and with `focus` gives it the keyboard.
+    Select: (self: TerminalService, sessionId: string, id: string, focus: boolean) -> (),
 }
 
 --- Pages in the app's embedded browser. Pages belong to the process and survive a window closing when the app half opened them. Both halves: `ctx:GetService("Browser")`.
@@ -4705,6 +4807,8 @@ export type UiLibrary = {
     virtualList: (props: UiVirtualListProps) -> UiNode,
     --- A terminal. Native: the host renders it.
     terminalSurface: (props: UiTerminalSurfaceProps) -> UiNode,
+    --- A terminal tab's label: its prompt glyph and title, at most 160 wide. Native: the host renders it.
+    terminalTabLabel: (props: UiTerminalTabLabelProps) -> UiNode,
     --- A web page. Native: the host renders it.
     browserSurface: (props: UiBrowserSurfaceProps) -> UiNode,
     --- A highlighted file. Native: the host renders it.

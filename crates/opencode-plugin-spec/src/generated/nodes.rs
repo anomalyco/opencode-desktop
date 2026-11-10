@@ -60,6 +60,8 @@ string_enum! {
         VirtualList = "virtualList",
         /// A terminal.
         TerminalSurface = "terminalSurface",
+        /// A terminal tab's label: its prompt glyph and title, at most 160 wide.
+        TerminalTabLabel = "terminalTabLabel",
         /// A web page.
         BrowserSurface = "browserSurface",
         /// A highlighted file.
@@ -97,7 +99,7 @@ impl NodeKind {
             Self::Box | Self::Row | Self::Col | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
             Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow => NodeCategory::Control,
-            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
+            Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::GenUi => NodeCategory::Native,
         }
     }
 
@@ -133,6 +135,7 @@ impl NodeKind {
             Self::Markdown => &UI_MARKDOWN_PROPS,
             Self::VirtualList => &UI_VIRTUAL_LIST_PROPS,
             Self::TerminalSurface => &UI_TERMINAL_SURFACE_PROPS,
+            Self::TerminalTabLabel => &UI_TERMINAL_TAB_LABEL_PROPS,
             Self::BrowserSurface => &UI_BROWSER_SURFACE_PROPS,
             Self::CodeView => &UI_CODE_VIEW_PROPS,
             Self::DiffView => &UI_DIFF_VIEW_PROPS,
@@ -437,10 +440,21 @@ pub static UI_SWITCH_PROPS: PropsSpec = PropsSpec::new("UiSwitchProps", Some(&UI
 
 /// `UiTerminalSurfaceProps`.
 pub static UI_TERMINAL_SURFACE_PROPS: PropsSpec = PropsSpec::new("UiTerminalSurfaceProps", Some(&UI_LAYOUT_PROPS), &[
-    PropSpec::new("session", PropType::Handle("PtySession"), true),
+    PropSpec::new("session", PropType::Handle("PtySession"), false),
     PropSpec::new("fontFamily", PropType::String, false),
     PropSpec::new("fontSize", PropType::Number, false),
     PropSpec::new("focused", PropType::Bool, false),
+    PropSpec::new("width", PropType::Number, false),
+    PropSpec::new("height", PropType::Number, false),
+    PropSpec::new("narrow", PropType::Bool, false),
+    PropSpec::new("sessionId", PropType::String, false),
+]);
+
+/// `UiTerminalTabLabelProps`.
+pub static UI_TERMINAL_TAB_LABEL_PROPS: PropsSpec = PropsSpec::new("UiTerminalTabLabelProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("session", PropType::Handle("PtySession"), true),
+    PropSpec::new("title", PropType::String, true),
+    PropSpec::new("selected", PropType::Bool, false),
 ]);
 
 /// `UiTextProps`.

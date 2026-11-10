@@ -45,6 +45,13 @@ pub(super) fn menu(s: &mut App, id: &str, press: PointerPress, tx: &mut Tx) {
     });
 }
 
+/// What the rename field draws from, for a view that redraws only when it changes: the tab and
+/// its field.
+pub(crate) fn stamp(s: &App, h: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    s.terminal.renaming.as_ref().map(|r| (&r.id, &r.field)).hash(h);
+}
+
 /// The field over tab `id`'s title while it's renamed: from past the glyph to the label's end.
 pub(super) fn field(s: &App, p: &Pal, id: &str) -> Option<El> {
     let r = s.terminal.renaming.as_ref().filter(|r| r.id == id)?;

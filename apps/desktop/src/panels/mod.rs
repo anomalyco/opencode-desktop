@@ -482,7 +482,7 @@ impl PanelRegistration {
     /// Runs as `tab` of `session` becomes selected.
     pub fn focus(&self, s: &mut App, session: &str, tab: &str, restored: bool) {
         if self.luau {
-            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab);
+            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab, restored);
         }
         if let Some(f) = self.on_focus_tab {
             f(s, session, tab, restored);
@@ -492,7 +492,7 @@ impl PanelRegistration {
     /// Runs as the side region opens onto `tab` of `session`.
     pub fn enter(&self, s: &mut App, session: &str, tab: &str) {
         if self.luau {
-            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab);
+            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab, false);
         }
         if let Some(f) = self.on_enter {
             f(s, session, tab);
@@ -692,7 +692,9 @@ pub fn icon_by_name(name: Option<&str>) -> &'static Icon {
     use rune_theme_opencode::icons as ic;
     match name {
         Some("globe") => &ic::GLOBE,
-        Some("terminal") | Some("console") => &ic::CONSOLE,
+        // Desktop's `terminal` icon: the prompt in its box, as the terminal tabs draw it.
+        Some("terminal") => &crate::terminal::grid::TERMINAL_ICON,
+        Some("console") => &ic::CONSOLE,
         Some("review") => &ic::REVIEW,
         Some("code") => &ic::CODE_LINES,
         Some("file-tree") => &ic::FILE_TREE,

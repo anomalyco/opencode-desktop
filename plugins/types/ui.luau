@@ -34,6 +34,7 @@ export type FlyoutRowProps = UiFlyoutRowProps
 export type MarkdownProps = UiMarkdownProps
 export type VirtualListProps = UiVirtualListProps
 export type TerminalSurfaceProps = UiTerminalSurfaceProps
+export type TerminalTabLabelProps = UiTerminalTabLabelProps
 export type BrowserSurfaceProps = UiBrowserSurfaceProps
 export type CodeViewProps = UiCodeViewProps
 export type DiffViewProps = UiDiffViewProps

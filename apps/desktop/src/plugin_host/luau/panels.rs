@@ -70,7 +70,9 @@ pub fn providers(app: &App) -> Vec<PanelRegistration> {
                 return None;
             }
             let order = c.panels.iter().filter_map(|c| c.spec.order).min().unwrap_or(40) as i32;
-            Some(PanelRegistration::luau(intern(&p.manifest.id), order, pane(c.panels.first().and_then(|f| f.spec.pane))))
+            // A transient panel's tabs leave the strip once its `list` no longer names them.
+            let transient = c.panels.iter().any(|c| c.spec.transient == Some(true));
+            Some(PanelRegistration::luau(intern(&p.manifest.id), order, pane(c.panels.first().and_then(|f| f.spec.pane))).transient(transient))
         })
         .collect()
 }
@@ -205,6 +207,9 @@ fn instance_tab(spec: &PanelSpec, group: &'static str, t: PanelTab) -> PanelTabD
     if t.fallback == Some(true) {
         tab = tab.fallback();
     }
+    if t.hidden == Some(true) {
+        tab = tab.hidden();
+    }
     tab
 }
 
@@ -229,6 +234,7 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     let Some(k) = owner(&all, &ctx.tab.id) else { return rune::el() };
     let Some(f) = &all[k].render else { return rune::el() };
     let placement = if ctx.mobile { "mobile" } else { "side" };
+    super::native::terminal::SCALE.set(ctx.env_scale);
     let data = props(app, &all, k, ctx.session_id, &ctx.tab.id, ctx.visible, placement, ctx.pane_size);
     let instance = if all[k].list.is_some() { ctx.tab.id.as_str() } else { "" };
     let suffix = if ctx.mobile { ":mobile" } else { "" };
@@ -276,11 +282,14 @@ pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: 
 
 /// Tab `tab` of `session` became selected, or the side region opened onto it: its panel's
 /// `onFocus` runs at the next poll.
-pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str) {
+pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: bool) {
     let Some((i, all)) = panels(app, plugin) else { return };
     let Some(k) = owner(&all, tab) else { return };
     let Some(f) = &all[k].on_focus else { return };
-    let data = props(app, &all, k, session, tab, true, "side", (0.0, 0.0));
+    let mut data = props(app, &all, k, session, tab, true, "side", (0.0, 0.0));
+    if let Data::Map(m) = &mut data {
+        m.insert("restored".into(), Data::Bool(restored));
+    }
     if let Some(script) = app.plugins.luau.plugins[i].script() {
         cx::with_app(app, || script.spawn_fn(f, data, None).ok());
     }
@@ -314,10 +323,16 @@ pub fn wide(app: &App, plugin: &str) -> bool {
     })
 }
 
-/// The pane the plugin's first panel names for a new tab.
+/// The pane the plugin's first panel names for a new tab; `dock` asks Settings › Terminal.
 pub fn home_pane(app: &App, plugin: &str) -> Option<SessionPane> {
     let (_, all) = panels(app, plugin)?;
-    Some(pane(all.first()?.spec.pane))
+    Some(match all.first()?.spec.pane {
+        Some(PanelPane::Dock) => match app.dock_placement() {
+            crate::panels::DockPlacement::Side => SessionPane::Side,
+            crate::panels::DockPlacement::Bottom => SessionPane::Bottom,
+        },
+        other => pane(other),
+    })
 }
 
 /// The narrow-window views the plugins' panels offer (`PanelSpec.mobile`), each keyed by its

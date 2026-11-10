@@ -258,7 +258,7 @@ impl ServiceName {
             Self::Notifications => &["Notify"],
             Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "FileChanged"],
             Self::Diff => &["Open", "Mode", "SetMode"],
-            Self::Terminal => &["Create", "Attach"],
+            Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select"],
             Self::Browser => &["Open", "Tabs", "Available"],
             Self::Office => &["OpenAsync"],
             Self::Updater => &["State", "Check", "Download", "Install", "StateChanged"],

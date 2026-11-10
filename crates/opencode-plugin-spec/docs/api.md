@@ -386,6 +386,11 @@ Terminal sessions on the server, for `ui.terminalSurface`. Halves: window, app.
 |---|---|---|
 | `:Create` | `(spec: TerminalSpec) -> PtySession` | Starts a terminal session. |
 | `:Attach` | `(id: string) -> PtySession?` | Reattaches to a running session by id. |
+| `:List` | `(sessionId: string, open: { string }) -> { TerminalInfo }` | Session `sessionId`'s terminals in strip order. Until the server lists them, the stored tabs `open` names, hidden; after a list that failed, those tabs shown. |
+| `:Available` | `() -> boolean` | This window can start terminals: its server has them and the window isn't read-only. |
+| `:New` | `(sessionId: string?) -> ()` | Starts a terminal in the session (the routed one by default) and opens its tab beside its others, or where Settings place a first one; it takes the keyboard. |
+| `:Toggle` | `() -> ()` | `terminal.toggle`: a new terminal when the routed session has none; the active terminal's pane hides while its tab shows; otherwise its tab opens and takes the keyboard. |
+| `:Select` | `(sessionId: string, id: string, focus: boolean) -> ()` | Makes terminal `id` the session's active one, and with `focus` gives it the keyboard. |
 
 ### Browser
 
@@ -516,6 +521,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.markdown(props: UiMarkdownProps) -> UiNode` | native | [`UiMarkdownProps`](#uimarkdownprops) | Markdown, as the timeline draws a reply. |
 | `ui.virtualList(props: UiVirtualListProps) -> UiNode` | native | [`UiVirtualListProps`](#uivirtuallistprops) | A long list that builds only its visible rows. |
 | `ui.terminalSurface(props: UiTerminalSurfaceProps) -> UiNode` | native | [`UiTerminalSurfaceProps`](#uiterminalsurfaceprops) | A terminal. |
+| `ui.terminalTabLabel(props: UiTerminalTabLabelProps) -> UiNode` | native | [`UiTerminalTabLabelProps`](#uiterminaltablabelprops) | A terminal tab's label: its prompt glyph and title, at most 160 wide. |
 | `ui.browserSurface(props: UiBrowserSurfaceProps) -> UiNode` | native | [`UiBrowserSurfaceProps`](#uibrowsersurfaceprops) | A web page. |
 | `ui.codeView(props: UiCodeViewProps) -> UiNode` | native | [`UiCodeViewProps`](#uicodeviewprops) | A highlighted file. |
 | `ui.diffView(props: UiDiffViewProps) -> UiNode` | native | [`UiDiffViewProps`](#uidiffviewprops) | Changes, split or unified. |
@@ -532,7 +538,8 @@ Heavy engines stay native in the host. Luau composes them as opaque nodes and dr
 |---|---|---|---|
 | `ui.markdown` | Markdown renderer with Mermaid diagrams | Parsing and AST caching, paragraph shaping, code fences, Mermaid layout | What to show, streaming state, highlights |
 | `ui.virtualList` | Virtualized rows | Viewport windowing, height cache, scroll anchoring, incremental mounting | Row count, version and each row's content |
-| `ui.terminalSurface` | Terminal emulator over the server's PTY stream | VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream | Tabs, numbering and renaming, commands, persistence, MCP tools |
+| `ui.terminalSurface` | Terminal emulator over the server's PTY stream | VT parsing, scrollback, cell grid, IME and key encoding, the PTY stream | Tabs and their titles, commands, the + menu row, the narrow view |
+| `ui.terminalTabLabel` | The terminal's rename | Double-click and the label's menu rename it in a field over the title | The title it shows |
 | `ui.browserSurface` | Embedded browser engine | The out-of-process browser, GPU texture sharing, the DevTools transport, input forwarding | Address bar, history, element picker notes, commands, MCP tools |
 | `ui.codeView` | Code view with an asynchronous highlighter | Highlighting, the line buffer, the virtualized gutter, selection, find in file | Tab routing, breadcrumb header, line links, viewer choice, MCP tools |
 | `ui.diffView` | Diff engine and code view | Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors | Source switcher, totals, split and unified toggle, contracts, MCP tools |
@@ -983,6 +990,7 @@ A pane of the session's side region.
 |---|---|
 | `"side"` | The side pane. The default. |
 | `"bottom"` | The bottom pane, under the conversation and the side pane. |
+| `"dock"` | Where Settings › Terminal places a new terminal: the side or the bottom pane. |
 
 ### FieldVariant
 
@@ -1697,10 +1705,26 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
-| `session` | `PtySession` | The terminal session, from the `Terminal` service. |
+| `session` | `PtySession?` | The terminal session, from the `Terminal` service. |
 | `fontFamily` | `string?` | A font family. Defaults to the user's code font. |
 | `fontSize` | `number?` | Font size in points. |
 | `focused` | `boolean?` | Takes keyboard focus. |
+| `width` | `number?` | The pane's width in points (`PanelProps.width`): the grid's columns fit it. |
+| `height` | `number?` | The pane's height in points: the grid's rows fit it. |
+| `narrow` | `boolean?` | The narrow window's Terminal view of session `sessionId`: its terminals' tabs over the active one. |
+| `sessionId` | `string?` | The session a `narrow` view shows. |
+
+### UiTerminalTabLabelProps
+
+`ui.terminalTabLabel` props.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `session` | `PtySession` | The terminal the tab shows. |
+| `title` | `string` | Its label. |
+| `selected` | `boolean?` | The tab is selected. |
 
 ### UiBrowserSurfaceProps
 
@@ -2345,6 +2369,17 @@ A terminal session for `ui.terminalSurface`.
 | `.Exited` | `Signal<number?>` | Fires with the exit code as its process exits. |
 | `.TitleChanged` | `Signal<string>` | Fires with the new title. |
 
+### TerminalInfo
+
+One terminal of a session, as its tab lists it.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The server's id for it. |
+| `title` | `string` | Its title, as the shell or a rename set it. Empty before the server names it. |
+| `number` | `number` | Its place among the session's terminals, from 1: what a default title says. |
+| `hidden` | `boolean` | Listed only to hold a restored tab until the server lists the session's terminals. |
+
 ### BrowserOpenSpec
 
 A page to open.
@@ -2523,6 +2558,7 @@ What a panel's render receives.
 | `instance` | `string?` | An instance panel's tab. |
 | `active` | `boolean` | The tab is selected. |
 | `placement` | `"side" \| "mobile"` | Where it renders. |
+| `restored` | `boolean?` | In `onFocus`: the selection came back with a restored strip rather than from the user. |
 | `width` | `number` | The pane's width in points: lay out for it as a container query would. |
 | `height` | `number` | The pane's height in points. |
 
@@ -2552,6 +2588,7 @@ One tab an instance panel lists.
 | `transient` | `boolean?` | A launcher tab: the next preview replaces it, and closing it keeps nothing in Recently closed. |
 | `draggable` | `boolean?` | Drags between panes. Defaults to true. |
 | `fallback` | `boolean?` | Selected when the selected tab closes. |
+| `hidden` | `boolean?` | Listed but not drawn in the strip: it holds a restored selection until the panel can show it. |
 
 ### ClosedTab
 

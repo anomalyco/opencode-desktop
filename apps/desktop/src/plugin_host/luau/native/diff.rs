@@ -141,7 +141,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
     object(lua, "DiffDocument", &[("sessionId", Value::String(lua.create_string(sid)?))], m)
 }
 
-fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
+pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
     mlua::IntoLua::into_lua(d, lua)
 }
 

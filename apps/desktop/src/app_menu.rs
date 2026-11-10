@@ -61,6 +61,8 @@ pub(crate) enum EditKey {
 enum Keys {
     None,
     Command(Bind),
+    /// A built-in plugin's command.
+    Plugin(crate::keymap::PluginBind),
     Fixed(&'static str),
 }
 
@@ -94,7 +96,7 @@ const MENUS: [(&str, opencode_i18n::Key, &[Row]); 6] = [
     ]),
     ("View", opencode_i18n::key!("desktop.menu.view"), &[
         it(opencode_i18n::key!("desktop.menu.toggleSidebar"), Act::ToggleSidebar, Keys::Command(Bind::Sidebar)),
-        it(opencode_i18n::key!("desktop.menu.toggleTerminal"), Act::ToggleTerminal, Keys::Command(Bind::DockToggle)),
+        it(opencode_i18n::key!("desktop.menu.toggleTerminal"), Act::ToggleTerminal, Keys::Plugin(crate::keymap::TERMINAL_TOGGLE)),
         None,
         it(opencode_i18n::key!("desktop.menu.reload"), Act::Reload, Keys::None),
         it(opencode_i18n::key!("desktop.menu.toggleDeveloperTools"), Act::DevTools, Keys::None),
@@ -207,6 +209,7 @@ fn label(keys: Keys) -> String {
     match keys {
         Keys::None => String::new(),
         Keys::Command(bind) => bind.label(),
+        Keys::Plugin(bind) => bind.label(),
         Keys::Fixed(keys) => keys.to_owned(),
     }
 }

@@ -32,7 +32,6 @@ pub fn all() -> Vec<HostNode> {
         HostNode::new("flyoutRow", flyout_row),
         HostNode::new("markdown", markdown),
         HostNode::new("progressCircle", progress_circle),
-        pending("terminalSurface", "LU-6"),
         pending("browserSurface", "LU-7"),
         HostNode::new("genUi", gen_ui),
     ]

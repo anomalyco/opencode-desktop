@@ -41,7 +41,6 @@ pub use watch::fire_watched;
 
 /// Services later packages bring, and which.
 const PENDING: &[(&str, &str)] = &[
-    ("Terminal", "LU-6"),
     ("Browser", "LU-7"),
     ("Office", "LU-5"),
     ("Updater", "LU-5"),
@@ -117,7 +116,7 @@ pub fn get(lua: &Lua, vmx: &Rc<Vmx>, name: &str) -> mlua::Result<Value> {
         "Toast" | "Popover" | "Dialog" | "Menu" | "Layout" | "Links" | "Commands" | "Notifications" => ui::build(lua, vmx, name, &t)?,
         "App" | "System" => app::build(lua, vmx, name, &t)?,
         "I18n" => i18n::build(lua, vmx, &t)?,
-        "Diff" => super::native::build(lua, vmx, name, &t)?,
+        "Diff" | "Terminal" => super::native::build(lua, vmx, name, &t)?,
         _ => {
             let why = PENDING.iter().find(|(n, _)| *n == name).map_or_else(|| format!("there is no service {name:?}"), |(_, pkg)| format!("{name} isn't in this app yet ({pkg} brings it)"));
             return Err(mlua::Error::runtime(why));
@@ -402,6 +401,8 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Console => super::console::version().hash(&mut h),
         Dep::Diff(session) => super::native::diff::version(app, session).hash(&mut h),
         Dep::Files(session) => super::native::files::version(app, session).hash(&mut h),
+        Dep::Terminals(session) => super::native::terminal::version(app, session).hash(&mut h),
+        Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),
         Dep::Sidebar => (app.panel_sidebar.opened, app.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
     }
     h.finish()

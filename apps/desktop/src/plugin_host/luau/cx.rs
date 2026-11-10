@@ -119,6 +119,10 @@ pub enum Dep {
     Diff(String),
     /// A session's workspace files: its tree, finds and open files (`Workspace`).
     Files(String),
+    /// A session's terminals (`Terminal`).
+    Terminals(String),
+    /// What a session's terminal surfaces and labels draw.
+    TerminalScreen(String),
     /// The shared panel sidebar.
     Sidebar,
 }

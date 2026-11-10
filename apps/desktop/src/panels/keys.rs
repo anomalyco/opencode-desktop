@@ -145,6 +145,9 @@ impl App {
         if !any_open || self.composer.focused {
             return false;
         }
+        if crate::plugin_host::luau::native::on_ime(self, ime) {
+            return true;
+        }
         for p in self.all_panels() {
             if let Some(on_ime) = p.on_ime
                 && on_ime(self, ime)
@@ -203,6 +206,11 @@ impl App {
                     return true;
                 }
             }
+        }
+
+        // The Luau panels' commands, likewise (Toggle terminal, New terminal, Open review).
+        if crate::plugin_host::luau::commands::panel_key(self, ev, tx) {
+            return true;
         }
 
         // 3. ⌘J toggles `SessionPane::Bottom` when bottom tabs exist.

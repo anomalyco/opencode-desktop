@@ -59,7 +59,7 @@ pub fn view(s: &App, p: &Pal, sid: &str) -> El {
         .role("button")
         .label(t!("plugin.terminal.command.new"))
         .help(t!("plugin.terminal.command.new"))
-        .help_keys(crate::keymap::Bind::TerminalNew.keycaps())
+        .help_keys(crate::keymap::TERMINAL_NEW.keycaps())
         .size(28.0, 28.0)
         .center()
         .radius(6.0)

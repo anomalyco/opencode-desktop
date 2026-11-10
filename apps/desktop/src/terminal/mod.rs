@@ -31,8 +31,6 @@ use terminal::{
 
 use crate::palette::{Pal, pal};
 pub use grid::set_custom_font;
-use crate::keymap::Bind;
-use crate::panels::PanelRegistration;
 use crate::{App, Route, Source};
 use persist::StoredWorkspace;
 
@@ -61,26 +59,16 @@ rune_register::register!(crate::knobs::GROUP_LIST: Group = [
     Group::new("Terminal", "terminal", TERMINAL_KNOBS),
 ]);
 
-const EXTRA_SHORTCUTS: &[(Bind, fn(&mut App, &mut Tx))] = &[(Bind::TerminalNew, side_ops::shortcut_new_terminal)];
+pub(crate) use rename::stamp as rename_stamp;
+pub(crate) use side_ops::{ime_terminal, key_terminal, poll_panel, surface, tab_label};
 
-rune_register::register!(crate::panels::PANELS: PanelRegistration = [
-    PanelRegistration::new(side_ops::PLUGIN, side_ops::list_tabs, side_ops::render)
-        .order(20)
-        .transient(true)
-        .placed(side_ops::placed)
-        .command(opencode_i18n::key!("plugin.terminal.command.toggle"), Bind::DockToggle)
-        .runs(App::toggle_terminal)
-        .slash("terminal")
-        .shortcuts(EXTRA_SHORTCUTS)
-        .launcher(side_ops::launcher_desc, side_ops::open_from_launcher)
-        .on_focus(side_ops::on_focus)
-        .on_enter(side_ops::on_enter)
-        .on_close(side_ops::on_close)
-        .poll(side_ops::poll_panel)
-        .on_key(side_ops::key_terminal)
-        .on_ime(side_ops::ime_terminal)
-        .tab_lead(side_ops::tab_lead),
-]);
+impl App {
+    /// Makes terminal `id` session `sid`'s active one; with `focus` it takes the keyboard (a tab
+    /// the user selected, not one a restore did).
+    pub(crate) fn select_session_terminal(&mut self, sid: &str, id: &str, focus: bool) {
+        side_ops::on_focus(self, sid, id, !focus);
+    }
+}
 
 pub struct TerminalTab {
     pub id: String,

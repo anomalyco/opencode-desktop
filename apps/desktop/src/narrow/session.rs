@@ -19,15 +19,6 @@ const MENU: TextStyle = TextStyle::new(13.0, 440.0).lh(24.0);
 
 pub const MORE_SHEET: &str = "narrow-more-sheet";
 
-/// A narrow-screen view of a panel (`Panel.mobile`): its plugin, title, order, kind and icon.
-pub struct MobileView {
-    pub plugin: &'static str,
-    pub title: fn() -> &'static str,
-    pub order: i32,
-    pub kind: Kind,
-    pub icon: &'static rune::Icon,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// A tab of its own beside Session.
@@ -38,15 +29,8 @@ pub enum Kind {
     Drawer,
 }
 
-/// The app's own panels' narrow views (the `terminal` renderer's `mobile`).
-/// Luau plugins' panels declare theirs in the contract (`PanelSpec.mobile`); [`views`] has both.
-pub const VIEWS: &[MobileView] = &[
-    MobileView { plugin: "terminal", title: || t!("plugin.terminal.tab.title"), order: 30, kind: Kind::Menu, icon: &crate::terminal::grid::TERMINAL_ICON },
-];
-
-/// A view the narrow switcher offers: an app panel's (`id` its plugin, `review`) or a plugin
-/// panel's (`id` its tab's key, `plugin:context.main`), as Desktop keys them by panel
-/// (`createMobileViews`).
+/// A view the narrow switcher offers: a plugin panel's (`PanelSpec.mobile`), `id` its tab's
+/// key (`review:changes`, `terminal:main`), as Desktop keys them by panel (`createMobileViews`).
 pub struct NarrowView {
     pub id: String,
     pub title: String,
@@ -58,8 +42,7 @@ pub struct NarrowView {
 /// Every narrow view the window offers, in ascending order.
 pub fn views(s: &App) -> Vec<NarrowView> {
     use opencode_plugin_spec::PanelMobileKind;
-    let own = VIEWS.iter().map(|v| NarrowView { id: v.plugin.to_owned(), title: (v.title)().to_owned(), order: f64::from(v.order), kind: v.kind, icon: v.icon });
-    let plugins = crate::plugin_host::luau::panels::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
+    let mut out: Vec<NarrowView> = crate::plugin_host::luau::panels::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
         id,
         title: v.title,
         order: v.order,
@@ -69,8 +52,7 @@ pub fn views(s: &App) -> Vec<NarrowView> {
             _ => Kind::Menu,
         },
         icon: crate::plugin_host::icons::resolve("", v.icon.as_deref().unwrap_or("window-analytics")),
-    });
-    let mut out: Vec<NarrowView> = own.chain(plugins).collect();
+    }).collect();
     out.sort_by(|a, b| a.order.total_cmp(&b.order));
     out
 }
@@ -157,7 +139,7 @@ fn enter(s: &mut App, id: &str, view: &str, tx: &mut Tx) {
     s.select_narrow_view(id, view, tx);
     match view {
         // The narrow Terminal view starts the first terminal of a session that has none.
-        "terminal" => {
+        "terminal:main" => {
             let wk = s.terminal_workspace_key_for_session(id);
             s.ensure_terminal_workspace_hydrated(&wk);
             let empty = s.terminal.workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
@@ -193,7 +175,6 @@ fn location_bar(s: &App, p: &Pal, id: &str) -> El {
 /// The picked panel's narrow view, filling the rest of the panel.
 fn view(s: &App, p: &Pal, id: &str, shown: &str) -> El {
     let body = match shown {
-        "terminal" => crate::terminal::narrow::view(s, p, id),
         plugin => panel(s, p, id, plugin),
     };
     col().key(format!("narrow-view-{shown}-body")).w_full().grow(1.0).min_h(0.0).child(body)
