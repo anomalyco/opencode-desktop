@@ -192,10 +192,15 @@ impl Menu {
     /// A picker: one checked-when-current row per `(id, title)`, lined up with the end of the
     /// select that opens it.
     pub fn picker<I: Into<String>, T: Into<String>>(label: impl Into<String>, options: impl IntoIterator<Item = (I, T)>, selected: &str) -> Menu {
-        let items = options.into_iter().map(|(id, title)| {
+        Menu::picker_some(label, options.into_iter().map(|(id, title)| (id, title, true)), selected)
+    }
+
+    /// [`Menu::picker`] whose rows can be disabled (`(id, title, enabled)`).
+    pub fn picker_some<I: Into<String>, T: Into<String>>(label: impl Into<String>, options: impl IntoIterator<Item = (I, T, bool)>, selected: &str) -> Menu {
+        let items = options.into_iter().map(|(id, title, enabled)| {
             let id = id.into();
             let on = id == selected;
-            Item::new(id, title).checked(on)
+            Item::new(id, title).checked(on).enabled(enabled)
         });
         Menu { selected: Some(selected.to_owned()), min_w: 180.0, align: Align::End, ..Menu::new(label) }.items(items)
     }

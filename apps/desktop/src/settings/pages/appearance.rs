@@ -5,9 +5,10 @@
 
 use rune::{Family, TextEdit, TextStyle, Tx, El, row};
 
-use super::{header, page, select, text_field};
+use super::{header, page, select, select_some, text_field};
 use crate::App;
-use crate::appearance::{CODE_FONTS, ReduceMotion, TERMINAL_FONTS, TextRenderer, UI_FONTS};
+use crate::appearance::{CODE_FONTS, ReduceMotion, TERMINAL_FONTS, UI_FONTS};
+use crate::text_rendering::TextRenderer;
 use crate::palette::Pal;
 use crate::settings::{self, Scheme, about, link, setting, setting_with};
 
@@ -115,8 +116,12 @@ pub fn view(s: &App, p: &Pal) -> El {
         ("settings-reduce-motion", setting(p, "settings-reduce-motion", t!("settings.appearance.row.reduceMotion.title"), t!("settings.appearance.row.reduceMotion.description"),
             select(s, p, "settings-reduce-motion-select", t!("settings.appearance.row.reduceMotion.title"), [ReduceMotion::System, ReduceMotion::On, ReduceMotion::Off].iter().map(|m| (m.name().to_owned(), m.label().to_owned())).collect(), st.reduce_motion.name(), |s, id, _| s.set_reduce_motion(ReduceMotion::parse(Some(id)))))),
         // This app's own row: Rune's text rasteriser, switched live.
-        ("settings-text-renderer", setting(p, "settings-text-renderer", t!("rune.textRendering.title"), t!("rune.textRendering.description"),
-            select(s, p, "settings-text-renderer-select", t!("rune.textRendering.title"), TextRenderer::ALL.iter().map(|r| (r.name().to_owned(), r.label().to_owned())).collect(), st.text_renderer.name(), |s, id, _| s.set_text_renderer(TextRenderer::parse(Some(id)))))),
+        ("settings-text-renderer", setting(p, "settings-text-renderer", t!("rune.textRendering.title"), &text_rendering_note(s),
+            select_some(s, p, "settings-text-renderer-select", t!("rune.textRendering.title"), TextRenderer::ALL.iter().map(|r| match r.support() {
+                // One this machine can't draw shows disabled, with its reason.
+                rune::SmoothingSupport::No(reason) => (r.name().to_owned(), format!("{} \u{2014} {reason}", r.label()), false),
+                _ => (r.name().to_owned(), r.label().to_owned(), true),
+            }).collect(), st.text_renderer.name(), |s, id, _| s.set_text_renderer(TextRenderer::parse(Some(id)))))),
     ];
     let list = settings::list(p, "appearance-list", super::rows(s, p, 20.0, rows));
     page(p, "settings-appearance-page", header(p, t!("settings.general.section.appearance"), t!("settings.appearance.description")), list)
@@ -137,5 +142,13 @@ impl App {
         if self.persists() {
             crate::tabs::save_zoom(self.zoom);
         }
+    }
+}
+
+/// Text rendering's description, and what the choice falls back to here when it does.
+fn text_rendering_note(s: &App) -> String {
+    match s.text_rendering {
+        crate::text_rendering::Rendering::FellBack { reason, .. } if !reason.is_empty() => format!("{} {reason}.", t!("rune.textRendering.description")),
+        _ => t!("rune.textRendering.description").to_owned(),
     }
 }

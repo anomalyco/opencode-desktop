@@ -65,8 +65,8 @@ pub struct Settings {
     /// Desktop's colour theme id (`themes.rs`); `oc-2` is OpenCode's own.
     pub theme: String,
     pub reduce_motion: crate::appearance::ReduceMotion,
-    /// Appearance › Text rendering: how Rune rasterises text (`appearance::TextRenderer`).
-    pub text_renderer: crate::appearance::TextRenderer,
+    /// Appearance › Text rendering: how Rune rasterises text (`text_rendering::TextRenderer`).
+    pub text_renderer: crate::text_rendering::TextRenderer,
     /// The terminal's font, an index into the Terminal font knob's choices.
     pub terminal_font: usize,
     /// Indexes into `appearance::UI_FONTS` and `CODE_FONTS`, saved by name.
@@ -230,7 +230,7 @@ impl Settings {
             project_auto_accept: v["permissions"]["projects"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_bool()?))).collect()).unwrap_or_default(),
             theme: theme_id(v["theme"].as_str().unwrap_or_default()),
             reduce_motion: crate::appearance::ReduceMotion::parse(v["reduceMotion"].as_str()),
-            text_renderer: crate::appearance::TextRenderer::parse(v["textRenderer"].as_str()),
+            text_renderer: crate::text_rendering::TextRenderer::parse(v["textRenderer"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(crate::appearance::TERMINAL_FONTS.len() - 1)),
             ui_font: crate::appearance::font_index(&crate::appearance::UI_FONTS, v["uiFont"].as_str()),
             code_font: crate::appearance::font_index(&crate::appearance::CODE_FONTS, v["codeFont"].as_str()),

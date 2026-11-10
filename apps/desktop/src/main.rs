@@ -74,6 +74,7 @@ mod agent_start_stories;
 mod agent_stories;
 mod app_menu;
 mod appearance;
+mod text_rendering;
 mod appearance_stories;
 mod arrivals;
 mod askpass;
@@ -452,6 +453,8 @@ pub struct App {
     pub reduced_motion: bool,
     /// Where `reduced_motion` comes from (`appearance.rs`).
     pub motion: appearance::Motion,
+    /// The mode Appearance › Text rendering draws with (`text_rendering.rs`).
+    pub text_rendering: text_rendering::Rendering,
     /// User messages that arrived from another client, by id: the poll clock when they did.
     pub glows: HashMap<String, f64>,
     /// Where each session's timeline stands against its end (`jump.rs`).
@@ -868,6 +871,7 @@ impl App {
             search: TextEdit::new(""),
             reduced_motion: flag("--reduced-motion"),
             motion: appearance::Motion::new(flag("--reduced-motion")),
+            text_rendering: Default::default(),
             debug: flag("--debug"),
             icons: desktop_icons(),
             ..Default::default()
@@ -1167,7 +1171,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= updater::poll(s, tx);
     changed |= glitch::poll(s, tx);
     changed |= appearance::poll(s);
-    appearance::poll_text(s, tx);
+    text_rendering::poll(s, tx);
     changed |= language::poll(s, tx);
     changed |= settings::search::poll(s, tx);
     changed |= notifications::poll(s, tx);

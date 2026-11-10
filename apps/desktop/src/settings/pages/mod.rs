@@ -309,14 +309,19 @@ pub fn page_with(p: &Pal, key: &str, header: El, body: El, sectioned: bool) -> E
 /// Desktop's `Select` in a settings row: the current choice and its chevron, opening the
 /// choices with the current one checked below its end (`placement="bottom-end"`, 6 pt gutter).
 pub fn select(s: &App, p: &Pal, key: &str, label: &str, options: Vec<(String, String)>, current: &str, pick: fn(&mut App, &str, &mut Tx)) -> El {
-    let shown = options.iter().find(|(id, _)| id == current).map_or_else(String::new, |(_, l)| l.clone());
+    select_some(s, p, key, label, options.into_iter().map(|(id, title)| (id, title, true)).collect(), current, pick)
+}
+
+/// [`select`] whose choices can be disabled (`(id, title, enabled)`).
+pub fn select_some(s: &App, p: &Pal, key: &str, label: &str, options: Vec<(String, String, bool)>, current: &str, pick: fn(&mut App, &str, &mut Tx)) -> El {
+    let shown = options.iter().find(|(id, _, _)| id == current).map_or_else(String::new, |(_, l, _)| l.clone());
     let anchor = format!("{key}-trigger");
     let label = label.to_owned();
     let current = current.to_owned();
     let open = s.popup.open_at(&anchor);
     Select::new(key.to_owned(), &[shown.as_str()]).current(Some(&shown)).label(label.clone()).open(open).trigger(kit(p))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = Menu::picker(label.clone(), options.clone(), &current);
+            let menu = Menu::picker_some(label.clone(), options.clone(), &current);
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| {
                 if let Some(id) = picked {
                     tx.instant();
