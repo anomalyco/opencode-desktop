@@ -8,8 +8,13 @@ fn ticks(rt: &rune::Runtime<crate::App>) -> usize {
 fn copy_shows_a_tick_then_the_copy_icon_again() {
     let (mut rt, board) = session("");
     rt.poll = Some(crate::poll);
-    let copy = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some("copy") && e.opacity > 0.5).last().expect("a reply's Copy");
+    // A reply's footer, Copy with it, shows while the reply is hovered (7d713e01).
+    let copy = rt.elements().into_iter().filter(|e| !e.exiting && e.key.as_deref() == Some("copy")).last().expect("a reply's Copy");
     let (x, y) = (copy.rect[0] + copy.rect[2] / 2.0, copy.rect[1] + copy.rect[3] / 2.0);
+    rt.pointer_move(x, y);
+    for _ in 0..30 {
+        rt.frame(1.0 / 120.0);
+    }
     assert_eq!(ticks(&rt), 0);
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);

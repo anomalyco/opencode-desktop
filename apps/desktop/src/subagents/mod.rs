@@ -372,14 +372,13 @@ mod tests {
     fn a_subagent_card_shows_live_status_and_opens_its_session() {
         let mut rt = rt();
         let card = "a-call_subagent_";
-        // Finished: a ✓, and the call names its child.
-        assert!(has(&rt, card, "done"));
-        assert!(!has(&rt, card, "spin"));
+        // Finished: Desktop's compact chip, with no spinner and no ✓ (6c1cfbaf).
+        assert!(!has(&rt, card, "mark") && !has(&rt, card, "done"));
         rt.update(|s, _| {
             s.running.insert(REVIEW.into());
         });
         rt.frame(1.0 / 120.0);
-        assert!(has(&rt, card, "spin"), "the child runs, so the card does");
+        assert!(has(&rt, card, "mark"), "the child runs, so the card's spinner does");
         assert_eq!(rt.state.tab_status(MAIN), Some(crate::TabStatus::Busy));
         assert!(has(&rt, "", "activity-chip"));
 

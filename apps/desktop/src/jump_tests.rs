@@ -35,6 +35,9 @@ fn rest(rt: &mut Runtime<App>) {
 #[test]
 fn jump_to_latest_shows_far_up_and_glides_to_a_following_bottom() {
     let mut rt = Runtime::new(crate::perf::fixture(), crate::view::app, (1280.0, 820.0), Env::new(true, 2.0));
+    // At the right, beside the capsule; Centre, Desktop's place, is the knob's default (4ca5e343)
+    // and is checked below.
+    rt.update(|s, _| s.knobs.set(&crate::knobs::JUMP_PLACE, 0.0));
     rt.frame(0.0);
     rest(&mut rt);
     assert_eq!(rt.scroll_at_bottom("scroll-bench"), Some(true), "a session opens on its end");
@@ -57,11 +60,12 @@ fn jump_to_latest_shows_far_up_and_glides_to_a_following_bottom() {
     assert!(rt.state.ends.far("bench"), "more than a screen up");
     let b = button(&rt);
     assert!((b.opacity - 1.0).abs() < 1e-3 && !b.inert, "shown: {b:?}");
-    // At the composer's right end, the capsule's gap above it, the capsule's size.
+    // At the composer's right end, in the pill lane (its gap over the composer, a pill's height).
     let composer = rect(&rt, "composer");
     assert!(((b.rect[0] + b.rect[2]) - (composer[0] + composer[2])).abs() < 0.5, "{:?} vs composer {composer:?}", b.rect);
-    assert!((composer[1] - (b.rect[1] + b.rect[3]) - 8.0).abs() < 0.5, "{:?} vs composer {composer:?}", b.rect);
-    assert_eq!((b.rect[2], b.rect[3]), (28.0, 28.0));
+    let lane_mid = composer[1] - crate::jump::GAP - crate::jump::CHIP_H / 2.0;
+    assert!((b.rect[1] + b.rect[3] / 2.0 - lane_mid).abs() < 0.5, "{:?} vs composer {composer:?}", b.rect);
+    assert_eq!((b.rect[2], b.rect[3]), (32.0, 28.0), "Desktop's button (4ca5e343)");
 
     // A running subagent's capsule takes the same row, at the left; the button stays put.
     let at = b.rect;
@@ -71,7 +75,9 @@ fn jump_to_latest_shows_far_up_and_glides_to_a_following_bottom() {
     });
     rest(&mut rt);
     let (b, chip) = (button(&rt), rect(&rt, "activity-chip"));
-    assert!((b.rect[1] - chip[1]).abs() < 0.5 && (b.rect[3] - chip[3]).abs() < 0.5, "one row: {:?} and chip {chip:?}", b.rect);
+    // Level with it: the 32 pt chip and the 28 pt button share their middle (4ca5e343).
+    let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
+    assert!((mid(b.rect) - mid(chip)).abs() < 0.5, "one row: {:?} and chip {chip:?}", b.rect);
     assert!((b.rect[1] - at[1]).abs() < 0.5, "it doesn't climb over the capsule: {:?} was {at:?}", b.rect);
     assert!((chip[0] - rect(&rt, "composer")[0]).abs() < 0.5);
     // The transcript runs on under the capsule and fades out into the composer's top edge (p248).
@@ -170,6 +176,8 @@ fn beside_the_capsule_it_still_presses() {
     app.sessions.push(opencode_kit::model::SessionInfo { id: "sub".into(), parent: Some("bench".into()), ..Default::default() });
     app.running.insert("sub".into());
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 2.0));
+    // At the right, beside the capsule (the knob's Centre default is 4ca5e343's).
+    rt.update(|s, _| s.knobs.set(&crate::knobs::JUMP_PLACE, 0.0));
     rt.frame(0.0);
     rest(&mut rt);
     let v = viewport(&rt);
@@ -180,7 +188,8 @@ fn beside_the_capsule_it_still_presses() {
     rest(&mut rt);
     let b = button(&rt);
     let chip = rect(&rt, "activity-chip");
-    assert!((b.rect[1] - chip[1]).abs() < 0.5 && b.rect[1] + b.rect[3] < v[1] + v[3], "over the timeline's edge: {:?} vs {v:?}", b.rect);
+    let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
+    assert!((mid(b.rect) - mid(chip)).abs() < 0.5 && b.rect[1] + b.rect[3] < v[1] + v[3], "over the timeline's edge: {:?} vs {v:?}", b.rect);
     let (bx, by) = (b.rect[0] + 14.0, b.rect[1] + 14.0);
     rt.pointer_move(bx, by);
     rt.pointer_down(bx, by);
@@ -195,6 +204,8 @@ fn back_on_a_timeline_that_opens_on_its_end_it_stays_hidden() {
     let mut app = crate::perf::fixture();
     app.sessions.push(opencode_kit::model::SessionInfo { id: "sub".into(), parent: Some("bench".into()), ..Default::default() });
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 2.0));
+    // At the right, beside the capsule (the knob's Centre default is 4ca5e343's).
+    rt.update(|s, _| s.knobs.set(&crate::knobs::JUMP_PLACE, 0.0));
     rt.frame(0.0);
     rest(&mut rt);
     let v = viewport(&rt);

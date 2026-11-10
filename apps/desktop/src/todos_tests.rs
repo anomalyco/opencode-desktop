@@ -165,7 +165,8 @@ fn one_list_opens_at_a_time() {
     assert!(has(&rt, "activity-chip") && has(&rt, "todo-pill"));
     let chip = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("activity-chip")).unwrap().rect;
     let pill = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("todo-pill")).unwrap().rect;
-    assert!((pill[0] - (chip[0] + chip[2] + 8.0)).abs() < 0.5, "beside the capsule, 8 apart: {chip:?} {pill:?}");
+    // The pill lane's gap (`pb-2.5`, 3ad8dc0a).
+    assert!((pill[0] - (chip[0] + chip[2] + crate::jump::GAP)).abs() < 0.5, "beside the capsule, {} apart: {chip:?} {pill:?}", crate::jump::GAP);
 
     tap(&mut rt, "activity-chip");
     assert!(rt.state.shells.activity.is_open() && !has(&rt, "todo-panel"));

@@ -160,7 +160,9 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         button = button.inert();
     }
     let edge = fade(s, lane(!pills.is_empty()));
-    let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).center_y();
+    // A pill's height whatever shows, so the 28 pt button sits where it does beside the 32 pt
+    // capsule and doesn't move 2 pt when one comes or goes.
+    let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).min_h(CHIP_H).center_y();
     let lane = match s.lane_align() {
         Align::Start => lane.children(pills).child(spacer()),
         Align::End => lane.child(spacer()).children(pills),
