@@ -1222,7 +1222,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= submit::poll(s, tx);
     changed |= working::sync(s);
     changed |= compaction::sync(s);
-    changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx);
+    changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
     if s.dock_face() != asked {
         s.morph(tx);
     }

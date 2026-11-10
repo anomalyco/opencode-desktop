@@ -294,7 +294,7 @@ fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(
 
 /// `getRelativeTime` (`shell/time.ts`): "Just now", "5m ago", "3h ago", "2d ago", then the local
 /// date ("Nov 3", with its year when not this year's).
-fn relative_time(now: i64, then: i64) -> String {
+pub(crate) fn relative_time(now: i64, then: i64) -> String {
     let (s, m, h, d) = {
         let s = (now - then).div_euclid(1000);
         (s, s.div_euclid(60), s.div_euclid(3600), s.div_euclid(86_400))

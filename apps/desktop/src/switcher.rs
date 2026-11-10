@@ -27,6 +27,7 @@ use crate::view::title_of;
 use crate::{App, Route, Source};
 
 mod view;
+pub(crate) use view::relative_time;
 mod session_index;
 mod shown;
 mod fetch;

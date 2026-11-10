@@ -1,13 +1,17 @@
 //! Settings › Worktrees (`settings/workspaces/workspaces.tsx`): every worktree the server keeps
 //! for the projects (its inventory and their sandboxes), each with its folder, how many sessions
-//! it holds and in which project, and Delete (the worktree and its branch, from the server); the
-//! active one can't go. With none, "No worktrees yet".
+//! it holds and in which project, when its latest session was last active, its sessions, and
+//! Delete; the toolbar's ⋯ menu deletes those without sessions, or all of them. Deleting runs
+//! through `delete`'s machine, its confirmations in `dialog`. With none,
+//! "No worktrees yet".
 
+use opencode_kit::model::SessionInfo;
 use opencode_kit::path;
-use rune::{El, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use serde_json::json;
+use serde_json::{Value, json};
 
+use self::delete::{self as machine, Effect, Event, Inspection, Machine, Scope, Skip, Target};
 use super::{header_with, page};
 use crate::App;
 use crate::jobs::Apply;
@@ -15,13 +19,27 @@ use crate::palette::Pal;
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
+pub use self::dialog::dialog;
+
+mod delete;
+mod dialog;
+
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 
 #[derive(Default)]
 pub struct State {
-    /// Worktrees being deleted, so their rows wait.
-    pub deleting: Vec<String>,
+    /// The deletes' machine.
+    pub delete: Machine,
+    /// Its timers on the app clock (ms).
+    timers: Vec<(i64, Due)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Due {
+    Inspect(u64),
+    Delete(u64),
+    Collapse(u64),
 }
 
 /// Asks for each Git project's worktrees.
@@ -31,13 +49,43 @@ pub fn load(s: &App) {
     }
 }
 
-/// `(project id, project name, worktree folder)` for every worktree, by project; `only`'s alone
-/// when given.
-fn worktrees(s: &App, only: Option<&str>) -> Vec<(String, String, String)> {
+/// A worktree of a project: its id, name and folder.
+struct Worktree {
+    project: String,
+    name: String,
+    dir: String,
+}
+
+impl Worktree {
+    fn key(&self) -> String {
+        path::trim(&self.dir).to_owned()
+    }
+
+    fn target(&self) -> Target {
+        Target { key: self.key(), directory: self.dir.clone(), project: self.project.clone() }
+    }
+}
+
+/// Every worktree, by project; `only`'s alone when given. Rows that finished collapsing stay
+/// out until the inventory drops them (`visibleWorkspaces`).
+fn worktrees(s: &App, only: Option<&str>) -> Vec<Worktree> {
     s.projects.iter().filter(|p| only.is_none_or(|id| p.id == id)).flat_map(|p| {
         let name = super::projects::name(p);
-        s.project_worktrees(&p.id, &p.directory).into_iter().map(move |dir| (p.id.clone(), name.clone(), dir))
-    }).collect()
+        s.project_worktrees(&p.id, &p.directory).into_iter().map(move |dir| Worktree { project: p.id.clone(), name: name.clone(), dir })
+    }).filter(|w| !s.settings_pages.worktrees.delete.removed.contains(&w.key())).collect()
+}
+
+/// The sessions in `dir` or a folder in it, newest first (`sessionsForWorkspace`).
+fn sessions_in<'a>(s: &'a App, dir: &str) -> Vec<&'a SessionInfo> {
+    let mut list: Vec<&SessionInfo> = s.sessions.iter().filter(|x| x.archived.is_none() && contains(dir, &x.directory)).collect();
+    list.sort_by(|a, b| b.updated.cmp(&a.updated));
+    list
+}
+
+/// `containsDirectory`: `dir` is `root` or inside it.
+fn contains(root: &str, dir: &str) -> bool {
+    let (root, dir) = (path::trim(root), path::trim(dir));
+    dir == root || dir.strip_prefix(root).is_some_and(|rest| rest.starts_with(['/', '\\']))
 }
 
 pub fn view(s: &App, p: &Pal) -> El {
@@ -54,14 +102,13 @@ pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
     } else {
         let n = list.len();
         let active = s.active_session_id().and_then(|id| s.session(&id).map(|i| i.directory.clone()));
-        let rows: Vec<El> = list.iter().enumerate().map(|(i, (project, name, dir))| worktree_row(s, p, project, name, dir, active.as_deref(), i + 1 < n)).collect();
+        let rows: Vec<El> = list.iter().enumerate().map(|(i, w)| worktree_row(s, p, w, active.as_deref(), i + 1 < n)).collect();
         // A page 520 wide or less, or a window under 640, takes the inventory 14 in
         // (`settings.css:2119-2121, 2151-2153`).
         let pad = if crate::settings::rows_wrap() { 14.0 } else { 16.0 };
-        col().w_full().gap(8.0)
-            .child(row().key("settings-workspaces-toolbar").w_full().pb(8.0)
-                // `.settings-section-title`: 13 on 16 at 530 in text-base.
-                .child(text(opencode_i18n::plural!("settings.workspaces.count", n)).font(NAME).color(p.text)))
+        // `.settings-tab-body.settings-workspaces` stacks the toolbar on the inventory with no gap.
+        col().w_full()
+            .child(toolbar(s, p, &list, active))
             .child(col().key("settings-workspaces-inventory").w_full().padding(pad).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border)).children(rows))
     };
     // Under 640 the body stands 20 in (`.settings-tab-body.settings-workspaces`,
@@ -72,66 +119,235 @@ pub fn view_for(s: &App, p: &Pal, only: Option<&str>) -> El {
     page(p, "settings-workspaces-page", header_with(p, t!("settings.tab.workspaces"), t!("settings.workspaces.description"), switcher), body)
 }
 
-fn worktree_row(s: &App, p: &Pal, project: &str, project_name: &str, dir: &str, active: Option<&str>, divided: bool) -> El {
-    let sessions = s.sessions.iter().filter(|x| path::trim(&x.directory) == path::trim(dir)).count();
-    let is_active = active.is_some_and(|a| path::trim(a) == path::trim(dir));
-    let deleting = s.settings_pages.worktrees.deleting.iter().any(|d| d == dir);
-    let base = path::basename(dir).to_owned();
-    let parent = dir.strip_suffix(&base).unwrap_or_default().to_owned();
-    let key = format!("settings-worktree-delete-{}", path::trim(dir));
-    let (project, dir_owned, anchor) = (project.to_owned(), dir.to_owned(), key.clone());
-    let confirm = t!("workspace.delete.confirm", name = base);
-    let delete = row().key(key).role("button").label(confirm.clone()).help(if is_active { t!("settings.workspaces.delete.blocked.active").to_owned() } else { confirm })
-        .size(24.0, 24.0).center().radius(4.0)
-        .child(icon(&ic::OUTLINE_TRASH, 16.0).color(if is_active || deleting { p.icon_faint } else { p.icon_muted }));
-    let delete = if is_active || deleting { delete.disabled(true) } else {
-        delete.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            let menu = Menu::new(t!("workspace.delete.button")).align(rune::Align::End).group(t!("settings.workspaces.delete.warning")).item(Item::new("delete", t!("workspace.delete.button")).danger(true));
-            let (project, dir) = (project.clone(), dir_owned.clone());
-            popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, _| {
-                if picked == Some("delete") {
-                    remove(s, project, dir);
-                }
+/// `.settings-workspaces-toolbar`: the count as a section title, and the ⋯ menu at its end
+/// (`IconButton` ghost-muted small: 20 square, its icon 14, 4 pt corners) with Delete without sessions, while there are
+/// some, over Delete all in the danger ink.
+fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>) -> El {
+    let busy = s.settings_pages.worktrees.delete.busy();
+    let all: Vec<Target> = list.iter().map(Worktree::target).collect();
+    let unused: Vec<Target> = list.iter().filter(|w| sessions_in(s, &w.dir).is_empty()).map(Worktree::target).collect();
+    let dots = row().key("settings-workspaces-more").role("button").label(t!("common.moreOptions")).size(20.0, 20.0).center().radius(4.0)
+        .child(icon(&ic::OUTLINE_DOTS, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
+    let dots = if busy { dots.disabled(true) } else {
+        dots.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            let mut menu = Menu::new(t!("common.moreOptions")).align(Align::End);
+            if !unused.is_empty() {
+                menu = menu.item(Item::new("unused", t!("settings.workspaces.deleteWithoutSessions"))).separator();
+            }
+            // `menu-v2`'s content is as wide as its widest row.
+            menu = menu.item(Item::new("all", t!("settings.workspaces.deleteAll")).danger(true)).hug();
+            let (all, unused, active) = (all.clone(), unused.clone(), active.clone());
+            popup::open(s, menu, "settings-workspaces-more", tx, move |s: &mut App, picked, tx| {
+                let (scope, targets) = match picked {
+                    Some("unused") => (Scope::Unused, unused.clone()),
+                    Some("all") => (Scope::All, all.clone()),
+                    _ => return,
+                };
+                tx.instant();
+                dispatch(s, Event::ConfirmOpened { scope, active: active.clone(), targets });
             });
         })
     };
+    row().key("settings-workspaces-toolbar").w_full().pb(8.0).gap(16.0).center_y()
+        // `.settings-section-title`: 13 on 16 at 530 in text-base.
+        .child(text(opencode_i18n::plural!("settings.workspaces.count", list.len())).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0))
+        .child(row().key("settings-workspaces-toolbar-actions").gap(4.0).center_y().child(dots))
+}
+
+fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, divided: bool) -> El {
+    let linked = sessions_in(s, &w.dir);
+    let machine = &s.settings_pages.worktrees.delete;
+    let (deleting, _) = machine.row(&w.key());
+    let busy = machine.busy();
+    let base = path::basename(&w.dir).to_owned();
+    let parent = w.dir.strip_suffix(&base).unwrap_or_default().to_owned();
+    let key = format!("settings-worktree-delete-{}", w.key());
+    let confirm = t!("workspace.delete.confirm", name = base);
+    let delete = row().key(key).role("button").label(confirm.clone()).help(confirm)
+        .size(20.0, 20.0).center().radius(4.0)
+        .child(icon(&ic::OUTLINE_TRASH, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
+    let target = w.target();
+    let active_dir = active.map(str::to_owned);
+    let delete = if busy { delete.disabled(true) } else {
+        delete.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            dispatch(s, Event::ConfirmOpened { scope: Scope::One, active: active_dir.clone(), targets: vec![target.clone()] });
+        })
+    };
     // The project's name in its own ink, found from the end as Desktop's `sessionCount` finds it.
-    let label = opencode_i18n::plural!("settings.workspaces.sessions", sessions, project = project_name);
-    let (before, after) = label.rfind(project_name).map_or((label.as_str(), ""), |at| (&label[..at], &label[at + project_name.len()..]));
+    let label = opencode_i18n::plural!("settings.workspaces.sessions", linked.len(), project = w.name);
+    let (before, after) = label.rfind(&w.name).map_or((label.as_str(), ""), |at| (&label[..at], &label[at + w.name.len()..]));
     let meta = row().gap(0.0)
         .children((!before.is_empty()).then(|| text(before.to_owned()).font(BODY).color(p.faint)))
-        .children(label.rfind(project_name).map(|_| text(project_name.to_owned()).font(BODY).color(p.muted)))
+        .children(label.rfind(&w.name).map(|_| text(w.name.clone()).font(BODY).color(p.muted)))
         .children((!after.is_empty()).then(|| text(after.to_owned()).font(BODY).color(p.faint)));
     // `.settings-workspaces-path`: the whole folder in text-base, its name at 530, cut short at
     // its end; a page 520 wide or less, or a window under 640, wraps it anywhere instead and
-    // hides the row's faint status (`settings.css:2123-2132, 2155-2164`).
+    // hides the row's faint time (`settings.css:2123-2132, 2155-2164`).
     let compact = crate::settings::rows_wrap();
-    let folder = text(dir.to_owned()).font(BODY).color(p.text).spans(vec![rune::Span::new(parent.len(), dir.len()).weight(530.0)]).shrink().min_w(0.0);
+    let folder = text(w.dir.clone()).font(BODY).color(p.text).spans(vec![rune::Span::new(parent.len(), w.dir.len()).weight(530.0)]).shrink().min_w(0.0);
     let folder = if compact { folder.wrap_anywhere() } else { folder.truncate() };
-    col().key(format!("settings-worktree-{}", path::trim(dir))).w_full().gap(12.0).pb(if divided { 20.0 } else { 0.0 }).mb(if divided { 20.0 } else { 0.0 })
+    // `.settings-workspaces-active`: 13 on 16, faint. While it deletes it reads Deleting;
+    // otherwise when its newest session was last active, "Last active session" on hover.
+    let faint = |words: String| text(words).font(BODY).color(p.faint);
+    let status = if compact { None } else if deleting {
+        Some(faint(t!("workspace.lifecycle.deleting").to_owned()).key("settings-worktree-deleting"))
+    } else {
+        linked.first().filter(|x| x.updated > 0).map(|x| faint(crate::switcher::relative_time(s.now_ms, x.updated)).key("settings-worktree-active").help(t!("settings.workspaces.lastActiveSession").to_owned()))
+    };
+    let mut r = col().key(format!("settings-worktree-{}", w.key())).w_full().gap(12.0).pb(if divided { 20.0 } else { 0.0 }).mb(if divided { 20.0 } else { 0.0 })
         .child(row().w_full().gap(20.0).items_start()
             .child(col().grow(1.0).shrink().min_w(0.0).gap(8.0)
-                .child(row().w_full().min_w(0.0).help(dir.to_owned()).child(folder))
+                .child(row().w_full().min_w(0.0).help(w.dir.clone()).child(folder))
                 .child(meta))
-            .child(row().gap(12.0).center_y()
-                .children((is_active && !compact).then(|| text(t!("rune.settings.workspaces.active")).font(BODY).color(p.faint)))
-                .child(delete)))
-        .children(divided.then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
+            .child(row().gap(12.0).center_y().children(status).children((!deleting).then_some(delete))));
+    if !linked.is_empty() {
+        r = r.child(sessions(s, p, &linked));
+    }
+    r.children(divided.then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
 }
 
-/// Deletes the worktree on the server (`DELETE /api/worktree`), then lists the project again.
-fn remove(s: &mut App, project: String, dir: String) {
-    s.settings_pages.worktrees.deleting.push(dir.clone());
-    s.job(move |srv| {
-        let body = json!({ "projectID": project, "directory": dir, "force": false });
-        let failed = srv.write("DELETE", "/api/worktree", Some(body)).err();
-        Box::new(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.settings_pages.worktrees.deleting.retain(|d| *d != dir);
-            if let Some(e) = failed {
-                crate::status_toast::say(s, t!("workspace.delete.failed.title"), &e);
-            }
-            s.list_worktrees(&project);
-        }) as Apply
+/// `.settings-workspaces-sessions`: the worktree's sessions in a box on bg-base, each 10 in
+/// above and below, 12 and 16 in at the sides, with its time when there are two or more.
+fn sessions(s: &App, p: &Pal, linked: &[&SessionInfo]) -> El {
+    let n = linked.len();
+    let rows = linked.iter().enumerate().map(|(i, x)| {
+        let time = (n > 1 && x.updated > 0).then(|| text(crate::switcher::relative_time(s.now_ms, x.updated)).font(BODY).color(p.faint));
+        row().key(format!("settings-worktree-session-{}", x.id)).w_full().py(10.0).pl(12.0).pr(16.0).gap(12.0).center_y()
+            .child(text(crate::view::title_of(x)).font(BODY).color(p.text).truncate().grow(1.0).shrink().min_w(0.0))
+            .children(time)
+            .children((i + 1 < n).then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
     });
+    col().key("settings-worktree-sessions").w_full().radius(6.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border)).clip_soft(0.0).children(rows)
+}
+
+/// Tells the deletes' machine `event` and runs what it asks for.
+pub fn dispatch(s: &mut App, event: Event) {
+    let state = std::mem::take(&mut s.settings_pages.worktrees.delete);
+    let (next, effects) = machine::step(state, event);
+    s.settings_pages.worktrees.delete = next;
+    for e in effects {
+        run(s, e);
+    }
+}
+
+/// Fires the machine's due timers; true when one fired.
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    // Rows that finished collapsing stay hidden until the inventory drops them.
+    if !s.settings_pages.worktrees.delete.removed.is_empty() {
+        let keys: Vec<String> = s.projects.iter().flat_map(|p| s.project_worktrees(&p.id, &p.directory)).map(|d| path::trim(&d).to_owned()).collect();
+        if s.settings_pages.worktrees.delete.removed.iter().any(|k| !keys.contains(k)) {
+            dispatch(s, Event::InventorySynced { keys });
+        }
+    }
+    let now = s.now_ms;
+    let st = &mut s.settings_pages.worktrees;
+    if st.timers.is_empty() {
+        return false;
+    }
+    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut st.timers).into_iter().partition(|(at, _)| *at <= now);
+    st.timers = later;
+    if let Some(next) = st.timers.iter().map(|(at, _)| *at).min() {
+        tx.wake_after(std::time::Duration::from_millis((next - now).max(0) as u64));
+    }
+    for (_, d) in &due {
+        let event = match *d {
+            Due::Inspect(attempt) => Event::InspectTimedOut { attempt },
+            Due::Delete(attempt) => Event::DeleteTimedOut { attempt },
+            Due::Collapse(attempt) => Event::CollapseCompleted { attempt },
+        };
+        dispatch(s, event);
+    }
+    !due.is_empty()
+}
+
+fn timer(s: &mut App, ms: i64, due: Due) {
+    s.settings_pages.worktrees.timers.push((s.now_ms + ms, due));
+}
+
+fn stop(s: &mut App, due: Due) {
+    s.settings_pages.worktrees.timers.retain(|(_, d)| *d != due);
+}
+
+fn run(s: &mut App, effect: Effect) {
+    match effect {
+        Effect::InspectRun { attempt, directory, active } => {
+            timer(s, machine::INSPECT_TIMEOUT_MS, Due::Inspect(attempt));
+            let linked = !sessions_in(s, &directory).is_empty();
+            s.job(move |srv| {
+                let checked = inspect(srv, &directory, active.as_deref(), linked);
+                Box::new(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    dispatch(s, match checked {
+                        Some(inspection) => Event::InspectSucceeded { attempt, inspection },
+                        None => Event::InspectFailed { attempt },
+                    });
+                }) as Apply
+            });
+        }
+        Effect::InspectStop { attempt } => stop(s, Due::Inspect(attempt)),
+        Effect::DeleteRun { attempt, target, force, active } => {
+            timer(s, machine::DELETE_TIMEOUT_MS, Due::Delete(attempt));
+            let linked = !sessions_in(s, &target.directory).is_empty();
+            s.job(move |srv| {
+                // A bulk delete checks each worktree first; a single one was checked in its
+                // confirmation and deletes with force.
+                let blocked = if force { None } else {
+                    match inspect(srv, &target.directory, active.as_deref(), linked) {
+                        Some(i) if i.active || i.linked || i.dirty => Some(Skip::Blocked(i)),
+                        Some(_) => None,
+                        None => Some(Skip::Failed(None)),
+                    }
+                };
+                let result = match blocked {
+                    Some(reason) => Err(reason),
+                    None => {
+                        let body = json!({ "projectID": target.project, "directory": target.directory, "force": force });
+                        srv.write("DELETE", "/api/worktree", Some(body)).map(|_| ()).map_err(|e| Skip::Failed(Some(e)))
+                    }
+                };
+                Box::new(move |s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    dispatch(s, match result {
+                        Ok(()) => Event::DeleteSucceeded { attempt, target },
+                        Err(reason) => Event::DeleteSkipped { attempt, reason },
+                    });
+                }) as Apply
+            });
+        }
+        Effect::DeleteTimerStop { attempt } => stop(s, Due::Delete(attempt)),
+        Effect::CollapseStart { attempt } => timer(s, machine::COLLAPSE_MS, Due::Collapse(attempt)),
+        Effect::Finalize { target } => s.list_worktrees(&target.project),
+        Effect::ToastSkipped { reason } => {
+            let why = match reason {
+                Skip::Blocked(i) if i.active => t!("settings.workspaces.delete.blocked.active").to_owned(),
+                Skip::Blocked(i) => messages(i).into_iter().next().unwrap_or_default(),
+                Skip::Failed(Some(m)) => m,
+                Skip::Failed(None) | Skip::TimedOut => t!("common.requestFailed").to_owned(),
+            };
+            crate::status_toast::say(s, t!("workspace.delete.failed.title"), why);
+        }
+    }
+}
+
+/// What a check found that stops a delete (`inspectionMessages`): linked sessions, then local changes.
+pub(super) fn messages(i: Inspection) -> Vec<String> {
+    let mut out = Vec::new();
+    if i.linked {
+        out.push(t!("settings.workspaces.delete.blocked.linked").to_owned());
+    }
+    if i.dirty {
+        out.push(t!("workspace.status.dirty").to_owned());
+    }
+    out
+}
+
+/// A worktree's check (`inspect`): its working changes and its branch's, the active folder, and
+/// whether sessions live in it. None when the server couldn't say.
+fn inspect(srv: &opencode_kit::client::Server, directory: &str, active: Option<&str>, linked: bool) -> Option<Inspection> {
+    let loc = format!("location%5Bdirectory%5D={}", crate::switcher::encode(directory));
+    let listed = |v: Value| v.get("data").unwrap_or(&v).as_array().is_some_and(|a| !a.is_empty());
+    let working = listed(srv.get(&format!("/api/vcs/status?{loc}")).ok()?);
+    let branch = listed(srv.get(&format!("/api/vcs/diff?{loc}&mode=branch")).ok()?);
+    Some(Inspection { active: active.is_some_and(|a| contains(directory, a)), linked, dirty: working || branch })
 }
