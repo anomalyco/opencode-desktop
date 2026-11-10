@@ -54,11 +54,17 @@ impl App {
         // Commands take no path attachments or quotes; they wait in the composer for the next prompt.
         let refs = if command.is_none() { std::mem::take(&mut self.attach.paths) } else { Vec::new() };
         let quotes = if command.is_none() { self.quote.quotes() } else { Vec::new() };
-        let context = if command.is_none() { crate::add_selection::take(self) } else { Vec::new() };
+        // A file comment attaches its lines (`request.ts:186-207`), before the file context.
+        let directory = self.composer_directory();
+        let commented = quotes.iter().filter_map(|c| c.file()).map(|f| {
+            let (a, b) = f.lines.unwrap_or((0, 0));
+            crate::mentions::context_input(&directory, &f.path, a, b)
+        });
+        let context: Vec<_> = if command.is_none() { commented.chain(crate::add_selection::take(self)).collect() } else { Vec::new() };
         let text = match &command {
             Some((_, args)) => args.clone(),
             None => {
-                let quoted = quotes.iter().map(opencode_kit::model::Quote::prompt_text);
+                let quoted = quotes.iter().map(opencode_kit::model::PromptComment::prompt_text);
                 std::iter::once(attachments::path_lines(&wire.text, &refs)).filter(|t| !t.is_empty()).chain(quoted).collect::<Vec<_>>().join("\n")
             }
         };
@@ -79,14 +85,14 @@ impl App {
             delivery: None,
             attachments: refs,
             command: command.map(|(name, _)| name),
-            quotes,
+            comments: quotes,
             agent,
             model,
         };
         if prompt.command.is_some() {
             return self.send_command(prompt, alternate, tx);
         }
-        let quotes = prompt.quotes.clone();
+        let quotes = prompt.comments.clone();
         if let Route::Session { id, .. } = self.route.clone()
             && (self.busy(&id) || self.steers_waiting(&id))
         {
@@ -199,8 +205,10 @@ impl App {
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.attach.files));
         opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);
-        opencode_kit::model::set_user_quotes(&local, quotes);
+        opencode_kit::model::set_user_comments(&local, quotes);
         self.quote.take();
+        // Like the TUI, sent comments go with the prompt (`submit.ts:413-417`).
+        self.clear_line_comments(&id);
         session_view::composer::land(self, &id, &local, &from, tx);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         // As the server's copy will read, so a session mention's badge stays put when it lands.

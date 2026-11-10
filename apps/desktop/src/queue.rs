@@ -60,7 +60,8 @@ impl App {
             self.unsent.note(sent);
         }
         model::set_user_files(&id, std::mem::take(&mut self.attach.files));
-        model::set_user_quotes(&id, self.quote.take());
+        model::set_user_comments(&id, self.quote.take());
+        self.clear_line_comments(session);
         if self.unsent.state(&id) == Some(crate::send_failed::State::Waiting) { self.show_outbox(); }
         else { self.inboxes.entry(session.to_owned()).or_default().upsert(item); }
         self.composer.clear();
@@ -270,7 +271,7 @@ impl App {
 /// What a pending steer's bubble says: its words, or its attachment count when it has none.
 pub fn pending_label(item: &InboxItem) -> String {
     let files = model::user_files(&item.id).len().max(item.files.len());
-    let quotes = model::user_quotes(&item.id).len();
+    let quotes = model::user_comments(&item.id).len();
     match (item.text.trim().is_empty(), quotes) {
         (false, _) => item.text.clone(),
         (true, 0) => attachments_label(files),
@@ -390,7 +391,7 @@ fn row_text(item: &InboxItem) -> String {
 fn row_files(item: &InboxItem) -> usize {
     let files = model::inbox_payload(&item.id).and_then(|p| p["files"].as_array().map(Vec::len)).unwrap_or(0);
     let files = files.max(model::user_files(&item.id).len()).max(item.files.len());
-    files + opencode_kit::mention::user_path_attachments(&item.id).len() + model::user_quotes(&item.id).len()
+    files + opencode_kit::mention::user_path_attachments(&item.id).len() + model::user_comments(&item.id).len()
 }
 
 /// How a row stands: the turn running (`busy`), the queue parked on it, open in the composer,

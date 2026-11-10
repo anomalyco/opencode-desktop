@@ -51,13 +51,13 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
     let mut text = payload["metadata"]["displayText"].as_str().filter(|t| !t.is_empty()).map_or_else(|| s(&payload["text"]), str::to_owned);
     // With a presentation (`readPromptPresentation`) it reads as typed, its quotes and the files
     // it names by path showing as cards, even when it holds no words of its own.
-    if let Some((display, quotes)) = crate::quote::parse_metadata(&payload["metadata"]) {
+    if let Some((display, comments)) = crate::quote::parse_metadata(&payload["metadata"]) {
         let refs = crate::mention::path_attachments(&payload["metadata"]).unwrap_or_default();
         if display.is_empty() && !refs.is_empty() {
             text = display;
         }
         crate::mention::set_user_path_attachments(&s(id), refs);
-        set_user_quotes(&s(id), quotes);
+        set_user_comments(&s(id), comments);
     }
     let delivery = Delivery::parse(&item["delivery"])?;
     inbox_payload_store().lock().unwrap().insert(s(id), payload.clone());

@@ -104,8 +104,8 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
 /// all times under it. Pending sits in the meta room, outside the bubble, so it never rides the
 /// bubble's flight in from the composer.
 ///
-/// `quotes` are the prompt's quote cards: inside the bubble above its words, or in its place
-/// when it has none.
+/// `quotes` are the prompt's comment cards: inside the bubble under its words (`message-content.tsx:697-699`,
+/// `message-part.css:1931-1967`), or in its place when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, body: &str, place: Place, glow: f32, pending: bool, quotes: Option<El>, meta: &[(String, bool)]) -> El {
     let Place { tight, above, below, fold } = place;
@@ -163,7 +163,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty());
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),
-        Some(cards) => bubble.w(342.0).pt(12.0).child(cards).children(words),
+        Some(cards) => bubble.w(342.0).pb(12.0).children(words).child(cards),
         None => bubble.children(words),
     };
     if let Some(button) = menu {

@@ -1,4 +1,4 @@
-//! The files a prompt's quote comments mention, attached as Desktop attaches them
+//! The files a prompt's comments mention, attached as Desktop attaches them
 //! (`composer/submit.ts:831-863`, `composer/request.ts:159-169`). A comment's `@word` may be
 //! plain text such as `@here`, and the server rejects a whole prompt that attaches a missing
 //! file, so only mentions found in their folder's listing go (`GET /api/fs/list`, which reads
@@ -12,11 +12,11 @@ use crate::path::{SEPARATORS, absolute, encode_path};
 use crate::prompt::{FileInput, Prompt};
 
 impl Server {
-    /// `prompt` with the files its quote comments mention that exist, as `file://` references
+    /// `prompt` with the files its comments mention that exist, as `file://` references
     /// under the session's folder: `directory`, else the one `session` is in. Each goes once,
     /// and not when the prompt already attaches it.
     pub(crate) fn with_mentions<'a>(&self, directory: Option<&str>, session: &str, prompt: &'a Prompt) -> Cow<'a, Prompt> {
-        let mentions = crate::quote::mentions(&prompt.quotes);
+        let mentions = crate::quote::mentions(&prompt.comments);
         if mentions.is_empty() || prompt.command.is_some() {
             return Cow::Borrowed(prompt);
         }

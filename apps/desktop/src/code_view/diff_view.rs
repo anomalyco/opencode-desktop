@@ -14,6 +14,7 @@ use rune_kit::diff::{
 
 use super::diff_state::{DiffDocState, DiffRow};
 use super::fold::{FoldEffect, Reveal};
+use super::notes::{LineNotes, hand_off};
 use super::{
     BAR_W, CodeLook, EDGE_FADE, DiffTints, GAP_H, HEADER_H, LINE_H, NOTE_H, expand_tabs,
 };
@@ -57,6 +58,7 @@ pub struct DiffViewer<S> {
     on_visible_file: Option<Rc<dyn Fn(&mut S, usize)>>,
     on_fetch_text: Option<Rc<dyn Fn(&mut S, usize)>>,
     header_actions: Option<Rc<dyn Fn(&S, usize) -> El>>,
+    notes: Option<Rc<dyn LineNotes<S>>>,
 }
 
 impl<S: 'static> DiffViewer<S> {
@@ -74,7 +76,15 @@ impl<S: 'static> DiffViewer<S> {
             on_visible_file: None,
             on_fetch_text: None,
             header_actions: None,
+            notes: None,
         }
+    }
+
+    /// Line comments on the diff's files (`enableLineSelection`, `enableGutterUtility`,
+    /// annotations).
+    pub fn notes(mut self, notes: Rc<dyn LineNotes<S>>) -> Self {
+        self.notes = Some(notes);
+        self
     }
 
     pub fn sticky_headers(mut self, enabled: bool) -> Self {
@@ -171,6 +181,7 @@ impl<S: 'static> DiffViewer<S> {
     }
 }
 
+
 fn row_keys<S: 'static>(get: Get<S>) -> impl for<'a> Fn(&'a S, usize) -> Cow<'a, str> + 'static {
     move |s, i| Cow::Borrowed(get(s).keys[i].as_str())
 }
@@ -262,16 +273,53 @@ impl<S: 'static> Inner<S> {
                 || self.gap_row(st, f as usize, gap as usize),
             ),
             _ => {
+                let notes = self.d.notes.as_ref().map(|n| {
+                    let path = st.files()[r.file()].path();
+                    let lines = [Side::Old, Side::New].map(|side| st.row_line(r, side).map(|n| (side, n)));
+                    let commented = lines.map(|l| l.is_some_and(|(side, line)| n.commented(s, path, side, line)));
+                    (n.version(s, path), commented)
+                });
                 let version = (
                     self.look.version,
                     st.rev,
                     st.row_selected(i),
                     st.copy_side(),
                     st.selection().map(|sel| sel.start.side),
+                    notes,
                 );
-                memo(key, version, || self.line_row(st, i))
+                let commented = notes.map_or([false; 2], |(_, c)| c);
+                let get_mut = self.d.get_mut.clone();
+                let row = memo(key, version, || {
+                    let line = self.line_row(st, i, commented);
+                    self.with_annotations(s, st, i, line)
+                });
+                let key = key.to_owned();
+                super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
             }
         }
+    }
+
+    /// Row `i` with the annotations under its lines: one row across, or in a split diff a half
+    /// under each side, the side without any empty (Pierre's annotation row and its buffer).
+    fn with_annotations(&self, s: &S, st: &DiffDocState, i: usize, line: El) -> El {
+        let Some(notes) = &self.d.notes else { return line };
+        let r = st.rows[i];
+        let f = r.file();
+        let path = st.files()[f].path();
+        let items = |side: Side| st.row_line(r, side).map_or_else(Vec::new, |n| notes.annotations(s, &self.pal, path, side, n));
+        let (old, new) = (items(Side::Old), items(Side::New));
+        if old.is_empty() && new.is_empty() {
+            return line;
+        }
+        let gutter = self.gutter_w(st, f);
+        let annotation = match (st.mode(), st.single_column(f)) {
+            (DiffMode::Split, None) => {
+                let half = |k: &str, items: Vec<El>| row().key(k.to_owned()).w_frac(0.5).min_w(0.0).items_stretch().child(el().key("buffer").w(gutter)).child(super::notes::annotation_slots(items));
+                row().key("annotation").w_full().items_stretch().fill(super::notes::comment_bg(&self.pal)).child(half("old", old)).child(half("new", new))
+            }
+            _ => super::notes::annotation_row(&self.pal, gutter, old.into_iter().chain(new).collect()),
+        };
+        col().w_full().child(line.key("line")).child(annotation)
     }
 
     fn cells<'a>(
@@ -312,13 +360,16 @@ impl<S: 'static> Inner<S> {
         }
     }
 
-    fn line_row(&self, st: &DiffDocState, i: usize) -> El {
+    fn line_row(&self, st: &DiffDocState, i: usize, commented: [bool; 2]) -> El {
         let r = st.rows[i];
         let f = r.file();
         let (a, b) = self.cells(st, r);
         let Some(a) = a else { return col() };
+        // A commented line shows as selected, both halves of its row in a split diff
+        // (markCommentedDiffLines, session-ui pierre/commented-lines.ts).
+        let selected = st.row_selected(i) || commented.contains(&true);
         match st.mode() {
-            DiffMode::Unified => self.unified_line(st, i, f, a),
+            DiffMode::Unified => self.unified_line(st, i, f, a, selected),
             DiffMode::Split => {
                 let (old, new) = match (b, a.kind) {
                     (Some(b), _) => (Some(a), Some(b)),
@@ -326,15 +377,14 @@ impl<S: 'static> Inner<S> {
                     (None, LineKind::Added) => (None, Some(a)),
                     (None, LineKind::Context) => (Some(a), Some(a)),
                 };
-                self.split_line(st, i, f, old, new)
+                self.split_line(st, i, f, old, new, selected)
             }
         }
     }
 
     /// A unified row: Pierre's one number column, a removed line's old number and any other's
     /// new one, then the code.
-    fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>) -> El {
-        let selected = st.row_selected(i);
+    fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>, selected: bool) -> El {
         let digits = st.digits(f);
         let copy = match c.kind {
             LineKind::Context => true,
@@ -358,7 +408,8 @@ impl<S: 'static> Inner<S> {
             .fill(self.fill(c.kind, selected))
             .role("listitem")
             .child(gutter)
-            .child(self.code_cell(st, f, &c, copy, side).key("code"));
+            .child(self.code_cell(st, f, &c, copy, side, n.map(|n| LineRef::new(side, n))).key("code"));
+        let line = self.plus(st, f, n, side, line);
         self.hover(line, c.kind, selected)
     }
 
@@ -369,6 +420,7 @@ impl<S: 'static> Inner<S> {
         f: usize,
         old: Option<CellData<'a>>,
         new: Option<CellData<'a>>,
+        selected: bool,
     ) -> El {
         let digits = st.digits(f);
         let single = st.single_column(f);
@@ -389,7 +441,6 @@ impl<S: 'static> Inner<S> {
             };
             let kind = cell.kind;
             // Pierre selects rows: both sides of a split row light (`[data-selected-line]`).
-            let selected = st.row_selected(i);
             let n = if side == Side::Old { cell.old } else { cell.new };
             if kind == LineKind::Context {
                 cell.text = st.side_line(f, side, n.unwrap_or(1)).unwrap_or(cell.text);
@@ -399,7 +450,8 @@ impl<S: 'static> Inner<S> {
                 .fill(self.fill(kind, selected))
                 .role("listitem")
                 .child(self.number_cell(st, i, f, n, side, kind, selected, digits).key("n"))
-                .child(self.code_cell(st, f, &cell, copy, side).key("code"));
+                .child(self.code_cell(st, f, &cell, copy, side, n.map(|n| LineRef::new(side, n))).key("code"));
+            let h = self.plus(st, f, n, side, h);
             self.hover(h, kind, selected)
         };
         // Two halves side by side, nothing between: session-ui takes away the 1 px of diff
@@ -459,12 +511,18 @@ impl<S: 'static> Inner<S> {
         });
         let Some(at) = at else { return c };
         let get_mut = self.d.get_mut.clone();
+        let notes = self.d.notes.clone();
         let row_at = i as u32;
         c.cursor(Cursor::Pointer).on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let st = get_mut(s);
-            match d.phase {
-                Phase::Down => st.press_line(f, at, tx.mods().shift),
+            let before = st.selection();
+            let unselect = st.unselecting();
+            let ended = match d.phase {
+                Phase::Down => {
+                    st.press_line(f, at, tx.mods().shift);
+                    false
+                }
                 Phase::Move => {
                     let Some(r_idx) = st.row_from(row_at, d.y) else { return };
                     let r = st.rows[r_idx as usize];
@@ -478,16 +536,33 @@ impl<S: 'static> Inner<S> {
                     if let Some(to) = to {
                         st.drag_to(f, to);
                     }
+                    false
+                }
+                Phase::Up if d.cancelled() => {
+                    st.cancel_line();
+                    false
                 }
                 Phase::Up => {
-                    if d.cancelled() {
-                        st.cancel_line();
-                    } else {
-                        let _ = st.release_line();
-                    }
+                    let _ = st.release_line();
+                    true
                 }
+            };
+            let after = st.selection();
+            let path = st.files()[f].path().to_owned();
+            if let Some(notes) = &notes {
+                hand_off(notes.as_ref(), s, &path, before, after, ended.then_some(unselect), tx);
             }
         })
+    }
+
+    /// The gutter's `+` for line `n` on `side` of file `f`, on a row (or half) under the pointer.
+    fn plus(&self, st: &DiffDocState, f: usize, n: Option<u32>, side: Side, row: El) -> El {
+        let (Some(notes), Some(n)) = (self.d.notes.clone(), n) else { return row };
+        let path = st.files()[f].path().to_owned();
+        let cell_w = self.gutter_w(st, f);
+        row.hover_group().child(super::notes::plus_button(&self.pal, cell_w, opencode_i18n::t!("ui.lineComment.submit"), move |s: &mut S, tx: &mut Tx| {
+            notes.plus(s, &path, Some(side), n, tx);
+        }))
     }
 
     fn code_cell(
@@ -497,6 +572,7 @@ impl<S: 'static> Inner<S> {
         c: &CellData<'_>,
         copy: bool,
         side: Side,
+        at: Option<LineRef>,
     ) -> El {
         let l = &self.look;
         let (src_side, n) = c.source();
@@ -535,6 +611,20 @@ impl<S: 'static> Inner<S> {
         // `--diffs-fg` at 60% (`[data-no-newline] span { opacity: .6 }`).
         if c.no_newline {
             code = code.child(text(opencode_i18n::t!("rune.diff.noNewline")).font(l.mono).color(l.plain).opacity(0.6).key("eof"));
+        }
+        // With line comments, a click on a line's code selects it, or clears it when it was the
+        // selection (`selection-machine.ts`, the `text` column).
+        if let (Some(notes), Some(at)) = (self.d.notes.clone(), at) {
+            let get_mut = self.d.get_mut.clone();
+            code = code.on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                tx.instant();
+                let st = get_mut(s);
+                let before = st.selection();
+                st.click_code(f, at);
+                let after = st.selection();
+                let path = st.files()[f].path().to_owned();
+                hand_off(notes.as_ref(), s, &path, before, after, Some(None), tx);
+            });
         }
         code
     }

@@ -176,6 +176,13 @@ pub fn version(app: &App, session: &str) -> (u64, bool, bool) {
     (app.review.sessions.get(session).map_or(0, |sr| sr.stamp), app.review.diff_mode == DiffMode::Split, app.review.expand_mode == ExpandMode::Expand)
 }
 
+/// The version of what `Dep::NarrowReview(session)` reads: the files open in the narrow list
+/// and the session's line comments.
+pub fn narrow_version(app: &App, session: &str) -> (Vec<String>, u64) {
+    let open = app.review.sessions.get(session).map(|sr| sr.narrow.open_paths()).unwrap_or_default();
+    (open, app.line_comments.version(session))
+}
+
 /// `ui.diffView`: the preview of `file`, else every file one under another; with `list`, the
 /// narrow Changes view, its children at its header's start.
 pub fn view(a: &mut NodeArgs) -> Result<El, String> {
@@ -186,6 +193,8 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let expand = if a.flag("expand") { ExpandMode::Expand } else { ExpandMode::Collapse };
     let file = a.string("file").map(str::to_owned);
     if a.flag("list") {
+        // Its rows are built here, not as they lay out: what they show is read here.
+        cx::read(Dep::NarrowReview(sid.clone()));
         let title = if a.children.is_empty() { rune::el() } else { a.children.remove(0) };
         return Ok(crate::review::mobile::view(app, &pal, &sid, title));
     }
@@ -213,6 +222,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
         },
     )
     .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))
+    .notes(crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Review))
     .build(app, &pal);
     Ok(col().w_full().grow(1.0).min_h(0.0).child(viewer))
 }

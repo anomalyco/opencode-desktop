@@ -430,6 +430,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Dev(name) => format!("{:?}", diag::get(app, name)).hash(&mut h),
         Dep::Console => super::console::version().hash(&mut h),
         Dep::Diff(session) => super::native::diff::version(app, session).hash(&mut h),
+        Dep::NarrowReview(session) => super::native::diff::narrow_version(app, session).hash(&mut h),
         Dep::Files(session) => super::native::files::version(app, session).hash(&mut h),
         Dep::Terminals(session) => super::native::terminal::version(app, session).hash(&mut h),
         Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),

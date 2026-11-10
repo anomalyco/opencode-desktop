@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use opencode_kit::client::{PathAttachment, Ticket, TicketKind, Write};
 use opencode_kit::mention::{self, MentionKind};
-use opencode_kit::model::{self, Attachment, Message, Quote};
+use opencode_kit::model::{self, Attachment, Message, PromptComment};
 use rune::machine::Attempt;
 use rune::{Align, El, LocalTime, Mark, MarkRange, Tx, icon};
 use rune_theme_opencode::icons as ic;
@@ -33,7 +33,7 @@ pub struct SavedDraft {
     pub caret: usize,
     pub files: Vec<Attachment>,
     pub paths: Vec<PathAttachment>,
-    pub quotes: Vec<Quote>,
+    pub quotes: Vec<PromptComment>,
 }
 
 impl SavedDraft {
@@ -217,7 +217,7 @@ impl App {
             caret,
             files: model::user_files(id).to_vec(),
             paths,
-            quotes: model::user_quotes(id).to_vec(),
+            quotes: model::user_comments(id).to_vec(),
         }
     }
 

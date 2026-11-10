@@ -262,12 +262,16 @@ pub struct Config {
     /// An alternate send is offered, and whether it's off.
     pub alternate: Option<bool>,
     pub submitting: bool,
+    /// An empty draft submits too (`allowEmpty`): the quote's editor clears its comment so.
+    pub allow_empty: bool,
+    /// The draft is blank once trimmed.
+    pub blank: bool,
 }
 
 impl Config {
-    /// `canSubmit` (the editor allows empty comments).
-    fn can_submit(self) -> bool {
-        true
+    /// `canSubmit`.
+    pub fn can_submit(self) -> bool {
+        self.allow_empty || !self.blank
     }
 }
 
@@ -284,6 +288,10 @@ pub enum FieldEvent {
     Key { key: FieldKey, config: Config },
     /// The action button's click, with Mod held or not.
     Clicked { modified: bool, config: Config },
+    /// The default layout's Submit button (`submit.requested`).
+    SubmitRequested { config: Config },
+    /// The default layout's Cancel button (`cancel.requested`).
+    CancelRequested,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,6 +354,13 @@ pub fn field_step(seq: &mut Seq, f: &mut Field, event: FieldEvent) -> (Effects<F
             }
             (submit(f, config, alternate), true)
         }
+        FieldEvent::SubmitRequested { config } => {
+            if config.submitting {
+                return (Effects::none(), false);
+            }
+            (submit(f, config, false), true)
+        }
+        FieldEvent::CancelRequested => (cancel(f), true),
         FieldEvent::Key { key, config } => {
             if config.submitting {
                 return (Effects::none(), matches!(key, FieldKey::Escape | FieldKey::Enter { .. }));

@@ -9,9 +9,7 @@ use rune::{Key, KeyEvent, TextEdit, Tx};
 use rune_kit::line_selection::{Column, LineEvent, LineSelection, Lines};
 use rune_kit::syntax::Paint;
 
-use super::{
-    CHUNK_LINES, ChunkMap, HighlightChunk, LINE_H, SourceLines, lang_for_path,
-};
+use super::{CHUNK_LINES, ChunkMap, HighlightChunk, LINE_H, SourceLines, lang_for_path};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileLineSelection {
@@ -74,6 +72,8 @@ pub struct CodeDocState {
     by_line_matches: HashMap<u32, Vec<(Range<usize>, bool)>>,
     active_match: usize,
     view_w: Cell<f32>,
+    /// The rows' laid-out heights, for a drag down the numbers.
+    pub(crate) heights: super::RowHeights,
     pub(crate) rev: u64,
     pub(crate) keys_rev: u64,
 }
@@ -111,6 +111,7 @@ impl CodeDocState {
             by_line_matches: HashMap::new(),
             active_match: 0,
             view_w: Cell::new(0.0),
+            heights: super::RowHeights::default(),
             rev: 1,
             keys_rev: 1,
         };
@@ -137,6 +138,7 @@ impl CodeDocState {
         self.trailing = !binary && content.ends_with('\n');
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
+        self.heights.clear();
         self.recompute_matches();
         self.bump_keys();
     }
@@ -222,6 +224,7 @@ impl CodeDocState {
     pub fn set_wrap(&mut self, wrap: bool) {
         if self.wrap != wrap {
             self.wrap = wrap;
+            self.heights.clear();
             self.rev += 1;
         }
     }
@@ -262,14 +265,36 @@ impl CodeDocState {
     }
 
     /// The held pointer is `dy` points below the top of line `start_line`'s row (the drag's own
-    /// coordinates): the line under it.
-    pub(crate) fn drag_to_offset(&mut self, start_line: u32, dy: f32) {
+    /// coordinates): the line under it, by the rows' laid-out heights (a wrapped line, or one
+    /// with comments under it, is taller than a line).
+    pub(crate) fn drag_to_offset(&mut self, start_line: u32, mut dy: f32) {
         if self.source.is_empty() {
             return;
         }
-        let delta = (dy / LINE_H).floor() as i64;
-        let at = (start_line as i64 + delta).clamp(1, self.lines() as i64) as u32;
+        let last = self.lines();
+        let mut at = start_line.clamp(1, last);
+        let height = |n: u32| self.heights.get(&format!("cl{n}")).unwrap_or(LINE_H);
+        while dy < 0.0 && at > 1 {
+            at -= 1;
+            dy += height(at);
+        }
+        while at < last {
+            let h = height(at);
+            if dy < h {
+                break;
+            }
+            dy -= h;
+            at += 1;
+        }
         self.step_lines(LineEvent::Move { at });
+    }
+
+    /// The one selected line, while a press on its number waits to see whether it drags.
+    pub(crate) fn unselecting(&self) -> Option<FileLineSelection> {
+        match self.lines {
+            LineSelection::Unselecting { line } => Some(line.into()),
+            _ => None,
+        }
     }
 
     /// A click on line `line`'s code: it selects that line, or clears it when it was the

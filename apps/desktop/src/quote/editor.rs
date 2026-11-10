@@ -17,7 +17,7 @@ use crate::quote::comment::{self, Anchor, Comment, Config, Event, FieldEffect, F
 const GAP: f32 = 8.0;
 const WIDTH: f32 = 320.0;
 /// `line-comment-v2-textarea`: 13 at 440 on the 20 pt base line.
-const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+pub(crate) const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 /// The alert under a failed send: 12 on the 16 pt compact line.
 const ALERT: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 /// `line-comment-v2-mention-path`: 12/16.
@@ -33,8 +33,8 @@ static CHECK: Icon = Icon {
 /// Opens `key`'s editor (`quoteComment.set`): from its card with no anchor, or where the
 /// toolbar stood.
 pub fn open(s: &mut App, key: u64, anchor: Option<Anchor>) {
-    let Some(item) = s.quote.items.iter().find(|q| q.key == key) else { return };
-    let saved = item.quote.comment.clone().unwrap_or_default();
+    let Some(quote) = s.quote.items.iter().find(|q| q.key == key).and_then(|q| q.quote()) else { return };
+    let saved = quote.comment.clone().unwrap_or_default();
     let q = &mut s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::Opened { key, saved, anchor });
     q.opening.set(0.0);
@@ -52,7 +52,7 @@ pub fn close(s: &mut App, focus: bool) {
 
 /// The quote's saved comment.
 fn saved(s: &App, key: u64) -> &str {
-    s.quote.items.iter().find(|q| q.key == key).and_then(|q| q.quote.comment.as_deref()).unwrap_or("")
+    s.quote.items.iter().find(|q| q.key == key).and_then(|q| q.quote()).and_then(|q| q.comment.as_deref()).unwrap_or("")
 }
 
 /// `canDismissOutside`: nothing would be lost.
@@ -69,8 +69,8 @@ pub fn can_dismiss(s: &App) -> bool {
 fn save(s: &mut App) {
     let (Some(key), Some(draft)) = (s.quote.comment.key(), s.quote.comment.draft()) else { return };
     let comment = draft.text.trim().to_owned();
-    if let Some(item) = s.quote.items.iter_mut().find(|q| q.key == key) {
-        item.quote.comment = Some(comment);
+    if let Some(quote) = s.quote.items.iter_mut().find(|q| q.key == key).and_then(|q| q.comment.quote_mut()) {
+        quote.comment = Some(comment);
     }
     close(s, true);
 }
@@ -100,8 +100,8 @@ fn send(s: &mut App, tx: &mut Tx) {
     let q = &mut s.quote;
     for effect in comment::step(&mut q.comment_seq, &mut q.comment, Event::SendRequested) {
         let comment::Effect::Send { attempt, key, comment } = effect;
-        if let Some(item) = s.quote.items.iter_mut().find(|q| q.key == key) {
-            item.quote.comment = Some(comment);
+        if let Some(quote) = s.quote.items.iter_mut().find(|q| q.key == key).and_then(|q| q.comment.quote_mut()) {
+            quote.comment = Some(comment);
         }
         let result = match s.send_quote(key, tx) {
             None => Some(SendResult::Failed),
@@ -142,7 +142,8 @@ fn settle(s: &mut App, attempt: rune::machine::Attempt, result: SendResult) {
 }
 
 fn config(s: &App) -> Config {
-    Config { alternate: Some(!send_available(s)), submitting: s.quote.comment.sending() }
+    let blank = s.quote.comment.draft().is_none_or(|d| d.text.trim().is_empty());
+    Config { alternate: Some(!send_available(s)), submitting: s.quote.comment.sending(), allow_empty: true, blank }
 }
 
 fn field(s: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
@@ -167,23 +168,34 @@ fn field(s: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
     handled
 }
 
-/// The field's file search (`mention.items`, Desktop's `searchPaths`): the server's search for
-/// files and folders, or the fixture's files.
+/// The field's file search (`mention.items`).
 fn search(s: &mut App, attempt: rune::machine::Attempt, query: String, due: f64, tx: &mut Tx) {
     tx.wake_at(due);
+    if let Some(items) = search_paths(s, attempt, query, |s| &mut s.quote.mention_fetch) {
+        field(s, FieldEvent::Loaded { attempt, items }, tx);
+    }
+}
+
+/// A comment field's search for paths to mention (Desktop's `searchPaths`): the fixture's files
+/// at once, or the server's search for files and folders, whose answer lands in `latest`.
+pub(crate) fn search_paths(
+    s: &mut App,
+    attempt: rune::machine::Attempt,
+    query: String,
+    latest: impl FnOnce(&mut App) -> &mut rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
+) -> Option<Vec<String>> {
     let crate::Source::Live { server, .. } = &s.source else {
         let index = &s.mentions.file_index;
         let targets: Vec<[crate::mentions::fuzzysort::Target; 1]> = index.iter().map(|p| [crate::mentions::fuzzysort::Target::new(&crate::mentions::shown_path(p))]).collect();
         let objects: Vec<&[crate::mentions::fuzzysort::Target]> = targets.iter().map(|t| &t[..]).collect();
-        let items = crate::mentions::fuzzysort::go(&query.to_lowercase(), &objects).into_iter().map(|i| crate::mentions::shown_path(&index[i])).collect();
-        field(s, FieldEvent::Loaded { attempt, items }, tx);
-        return;
+        return Some(crate::mentions::fuzzysort::go(&query.to_lowercase(), &objects).into_iter().map(|i| crate::mentions::shown_path(&index[i])).collect());
     };
     let (server, directory) = (server.clone(), s.composer_directory());
-    s.quote.mention_fetch.request(query, move |query| {
+    latest(s).request(query, move |query| {
         let path = format!("/api/fs/find?location%5Bdirectory%5D={}&query={}", crate::switcher::encode(&directory), crate::switcher::encode(&query));
         (attempt, server.get(&path).ok().map(|v| crate::mentions::found_paths(&v).iter().map(|p| crate::mentions::shown_path(p)).collect()))
     });
+    None
 }
 
 /// Held modifiers (`modifier.changed`): Mod alone shows the alternate send.
@@ -227,7 +239,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
-fn key_of(ev: &KeyEvent, tx: &Tx) -> FieldKey {
+pub(crate) fn key_of(ev: &KeyEvent, tx: &Tx) -> FieldKey {
     if let Some(step) = crate::popover::nav_step(ev, true) {
         return FieldKey::Step(step as i32);
     }
@@ -243,7 +255,7 @@ fn key_of(ev: &KeyEvent, tx: &Tx) -> FieldKey {
 /// The editor (`QuoteCommentEditor`).
 pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let key = s.quote.comment.key()?;
-    let item = s.quote.items.iter().find(|q| q.key == key)?;
+    let quote = s.quote.items.iter().find(|q| q.key == key)?.quote()?;
     let draft = s.quote.comment.draft()?;
     let f = s.quote.comment.field()?;
     let sending = s.quote.comment.sending();
@@ -275,7 +287,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .key("line-comment-preview")
         .w_full()
         .child(el().key("rule").w(2.0).h_full().fill(p.layer3))
-        .child(text(item.quote.text.clone()).key("quote").font(FIELD).color(p.muted).wrap().max_lines(preview_lines).dir(rune::Direction::Auto).pl(12.0).shrink().min_w(0.0).grow(1.0));
+        .child(text(quote.text.clone()).key("quote").font(FIELD).color(p.muted).wrap().max_lines(preview_lines).dir(rune::Direction::Auto).pl(12.0).shrink().min_w(0.0).grow(1.0));
     let input = text_input(draft, FIELD)
         .key("quote-comment-field")
         .label(opencode_i18n::t!("ui.lineComment.submit"))
@@ -428,6 +440,15 @@ fn action(s: &App, p: &Pal, empty: bool, alternate: bool, sending: bool, key: u6
 /// apart on `bg-layer-02` in a 0.5 `border-muted` hairline; the lit row on `bg-layer-03`. A
 /// row is the file's icon, then its folder (muted, cut at its end) and name.
 fn mention_list(p: &Pal, mention: &Mention) -> Option<El> {
+    mention_rows(p, mention, std::rc::Rc::new(field_event))
+}
+
+fn field_event(s: &mut App, event: FieldEvent, tx: &mut Tx) {
+    field(s, event, tx);
+}
+
+/// [`mention_list`] whose rows step the field `act` reaches.
+pub(crate) fn mention_rows(p: &Pal, mention: &Mention, act: std::rc::Rc<dyn Fn(&mut App, FieldEvent, &mut Tx)>) -> Option<El> {
     let items = mention.items();
     if items.is_empty() {
         return None;
@@ -438,6 +459,7 @@ fn mention_list(p: &Pal, mention: &Mention) -> Option<El> {
             Some(_) => (path.as_str(), ""),
             None => path.rfind(['/', '\\']).map_or(("", path.as_str()), |at| (&path[..=at], &path[at + 1..])),
         };
+        let (hover, pick) = (act.clone(), act.clone());
         row()
             .key(format!("mention-{i}"))
             .role("option")
@@ -451,11 +473,11 @@ fn mention_list(p: &Pal, mention: &Mention) -> Option<El> {
             .fill(if active == Some(path.as_str()) { p.layer3 } else { Color::TRANSPARENT })
             .on_pointer_move_local(move |s: &mut App, _, tx: &mut Tx| {
                 tx.instant();
-                field(s, FieldEvent::Hovered(i), tx);
+                hover(s, FieldEvent::Hovered(i), tx);
             })
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                field(s, FieldEvent::Picked(i), tx);
+                pick(s, FieldEvent::Picked(i), tx);
             })
             .child(icon(rune_theme_opencode::file_icons::file(path), 16.0).color(p.text))
             .child(

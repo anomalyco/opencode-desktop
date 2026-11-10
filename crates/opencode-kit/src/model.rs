@@ -25,7 +25,7 @@ pub use notice::{Finished, Notice, NoticeKind, Outcome, Retry, StepError, is_not
 pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, set_project_sandboxes};
-pub use crate::quote::{Quote, set_user_quotes, user_quotes};
+pub use crate::quote::{CommentOrigin, FileComment, PromptComment, Quote, set_user_comments, user_comments};
 
 #[derive(Clone, Debug)]
 pub struct Project {
@@ -418,17 +418,17 @@ pub fn parse_message(m: &Value) -> Option<Message> {
 
 /// A user message's text as its bubble shows it (Desktop's `readPromptPresentation`): without
 /// the `Attached file:` lines and quotes it carries for the model, which show as cards over it
-/// (see `mention::user_path_attachments` and [`user_quotes`]); the typed text when they aren't
+/// (see `mention::user_path_attachments` and [`user_comments`]); the typed text when they aren't
 /// at its end as Desktop puts them (`composer/request.ts`).
 fn quoted_text(id: &str, text: String, metadata: &Value) -> String {
-    let Some((display, quotes)) = crate::quote::parse_metadata(metadata) else { return text };
+    let Some((display, comments)) = crate::quote::parse_metadata(metadata) else { return text };
     let refs = crate::mention::path_attachments(metadata).unwrap_or_default();
-    if quotes.is_empty() && refs.is_empty() {
+    if comments.is_empty() && refs.is_empty() {
         return text;
     }
-    let tail: Vec<String> = refs.iter().map(|r| format!("Attached file: `{}`", r.path)).chain(quotes.iter().map(Quote::prompt_text)).collect();
+    let tail: Vec<String> = refs.iter().map(|r| format!("Attached file: `{}`", r.path)).chain(comments.iter().map(PromptComment::prompt_text)).collect();
     let tail = tail.join("\n");
-    set_user_quotes(id, quotes);
+    set_user_comments(id, comments);
     match text.strip_suffix(tail.as_str()) {
         Some(head) => head.strip_suffix('\n').unwrap_or(head).to_owned(),
         None => {
@@ -991,7 +991,7 @@ mod tests {
             "metadata": {"displayText": "look", "comments": [q.json()], "attachments": []}});
         let Some(Message::User { text, .. }) = parse_message(&m) else { panic!() };
         assert_eq!(text, "look\nAttached file: `/x`");
-        assert_eq!(user_quotes("msg_quoted").as_ref(), [q.clone()]);
+        assert_eq!(user_comments("msg_quoted").as_ref(), [PromptComment::Quote(q.clone())]);
         let only = serde_json::json!({"id": "msg_only", "type": "user", "text": q.prompt_text(), "metadata": {"displayText": "", "comments": [q.json()]}});
         let Some(Message::User { text, .. }) = parse_message(&only) else { panic!() };
         assert_eq!(text, "");

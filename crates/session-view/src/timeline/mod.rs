@@ -170,7 +170,7 @@ impl RowSpec {
                     if let Message::User { id, text, .. } = &t.messages[*message]
                         && s.user_glow_at(id).is_none()
                         && !s.user_menu_open_on(id)
-                        && model::user_quotes(id).is_empty()
+                        && model::user_comments(id).is_empty()
                         && opencode_kit::mention::user_mentions(id).is_empty()
                         && !text.contains("ses_")
                     {
@@ -512,7 +512,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     None => !runs_off && pending.first().is_some_and(|n| prompts_join(body, n)),
                 };
                 let tight = prompt_images(&mut out, id, older);
-                if !body.trim().is_empty() || !model::user_quotes(id).is_empty() {
+                if !body.trim().is_empty() || !model::user_comments(id).is_empty() {
                     out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
                 }
             }

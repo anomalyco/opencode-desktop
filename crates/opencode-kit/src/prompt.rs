@@ -27,9 +27,11 @@ pub struct Prompt {
     /// A slash command to run with `text` as its arguments (`POST …/command`) instead of a
     /// prompt.
     pub command: Option<String>,
-    /// Text quoted from the conversation. `text` already carries each one's
-    /// [`Quote::prompt_text`](crate::quote::Quote::prompt_text); these go in `metadata.comments`.
-    pub quotes: Vec<crate::quote::Quote>,
+    /// Text quoted from the conversation and comments on lines of files. `text` already
+    /// carries each one's [`PromptComment::prompt_text`](crate::quote::PromptComment::prompt_text),
+    /// and `files` a file comment's lines; these go in `metadata.comments`.
+    #[serde(alias = "quotes")]
+    pub comments: Vec<crate::quote::PromptComment>,
     /// The agent to switch the session to first (`POST …/agent`), as Desktop applies the
     /// composer's choice; None leaves it as it is. Also kept in `metadata.agent`.
     pub agent: Option<String>,
@@ -93,11 +95,11 @@ impl Prompt {
         }
         let display = self.display_text.as_ref().filter(|d| **d != self.text);
         let mut metadata = serde_json::Map::new();
-        if display.is_some() || !self.attachments.is_empty() || !self.quotes.is_empty() {
+        if display.is_some() || !self.attachments.is_empty() || !self.comments.is_empty() {
             // Desktop reads `displayText` only beside a `comments` list.
             let attachments: Vec<Value> =
                 self.attachments.iter().map(|a| serde_json::json!({ "name": a.name, "mime": a.mime, "path": a.path })).collect();
-            let comments: Vec<Value> = self.quotes.iter().map(crate::quote::Quote::json).collect();
+            let comments: Vec<Value> = self.comments.iter().map(crate::quote::PromptComment::json).collect();
             metadata.insert("displayText".into(), display.unwrap_or(&self.text).clone().into());
             metadata.insert("comments".into(), comments.into());
             metadata.insert("attachments".into(), attachments.into());

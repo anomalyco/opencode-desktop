@@ -225,6 +225,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
             if has { s.files.sessions.get_mut(&sid_mut).unwrap().docs.get_mut(&path_mut).unwrap() } else { &mut s.files.empty_doc }
         },
     )
+    .notes(crate::line_comments::host::Notes::new(session_id, crate::line_comments::Surface::Files))
     .build(s, p);
 
     out.child(viewer)

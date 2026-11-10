@@ -1,5 +1,6 @@
-//! Quotes as cards (Desktop's `CommentCard`): in the composer, where a click opens the quote's
-//! comment editor (`quote-comment.tsx`), and in the user bubble that sent them.
+//! Comments as cards (Desktop's `CommentCard`): in the composer, where a click opens a quote's
+//! comment editor (`quote-comment.tsx`) or reveals a file comment in the view it was written in
+//! (`toggleContext`, `openComment`), and in the user bubble that sent them.
 
 use rune::{El, Tx, el};
 
@@ -7,18 +8,26 @@ use crate::App;
 use crate::attachments::remove_button;
 use crate::palette::Pal;
 use crate::quote::Pending;
-pub use session_view::user_parts::quote_card as card;
+pub use session_view::user_parts::comment_card as card;
 
-/// The composer's quote cards, before its files (`editor.tsx`): a click toggles the quote's
-/// comment editor, and a round remove button shows on hover.
+/// The composer's comment cards, before its files (`editor.tsx`), each with a round remove
+/// button on hover.
 pub fn chips(s: &App, p: &Pal) -> Vec<El> {
     s.quote.items.iter().map(|item| chip(s, p, item)).collect()
 }
 
 fn chip(s: &App, p: &Pal, item: &Pending) -> El {
     let key = item.key;
+    if item.comment.file().is_some() {
+        let active = s.line_comments.active_card == Some(key);
+        let body = card(p, &item.comment, false, active, false)
+            .role("button")
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_line_comment_card(key, tx));
+        let remove = remove_button(p, "comment", 160.0, move |s| s.remove_line_comment_card(key));
+        return el().key(chip_key(key)).hover_group().child(body).child(remove);
+    }
     let active = s.quote.comment.key() == Some(key);
-    let body = card(p, &item.quote, true, active, false)
+    let body = card(p, &item.comment, true, active, false)
         .role("button")
         .label(opencode_i18n::t!("session.quote.add"))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {

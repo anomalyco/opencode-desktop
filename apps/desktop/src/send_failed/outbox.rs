@@ -135,7 +135,7 @@ impl App {
                 t.messages.push(Message::User { id: s.id.clone(), text: s.draft.text.clone() });
                 opencode_kit::model::set_user_files(&s.id, s.files.clone());
                 if let Some(p) = &s.prompt {
-                    opencode_kit::model::set_user_quotes(&s.id, p.quotes.clone());
+                    opencode_kit::model::set_user_comments(&s.id, p.comments.clone());
                 }
             }
         }
@@ -263,7 +263,7 @@ impl App {
             && self.attach.paths == s.paths
             && self.attach.context.is_empty()
             && self.attach.uploads.is_empty()
-            && s.prompt.as_ref().is_some_and(|p| p.quotes == self.quote.quotes())
+            && s.prompt.as_ref().is_some_and(|p| p.comments == self.quote.quotes())
     }
 
     /// Enter on the untouched restored draft is Retry, not a second independently retryable bubble.
@@ -373,7 +373,7 @@ impl App {
             self.attach.add_path(p);
         }
         if let Some(prompt) = s.prompt {
-            for quote in prompt.quotes {
+            for quote in prompt.comments {
                 if !self.quote.quotes().contains(&quote) {
                     self.quote.push(quote);
                 }

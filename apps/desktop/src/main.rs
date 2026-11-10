@@ -143,6 +143,7 @@ mod knobs;
 mod language;
 mod launch;
 mod layout_state;
+mod line_comments;
 mod mcp;
 mod mention_stories;
 mod mentions;
@@ -390,6 +391,8 @@ pub struct App {
     pub attach: attachments::Attach,
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
     pub quote: quote::Quotes,
+    /// Comments on lines of files, from Files and Changes (`line_comments`).
+    pub line_comments: line_comments::LineComments,
     pub find: find::Find,
     pub message_nav: message_nav::MessageNav,
     pub usage: usage::Usage,
@@ -1205,6 +1208,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= notifications::poll(s, tx);
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
+    changed |= line_comments::poll(s, tx);
     changed |= message_nav::poll(s, tx);
     changed |= turn_errors::poll(s, tx);
     changed |= session_view::turns::poll(s, tx);

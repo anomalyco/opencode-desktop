@@ -187,7 +187,7 @@ fn explicit_retry_preserves_request_id_files_quotes_and_delivery() {
     let prompt = sent.prompt.as_mut().unwrap();
     prompt.attachments.push(PathAttachment { path: "/project/readme.md".into(), ..Default::default() });
     prompt.files.push(opencode_kit::client::FileInput { uri: "media:abc".into(), ..Default::default() });
-    prompt.quotes.push(opencode_kit::quote::Quote { text: "Keep this quoted passage".into(), comment: Some("Explain this".into()) });
+    prompt.comments.push(opencode_kit::quote::Quote { text: "Keep this quoted passage".into(), comment: Some("Explain this".into()) }.into());
     prompt.delivery = Some(Delivery::Queue);
     let expected = prompt.clone();
     app.send_failed(ID, "POST /prompt: http status: 422");

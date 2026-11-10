@@ -373,7 +373,7 @@ impl App {
             return false;
         };
         let shown = self.bubble_text(id, &body);
-        let quotes = !opencode_kit::model::user_quotes(id).is_empty() && !body.trim().is_empty();
+        let quotes = !opencode_kit::model::user_comments(id).is_empty() && !body.trim().is_empty();
         let wrap_w = crate::fold::text_width(crate::fold::viewport_width(), quotes);
         if crate::fold::lines(&shown, wrap_w) <= crate::fold::OVER {
             return false;
@@ -525,7 +525,7 @@ impl App {
                     Message::Assistant(a) => steps.push(a),
                     Message::User { id, text } => {
                         flush_steps(&std::mem::take(&mut steps), false, &mut parts, &mut record);
-                        if !text.trim().is_empty() || !opencode_kit::model::user_quotes(id).is_empty() {
+                        if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() {
                             let shown_text = self.bubble_text(id, text);
                             record(&mut parts, format!("u-{id}"), (id.clone(), 0), &shown_text, true);
                         }

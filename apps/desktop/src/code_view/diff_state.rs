@@ -109,6 +109,8 @@ pub struct DiffDocState {
     pub(crate) keys_rev: u64,
     pub(super) visible_rows: Range<usize>,
     view_w: Cell<f32>,
+    /// The rows' laid-out heights by key: a drag down the numbers walks them.
+    pub(crate) heights: super::RowHeights,
     pub(super) visible: usize,
     reported: Option<usize>,
     pub(super) nav: Option<u32>,
@@ -159,6 +161,7 @@ impl DiffDocState {
             keys_rev: 0,
             visible_rows: 0..0,
             view_w: Cell::new(0.0),
+            heights: super::RowHeights::default(),
             visible: 0,
             reported: None,
             nav: None,
@@ -241,6 +244,7 @@ impl DiffDocState {
         }
         self.set_selection(None);
         self.chunks.borrow_mut().clear();
+        self.heights.clear();
         self.visible = 0;
         self.reported = None;
         self.visible_rows = 0..0;
@@ -336,17 +340,9 @@ impl DiffDocState {
     }
 
     /// The rows' height one under another, unwrapped: a diff shown whole inside another scroll.
+    /// A row laid out with comments under it counts as tall as it came out.
     pub fn rows_height(&self) -> f32 {
-        use super::{GAP_H, HEADER_H, LINE_H, NOTE_H};
-        self.rows
-            .iter()
-            .map(|r| match r {
-                DiffRow::File(_) => HEADER_H,
-                DiffRow::Note(_) => NOTE_H,
-                DiffRow::Gap { .. } => GAP_H,
-                _ => LINE_H,
-            })
-            .sum()
+        (0..self.rows.len()).map(|r| self.estimate(r)).sum()
     }
 
     pub fn file_index(&self, path: &str) -> Option<usize> {
@@ -362,6 +358,7 @@ impl DiffDocState {
     pub fn set_mode(&mut self, mode: DiffMode) {
         if self.mode != mode {
             self.mode = mode;
+            self.heights.clear();
             self.rebuild();
         }
     }
@@ -382,6 +379,7 @@ impl DiffDocState {
     pub fn set_wrap(&mut self, wrap: bool) {
         if self.wrap != wrap {
             self.wrap = wrap;
+            self.heights.clear();
             self.rev += 1;
         }
     }
@@ -500,7 +498,12 @@ impl DiffDocState {
         (self.visible_rows.start > header).then_some(f)
     }
 
+    /// Row `r`'s height: as laid out, else its kind's (a wrapped line, or one with comments
+    /// under it, is taller than a line).
     pub(super) fn estimate(&self, r: usize) -> f32 {
+        if let Some(h) = self.keys.get(r).and_then(|k| self.heights.get(k)) {
+            return h;
+        }
         match self.rows[r] {
             DiffRow::File(_) => HEADER_H,
             DiffRow::Note(_) => NOTE_H,

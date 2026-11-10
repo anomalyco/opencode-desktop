@@ -8,7 +8,10 @@ use rune::{
     Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
 };
 
-use super::file_state::CodeDocState;
+use rune_kit::diff::Side;
+
+use super::file_state::{CodeDocState, FileLineSelection};
+use super::notes::{Handoff, LineNotes};
 use super::{CodeLook, EDGE_FADE, LINE_H, expand_tabs};
 use crate::palette::Pal;
 
@@ -21,6 +24,7 @@ pub struct CodeViewer<S> {
     key: String,
     get: Get<S>,
     get_mut: GetMut<S>,
+    notes: Option<Rc<dyn LineNotes<S>>>,
 }
 
 impl<S: 'static> CodeViewer<S> {
@@ -33,12 +37,20 @@ impl<S: 'static> CodeViewer<S> {
             key: key.into(),
             get: Rc::new(get),
             get_mut: Rc::new(get_mut),
+            notes: None,
         }
+    }
+
+    /// Line comments on the file (`enableLineSelection`, `enableGutterUtility`, annotations).
+    pub fn notes(mut self, notes: Rc<dyn LineNotes<S>>) -> Self {
+        self.notes = Some(notes);
+        self
     }
 
     pub fn build(self, s: &S, p: &Pal) -> El {
         let st = (self.get)(s);
         let look = CodeLook::new(p);
+
         let root_key = self.key.clone();
         let scroll_key = format!("{root_key}-scroll");
 
@@ -84,7 +96,7 @@ impl<S: 'static> CodeViewer<S> {
         }
 
         let count = st.line_count();
-        let inner = Rc::new(Inner { look, v: self });
+        let inner = Rc::new(Inner { look, pal: *p, v: self });
         // Pierre's file starts at its first line (`--diffs-gap-block: 0`, session-ui
         // `pierre/index.ts:329`), and Desktop's file tab leaves 160 px of the panel under the last
         // (`gui-plugins/src/file/view.tsx:480`, `pb-40`).
@@ -130,6 +142,7 @@ impl<S: 'static> CodeViewer<S> {
 
 struct Inner<S> {
     look: CodeLook,
+    pal: Pal,
     v: CodeViewer<S>,
 }
 
@@ -141,14 +154,29 @@ impl<S: 'static> Inner<S> {
     fn row(&self, s: &S, i: usize) -> El {
         let st = (self.v.get)(s);
         let n = (i + 1) as u32;
-        let selected = st.selection().is_some_and(|sel| sel.contains(n));
+        // A commented line shows as selected (`[data-comment-selected]`, session-ui
+        // `pierre/index.ts:180-196`).
+        // Rows build as they lay out, from the state then: the comments are read here.
+        let notes_version = self.v.notes.as_ref().map_or(0, |notes| notes.version(s, st.path()));
+        let commented = self.v.notes.as_ref().is_some_and(|notes| notes.commented(s, st.path(), Side::New, n));
+        let selected = st.selection().is_some_and(|sel| sel.contains(n)) || commented;
         let has_matches = !st.line_matches(n).is_empty();
         let key = format!("cl{n}");
-        memo(
+        let get_mut = self.v.get_mut.clone();
+        let row = memo(
             key.as_str(),
-            (self.look.version, st.rev, selected, has_matches),
-            || self.line_row(st, n, selected),
-        )
+            (self.look.version, st.rev, selected, has_matches, notes_version),
+            || {
+                let line = self.line_row(st, n, selected);
+                let Some(notes) = &self.v.notes else { return line };
+                let items = notes.annotations(s, &self.pal, st.path(), Side::New, n);
+                if items.is_empty() {
+                    return line;
+                }
+                col().w_full().child(line.key("line")).child(super::notes::annotation_row(&self.pal, self.look.number_w(st.digits()), items))
+            },
+        );
+        super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
     }
 
     fn line_row(&self, st: &CodeDocState, n: u32, selected: bool) -> El {
@@ -156,6 +184,7 @@ impl<S: 'static> Inner<S> {
         let fill = if selected { l.selected } else { l.bg };
         let num_color = if selected { l.selected_number } else { l.faint };
         let get_mut = self.v.get_mut.clone();
+        let notes = self.v.notes.clone();
         // Pierre's number cell, as a diff's: 2ch in, at least 3ch, 1ch after
         // (`--opencode-diffs-number-inset`, session-ui `pierre/index.ts:270-272`).
         let mut gutter = row()
@@ -170,16 +199,37 @@ impl<S: 'static> Inner<S> {
             .on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
                 tx.instant();
                 let st = get_mut(s);
-                match d.phase {
-                    Phase::Down => st.press_line(n, tx.mods().shift),
-                    Phase::Move => st.drag_to_offset(n, d.y),
-                    Phase::Up => {
-                        if d.cancelled() {
-                            st.cancel_line();
-                        } else {
-                            st.release_line();
-                        }
+                let before = st.selection();
+                let unselect = st.unselecting();
+                let path = st.path().to_owned();
+                let ended = match d.phase {
+                    Phase::Down => {
+                        st.press_line(n, tx.mods().shift);
+                        false
                     }
+                    Phase::Move => {
+                        st.drag_to_offset(n, d.y);
+                        false
+                    }
+                    Phase::Up if d.cancelled() => {
+                        st.cancel_line();
+                        false
+                    }
+                    Phase::Up => {
+                        st.release_line();
+                        true
+                    }
+                };
+                let after = st.selection().map(file_range);
+                let Some(notes) = &notes else { return };
+                if let (true, Some(line)) = (ended, unselect) {
+                    return notes.handoff(s, &path, Handoff::Unselected(file_range(line)), tx);
+                }
+                if before.map(file_range) != after {
+                    notes.handoff(s, &path, Handoff::Selected(after), tx);
+                }
+                if ended {
+                    notes.handoff(s, &path, Handoff::Ended(after), tx);
                 }
             })
             .child(text(n.to_string()).font(l.mono).color(num_color));
@@ -207,7 +257,7 @@ impl<S: 'static> Inner<S> {
             .key("text");
         code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
 
-        let line = row()
+        let mut line = row()
             .w_full()
             .min_h(LINE_H)
             .items_start()
@@ -216,15 +266,38 @@ impl<S: 'static> Inner<S> {
             .child(gutter)
             .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_press_tx({
                 let get_mut = self.v.get_mut.clone();
+                let notes = self.v.notes.clone();
                 move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
-                    get_mut(s).click_code(n);
+                    let st = get_mut(s);
+                    let before = st.selection().map(file_range);
+                    st.click_code(n);
+                    let after = st.selection().map(file_range);
+                    let path = st.path().to_owned();
+                    if let Some(notes) = &notes {
+                        if before != after {
+                            notes.handoff(s, &path, Handoff::Selected(after), tx);
+                        }
+                        notes.handoff(s, &path, Handoff::Ended(after), tx);
+                    }
                 }
             }));
+        if let Some(notes) = &self.v.notes {
+            let notes = notes.clone();
+            let path = st.path().to_owned();
+            line = line.hover_group().child(super::notes::plus_button(&self.pal, l.number_w(st.digits()), opencode_i18n::t!("ui.lineComment.submit"), move |s: &mut S, tx: &mut Tx| {
+                notes.plus(s, &path, None, n, tx);
+            }));
+        }
         // A selected line keeps its fill under the pointer, as session-ui sets it outright.
         if selected {
             return line;
         }
         line.hover(l.hover).hover_motion(INSTANT, INSTANT)
     }
+}
+
+/// A file view's selected lines as a comment's (a file's lines have no side).
+fn file_range(sel: FileLineSelection) -> crate::line_comments::Range {
+    crate::line_comments::Range { start: sel.start, end: sel.end, side: None, end_side: None }
 }

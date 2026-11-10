@@ -394,7 +394,7 @@ impl App {
             sent.draft.put(&mut self.composer, sent.draft.text.len());
             for f in sent.files { self.attach.add(f); }
             for p in sent.paths { self.attach.add_path(p); }
-            if let Some(prompt)=sent.prompt { for quote in prompt.quotes { self.quote.push(quote); } }
+            if let Some(prompt)=sent.prompt { for quote in prompt.comments { self.quote.push(quote); } }
         }
     }
 }

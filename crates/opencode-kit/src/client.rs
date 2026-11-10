@@ -1025,7 +1025,7 @@ mod tests {
         );
 
         let quote = crate::quote::Quote { text: "a\nb".into(), comment: Some("why".into()) };
-        let quoted = Prompt { text: format!("look\n{}", quote.prompt_text()), display_text: Some("look".into()), quotes: vec![quote], ..Default::default() };
+        let quoted = Prompt { text: format!("look\n{}", quote.prompt_text()), display_text: Some("look".into()), comments: vec![quote.into()], ..Default::default() };
         assert_eq!(
             quoted.body()["metadata"],
             serde_json::json!({"displayText": "look", "comments": [{"type": "quote", "text": "a\nb", "comment": "why"}], "attachments": []})

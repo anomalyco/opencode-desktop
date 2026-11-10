@@ -125,6 +125,8 @@ pub enum Dep {
     Console,
     /// A session's changes (`Diff`).
     Diff(String),
+    /// A session's narrow Changes list: the files open in it and the line comments drawn in it.
+    NarrowReview(String),
     /// A session's workspace files: its tree, finds and open files (`Workspace`).
     Files(String),
     /// A session's terminals (`Terminal`).

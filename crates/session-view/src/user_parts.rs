@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use opencode_kit::mention::{self, MentionKind, UserMention};
-use opencode_kit::model::Quote;
+use opencode_kit::model::{FileComment, PromptComment, Quote};
 use rune::{Color, El, Icon, PillStyle, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::TimelineHost;
@@ -225,6 +225,55 @@ fn tooltip(q: &Quote) -> String {
     }
 }
 
+/// A comment's two-line card (`CommentCard`): a quote's, or a file comment's, whose title is
+/// the comment over the file's icon and its name with the lines (`format.ts:3`).
+pub fn comment_card(p: &Pal, c: &PromptComment, hint: bool, active: bool, wide: bool) -> El {
+    match c {
+        PromptComment::Quote(q) => quote_card(p, q, hint, active, wide),
+        PromptComment::File(f) => file_card(p, f, active, wide),
+    }
+}
+
+/// `getFilenameTruncated`: a name over `max` characters keeps its extension after an ellipsis.
+pub fn filename_truncated(path: &str, max: usize) -> String {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= max {
+        return name.to_owned();
+    }
+    let dot = name.rfind('.').filter(|&d| d > 0).map(|d| name[..d].chars().count());
+    let extension: String = dot.map_or_else(String::new, |d| chars[d..].iter().collect());
+    let available = max as i64 - extension.chars().count() as i64 - 1;
+    if available <= 0 {
+        return chars[..max - 1].iter().collect::<String>() + "…";
+    }
+    chars[..available as usize].iter().collect::<String>() + "…" + &extension
+}
+
+fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
+    let title = text(f.comment.clone()).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let subtitle = row()
+        .key("subtitle")
+        .w_full()
+        .h(14.0)
+        .gap(4.0)
+        .center_y()
+        .min_w(0.0)
+        .child(icon(rune_theme_opencode::file_icons::file(&f.path), 12.0))
+        .child(text(format!("{}{}", filename_truncated(&f.path, 14), f.lines_label())).font(CARD_SUBTITLE).color(p.muted).truncate_fade());
+    let c = col()
+        .key("card")
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .fill(if p.dark { p.hover } else { p.bg_base })
+        .box_shadow(Pal::ring_in(if active { p.q.border_strong } else { p.border }))
+        .child(title)
+        .child(subtitle);
+    let c = if wide { c.w_full() } else { c.w(160.0) };
+    c.help(f.comment.clone()).help_above()
+}
+
 /// A quote's two-line card.
 pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
     let comment = q.comment();
@@ -263,10 +312,9 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     if comment.is_some() && !active { c.help(tip) } else { c }
 }
 
-/// A sent prompt's quote cards (`UserMessageComments`), when it has any; above its words, so
-/// what a reply answers reads first.
+/// A sent prompt's comment cards (`UserMessageComments`), when it has any; under its words.
 pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> Option<El> {
-    let quotes = opencode_kit::model::user_quotes(id);
+    let quotes = opencode_kit::model::user_comments(id);
     if quotes.is_empty() {
         return None;
     }
@@ -274,9 +322,9 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     let open = !bounded || s.quote_more_open(id) || quotes.len() <= BOUNDED;
     let shown = if open { &quotes[..] } else { &quotes[..BOUNDED] };
     let mut c = col().key("quotes").w_full().gap(8.0);
-    c = if bounded { c.max_w(318.0).mb(8.0) } else { c.max_w(320.0) };
+    c = if bounded { c.max_w(318.0).mt(8.0) } else { c.max_w(320.0) };
     for (i, q) in shown.iter().enumerate() {
-        c = c.child(quote_card(p, q, false, false, true).key(format!("quote-{i}")));
+        c = c.child(comment_card(p, q, false, false, true).key(format!("quote-{i}")));
     }
     if !open {
         let id = id.to_owned();

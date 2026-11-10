@@ -75,6 +75,11 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
 /// One file: `{data, mime, name}` (base64), `{uri: "data:…;base64,…", mime, name}` or a
 /// `{uri: "media:<hash>", mime, name, bytes}` ref. Other URIs (`file://`) are skipped.
 pub fn parse_attachment(f: &Value) -> Option<Attachment> {
+    // A part the server read from a path (a file comment's lines, a file sent as context) isn't
+    // an attachment the user added (`attached`, `session-ui/src/components/message-file.ts`).
+    if f["source"]["uri"].as_str().is_some_and(|u| u.starts_with("file:")) {
+        return None;
+    }
     if let Some(hash) = f["uri"].as_str().and_then(media_hash) {
         return Some(Attachment { mime: s(&f["mime"]), name: s(&f["name"]), media: Some(hash.to_owned()), ..Default::default() });
     }

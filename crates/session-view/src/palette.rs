@@ -546,7 +546,7 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
 
 /// `c` at opacity `a` laid over the opaque `bg` as CSS composites it, in sRGB: opaque, so it
 /// paints alike in either blend mode.
-fn over(bg: Color, c: Color, a: f32) -> Color {
+pub fn over(bg: Color, c: Color, a: f32) -> Color {
     use rune::color::{srgb_decode, srgb_encode};
     let m = |b: f32, f: f32| srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));
     Color { r: m(bg.r, c.r), g: m(bg.g, c.g), b: m(bg.b, c.b), a: 1.0 }

@@ -97,7 +97,7 @@ fn alt_quote_puts_a_card_in_the_composer_and_focuses_the_prompt() {
     settle(&mut rt);
     let items = &rt.state.quote.items;
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].quote, Quote { text: crate::quote::quote_text(&selected).0, comment: None });
+    assert_eq!(items[0].quote(), Some(&Quote { text: crate::quote::quote_text(&selected).0, comment: None }));
     assert_eq!(rt.selected_text(), None, "the selection goes");
     assert!(rt.state.composer.focused);
     assert!(shown(&rt, "quote-toolbar").is_none());
@@ -139,7 +139,7 @@ fn a_click_opens_the_comment_editor_and_enter_keeps_the_comment() {
     rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
     settle(&mut rt);
     assert_eq!(rt.state.quote.comment.key(), None);
-    assert_eq!(rt.state.quote.items[0].quote.comment.as_deref(), Some("why this?"));
+    assert_eq!(rt.state.quote.items[0].quote().and_then(|q| q.comment.as_deref()), Some("why this?"));
     assert!(rt.state.composer.focused);
 }
 
@@ -219,7 +219,7 @@ fn a_send_carries_its_quotes_as_desktop_does() {
     );
     assert!(!app.quote.any(), "the composer lets them go");
     let id = prompt.id.unwrap();
-    assert_eq!(model::user_quotes(&id).as_ref(), [quote]);
+    assert_eq!(model::user_comments(&id).as_ref(), [model::PromptComment::from(quote)]);
     let t = &app.transcripts["ses_a"];
     assert!(matches!(t.messages.last(), Some(Message::User { text, .. }) if text == "look"), "the echo shows the typed words");
 
@@ -235,7 +235,7 @@ fn a_send_carries_its_quotes_as_desktop_does() {
 #[test]
 fn a_prompt_of_only_quotes_shows_its_cards() {
     let mut rt = quoting("");
-    model::set_user_quotes("msg_quote_only", vec![Quote { text: "alone".into(), comment: None }]);
+    model::set_user_comments("msg_quote_only", vec![Quote { text: "alone".into(), comment: None }.into()]);
     rt.update(|s, _| {
         let t = s.transcripts.get_mut(SESSION).unwrap();
         t.messages.push(Message::User { id: "msg_quote_only".into(), text: String::new() });
@@ -245,7 +245,7 @@ fn a_prompt_of_only_quotes_shows_its_cards() {
     assert!(card.rect[2] > 100.0, "{:?}", card.rect);
     assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("text-msg_quote_only")), "no empty bubble");
     assert!(card.path.contains("/bubble/"), "the cards stand in for the bubble: {}", card.path);
-    model::set_user_quotes("msg_quote_only", Vec::new());
+    model::set_user_comments("msg_quote_only", Vec::new());
 }
 
 #[test]

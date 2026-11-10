@@ -54,6 +54,22 @@ impl DiffDocState {
         let _ = self.lines.step(LineEvent::Move { at: DiffLine { file, at } }, |_| None);
     }
 
+    /// A click on line `at`'s code: it selects that line, or clears it when it was the
+    /// selection (`selection-machine.ts`, the `text` column).
+    pub(crate) fn click_code(&mut self, file: usize, at: LineRef) {
+        let row_of = &self.row_of;
+        let _ = self.lines.step(LineEvent::Press { at: DiffLine { file, at }, column: Column::Text, shift: false }, |p| row_of.get(&(p.file as u32, p.at.side, p.at.line)).copied());
+        let _ = self.lines.step(LineEvent::Release, |_| None);
+    }
+
+    /// The one selected line, while a press on its number waits to see whether it drags.
+    pub(crate) fn unselecting(&self) -> Option<LineRange> {
+        match self.lines {
+            rune_kit::line_selection::LineSelection::Unselecting { line } => Some(LineRange::from(line)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn release_line(&mut self) -> Option<LineRange> {
         let _ = self.lines.step(LineEvent::Release, |_| None);
         self.selection()

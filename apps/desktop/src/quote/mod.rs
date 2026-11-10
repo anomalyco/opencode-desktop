@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use rune::{Cx, El, SelectionChange, TextEdit, TextStyle, Transition, Tx, icon, row, text};
 
-use opencode_kit::model::Quote;
+use opencode_kit::model::{PromptComment, Quote};
 
 use crate::palette::Pal;
 use crate::{App, Route};
@@ -56,12 +56,19 @@ pub struct Quotes {
     pub(crate) mention_fetch: rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
 }
 
+/// A comment waiting in the composer: a quote, or a comment on lines of a file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
     pub key: u64,
-    pub quote: Quote,
-    /// Where in the timeline it was quoted from, lit while its comment editor is open.
+    pub comment: PromptComment,
+    /// Where in the timeline a quote was quoted from, lit while its comment editor is open.
     pub source: Vec<rune::TextMark>,
+}
+
+impl Pending {
+    pub fn quote(&self) -> Option<&Quote> {
+        self.comment.quote()
+    }
 }
 
 /// A timeline selection as heard.
@@ -97,15 +104,15 @@ impl Quotes {
         }
     }
 
-    /// Adds a quote to the composer; its key.
-    pub fn push(&mut self, quote: Quote) -> u64 {
-        self.push_from(quote, Vec::new())
+    /// Adds a comment to the composer; its key.
+    pub fn push(&mut self, comment: impl Into<PromptComment>) -> u64 {
+        self.push_from(comment.into(), Vec::new())
     }
 
     /// [`Self::push`] for a quote taken from the timeline at `source`.
-    pub fn push_from(&mut self, quote: Quote, source: Vec<rune::TextMark>) -> u64 {
+    pub fn push_from(&mut self, comment: PromptComment, source: Vec<rune::TextMark>) -> u64 {
         self.next += 1;
-        self.items.push(Pending { key: self.next, quote, source });
+        self.items.push(Pending { key: self.next, comment, source });
         self.next
     }
 
@@ -117,15 +124,15 @@ impl Quotes {
         }
     }
 
-    /// The quotes to send, leaving the composer without them.
-    pub fn take(&mut self) -> Vec<Quote> {
+    /// The comments to send, leaving the composer without them.
+    pub fn take(&mut self) -> Vec<PromptComment> {
         self.comment = machine::Comment::Closed;
-        std::mem::take(&mut self.items).into_iter().map(|q| q.quote).collect()
+        std::mem::take(&mut self.items).into_iter().map(|q| q.comment).collect()
     }
 
-    /// The quotes the next send carries.
-    pub fn quotes(&self) -> Vec<Quote> {
-        self.items.iter().map(|q| q.quote.clone()).collect()
+    /// The comments the next send carries.
+    pub fn quotes(&self) -> Vec<PromptComment> {
+        self.items.iter().map(|q| q.comment.clone()).collect()
     }
 
     pub fn any(&self) -> bool {
@@ -281,7 +288,7 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
     tx.instant();
     let source = s.quote.selection.take().map(|h| h.source).unwrap_or_default();
     s.quote.step(machine::Event::Reset, tx);
-    let key = s.quote.push_from(quote, source);
+    let key = s.quote.push_from(quote.into(), source);
     if comment {
         let anchor = s.quote.placed.borrow_mut().take();
         editor::open(s, key, anchor);

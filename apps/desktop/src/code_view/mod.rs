@@ -10,6 +10,7 @@ pub mod diff_view;
 pub mod file_state;
 pub mod file_view;
 pub mod fold;
+pub mod notes;
 #[cfg(test)]
 mod edge_fade_tests;
 #[cfg(test)]
@@ -327,6 +328,42 @@ impl HighlightChunk {
 }
 
 pub type ChunkMap<K> = HashMap<K, Rc<HighlightChunk>>;
+
+/// The rows' laid-out heights by row key, as their layouts report them: what a drag down the
+/// line numbers walks, since a wrapped line or one with comments under it is taller than its
+/// estimate.
+#[derive(Debug, Default)]
+pub struct RowHeights(std::cell::RefCell<HashMap<String, f32>>);
+
+impl RowHeights {
+    pub fn get(&self, key: &str) -> Option<f32> {
+        self.0.borrow().get(key).copied()
+    }
+
+    /// Records row `key`'s height; whether a height it had changed (a row seen for the first
+    /// time, as one scrolls in, isn't a change).
+    pub fn record(&self, key: &str, h: f32) -> bool {
+        let mut map = self.0.borrow_mut();
+        match map.insert(key.to_owned(), h) {
+            Some(old) => (old - h).abs() >= 0.25,
+            None => false,
+        }
+    }
+
+    pub fn clear(&self) {
+        self.0.borrow_mut().clear();
+    }
+}
+
+/// Reports a row's height to `record` (`RowHeights::record`), running no view unless a height
+/// changed (so scrolling, which moves every row and mounts new ones, costs no commit).
+pub fn report_height<S: 'static>(row: rune::El, record: impl Fn(&mut S, f32) -> bool + 'static) -> rune::El {
+    row.on_layout_tx(move |s: &mut S, r: [f32; 4], tx: &mut rune::Tx| {
+        if !record(s, r[3]) {
+            tx.live_only();
+        }
+    })
+}
 
 /// Combines syntax foreground colors with background highlights (word diffs or search matches).
 pub fn layer_spans(

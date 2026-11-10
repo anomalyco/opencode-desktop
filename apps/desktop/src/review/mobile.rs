@@ -21,6 +21,11 @@ pub struct NarrowReview {
 }
 
 impl NarrowReview {
+    /// The open files' paths, in the order they opened.
+    pub fn open_paths(&self) -> Vec<String> {
+        self.open.iter().map(|(p, _)| p.clone()).collect()
+    }
+
     pub fn is_open(&self, path: &str) -> bool {
         self.open.iter().any(|(p, _)| p == path)
     }
@@ -64,11 +69,11 @@ impl NarrowReview {
         }
     }
 
-    fn diff(&self, path: &str) -> Option<&DiffDocState> {
+    pub(crate) fn diff(&self, path: &str) -> Option<&DiffDocState> {
         self.open.iter().find(|(p, _)| p == path).map(|(_, d)| d)
     }
 
-    fn diff_mut(&mut self, path: &str) -> Option<&mut DiffDocState> {
+    pub(crate) fn diff_mut(&mut self, path: &str) -> Option<&mut DiffDocState> {
         self.open.iter_mut().find(|(p, _)| p == path).map(|(_, d)| d)
     }
 }
@@ -312,6 +317,7 @@ fn diff(s: &App, p: &Pal, id: &str, path: &str, last: bool) -> El {
         )
         .sticky_headers(false)
         .whole(true)
+        .notes(crate::line_comments::host::Notes::new(id, crate::line_comments::Surface::Narrow))
         .build(s, p);
         if d.wraps() { view } else { view.h(d.rows_height()) }
     });
