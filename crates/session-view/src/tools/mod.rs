@@ -219,7 +219,7 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         let mut open: Vec<&String> = s.expanded().iter().filter(|k| k.starts_with(&own)).collect();
         open.sort();
         open.hash(&mut h);
-        copied.as_deref().filter(|k| k.contains(c.id)).hash(&mut h);
+        copied.iter().filter(|k| k.contains(c.id)).for_each(|k| k.hash(&mut h));
     }
     // The memo keys its root with its own id, so the row keeps its keys one level down.
     rune::memo(format!("tm-{}", first.id), h.finish(), || col().w_full().child(build()))

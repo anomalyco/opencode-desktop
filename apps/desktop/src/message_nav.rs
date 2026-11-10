@@ -1,10 +1,13 @@
-//! Previous and Next message (⌥⌘[ and ⌥⌘], Ctrl+Alt+[ and ] elsewhere), as Desktop's
+//! Previous and Next message (??[ and ??], Ctrl+Alt+[ and ] elsewhere), as Desktop's
 //! `navigateMessage` steps (`session/timeline/interaction.ts:89-120, 205-222`): from the prompt
-//! whose turn crosses a line 100 below the timeline's top, to the prompt before or after it,
-//! its top at the timeline's top (`cursor.ts:124-134`); past the last prompt the timeline
-//! returns to its end and follows it again.
+//! last stepped to while the reader hasn't scrolled since, else from the prompt whose turn
+//! crosses a line 100 below the timeline's top, to the prompt before or after it, its top at the
+//! timeline's top (`cursor.ts:124-134`); past the last prompt the timeline returns to its end and
+//! follows it again.
 
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use rune::Tx;
@@ -17,14 +20,106 @@ use crate::{App, Route};
 /// Desktop reads the prompt in view at this line under the timeline's top (`promptInView`).
 const LINE: f32 = 100.0;
 
-/// Where the session's timeline is, and the prompt row a step is landing.
+/// Where the session's timeline is, and the prompt a step chose.
 #[derive(Default)]
 pub struct MessageNav {
     /// The timeline region's rect in window points, from its last layout.
     pub view: Option<[f32; 4]>,
-    /// The prompt's row: revealed in the step's frame, then put at the top in the next, once a
-    /// virtual row that wasn't built is laid out.
-    landing: Option<String>,
+    pub cursor: Cursor,
+    /// The open timeline's scroll offset, as its viewport last reported it.
+    offset: Rc<Cell<f32>>,
+}
+
+/// The prompt a step chose: Desktop's `TimelineCursorState` (`session/timeline/cursor-machine.ts:
+/// 15-50`) without the route hash's `applying` and `pending`, which Rune's routes don't carry.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Cursor {
+    /// `none`.
+    #[default]
+    None,
+    /// `selected`: prompt `prompt` of session `session`, whose row is `row`.
+    Selected { session: String, prompt: String, row: String, seek: Seek },
+}
+
+/// A chosen prompt's seek and freshness (`selected`'s `seek` and `fresh`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Seek {
+    /// Revealed in the step's frame, put at the top in the next, once a virtual row that wasn't
+    /// built is laid out (`seek.schedule`).
+    Revealing,
+    /// Put at the top; where it landed is read at the next poll (`seek.landed`).
+    Placing,
+    /// Landed at `offset`: the reader hasn't scrolled since (`fresh`), so a step goes on from it.
+    Fresh { offset: f32 },
+    /// The reader scrolled (`scroll.moved`): a step goes from the prompt in view.
+    Stale,
+}
+
+#[derive(Clone, Debug)]
+pub enum Event<'a> {
+    /// `message.jump` to prompt `prompt` (row `row`) of session `session`.
+    Jumped { session: &'a str, prompt: &'a str, row: &'a str },
+    /// A frame after a step: the seek moves on; `offset` is the timeline's now.
+    Frame { offset: f32 },
+    /// `clear`: the timeline returned to its end and follows it.
+    Cleared,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// Put row `row` at the timeline's top (`seek.start`).
+    Place(String),
+}
+
+/// `transitionTimelineCursor`, for the events Rune has.
+pub fn step(cursor: &mut Cursor, event: Event) -> rune::machine::Effects<Effect> {
+    use rune::machine::Effects;
+    match event {
+        Event::Jumped { session, prompt, row } => {
+            *cursor = Cursor::Selected { session: session.to_owned(), prompt: prompt.to_owned(), row: row.to_owned(), seek: Seek::Revealing };
+            Effects::none()
+        }
+        Event::Cleared => {
+            *cursor = Cursor::None;
+            Effects::none()
+        }
+        Event::Frame { offset } => {
+            let Cursor::Selected { row, seek, .. } = cursor else { return Effects::none() };
+            match *seek {
+                Seek::Revealing => {
+                    *seek = Seek::Placing;
+                    Effects::one(Effect::Place(row.clone()))
+                }
+                Seek::Placing => {
+                    *seek = Seek::Fresh { offset };
+                    Effects::none()
+                }
+                // Only a fresh cursor cares about the reader's scroll (`hasFreshCursorOrSeek`).
+                Seek::Fresh { offset: at } if (offset - at).abs() > 0.5 => {
+                    *seek = Seek::Stale;
+                    Effects::none()
+                }
+                Seek::Fresh { .. } | Seek::Stale => Effects::none(),
+            }
+        }
+    }
+}
+
+impl MessageNav {
+    /// The prompt a step goes on from in session `session`: the one last stepped to while the
+    /// reader hasn't scrolled since (`freshCursorMessageID`).
+    fn fresh(&self, session: &str) -> Option<String> {
+        match &self.cursor {
+            Cursor::Selected { session: s, prompt, seek: Seek::Revealing | Seek::Placing | Seek::Fresh { .. }, .. } if s == session => Some(prompt.clone()),
+            _ => None,
+        }
+    }
+
+    /// Records the open timeline's scroll offset (chained onto its viewport's watch).
+    pub fn watch(&self) -> impl Fn(rune::ScrollPos) + 'static {
+        let offset = self.offset.clone();
+        move |at| offset.set(at.offset[1])
+    }
 }
 
 impl App {
@@ -32,6 +127,9 @@ impl App {
     pub fn navigate_message(&mut self, offset: i32, tx: &mut Tx) {
         let Route::Session { id, .. } = &self.route else { return };
         let Some(sid) = self.displayed_session(id).map(str::to_owned) else { return };
+        if let Some(current) = self.message_nav.fresh(&sid) {
+            return jump(self, &sid, Some(current), offset, tx);
+        }
         let Some([x, y, w, _]) = self.message_nav.view else { return jump(self, &sid, None, offset, tx) };
         tx.element_at_in(format!("scroll-{sid}"), x + w / 2.0, y + LINE, move |s: &mut App, picked, tx| {
             let current = picked.and_then(|p| {
@@ -78,13 +176,13 @@ fn jump(s: &mut App, sid: &str, current: Option<String>, offset: i32, tx: &mut T
     tx.instant();
     let scroll = format!("scroll-{sid}");
     if target == end {
-        s.message_nav.landing = None;
+        step(&mut s.message_nav.cursor, Event::Cleared);
         tx.scroll_to_bottom_instant(scroll);
         return;
     }
-    let row = list[target as usize].1.clone();
+    let (prompt, row) = list[target as usize].clone();
     tx.scroll_into_view_in(scroll, row.clone());
-    s.message_nav.landing = Some(row);
+    step(&mut s.message_nav.cursor, Event::Jumped { session: sid, prompt: &prompt, row: &row });
     tx.wake_after(Duration::ZERO);
 }
 
@@ -122,11 +220,28 @@ fn prompts(s: &App, sid: &str) -> (Vec<(String, String)>, HashMap<String, String
     (list, turns)
 }
 
-/// Puts a landing prompt at the timeline's top, the frame after its step revealed it.
+/// Moves a step's seek on: puts a revealed prompt at the timeline's top the frame after its
+/// step, notes where it landed the frame after that, and marks the cursor stale once the
+/// timeline moves from there. A timeline back at its end follows it, with no prompt chosen.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let Some(row) = s.message_nav.landing.take() else { return false };
-    // The row's own key: its content can carry the same key (a memo), so a path through the
-    // timeline wouldn't name it.
-    tx.scroll_key_to(row, 0.0);
-    true
+    let Cursor::Selected { session, seek, .. } = &s.message_nav.cursor else { return false };
+    let settled = matches!(seek, Seek::Fresh { .. } | Seek::Stale);
+    if settled && (s.route != Route::here(session.clone()) || s.ends.at_end(session)) {
+        step(&mut s.message_nav.cursor, Event::Cleared);
+        return false;
+    }
+    let placing = matches!(seek, Seek::Revealing | Seek::Placing);
+    let offset = s.message_nav.offset.get();
+    let mut changed = false;
+    for effect in step(&mut s.message_nav.cursor, Event::Frame { offset }) {
+        let Effect::Place(row) = effect;
+        // The row's own key: its content can carry the same key (a memo), so a path through
+        // the timeline wouldn't name it.
+        tx.scroll_key_to(row, 0.0);
+        changed = true;
+    }
+    if placing {
+        tx.wake_after(Duration::ZERO);
+    }
+    changed
 }

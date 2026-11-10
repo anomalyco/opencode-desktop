@@ -68,7 +68,8 @@ mod tests {
     fn committed_drops_the_rows_and_what_hung_off_them() {
         let mut rt = app(None);
         rt.update(|s, _| {
-            s.glows.insert("msg_3".into(), 0.0);
+            s.glows.step(session_view::arrivals::Event::Synced { session: SID, first: false });
+            s.glows.step(session_view::arrivals::Event::Arrived { id: "msg_3", now: 0.0 });
             s.inboxes.entry(SID.into()).or_default().upsert(opencode_kit::model::InboxItem {
                 id: "msg_9".into(),
                 text: "queued behind".into(),
@@ -82,7 +83,7 @@ mod tests {
         assert!(!shows(&rt, "take me back") && !shows(&rt, "doomed answer") && !shows(&rt, "Step interrupted"));
         assert_eq!(rt.state.transcripts[SID].messages.len(), 2);
         assert!(rt.state.session(SID).unwrap().revert.is_none());
-        assert!(rt.state.glows.is_empty());
+        assert!(rt.state.glows.glow_at("msg_3").is_none());
         assert!(rt.state.inboxes[SID].items.is_empty());
     }
 

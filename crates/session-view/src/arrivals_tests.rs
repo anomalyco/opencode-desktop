@@ -39,11 +39,11 @@ fn a_first_load_settles_and_a_glow_keeps_frames_coming_until_it_ends() {
     let k = Knobs::default();
     let mut a = Arrivals::default();
     a.landed(None, &talk(&[("m1", "user")]), 0.0);
-    assert!(a.settle, "a first load lands in place");
+    assert!(a.settling(), "a first load lands in place");
     assert!(!a.poll(&k, 0.0, &mut Tx::default()));
-    assert!(!a.settle, "once");
+    assert!(!a.settling(), "once");
     a.landed(Seen::of(&talk(&[("m1", "user")])).as_ref(), &talk(&[("m1", "user"), ("m2", "user")]), 1.0);
-    assert!(!a.settle, "an arrival animates");
+    assert!(!a.settling(), "an arrival animates");
     assert!(a.poll(&k, 1.1, &mut Tx::default()), "a glowing prompt redraws");
     assert!(!a.poll(&k, 1.0 + crate::knobs::glow_secs(&k) + 0.1, &mut Tx::default()), "and stops once its glow ends");
     assert_eq!(a.glow_at("m2"), None);

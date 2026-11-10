@@ -1,7 +1,7 @@
 //! "Jump to latest": the arrow over the timeline's bottom edge while you read more than a screen
 //! up (`session/timeline/virtualizer.tsx`, `interaction.ts`). Pressing it glides to the end, and
 //! the timeline follows new content again once it lands.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 use rune_kit::ScrollBar;
@@ -55,15 +55,14 @@ static ARROW_DOWN: Icon = Icon {
 /// Where each session's timeline stands against its end.
 #[derive(Default)]
 pub struct Ends {
-    /// Sessions whose timeline you're reading more than a screen up.
-    far: HashSet<String>,
     /// Each session's follow state; one not listed follows its end ([`Follow::Following`]).
     follow: HashMap<String, Follow>,
 }
 
 impl Ends {
+    /// Whether session `id`'s timeline stands more than a screen up, where Jump to latest shows.
     pub fn far(&self, id: &str) -> bool {
-        self.far.contains(id)
+        self.follow.get(id).is_some_and(Follow::far)
     }
 
     /// Whether session `id`'s timeline follows its end, where what lands shows.
@@ -73,14 +72,13 @@ impl Ends {
 
     /// A timeline that mounts afresh starts on its end.
     pub fn forget(&mut self, id: &str) {
-        self.far.remove(id);
         self.follow.remove(id);
     }
 
     /// Steps session `id`'s follow state (`follow::step`); `None` steps a timeline that belongs
     /// to no session as a detached one. Returns the hold to make.
     pub fn step(&mut self, id: Option<&str>, event: Event) -> Option<Effect> {
-        let Some(id) = id else { return follow::step(Follow::Detached, event).1 };
+        let Some(id) = id else { return follow::step(Follow::Detached { far: false }, event).1 };
         let (next, effect) = follow::step(self.follow.remove(id).unwrap_or_default(), event);
         if next != Follow::Following {
             self.follow.insert(id.to_owned(), next);
@@ -89,11 +87,7 @@ impl Ends {
     }
 
     pub fn set_far(&mut self, id: &str, far: bool) {
-        if far {
-            self.far.insert(id.to_owned());
-        } else {
-            self.far.remove(id);
-        }
+        self.step(Some(id), Event::Far(far));
     }
 
     pub fn set_at_end(&mut self, id: &str, at: bool) {

@@ -166,7 +166,7 @@ pub unsafe fn build(b: &Build, spec: &ElSpec) -> El {
             // A body line height of its own (`Markdown class="text-14-regular"`'s 180%).
             let style = if spec.line_height > 0.0 { style.body_font(session_view::style::MD.lh(spec.line_height)) } else { style };
             let none: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> = Vec::new();
-            session_view::style::markdown_styled::<App, _>(b.pal, s(spec.text), 0.0, false, style, none, None, None, &[])
+            session_view::style::markdown_styled::<App, _>(b.pal, s(spec.text), 0.0, false, style, none, Vec::new(), None, &[])
         }
         ElKind::Shimmer => session_view::working::shimmer(b.app, b.pal, s(spec.text), style(), b.app.clock),
         ElKind::Image => b.app.plugins.shared.images.borrow().draw(b.plugin, spec.icon_id, rune::el()),

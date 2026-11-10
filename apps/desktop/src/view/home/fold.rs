@@ -110,7 +110,7 @@ mod story {
         tx.instant();
         s.sessions.retain(|x| !x.id.starts_with("ses_flow"));
         s.running.retain(|id| !id.starts_with("ses_flow"));
-        s.home_search.hold = None;
+        s.home_search.hold = crate::view::HomeHold::Free;
         setup(s);
     }
 

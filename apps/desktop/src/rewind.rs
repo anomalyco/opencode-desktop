@@ -428,9 +428,8 @@ impl App {
         }
         if let Some(t) = self.transcripts.get_mut(session) {
             let keep = t.visible_len(Some(&boundary));
-            for m in &t.messages[keep..] {
-                self.glows.remove(m.id());
-            }
+            let gone: Vec<String> = t.messages[keep..].iter().map(|m| m.id().to_owned()).collect();
+            self.glows.step(session_view::arrivals::Event::Gone(&gone));
             t.messages.truncate(keep);
         }
         if let Some(e) = self.toast.current()

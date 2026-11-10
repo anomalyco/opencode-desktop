@@ -81,13 +81,13 @@ fn a_quiet_one_ending_inside_its_grace_fades_in_as_compacted() {
     s.now_ms = 100;
     s.clock = 10.0;
     sync(&mut s);
-    assert_eq!(s.compactions.seen["msg_cmp"].enter, Some(Enter::Grace));
+    assert_eq!(s.compactions.seen["msg_cmp"], Entrance::Grace { at: 10.0 });
     s.clock = 10.2;
     if let Some(Message::Compaction(c)) = s.transcripts.get_mut(SID).unwrap().messages.first_mut() {
         c.status = CompactionStatus::Completed;
     }
     assert!(sync(&mut s));
-    assert_eq!(s.compactions.seen["msg_cmp"], Seen { at: 10.2, enter: Some(Enter::Now), running: false });
+    assert_eq!(s.compactions.seen["msg_cmp"], Entrance::Instant { at: 10.2 });
 }
 
 /// The rows a WISP session had on Nov 5 around a background compaction (summary trimmed): a

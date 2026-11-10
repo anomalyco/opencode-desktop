@@ -457,7 +457,7 @@ fn a_message_from_elsewhere_glows_and_settles_and_a_big_one_glides_in() {
     assert!(speeds.iter().all(|&v| v >= -0.01), "never back down: {speeds:?}");
     let land = bottoms.iter().position(|&y| (y - bottoms[bottoms.len() - 1]).abs() < 0.5).unwrap();
     assert!(land <= 60, "landed in {} s: {bottoms:?}", land as f32 / 120.0);
-    assert!(!rt.state.glows.contains_key(id));
+    assert!(rt.state.glows.glow_at(id).is_none());
 }
 
 #[test]

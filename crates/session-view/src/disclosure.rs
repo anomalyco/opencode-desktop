@@ -1,5 +1,17 @@
-//! Opening and closing a disclosure: its key is in `App::expanded` while it is open.
+//! Opening and closing a disclosure: Desktop's `DisclosureState` (`session-ui/src/components/
+//! disclosure-machine.ts:23-36`) for every disclosure in the timeline, keyed by its key.
+//!
+//! A disclosure the reader never toggled isn't listed and follows its default (Desktop's
+//! `touched: false`: `props.open ?? defaultOpen`, `disclosure-machine.ts:135`). Toggling one
+//! makes it the reader's: [`Disclosure::Open`] or [`Disclosure::Shut`]. A fold (a tool group, a
+//! Compacted summary) that shuts keeps what it showed laid out under its row's clip while the row
+//! springs shut ([`Disclosure::Shutting`]), then follows its default (shut) again. Desktop's
+//! deferred body mounts (`DisclosureMount`) have no counterpart: Rune builds a body in the frame
+//! it opens.
 
+use std::collections::HashMap;
+
+use rune::machine::Effects;
 use rune::{Spring, Tx};
 use rune_knobs::{Group, Knob, Knobs};
 
@@ -15,6 +27,130 @@ pub const FOLD_FEATHER: Knob = Knob::new("Fold edge", 0.0, 64.0, 24.0).step(1.0)
 
 pub const GROUP: Group = Group::new("Tool groups", "tool-groups", &[FOLD_SPEED, FOLD_FEATHER]).under("Timeline");
 
+/// One disclosure the reader toggled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Disclosure {
+    /// `status: "open"`, touched.
+    Open,
+    /// `status: "closed"`, touched: shut where its default shows it open.
+    Shut,
+    /// A fold springing shut: what it showed stays mounted under the row's clip until `until`
+    /// on the app clock, then it follows its default (shut) again.
+    Shutting { until: f64 },
+}
+
+/// `toggle.requested` and the fold's own timer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event {
+    /// The reader opened it.
+    Open,
+    /// The reader shut it; `default_open` is what it shows untouched.
+    Shut { default_open: bool },
+    /// A fold shuts: it springs shut until `until`.
+    Fold { until: f64 },
+    /// It follows its default again (a story or test resetting it).
+    Forget,
+    /// The app clock reached `now`: folds that finished shutting drop.
+    Tick { now: f64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Effect {
+    /// A fold's body unmounts at this time on the app clock.
+    WakeAt(f64),
+}
+
+/// Every disclosure the reader toggled, by key; one not listed follows its default.
+#[derive(Clone, Debug, Default)]
+pub struct Disclosures(HashMap<String, Disclosure>);
+
+impl Disclosures {
+    /// One transition of disclosure `key`.
+    pub fn step(&mut self, key: &str, event: Event) -> Effects<Effect> {
+        match event {
+            Event::Open => {
+                self.0.insert(key.to_owned(), Disclosure::Open);
+                Effects::none()
+            }
+            Event::Shut { default_open: true } => {
+                self.0.insert(key.to_owned(), Disclosure::Shut);
+                Effects::none()
+            }
+            Event::Shut { default_open: false } | Event::Forget => {
+                self.0.remove(key);
+                Effects::none()
+            }
+            Event::Fold { until } => {
+                self.0.insert(key.to_owned(), Disclosure::Shutting { until });
+                Effects::one(Effect::WakeAt(until))
+            }
+            Event::Tick { now } => {
+                self.0.retain(|_, d| !matches!(d, Disclosure::Shutting { until } if *until <= now + 1e-9));
+                self.next_due().map_or(Effects::none(), |due| Effects::one(Effect::WakeAt(due)))
+            }
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<Disclosure> {
+        self.0.get(key).copied()
+    }
+
+    /// Whether the reader opened `key`.
+    pub fn contains(&self, key: &str) -> bool {
+        self.get(key) == Some(Disclosure::Open)
+    }
+
+    /// Opens `key`; true when it wasn't open.
+    pub fn insert(&mut self, key: String) -> bool {
+        let was = self.contains(&key);
+        self.step(&key, Event::Open);
+        !was
+    }
+
+    /// `key` follows its default again; true when it was open.
+    pub fn remove(&mut self, key: &str) -> bool {
+        let was = self.contains(key);
+        self.step(key, Event::Forget);
+        was
+    }
+
+    /// The keys the reader opened.
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        self.0.iter().filter(|(_, d)| **d == Disclosure::Open).map(|(k, _)| k)
+    }
+
+    /// How many the reader opened.
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Keeps the toggled disclosures whose key passes `keep`.
+    pub fn retain(&mut self, mut keep: impl FnMut(&String) -> bool) {
+        self.0.retain(|k, _| keep(k));
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// When the next fold finishes shutting.
+    fn next_due(&self) -> Option<f64> {
+        self.0.values().filter_map(|d| if let Disclosure::Shutting { until } = d { Some(*until) } else { None }).reduce(f64::min)
+    }
+}
+
+impl Extend<String> for Disclosures {
+    fn extend<I: IntoIterator<Item = String>>(&mut self, keys: I) {
+        for k in keys {
+            self.insert(k);
+        }
+    }
+}
+
 /// The tool group row's own spring (`El::fold_glide`).
 pub fn fold(k: &Knobs) -> Spring {
     Spring::new(k.get(&FOLD_SPEED), 0.0)
@@ -26,39 +162,26 @@ pub fn shut_secs(k: &Knobs) -> f64 {
     2.0 * crate::knobs::secs(k, &FOLD_SPEED)
 }
 
-/// Flips `key` in `expanded`; true when it is now open.
+/// Opens `key` if the reader hadn't, else lets it follow its default (shut); true when it is now
+/// open.
 pub fn toggle_expanded<S: TimelineHost>(s: &mut S, key: &str) -> bool {
-    let expanded = s.expanded_mut();
-    let opening = !expanded.remove(key);
-    if opening {
-        expanded.insert(key.to_owned());
-    }
+    let opening = !s.expanded().contains(key);
+    s.expanded_mut().step(key, if opening { Event::Open } else { Event::Forget });
     opening
-}
-
-/// The mark that holds `key` shut where it would show open by default.
-fn shut_key(key: &str) -> String {
-    format!("{key}!shut")
 }
 
 /// Whether disclosure `key` is open: as last opened or shut, else `default` (Timeline detail's
 /// Collapse setting for shells, edits and thinking, as Desktop's `disclosure.value(id) ?? default`).
 pub fn is_open<S: TimelineHost>(s: &S, key: &str, default: bool) -> bool {
-    let e = s.expanded();
-    e.contains(key) || (default && !e.contains(&shut_key(key)))
+    match s.expanded().get(key) {
+        Some(d) => d == Disclosure::Open,
+        None => default,
+    }
 }
 
 /// Opens or shuts `key` whatever its default.
 pub fn set_open<S: TimelineHost>(s: &mut S, key: &str, open: bool) {
-    let shut = shut_key(key);
-    let e = s.expanded_mut();
-    if open {
-        e.remove(&shut);
-        e.insert(key.to_owned());
-    } else {
-        e.remove(key);
-        e.insert(shut);
-    }
+    s.expanded_mut().step(key, if open { Event::Open } else { Event::Shut { default_open: true } });
 }
 
 /// A press handler that opens or shuts `key` at once, as [`toggle`] flips it, for a disclosure
@@ -84,9 +207,7 @@ pub fn anchor<S: TimelineHost>(s: &mut S, tx: &mut Tx, opening: bool, row: &str,
 /// Whether fold `key` (a tool group, a Compacted summary) is springing shut, what it showed
 /// still laid out under the clip.
 pub fn is_shutting<S: TimelineHost>(s: &S, key: &str) -> bool {
-    let clock = s.clock();
-    let secs = shut_secs(s.knobs());
-    s.shutting_map().get(key).is_some_and(|at| clock - at < secs)
+    matches!(s.expanded().get(key), Some(Disclosure::Shutting { until }) if s.clock() < until)
 }
 
 /// A press handler that flips `key` at once: a disclosure opens and closes as a thought's does.
@@ -103,13 +224,10 @@ pub fn toggle<S: TimelineHost>(key: String, hold: String) -> impl Fn(&mut S, &mu
 /// is now open. Shutting, it keeps what it shows mounted until `poll` drops it, so the row's
 /// clip folds it away, and a press mid-motion springs back from there.
 pub fn flip_fold<S: TimelineHost>(s: &mut S, key: &str) -> bool {
-    let open = toggle_expanded(s, key);
-    if open {
-        s.shutting_map_mut().remove(key);
-    } else {
-        let now = s.clock();
-        s.shutting_map_mut().insert(key.to_owned(), now);
-    }
+    let open = !s.expanded().contains(key);
+    let event = if open { Event::Open } else { Event::Fold { until: s.clock() + shut_secs(s.knobs()) } };
+    // The fold's own wake comes from `poll`, which runs after every event.
+    let _ = s.expanded_mut().step(key, event);
     open
 }
 
@@ -125,17 +243,12 @@ pub fn toggle_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 
     }
 }
 
-/// Drops the steps of groups that have finished shutting.
+/// Drops the steps of groups that have finished shutting, and wakes for the next.
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
-    if s.shutting_map().is_empty() {
-        return false;
+    let before = s.expanded().0.len();
+    for effect in s.expanded_mut().step("", Event::Tick { now }) {
+        let Effect::WakeAt(due) = effect;
+        tx.wake_at(due);
     }
-    let secs = shut_secs(s.knobs());
-    let shutting = s.shutting_map_mut();
-    let before = shutting.len();
-    shutting.retain(|_, at| now - *at < secs);
-    if let Some(next) = shutting.values().map(|at| at + secs - now).reduce(f64::min) {
-        tx.wake_after(std::time::Duration::from_secs_f64(next.max(0.0)));
-    }
-    shutting.len() != before
+    s.expanded().0.len() != before
 }

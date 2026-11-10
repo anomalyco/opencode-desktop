@@ -21,9 +21,9 @@ fn copy_shows_a_tick_then_the_copy_icon_again() {
     rt.frame(1.0 / 120.0);
     assert!(board.text().is_some_and(|t| !t.is_empty()), "the reply is on the pasteboard");
     assert_eq!(ticks(&rt), 1, "only the pressed button ticks");
-    for _ in 0..(1.3 * 120.0) as usize {
+    for _ in 0..(2.1 * 120.0) as usize {
         rt.frame(1.0 / 120.0);
     }
     settle(&mut rt);
-    assert_eq!(ticks(&rt), 0, "the tick goes after 1.2 s");
+    assert_eq!(ticks(&rt), 0, "the tick goes after 2 s");
 }

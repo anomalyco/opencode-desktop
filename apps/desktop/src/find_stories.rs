@@ -46,8 +46,8 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn toggle(s: &mut App, tx: &mut Play<App>) {
-    if s.find.open {
-        s.close_find(false, tx);
+    if s.find.is_open() {
+        s.close_find(tx);
     } else {
         s.open_find(tx);
         s.find.input = TextEdit::new("stream");

@@ -55,12 +55,26 @@ impl Group<'_> {
     }
 }
 
-/// The list's order while the pointer is on it: each row's place and day.
+/// The list's order against the pointer (Kit's design; Desktop's list reorders under it).
 #[derive(Default)]
-pub(crate) struct Hold {
-    at: HashMap<String, (usize, usize)>,
+pub(crate) enum Hold {
+    /// The rows sit in their own order.
+    #[default]
+    Free,
+    /// The pointer is on the list: `at` is each row's place and day as it came on.
+    Holding { at: HashMap<String, (usize, usize)> },
     /// The pointer has left: the next poll lets the order go.
-    leaving: bool,
+    Leaving { at: HashMap<String, (usize, usize)> },
+}
+
+impl Hold {
+    /// Each row's held place and day, while the order holds.
+    fn at(&self) -> Option<&HashMap<String, (usize, usize)>> {
+        match self {
+            Hold::Free => None,
+            Hold::Holding { at } | Hold::Leaving { at } => Some(at),
+        }
+    }
 }
 
 impl App {
@@ -71,9 +85,9 @@ impl App {
             (t.year, t.month, t.day)
         };
         let (today, yesterday) = (day(self.now_ms), day(self.now_ms - 86_400_000));
-        let hold = self.home_search.hold.as_ref();
+        let hold = self.home_search.hold.at();
         let bucket = |ses: &SessionInfo| {
-            if let Some(&(_, b)) = hold.and_then(|h| h.at.get(&ses.id)) {
+            if let Some(&(_, b)) = hold.and_then(|h| h.get(&ses.id)) {
                 return b;
             }
             match day(if ses.updated > 0 { ses.updated } else { ses.created }) {
@@ -109,7 +123,7 @@ impl App {
             }
         }
         if let Some(h) = hold {
-            let place = |ses: &&SessionInfo| h.at.get(&ses.id).map_or(usize::MAX, |&(at, _)| at);
+            let place = |ses: &&SessionInfo| h.get(&ses.id).map_or(usize::MAX, |&(at, _)| at);
             for list in rows.iter_mut().chain(folds.iter_mut().flat_map(|f| f.iter_mut().map(|f| &mut f.sessions))) {
                 list.sort_by_key(place);
             }
@@ -142,18 +156,19 @@ impl App {
     /// The rows glide to their places in the next frame's own commit, as the row the pointer left
     /// commits its hover at once in this one.
     pub(crate) fn hold_home_order(&mut self, inside: bool, tx: &mut Tx) {
-        match &mut self.home_search.hold {
-            Some(hold) => hold.leaving = !inside,
-            None if inside => self.home_search.hold = Some(self.home_order()),
-            None => {}
-        }
+        self.home_search.hold = match std::mem::take(&mut self.home_search.hold) {
+            Hold::Holding { at } | Hold::Leaving { at } if inside => Hold::Holding { at },
+            Hold::Holding { at } | Hold::Leaving { at } => Hold::Leaving { at },
+            Hold::Free if inside => Hold::Holding { at: self.home_order() },
+            Hold::Free => Hold::Free,
+        };
         if !inside {
             tx.wake_after(std::time::Duration::ZERO);
         }
         tx.live_only();
     }
 
-    fn home_order(&self) -> Hold {
+    fn home_order(&self) -> HashMap<String, (usize, usize)> {
         let selected = self.home_selected();
         let mut at = HashMap::new();
         for group in self.home_groups(selected) {
@@ -162,7 +177,7 @@ impl App {
                 at.insert(ses.id.clone(), (n, group.day));
             }
         }
-        Hold { at, leaving: false }
+        at
     }
 
     /// Home's folds open or shut, all together.
@@ -174,10 +189,11 @@ impl App {
     /// places on the layout spring. True when they move.
     pub(crate) fn release_home_hold(&mut self, tx: &mut Tx) -> bool {
         let off = self.route != Route::Home || self.settings.open;
-        if !self.home_search.hold.as_ref().is_some_and(|h| off || h.leaving) {
+        let leaving = matches!(self.home_search.hold, Hold::Leaving { .. });
+        if matches!(self.home_search.hold, Hold::Free) || !(off || leaving) {
             return false;
         }
-        self.home_search.hold = None;
+        self.home_search.hold = Hold::Free;
         tx.animated();
         !off
     }

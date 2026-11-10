@@ -193,7 +193,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
         .align(Align::End)
         .gap(6.0)
         .item(Item::new("new-session", t!("command.session.new")))
-        .item(Item::new("import", t!("command.session.import")).enabled(!s.project_state.importing))
+        .item(Item::new("import", t!("command.session.import")).enabled(!s.project_state.import.importing()))
         .item(Item::new("edit", t!("dialog.project.edit.title")));
     if local {
         menu = menu.item(Item::new("reveal", super::super::location_card::reveal_label()));
@@ -256,51 +256,6 @@ impl App {
             let idle = info.idle.unwrap_or(self.now_ms);
             self.write(opencode_kit::client::Write::View { session: id, idle });
         }
-    }
-
-    /// Import session: a session export (JSON) picked from disk, imported into `dir` through
-    /// `experimental/session/import`, then opened (`home/projects/actions.tsx`).
-    fn import_session(&mut self, dir: &str, tx: &mut Tx) {
-        let options = rune::FileDialogOptions { title: t!("command.session.import").into(), ..Default::default() };
-        let dir = dir.to_owned();
-        tx.open_file(options, move |s: &mut App, result, tx: &mut Tx| match result {
-            Ok(Some(path)) => s.upload_session(&path, dir.clone(), tx),
-            Ok(None) => {}
-            Err(e) => crate::status_toast::fail(s, t!("rune.status.filePickerFailed"), e.to_string()),
-        });
-    }
-
-    fn upload_session(&mut self, path: &std::path::Path, dir: String, tx: &mut Tx) {
-        let data = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()));
-        let mut data = match data {
-            Ok(serde_json::Value::Object(map)) => map,
-            Ok(_) => return crate::status_toast::fail(self, t!("common.requestFailed"), t!("rune.home.import.notExport").to_owned()),
-            Err(e) => return crate::status_toast::fail(self, t!("common.requestFailed"), e),
-        };
-        if !self.can_write() {
-            return crate::status_toast::fail(self, t!("common.requestFailed"), crate::jobs::read_only().to_owned());
-        }
-        data.insert("location".into(), serde_json::json!({ "directory": dir }));
-        self.project_state.importing = true;
-        tx.instant();
-        self.job(move |srv| {
-            let made = srv.write("POST", "/api/experimental/session/import", Some(serde_json::Value::Object(data)));
-            Box::new(move |s: &mut App, tx: &mut Tx| {
-                s.project_state.importing = false;
-                tx.instant();
-                match made {
-                    Ok(v) => {
-                        let info = opencode_kit::model::parse_session(v.get("data").unwrap_or(&v));
-                        let id = info.id.clone();
-                        if !s.sessions.iter().any(|x| x.id == id) {
-                            s.sessions.insert(0, info);
-                        }
-                        s.open(&id, tx);
-                    }
-                    Err(e) => crate::status_toast::fail(s, t!("common.requestFailed"), e),
-                }
-            }) as crate::jobs::Apply
-        });
     }
 }
 

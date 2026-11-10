@@ -83,7 +83,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
     let show_project = selected.is_none();
     // A result: `pl-[18px] pr-6`, the avatar and `gap-1.5`, inside the panel 12 wider than the field.
     let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - 6.0).max(0.0);
-    let body = if results.is_empty() && s.home_search.fetch.is_pending() {
+    let body = if s.home_search_loading() {
         // `px-4 py-3`, a 16 pt Loader.
         row().key("home-search-loading").w_full().px(16.0).py(12.0).center().child(activity_ring_sized(p, 16.0))
     } else if results.is_empty() {
@@ -154,7 +154,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .pointer_buttons([rune::PointerButton::Middle])
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             if s.session(&id).is_none()
-                && let Some(ses) = s.home_search.loaded.iter().find(|x| x.id == id).cloned()
+                && let Some(ses) = s.home_search.search.exact().filter(|x| x.id == id).cloned()
             {
                 s.sessions.push(ses);
             }

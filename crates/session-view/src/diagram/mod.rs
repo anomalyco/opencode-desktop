@@ -54,8 +54,18 @@ struct Open {
     zoom: f32,
     /// Points from the centred place.
     pan: [f32; 2],
-    /// Where the pointer was at the last drag event.
-    grab: Option<[f32; 2]>,
+    gesture: Gesture,
+}
+
+/// The press under way on the open diagram, as Desktop's preview zoom has it
+/// (`ui/src/components/image-zoom-machine.ts:10-19`, `PreviewZoomGesture`). Rune's drag reports
+/// where its press began and whether it moved, so only the pan keeps state here.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum Gesture {
+    #[default]
+    Idle,
+    /// A drag pans it; `last` is where the pointer was at its last event.
+    Panning { last: [f32; 2] },
 }
 
 /// The diagrams the timeline shows and the one open full size.
@@ -102,7 +112,7 @@ impl Diagrams {
 pub fn open<S: TimelineHost>(s: &mut S, id: u64, tx: &mut Tx) -> bool {
     let Some(seen) = s.diagrams().seen.get(&id).cloned() else { return false };
     tx.instant();
-    s.diagrams_mut().open = Some(Open { id, seen, phase: Phase::Opening, zoom: 1.0, pan: [0.0, 0.0], grab: None });
+    s.diagrams_mut().open = Some(Open { id, seen, phase: Phase::Opening, zoom: 1.0, pan: [0.0, 0.0], gesture: Gesture::Idle });
     true
 }
 
@@ -131,7 +141,7 @@ fn close_later<S: TimelineHost>(s: &mut S) -> Option<f64> {
         o.seen.rect = rect;
     }
     o.phase = Phase::Closing { until };
-    o.grab = None;
+    o.gesture = Gesture::Idle;
     Some(left)
 }
 

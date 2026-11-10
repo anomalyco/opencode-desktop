@@ -48,7 +48,7 @@ fn cmd_f_highlights_every_match_steps_wraps_centres_and_closes_on_escape() {
 
     // ⌘F opens the find bar and focuses its input.
     cmd(&mut rt, 'f', false);
-    assert!(rt.state.find.open && rt.state.find.input.focused);
+    assert!(rt.state.find.is_open() && rt.state.find.input.focused);
     assert!(!rt.state.composer.focused);
     assert!(rt.find("find-bar").is_some());
     assert!(count_text(&rt).is_none(), "empty query shows no count");
@@ -95,7 +95,7 @@ fn cmd_f_highlights_every_match_steps_wraps_centres_and_closes_on_escape() {
     // the bar's close button is the one that hands the composer its focus back.
     key(&mut rt, Key::Escape, false);
     settle(&mut rt);
-    assert!(!rt.state.find.open);
+    assert!(!rt.state.find.is_open());
     assert!(rt.find("find-bar").is_none());
     assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("find-active")));
     assert!(!rt.state.composer.focused, "Escape leaves nothing focused");
@@ -126,7 +126,7 @@ fn virtual_session_finds_unmounted_matches_centres_them_and_skips_rebuilding_unr
 
     // Exact match count across unmounted rows ("implementation 42", "implementation 420".."429").
     assert_eq!(rt.state.find.count(), 11);
-    assert_eq!(count_text(&rt).as_deref(), Some("1 of 11"));
+    assert_eq!(count_text(&rt).as_deref(), Some("1/11"));
 
     // The unmounted row `u-u0042` was mounted and centred in `scroll-bench`.
     let mark = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("find-active")).expect("u0042 highlight mounted");
@@ -141,18 +141,18 @@ fn virtual_session_finds_unmounted_matches_centres_them_and_skips_rebuilding_unr
     settle(&mut rt);
     let step_builds = view::timeline_row_builds();
     assert!(step_builds < 64, "stepping rebuilt only the target window (built {step_builds})");
-    assert_eq!(count_text(&rt).as_deref(), Some("2 of 11"));
+    assert_eq!(count_text(&rt).as_deref(), Some("2/11"));
     let mark2 = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("find-active")).expect("second match mounted");
     let mark2_mid = mark2.rect[1] + mark2.rect[3] * 0.5;
     assert!((mark2_mid - scroll_mid).abs() < 24.0, "stepped match centred: mark2_mid={mark2_mid}, scroll_mid={scroll_mid}");
 
-    // Switching sessions keeps each session's Find state separate.
+    // Switching sessions keeps Find open with its query, as Desktop's one search does (`session.changed`).
     rt.update(|s, tx| {
         s.route = Route::here("other".into());
         tx.settle();
     });
     rt.frame(DT);
-    assert!(!rt.state.find.open, "other session starts with Find closed");
+    assert!(rt.state.find.is_open(), "Find stays open in the other session");
 }
 
 #[test]

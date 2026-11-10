@@ -60,7 +60,7 @@ pub(crate) fn stack(s: &App) -> Vec<Layer> {
         (Layer::ChildSession, crate::subagents::reply::composer_empty(s) && s.has_parent()),
         (Layer::ToolStep, s.tool_view_open()),
         (Layer::Toast, s.toast.current().is_some_and(|t| t.persistent)),
-        (Layer::Find, s.find.open && session),
+        (Layer::Find, s.find.is_open() && session),
         (Layer::Todo, s.todo_open),
         (Layer::Activity, s.shells.activity.is_open()),
         (Layer::HomeMenu, s.project_state.home_menu_open),

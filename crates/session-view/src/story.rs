@@ -88,7 +88,6 @@ impl Host {
         self.fold_user = self.variant != 2;
         self.busy = streaming;
         self.view.expanded.clear();
-        self.view.shutting.clear();
         *self.talk.borrow_mut() = Some(transcript(self.now_ms, streaming));
     }
 
@@ -318,7 +317,6 @@ pub fn open_composer_story(s: &mut Host, _tx: &mut Play<Host>) {
 pub fn start_motion(s: &mut Host) {
     s.fold_user = true;
     s.view.expanded.clear();
-    s.view.shutting.clear();
     *s.talk.borrow_mut() = Some(crate::fixture::motion(s.now_ms));
 }
 

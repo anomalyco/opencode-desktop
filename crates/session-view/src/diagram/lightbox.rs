@@ -7,7 +7,7 @@
 
 use rune::{Cx, Drag, El, Phase as Pointer, Spring, SpringPair, Transition, Tx, el};
 
-use super::{Open, Phase};
+use super::{Gesture, Open, Phase};
 use crate::TimelineHost;
 use crate::palette::Pal;
 
@@ -146,15 +146,15 @@ fn drag<S: TimelineHost>(s: &mut S, d: &mut Drag, tx: &mut Tx) {
     let fit = s.diagrams().fit.get();
     let Some(o) = s.diagrams_mut().open.as_mut() else { return };
     match d.phase {
-        Pointer::Down => o.grab = Some([d.x, d.y]),
+        Pointer::Down => o.gesture = Gesture::Panning { last: [d.x, d.y] },
         Pointer::Move => {
-            if let Some([gx, gy]) = o.grab.replace([d.x, d.y]) {
+            if let Gesture::Panning { last: [gx, gy] } = std::mem::replace(&mut o.gesture, Gesture::Panning { last: [d.x, d.y] }) {
                 pan_by(s, d.x - gx, d.y - gy);
             }
         }
         Pointer::Up => {
             let (zoom, pan) = (o.zoom, o.pan);
-            o.grab = None;
+            o.gesture = Gesture::Idle;
             let still = d.dx.hypot(d.dy) < 4.0 && !d.cancelled();
             if still && !fit.hits(zoom, pan, d.x, d.y) {
                 super::close(s, tx);

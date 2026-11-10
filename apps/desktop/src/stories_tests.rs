@@ -83,7 +83,7 @@ fn replays_run_the_same_every_time() {
         let mut first = None;
         for f in 0..120 {
             rt.frame(DT);
-            if first.is_none() && !world(&rt).glows.is_empty() {
+            if first.is_none() && world(&rt).glows.is_growing() {
                 first = Some(f);
             }
         }

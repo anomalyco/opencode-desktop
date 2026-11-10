@@ -106,6 +106,8 @@ impl RowSpec {
     #[allow(clippy::too_many_arguments)]
     fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
         let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message));
+        // A burst paces in a slice at a time (`line_reveal::Paced`).
+        let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
         let row = self.wrap_paced(s, words, body.contains("```"));
         if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
@@ -124,9 +126,9 @@ impl RowSpec {
                         // Only a reply with a diagram in it follows the column's width.
                         let dw = if body.contains("mermaid") { crate::genui::width(s).to_bits() } else { 0 };
                         let reveal = crate::line_reveal::reveal(k);
-                        let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part));
+                        let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
                         // A code block's Copy shows its tick, so the copy in hand rebuilds the row.
-                        let copied = body.contains("```").then(|| crate::copied::current(s)).flatten();
+                        let copied = body.contains("```").then(|| crate::copied::current(s));
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
                         let pictures = (body.contains("![") || body.contains("://")).then(|| {

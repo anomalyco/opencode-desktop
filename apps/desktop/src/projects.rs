@@ -16,6 +16,7 @@ use rune::{FileDialogOptions, Tx};
 use crate::{App, Source, tabs};
 
 pub mod home;
+pub mod import;
 pub mod remote_picker;
 
 #[derive(Default)]
@@ -26,8 +27,8 @@ pub struct ProjectsState {
     pub home_menu_open: bool,
     /// The narrow Home's projects dropdown's width: its popover takes it (`sameWidth`).
     pub trigger_w: f32,
-    /// An Import session upload is on its way.
-    pub importing: bool,
+    /// Import session (`import`).
+    pub import: import::Import,
     /// Counter for sessions opened in fixture mode.
     opened: u32,
     /// The organized sidebar (`sidebar-organized.tsx`): Projects shut, the projects open to

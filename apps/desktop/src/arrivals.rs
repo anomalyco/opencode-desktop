@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use opencode_kit::model::Message;
 use rune::Tx;
+use session_view::arrivals::Event;
 
 use crate::{App, Route};
 
@@ -51,18 +52,23 @@ impl Arrivals {
         self.glow(s, now);
     }
 
+    /// The open session's prompts from another client grow in (`session_view::arrivals`): those
+    /// not seen before the poll that aren't this app's own sends.
     fn glow(self, s: &mut App, now: f64) {
-        let Some(id) = self.session.filter(|id| s.route == Route::here(id.clone())) else { return };
+        let Some(id) = self.session.filter(|id| s.route == Route::here(id.clone())) else {
+            s.glows.step(Event::Left);
+            return;
+        };
+        s.glows.step(Event::Synced { session: &id, first: false });
         if s.reduced_motion {
             return;
         }
-        for m in s.transcripts.get(&id).map_or(&[][..], |t| &t.messages[..]) {
-            if let Message::User { id, text } = m
-                && !self.seen.contains(id)
-                && !self.echoes.iter().any(|e| e == text.trim())
-            {
-                s.glows.insert(id.clone(), now);
-            }
+        let arrived: Vec<String> = s.transcripts.get(&id).map_or(&[][..], |t| &t.messages[..]).iter().filter_map(|m| match m {
+            Message::User { id, text } if !self.seen.contains(id) && !self.echoes.iter().any(|e| e == text.trim()) => Some(id.clone()),
+            _ => None,
+        }).collect();
+        for id in &arrived {
+            s.glows.step(Event::Arrived { id, now });
         }
     }
 }

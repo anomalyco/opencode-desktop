@@ -52,7 +52,6 @@ mod motion_tests;
 #[cfg(test)]
 mod reveal_tests;
 
-use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use opencode_kit::client::Request;
@@ -63,8 +62,7 @@ use rune_knobs::Knobs;
 /// Bundled per-window state for a host that embeds a session timeline.
 #[derive(Default)]
 pub struct ViewState {
-    pub expanded: HashSet<String>,
-    pub shutting: HashMap<String, f64>,
+    pub expanded: disclosure::Disclosures,
     pub copied: copied::Copied,
     pub working: working::Working,
     pub compactions: compaction::Compactions,
@@ -86,10 +84,8 @@ impl ViewState {
 #[macro_export]
 macro_rules! delegate_view_state {
     ($field:ident) => {
-        fn expanded(&self) -> &::std::collections::HashSet<String> { &self.$field.expanded }
-        fn expanded_mut(&mut self) -> &mut ::std::collections::HashSet<String> { &mut self.$field.expanded }
-        fn shutting_map(&self) -> &::std::collections::HashMap<String, f64> { &self.$field.shutting }
-        fn shutting_map_mut(&mut self) -> &mut ::std::collections::HashMap<String, f64> { &mut self.$field.shutting }
+        fn expanded(&self) -> &$crate::disclosure::Disclosures { &self.$field.expanded }
+        fn expanded_mut(&mut self) -> &mut $crate::disclosure::Disclosures { &mut self.$field.expanded }
         fn copied_state(&self) -> &$crate::copied::Copied { &self.$field.copied }
         fn copied_state_mut(&mut self) -> &mut $crate::copied::Copied { &mut self.$field.copied }
         fn working_state(&self) -> &$crate::working::Working { &self.$field.working }
@@ -171,10 +167,8 @@ pub trait TimelineHost: Sized + 'static {
         Some(native)
     }
 
-    fn expanded(&self) -> &HashSet<String>;
-    fn expanded_mut(&mut self) -> &mut HashSet<String>;
-    fn shutting_map(&self) -> &HashMap<String, f64>;
-    fn shutting_map_mut(&mut self) -> &mut HashMap<String, f64>;
+    fn expanded(&self) -> &disclosure::Disclosures;
+    fn expanded_mut(&mut self) -> &mut disclosure::Disclosures;
 
     fn copied_state(&self) -> &copied::Copied;
     fn copied_state_mut(&mut self) -> &mut copied::Copied;

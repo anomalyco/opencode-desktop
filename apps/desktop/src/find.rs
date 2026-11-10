@@ -21,15 +21,90 @@ use crate::{App, Route};
 
 const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
 
-#[derive(Clone, Default)]
-struct Saved {
-    open: bool,
-    query: String,
-    active: usize,
-    restore_composer: bool,
+/// Find's state: Desktop's `TimelineSearchState` (`session/timeline/search-machine.ts:30-33`).
+/// Its query is the bar's field (`input`), its matches the index [`Find`] keeps; `seeking` has no
+/// counterpart, as Rune scrolls to a row that isn't built yet in the frame it asks.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum State {
+    #[default]
+    Closed,
+    /// Open on session `session`'s matches; `active` is the lit one's place in them (0 with none).
+    Open { session: String, active: usize },
 }
 
-#[derive(Clone, Debug)]
+/// `TimelineSearchEvent`, less the seek's.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Event<'a> {
+    /// `open`: Find opens on `session`, or focuses and selects its query when it is open.
+    Open { session: &'a str },
+    Close,
+    /// `query.changed`: the first match lights.
+    QueryChanged,
+    /// `move`: the lit match steps by `delta` of `count`, wrapping.
+    Move { delta: i32, count: usize },
+    /// `session.changed`: another session's timeline shows; Find stays open on its matches.
+    SessionChanged { session: &'a str },
+    /// `matches.synced`: the matches changed; `kept` is where the lit one is among them now.
+    MatchesSynced { kept: Option<usize> },
+    /// `disposed`: no session's timeline shows (Home), so Find closes.
+    Left,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    FocusInput,
+    BlurInput,
+    /// Bring the lit match into view.
+    Reveal,
+}
+
+/// `transitionTimelineSearch`.
+pub fn step(state: &mut State, event: Event) -> rune::machine::Effects<Effect> {
+    use rune::machine::Effects;
+    match (&mut *state, event) {
+        (State::Closed, Event::Open { session }) => {
+            *state = State::Open { session: session.to_owned(), active: 0 };
+            Effects::one(Effect::FocusInput)
+        }
+        (State::Closed, _) => Effects::none(),
+        // Already open: focus and select its query again.
+        (State::Open { .. }, Event::Open { .. }) => Effects::one(Effect::FocusInput),
+        (State::Open { .. }, Event::Close) => {
+            *state = State::Closed;
+            Effects::one(Effect::BlurInput)
+        }
+        (State::Open { .. }, Event::Left) => {
+            *state = State::Closed;
+            Effects::none()
+        }
+        (State::Open { active, .. }, Event::QueryChanged) => {
+            *active = 0;
+            Effects::one(Effect::Reveal)
+        }
+        (State::Open { active, .. }, Event::Move { delta, count }) => {
+            if delta == 0 || count == 0 {
+                return Effects::none();
+            }
+            *active = (*active as i64 + i64::from(delta)).rem_euclid(count as i64) as usize;
+            Effects::one(Effect::Reveal)
+        }
+        (State::Open { session, active }, Event::SessionChanged { session: next }) => {
+            if session != next {
+                *session = next.to_owned();
+                *active = 0;
+            }
+            Effects::none()
+        }
+        // The lit match keeps its place by identity, so a list that shrinks and grows again
+        // never brings an old index back.
+        (State::Open { active, .. }, Event::MatchesSynced { kept }) => {
+            *active = kept.unwrap_or(0);
+            Effects::none()
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 struct Hit {
     row_key: String,
     local: usize,
@@ -52,12 +127,8 @@ struct CachedPart {
 
 #[derive(Default)]
 pub struct Find {
-    pub open: bool,
+    pub state: State,
     pub input: TextEdit,
-    active: usize,
-    restore_composer: bool,
-    session: String,
-    saved: HashMap<String, Saved>,
 
     /// Cached index state for the active session and query.
     indexed_session: String,
@@ -69,22 +140,30 @@ pub struct Find {
 }
 
 impl Find {
+    pub fn is_open(&self) -> bool {
+        matches!(self.state, State::Open { .. })
+    }
+
     pub fn query(&self) -> &str {
         self.input.text.trim()
     }
 
     pub fn count(&self) -> usize {
-        if self.open { self.matches.len() } else { 0 }
+        if self.is_open() { self.matches.len() } else { 0 }
     }
 
     pub fn active_index(&self) -> usize {
-        if self.matches.is_empty() { 0 } else { self.active.min(self.matches.len() - 1) }
+        let active = match self.state {
+            State::Open { active, .. } => active,
+            State::Closed => 0,
+        };
+        if self.matches.is_empty() { 0 } else { active.min(self.matches.len() - 1) }
     }
 
     /// Hash included in `RowSpec::build`'s `rune::memo` key: `0` when Find is closed or `row_key`
     /// has no matches, so non-matching rows never rebuild on keystrokes or stepping.
     pub fn row_version(&self, row_key: &str) -> u64 {
-        if !self.open {
+        if !self.is_open() {
             return 0;
         }
         self.rows.get(row_key).map_or(0, |r| r.version)
@@ -92,7 +171,7 @@ impl Find {
 
     /// Highlights for a user bubble (`text(shown)`).
     pub fn text_highlights(&self, p: &Pal, row_key: &str) -> Vec<TextHighlight> {
-        let Some(row) = self.rows.get(row_key).filter(|_| self.open) else { return Vec::new() };
+        let Some(row) = self.rows.get(row_key).filter(|_| self.is_open()) else { return Vec::new() };
         row.ranges
             .iter()
             .enumerate()
@@ -102,14 +181,14 @@ impl Find {
 
     /// Highlights for an assistant `Markdown` block (`Part::Text`).
     pub fn markdown_highlights<'a>(&'a self, p: &Pal, row_key: &str) -> Vec<(&'a [Range<usize>], rune_kit::Highlight)> {
-        let Some(row) = self.rows.get(row_key).filter(|_| self.open) else { return Vec::new() };
+        let Some(row) = self.rows.get(row_key).filter(|_| self.is_open()) else { return Vec::new() };
         row.ranges.iter().enumerate().map(|(i, rs)| (rs.as_slice(), markdown_mark(p, i, row.active == Some(i)))).collect()
     }
 
     /// A row's matches (source byte ranges of its text) and which of them is active, for a
     /// view that paints them itself (`genui`).
     pub fn row_hits(&self, row_key: &str) -> Option<(&[Vec<Range<usize>>], Option<usize>)> {
-        self.rows.get(row_key).filter(|_| self.open).map(|r| (r.ranges.as_slice(), r.active))
+        self.rows.get(row_key).filter(|_| self.is_open()).map(|r| (r.ranges.as_slice(), r.active))
     }
 }
 
@@ -194,68 +273,71 @@ pub(crate) fn find_plain(text: &str, query: &str) -> Vec<Range<usize>> {
 
 impl App {
     pub fn find_focused(&self) -> bool {
-        self.find.open && self.find.input.focused
+        self.find.is_open() && self.find.input.focused
+    }
+
+    /// Steps Find's machine and carries out what it asks.
+    fn find_step(&mut self, event: Event, tx: &mut Tx) {
+        let old = self.find.is_open().then(|| self.find.active_index());
+        let effects = step(&mut self.find.state, event);
+        if !self.find.is_open() {
+            self.find.input.clear();
+            self.find.matches.clear();
+            self.find.rows.clear();
+            self.find.indexed_query.clear();
+        }
+        self.relight(old);
+        for effect in effects {
+            match effect {
+                Effect::FocusInput => {
+                    self.composer.focused = false;
+                    self.find.input.focused = true;
+                    let len = self.find.input.text.len();
+                    self.find.input.set_selection(0, len);
+                }
+                // Desktop leaves nothing focused once the bar closes, by Escape or its button
+                // (`blur-input`; `esc-find`).
+                Effect::BlurInput => {
+                    self.find.input.focused = false;
+                    self.find.input.cancel_composition();
+                }
+                Effect::Reveal => self.seek_active(true, tx),
+            }
+        }
     }
 
     /// Opens Find in the active session (or focuses and selects its query when already open).
     pub fn open_find(&mut self, tx: &mut Tx) {
         let Route::Session { id, .. } = self.route.clone() else { return };
-        let had_composer = self.composer.focused;
-        self.sync_find_session(&id);
         self.close_picker(false);
-        if !self.find.open {
-            self.find.restore_composer = had_composer;
-            self.find.open = true;
-        }
-        self.composer.focused = false;
-        self.find.input.focused = true;
-        let len = self.find.input.text.len();
-        self.find.input.set_selection(0, len);
+        self.sync_find_index();
+        self.find_step(Event::Open { session: &id }, tx);
         self.sync_find_index();
         tx.instant();
     }
 
-    /// Closes Find, clearing the query and highlights; `restore` returns focus to the composer.
-    pub fn close_find(&mut self, restore: bool, tx: &mut Tx) {
-        if !self.find.open {
+    /// Closes Find, clearing the query and highlights; nothing keeps the focus.
+    pub fn close_find(&mut self, tx: &mut Tx) {
+        if !self.find.is_open() {
             return;
         }
         // The bar goes as it came, at once, and the header's crumbs take its room back with it.
         tx.instant();
-        let restore_composer = restore && self.find.restore_composer;
-        self.find.open = false;
-        self.find.input.clear();
-        self.find.input.focused = false;
-        self.find.input.cancel_composition();
-        self.find.active = 0;
-        self.find.restore_composer = false;
-        self.find.matches.clear();
-        self.find.rows.clear();
-        self.find.indexed_query.clear();
-        if !self.find.session.is_empty() {
-            self.find.saved.remove(&self.find.session);
-        }
-        self.composer.focused = restore_composer;
+        self.find_step(Event::Close, tx);
     }
 
     /// Steps forward (`1`) or backward (`-1`) through the session's matches, wrapping around.
     pub fn step_find(&mut self, delta: i32, tx: &mut Tx) {
         self.sync_find_index();
-        let n = self.find.matches.len();
-        if n == 0 {
-            return;
-        }
-        let cur = self.find.active.min(n - 1) as isize;
-        let next = (cur + delta as isize).rem_euclid(n as isize) as usize;
-        self.set_active_hit(next);
-        self.seek_active(true, tx);
+        let count = self.find.matches.len();
+        self.find_step(Event::Move { delta, count }, tx);
     }
 
-    fn set_active_hit(&mut self, next: usize) {
-        let old = self.find.active;
-        self.find.active = next;
-        let old_hit = self.find.matches.get(old).cloned();
-        let new_hit = self.find.matches.get(next).cloned();
+    /// Lights the active match's row in place of the one lit at `old`.
+    fn relight(&mut self, old: Option<usize>) {
+        let next = self.find.is_open().then(|| self.find.active_index());
+        let old_hit = old.and_then(|i| self.find.matches.get(i).cloned());
+        let new_hit = next.and_then(|i| self.find.matches.get(i).cloned());
         if let Some(h) = &old_hit
             && Some(&h.row_key) != new_hit.as_ref().map(|n| &n.row_key)
             && let Some(r) = self.find.rows.get_mut(&h.row_key)
@@ -325,43 +407,34 @@ impl App {
         }
     }
 
-    fn sync_find_session(&mut self, current: &str) {
-        if self.find.session == current {
-            return;
+    /// Keeps Find's session up with the route: another session's timeline keeps Find open on
+    /// that session's matches (`session.changed`), and leaving the session view closes it, as
+    /// Desktop's search goes with its session screen (`disposed`).
+    fn sync_find_session(&mut self) -> Option<String> {
+        let Route::Session { id, .. } = &self.route else {
+            let _ = step(&mut self.find.state, Event::Left);
+            self.find.input.clear();
+            self.find.input.focused = false;
+            return None;
+        };
+        let id = id.clone();
+        if matches!(&self.find.state, State::Open { session, .. } if *session != id) {
+            let _ = step(&mut self.find.state, Event::SessionChanged { session: &id });
+            self.find.matches.clear();
+            self.find.rows.clear();
+            self.find.indexed_session.clear();
         }
-        if !self.find.session.is_empty() {
-            if self.find.open || !self.find.input.text.is_empty() {
-                self.find.saved.insert(
-                    self.find.session.clone(),
-                    Saved {
-                        open: self.find.open,
-                        query: self.find.input.text.clone(),
-                        active: self.find.active,
-                        restore_composer: self.find.restore_composer,
-                    },
-                );
-            } else {
-                self.find.saved.remove(&self.find.session);
-            }
-        }
-        self.find.session = current.to_owned();
-        let restored = self.find.saved.get(current).cloned().unwrap_or_default();
-        self.find.open = restored.open;
-        self.find.input = TextEdit::new(restored.query);
-        self.find.active = restored.active;
-        self.find.restore_composer = restored.restore_composer;
-        self.find.matches.clear();
-        self.find.rows.clear();
-        self.find.indexed_session.clear();
+        Some(id)
     }
 
     pub(crate) fn sync_find_index(&mut self) {
-        let current = match &self.route {
-            Route::Session { id, .. } if !self.settings.open => id.clone(),
-            _ => String::new(),
-        };
-        self.sync_find_session(&current);
-        if !self.find.open || current.is_empty() {
+        let current = self.sync_find_session();
+        // Settings covers the session, which keeps its Find as it was.
+        if self.settings.open {
+            return;
+        }
+        let current = current.unwrap_or_default();
+        if !self.find.is_open() || current.is_empty() {
             self.find.matches.clear();
             self.find.rows.clear();
             self.find.indexed_query.clear();
@@ -465,41 +538,41 @@ impl App {
             flush_steps(&steps, busy && !has_revert, &mut parts, &mut record);
         }
         self.find.parts = parts;
+        let lit = self.find.matches.get(self.find.active_index()).cloned();
+        let kept = lit.and_then(|lit| matches.iter().position(|m: &Hit| m.row_key == lit.row_key && m.local == lit.local));
         self.find.matches = matches;
         self.find.rows = rows;
-        if !self.find.matches.is_empty() {
-            let active = self.find.active.min(self.find.matches.len() - 1);
-            self.set_active_hit(active);
-        } else {
-            self.find.active = 0;
-        }
+        let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
+        self.relight(None);
     }
 }
 
 /// Called from `find-input`'s `on_input_change`: updates matches and seeks the first hit in the
-/// keystroke's own commit.
+/// keystroke's own commit. Whitespace or case that leave the query as it was keep the lit match
+/// (`query.changed`).
 pub fn typed(s: &mut App, tx: &mut Tx) {
-    s.find.active = 0;
+    if s.find.query().to_lowercase() == s.find.indexed_query {
+        tx.instant();
+        return;
+    }
+    let old = s.find.active_index();
+    let _ = step(&mut s.find.state, Event::QueryChanged);
     s.sync_find_index();
+    s.relight(Some(old));
     if s.find.matches.is_empty() {
         tx.instant();
         return;
     }
-    s.set_active_hit(0);
     s.seek_active(false, tx);
 }
 
 pub fn poll(s: &mut App) -> bool {
-    let cur = match &s.route {
-        Route::Session { id, .. } if !s.settings.open => id.as_str(),
-        _ => "",
-    };
-    if !s.find.open && s.find.session == cur && !s.find.saved.contains_key(cur) {
+    if !s.find.is_open() {
         return false;
     }
     let was_fp = (s.find.indexed_fp, s.find.matches.len());
     s.sync_find_index();
-    s.find.open && (s.find.indexed_fp, s.find.matches.len()) != was_fp
+    !s.find.is_open() || (s.find.indexed_fp, s.find.matches.len()) != was_fp
 }
 
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;
@@ -516,7 +589,7 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         };
     }
     let step = [(Bind::FindNext, 1), (Bind::FindPrev, -1)].into_iter().find(|(b, _)| b.matches_tx(ev, tx));
-    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session { .. }) && s.find.open) {
+    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session { .. }) && s.find.is_open()) {
         s.step_find(d, tx);
         return true;
     }
@@ -525,9 +598,9 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Escape when Find is open (outside a busy composer's stop).
 pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let take = ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session { .. });
+    let take = ev.key == Key::Escape && s.find.is_open() && matches!(s.route, Route::Session { .. });
     // Desktop leaves nothing focused once Escape closes the bar (`esc-find`).
-    if take { s.close_find(false, tx); }
+    if take { s.close_find(tx); }
     take
 }
 
@@ -536,7 +609,7 @@ fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if ev.key == Key::Escape {
-        s.close_find(false, tx);
+        s.close_find(tx);
         return true;
     }
     let m = ev.mods;
@@ -557,31 +630,31 @@ fn input_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// The session header's Find bar (`TimelineSearchBar`).
 pub fn bar(s: &App, p: &Pal) -> Option<El> {
-    if !s.find.open {
+    if !s.find.is_open() {
         return None;
     }
-    let has_query = !s.find.query().is_empty();
+    // `{activeDisplay}/{count}` while the field holds anything, a space included (`showCount`).
     let total = s.find.count();
-    let count = has_query.then(|| {
-        let label = if total > 0 { format!("{} of {total}", s.find.active_index() + 1) } else { "0 of 0".into() };
-        text(label).key("find-count").font(COUNT).color(p.muted)
+    let count = (!s.find.input.text.is_empty()).then(|| {
+        let shown = if total > 0 { s.find.active_index() + 1 } else { 0 };
+        text(format!("{shown}/{total}")).key("find-count").font(COUNT).color(p.muted)
     });
-    let border = if s.find.input.focused { p.q.border_strong } else { p.border };
+    // `text-input-v2`: its input elevation at rest, the focus outline (and no shadow) while focused.
+    let bar = row().key("find-bar");
+    let bar = if s.find.input.focused { bar.border(1.0, p.v2.border_focus) } else { bar.box_shadow(Pal::ring_out(p.border)) };
     Some(
-        row()
-            .key("find-bar")
+        bar
             .transition(Transition::none())
             .h(28.0)
             .w(200.0)
             .pl(8.0)
             .pr(4.0)
-            .gap(6.0)
+            // The value (icon and field, 6 apart), the count and the close button, 8 apart.
+            .gap(8.0)
             .center_y()
             .radius(6.0)
             .fill(p.bg_base)
-            .box_shadow(Pal::ring_out(border))
-            .child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted))
-            .child(
+            .child(row().key("find-value").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)).child(
                 text_input(&s.find.input, UI)
                     .key("find-input")
                     .spellcheck(s.settings.spellcheck)
@@ -597,22 +670,22 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                     .on_edit(|s: &mut App| &mut s.find.input)
                     .on_input_change(typed)
                     .on_input_key(input_key),
-            )
+            ))
             .children(count)
             .child(
                 row()
                     .key("find-close")
                     .role("button")
-                    .label(opencode_i18n::t!("rune.find.close"))
-                    .help(opencode_i18n::t!("rune.find.close"))
+                    // Desktop names it after the field and gives it no tooltip (`search-bar.tsx`).
+                    .label(opencode_i18n::t!("session.search.placeholder"))
                     .size(20.0, 20.0)
                     .center()
-                    .radius(4.0)
+                    .radius(2.0)
                     .hover(p.hover)
                     .press(p.pressed)
                     .hover_motion(INSTANT, INSTANT)
-                    .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_find(true, tx))
-                    .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted)),
+                    .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_find(tx))
+                    .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted)),
             ),
     )
 }

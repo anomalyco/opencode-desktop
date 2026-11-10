@@ -170,7 +170,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     let mut c = col().w_full().child(trigger);
     if open {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
-        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), None, None, &[]);
+        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[]);
         c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }
     c
@@ -292,7 +292,7 @@ fn checkbox_border(p: &Pal) -> Color {
     rune::color::hex(if p.dark { "#626262" } else { "#d1d1d1" }).unwrap_or(p.border)
 }
 
-/// `copied` is the copy button showing its tick (`copied::current`), for code blocks' own.
+/// `copied` are the copy buttons showing their ticks (`copied::current`), for code blocks' own.
 /// `chips` are the tooltips of the session chips in `src` (`session_chips::tips`), by link.
 #[allow(clippy::too_many_arguments)]
 pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
@@ -302,7 +302,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     streaming: bool,
     style: MarkdownStyle,
     highlights: Vec<H>,
-    copied: Option<String>,
+    copied: Vec<String>,
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
 ) -> El {
@@ -323,9 +323,9 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame({
             let copied = copied.clone();
-            move |card, c| code_card::<S>(&pal, card, c, copied.as_deref())
+            move |card, c| code_card::<S>(&pal, card, c, &copied)
         })
-        .quote_frame(move |quote, q| quote_card::<S>(&pal, quote, q, copied.as_deref()))
+        .quote_frame(move |quote, q| quote_card::<S>(&pal, quote, q, &copied))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
             Some(id) => s.open_session(id, tx),
             None => s.open_link(url, tx),
@@ -350,7 +350,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
 /// ghost icon button 4 pt in from the top right, fading in over 0.15 s while the pointer is over
 /// the block (`markdown.css:352-381`), its glyph a tick for a moment after a copy.
-fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: Option<&str>) -> El {
+fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: &[String]) -> El {
     let key = copy_key("code-copy", &(c.index, c.source));
     let button = copy_button::<S>(p, c.source, key, opencode_i18n::t!("ui.message.copy"), copied);
     let actions = if c.open { Vec::new() } else { S::code_block_actions(p, c.language, c.source) };
@@ -370,7 +370,7 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
 /// A block quote with a Copy button that copies all of it as Cmd+C would (`QuoteFrame::text`):
 /// the code block's 24 pt ghost button, level with the first line at the right, fading in while
 /// the pointer is over the quote. The text keeps clear of it.
-fn quote_card<S: TimelineHost>(p: &Pal, quote: El, q: &rune_kit::QuoteFrame<'_>, copied: Option<&str>) -> El {
+fn quote_card<S: TimelineHost>(p: &Pal, quote: El, q: &rune_kit::QuoteFrame<'_>, copied: &[String]) -> El {
     let key = copy_key("quote-copy", &q.text);
     let button = copy_button::<S>(p, q.text, key, opencode_i18n::t!("rune.message.copyQuote"), copied);
     col()
@@ -393,9 +393,9 @@ fn copy_key(prefix: &str, what: &impl std::hash::Hash) -> String {
 }
 
 /// The 24 pt ghost button that copies `text`, its glyph a tick for a moment after (while
-/// `copied` is its `key`), its tooltip `label` until then.
-fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'static str, copied: Option<&str>) -> El {
-    let done = copied == Some(key.as_str());
+/// `copied` holds its `key`), its tooltip `label` until then.
+fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'static str, copied: &[String]) -> El {
+    let done = copied.contains(&key);
     let label = if done { opencode_i18n::t!("ui.message.copied") } else { label };
     let text = text.to_owned();
     row()
@@ -419,7 +419,7 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), None, None, &[])
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), Vec::new(), None, &[])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -431,7 +431,7 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     color: Color,
     width: f32,
     highlights: Vec<(&[Range<usize>], rune_kit::Highlight)>,
-    copied: Option<String>,
+    copied: Vec<String>,
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
 ) -> El {

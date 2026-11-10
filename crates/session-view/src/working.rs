@@ -22,13 +22,23 @@ use crate::style::UI;
 
 #[derive(Default)]
 pub struct Working {
-    /// When each session's current run started, on the app clock.
+    /// When each session's current run started, on the app clock: a session listed is live.
     since: HashMap<String, f64>,
     /// A label in place of "Working" (the storybook's L).
     label: Option<&'static str>,
-    /// The label before the last change and when it changed, until the sweep's pass then
-    /// under way ends: that pass carries on from where it was ([`finish_pass`]).
-    pub relabeled: Option<(&'static str, f64)>,
+    /// The sweep across a change of label.
+    pub relabeled: Relabel,
+}
+
+/// The sweep across a change of the label's words (Kit's design: Desktop's `TextShimmer` starts
+/// a new text's sweep afresh, `text-shimmer/machine.ts` has no such phase).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Relabel {
+    #[default]
+    Steady,
+    /// The words changed from `old` at `at` on the app clock: the sweep's pass then under way
+    /// carries on from where it was ([`finish_pass`]) until it ends.
+    Finishing { old: &'static str, at: f64 },
 }
 
 impl Working {
@@ -42,8 +52,8 @@ impl Working {
     }
     /// Shows `label` from `now` on (app clock).
     pub fn relabel(&mut self, label: &'static str, now: f64) {
-        if self.relabeled.is_none() {
-            self.relabeled = Some((self.label(), now));
+        if self.relabeled == Relabel::Steady {
+            self.relabeled = Relabel::Finishing { old: self.label(), at: now };
         }
         self.label = Some(label);
     }
@@ -64,7 +74,7 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
             changed = true;
         }
     });
-    if let Some((old, at)) = working.relabeled {
+    if let Relabel::Finishing { old, at } = working.relabeled {
         let id = s.active_session_id();
         let since = id.and_then(|id| working.since.get(id).copied());
         let b = band(s, width(old));
@@ -75,7 +85,7 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
             if let (Some(id), Some(since)) = (id, since) {
                 working.since.insert(id.to_owned(), since + (pass(at, since) + 1.0) * b.period);
             }
-            working.relabeled = None;
+            working.relabeled = Relabel::Steady;
             changed = true;
         }
     }
@@ -120,7 +130,7 @@ fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
     let w = width(words);
     let mut b = band(s, w);
     let mut shown = words;
-    if let Some((old, at)) = s.working_state().relabeled {
+    if let Relabel::Finishing { old, at } = s.working_state().relabeled {
         let was = band(s, width(old));
         if ((clock - run.since) / was.period).floor() == ((at - run.since) / was.period).floor() {
             let f = ((at - run.since) / was.period).rem_euclid(1.0) as f32;

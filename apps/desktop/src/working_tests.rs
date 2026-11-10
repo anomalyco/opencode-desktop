@@ -128,7 +128,7 @@ fn a_sweep_glides_through_a_new_label() {
             assert!((w[1].0 - w[0].0).abs() < 4.0, "at frame {k}: stepped {} pt on the words", w[1].0 - w[0].0);
         }
     }
-    assert!(rt.state.working.relabeled.is_none(), "the new label's sweep took over");
+    assert!(rt.state.working.relabeled == crate::working::Relabel::Steady, "the new label's sweep took over");
     let running = sheen(&rt).loop_phase.unwrap();
     // Off screen and back: the same row, mounted again.
     rt.update(|s, _| s.reduced_motion = true);

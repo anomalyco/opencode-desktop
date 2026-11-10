@@ -324,9 +324,8 @@ pub struct App {
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: history::History,
     pub transcripts: HashMap<String, Transcript>,
-    pub expanded: HashSet<String>,
-    /// Tool groups springing shut, by key: the poll clock when they shut (`disclosure.rs`).
-    pub shutting: HashMap<String, f64>,
+    /// The disclosures the reader toggled, tool groups springing shut among them (`disclosure`).
+    pub expanded: disclosure::Disclosures,
     /// Grow, then show's streaming words, held a line-grow behind (`line_reveal`).
     pub line_hold: line_reveal::Hold,
     /// The copy button showing its tick (`copied.rs`).
@@ -456,8 +455,8 @@ pub struct App {
     pub motion: appearance::Motion,
     /// The mode Appearance › Text rendering draws with (`text_rendering.rs`).
     pub text_rendering: text_rendering::Rendering,
-    /// User messages that arrived from another client, by id: the poll clock when they did.
-    pub glows: HashMap<String, f64>,
+    /// The open session's prompts from another client growing in (`arrivals`).
+    pub glows: session_view::arrivals::Arrivals,
     /// Where each session's timeline stands against its end (`jump.rs`).
     pub ends: jump::Ends,
     /// When each run started, for the Working label's rhythm (`working.rs`).
@@ -632,17 +631,11 @@ impl session_view::TimelineHost for App {
             f(id);
         }
     }
-    fn expanded(&self) -> &HashSet<String> {
+    fn expanded(&self) -> &disclosure::Disclosures {
         &self.expanded
     }
-    fn expanded_mut(&mut self) -> &mut HashSet<String> {
+    fn expanded_mut(&mut self) -> &mut disclosure::Disclosures {
         &mut self.expanded
-    }
-    fn shutting_map(&self) -> &HashMap<String, f64> {
-        &self.shutting
-    }
-    fn shutting_map_mut(&mut self) -> &mut HashMap<String, f64> {
-        &mut self.shutting
     }
     fn copied_state(&self) -> &copied::Copied {
         &self.copied
@@ -766,7 +759,11 @@ impl session_view::TimelineHost for App {
         self.pages.more_above(session)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
-        Some(Box::new(self.pages.watch_top(session)))
+        let (pages, nav) = (self.pages.watch_top(session), self.message_nav.watch());
+        Some(Box::new(move |at| {
+            pages(at);
+            nav(at);
+        }))
     }
     fn on_timeline_selection_change(s: &mut Self, change: &rune::SelectionChange, tx: &mut Tx) {
         quote::selection_changed(s, change, tx);
@@ -784,7 +781,7 @@ impl session_view::TimelineHost for App {
         self.find.row_hits(row_key)
     }
     fn user_glow_at(&self, id: &str) -> Option<f64> {
-        self.glows.get(id).copied()
+        self.glows.glow_at(id)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
         self.rewind.menu_open_on(id)
@@ -1254,12 +1251,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.dock_face() != asked {
         s.morph(tx);
     }
-    let glow = knobs::glow_secs(&s.knobs);
-    s.glows.retain(|_, at| now - *at < glow);
-    if !s.glows.is_empty() {
-        tx.wake_after(std::time::Duration::ZERO);
-        changed = true;
-    }
+    changed |= s.glows.poll(&s.knobs, now, tx);
     changed |= disclosure::poll(s, now, tx);
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);

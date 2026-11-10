@@ -363,9 +363,8 @@ impl App {
             crate::windows::peer::touch(self);
             changed = true;
         }
-        for id in reverted {
-            changed |= self.glows.remove(id).is_some();
-        }
+        changed |= reverted.iter().any(|id| self.glows.glow_at(id).is_some());
+        self.glows.step(session_view::arrivals::Event::Gone(reverted));
         changed
     }
 }

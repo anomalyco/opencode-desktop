@@ -20,8 +20,10 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, UI, markdown_tinted, readable};
 
-/// A new automatic compaction waits this long before it shows (Desktop's grace).
+/// A new automatic compaction waits this long before it shows (`COMPACTION_GRACE_MS`).
 const GRACE: f64 = 0.4;
+/// One that finished at most this long before it mounts still fades in (`COMPACTION_RECENT_DONE_MS`).
+const RECENT_DONE_MS: i64 = 1_000;
 /// One pass of the light along the lines and of the glint on the label, in seconds.
 const CYCLE: f32 = 3.2;
 /// The quiet divider's fade in.
@@ -29,24 +31,74 @@ static ENTER: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.32).easing(E
 
 #[derive(Default)]
 pub struct Compactions {
-    /// When each compaction in the open session first showed, and how it enters.
-    pub seen: HashMap<String, Seen>,
+    /// How each compaction in the open session entered.
+    pub seen: HashMap<String, Entrance>,
+}
+
+/// A quiet divider's entrance: Desktop's `CompactionEntranceState`
+/// (`session-ui/src/message/compaction-entrance-machine.ts:15-21`), each with when it mounted on
+/// the app clock. `disposed` is the entry leaving [`Compactions::seen`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Entrance {
+    /// New and running: it fades in once the grace is out, showing Compacting.
+    Grace { at: f64 },
+    /// The grace passed while it ran. It keeps the grace's fade, so nothing restarts, and a later
+    /// finish rolls Compacting to Compacted in place.
+    Revealed { at: f64 },
+    /// It finished inside the grace, or had just finished when it mounted: it fades in at once
+    /// as Compacted only.
+    Instant { at: f64 },
+    /// It was already running or finished when the history loaded: no entrance.
+    Settled,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Seen {
-    pub at: f64,
-    pub enter: Option<Enter>,
-    pub running: bool,
+pub enum Event {
+    /// `running.changed`, at `now` on the app clock. The grace's timer (`grace.elapsed`) is the
+    /// clock passing it, read here: nothing changes on screen when it fires.
+    Running { running: bool, now: f64 },
 }
 
-/// A quiet divider's entrance. `Grace`: a new one fades in once the grace is out, showing
-/// Compacting. `Now`: one that ended inside the grace, or just before it showed, fades in at
-/// once showing only Compacted. Without either, it was there already and shows as it is.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Enter {
-    Grace,
-    Now,
+impl Entrance {
+    /// `createCompactionEntranceState`: `age_ms` is how long ago the compaction started.
+    pub fn mount(age_ms: i64, running: bool, now: f64) -> Entrance {
+        if running && age_ms < (GRACE * 1000.0) as i64 {
+            return Entrance::Grace { at: now };
+        }
+        if !running && age_ms < RECENT_DONE_MS {
+            return Entrance::Instant { at: now };
+        }
+        Entrance::Settled
+    }
+
+    /// `transitionCompactionEntrance`. True when it changed.
+    pub fn step(&mut self, event: Event) -> bool {
+        let Event::Running { running, now } = event;
+        let next = match *self {
+            Entrance::Grace { at } if now - at >= GRACE => Entrance::Revealed { at },
+            state => state,
+        };
+        let next = match next {
+            Entrance::Grace { .. } if !running => Entrance::Instant { at: now },
+            state => state,
+        };
+        let changed = next != *self;
+        *self = next;
+        changed
+    }
+
+    /// When it mounted, while it enters.
+    fn at(self) -> Option<f64> {
+        match self {
+            Entrance::Grace { at } | Entrance::Revealed { at } | Entrance::Instant { at } => Some(at),
+            Entrance::Settled => None,
+        }
+    }
+
+    /// `selectCompactionEnter`'s `grace`: it fades in after the grace.
+    fn graced(self) -> bool {
+        matches!(self, Entrance::Grace { .. } | Entrance::Revealed { .. })
+    }
 }
 
 /// One row of a compaction in the timeline.
@@ -110,19 +162,10 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
                 let running = c.status == CompactionStatus::Running;
                 match compactions.seen.get_mut(&c.id) {
                     None => {
-                        let age = now_ms - c.created;
-                        let enter = if running { (age < 400).then_some(Enter::Grace) } else { (age < 1_000).then_some(Enter::Now) };
-                        compactions.seen.insert(c.id.clone(), Seen { at: clock, enter, running });
+                        compactions.seen.insert(c.id.clone(), Entrance::mount(now_ms - c.created, running, clock));
                         changed = true;
                     }
-                    Some(seen) if seen.running && !running => {
-                        seen.running = false;
-                        if seen.enter == Some(Enter::Grace) && clock - seen.at < GRACE {
-                            *seen = Seen { at: clock, enter: Some(Enter::Now), running };
-                        }
-                        changed = true;
-                    }
-                    _ => {}
+                    Some(entrance) => changed |= entrance.step(Event::Running { running, now: clock }),
                 }
             }
         })
@@ -286,10 +329,9 @@ fn error_card(p: &Pal, message: &str) -> El {
 fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
     let clock = s.clock();
-    let seen = s.compactions_state().seen.get(&c.id).copied();
-    let enter = seen.and_then(|x| x.enter);
-    let at = seen.map_or(clock, |x| x.at);
-    let delay = if enter == Some(Enter::Grace) { GRACE } else { 0.0 };
+    let entrance = s.compactions_state().seen.get(&c.id).copied().unwrap_or(Entrance::Settled);
+    let at = entrance.at().unwrap_or(clock);
+    let delay = if entrance.graced() { GRACE } else { 0.0 };
     // The light and the glint start with the fade in, after the grace.
     let start = at + delay;
     let body = summary(c);
@@ -302,10 +344,10 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let (over, under) = space(s, run);
     let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true), (over, under))
         // A new key restarts the fade in, with everything inside at rest as Compacted.
-        .key(if enter == Some(Enter::Now) { "divider-now" } else { "divider" })
+        .key(if matches!(entrance, Entrance::Instant { .. }) { "divider-now" } else { "divider" })
         .label(if running { opencode_i18n::t!("ui.messagePart.compaction.running") } else { opencode_i18n::t!("ui.messagePart.compaction.done") })
         .transition(Transition::none());
-    if enter.is_some() && clock - at < delay + 0.5 {
+    if entrance.at().is_some() && clock - at < delay + 0.5 {
         divider = divider.looping(LoopSpec::sequence(Sequence::new(&ENTER).delay(delay)));
     }
     if expandable {
