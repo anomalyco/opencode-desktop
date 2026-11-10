@@ -618,12 +618,14 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
 }
 
 /// Native macOS Edit menu items (`keys_first` so focused fields and `on_key` see them first),
-/// with the keys their commands have now.
+/// with the keys their commands have now: a group after Select All, ahead of the items AppKit
+/// adds to the menu's end (AutoFill, Dictation, Emoji & Symbols).
 pub fn menu_items() -> Vec<MenuItem<App>> {
     let item = |title, id, key: Bind, f: fn(&mut App, &mut Tx)| {
-        crate::menubar::keyed(MenuItem::new(title, f).id(id).menu("Edit"), key).keys_first()
+        crate::menubar::keyed(MenuItem::new(title, f).id(id).menu("Edit").after("selectAll:"), key).keys_first()
     };
     [
+        MenuItem::separator().menu("Edit").after("selectAll:"),
         item(opencode_i18n::t!("rune.menu.edit.find"), "Edit/Find", Bind::Find, |s, tx| match s.route {
             Route::Session(_) => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),

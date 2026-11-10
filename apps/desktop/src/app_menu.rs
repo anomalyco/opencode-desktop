@@ -19,7 +19,7 @@ const W: f32 = 160.0;
 
 /// What an item does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Act {
+pub(crate) enum Act {
     NewSession,
     Settings,
     NewWindow,
@@ -45,7 +45,7 @@ enum Act {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EditKey {
+pub(crate) enum EditKey {
     Undo,
     Redo,
     Cut,
@@ -219,7 +219,7 @@ fn enabled(s: &App, act: Act) -> bool {
     }
 }
 
-fn run(s: &mut App, act: Act, tx: &mut Tx) {
+pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
     match act {
         Act::NewSession => s.new_session(tx),
         Act::Settings => {
