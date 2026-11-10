@@ -92,16 +92,17 @@ impl TextRenderer {
             Self::ChromiumLike => FontSmoothing::Hinted,
             Self::RetinaLike => FontSmoothing::On,
             Self::HintedGpu => FontSmoothing::HintedGpu,
-            Self::WindfoilRgb | Self::ClearType => return None,
+            Self::WindfoilRgb => FontSmoothing::WindfoilRgb,
+            Self::ClearType => FontSmoothing::ClearType,
         })
     }
 
     /// Whether this machine draws it as named, and why not in a line.
     pub fn support(self) -> SmoothingSupport {
         match self.mode() {
+            Some(FontSmoothing::ClearType) if !cfg!(target_os = "windows") => SmoothingSupport::No(opencode_i18n::t!("rune.textRendering.reason.windowsOnly")),
             Some(mode) => mode.support(),
-            None if self == Self::ClearType && !cfg!(target_os = "windows") => SmoothingSupport::No(opencode_i18n::t!("rune.textRendering.reason.windowsOnly")),
-            None => SmoothingSupport::No(opencode_i18n::t!("rune.textRendering.reason.subpixel")),
+            None => SmoothingSupport::No(""),
         }
     }
 

@@ -158,7 +158,6 @@
   "rune.textRendering.default.mac": "Default (Retina-like)",
   "rune.textRendering.description": "How text is drawn, switched live, for comparing renderers. Windfoil draws each glyph's exact coverage from its outline on the GPU, so text stays sharp while it zooms or moves.",
   "rune.textRendering.hintedGpu": "Hinted GPU",
-  "rune.textRendering.reason.subpixel": "needs dual-source blending, coming in the next build",
   "rune.textRendering.reason.windowsOnly": "Windows only",
   "rune.textRendering.retina": "Retina-like (CoreText reproduction)",
   "rune.textRendering.slug": "Slug",
