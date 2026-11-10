@@ -23,6 +23,7 @@ fn tap(rt: &mut Runtime<App>, target: &str) {
 fn settings() -> Runtime<App> {
     let mut app = App::fixture_session();
     app.open_settings();
+    app.show_settings_page(crate::settings::pages::Page::Appearance);
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 2000.0), rune::Env::new(true, 1.0));
     rt.set_srgb_blend(true);
     rt.poll = Some(crate::poll);
@@ -73,7 +74,7 @@ fn a_theme_paints_desktops_colours() {
 #[test]
 fn the_theme_menu_lists_every_theme_and_swaps_at_once() {
     let mut rt = settings();
-    tap(&mut rt, "theme-select");
+    tap(&mut rt, "settings-theme-select-trigger");
     let menu = rt.popup_menu().expect("the Theme button opens a menu");
     assert!(menu.find(themes::DEFAULT).is_some_and(|i| i.is_checked()));
     assert_eq!(menu.find("dracula").map(|i| i.title()), Some("Dracula"));
@@ -87,10 +88,12 @@ fn the_theme_menu_lists_every_theme_and_swaps_at_once() {
 #[test]
 fn reduce_motion_follows_the_setting_the_flag_and_the_system() {
     let mut rt = settings();
-    tap(&mut rt, "reduce-motion-on");
+    tap(&mut rt, "settings-reduce-motion-select-trigger");
+    rt.resolve_popup(Some("on")).unwrap();
     assert_eq!(rt.state.settings.reduce_motion, ReduceMotion::On);
     assert!(rt.state.reduced_motion);
-    tap(&mut rt, "reduce-motion-system");
+    tap(&mut rt, "settings-reduce-motion-select-trigger");
+    rt.resolve_popup(Some("system")).unwrap();
     assert!(!rt.state.reduced_motion, "the headless system doesn't reduce motion");
     rt.state.motion.note_system(true);
     assert!(poll(&mut rt.state));
@@ -208,15 +211,12 @@ fn a_font_switch_drops_the_terminals_cached_cell_sizes() {
 fn the_font_rows_sit_after_theme_and_pick_by_name() {
     let mut rt = settings();
     let y = |rt: &Runtime<App>, k: &str| rt.find(k).unwrap_or_else(|| panic!("{k}")).1;
-    assert!(y(&rt, "theme-select") < y(&rt, "ui-font-select"));
-    assert!(y(&rt, "ui-font-select") < y(&rt, "code-font-select"));
-    assert!(y(&rt, "code-font-select") < y(&rt, "terminal-font-select"));
-    assert!(y(&rt, "terminal-font-select") < y(&rt, "reduce-motion-control"));
-    tap(&mut rt, "ui-font-select");
-    let menu = rt.popup_menu().expect("the UI font button opens a menu");
-    assert!(menu.find("0").is_some_and(|i| i.is_checked() && i.title() == "Inter"));
-    assert_eq!(menu.find("1").map(|i| i.title()), Some("SF Pro"));
-    rt.resolve_popup(None).unwrap();
+    let rows = ["settings-theme-select-trigger", "settings-ui-font-input", "settings-code-font-input", "settings-terminal-font-input", "settings-reduce-motion-select-trigger"];
+    assert!(rows.windows(2).all(|w| y(&rt, w[0]) < y(&rt, w[1])));
+    tap(&mut rt, "settings-ui-font-input/value/input");
+    rt.key(rune::KeyEvent { key: rune::Key::Text("SF Pro".into()), mods: Default::default() });
+    frames(&mut rt, 1);
+    assert_eq!(rt.state.settings.ui_font, 1);
     assert_eq!(font_index(&CODE_FONTS, Some("SF Mono")), 2);
     assert_eq!(font_index(&CODE_FONTS, Some("Comic Sans")), 0, "an unknown name is the default");
     let s = crate::settings::Settings { ui_font: 1, code_font: 2, ..Default::default() };
@@ -227,11 +227,12 @@ fn the_font_rows_sit_after_theme_and_pick_by_name() {
 fn a_long_description_wraps_before_its_control_in_a_narrow_window() {
     let mut app = App::fixture_session();
     app.open_settings();
-    let mut rt = Runtime::new(app, crate::view::app, (900.0, 2000.0), rune::Env::new(true, 1.0));
+    app.show_settings_page(crate::settings::pages::Page::Appearance);
+    let mut rt = Runtime::new(app, crate::view::app, (840.0, 2000.0), rune::Env::new(true, 1.0));
     rt.poll = Some(crate::poll);
     frames(&mut rt, 2);
     let rect = |key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect).unwrap_or_else(|| panic!("{key}"));
-    let (about, control) = (rect("setting-appearance-about"), rect("scheme"));
+    let (about, control) = (rect("setting-settings-ui-font-about"), rect("settings-ui-font-input"));
     assert!(about[0] + about[2] <= control[0], "the description's box ends at {} but the control starts at {}", about[0] + about[2], control[0]);
     // Unwrapped, it is one 20 pt line painting past its box; wrapped, two lines inside it.
     assert!(about[3] > 21.0, "the description wraps inside its box: {about:?}");
