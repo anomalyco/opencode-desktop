@@ -49,8 +49,9 @@ fn keys_mean_the_same_in_every_popover() {
     assert_eq!(cycle(3, Some(0), -1), 2);
 }
 
+/// The agent's menu: a popover still, where the model picker became a dialog (279e0b01).
 fn surface_el(rt: &Runtime<App>) -> Option<rune::ElementInfo> {
-    rt.elements().into_iter().find(|e| e.key.as_deref() == Some("picker-model"))
+    rt.elements().into_iter().find(|e| e.key.as_deref() == Some("picker-agent"))
 }
 
 #[test]
@@ -82,7 +83,7 @@ fn a_fade_plays_in_and_a_shrink_plays_out() {
     rt.state.knobs.set(&motion::CLOSE, 2.0);
     rt.frame(1.0 / 60.0);
     rt.update(|s, tx| {
-        s.open_picker(Kind::Model);
+        s.open_picker(Kind::Agent);
         motion::opening(&s.knobs, tx);
     });
     rt.frame(1.0 / 60.0);
@@ -191,6 +192,8 @@ fn arrow_keys_slide_the_highlight() {
         tx.instant();
         s.pickers.search = TextEdit::new("o");
         s.pickers.search.focused = false;
+        // As the field's input change does: a new query starts the list from the top.
+        s.pickers.query_changed();
     });
     rt.frame(1.0 / 60.0);
     let lit = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("option-")) && e.fill.a > 0.0);

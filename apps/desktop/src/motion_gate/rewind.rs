@@ -39,16 +39,26 @@ pub fn run(r: &mut Run) {
     r.play(0.1);
     r.act("open message menu", |rt| Run::tap(rt, &more_key));
     r.play(0.2);
-    r.act("esc message menu", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
-    r.play(0.2);
-    r.act("reopen message menu", |rt| Run::tap(rt, &more_key));
-    r.play(0.2);
-    r.act("hover Undo", |rt| {
-        let (x, y) = rt.find("popup-item-revert").expect("Undo");
-        rt.pointer_move(x, y);
-    });
-    r.play(0.1);
-    r.act("tap Undo", |rt| Run::tap(rt, "popup-item-revert"));
+    // On macOS the menu is the system's (`popup::NATIVE`, 31056cee): nothing of it moves in the
+    // window, so it's dismissed and picked as the system would.
+    if r.rt.popup_menu().is_some() {
+        r.act("esc message menu", |rt| { let _ = rt.resolve_popup(None); });
+        r.play(0.2);
+        r.act("reopen message menu", |rt| Run::tap(rt, &more_key));
+        r.play(0.2);
+        r.act("pick Undo", |rt| rt.resolve_popup(Some("revert")).expect("Undo"));
+    } else {
+        r.act("esc message menu", |rt| rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() }));
+        r.play(0.2);
+        r.act("reopen message menu", |rt| Run::tap(rt, &more_key));
+        r.play(0.2);
+        r.act("hover Undo", |rt| {
+            let (x, y) = rt.find("popup-item-revert").expect("Undo");
+            rt.pointer_move(x, y);
+        });
+        r.play(0.1);
+        r.act("tap Undo", |rt| Run::tap(rt, "popup-item-revert"));
+    }
     r.play(0.8);
     r.act("tap Undo on Rewound toast", |rt| Run::tap(rt, "toast-undo"));
     r.play(0.8);

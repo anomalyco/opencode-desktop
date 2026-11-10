@@ -50,6 +50,25 @@ fn shows_text(rt: &Runtime<App>, needle: &str) -> bool {
     rt.elements().into_iter().any(|e| !e.exiting && e.text.as_deref().is_some_and(|t| t.contains(needle)))
 }
 
+/// Whether the message menu that's open offers item `id`: a native menu on macOS
+/// (`popup::NATIVE`, 31056cee), drawn elsewhere.
+fn menu_has(rt: &Runtime<App>, id: &str) -> bool {
+    match rt.popup_menu() {
+        Some(menu) => menu.find(id).is_some(),
+        None => rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref() == Some(&format!("popup-item-{id}"))),
+    }
+}
+
+/// Picks item `id` from the open message menu, native or drawn.
+fn choose(rt: &mut Runtime<App>, id: &str) {
+    if rt.popup_menu().is_some() {
+        rt.resolve_popup(Some(id)).unwrap_or_else(|e| panic!("{id}: {e:?}"));
+        rt.frame(DT);
+    } else {
+        tap_in(rt, "popup-menu", &format!("popup-item-{id}"));
+    }
+}
+
 fn tap_in(rt: &mut Runtime<App>, path_part: &str, key: &str) {
     let el = rt
         .elements()
@@ -85,7 +104,7 @@ fn rewind_updates_timeline_immediately_restores_prompt_and_offers_toast_undo() {
     h.rt.frame(DT);
 
     tap_in(&mut h.rt, &format!("u-{last_id}"), &format!("user-menu-{last_id}"));
-    tap_in(&mut h.rt, "popup-menu", "popup-item-revert");
+    choose(&mut h.rt, "revert");
 
     assert_eq!(h.rt.state.session(&h.sid).unwrap().revert.as_deref(), Some(last_id.as_str()));
     assert_eq!(h.rt.state.composer.text, last_body);
@@ -164,12 +183,19 @@ fn undo_steps_back_and_redo_restores_all_without_touching_composer() {
     let users = h.rt.state.visible_user_ids(&h.sid);
     let n = users.len();
     assert!(n >= 2);
+    // Each rewind waits for the server's answer before the next (bc84ce46's machine).
+    let settle = |h: &mut Harness, attempt: u32| {
+        let ticket = Ticket { kind: TicketKind::Revert, session: h.sid.clone(), attempt };
+        h.server.send(Incoming::Settled { ticket, result: Ok(None) }).unwrap();
+        h.rt.frame(DT);
+    };
 
     h.rt.update(|s, tx| {
         assert!(s.undo_last(tx));
     });
     let _ = h.writes.try_recv();
     assert_eq!(h.rt.state.visible_user_ids(&h.sid).len(), n - 1);
+    settle(&mut h, 1);
 
     h.rt.update(|s, tx| {
         assert!(s.undo_last(tx));
@@ -177,6 +203,7 @@ fn undo_steps_back_and_redo_restores_all_without_touching_composer() {
     });
     let _ = h.writes.try_recv();
     assert_eq!(h.rt.state.visible_user_ids(&h.sid).len(), n - 2);
+    settle(&mut h, 2);
 
     h.rt.update(|s, tx| {
         assert!(s.redo_revert(tx));
@@ -247,7 +274,7 @@ fn child_sessions_hide_rewind_and_disable_fork() {
     h.rt.frame(DT);
 
     tap_in(&mut h.rt, "u-msg_child_1", "user-menu-msg_child_1");
-    assert!(!h.rt.elements().into_iter().any(|e| !e.exiting && e.key.as_deref() == Some("popup-item-revert")));
+    assert!(!menu_has(&h.rt, "revert"));
     assert!(!h.rt.state.can_undo_session());
     assert!(!h.rt.state.can_fork_session());
 }
@@ -268,9 +295,11 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
 
     // Open the message's menu and verify Fork from here + Copy message are present.
     tap_in(&mut h.rt, &format!("u-{target_id}/"), &format!("user-menu-{target_id}"));
-    crate::popover::tests::grows_whole(&mut h.rt, "popup-menu");
-    assert!(shows_text(&h.rt, "Fork from here") && shows_text(&h.rt, "Copy message"));
-    tap_in(&mut h.rt, "popup-menu", "popup-item-fork");
+    if h.rt.popup_menu().is_none() {
+        crate::popover::tests::grows_whole(&mut h.rt, "popup-menu");
+    }
+    assert!(menu_has(&h.rt, "fork") && menu_has(&h.rt, "copy"));
+    choose(&mut h.rt, "fork");
 
     assert!(matches!(
         h.writes.try_recv().map(untracked),
@@ -331,8 +360,9 @@ fn fork_dialog_and_rewound_toast_stay_inside_viewport_at_zoom_1_6() {
     for _ in 0..30 {
         rt.frame(DT);
     }
-    // Desktop's Sonner region sits at the window's bottom-right whatever is under it (toast.tsx).
-    let toast = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some("status-toast")).unwrap().rect;
+    // Desktop's Sonner region sits at the window's bottom-right whatever is under it (toast.tsx);
+    // each toast in its stack is keyed by its id.
+    let toast = rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("status-toast-"))).unwrap().rect;
     assert!(toast[0] >= 16.0 && toast[1] >= 16.0 && toast[0] + toast[2] <= 1280.0 - 16.0 && toast[1] + toast[3] <= 820.0 - 16.0, "toast inside window at 1.6x: {toast:?}");
 
     rt.update(|s, tx| {
