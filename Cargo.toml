@@ -27,19 +27,19 @@ edition = "2024"
 license = "MIT"
 
 [workspace.dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-luau = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-i18n = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "0fba24cd9f807f59c10e0136406b5381c1fd93ca" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-luau = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-i18n = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-notify = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "2fcb32db70312f7bf7fb6a893771f1fe6ac9b0d4" }
 # Objects keep their keys in the order they arrive, as JavaScript's do: a tool's arguments list as
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }
