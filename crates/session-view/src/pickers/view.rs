@@ -76,6 +76,13 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
+    // The trigger keeps keyboard focus while its menu is open, so Return or Space there is the
+    // list's: it picks the lit row, as Kobalte's focused listbox does, rather than shutting it.
+    if tx.by_keys() && kind != Kind::Model && s.pickers().open == Some(kind)
+        && let Some(key) = s.picker_active()
+    {
+        return s.choose_picker_tx(&key, tx);
+    }
     s.open_picker(kind);
     match s.pickers().open {
         // Desktop's dialog is whole in the frame it opens (`context/dialog.tsx`).

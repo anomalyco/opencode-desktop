@@ -26,10 +26,10 @@ fn send(rt: &mut Runtime<App>, writes: &std::sync::mpsc::Receiver<Write>, text: 
         s.composer = rune::TextEdit::new(text);
         s.send(tx);
     });
-    match writes.try_recv() {
-        Ok(Write::Send { prompt, .. }) => prompt,
-        _ => panic!("no prompt"),
-    }
+    let Ok(Write::Send { prompt, .. }) = writes.try_recv() else { panic!("no prompt") };
+    // The server takes it, so the outbox lets the next prompt go: it sends one at a time.
+    rt.update(|s, _| { s.admitted_send(prompt.id.as_deref().unwrap()); });
+    prompt
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn a_new_session_starts_with_what_the_toolbar_shows() {
 }
 
 #[test]
-fn the_default_list_shows_each_familys_newest_and_search_finds_the_rest() {
+fn the_default_list_shows_each_familys_newest_and_search_finds_only_those() {
     let day = 24.0 * 3600.0 * 1000.0;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as f64;
     let models = serde_json::json!([
@@ -163,9 +163,12 @@ fn the_default_list_shows_each_familys_newest_and_search_finds_the_rest() {
     assert_eq!(app.pickers.agent_models["build"].id, "claude-c");
     app.pickers.open = Some(Kind::Model);
     let shown: Vec<String> = app.picker_items().into_iter().map(|i| i.label).collect();
-    // A new session's model is the agent's, and the current model always shows, first.
-    assert_eq!(shown, ["Claude C", "Claude B", "Local"]);
+    // Each family's newest; the current model no longer joins the list (279e0b01).
+    assert_eq!(shown, ["Claude B", "Local"]);
+    // A search finds only listed models, as Desktop's does (f7beb009).
     app.pickers.search = rune::TextEdit::new("claude a");
+    assert!(app.picker_items().is_empty(), "an older model of the family stays out");
+    app.pickers.search = rune::TextEdit::new("claude b");
     assert_eq!(app.picker_items().len(), 1);
 }
 
@@ -180,26 +183,27 @@ fn recent_and_favorites_lead_the_list_until_a_search() {
         });
     }
     rt.update(|s, _| s.open_picker(Kind::Model));
-    // The current model heads Recent; ⌘F stars it (the highlighted row) and it stays there.
-    press(&mut rt, Key::Command('f'), false);
+    // The last pick heads Recent; ⌘F stars the lit row, which moves it to Favorites, ahead of
+    // Recent, as Desktop's list leads (279e0b01).
     let list = groups(&rt);
     assert_eq!(list[0], ("Recent".into(), "google:gemini-4-argon".into(), "Google".into()));
     assert_eq!(list[1], ("Recent".into(), "openai:gpt-6-astra".into(), "OpenAI".into()));
+    press(&mut rt, Key::Command('f'), false);
+    let list = groups(&rt);
+    assert_eq!(list[0], ("Favorites".into(), "google:gemini-4-argon".into(), "Google".into()));
+    assert_eq!(list[1], ("Recent".into(), "openai:gpt-6-astra".into(), "OpenAI".into()));
     assert!(rt.state.pickers.prefs.is_favorite("google:gemini-4-argon"));
-    assert_eq!(list.iter().filter(|(_, k, _)| k == "google:gemini-4-argon").count(), 1, "the current model shows once");
+    assert_eq!(list.iter().filter(|(_, k, _)| k == "google:gemini-4-argon").count(), 1, "a favourite shows once");
     assert_eq!(rt.state.picker_active().as_deref(), Some("google:gemini-4-argon"), "the highlight stays on it");
-    // The star on the highlighted row unstars it.
-    let (x, y) = rt.find("star").unwrap();
-    rt.pointer_down(x, y);
-    rt.pointer_up(x, y);
-    rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.pickers.open, Some(Kind::Model), "the star doesn't pick the row");
+    // ⌘F again unstars it; the hover star is gone.
+    press(&mut rt, Key::Command('f'), false);
+    assert_eq!(rt.state.pickers.open, Some(Kind::Model), "starring doesn't pick the row");
     assert!(rt.state.pickers.prefs.favorites.is_empty());
-    // Another favourite follows Recent, with its provider, and leaves Recent and its provider's group.
+    // A favourite leads, with its provider, and leaves Recent and its provider's group.
     rt.update(|s, _| s.pickers.prefs.toggle_favorite("openai:gpt-6-astra"));
     let list = groups(&rt);
-    assert_eq!(list[0].1, "google:gemini-4-argon");
-    assert_eq!(list[1], ("Favorites".into(), "openai:gpt-6-astra".into(), "OpenAI".into()));
+    assert_eq!(list[0], ("Favorites".into(), "openai:gpt-6-astra".into(), "OpenAI".into()));
+    assert_eq!(list[1].1, "google:gemini-4-argon");
     assert_eq!(list.iter().filter(|(_, k, _)| k == "openai:gpt-6-astra").count(), 1, "a favourite leaves its provider's group");
     rt.frame(1.0 / 60.0);
     assert!(rt.find("group-Favorites").is_some() && rt.find("group-Recent").is_some());
@@ -227,7 +231,7 @@ fn left_and_right_choose_the_lit_models_effort() {
     press(&mut rt, Key::Command('\''), false);
     let lit = rt.state.picker_active().unwrap();
     assert_eq!(rt.state.model_effort(&lit).as_deref(), Some("high"), "the lit row shows the effort it runs with");
-    assert!(rt.find("trailing-note").is_some());
+    assert!(rt.find("variant").is_some());
     press(&mut rt, Key::Right, false);
     assert_eq!(rt.state.model_effort(&lit).as_deref(), Some(""), "the last effort wraps to the default");
     press(&mut rt, Key::Escape, false);
@@ -258,25 +262,36 @@ fn tap(rt: &mut Runtime<App>, target: &str) {
     }
 }
 
-/// A press on the lit row's "High ›" opens its efforts beside it, and picking one picks the model
-/// with that effort (p169).
+/// Resting on the lit row opens its efforts beside it (Desktop's flyout, d59b129d; a press on the
+/// row picks it), and picking one picks the model with that effort (p169).
 #[test]
 fn the_effort_chevron_opens_the_models_efforts() {
     let (mut rt, _) = live();
     press(&mut rt, Key::Command('\''), false);
     let lit = rt.state.picker_active().unwrap();
-    tap(&mut rt, "trailing-note");
+    rest(&mut rt, "variant");
     assert!(rt.find("effort-flyout").is_some(), "the efforts open");
     assert!(rt.find("effort-default").is_some() && rt.find("effort-high").is_some());
+    // Esc closes Desktop's dialog with its flyout (d59b129d); the efforts have no Esc of their own.
     press(&mut rt, Key::Escape, false);
-    assert!(rt.find("effort-flyout").is_none() && rt.state.pickers.open.is_some(), "Esc closes the efforts, not the list");
+    assert!(rt.find("effort-flyout").is_none() && rt.state.pickers.open.is_none(), "Esc closes the dialog and its efforts");
 
-    tap(&mut rt, "trailing-note");
+    press(&mut rt, Key::Command('\''), false);
+    rest(&mut rt, "variant");
     tap(&mut rt, "effort-default");
     assert!(rt.state.pickers.open.is_none(), "picking an effort picks the model");
     let s = rt.state.selection();
     assert_eq!(format!("{}:{}", s.model.provider, s.model.id), lit);
     assert_eq!(s.model.variant, "", "with the effort picked");
+}
+
+/// The pointer comes to rest on `target` for long enough to open what waits on a rest.
+fn rest(rt: &mut Runtime<App>, target: &str) {
+    let (x, y) = rt.find(target).unwrap_or_else(|| panic!("{target} is on screen"));
+    rt.pointer_move(x, y);
+    for _ in 0..30 {
+        rt.frame(1.0 / 60.0);
+    }
 }
 
 /// A provider whose models the server lists apart still gets one heading, its models under it.
