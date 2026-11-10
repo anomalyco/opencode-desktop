@@ -688,7 +688,9 @@ mod tests {
                 let total = at[at.len() - 1] - at[0];
                 for w in at.windows(2) {
                     let step = w[1] - w[0];
-                    assert!(step * total.signum() >= -0.01, "{key} turns back: {at:?}");
+                    // Rune lands a glide within a sixteenth of a point (42676c9e): a back-step under
+                    // that, as it settles, is no turn.
+                    assert!(step * total.signum() >= -1.0 / 16.0, "{key} turns back: {at:?}");
                     assert!(step.abs() <= total.abs().max(20.0) / 10.0, "{key} snaps {step} pt in a frame: {at:?}");
                 }
             }
