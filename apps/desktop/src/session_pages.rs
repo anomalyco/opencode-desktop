@@ -547,9 +547,13 @@ impl super::App {
         }
     }
 
-    pub fn prefetch_session(&self, id: &str) {
-        // A draft tab has no session to read yet.
-        if self.tabs.iter().any(|t| t.id == id && t.is_draft()) { return; }
+    pub fn prefetch_session(&self, key: &str) {
+        // A draft tab has no session to read yet, and another server's tab reads as it opens.
+        let id = match self.tab(key) {
+            Some(t) if t.is_draft() || t.server != *crate::servers::runtime::active(self) => return,
+            Some(t) => t.id.as_str(),
+            None => key,
+        };
         if let Some(pages) = &self.pages.pool { pages.request(self.page_key(id), false); }
     }
 

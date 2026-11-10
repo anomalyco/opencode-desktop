@@ -241,7 +241,7 @@ impl App {
     }
 
     fn ui_json(&self) -> Value {
-        let recent = self.current_tab().and_then(|id| self.tabs.iter().find(|t| t.id == id)).map(|t| json!({ "key": t.key().encode() }));
+        let recent = self.current_tab().and_then(|uid| self.tab(&uid)).map(|t| json!({ "key": t.key().encode() }));
         json!({
             "lastActiveUrl": page_href(self),
             "tabs.recent": recent,
@@ -358,15 +358,26 @@ impl App {
     /// the projects open to their sessions and the projects' order.
     fn organize_json(&self) -> Value {
         let st = &self.project_state;
-        json!({ "projectsCollapsed": st.organize_collapsed, "expanded": organize_expanded(st), "order": st.organize_order })
+        // `expanded`: `Record<"<server>:<project>", boolean>`; `order`: `Record<server, id[]>`.
+        let expanded: serde_json::Map<String, Value> = organize_expanded(st).into_iter().map(|k| (k.clone(), Value::Bool(true))).collect();
+        json!({ "projectsCollapsed": st.organize_collapsed, "expanded": expanded, "order": st.organize_order })
     }
 
     fn restore_organize(&mut self, v: &Value) {
         let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(|s| Some(s.as_str()?.to_owned())).collect::<Vec<_>>();
+        // Saved before servers mixed: plain lists, of the app's own server's projects.
+        let own = opencode_kit::servers::ServerKey::SIDECAR;
         let st = &mut self.project_state;
         st.organize_collapsed = v["projectsCollapsed"].as_bool().unwrap_or(false);
-        st.organize_expanded = strings(&v["expanded"]).into_iter().collect();
-        st.organize_order = strings(&v["order"]);
+        st.organize_expanded = match &v["expanded"] {
+            Value::Object(m) => m.iter().filter(|(_, on)| on.as_bool() == Some(true)).map(|(k, _)| k.clone()).collect(),
+            list => strings(list).into_iter().map(|id| format!("{own}:{id}")).collect(),
+        };
+        st.organize_order = match &v["order"] {
+            Value::Object(m) => m.iter().map(|(k, ids)| (k.clone(), strings(ids))).collect(),
+            Value::Array(_) => std::iter::once((own.to_owned(), strings(&v["order"]))).collect(),
+            _ => Default::default(),
+        };
     }
 }
 

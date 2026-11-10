@@ -1,5 +1,5 @@
 use super::*;
-use crate::inbox_model::{Entry, InboxStatus, Sections, age, in_worktree};
+use crate::inbox_model::{Entry, InboxStatus, Sections, age};
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 use rune_kit::ScrollBar;
@@ -227,7 +227,7 @@ fn cards(s: &App, p: &Pal, rows: &[Entry<'_>]) -> Vec<El> {
 fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     let info = e.session;
     let selected = s.inbox_selected(e);
-    let project = s.project_for_session(info).or_else(|| s.project_at(&info.directory));
+    let project = e.project;
     let name = project_or_dir(project, &info.directory);
     let title = crate::tabs::tab_title(&info.title);
     let mut place = row()
@@ -239,12 +239,17 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .center_y()
         .clip_soft(0.0)
         .child(text(name.clone()).font(LINE).color(p.muted).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto));
-    if in_worktree(s, info) {
-        place = place.child(icon(&ic::OUTLINE_WORKTREE, 16.0).key("worktree").color(p.icon_muted));
+    if e.worktree {
+        place = place.child(icon(&ic::OUTLINE_WORKTREE, 16.0).key("worktree").color(p.icon_muted).help(info.directory.clone()));
     }
-    if s.sidebar_inbox.branches.get(&info.directory).is_some() {
-        place = place.child(icon(&ic::BRANCH, 16.0).key("branch").color(p.icon_muted));
+    if let Some(branch) = e.branch {
+        place = place.child(icon(&ic::BRANCH, 16.0).key("branch").color(p.icon_muted).help(branch.to_owned()));
     }
+    // The session's server, where tabs of several servers mix (`servers.tag`): a 16 pt server
+    // glyph at the line's start, under the avatar, naming it on hover (`inbox.tsx:617-623`).
+    let server = crate::servers::runtime::tag(e.server).map(|name| {
+        el().key("server").absolute(0.0, 0.0).size(16.0, 16.0).center().label(name.clone()).help(name).child(icon(&SERVER, 16.0).color(p.icon_muted))
+    });
     let mut end = row().key("end").gap(6.0).center_y();
     match e.status {
         InboxStatus::Ready => {}
@@ -261,11 +266,11 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     if let Some(label) = age(e.status, e.since, s.now_ms) {
         end = end.child(text(label).key("age").font(AGE).color(p.faint));
     }
-    let id = info.id.clone();
-    let menu_id = info.id.clone();
+    let key = e.key();
+    let (id, menu_id) = (key.clone(), key.clone());
     let archived = info.archived.is_some();
     let mut card = col()
-        .key(format!("ib-{}", info.id))
+        .key(format!("ib-{key}"))
         .role("button")
         .label(title.clone())
         .w_full()
@@ -276,7 +281,7 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .focusable(true)
         .focus_selected(selected)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_inbox_session(&id, tx))
-        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &menu_id, press, tx))
+        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &menu_id, archived, press, tx))
         .child(
             row()
                 .key("head")
@@ -288,11 +293,11 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
                 // Title and project in their own direction (`inbox.tsx:610`, `:625`).
                 .child(text(title).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto)),
         )
-        .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().child(place).child(end));
+        .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().children(server).child(place).child(end));
     // The routed session's tab becomes this card as the layout switches, Settings open over it or
     // not (`shell-active-{id}`): 28 tall in Side tabs, 54 here, on SETTLE; GLIDE from Top tabs.
-    if matches!(&s.route, Route::Session { id: r, .. } if s.root_of(r) == info.id) {
-        card = card.matched(format!("{}-{}", super::tab_strip::ACTIVE, info.id)).matched_crop();
+    if matches!(&s.route, Route::Session { id: r, server } if server == e.server && s.root_of(r) == info.id) {
+        card = card.matched(format!("{}-{key}", super::tab_strip::ACTIVE)).matched_crop();
         if let Some(spring) = s.switch_spring() {
             card = card.motion(spring);
         }
@@ -308,22 +313,36 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     card
 }
 
-/// A card's right-click menu: Archive (or Unarchive), then Delete….
-fn open_menu(s: &mut App, id: &str, at: rune::PointerPress, tx: &mut Tx) {
-    let archived = s.session(id).is_some_and(|i| i.archived.is_some());
+/// A card's right-click menu: Archive (or Unarchive), then Delete…, each on the card's server.
+fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx: &mut Tx) {
     let menu = Menu::new(t!("command.category.session"))
         .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
         .item(Item::new("delete", format!("{}…", t!("common.delete"))));
-    let id = id.to_owned();
+    let key = key.to_owned();
     tx.instant();
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
-            Some("archive") => s.archive_session(&id, tx),
-            Some("unarchive") => s.unarchive_session(&id),
-            Some("delete") => s.ask_delete(&id),
+            Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
+            Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
+            Some("delete") => {
+                // Delete's confirmation acts on the page's server, so another server's session
+                // opens first.
+                let (server, id) = s.inbox_target(&key);
+                if server != *crate::servers::runtime::active(s) {
+                    s.open_inbox_session(&key, tx);
+                }
+                s.ask_delete(&id);
+            }
             _ => {}
         }
     });
 }
+
+/// Desktop's `server` glyph (`additional-icons.ts`), on a 20 pt grid drawn at 16.
+static SERVER: Icon = Icon {
+    name: "server",
+    view: 20.0,
+    body: r#"<rect x="3.35547" y="1.92969" width="13.2857" height="16.1429" stroke="currentColor"/><rect x="3.35547" y="11.9297" width="13.2857" height="6.14286" stroke="currentColor"/><rect x="12.8555" y="14.2852" width="1.42857" height="1.42857" fill="currentColor"/><rect x="10" y="14.2852" width="1.42857" height="1.42857" fill="currentColor"/>"#,
+};

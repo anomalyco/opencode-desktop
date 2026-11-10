@@ -31,16 +31,18 @@ pub struct ProjectsState {
     /// Counter for sessions opened in fixture mode.
     opened: u32,
     /// The organized sidebar (`sidebar-organized.tsx`): Projects shut, the projects open to
-    /// their sessions, all projects shown, and how many sessions each open project shows.
+    /// their sessions, all projects shown, and how many sessions each open project shows, the
+    /// last two keyed `<server>:<project>` as Desktop keys them.
     pub organize_collapsed: bool,
     pub organize_expanded: HashSet<String>,
     pub organize_all: bool,
     pub organize_limits: std::collections::HashMap<String, usize>,
-    /// The session last opened from the organized list, which it highlights while current.
+    /// The session last opened from the organized list (its `Tab::uid`), which it highlights
+    /// while current.
     pub organize_selected: Option<String>,
-    /// The organized list's project order (`sidebar.organize`'s `order`): frozen once the list
-    /// shows, then newly used projects join at its end and drags move them.
-    pub organize_order: Vec<String>,
+    /// The organized list's project order per server (`sidebar.organize`'s `order`): frozen once
+    /// the list shows, then newly used projects join at its end and drags move them.
+    pub organize_order: std::collections::BTreeMap<String, Vec<String>>,
     /// A project row being dragged to a new place, and each project block's height for it.
     pub organize_drag: Option<crate::view::sidebar_organized::ProjectDrag>,
     pub organize_heights: std::collections::HashMap<String, f32>,
@@ -154,7 +156,7 @@ impl App {
     /// first, then the other used projects, most recently active first.
     pub fn organized_projects(&self) -> Vec<&Project> {
         let used = self.used_projects();
-        let order = &self.project_state.organize_order;
+        let order = self.project_state.organize_order.get(crate::servers::runtime::active(self).as_str()).map_or(&[][..], Vec::as_slice);
         let mut list: Vec<&Project> = order.iter().filter_map(|id| used.iter().find(|p| &p.id == id).copied()).collect();
         list.extend(used.iter().filter(|p| !order.contains(&p.id)).copied());
         list
@@ -170,9 +172,11 @@ impl App {
         if !shown || self.projects.is_empty() {
             return;
         }
+        // Each server's list keeps its own order (`order[server]`).
         let ids: Vec<String> = self.organized_projects().iter().map(|p| p.id.clone()).collect();
-        if ids != self.project_state.organize_order {
-            self.project_state.organize_order = ids;
+        let server = crate::servers::runtime::active(self).as_str().to_owned();
+        if self.project_state.organize_order.get(&server) != Some(&ids) {
+            self.project_state.organize_order.insert(server, ids);
         }
     }
 

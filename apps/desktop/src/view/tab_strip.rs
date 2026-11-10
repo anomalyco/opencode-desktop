@@ -23,17 +23,15 @@ static DRAFT_PENCIL: Icon = Icon {
 /// The strip keyed `key`, running `orientation`. A horizontal one shares `viewport` points
 /// (its width at the last layout) and keeps `trailing` (the `+` button) after its last tab.
 pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>) -> El {
-    let current = match &s.route {
-        Route::Session { id, .. } if !s.settings.open => Some(s.root_of(id)),
-        Route::Draft(id) if !s.settings.open => Some(id.as_str()),
-        _ => None,
-    };
+    // Every server's tabs mix in one strip, each named by its `Tab::uid`.
+    let current = if s.settings.open { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
-    let nav_ids: std::rc::Rc<Vec<String>> = std::rc::Rc::new(s.tabs.iter().map(|t| t.id.clone()).collect());
-    let items = s.tabs.iter().enumerate().map(|(index, t)| item(s, p, t, index, nav_ids.clone()));
+    let uids: Vec<String> = s.tabs.iter().map(crate::tabs::Tab::uid).collect();
+    let nav_ids: std::rc::Rc<Vec<String>> = std::rc::Rc::new(uids.clone());
+    let items = s.tabs.iter().zip(&uids).enumerate().map(|(index, (t, uid))| item(s, p, t, uid, index, nav_ids.clone()));
     let mut strip = TabStrip::new(key, orientation)
         .tabs(items)
-        .active(current)
+        .active(current.as_deref())
         .viewport_width(viewport)
         .zoom(s.zoom)
         .fill(p.bg_deep)
@@ -48,7 +46,9 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         .on_close(|s: &mut App, id, tx| s.close_tab(id, tx))
         .on_double_click(|s: &mut App, id, tx| {
             tx.instant();
-            s.begin_rename(&Target::new(id, Spot::Tab));
+            if let Some(target) = s.tab(id).map(|t| target(s, t)) {
+                s.begin_rename(&target);
+            }
         })
         .on_hover(|s: &mut App, id, inside, tx| {
             if inside {
@@ -77,24 +77,15 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
     })
 }
 
-fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids: std::rc::Rc<Vec<String>>) -> TabItem<'a, App> {
+fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: usize, nav_ids: std::rc::Rc<Vec<String>>) -> TabItem<'a, App> {
     let draft = t.is_draft();
-    let info = s.session(&t.id);
-    let title = match info {
-        _ if draft => crate::tabs::tab_title(""),
-        Some(i) => crate::tabs::tab_title(&i.title),
-        None => crate::tabs::tab_title(&t.title),
-    };
-    let target = Target::new(&t.id, Spot::Tab);
+    let face = face(s, t);
+    let target = target(s, t);
     let marked = s.menus.on.as_ref() == Some(&target);
-    let mut item = TabItem::new(t.id.as_str(), title).status(status(s, &t.id)).marked(marked);
-    item = if draft {
-        item.icon(&DRAFT_PENCIL)
-    } else {
-        let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
-        let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
-        item.avatar(crate::icons::badge(s, p, project, &project_or_dir(project, dir)))
-    };
+    // No server badge or dot on the tab itself: only its preview names the server
+    // (`tab-nav.tsx:158-164`).
+    let mut item = TabItem::new(uid, face.title).status(status(s, t)).marked(marked);
+    item = if draft { item.icon(&DRAFT_PENCIL) } else { item.avatar(crate::icons::badge(s, p, face.project, &project_or_dir(face.project, face.dir))) };
     if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
         item = item.editor(field);
     }
@@ -102,8 +93,8 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids:
     let spring = s.switch_spring();
     let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
-    let active = matches!(&s.route, Route::Session { id: r, .. } if s.root_of(r) == t.id);
-    let id = t.id.clone();
+    let active = !draft && matches!(&s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
+    let id = uid.to_owned();
     item.decorate(move |slot, _| {
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
@@ -127,10 +118,43 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids:
     })
 }
 
+/// What a tab's menu and rename act on: its session (or draft) on the server the window works
+/// against, else the tab by its `Tab::uid`, whose session isn't at hand to rename or delete.
+pub(crate) fn target(s: &App, t: &crate::tabs::Tab) -> Target {
+    let here = t.is_draft() || t.server == *crate::servers::runtime::active(s);
+    Target::new(&if here { t.id.clone() } else { t.uid() }, Spot::Tab)
+}
+
+/// What a tab shows of its session, read on the tab's own server: live on the server the window
+/// works against, as of its last checkout on another (`servers::runtime::Checkout`).
+pub(crate) struct Face<'a> {
+    /// The strip's label (`sessionTabTitle`).
+    pub title: String,
+    /// The session's own title, when its server has it (the preview's `title`).
+    pub session_title: Option<&'a str>,
+    pub dir: &'a str,
+    pub project: Option<&'a model::Project>,
+}
+
+pub(crate) fn face<'a>(s: &'a App, t: &'a crate::tabs::Tab) -> Face<'a> {
+    if t.is_draft() {
+        return Face { title: crate::tabs::tab_title(""), session_title: None, dir: &t.directory, project: None };
+    }
+    if t.server != *crate::servers::runtime::active(s) {
+        let known = s.checkout.known(&t.server, &t.id);
+        return Face { title: crate::tabs::tab_title(&t.title), session_title: known.then_some(t.title.as_str()), dir: &t.directory, project: s.checkout.project(&t.server, &t.id) };
+    }
+    let info = s.session(&t.id);
+    let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
+    let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
+    Face { title: crate::tabs::tab_title(info.map_or(t.title.as_str(), |i| i.title.as_str())), session_title: info.map(|i| i.title.as_str()), dir, project }
+}
+
 /// Desktop's tab mark (`tab-nav.tsx`'s `status`): busy while the family runs, then nothing on
 /// the open tab, then attention, then the unread dot, red when the run failed.
-fn status(s: &App, id: &str) -> Option<TabItemStatus> {
-    Some(match s.tab_status(id)? {
+fn status(s: &App, t: &crate::tabs::Tab) -> Option<TabItemStatus> {
+    let mark = if t.is_draft() { s.tab_status(&t.id) } else { s.tab_status_of(t) };
+    Some(match mark? {
         TabStatus::Busy => TabItemStatus::Busy,
         TabStatus::Attention => TabItemStatus::Attention,
         TabStatus::Unread => TabItemStatus::Unread,

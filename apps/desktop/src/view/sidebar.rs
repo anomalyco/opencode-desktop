@@ -261,7 +261,8 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
 /// with the unread badge while the closed sidebar hides an unread tab. Resting on it while the
 /// sidebar is closed peeks it; a press docks it.
 pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
-    let unread = !open && s.tabs.iter().any(|t| Some(&t.id) != s.current_tab().as_ref() && s.tab_unread(&t.id));
+    let current = s.current_tab();
+    let unread = !open && s.tabs.iter().any(|t| Some(t.uid()) != current && matches!(s.tab_status_of(t), Some(TabStatus::Unread | TabStatus::Failed)));
     let mut b = el()
         .key("sidebar-toggle")
         .role("button")

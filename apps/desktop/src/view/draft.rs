@@ -4,6 +4,14 @@ use super::*;
 /// the way down, the composer 32 below it with where the session will start under that.
 /// `width`: the panel's width last frame.
 pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
+    // A server that refused our credentials or runs an incompatible version covers the draft
+    // (`new-session/route.tsx:42-102`); one that's away leaves it mounted and editable.
+    if let Route::Draft(id) = &s.route
+        && let Some(tab) = s.tab(id)
+        && let Some(cover) = super::server_unavailable::cover(&tab.server)
+    {
+        return col().key("draft").grow(1.0).w_full().child(super::server_unavailable::panel(p, cover, &tab.server, Some(id)));
+    }
     let content = col()
         .key("draft-content")
         .w_full()

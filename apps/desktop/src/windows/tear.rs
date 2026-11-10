@@ -102,7 +102,7 @@ impl App {
             Tear::Out(out) => out,
             // No window followed the pointer: open one where it let go.
             Tear::Idle => {
-                let Some(tab) = self.tabs.iter().find(|x| x.id == t.id).cloned() else { return };
+                let Some(tab) = self.tab(&t.id).cloned() else { return };
                 if let Some(target) = target(point, &[&self.window.id]) {
                     return self.move_tab_to(tab, target, tx);
                 }
@@ -113,7 +113,7 @@ impl App {
                 let Some((frame, _)) = self.torn_frame(point, [0.0, 0.0]) else { return };
                 let seed = Seed::from(self, vec![tab.clone()], tab.route());
                 if open(self, seeded(seed), Some(frame), false).is_some() {
-                    self.tab_moved_out(&tab.id, tx);
+                    self.tab_moved_out(&tab.uid(), tx);
                 }
                 return;
             }
@@ -140,7 +140,7 @@ impl App {
                 super::life(&out.id, super::life::LifeEvent::Kept);
                 out.handle.show();
                 out.handle.focus();
-                self.tab_moved_out(&out.tab.id, tx);
+                self.tab_moved_out(&out.tab.uid(), tx);
             }
         }
     }
@@ -168,7 +168,7 @@ impl App {
             return;
         }
         let lone = self.tabs.len() == 1;
-        let Some(tab) = self.tabs.iter().find(|t| t.id == m.id).cloned() else { return };
+        let Some(tab) = self.tab(&m.id).cloned() else { return };
         let Some((frame, offset)) = self.torn_frame(point, m.grab) else { return };
         let seed = Seed::from(self, vec![tab.clone()], tab.route());
         let mut w = seeded(seed);
@@ -202,7 +202,7 @@ impl App {
     /// Sends `tab` to the window under the pointer, where it joins the strip, and drops it here.
     fn move_tab_to(&mut self, tab: Tab, target: Target, tx: &mut Tx) {
         let draft = self.draft_text(&tab.id);
-        let id = tab.id.clone();
+        let id = tab.uid();
         let at = target.at;
         target.app.update(move |a, tx| a.receive_tab(tab, draft, at, tx));
         target.handle.focus();
@@ -238,11 +238,11 @@ impl App {
         }
         let slot = self.tab_drag.incoming_slot();
         self.tab_drag.set_incoming(None);
-        if !self.tabs.iter().any(|t| t.id == tab.id) {
+        if !self.tabs.iter().any(|t| t.uid() == tab.uid()) {
             let index = slot.or_else(|| at.map(|at| self.drop_index(at))).unwrap_or(self.tabs.len()).min(self.tabs.len());
             self.tabs.insert(index, tab.clone());
         }
-        self.select_tab(&tab.id, tx);
+        self.select_tab(&tab.uid(), tx);
         self.save_tabs();
     }
 
@@ -258,18 +258,18 @@ impl App {
         (((along - from) / pitch).round().max(0.0) as usize).min(n)
     }
 
-    /// Tab `id` went to another window: it leaves this strip without a closed-tab entry, and its
+    /// Tab `key` (`App::tab_at`) went to another window: it leaves this strip without a closed-tab entry, and its
     /// words go with it.
-    fn tab_moved_out(&mut self, id: &str, tx: &mut Tx) {
-        let shown = self.current_tab().as_deref() == Some(id);
-        let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
-        self.tabs.remove(i);
-        self.restore.drafts.remove(id);
-        self.add.park(id.to_owned(), session_view::composer::mode::Mode::Normal);
+    fn tab_moved_out(&mut self, key: &str, tx: &mut Tx) {
+        let Some(i) = self.tab_at(key) else { return };
+        let shown = self.current_tab() == Some(self.tabs[i].uid());
+        let id = self.tabs.remove(i).id;
+        self.restore.drafts.remove(&id);
+        self.add.park(id, session_view::composer::mode::Mode::Normal);
         if shown {
             self.restore.shown = None;
             self.composer = rune::TextEdit::new("");
-            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {
+            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {
                 Some(next) => self.select_tab(&next, tx),
                 None => self.go_home(tx),
             }

@@ -19,8 +19,11 @@ const OPEN_DELAY: f64 = 0.75;
 const SKIP_WINDOW: f64 = 0.5;
 /// The card (`width: 256px; padding: 12px; gap: 4px; border-radius: 6px`).
 const W: f32 = 256.0;
-const PROJECT: TextStyle = TextStyle::new(13.0, 440.0).lh(19.5).tracking(-0.04);
-const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(19.5).tracking(-0.04);
+// The card's `font-variant-numeric: tabular-nums` reaches every line.
+const PROJECT: TextStyle = TextStyle::new(13.0, 440.0).lh(19.5).tracking(-0.04).features("\"tnum\"");
+const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(19.5).tracking(-0.04).features("\"tnum\"");
+/// The server's line (`[data-slot="server"]`: 13 at 440 on `--line-height-compact`, 16).
+const SERVER: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04).features("\"tnum\"");
 
 /// `TabPreviewState`: `cold` waits the full open delay; `open` and `warm` (just closed) open the
 /// next preview at once. `instant` marks a preview opened during such a streak (Desktop's card
@@ -129,6 +132,8 @@ impl App {
         let now = tx.clock();
         self.expire_preview(now);
         let shown = self.previewed().map(str::to_owned);
+        // A draft has no session, so it never takes the card (`!props.session`).
+        let draft = self.tab(id).is_some_and(crate::tabs::Tab::is_draft);
         let p = &mut self.tab_preview;
         if !inside {
             // Leaving the tab cancels its opening, and the pointer off the tab and its card
@@ -137,8 +142,6 @@ impl App {
                 p.card = Card::Away;
             }
         } else if !matches!(&p.card, Card::Waiting { tab, .. } | Card::Asked { tab } | Card::Resting { tab } if tab == id) {
-            // A draft has no session, so it never takes the card (`!props.session`).
-            let draft = self.tabs.iter().any(|t| t.id == id && t.is_draft());
             p.card = if draft { Card::Resting { tab: id.to_owned() } } else { Card::Waiting { tab: id.to_owned(), at: now + open_delay(&p.state) } };
         }
         self.settle_preview(now, tx);
@@ -164,8 +167,14 @@ impl App {
     /// rename, its menu.
     fn preview_blocked(&self, id: &str) -> bool {
         self.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
-            || self.menus.renaming().is_some_and(|t| t.id == id)
-            || self.menus.on.as_ref().is_some_and(|t| t.id == id)
+            || self.menus.renaming().is_some_and(|t| self.names(&t.id, id))
+            || self.menus.on.as_ref().is_some_and(|t| self.names(&t.id, id))
+    }
+
+    /// Whether a menu or rename target `key` is tab `id` (`Tab::uid`): a tab's target is its
+    /// session's id on the server the window works against (`tab_strip::target`).
+    fn names(&self, key: &str, id: &str) -> bool {
+        self.tab(key).is_some_and(|t| t.uid() == id)
     }
 
     /// Whether tab `id`'s card shows once it has it (`open() && !previewBlocked()`): a narrow
@@ -203,7 +212,7 @@ impl App {
         }
         // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
         if let Card::Asked { tab } = &self.tab_preview.card
-            && self.menus.on.as_ref().is_some_and(|t| t.id == *tab)
+            && self.menus.on.as_ref().is_some_and(|t| self.names(&t.id, tab))
         {
             self.tab_preview.card = Card::Resting { tab: tab.clone() };
         }
@@ -238,16 +247,19 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 /// The card, at the window's root.
 pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     let id = s.previewed()?;
-    let info = s.session(id)?;
-    let tab = s.tabs.iter().find(|t| t.id == id)?;
-    let dir = if info.directory.is_empty() { tab.directory.as_str() } else { info.directory.as_str() };
-    let project = s.project_for_session(info).or_else(|| s.project_at(dir));
+    let tab = s.tab(id)?;
+    // Its session, on its own server (`props.session`): none, no card.
+    let face = super::tab_strip::face(s, tab);
+    let title = face.session_title?;
+    let dir = if face.dir.is_empty() { tab.directory.as_str() } else { face.dir };
     let vertical = s.tab_layout().has_sidebar();
     let side = if vertical { Side::Right } else { Side::Bottom };
-    let (project, title) = (project_or_dir(project, dir), title_of(info));
+    let (project, title) = (project_or_dir(face.project, dir), if title.is_empty() { opencode_i18n::t!("rune.session.untitled").to_owned() } else { title.to_owned() });
     // Paths break after their separators, not inside a folder's name (`<wbr>`).
     let detail = breakable(&s.tilde(dir));
-    let card_h = vertical.then(|| card_height(&project, &title, &detail));
+    // The server, only while several are listed and it isn't the app's own (`serverLabel`).
+    let server = crate::servers::runtime::tag(&tab.server);
+    let card_h = vertical.then(|| card_height(&project, &title, &detail, server.as_deref()));
     let mut card = col()
         .key("tab-preview")
         .a11y_hidden()
@@ -265,7 +277,8 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
                 .child(text(project).key("project").font(PROJECT).color(p.muted))
                 .child(text(title).key("title").font(TITLE).color(p.text).wrap()),
         )
-        .child(row().key("row").w_full().child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap()));
+        .child(row().key("row").w_full().min_w(0.0).child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap().grow(1.0).shrink().min_w(0.0)))
+        .children(server.map(|name| text(name).key("server").font(SERVER).color(p.muted).w_full().truncate()));
     let pointer = match &s.tab_preview.state {
         State::Open { pointer, .. } => *pointer,
         _ => None,
@@ -287,10 +300,11 @@ const GAP: f32 = 4.0;
 
 /// How tall the card lays out, measured as the runtime sets its lines at the card's inner width
 /// (Desktop's `card.offsetHeight`), so the clamp to the strip is exact from its first frame.
-fn card_height(project: &str, title: &str, detail: &str) -> f32 {
+fn card_height(project: &str, title: &str, detail: &str, server: Option<&str>) -> f32 {
     let inner = W - 2.0 * PAD;
     let height = |t: &str, style, wrap: bool| rune::text::measure(t, &[], style, wrap.then_some(inner)).1;
-    2.0 * PAD + height(project, PROJECT, false) + GAP + height(title, TITLE, true) + GAP + height(detail, PROJECT, true)
+    let server = server.map_or(0.0, |name| GAP + height(name, SERVER, false));
+    2.0 * PAD + height(project, PROJECT, false) + GAP + height(title, TITLE, true) + GAP + height(detail, PROJECT, true) + server
 }
 
 /// `path` with a break allowed after each separator.

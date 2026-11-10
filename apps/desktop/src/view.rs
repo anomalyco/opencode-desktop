@@ -29,9 +29,10 @@ mod inbox;
 mod narrow;
 mod narrow_story;
 mod session;
+pub(crate) mod server_unavailable;
 mod sidebar;
 pub(crate) mod sidebar_organized;
-mod tab_strip;
+pub(crate) mod tab_strip;
 pub(crate) mod tab_preview;
 mod titlebar;
 

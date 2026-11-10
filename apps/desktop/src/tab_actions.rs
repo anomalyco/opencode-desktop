@@ -46,12 +46,22 @@ impl App {
     /// family works (unless it's waiting on you), then nothing for the open tab, then attention
     /// before unread.
     pub fn tab_status(&self, id: &str) -> Option<TabStatus> {
-        // A tab of a server the window isn't working against: its mark as of when it last did.
-        if let Some(t) = self.tabs.iter().find(|t| t.id == id && !t.is_draft())
-            && t.server != *crate::servers::runtime::active(self)
-        {
-            return self.checkout.snap(&t.server, id);
+        match self.tab(id) {
+            Some(t) if !t.is_draft() => self.tab_status_of(t),
+            _ => self.status_here(id),
         }
+    }
+
+    /// Tab `t`'s mark: on a server the window isn't working against, as of when it last did.
+    pub fn tab_status_of(&self, t: &Tab) -> Option<TabStatus> {
+        if t.server != *crate::servers::runtime::active(self) {
+            return self.checkout.snap(&t.server, &t.id);
+        }
+        self.status_here(&t.id)
+    }
+
+    /// Session `id`'s mark on the server the window works against.
+    fn status_here(&self, id: &str) -> Option<TabStatus> {
         let marks = self.marks(id);
         if marks.busy {
             return Some(TabStatus::Busy);
@@ -67,9 +77,20 @@ impl App {
         Some(if info.outcome.as_deref() == Some("failed") { TabStatus::Failed } else { TabStatus::Unread })
     }
 
-    /// Whether tab `id` shows a dot for something new, failed or not.
-    pub(crate) fn tab_unread(&self, id: &str) -> bool {
-        matches!(self.tab_status(id), Some(TabStatus::Unread | TabStatus::Failed))
+    /// Where the tab `key` names is: its `Tab::uid`, else the draft or session with that id, the
+    /// checked-out server's first (a session id alone can name tabs on two keys of one server).
+    pub(crate) fn tab_at(&self, key: &str) -> Option<usize> {
+        let here = crate::servers::runtime::active(self);
+        self.tabs
+            .iter()
+            .position(|t| t.uid() == key)
+            .or_else(|| self.tabs.iter().position(|t| t.id == key && (t.is_draft() || t.server == *here)))
+            .or_else(|| self.tabs.iter().position(|t| t.id == key))
+    }
+
+    /// The tab `key` names (`tab_at`).
+    pub(crate) fn tab(&self, key: &str) -> Option<&Tab> {
+        self.tab_at(key).map(|i| &self.tabs[i])
     }
 
     /// Home's button and ⌘B: Home, or back from it to the last tab.
@@ -144,19 +165,19 @@ impl App {
         id
     }
 
-    /// Shows tab `id`: a session tab opens its session, a draft tab its new-session page.
-    pub fn select_tab(&mut self, id: &str, tx: &mut Tx) {
+    /// Shows tab `key` (`tab_at`): a session tab opens its session, a draft tab its new-session
+    /// page.
+    pub fn select_tab(&mut self, key: &str, tx: &mut Tx) {
+        let Some(tab) = self.tab(key).cloned() else { return self.open(key, tx) };
         // The window works against the tab's server from here on (`servers::runtime`).
-        if let Some(server) = self.tabs.iter().find(|t| t.id == id).map(|t| t.server.clone()) {
-            crate::servers::runtime::switch(self, &server);
-        }
-        if !self.tabs.iter().any(|t| t.id == id && t.is_draft()) {
-            return self.open(id, tx);
+        crate::servers::runtime::switch(self, &tab.server);
+        if !tab.is_draft() {
+            return self.open(&tab.id, tx);
         }
         self.close_settings();
         self.close_picker(false);
         self.opening = None;
-        self.route = Route::Draft(id.to_owned());
+        self.route = Route::Draft(tab.id);
         if self.stage.is_none() {
             self.composer.focused = true;
         }
@@ -186,23 +207,26 @@ impl App {
         self.save_tabs();
     }
 
-    pub fn close_tab(&mut self, id: &str, tx: &mut Tx) {
+    /// Closes tab `key` (`tab_at`).
+    pub fn close_tab(&mut self, key: &str, tx: &mut Tx) {
         tx.instant();
-        let shown = self.current_tab().as_deref() == Some(id);
-        let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
+        let Some(i) = self.tab_at(key) else { return };
+        let shown = self.current_tab() == Some(self.tabs[i].uid());
         let tab = self.tabs.remove(i);
+        let (id, server) = (tab.id.clone(), tab.server.clone());
         match tab.kind {
             TabKind::Session => {
-                self.forget_history(|s, x| s.root_of(x) == id);
-                let server = tab.server.clone();
-                let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(id)).unwrap_or(false);
+                // Its history goes where its server's sessions are known: the window's own fields
+                // while it works against that server.
+                crate::servers::runtime::with_server(self, &server, |s| s.forget_history(|s, x| s.root_of(x) == id));
+                let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(&id)).unwrap_or(false);
                 self.closed.push(ClosedTab { tab, index: i, prompted });
             }
             // A closed draft goes with its words; it can't be reopened (Desktop's `disposeTab`).
             TabKind::Draft => {
-                self.forget_draft_history(id);
-                self.restore.drafts.remove(id);
-                self.add.park(id.to_owned(), session_view::composer::mode::Mode::Normal);
+                self.forget_draft_history(&id);
+                self.restore.drafts.remove(&id);
+                self.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
                     self.restore.shown = None;
                     let focused = self.composer.focused;
@@ -212,7 +236,7 @@ impl App {
             }
         }
         if shown {
-            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(|t| t.id.clone()) {
+            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {
                 Some(next) => self.select_tab(&next, tx),
                 None => {
                     self.close_picker(false);
@@ -254,13 +278,14 @@ impl App {
         self.nav.forget(|p| matches!(&p.route, Route::Draft(id) if id == draft));
     }
 
-    /// The tab the open page belongs to, if any: a draft's, or the root session's.
+    /// The tab the open page belongs to, if any (its `Tab::uid`): a draft's, or the root
+    /// session's on the page's server.
     pub(crate) fn current_tab(&self) -> Option<String> {
         match &self.route {
-            Route::Draft(id) => self.tabs.iter().any(|t| t.id == *id).then(|| id.clone()),
-            Route::Session { id, .. } => {
+            Route::Draft(id) => self.tabs.iter().find(|t| t.id == *id).map(Tab::uid),
+            Route::Session { id, server } => {
                 let root = self.root_of(id);
-                self.tabs.iter().any(|t| t.id == root && !t.is_draft()).then(|| root.to_owned())
+                self.tabs.iter().find(|t| t.id == root && !t.is_draft() && t.server == *server).map(Tab::uid)
             }
             Route::Home => None,
         }
@@ -270,7 +295,7 @@ impl App {
     /// top to bottom, the Working shelf's while it's open.
     pub(crate) fn nav_order(&self) -> Vec<String> {
         if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
-            return self.tabs.iter().map(|t| t.id.clone()).collect();
+            return self.tabs.iter().map(Tab::uid).collect();
         }
         let sections = self.inbox_sections();
         let shelf = if self.restore.inbox.working_expanded { sections.working.len() } else { 0 };
@@ -281,7 +306,7 @@ impl App {
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
         match (&self.route, self.tab_layout()) {
-            (Route::Session { id, .. }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(self.root_of(id).to_owned()),
+            (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(tabs::session_uid(server, self.root_of(id))),
             _ => self.current_tab(),
         }
     }
@@ -318,7 +343,8 @@ impl App {
         let order = self.nav_order();
         let Some(current) = self.nav_current().filter(|c| order.contains(c)) else { return };
         let order: Vec<&str> = order.iter().map(String::as_str).collect();
-        let dot = |k: &str| matches!(self.tab_status(k), Some(TabStatus::Attention | TabStatus::Unread | TabStatus::Failed));
+        // Another server's inbox row says so as its server last showed it.
+        let dot = |k: &str| matches!(self.tab_status(k), Some(TabStatus::Attention | TabStatus::Unread | TabStatus::Failed)) || self.inbox_row_dotted(k);
         if let Some(id) = shortcuts::adjacent(&order, Some(&current), offset, dot) {
             self.nav_select(&id, tx);
         }

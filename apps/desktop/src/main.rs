@@ -909,6 +909,13 @@ impl App {
         Self::new_window(windows::Window::unsaved())
     }
 
+    /// A hot build's one window: the profile's first window, whose tabs and page it reads and
+    /// saves as the app's own first window does.
+    #[cfg(feature = "hot")]
+    fn hot() -> App {
+        Self::new_window(windows::hot())
+    }
+
     /// `new`, for window `window`: its own tabs and page.
     fn new_window(window: windows::Window) -> App {
         let mut app = Self::load(window);
@@ -1289,8 +1296,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.poll_restore();
         s.poll_window();
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
-        // name can't tell windows apart.
-        if !s.framed && s.window.id.is_empty() {
+        // name can't tell windows apart; a hot build's one window isn't among them.
+        if !s.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
             s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
     }
@@ -1407,7 +1414,7 @@ fn main() {
     rune::prewarm_gpu();
     launch::apply_app_icon();
     #[cfg(feature = "hot")]
-    rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
+    rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::hot) });
     #[cfg(not(feature = "hot"))]
     {
         let diagnostics = diagnostics::Diagnostics::default();

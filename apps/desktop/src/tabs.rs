@@ -71,6 +71,16 @@ impl Tab {
         }
     }
 
+    /// What the strips, menus and keys call it: unique among a window's tabs, as Desktop's
+    /// `tabKey` is. A draft's id, a session's id on the app's own server, and on another server the
+    /// id marked with its server, so a session two keys list (one server added twice) is two tabs.
+    pub fn uid(&self) -> String {
+        match self.kind {
+            TabKind::Session => session_uid(&self.server, &self.id),
+            TabKind::Draft => self.id.clone(),
+        }
+    }
+
     /// Its identity in the window's file (`tabKey`).
     pub fn key(&self) -> TabKey {
         match self.kind {
@@ -95,6 +105,16 @@ impl Tab {
             doc::Tab::Draft(d) => Tab { id: d.draft_id.clone(), kind: TabKind::Draft, server: d.server.clone(), title: String::new(), directory: d.directory.clone() },
         }
     }
+}
+
+/// Session `id` on `server` as tabs and inbox rows name it (`Tab::uid`).
+pub fn session_uid(server: &ServerKey, id: &str) -> String {
+    if server.is_sidecar() { id.to_owned() } else { format!("{id}~{:08x}", fnv(server.as_str())) }
+}
+
+/// FNV-1a: the same mark for a server on every run (element keys stay put across launches).
+fn fnv(text: &str) -> u32 {
+    text.bytes().fold(0x811c_9dc5, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193))
 }
 
 /// A tab's label: drafts, sessions still starting and untitled sessions all read "Session", as

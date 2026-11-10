@@ -33,8 +33,8 @@ pub use open::{launch, new_window};
 /// One window's identity and what it tracks of itself.
 #[derive(Default)]
 pub struct Window {
-    /// Its persistent id (`opencode.window.<id>.dat`); empty for headless runs, tests and hot
-    /// builds, which keep the files from before windows had their own.
+    /// Its persistent id (`opencode.window.<id>.dat`); empty for headless runs and tests, which
+    /// read the files from before windows had their own and write none.
     pub id: String,
     /// The profile's first window: it reads `tabs.json` and `ui.json` until it writes its own.
     pub legacy: bool,
@@ -62,10 +62,25 @@ impl Window {
         Window { id, legacy, ..Window::default() }
     }
 
-    /// A window without its own files: headless runs, tests and hot builds.
+    /// A window without its own files: headless runs and tests.
     pub fn unsaved() -> Window {
         Window { legacy: true, ..Window::default() }
     }
+}
+
+/// A hot build's window: the profile's first saved window (a new one when none was saved), so
+/// it reads and writes the file the app's first window keeps (`opencode.window.<id>.dat`), and a
+/// profile that never saved one migrates `tabs.json` and `ui.json` into it, as `open::launch`'s
+/// first window does.
+#[cfg(feature = "hot")]
+pub fn hot() -> Window {
+    let saved = store::has_ids();
+    let mut ids = store::ids();
+    if ids.is_empty() {
+        ids.push(store::new_id());
+        store::save_ids(ids.clone());
+    }
+    Window::new(ids.swap_remove(0), !saved)
 }
 
 /// An open window: its handles, where its strip is, and its life.

@@ -113,7 +113,8 @@ rune_register::register!(SCENE_LIST: Scene = [
         side_tabs(s);
         s.settings.sidebar_organize = crate::settings::Organize::Projects;
         if let Some(id) = s.used_projects().first().map(|p| p.id.clone()) {
-            s.project_state.organize_expanded.insert(id);
+            let key = crate::view::sidebar_organized::project_key(s, &id);
+            s.project_state.organize_expanded.insert(key);
         }
     }),
     // Top tabs past what the titlebar holds: they shrink to icons, then scroll.

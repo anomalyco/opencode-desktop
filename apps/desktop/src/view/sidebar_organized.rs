@@ -1,10 +1,18 @@
 //! Side tabs organized by project (Settings › Experimental › Organize vertical sidebar, Projects;
 //! `sidebar-organized.tsx`): a Projects section, each used project a row that opens to its latest
-//! sessions, then a divider and the side tabs.
+//! sessions, then a divider and the side tabs. The projects are one server's, the one the current
+//! tab is on (else Home's), which the window works against (`servers::runtime`); the tabs are
+//! every server's.
 use rune_kit::shell::TabOrientation;
 
 use super::*;
 use opencode_i18n::t;
+
+/// A project's key in the list's state (`${server}:${project.id}`): each server's list opens and
+/// pages its projects apart.
+pub(crate) fn project_key(s: &App, id: &str) -> String {
+    format!("{}:{id}", crate::servers::runtime::active(s).as_str())
+}
 
 /// Projects shown before Show more, and each project's sessions before its own.
 const PROJECTS: usize = 7;
@@ -82,10 +90,11 @@ fn projects(s: &App, p: &Pal) -> Vec<El> {
 /// its sessions to a new place; More options and New session show at its end while hovered or its
 /// menu is open.
 fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
-    let open = s.project_state.organize_expanded.contains(&proj.id);
+    let key = project_key(s, &proj.id);
+    let open = s.project_state.organize_expanded.contains(&key);
     let menu = format!("so-menu-{}", proj.id);
     let menu_open = s.popup.open_at(&menu);
-    let (id, menu_id, ctx_id, new_dir, drag_id, layout_id) = (proj.id.clone(), proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.id.clone(), proj.id.clone());
+    let (id, menu_id, ctx_id, new_dir, drag_id, layout_id) = (key, proj.id.clone(), proj.id.clone(), proj.directory.clone(), proj.id.clone(), proj.id.clone());
     let (anchor, ctx_anchor) = (menu.clone(), menu.clone());
     let actions = row()
         .key("actions")
@@ -115,6 +124,7 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
             if std::mem::take(&mut st.organize_dropped) {
                 return;
             }
+            // Closing it pages its sessions back to the first five (`onToggle`).
             if !st.organize_expanded.remove(&id) {
                 st.organize_expanded.insert(id.clone());
             }
@@ -223,7 +233,8 @@ fn drag(s: &mut App, id: &str, index: usize, d: &mut rune::Drag, tx: &mut Tx) {
             let mut ids = drag.ids;
             let moved = ids.remove(drag.from);
             ids.insert(drag.to, moved);
-            s.project_state.organize_order = ids;
+            let server = crate::servers::runtime::active(s).as_str().to_owned();
+            s.project_state.organize_order.insert(server, ids);
         }
     }
 }
@@ -257,10 +268,11 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
     if all.is_empty() {
         return vec![text(t!("sidebar.organize.empty")).key("organize-empty").font(UI_SMALL).color(p.faint).pl(32.0).pr(8.0).py(8.0)];
     }
-    let limit = s.project_state.organize_limits.get(&proj.id).copied().unwrap_or(SESSIONS);
+    let key = project_key(s, &proj.id);
+    let limit = s.project_state.organize_limits.get(&key).copied().unwrap_or(SESSIONS);
     let mut rows: Vec<El> = all.iter().take(limit).map(|ses| session(s, p, ses)).collect();
     if all.len() > limit {
-        let id = proj.id.clone();
+        let id = key;
         rows.push(small_button(p, &format!("so-more-{}", proj.id), t!("sidebar.organize.showMore")).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             *s.project_state.organize_limits.entry(id.clone()).or_insert(SESSIONS) += SESSIONS;
@@ -273,7 +285,9 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
 /// its title (the text colour when it is the current session opened from this list, faint
 /// otherwise), and a ring while it works or a dot while it is unread.
 fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
-    let active = s.route == Route::here(ses.id.clone()) && s.project_state.organize_selected.as_deref() == Some(ses.id.as_str());
+    // The list's server is the one the window works against, so its sessions route `here`.
+    let uid = crate::tabs::session_uid(crate::servers::runtime::active(s), &ses.id);
+    let active = s.route == Route::here(ses.id.clone()) && s.project_state.organize_selected.as_deref() == Some(uid.as_str());
     let open_tab = s.tabs.iter().any(|t| t.route() == Route::here(ses.id.clone()));
     let id = ses.id.clone();
     let mark = match s.tab_status(&ses.id) {
@@ -294,7 +308,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
         .radius(6.0)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            s.project_state.organize_selected = Some(id.clone());
+            s.project_state.organize_selected = Some(crate::tabs::session_uid(crate::servers::runtime::active(s), &id));
             s.open(&id, tx);
         })
         .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto))

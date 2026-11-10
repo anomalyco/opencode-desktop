@@ -9,11 +9,11 @@
 use std::collections::HashMap;
 
 use rune::machine::Effects;
-use rune::{El, Tx, col, icon, text};
-use rune_theme_opencode::icons as ic;
+use rune::{El, Tx};
 
 use crate::palette::Pal;
 use crate::reconnect::ServerId;
+use crate::view::server_unavailable::{self, Cover};
 use crate::{App, Route};
 
 /// How long a session nothing knows yet may wait for its server before the tab says it can't
@@ -73,6 +73,10 @@ impl Resolution {
 pub enum View {
     /// The session (or, while it resolves, what this window holds of it).
     Session,
+    /// Its server refused our credentials (`ServerSignedOutPanel`).
+    SignedOut,
+    /// Its server runs a version this app can't use.
+    Incompatible,
     Unreachable,
     NotFound,
 }
@@ -160,89 +164,43 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
-/// What the tab of `id` shows: its resolution with its server's health, as `sessionRouteView`.
+/// What the tab of `id` shows: its resolution with its server's health, as `sessionRouteView`
+/// (`resolution-machine.ts:151-179`): a server that refused our credentials or runs an
+/// incompatible version covers it; a session its server has shows even while the server is away.
 pub fn view(s: &App, id: &str) -> View {
+    let key = crate::servers::runtime::active(s);
+    match server_unavailable::cover(key) {
+        Some(Cover::SignedOut) => return View::SignedOut,
+        Some(Cover::Incompatible) => return View::Incompatible,
+        None => {}
+    }
     let known = s.session(id).is_some();
     match s.session_states.get(&server(s), id) {
         Some(Resolution::NotFound) => View::NotFound,
         Some(Resolution::Ready) => View::Session,
         _ if known => View::Session,
         Some(Resolution::Unreachable) => View::Unreachable,
-        // Nothing known of it and its server isn't answering (never reached, or its stream is
-        // down): say so rather than wait blank, as Desktop's `unreachable | stopped` health does.
-        _ if crate::launch::offline(s) || s.server_links.get(&server(s)).dropped() => View::Unreachable,
+        // Nothing known of it and its server isn't answering (never reached, its stream is down,
+        // or its health check failed): say so rather than wait blank, as Desktop's
+        // `unreachable | stopped` health does.
+        _ if crate::launch::offline(s) || s.server_links.get(&server(s)).dropped() || server_unavailable::unreachable(key) => View::Unreachable,
         _ => View::Session,
     }
 }
 
 /// The open session's panel, when it can't show.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
-    let Route::Session { id: open, .. } = &s.route else { return None };
+    let Route::Session { id: open, server } = &s.route else { return None };
     if open != id {
         return None;
     }
+    let tab = s.current_tab();
+    let close = tab.as_deref().unwrap_or(id);
     match view(s, id) {
         View::Session => None,
-        View::Unreachable => Some(unavailable(s, p, id)),
-        View::NotFound => Some(not_found(s, p, id)),
+        View::SignedOut => Some(server_unavailable::signed_out(p, server)),
+        View::Incompatible => Some(server_unavailable::unavailable(p, server_unavailable::Reason::Incompatible, server, Some(close))),
+        View::Unreachable => Some(server_unavailable::unavailable(p, server_unavailable::Reason::Unreachable, server, Some(close))),
+        View::NotFound => Some(server_unavailable::not_found(p, server, id, close)),
     }
-}
-
-/// `text-16-medium`: 16 on 28.8 at 530.
-const TITLE: rune::TextStyle = rune::TextStyle::new(16.0, 530.0).lh(28.8);
-/// The panel's body, 13 on 24 at 440 (`text-13-regular` inherits the page's line height).
-const BODY: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
-/// The session id: IBM Plex Mono 13 at 530 on 16.
-const ID: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).mono().lh(16.0);
-
-/// The server's name as the panel says it: the app's own server's address without its scheme,
-/// another server's name (`servers::runtime::label`).
-fn server_label(s: &App) -> String {
-    crate::servers::runtime::label(crate::servers::runtime::active(s))
-}
-
-/// `SessionStatePanel`'s frame: centred, 24 in from the sides, 168 clear below, 16 up.
-fn frame(key: &str, children: Vec<El>) -> El {
-    col().key(key.to_owned()).grow(1.0).w_full().min_h(0.0).px(24.0).pb(168.0 + 32.0).items_center().justify_center().gap(16.0).children(children)
-}
-
-fn close_tab(id: &str, p: &Pal) -> El {
-    let id = id.to_owned();
-    crate::widgets::button(opencode_i18n::t!("session.error.notFound.closeTab"), rune_kit::ButtonVariant::Neutral)
-        .icon(&ic::XMARK_SMALL)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&id, tx))
-        .build(crate::palette::kit(p))
-        .key("session-state-close")
-}
-
-fn heading(p: &Pal, title: String, description: String) -> El {
-    col()
-        .items_center()
-        .gap(8.0)
-        .child(text(title).font(TITLE).color(p.text).max_w(448.0).wrap().align(rune::Align::Center))
-        .child(text(description).font(BODY).color(p.v1_text_weak).max_w(448.0).wrap().align(rune::Align::Center))
-}
-
-/// `ServerUnavailablePanel reason="unreachable"`.
-fn unavailable(s: &App, p: &Pal, id: &str) -> El {
-    let description = opencode_i18n::t!("session.error.unreachable.description", server = server_label(s)).to_owned();
-    frame("session-unreachable", vec![
-        icon(&ic::OUTLINE_HEXAGONAL_WARNING, 20.0).color(p.danger),
-        heading(p, opencode_i18n::t!("session.error.unreachable").to_owned(), description),
-        close_tab(id, p),
-    ])
-}
-
-/// `SessionNotFoundPanel`.
-fn not_found(s: &App, p: &Pal, id: &str) -> El {
-    let ident = col()
-        .items_center()
-        .gap(4.0)
-        .child(text(server_label(s)).font(BODY).color(p.text))
-        .child(text(id.to_owned()).font(ID).color(p.v1_text_base).fill(p.text.alpha(0.08)).radius(4.0).px(4.0).py(2.0));
-    frame("session-not-found", vec![
-        heading(p, opencode_i18n::t!("session.error.notFound").to_owned(), opencode_i18n::t!("session.error.notFound.description").to_owned()),
-        ident,
-        close_tab(id, p),
-    ])
 }

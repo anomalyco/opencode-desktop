@@ -120,8 +120,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     let layout = s.tab_layout();
     // The tab strip (top or side tabs): a tab other than the shown one, whose family runs.
+    // The shown tab is its session on its server (one server listed twice has the same ids).
     let shown = match &s.route {
-        Route::Session { id, .. } => Some(s.root_of(id).to_owned()),
+        Route::Session { id, server } if server == crate::servers::runtime::active(s) => Some(s.root_of(id).to_owned()),
         _ => None,
     };
     let tabs: Vec<(usize, String)> = if layout == TabLayout::Inbox {
@@ -130,7 +131,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.tabs
             .iter()
             .enumerate()
-            .filter(|(_, t)| !t.is_draft() && shown.as_deref() != Some(t.id.as_str()) && !s.request_reads.read.contains(&t.id))
+            .filter(|(_, t)| !t.is_draft() && t.server == *crate::servers::runtime::active(s) && shown.as_deref() != Some(t.id.as_str()) && !s.request_reads.read.contains(&t.id))
             .filter(|(_, t)| s.running.iter().any(|r| s.root_of(r) == t.id))
             .map(|(i, t)| (i, t.id.clone()))
             .collect()

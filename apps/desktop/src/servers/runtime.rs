@@ -24,6 +24,8 @@ use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
 use opencode_kit::client::{Incoming, Server};
+use opencode_kit::model::Project;
+use opencode_kit::servers::health::Health;
 use opencode_kit::servers::{ServerConn, ServerKey, controllers};
 use rune::Tx;
 use rune::machine::Attempt;
@@ -41,6 +43,9 @@ pub struct Listed {
     pub conn: ServerConn,
     /// What lists and panels call it.
     pub name: String,
+    /// It answered our credentials with 401: it stays listed, with no connection, until it
+    /// takes them again or gets new ones (`ServerControllerState.unauthorized`).
+    pub signed_out: bool,
 }
 
 #[derive(Default)]
@@ -112,12 +117,36 @@ pub(crate) fn keep_peer(key: &ServerKey, peer: &Rc<ServerPeer>) {
     });
 }
 
-/// What panels and lists call server `key` (`serverName`): the app's own by its address, as
-/// before; another by its name.
+/// What panels and lists call server `key` (`servers.label`, `registry.tsx:325-331`): its name;
+/// the app's own by the machine its `/api/info` names, else "This computer"; another by its
+/// address.
 pub fn label(key: &ServerKey) -> String {
     let named = RUNTIME.with_borrow(|r| r.listed.iter().find(|l| l.key == *key).map(|l| l.name.clone())).filter(|n| !n.is_empty());
-    let address = if key.is_sidecar() { own_server().map_or_else(|| key.as_str().to_owned(), |s| s.base) } else { key.as_str().to_owned() };
-    named.unwrap_or_else(|| address.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_owned())
+    if let Some(name) = named {
+        return name;
+    }
+    if key.is_sidecar() {
+        return super::health::hostname(key).unwrap_or_else(|| opencode_i18n::t!("server.thisComputer").to_owned());
+    }
+    key.as_str().trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_owned()
+}
+
+/// What tells server `key` apart where tabs of several servers mix (`servers.tag`,
+/// `registry.tsx:357-359`): its name, while more than one server is listed and it isn't the
+/// app's own.
+pub fn tag(key: &ServerKey) -> Option<String> {
+    let all = RUNTIME.with_borrow(|r| r.listed.len());
+    opencode_kit::servers::registry::server_tag(all, key.is_sidecar(), || label(key))
+}
+
+/// Server `key`'s health (`global.servers.health[key]`).
+pub fn health(key: &ServerKey) -> Option<Health> {
+    super::health::get(key)
+}
+
+/// Whether server `key` refused our credentials (`selectServerSignedOut`).
+pub fn signed_out(key: &ServerKey) -> bool {
+    RUNTIME.with_borrow(|r| r.controllers.signed_out(key))
 }
 
 /// Lists the app's servers anew (`servers.synced`): the controllers start a connection for each
@@ -153,19 +182,25 @@ fn sync(s: &App) {
     });
 }
 
-/// Runs the controllers' effects: a disposed server leaves the listing and drops its copy; a
-/// created one joins it.
+/// Runs the controllers' effects: a disposed server leaves the listing and drops its copy (one
+/// that refused our credentials stays, signed out); a created one joins it.
 fn apply(r: &mut Runtime, fx: rune::machine::Effects<controllers::Effect>, own: &Server) {
     for effect in fx {
         match effect {
+            // One that refused our credentials stays listed, signed out (Home's lock, the tab's
+            // Signed out panel), with no copy or stream.
             controllers::Effect::Dispose { key, attempt } => {
-                r.listed.retain(|l| !(l.key == key && l.attempt == attempt));
                 r.peers.remove(&key);
+                if r.controllers.signed_out(&key) {
+                    r.listed.iter_mut().filter(|l| l.key == key).for_each(|l| l.signed_out = true);
+                } else {
+                    r.listed.retain(|l| !(l.key == key && l.attempt == attempt));
+                }
             }
             controllers::Effect::Create { key, attempt, conn } => {
                 let name = r.inputs.iter().find(|(c, _)| c.key() == key).map(|(_, n)| n.clone()).unwrap_or_default();
                 r.listed.retain(|l| l.key != key);
-                r.listed.push(Listed { key: key.clone(), attempt, server: server_for(&conn, own), conn, name });
+                r.listed.push(Listed { key: key.clone(), attempt, server: server_for(&conn, own), conn, name, signed_out: false });
                 controllers::step(&mut r.controllers, controllers::Event::ControllerCreated { key, attempt });
             }
         }
@@ -232,6 +267,8 @@ pub struct Half {
     used: Vec<String>,
     /// The server's models, providers and agents (the pickers' catalog).
     pickers: crate::pickers::Pickers,
+    /// Its folders' git branches (the inbox's, the new-session page's).
+    branches: crate::inbox_model::Branches,
 }
 
 impl Half {
@@ -246,6 +283,7 @@ impl Half {
         swap(&mut self.jobs, &mut s.jobs);
         swap(&mut self.request_reads, &mut s.request_reads);
         swap(&mut self.used, &mut s.project_state.used);
+        swap(&mut self.branches, &mut s.sidebar_inbox.branches);
         let (a, b) = (&mut self.pickers, &mut s.pickers);
         swap(&mut a.models, &mut b.models);
         swap(&mut a.providers, &mut b.providers);
@@ -272,10 +310,20 @@ pub struct Checkout {
     active: ServerKey,
     meta: Meta,
     parked: Vec<(ServerKey, Meta, Half)>,
-    /// Each tab's mark on a server the window isn't checked out on, as of its last checkout.
-    snaps: HashMap<(ServerKey, String), Option<TabStatus>>,
+    /// Each tab's mark and project on a server the window isn't checked out on, as of its last
+    /// checkout.
+    snaps: HashMap<(ServerKey, String), Snap>,
     pub boot: Boot,
     synced: u64,
+}
+
+/// What a tab of a server the window isn't checked out on shows, as of its last checkout.
+#[derive(Clone, Debug, Default)]
+struct Snap {
+    status: Option<TabStatus>,
+    project: Option<Project>,
+    /// Its server has its session.
+    known: bool,
 }
 
 impl Default for Checkout {
@@ -287,7 +335,18 @@ impl Default for Checkout {
 impl Checkout {
     /// Tab `id`'s mark on `server`, as of when the window last worked against it.
     pub fn snap(&self, server: &ServerKey, id: &str) -> Option<TabStatus> {
-        self.snaps.get(&(server.clone(), id.to_owned())).copied().flatten()
+        self.snaps.get(&(server.clone(), id.to_owned())).and_then(|s| s.status)
+    }
+
+    /// Tab `id`'s project on `server` (its session's, else its folder's), as of when the window
+    /// last worked against it.
+    pub fn project(&self, server: &ServerKey, id: &str) -> Option<&Project> {
+        self.snaps.get(&(server.clone(), id.to_owned())).and_then(|s| s.project.as_ref())
+    }
+
+    /// Whether `server` had tab `id`'s session when the window last worked against it.
+    pub fn known(&self, server: &ServerKey, id: &str) -> bool {
+        self.snaps.get(&(server.clone(), id.to_owned())).is_some_and(|s| s.known)
     }
 
     /// Every server the window has a half of, the checked-out one first.
@@ -403,7 +462,8 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     if !listed().iter().any(|l| l.key == *key) {
         sync(s);
     }
-    let listed = listed().into_iter().find(|l| l.key == *key);
+    // A server that refused our credentials gets no connection until it takes them again.
+    let listed = listed().into_iter().find(|l| l.key == *key && !l.signed_out);
     let allow_send = matches!(s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
         Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
@@ -422,14 +482,18 @@ fn snap(s: &mut App) {
     let ids: Vec<String> = s.tabs.iter().filter(|t| !t.is_draft() && t.server == key).map(|t| t.id.clone()).collect();
     for id in ids {
         let status = s.tab_status(&id);
-        s.checkout.snaps.insert((key.clone(), id.clone()), status);
         if let Some((title, dir)) = s.session(&id).map(|i| (i.title.clone(), i.directory.clone()))
             && let Some(t) = s.tabs.iter_mut().find(|t| t.id == id && t.server == key)
         {
             t.title = title;
             t.directory = dir;
         }
+        let dir = s.tabs.iter().find(|t| t.id == id && t.server == key).map(|t| t.directory.clone()).unwrap_or_default();
+        let project = s.session(&id).and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(&dir)).cloned();
+        let known = s.session(&id).is_some();
+        s.checkout.snaps.insert((key.clone(), id.clone()), Snap { status, project, known });
     }
+    crate::inbox_model::snap(s);
 }
 
 /// `poll`: the listing's changes reach the window's halves, the servers it hasn't started yet
@@ -456,7 +520,8 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             changed |= with_server(s, &key, |s| background(s, tx)).unwrap_or(false);
         }
     }
-    changed
+    // Another server's inbox rows, as `snap` took them.
+    changed || s.sidebar_inbox.redraw
 }
 
 /// A server the window isn't checked out on: its launch, page loads, sends, jobs, replies and
@@ -471,7 +536,12 @@ fn background(s: &mut App, tx: &mut Tx) -> bool {
     crate::incoming::poll(s, tx, &mut None);
     crate::stop::poll(s, s.clock, tx);
     crate::session_state::poll(s, tx);
-    before != marks(s)
+    let now = s.clock;
+    // Its running tabs' and rows' questions and permissions, so their marks say they wait on
+    // you rather than work (Desktop syncs every server's requests).
+    crate::session_status::poll(s, now, tx);
+    let branches = crate::inbox_model::poll_branches(s, now, tx);
+    before != marks(s) || branches
 }
 
 fn marks(s: &App) -> Vec<(Option<TabStatus>, String)> {
@@ -483,7 +553,8 @@ fn marks(s: &App) -> Vec<(Option<TabStatus>, String)> {
 /// as Desktop keeps a tab while its server is away); listed servers the window has no half of
 /// get one.
 fn refit(s: &mut App) {
-    let listed = listed();
+    // A server signed out has no connection: windows hold an offline half of it.
+    let listed: Vec<Listed> = listed().into_iter().filter(|l| !l.signed_out).collect();
     let stale = |key: &ServerKey, meta: &Meta| match listed.iter().find(|l| l.key == *key) {
         Some(l) => meta.base != l.server.base || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
         None => meta.listing != Listing::Unlisted,

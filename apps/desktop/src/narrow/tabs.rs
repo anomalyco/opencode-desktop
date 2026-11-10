@@ -7,7 +7,6 @@ use rune_theme_opencode::icons as ic;
 
 use super::machine::TabsEvent;
 use crate::palette::Pal;
-use crate::session_menu::{Spot, Target};
 use crate::view::INSTANT;
 use crate::{App, Route};
 use opencode_i18n::t;
@@ -23,21 +22,17 @@ pub const SHEET: &str = "narrow-tabs-sheet";
 /// hover overlay while its drawer is open.
 pub fn trigger(s: &App, p: &Pal) -> El {
     let current = s.current_tab();
-    let tab = current.as_deref().and_then(|id| s.tabs.iter().find(|t| t.id == id));
+    let tab = current.as_deref().and_then(|uid| s.tab(uid));
     let lead = match tab {
         None => icon(&ic::GRID_PLUS, 16.0).color(p.icon),
         Some(t) if t.is_draft() => icon(&ic::EDIT, 16.0).color(p.icon),
-        Some(t) => avatar(s, p, &t.id, &t.directory),
+        Some(t) => avatar(s, p, t),
     };
     let title = match tab {
         None => t!("home.title").to_owned(),
-        Some(t) if t.is_draft() => t!("session.tab.session").to_owned(),
-        Some(t) => {
-            let title = s.session(&t.id).map_or(t.title.as_str(), |i| i.title.as_str());
-            if title.is_empty() { t!("session.tab.session").to_owned() } else { title.to_owned() }
-        }
+        Some(t) => crate::view::tab_strip::face(s, t).title,
     };
-    let busy = tab.is_some_and(|t| s.tab_status(&t.id) == Some(crate::TabStatus::Busy));
+    let busy = tab.is_some_and(|t| !t.is_draft() && s.tab_status_of(t) == Some(crate::TabStatus::Busy));
     let open = s.layout.narrow.tabs.is_open();
     let mut b = row()
         .key("narrow-tabs-trigger")
@@ -67,12 +62,10 @@ pub fn trigger(s: &App, p: &Pal) -> El {
     b
 }
 
-/// The open tab's project avatar, as the strip draws it.
-fn avatar(s: &App, p: &Pal, id: &str, dir: &str) -> El {
-    let info = s.session(id);
-    let dir = info.map_or(dir, |i| i.directory.as_str());
-    let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
-    crate::icons::badge(s, p, project, &crate::view::project_or_dir(project, dir))
+/// A tab's project avatar, on its own server, as the strip draws it.
+fn avatar(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
+    let face = crate::view::tab_strip::face(s, t);
+    crate::icons::badge(s, p, face.project, &crate::view::project_or_dir(face.project, face.dir))
 }
 
 /// The drawer's contents (`mobile-tabs-drawer`): 8 below the handle, its sections 8 apart.
@@ -153,17 +146,16 @@ fn button(key: &str, washed: Option<rune::Color>, glyph: &'static rune::Icon, si
 /// gap-1.5`, its avatar and title at 530, the 44 pt close button always showing at its end, the
 /// open tab on the pressed wash.
 fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
-    let active = s.current_tab().as_deref() == Some(t.id.as_str());
-    let lead = if t.is_draft() { icon(&ic::EDIT, 16.0).color(p.icon) } else { avatar(s, p, &t.id, &t.directory) };
-    let title = match s.session(&t.id) {
-        _ if t.is_draft() => crate::tabs::tab_title(""),
-        Some(i) => crate::tabs::tab_title(&i.title),
-        None => crate::tabs::tab_title(&t.title),
-    };
-    let status = s.tab_status(&t.id).filter(|_| !active);
-    let (select, close) = (t.id.clone(), t.id.clone());
+    let uid = t.uid();
+    let active = s.current_tab().as_deref() == Some(uid.as_str());
+    let lead = if t.is_draft() { icon(&ic::EDIT, 16.0).color(p.icon) } else { avatar(s, p, t) };
+    // Mixed servers' tabs, in strip order, with no server badge (`TitlebarTabStrip`).
+    let title = crate::view::tab_strip::face(s, t).title;
+    let mark = if t.is_draft() { s.tab_status(&t.id) } else { s.tab_status_of(t) };
+    let status = mark.filter(|_| !active);
+    let (select, close) = (uid.clone(), uid.clone());
     let mut r = row()
-        .key(format!("narrow-tab-{}", t.id))
+        .key(format!("narrow-tab-{uid}"))
         .role("button")
         .label(title.clone())
         .w_full()
@@ -196,7 +188,7 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
     if active {
         r = r.fill(p.bg_deep);
     }
-    crate::session_menu::on(r, Target::new(&t.id, Spot::Tab))
+    crate::session_menu::on(r, crate::view::tab_strip::target(s, t))
 }
 
 /// `background: linear-gradient(over, over), base`'s overlay: the first child of an element

@@ -116,14 +116,20 @@ fn asks(word: &str) -> String {
 /// load, and its Close other tabs and Close tabs to the right for tabs to close; a subagent's
 /// header has no menu.
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
-    let known = s.session(&t.id);
-    let draft = s.tabs.iter().any(|tab| tab.id == t.id && tab.is_draft());
+    // A tab is named by its `Tab::uid`; its session is known once its server, checked out, has it.
+    let tab = (t.spot == Spot::Tab).then(|| s.tab(&t.id)).flatten();
+    let known = match tab {
+        Some(tab) if tab.server != *crate::servers::runtime::active(s) => None,
+        Some(tab) => s.session(&tab.id),
+        None => s.session(&t.id),
+    };
+    let draft = tab.is_some_and(crate::tabs::Tab::is_draft);
     match t.spot {
         Spot::Tab => {
-            let at = s.tabs.iter().position(|x| x.id == t.id);
+            let at = s.tab_at(&t.id);
             let close = [
                 item("close", opencode_i18n::t!("common.closeTab"), true),
-                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), s.tabs.iter().any(|x| x.id != t.id)),
+                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), s.tabs.iter().any(|x| x.uid() != t.id)),
                 // Side tabs run down the sidebar (`TabCloseMenuItems`).
                 item("close-right", if s.tab_layout().has_sidebar() { opencode_i18n::t!("common.closeTabsBelow") } else { opencode_i18n::t!("common.closeTabsToRight") }, at.is_some_and(|i| i + 1 < s.tabs.len())),
             ];
@@ -182,10 +188,11 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
         "rename" => s.begin_rename(t),
         "close" => s.close_tab(&t.id, tx),
         "close-others" | "close-right" => {
-            let at = s.tabs.iter().position(|x| x.id == t.id).unwrap_or(0);
+            let at = s.tab_at(&t.id).unwrap_or(0);
+            let keep = s.tabs.get(at).map(crate::tabs::Tab::uid);
             let gone: Vec<String> = s.tabs.iter().enumerate()
-                .filter(|(i, x)| x.id != t.id && (id == "close-others" || *i > at))
-                .map(|(_, x)| x.id.clone())
+                .filter(|(i, x)| Some(x.uid()) != keep && (id == "close-others" || *i > at))
+                .map(|(_, x)| x.uid())
                 .collect();
             for g in gone {
                 s.close_tab(&g, tx);
