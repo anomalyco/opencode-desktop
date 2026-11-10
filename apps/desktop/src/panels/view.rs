@@ -591,6 +591,10 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
     if !matches!(s.route, Route::Session(_)) || s.settings.open || s.narrow() {
         return None;
     }
+    // A session its server can't give shows Desktop's state panel, which has no header.
+    if let Route::Session(id) = &s.route && crate::session_state::view(s, id) != crate::session_state::View::Session {
+        return None;
+    }
     let open = s.side_open();
     Some(
         el().key("side-toggle")

@@ -20,6 +20,10 @@ pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, co
 // Session
 
 pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
+    // A session its server can't give: what Desktop's route shows instead (`session_state`).
+    if let Some(panel) = crate::session_state::panel(s, p, id) {
+        return col().key("session").grow(1.0).w_full().child(panel);
+    }
     // A narrow window hides the header under its view switcher (`screen.tsx`'s `hideHeader`).
     if s.narrow() {
         return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0)));

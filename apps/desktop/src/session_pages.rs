@@ -17,56 +17,53 @@ const DISK_BYTES: u64 = 32 << 20;
 const MEMORY_BYTES: usize = 64 << 20;
 const PAGE_BYTES: usize = 4 << 20;
 pub const WARM: usize = 6;
-const HOLD: Duration = Duration::from_millis(150);
 /// Older pages as you scroll up: Desktop's `messagePageLimit`, asked for once the timeline
-/// stands within its 200 px of the top (`interaction.ts` `onHistoryScroll`).
+/// stands within its 200 px of the top (`history-machine.ts` `HISTORY_SCROLL_THRESHOLD`).
 const OLDER: usize = 20;
 const NEAR_TOP: f32 = 200.0;
-/// A failed or stuck older page isn't asked for again sooner (the pool's own backoff).
-const RETRY: Duration = Duration::from_secs(30);
 
 #[cfg(test)]
 mod bench_tests;
+mod machines;
 #[cfg(test)]
 mod prefetch_tests;
 #[cfg(test)]
 mod typing_tests;
 
-/// Session-page prefetch pool, delayed history-cursor expansion, and older pages on scroll.
+pub use machines::{History, OpenEvent, Opening};
+use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
+
+/// Session-page prefetch pool, each session's history above its latest page, and older pages
+/// on scroll.
 #[derive(Default)]
 pub struct State {
     pool: Option<Pages>,
-    history: Option<(Instant, Key, String)>,
-    /// Sessions whose first history page landed, with the cursor to older messages (None at
-    /// the session's start).
-    older: HashMap<String, Option<String>>,
-    fetching: Option<Fetching>,
+    /// Each session's history, by (server, session) (`machines::History`).
+    histories: Histories,
     /// The session whose timeline stands near its top, told by its scroll viewport.
     near_top: std::rc::Rc<std::cell::RefCell<String>>,
     wake: Option<Waker>,
-    /// The calm "still trying" toast's id while it is up, and whether this silence showed one.
-    waiting: Option<u64>,
-    told: bool,
+    /// The calm "still trying" toast (`machines::Stall`).
+    stall: Stall,
     stall_after: Option<Duration>,
 }
 
 /// How long the server may stay silent before the app says so.
 const STALL_AFTER: Duration = Duration::from_secs(30);
 
-/// The older page being read.
-struct Fetching { id: String, at: Instant, slow: bool, failed: bool }
-
 impl State {
     pub fn set(&mut self, pages: Pages) {
         self.wake = pages.wake.clone();
-        self.older.clear();
-        self.fetching = None;
+        self.histories.clear();
         self.pool = Some(pages);
     }
 
     pub fn has_pool(&self) -> bool {
         self.pool.is_some()
     }
+
+    /// The server the pool reads (its base URL; empty for a fixture's).
+    fn server(&self) -> &str { self.pool.as_ref().map_or("", |p| p.server.as_str()) }
 
     /// For session `id`'s timeline scroll viewport: standing near its top, the next poll reads
     /// the page before it.
@@ -86,12 +83,12 @@ impl State {
 
     /// An older page for `id` has taken longer than the opening hold: show that it's coming.
     pub fn loading_older(&self, id: &str) -> bool {
-        self.fetching.as_ref().is_some_and(|f| f.id == id && f.slow && !f.failed)
+        matches!(self.histories.get(self.server(), id), Some(History::Loading { slow: true, .. }))
     }
 
     /// Whether a page before `id`'s oldest loaded message is still to read.
     pub fn more_above(&self, id: &str) -> bool {
-        self.older.get(id).is_some_and(Option::is_some)
+        matches!(self.histories.get(self.server(), id), Some(History::Idle { .. } | History::Loading { .. } | History::Failed { .. }))
     }
 
     #[cfg(test)]
@@ -99,29 +96,23 @@ impl State {
         self.stall_after = Some(after);
     }
 
+    /// The cursor above `id`'s history: `Some(None)` once it ran out, `None` before it was read.
     #[cfg(test)]
-    pub fn older(&self, id: &str) -> Option<&Option<String>> {
-        self.older.get(id)
+    pub fn older(&self, id: &str) -> Option<Option<String>> {
+        match self.histories.get(self.server(), id)? {
+            History::Idle { cursor } | History::Loading { cursor, .. } | History::Failed { cursor, .. } => Some(Some(cursor.clone())),
+            History::Exhausted => Some(None),
+            History::Expanding { .. } | History::Filling { .. } => None,
+        }
     }
 
     /// As though `id`'s first history page had landed, leaving `cursor` to read before it.
     #[cfg(test)]
     pub fn set_older(&mut self, id: &str, cursor: Option<String>) {
-        self.older.insert(id.into(), cursor);
+        let server = self.server().to_owned();
+        self.histories.set(&server, id, cursor.map_or(History::Exhausted, |cursor| History::Idle { cursor }));
     }
 }
-
-/// Only the transcript remains `from` until content can paint or the loading deadline expires.
-pub struct Opening {
-    pub id: String,
-    from: super::Route,
-    started: Instant,
-    clock: f64,
-    pub loading: bool,
-    received: bool,
-    pub error: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Key { pub id: String, pub updated: i64 }
 
@@ -159,6 +150,8 @@ pub struct Pages {
     shared: Shared,
     pub results: Receiver<Result<Arc<Page>, (Key, String)>>,
     wake: Option<Waker>,
+    /// The server it reads (its base URL; empty for a fixture's or a test's).
+    server: String,
 }
 
 impl Drop for Pages {
@@ -174,14 +167,16 @@ impl Pages {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
-        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None }, send)
+        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None, server: String::new() }, send)
     }
     pub fn live(server: Server, wake: Waker) -> Self {
-        let dir = disk_dir(&server.base);
-        Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
+        let (dir, base) = (disk_dir(&server.base), server.base.clone());
+        let mut pages = Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
             crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
             value
-        })), dir, wake)
+        })), dir, wake);
+        pages.server = base;
+        pages
     }
 
     pub fn new(fetch: Fetch, dir: Option<PathBuf>, wake: Waker) -> Self {
@@ -192,7 +187,7 @@ impl Pages {
             std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
                 .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
         }
-        Self { shared, results, wake: Some(wake) }
+        Self { shared, results, wake: Some(wake), server: String::new() }
     }
 
     /// How long the open lane has gone without an answer from the server, if it has.
@@ -482,8 +477,8 @@ impl super::App {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
-        let from = self.opening.as_ref().filter(|o| !o.loading).map_or_else(|| self.route.clone(), |o| o.from.clone());
-        self.opening = Some(Opening { id: id.into(), from, started: Instant::now(), clock: self.clock, loading: false, received: self.transcripts.contains_key(id), error:None });
+        let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| self.route.clone(), |o| o.from.clone());
+        self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), self.clock));
         self.open_now(id, tx);
         self.open_page(id, tx);
         self.poll_open(tx);
@@ -497,7 +492,7 @@ impl super::App {
             return false;
         }
         let id = opening.id.clone();
-        let ready = opening.received && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
+        let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
         if ready {
             self.opening = None;
             // Mount the finished transcript at its end without resetting input or focus.
@@ -505,11 +500,8 @@ impl super::App {
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
-        // The fixture/story clock is deterministic; an idle live window must use wall time,
-        // because its last poll may have been minutes before this click.
-        let expired = if self.live() { opening.started.elapsed() >= HOLD } else { self.clock >= opening.clock + HOLD.as_secs_f64() };
-        if expired && !opening.loading {
-            self.opening.as_mut().unwrap().loading = true;
+        let expired = opening.expired(self.live(), self.clock);
+        if expired && self.opening.as_mut().is_some_and(|o| o.step(OpenEvent::Expired)) {
             tx.settle();
             return true;
         }
@@ -524,12 +516,12 @@ impl super::App {
     }
 
     pub fn loading_session(&self, id: &str) -> bool {
-        self.opening.as_ref().is_some_and(|o| o.id == id && o.loading)
+        self.opening.as_ref().is_some_and(|o| o.id == id && o.loading())
     }
 
     /// The held transcript is read-only; the route and composer already belong to the target.
     pub(crate) fn displayed_session<'a>(&'a self, id: &'a str) -> Option<&'a str> {
-        match self.opening.as_ref().filter(|o| o.id == id && !o.loading) {
+        match self.opening.as_ref().filter(|o| o.id == id && !o.loading()) {
             Some(o) => match &o.from { super::Route::Session(from) => Some(from), _ => None },
             None => Some(id),
         }
@@ -595,10 +587,11 @@ impl super::App {
     fn merge_page(&mut self, page: &Page, tx: &mut rune::Tx) {
         // A page this window read goes into the server's copy, for its other windows too.
         crate::windows::peer::touch(self);
-        if let Some(o) = &mut self.opening && o.id == page.key.id && !page.history { o.received = true; }
+        if let Some(o) = &mut self.opening && o.id == page.key.id && !page.history { o.step(OpenEvent::Received); }
         self.attach.adopt(&page.images);
         let id = &page.key.id;
         let stale = self.page_key(id).updated > page.key.updated;
+        let added = page.messages.iter().filter(|m| !self.transcripts.get(id).is_some_and(|t| t.messages.iter().any(|old| old.id() == m.id()))).count();
         let first = !self.transcripts.contains_key(id);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| model::Transcript { session: id.clone(), messages: vec![] });
         let mut messages = page.messages.clone();
@@ -614,14 +607,12 @@ impl super::App {
         self.settle_inbox(id, &delivered);
         let cold = !page.cached && self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
-        // Not for older pages read while scrolled back: a settle pins the timeline to its end.
-        let older = page.history && self.pages.older.contains_key(id);
-        if first || (page.history && !older) || cold { tx.settle(); }
+        if first || cold { tx.settle(); }
         if page.history {
-            // An empty page ends it too, so a server that keeps handing out cursors can't loop.
-            let older = page.cursor.clone().filter(|_| !page.messages.is_empty());
-            self.pages.older.insert(id.clone(), older);
-            if self.pages.fetching.as_ref().is_some_and(|f| f.id == *id) { self.pages.fetching = None; }
+            // A page that added nothing ends it too, so a server that keeps handing out cursors
+            // can't loop (`history-machine.ts` `stalled`).
+            let id = id.clone();
+            self.step_history(&id, HistoryEvent::Landed { cursor: page.cursor.clone(), added }, tx);
             // Where the page leaves the reader is reported next frame; read on only from there.
             self.pages.near_top.borrow_mut().clear();
         }
@@ -630,11 +621,30 @@ impl super::App {
 
     fn schedule_history(&mut self, page: &Page, tx: &mut rune::Tx) {
         let id = &page.key.id;
-        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && !self.pages.older.contains_key(id) && let Some(cursor) = &page.cursor {
+        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
-            self.pages.history = Some((Instant::now() + Duration::from_millis(50), page.key.clone(), cursor.clone()));
-            tx.wake_after(Duration::from_millis(50));
+            let id = id.clone();
+            self.step_history(&id, HistoryEvent::Latest { key: page.key.clone(), cursor, now: Instant::now() }, tx);
         }
+    }
+
+    /// Steps `id`'s history and carries out what it asks for. True when what shows changed.
+    fn step_history(&mut self, id: &str, event: HistoryEvent<'_>, tx: &mut rune::Tx) -> bool {
+        let server = self.pages.server().to_owned();
+        let effects = self.pages.histories.step(&server, id, event);
+        let mut changed = false;
+        for effect in effects {
+            match effect {
+                HistoryEffect::Read { key, cursor, limit } => {
+                    let key = key.unwrap_or_else(|| self.page_key(id));
+                    if let Some(pages) = &self.pages.pool { pages.history(key, cursor, limit); }
+                }
+                HistoryEffect::WakeAfter(after) => tx.wake_after(after),
+                HistoryEffect::Settle => tx.settle(),
+                HistoryEffect::Repaint => changed = true,
+            }
+        }
+        changed
     }
 
     pub fn poll_pages(&mut self, tx: &mut rune::Tx) -> bool {
@@ -648,13 +658,21 @@ impl super::App {
             }
             match result {
                 Ok(page) if self.route == super::Route::Session(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
+                Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && crate::session_state::not_found_error(&error) => {
+                    self.opening = None;
+                    changed |= crate::session_state::missing(self, &key.id, tx);
+                }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
                     self.status = error.clone();
-                    self.opening.as_mut().unwrap().error = Some(error);
+                    if let Some(o) = &mut self.opening { o.step(OpenEvent::Failed(error)); }
                     changed = true;
                 }
+                Err((key, error)) if self.route == super::Route::Session(key.id.clone()) && crate::session_state::not_found_error(&error) => {
+                    changed |= crate::session_state::missing(self, &key.id, tx);
+                }
                 Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => {
-                    if let Some(f) = &mut self.pages.fetching && f.id == key.id { f.failed = true; }
+                    // A failure while its older page loads fails that page (its cooldown, then a retry).
+                    changed |= self.step_history(&key.id, HistoryEvent::Failed { now: Instant::now() }, tx);
                     // A busy server is waited out; only silence that lasts is told (below).
                     if opencode_kit::plain_error::is_transient(&error) { eprintln!("opencode-rune: session read failed: {error}"); continue; }
                     crate::status_toast::fail(self, "Couldn't load this session", crate::status_toast::plain(error.split_once(": ").map_or(error.as_str(), |(_, why)| why)));
@@ -665,9 +683,12 @@ impl super::App {
         }
         changed |= self.poll_open(tx);
         changed |= self.tell_stall();
-        if self.pages.history.as_ref().is_some_and(|(at, _, _)| *at <= Instant::now()) {
-            let (_, key, cursor) = self.pages.history.take().unwrap();
-            if self.route == super::Route::Session(key.id.clone()) && let Some(pages) = &self.pages.pool { pages.history(key, cursor, 80 - LATEST); }
+        // Each timed history (the first page's wait, a slow or stuck older page).
+        let server = self.pages.server().to_owned();
+        for id in self.pages.histories.timed(&server) {
+            let routed = self.route == super::Route::Session(id.clone());
+            let expanding = matches!(self.pages.histories.get(&server, &id), Some(History::Expanding { .. }));
+            if routed || !expanding { changed |= self.step_history(&id, HistoryEvent::Tick { now: Instant::now() }, tx); }
         }
         changed | self.load_older(tx)
     }
@@ -678,17 +699,14 @@ impl super::App {
         // read from the same outage must not also cover the composer with a waiting toast.
         let silent = if self.unsent.waiting_for_link() || crate::reconnect::down(self) { None } else { self.pages.pool.as_ref().and_then(Pages::stalled_for) };
         let after = self.pages.stall_after.unwrap_or(STALL_AFTER);
-        match (silent, self.pages.waiting) {
-            (Some(for_how_long), None) if for_how_long >= after && !self.pages.told => {
-                self.pages.told = true;
-                self.pages.waiting = Some(crate::status_toast::waiting(self, STILL_TRYING));
+        match (silent, self.pages.stall) {
+            (Some(for_how_long), Stall::Quiet) if for_how_long >= after => {
+                self.pages.stall = Stall::Told { toast: crate::status_toast::waiting(self, STILL_TRYING) };
                 true
             }
-            (None, waiting) => {
-                self.pages.told = false;
-                let Some(id) = waiting else { return false };
-                self.pages.waiting = None;
-                crate::status_toast::dismiss_id(self, id);
+            (None, Stall::Told { toast }) => {
+                self.pages.stall = Stall::Quiet;
+                crate::status_toast::dismiss_id(self, toast);
                 true
             }
             _ => false,
@@ -705,22 +723,9 @@ impl super::App {
     /// top. It lands above what's on screen without moving it: the virtual list holds its
     /// first visible row (Rune `VirtualList::anchor_delta`).
     fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
-        if let Some(f) = &mut self.pages.fetching {
-            let waited = f.at.elapsed();
-            if waited < RETRY {
-                if f.failed || f.slow || waited < HOLD { return false; }
-                f.slow = true;
-                return true;
-            }
-            self.pages.fetching = None;
-        }
-        let super::Route::Session(id) = &self.route else { return false };
-        if *self.pages.near_top.borrow() != *id { return false; }
-        let (Some(Some(cursor)), Some(pages)) = (self.pages.older.get(id), &self.pages.pool) else { return false };
-        pages.history(self.page_key(id), cursor.clone(), OLDER);
-        self.pages.fetching = Some(Fetching { id: id.clone(), at: Instant::now(), slow: false, failed: false });
-        tx.wake_after(HOLD);
-        false
+        let super::Route::Session(id) = self.route.clone() else { return false };
+        if *self.pages.near_top.borrow() != id || self.pages.pool.is_none() { return false; }
+        self.step_history(&id, HistoryEvent::NearTop { now: Instant::now() }, tx)
     }
 }
 

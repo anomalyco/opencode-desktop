@@ -579,8 +579,7 @@ fn launch_first_frame_benchmark() {
                 app.tabs = crate::tabs::from_beta_db(&db).unwrap_or_default();
                 app.route = Route::Session("ses_bench1".into());
             } else {
-                app.launch.waiting = true;
-                app.launch.beta_tabs = true;
+                app.launch.set_phase("", crate::launch::Phase::Waiting { beta_tabs: true });
                 app.tabs = vec![crate::tabs::Tab::session("ses_bench1", "Bench", "/w")];
                 app.route = Route::Session("ses_bench1".into());
                 let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&page_file).unwrap()).unwrap();

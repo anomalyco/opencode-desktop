@@ -26,14 +26,13 @@ fn first_reads_land_in_one_poll() {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.launch.waiting = true;
     let (out, rx) = channel();
-    app.launch.first = Some(rx);
+    app.launch.set_first("http://127.0.0.1:9", rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })), config: None };
     out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
-    assert!(!app.launch.waiting && app.launch.first.is_none());
+    assert!(!super::waiting(&app));
     assert!(!app.projects.is_empty());
     assert!(app.tabs.is_empty(), "no saved tabs: none, as Desktop's first launch");
     assert!(app.running.contains(crate::fixture_ids::SIXTH));
@@ -45,10 +44,9 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.launch.waiting = true;
     app.route = Route::Session("ses_gone".into());
     let (out, rx) = channel();
-    app.launch.first = Some(rx);
+    app.launch.set_first("http://127.0.0.1:9", rx);
     let beta = vec![crate::tabs::Tab::session(crate::fixture_ids::THIRD, "Pinned", "/w")];
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: None, config: None };
     out.send(Ready { server: None, beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
@@ -59,10 +57,9 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     // Unreachable background probe falls back to the built-in fixture when explicitly requested.
     let mut offline = App::empty();
     offline.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    offline.launch.waiting = true;
     offline.launch.fallback_fixture = true;
     let (out, rx) = channel();
-    offline.launch.first = Some(rx);
+    offline.launch.set_first("http://127.0.0.1:9", rx);
     out.send(Ready { server: None, beta_tabs: None, first: None }).unwrap();
     assert!(poll(&mut offline, &mut Tx::default()));
     assert!(matches!(offline.source, Source::Fixture));
@@ -74,11 +71,10 @@ fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
     use rune::{Env, Runtime};
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:4096"), requests: None, writes: None, allow_send: false };
-    app.launch.waiting = true;
-    app.route = Route::Session("ses_restored".into());
+    app.route = Route::Home;
     app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let (out, rx) = channel();
-    app.launch.first = Some(rx);
+    app.launch.set_first("http://127.0.0.1:4096", rx);
     out.send(Ready {
         server: Some(Server::new("http://127.0.0.1:4096")),
         beta_tabs: None,
@@ -87,9 +83,9 @@ fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
     .unwrap();
     assert!(poll(&mut app, &mut Tx::default()));
     assert!(app.live(), "never silently falls back to FIXTURE");
-    assert!(app.launch.offline);
+    assert!(super::offline(&app));
     assert!(app.sessions.is_empty());
-    assert!(app.tabs.is_empty());
+    assert_eq!(app.tabs.len(), 1, "the tabs stay while the server is away");
     assert_eq!(app.route, Route::Home);
 
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
@@ -106,11 +102,10 @@ fn synchronous_live_load_enters_offline_instead_of_fixture() {
     let mut live = App::empty();
     assert!(live.load_live(Server::new("http://127.0.0.1:9"), false));
     assert!(live.live());
-    assert!(live.launch.offline);
+    assert!(super::offline(&live));
     assert_eq!(live.route, Route::Home);
-    assert!(live.tabs.is_empty());
     super::setup(&mut live);
-    assert!(live.launch.first.is_none(), "offline setup does not spin up a second background probe");
+    assert!(super::offline(&live) && !super::checking(&live), "offline setup does not spin up a second background probe");
 }
 
 #[test]

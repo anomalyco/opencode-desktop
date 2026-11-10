@@ -159,14 +159,15 @@ impl App {
             None => None,
         };
         if let Some(route) = saved {
-            let known = |id: &str| self.launch.waiting || self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
+            let waiting = self.launch.phase(server).is_some_and(crate::launch::Phase::waiting);
+            let known = |id: &str| waiting || self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
             let lost = match &route {
                 Route::Session(id) => !known(id),
                 Route::Draft(id) => !self.tabs.iter().any(|t| t.id == *id && t.is_draft()),
                 Route::Home => false,
             };
             if !lost {
-                if self.launch.waiting
+                if waiting
                     && let Route::Session(id) = &route
                     && !self.transcripts.contains_key(id)
                     && let Some(messages) = crate::session_pages::load_cached_latest(server, id)
@@ -207,7 +208,7 @@ impl App {
         self.tabs.push(crate::tabs::Tab::draft(id.clone(), self.default_dir.clone()));
         // The source isn't live yet, so `save_tabs` would skip it: written here, once, unless
         // the tabs still come from Beta.
-        if !crate::headless() && !cfg!(test) && !self.launch.offline && !self.launch.beta_tabs {
+        if !crate::headless() && !cfg!(test) && !self.launch.phase(server).is_some_and(|p| p.offline() || p.beta_tabs()) {
             crate::tabs::save(&self.window, server, &self.tabs);
         }
         Route::Draft(id)

@@ -61,7 +61,7 @@ const SESSIONS_MAX: f32 = 720.0;
 
 /// Home in the panel `panel` big, in a window `window` big (zeros when unknown: a story).
 pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32; 2]) -> El {
-    if s.launch.offline {
+    if crate::launch::offline(s) {
         return no_server_home(s, p);
     }
     let selected = s.project_state.home_selected.as_deref().and_then(|id| s.project(id));
@@ -193,7 +193,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             list = list.child(el().key(format!("end-{title}")).w_full().h(23.0));
         }
     }
-    if count == 0 && !s.launch.waiting {
+    if count == 0 && !crate::launch::waiting(s) {
         list = list.child(empty(p, can_create));
     }
     // `HomeSessionsView`'s `<section>` reveals the page's thumb (`thumbHoverTarget`). Only the
@@ -460,7 +460,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
     };
     // Only the local default is a server to start; any other address is one to reach.
     let local = addr == opencode_kit::client::DEFAULT_SERVER;
-    let checking = s.launch.waiting && !s.launch.quiet;
+    let checking = crate::launch::checking(s);
     let copy_key = "no-server-copy";
     let cmd_row = row()
         .key("no-server-cmd")
@@ -558,7 +558,8 @@ mod no_server_story {
             label: "Toggle checking",
             run: |s, tx| {
                 tx.instant();
-                s.launch.waiting = !s.launch.waiting;
+                let checking = !crate::launch::checking(s);
+                crate::launch::story_offline(s, checking);
             },
         },
     ];
@@ -568,8 +569,7 @@ mod no_server_story {
         s.sessions.clear();
         s.tabs.clear();
         s.projects.clear();
-        s.launch.offline = true;
-        s.launch.waiting = s.variant == 1;
+        crate::launch::story_offline(s, s.variant == 1);
         s.launch.story_addr = (s.variant == 2).then(|| "http://127.0.0.1:14096".to_owned());
     }
 

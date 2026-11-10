@@ -13,7 +13,9 @@ use opencode_kit::model::Transcript;
 use rune::Tx;
 use serde_json::Value;
 
+use crate::reconnect::ServerId;
 use crate::{App, Route, Source, arg, headless, session_pages};
+use rune::machine::Effects;
 
 static DEFERRED: AtomicBool = AtomicBool::new(false);
 
@@ -162,13 +164,6 @@ impl First {
     }
 }
 
-#[cfg(test)]
-impl Launch {
-    pub fn set_first(&mut self, rx: Receiver<Ready>) {
-        self.first = Some(rx);
-    }
-}
-
 /// What `on_ready`'s background startup worker brings back: Desktop Beta's tabs (when no
 /// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
 /// reachable and the window should fall back to the fixture.
@@ -178,52 +173,175 @@ pub struct Ready {
     pub first: Option<Result<First, String>>,
 }
 
+/// A server that didn't answer, trying it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Again {
+    pub retries: u32,
+    /// The app tried on its own (its timer, the network coming back): the card's button doesn't
+    /// say Checking, and another miss changes nothing on screen.
+    pub quiet: bool,
+}
+
+/// One server's launch: from the first reads to connected, or no answer and tries again. As
+/// OpenCode Desktop's server health settles `checking → settled` per server
+/// (`packages/app/src/runtime/server/health-machine.ts`), and its startup waits for the server
+/// before it mounts (`packages/desktop/src/renderer/startup/machine.ts`: `booting → hydrating`).
+#[derive(Debug, Default)]
+pub enum Phase {
+    /// A windowed run waits for `on_ready` before its first reads. `beta_tabs`: no tabs were
+    /// saved, so Desktop Beta's `drafts.sqlite` tabs are read too; without them a first launch
+    /// has none and shows Home, as Desktop's does.
+    Waiting { beta_tabs: bool },
+    /// The probe and first reads are on their way; `again` while the server didn't answer before.
+    Probing { rx: Receiver<Ready>, again: Option<Again> },
+    /// No server answered: the next try is at `retry_at` (`App::clock`).
+    Offline { retries: u32, retry_at: f64 },
+    /// The first reads landed (a headless run reads them before its first frame).
+    #[default]
+    Connected,
+}
+
+pub enum LaunchEvent {
+    /// `on_ready`, or `setup` for a run that read the server already.
+    Start,
+    /// Retry: the card's button (`quiet` false), or the app on its own.
+    Retry { quiet: bool },
+    /// The network came back: start the backoff over.
+    NetworkUp,
+    /// The window polls at `now`.
+    Tick { now: f64 },
+    /// The probe answered: the server answered (`Some(true)`), didn't (`Some(false)`), or the
+    /// window falls back to the fixture (`None`).
+    Landed { reached: Option<bool>, now: f64 },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum LaunchEffect {
+    /// Start the probe and first reads, keeping on for `grace`; the caller enters `Probing`.
+    Probe { beta_tabs: bool, again: Option<Again>, grace: Duration },
+    /// The first reads are in: connect the stream and the open session.
+    Connect,
+    /// No server answered, first said: the card and the session's unavailable panel show.
+    Unreachable,
+    /// The fixture stands in for a server that isn't there.
+    Fixture,
+    WakeAt(f64),
+    /// Something on screen changed.
+    Repaint,
+}
+
+impl Phase {
+    pub fn step(&mut self, event: LaunchEvent, grace: Duration) -> Effects<LaunchEffect> {
+        use LaunchEffect::*;
+        match (std::mem::take(self), event) {
+            (Phase::Waiting { beta_tabs }, LaunchEvent::Start) => Effects::one(Probe { beta_tabs, again: None, grace }),
+            (Phase::Connected, LaunchEvent::Start) => Effects::one(Connect),
+            (Phase::Offline { retries, .. }, LaunchEvent::Retry { quiet }) => {
+                Effects::two(Repaint, Probe { beta_tabs: false, again: Some(Again { retries, quiet }), grace: if quiet { Duration::ZERO } else { grace } })
+            }
+            (Phase::Offline { .. }, LaunchEvent::NetworkUp) => Effects::one(Probe { beta_tabs: false, again: Some(Again { retries: 0, quiet: true }), grace: Duration::ZERO }),
+            (Phase::Offline { retries, retry_at }, LaunchEvent::Tick { now }) if now + 1e-3 >= retry_at => {
+                Effects::one(Probe { beta_tabs: false, again: Some(Again { retries, quiet: true }), grace: Duration::ZERO })
+            }
+            (Phase::Offline { retries, retry_at }, LaunchEvent::Tick { .. }) => {
+                *self = Phase::Offline { retries, retry_at };
+                Effects::none()
+            }
+            (Phase::Probing { again, .. }, LaunchEvent::Landed { reached: Some(true), .. }) => {
+                *self = Phase::Connected;
+                let _ = again;
+                Effects::two(Repaint, Connect)
+            }
+            (Phase::Probing { .. }, LaunchEvent::Landed { reached: None, .. }) => {
+                *self = Phase::Connected;
+                Effects::two(Repaint, Fixture)
+            }
+            (Phase::Probing { again, .. }, LaunchEvent::Landed { reached: Some(false), now }) => {
+                let retries = again.map_or(0, |a| a.retries);
+                let retry_at = now + retry_delay(retries);
+                *self = Phase::Offline { retries: retries.saturating_add(1), retry_at };
+                // A try the app made on its own that misses again changes nothing on screen.
+                if again.is_some_and(|a| a.quiet) { return Effects::one(WakeAt(retry_at)); }
+                let mut effects = Effects::two(Repaint, Unreachable);
+                effects.push(WakeAt(retry_at));
+                effects
+            }
+            (phase, _) => {
+                *self = phase;
+                Effects::none()
+            }
+        }
+    }
+
+    /// No server answered: Home shows the card, a session the unavailable panel.
+    pub fn offline(&self) -> bool { matches!(self, Phase::Offline { .. } | Phase::Probing { again: Some(_), .. }) }
+    /// The card's button says Checking: a probe the person asked for is on its way.
+    pub fn checking(&self) -> bool { matches!(self, Phase::Probing { again: None | Some(Again { quiet: false, .. }), .. }) }
+    /// The first reads haven't landed.
+    pub fn waiting(&self) -> bool { matches!(self, Phase::Waiting { .. } | Phase::Probing { again: None, .. }) }
+    /// Desktop Beta's tabs are still to read.
+    pub fn beta_tabs(&self) -> bool { matches!(self, Phase::Waiting { beta_tabs: true }) }
+}
+
 #[derive(Default)]
 pub struct Launch {
     network_change: Option<std::sync::Arc<network::Change>>,
-    retries: u32,
-    started: bool,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
     pub inbox_wake: Option<rune::Waker>,
-    /// The `on_ready` probe, Beta tab read and first server reads, on their way.
-    first: Option<Receiver<Ready>>,
-    /// The first reads wait for `on_ready` (a windowed live run).
-    pub waiting: bool,
+    /// Each server's launch, many at once (the window's one today; `notes/multi-server.md` MS-2).
+    phases: std::collections::HashMap<ServerId, Phase>,
     /// Fall back to the built-in fixture when the background probe finds no server.
     pub fallback_fixture: bool,
-    /// True while a live launch found no local OpenCode server (Home shows the setup card).
-    pub offline: bool,
-    /// No tabs were saved: read Desktop Beta's `drafts.sqlite` tabs in `on_ready`. Without them a
-    /// first launch has none, and shows Home, as Desktop's does.
-    pub beta_tabs: bool,
     /// Restored session id whose cached messages painted on frame 0 and settle on first live refresh.
     pub cold_transcript: Option<String>,
-    /// Tabs put aside while the setup card shows, back when the server answers.
-    held_tabs: Vec<crate::tabs::Tab>,
-    /// A probe the app started on its own while offline: the card's button doesn't say Checking.
-    pub quiet: bool,
-    /// When the setup card next probes on its own (`App::clock`).
-    next_retry: f64,
-    /// How long a launch keeps probing before the setup card ([`GRACE`] unless a test sets it).
+    /// How long a launch keeps probing the local default address before Home shows the setup
+    /// card ([`GRACE`] unless a test sets it): a server that is just starting comes up in this time.
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
-    /// The event stream after connecting (`reconnect`).
-    pub link: crate::reconnect::Link,
+}
+
+impl Launch {
+    pub fn phase(&self, server: &str) -> Option<&Phase> { self.phases.get(server) }
+    pub fn set_phase(&mut self, server: &str, phase: Phase) { self.phases.insert(server.to_owned(), phase); }
+    pub fn forget(&mut self, server: &str) { self.phases.remove(server); }
+}
+
+/// A story's window whose server didn't answer; `checking` while a Retry the person pressed is
+/// on its way (its answer never comes).
+pub(crate) fn story_offline(s: &mut App, checking: bool) {
+    let Some(server) = window_server(s) else { return };
+    let phase = if checking {
+        let (answer, rx) = std::sync::mpsc::channel();
+        // The story's probe stays on its way: its sender lives as long as the app.
+        std::mem::forget(answer);
+        Phase::Probing { rx, again: Some(Again { retries: 0, quiet: false }) }
+    } else {
+        Phase::Offline { retries: 0, retry_at: f64::INFINITY }
+    };
+    s.launch.set_phase(&server, phase);
+}
+
+#[cfg(test)]
+impl Launch {
+    pub fn set_first(&mut self, server: &str, rx: Receiver<Ready>) {
+        self.set_phase(server, Phase::Probing { rx, again: None });
+    }
 }
 
 /// How long a launch keeps trying a server it hasn't reached before Home shows the setup card:
-/// a tunnel or a server that is just starting comes up in this time.
+/// a server that is just starting comes up in this time. Only the local default address waits:
+/// another (a remote server, a tunnel) that refuses is unreachable at once, as Desktop's health
+/// check settles on its first answer.
 pub const GRACE: Duration = Duration::from_secs(5);
 /// How often the setup card tries again on its own.
 fn retry_delay(attempt: u32) -> f64 { (0.25 * 2_f64.powi(attempt.min(4) as i32)).min(3.0) }
-
 mod network;
 pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
     if !s.live() { return; }
     Server::wake_reconnects();
-    if s.launch.offline && s.launch.first.is_none() { s.launch.retries=0; s.launch.quiet=true; again(s,tx); }
+    step(s, LaunchEvent::NetworkUp, tx);
     s.pump_outbox();
 }
 
@@ -248,10 +366,28 @@ pub(crate) fn probe(server: &Server, discover: bool, grace: Duration) -> (Server
 
 /// `setup`: connects now unless `on_ready` will start the reads (or a synchronous live probe found no server).
 pub fn setup(s: &mut App) {
-    if !s.launch.waiting && !s.launch.offline {
+    if matches!(window_phase(s), None | Some(Phase::Connected)) {
         start(s, &mut Tx::default());
     }
 }
+
+/// The server this window connects to: one per window today (`notes/multi-server.md` MS-2 keeps
+/// many live at once), keyed as `reconnect::Links` keys it.
+pub(crate) fn window_server(s: &App) -> Option<ServerId> {
+    match &s.source {
+        Source::Live { server, .. } => Some(server.base.clone()),
+        Source::Fixture => Some(String::new()),
+    }
+}
+
+fn window_phase(s: &App) -> Option<&Phase> { window_server(s).and_then(|server| s.launch.phase(&server)) }
+
+/// The window's server didn't answer: Home shows the card, a session the unavailable panel.
+pub fn offline(s: &App) -> bool { window_phase(s).is_some_and(Phase::offline) }
+/// The window's first reads haven't landed.
+pub fn waiting(s: &App) -> bool { window_phase(s).is_some_and(Phase::waiting) }
+/// The card's Retry says Checking.
+pub fn checking(s: &App) -> bool { window_phase(s).is_some_and(Phase::checking) }
 
 /// Coalesce a burst into one quiet poll. An ordinary window wake requests a drawable even
 /// when the batch only updated a background session; a timer lets Rune skip that present.
@@ -282,29 +418,52 @@ pub fn ready(s: &mut App, tx: &mut Tx) {
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
-    s.launch.quiet = false;
-    if s.launch.first.is_none() {
-        again(s, tx);
-    }
-}
-
-fn again(s: &mut App, tx: &mut Tx) {
-    s.launch.started = false;
-    s.launch.waiting = true;
-    tx.instant();
-    start(s, tx);
+    step(s, LaunchEvent::Retry { quiet: false }, tx);
 }
 
 pub(crate) fn start(s: &mut App, tx: &mut Tx) {
-    if std::mem::replace(&mut s.launch.started, true) {
-        return;
+    let Some(server) = window_server(s) else { return connect(s, tx) };
+    // A run that read the server before its first frame has connected.
+    if s.launch.phase(&server).is_none() {
+        s.launch.set_phase(&server, Phase::Connected);
     }
-    let (Source::Live { server, .. }, true) = (&s.source, s.launch.waiting) else { return connect(s, tx) };
+    step(s, LaunchEvent::Start, tx);
+}
+
+/// Steps the window's server's launch and carries out what it asks for.
+fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
+    let Some(server) = window_server(s) else { return false };
+    // Only the local default address may be a server still starting (see `GRACE`).
+    let grace = if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO };
+    let Some(mut phase) = s.launch.phases.remove(&server) else { return false };
+    let effects = phase.step(event, grace);
+    s.launch.set_phase(&server, phase);
+    let mut changed = false;
+    for effect in effects {
+        match effect {
+            LaunchEffect::Probe { beta_tabs, again, grace } => {
+                let rx = spawn_probe(s, beta_tabs, grace);
+                s.launch.set_phase(&server, Phase::Probing { rx, again });
+            }
+            LaunchEffect::Connect => connect(s, tx),
+            LaunchEffect::Unreachable | LaunchEffect::Fixture => {}
+            LaunchEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - s.clock).max(0.0))),
+            LaunchEffect::Repaint => {
+                tx.instant();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
+fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     let (out, rx) = std::sync::mpsc::channel();
+    let Source::Live { server, .. } = &s.source else { return rx };
     let (server, wake) = (server.clone(), s.waker.clone());
-    let (fallback, beta_tabs) = (s.launch.fallback_fixture, std::mem::take(&mut s.launch.beta_tabs));
+    let fallback = s.launch.fallback_fixture;
     let discover_local = s.server_key.is_none() && crate::arg("--server").is_none();
-    let grace = if s.launch.quiet { Duration::ZERO } else { s.launch.grace.unwrap_or(GRACE) };
     std::thread::Builder::new()
         .name("opencode-first".into())
         .spawn(move || {
@@ -327,20 +486,18 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
             }
         })
         .expect("spawn first reads");
-    s.launch.first = Some(rx);
+    rx
 }
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
-    if s.launch.offline && s.launch.first.is_none() && s.live() && crate::attended() {
-        if s.clock + 1e-3 < s.launch.next_retry {
-            return false;
-        }
-        s.launch.quiet = true;
-        again(s, tx);
+    let Some(server) = window_server(s) else { return false };
+    let now = s.clock;
+    if s.live() && crate::attended() {
+        step(s, LaunchEvent::Tick { now }, tx);
     }
-    let Some(rx) = &s.launch.first else { return false };
+    let Some(Phase::Probing { rx, .. }) = s.launch.phase(&server) else { return false };
     let ready = match rx.try_recv() {
         Ok(r) => r,
         Err(TryRecvError::Empty) => return false,
@@ -350,11 +507,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             first: Some(Err("The first server reads stopped".into())),
         },
     };
-    s.launch.first = None;
-    s.launch.waiting = false;
-    let quiet = std::mem::take(&mut s.launch.quiet);
+    let reached = ready.first.as_ref().map(Result::is_ok);
     tx.instant();
     let Some(result) = ready.first else {
+        step(s, LaunchEvent::Landed { reached, now }, tx);
         s.launch.cold_transcript = None;
         crate::windows::peer::leave_server(s);
         s.transcripts.clear();
@@ -366,6 +522,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut s.source) {
         *server = actual;
     }
+    // The key moves with the address `service.json` named.
+    if let Some(moved) = window_server(s).filter(|key| *key != server)
+        && let Some(phase) = s.launch.phases.remove(&server)
+    {
+        s.launch.set_phase(&moved, phase);
+    }
     if let Some(tabs) = ready.beta_tabs {
         let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
         s.tabs = tabs;
@@ -373,44 +535,22 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     match result {
         Ok(first) => {
-            s.launch.offline = false;
-            s.launch.retries = 0;
-            if s.tabs.is_empty() && !s.launch.held_tabs.is_empty() {
-                s.tabs = std::mem::take(&mut s.launch.held_tabs);
-            }
             s.apply_first(first);
-            connect(s, tx);
+            step(s, LaunchEvent::Landed { reached, now }, tx);
             s.show_outbox();
             s.pump_outbox();
+            true
         }
+        // The tabs and the page stay, as Desktop never drops a tab while its server is away
+        // (`packages/app/src/shell/tabs/tabs.tsx`): Home shows the card, a session whose server
+        // hasn't answered the unavailable panel (`view::session_state`).
         Err(e) => {
-            let delay = retry_delay(s.launch.retries);
-            s.launch.retries = s.launch.retries.saturating_add(1);
-            s.launch.next_retry = s.clock + delay;
-            tx.wake_after(Duration::from_secs_f64(delay));
-            if quiet {
-                return false;
-            }
-            s.launch.offline = true;
-            if matches!(s.route, Route::Session(_)) && !s.transcripts.is_empty() {
-                s.status = e;
-                return true;
-            }
-            s.launch.cold_transcript = None;
-            // The other windows keep what they show while this one waits for the server.
-            crate::windows::peer::leave_server(s);
-            s.transcripts.clear();
-            if s.launch.held_tabs.is_empty() {
-                s.launch.held_tabs = std::mem::take(&mut s.tabs);
-            }
-            s.tabs.clear();
-            s.route = Route::Home;
-            s.status = e;
+            let shown = step(s, LaunchEvent::Landed { reached, now }, tx);
+            if shown { s.status = e; }
+            shown
         }
     }
-    true
 }
-
 impl App {
     /// Connects the window to `server` in place of the one it has: what it held of the old one
     /// goes, its own saved tabs come, and Home shows its projects. `key` is a
@@ -421,6 +561,10 @@ impl App {
             return;
         }
         if let Source::Live { server: old, .. } = &self.source {
+            // The window leaves the old server: its launch and link go with it.
+            let old_key = old.base.clone();
+            self.launch.forget(&old_key);
+            self.server_links.forget(&old_key);
             if self.persists() {
                 crate::tabs::save(&self.window, &old.base, &self.tabs);
             }
@@ -449,13 +593,11 @@ impl App {
             *writes = None;
         }
         self.launch.cold_transcript = None;
-        self.launch.held_tabs.clear();
         self.open_outbox();
-        self.launch.offline = false;
         // Desktop Beta's saved tabs are the app's own server's.
-        self.launch.beta_tabs = false;
-        self.launch.started = false;
-        self.launch.waiting = true;
+        if let Some(key) = window_server(self) {
+            self.launch.set_phase(&key, Phase::Waiting { beta_tabs: false });
+        }
         start(self, tx);
     }
 

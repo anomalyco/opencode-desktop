@@ -15,8 +15,68 @@
 //! app through `rune::single_instance`; macOS gets them from the bundle's `CFBundleURLTypes`.
 
 use rune::Tx;
+use rune::machine::Effects;
 
+use crate::reconnect::ServerId;
 use crate::{App, Source};
+
+/// A link waiting for its server: the folder an `open?project=` link names, on the server it
+/// opens on (the window's, today; `notes/multi-server.md` MS-2 routes it by server).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Queued {
+    pub server: ServerId,
+    pub dir: String,
+}
+
+/// Links the system handed the app, held until their server can open them, as OpenCode Desktop
+/// holds a link until a window is ready for it (`packages/desktop/src/main/deep-links/machine.ts`:
+/// `queued` until `window.ready`, then `delivered`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DeepLinks {
+    #[default]
+    Idle,
+    /// Links whose server isn't connected yet, oldest first.
+    Waiting(Vec<Queued>),
+}
+
+pub enum DeepLinkEvent {
+    Received(Queued),
+    /// `server` is connected: its links can open.
+    Ready { server: ServerId },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum DeepLinkEffect {
+    /// The window comes forward, as Desktop's `window.focus` command.
+    Focus,
+    /// Opens `dir` as a project with a new session.
+    Open(String),
+}
+
+impl DeepLinks {
+    pub fn step(&mut self, event: DeepLinkEvent, ready: impl Fn(&str) -> bool) -> Effects<DeepLinkEffect> {
+        let mut queue = match std::mem::take(self) {
+            DeepLinks::Idle => Vec::new(),
+            DeepLinks::Waiting(queue) => queue,
+        };
+        let mut effects = Effects::none();
+        match event {
+            DeepLinkEvent::Received(link) => {
+                effects.push(DeepLinkEffect::Focus);
+                queue.push(link);
+            }
+            DeepLinkEvent::Ready { .. } => {}
+        }
+        let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|q| ready(&q.server));
+        for q in now {
+            effects.push(DeepLinkEffect::Open(q.dir));
+        }
+        if !later.is_empty() { *self = DeepLinks::Waiting(later); }
+        effects
+    }
+
+    pub fn is_waiting(&self) -> bool { matches!(self, DeepLinks::Waiting(_)) }
+}
 
 /// `App::on_open_url`.
 pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
@@ -31,28 +91,55 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
         }
         return;
     }
-    match project(url, crate::launch::product().scheme()) {
-        Some(dir) => {
-            s.links.push(dir);
-            drain(s, tx);
+    match (project(url, crate::launch::product().scheme()), server_of(s)) {
+        (Some(dir), Some(server)) => {
+            let ready = ready_server(s);
+            let effects = s.deep_links.step(DeepLinkEvent::Received(Queued { server, dir }), |server| ready.as_deref() == Some(server));
+            run(s, effects, tx);
         }
-        None => eprintln!("opencode-rune: ignored a link it doesn't open: {url}"),
+        _ => eprintln!("opencode-rune: ignored a link it doesn't open: {url}"),
     }
 }
 
-/// Opens the projects links asked for, once the app can (from `poll`).
+/// Opens the links waiting for a server once it connects (from `poll`).
 pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
-    if s.links.is_empty() || matches!(s.source, Source::Live { writes: None, .. }) {
-        return false;
-    }
-    for dir in std::mem::take(&mut s.links) {
-        if s.live() {
-            rune_notify::bring_to_front();
+    let Some(server) = ready_server(s).filter(|_| s.deep_links.is_waiting()) else { return false };
+    let ready = Some(server.clone());
+    let effects = s.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.as_deref() == Some(server));
+    run(s, effects, tx)
+}
+
+fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
+    let mut changed = false;
+    for effect in effects {
+        match effect {
+            DeepLinkEffect::Focus if s.live() => rune_notify::bring_to_front(),
+            DeepLinkEffect::Focus => {}
+            DeepLinkEffect::Open(dir) => {
+                s.close_settings();
+                s.open_project_dir(&dir, true, tx);
+                changed = true;
+            }
         }
-        s.close_settings();
-        s.open_project_dir(&dir, true, tx);
     }
-    true
+    changed
+}
+
+/// The server a link opens on: the window's (one per window until MS-2).
+fn server_of(s: &App) -> Option<ServerId> {
+    match &s.source {
+        Source::Live { server, .. } => Some(server.base.clone()),
+        Source::Fixture => Some(String::new()),
+    }
+}
+
+/// The server that can take writes in this window, once connected.
+fn ready_server(s: &App) -> Option<ServerId> {
+    match &s.source {
+        Source::Live { server, writes: Some(_), .. } => Some(server.base.clone()),
+        Source::Live { .. } => None,
+        Source::Fixture => Some(String::new()),
+    }
 }
 
 /// The folder an `open?project=<folder>` link on `opencode` or `own` names.

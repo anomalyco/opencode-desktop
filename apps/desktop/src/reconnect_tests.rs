@@ -60,7 +60,7 @@ fn a_dropped_stream_keeps_the_page_and_resyncs_when_back() {
     assert_eq!(rt.state.transcripts[&id].messages.len(), messages);
     assert_eq!(rt.state.tabs.len(), sidebar);
     assert_eq!(rt.state.composer.text, "half a thought");
-    assert!(!rt.state.launch.offline && rt.find("no-server").is_none(), "no setup card");
+    assert!(!crate::launch::offline(&rt.state) && rt.find("no-server").is_none(), "no setup card");
     let _: Vec<Request> = asked.try_iter().collect();
 
     send.send(Incoming::Reconnected).unwrap();
@@ -89,7 +89,7 @@ fn a_drop_that_comes_back_quickly_says_nothing() {
 fn a_never_reached_server_shows_the_card_only_after_the_grace() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.launch.waiting = true;
+    app.launch.set_phase("http://127.0.0.1:9", crate::launch::Phase::Waiting { beta_tabs: false });
     app.launch.grace = Some(Duration::from_millis(800));
     app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let start = Instant::now();
@@ -98,23 +98,23 @@ fn a_never_reached_server_shows_the_card_only_after_the_grace() {
     rt.poll = Some(crate::poll);
     frames(&mut rt, 0.1);
     assert!(rt.find("no-server").is_none(), "no card on the first failed probe");
-    while !rt.state.launch.offline && start.elapsed() < Duration::from_secs(5) {
+    while !crate::launch::offline(&rt.state) && start.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(50));
         rt.frame(DT);
     }
-    assert!(rt.state.launch.offline, "it gives up after the grace");
+    assert!(crate::launch::offline(&rt.state), "it gives up after the grace");
     assert!(rt.state.status.starts_with("No OpenCode server responded"), "{}", rt.state.status);
     assert!(start.elapsed() >= Duration::from_millis(500), "and not before: {:?}", start.elapsed());
     rt.frame(DT);
     assert!(rt.find("no-server").is_some());
     assert!(rt.find("no-server-cmd").is_none(), "a non-default address gets no start command");
-    assert!(rt.state.tabs.is_empty(), "the tabs wait behind the card");
+    assert_eq!(rt.state.tabs.len(), 1, "the tabs stay while the server is away");
 }
 
 #[test]
 fn the_setup_card_names_the_command_only_for_the_local_default() {
     let mut app = App::empty();
-    app.launch.offline = true;
+    crate::launch::story_offline(&mut app, false);
     app.route = Route::Home;
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
     rt.frame(DT);
@@ -149,7 +149,8 @@ fn a_suspect_link_whose_stream_stays_up_clears_on_its_own() {
     frames(&mut rt, super::QUIET + 0.2);
     assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
     // The stream would have dropped by now if the link were dead.
-    rt.state.launch.link.suspect_at = Some(rt.state.clock - super::STREAM_IDLE.as_secs_f64() - super::QUIET);
+    let since = rt.state.clock - super::STREAM_IDLE.as_secs_f64() - super::QUIET;
+    rt.state.server_links.set("http://127.0.0.1:9", super::Link::Suspect { since, notice: super::Notice::Shown });
     frames(&mut rt, 0.2);
     assert_eq!(header_status(&rt), None);
     assert!(!super::down(&rt.state));
@@ -164,24 +165,21 @@ fn a_failed_launch_never_saves_away_a_tab() {
     crate::tabs::SAVED.with(|s| *s.borrow_mut() = None);
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.launch.waiting = true;
     let home = crate::tabs::Tab::session("ses_home_not_in_list", "HOME", "/w");
     app.tabs = vec![home.clone()];
     let (out, rx) = channel();
-    app.launch.set_first(rx);
+    app.launch.set_first("http://127.0.0.1:9", rx);
     out.send(Ready { server: None, beta_tabs: None, first: Some(Err("No OpenCode server responded at http://127.0.0.1:9".into())) }).unwrap();
     assert!(crate::launch::poll(&mut app, &mut Tx::default()));
-    assert!(app.launch.offline && app.tabs.is_empty());
-    app.save_tabs();
-    assert_eq!(crate::tabs::SAVED.with(|s| s.borrow().clone()), None, "nothing saved behind the card");
+    assert!(crate::launch::offline(&app) && app.tabs == vec![home.clone()], "the tabs stay while the server is away");
 
     // The server answers; its session list doesn't name the tab (a page past it, or a drop).
     let (out, rx) = channel();
-    app.launch.set_first(rx);
+    app.launch.set_first("http://127.0.0.1:9", rx);
     let first = First::from_parts(fixture["projects"].clone(), Some(fixture["sessions"].clone()));
     out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
     assert!(crate::launch::poll(&mut app, &mut Tx::default()));
-    assert!(!app.launch.offline);
+    assert!(!crate::launch::offline(&app));
     assert_eq!(app.tabs.first(), Some(&home), "the saved tab is back, not swapped for recent sessions");
     app.save_tabs();
     let saved = crate::tabs::SAVED.with(|s| s.borrow().clone()).unwrap();

@@ -986,7 +986,7 @@ fn open_runs() -> Vec<(String, Run)> {
 
 fn open(r: &mut Run) {
     // What the page shows: the session, held or loading, and how much of its transcript.
-    let state = |s: &App| (s.route.clone(), s.opening.as_ref().map(|o| o.loading), s.transcripts.get("ses_open_story").map(|t| t.messages.len()));
+    let state = |s: &App| (s.route.clone(), s.opening.as_ref().map(|o| o.loading()), s.transcripts.get("ses_open_story").map(|t| t.messages.len()));
     let mut seen = state(&r.rt.state);
     // The story's O trigger (the storybook routes it; this runtime has no playground, where an
     // O key would be typed into the composer, as Desktop types a stray key there). A prefetched

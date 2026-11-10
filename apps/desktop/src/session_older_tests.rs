@@ -100,7 +100,7 @@ fn scrolling_up_reads_older_pages_without_moving_what_is_on_screen() {
     let v = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(SCROLL)).unwrap().rect;
     let (x, y) = (v[0] + v[2] / 2.0, v[1] + v[3] / 2.0);
     let mut landed = 0;
-    while rt.state.pages.older(ID).is_some_and(Option::is_some) {
+    while rt.state.pages.older(ID).is_some_and(|o| o.is_some()) {
         // Up to the very top: the page lands above the first row on screen.
         let asked = requests.lock().unwrap().len();
         for _ in 0..400 {
@@ -142,7 +142,7 @@ fn scrolling_up_reads_older_pages_without_moving_what_is_on_screen() {
     }
     assert_eq!(landed, 3);
     assert_eq!(len(&rt), TOTAL);
-    assert_eq!(rt.state.pages.older(ID), Some(&None), "the cursor ran out");
+    assert_eq!(rt.state.pages.older(ID), Some(None), "the cursor ran out");
 
     // At the start, nothing more is read and the first message shows.
     let asked = requests.lock().unwrap().len();

@@ -454,7 +454,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 fn mcp_active(s: &App) -> Option<&Server> {
-    if s.launch.waiting || s.stage.is_some() {
+    if crate::launch::waiting(s) || s.stage.is_some() {
         return None;
     }
     let Source::Live { server, allow_send, .. } = &s.source else { return None };

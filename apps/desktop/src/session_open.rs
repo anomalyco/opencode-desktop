@@ -44,6 +44,7 @@ impl App {
             self.ends.forget(id);
         }
         self.route = Route::Session(id.to_owned());
+        crate::session_state::opened(self, id, tx);
         self.sync_route_draft(&prev_route, id);
         let root = self.root_of(id).to_owned();
         // As in Desktop, you can type straight away. A subagent's page waits for a click into

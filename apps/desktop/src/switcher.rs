@@ -565,7 +565,7 @@ impl App {
                 self.open(&id, tx);
                 // The palette is gone: show the chosen shell, not the previous transcript,
                 // while the existing page request finishes. Keep its retry/back state.
-                if let Some(open) = &mut self.opening { open.loading = true; }
+                if let Some(open) = &mut self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
             }
             Action::Command(id) => self.run_command(id, tx),
             // `path:line` (or `path#L12`) opens the file at that line.

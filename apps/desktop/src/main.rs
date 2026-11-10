@@ -219,6 +219,7 @@ mod session_stall_tests;
 mod send_failed;
 mod session_open;
 mod session_pages;
+mod session_state;
 mod session_status;
 mod settings;
 mod shortcuts;
@@ -426,8 +427,12 @@ pub struct App {
     jobs: jobs::Jobs,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: notifications::Notifier,
-    /// Projects `opencode://open?project=` links asked for, waiting for the server (`deep_links`).
-    pub links: Vec<String>,
+    /// Links the system handed the app, until they open (`deep_links`).
+    pub deep_links: deep_links::DeepLinks,
+    /// Every server's link: live, in doubt or down (`reconnect`).
+    pub server_links: reconnect::Links,
+    /// Whether each open session can show, by (server, session) (`session_state`).
+    pub session_states: session_state::States,
     /// The open session and composer drafts, saved for the next launch.
     pub restore: restore::Restore,
     /// Background shells, and the running-work list above the composer (`subagents::activity`).
@@ -740,7 +745,7 @@ impl session_view::TimelineHost for App {
         crate::message_nav::reveal_shell(self, shell, tx);
     }
     fn loading_error(&self, session: &str) -> Option<&str> {
-        self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error.as_deref())
+        self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
     }
     fn loading_older(&self, session: &str) -> bool {
         self.pages.loading_older(session)
@@ -948,22 +953,30 @@ impl App {
 
     pub(crate) fn load_live(&mut self, server: Server, fallback_fixture: bool) -> bool {
         // A headless snapshot reads the server now; a window reads it and probes after its first frame.
-        let first = if launch::deferred() {
-            self.launch.waiting = true;
+        let deferred = launch::deferred();
+        let first = if deferred {
             self.launch.fallback_fixture = fallback_fixture;
             None
         } else {
             match launch::First::fetch(&server) {
                 Ok(f) => Some(f),
                 Err(_) if fallback_fixture => return false,
-                Err(_) => { self.launch.offline = true; None }
+                // No answer before the first frame: the launch tries again from `poll`.
+                Err(_) => {
+                    self.launch.set_phase(&server.base, launch::Phase::Offline { retries: 0, retry_at: 0.0 });
+                    None
+                }
             }
         };
         // Desktop Beta's tabs come into the profile's first window only.
         let beta = self.window.legacy && server.base == DEFAULT_SERVER;
-        match tabs::load(&self.window, &server.base).or_else(|| (beta && !self.launch.waiting).then(tabs::from_beta).flatten()) {
+        match tabs::load(&self.window, &server.base).or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
             Some(tabs) => self.tabs = tabs,
-            None => self.launch.beta_tabs = beta && self.launch.waiting,
+            None if deferred => self.launch.set_phase(&server.base, launch::Phase::Waiting { beta_tabs: beta }),
+            None => {}
+        }
+        if deferred && self.launch.phase(&server.base).is_none() {
+            self.launch.set_phase(&server.base, launch::Phase::Waiting { beta_tabs: false });
         }
         if let Some(first) = first {
             self.apply_first(first);
@@ -982,7 +995,6 @@ impl App {
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::load();
         self.restore_ui(&server.base);
-        if self.launch.offline { (self.tabs.clear(), self.route = Route::Home); }
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         let allow_send = !flag("--read-only") && attended();
@@ -1237,6 +1249,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= settings::pages::about::poll(s, now, tx);
     changed |= settings::pages::projects::poll(s);
     changed |= reconnect::poll(s, tx);
+    changed |= session_state::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
     changed |= narrow::poll(s, now, tx);
