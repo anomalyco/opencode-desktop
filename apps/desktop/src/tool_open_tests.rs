@@ -107,9 +107,11 @@ fn locate_finds_the_run_nearest_the_hint() {
     assert_eq!(locate(&fd, &gone), None);
 }
 
-/// A read standing alone after the reply's words, so its row is its own (consecutive reads
-/// merge into one row, which has no button).
+/// An image read standing alone after the reply's words, in its group opened: a plain read
+/// draws in Desktop's line of reads, which has no button (a4db05f6), and an image's row is its
+/// own.
 const LONE: &str = "call_read_lone";
+const IMAGE: &str = "logo.png";
 
 fn with_lone_read(a: &mut App) {
     let sid = a.active_session_id().unwrap().to_owned();
@@ -121,10 +123,11 @@ fn with_lone_read(a: &mut App) {
         name: "read".into(),
         status: ToolStatus::Completed,
         title: String::new(),
-        input: json!({ "filePath": format!("{DIR}/src/net/stream.ts"), "offset": 11, "limit": 20 }),
+        input: json!({ "filePath": format!("{DIR}/assets/{IMAGE}") }),
         files: Vec::new(),
         metadata: json!(null),
     });
+    a.expanded.insert(format!("c-{LONE}"));
 }
 
 /// A read's button opens its lines; an edit, write or patch shows in a card of file rows with
@@ -142,7 +145,7 @@ fn a_reads_button_opens_its_lines_and_the_same_click_shuts_them() {
     }
     assert!((rt.find(&key).unwrap().1 - y0).abs() < 1.0, "the pressed row stays where it was");
     assert!(rt.state.side_open(), "the side region opens");
-    assert_eq!(active(&rt), Some(file_tab_key("src/net/stream.ts")));
+    assert_eq!(active(&rt), Some(file_tab_key(&format!("assets/{IMAGE}"))));
     assert!(!rt.state.side.focused, "focus stays in the timeline");
     tap(&mut rt, &key);
     assert!(!rt.state.side_open(), "the same click shuts what it opened");
@@ -213,5 +216,5 @@ fn a_double_click_leaves_the_step_open() {
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
     assert!(rt.state.side_open(), "a double-click opens it, and leaves it open");
-    assert_eq!(active(&rt), Some(file_tab_key("src/net/stream.ts")));
+    assert_eq!(active(&rt), Some(file_tab_key(&format!("assets/{IMAGE}"))));
 }
