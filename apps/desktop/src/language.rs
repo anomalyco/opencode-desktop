@@ -25,6 +25,7 @@ pub fn apply(s: &mut App) {
     opencode_i18n::set_locale(id);
     rune::set_labels(label);
     rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
+    rune::labels::set_direction(crate::view::ui_direction());
 }
 
 /// Settings' Language row: saves `id` and switches to it, the macOS menu bar included.
@@ -35,6 +36,8 @@ pub fn set(s: &mut App, id: &str) {
     let id = id.to_owned();
     opencode_i18n::set_locale(&id);
     rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
+    // Rune's native menus (text fields', Windows' window menu, macOS's) read the language's way.
+    rune::labels::set_direction(crate::view::ui_direction());
     crate::menubar::refresh();
     s.change_settings(|x| x.language = Some(id));
 }

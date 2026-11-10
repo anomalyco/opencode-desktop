@@ -157,7 +157,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
                 }
             });
     }
-    let words = crate::fold::view(s, p, id, &shown, readable(p, words), fold, quotes.is_some() && !body.trim().is_empty());
+    // Each line reads in the direction of its own words, inside the bubble's
+    // (`message-part.css:176`, `:224`: `unicode-bidi: plaintext`).
+    let words = readable(p, words).dir_by_paragraph();
+    let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty());
     let mut face = match quotes {
         Some(cards) if body.trim().is_empty() => cards.key("bubble"),
         Some(cards) => bubble.w(342.0).pt(12.0).child(cards).children(words),
