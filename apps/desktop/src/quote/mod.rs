@@ -171,8 +171,9 @@ pub fn selection_changed(s: &mut App, change: &SelectionChange, tx: &mut Tx) {
 /// focus leaves behind.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
-    let session = available(s).map(str::to_owned);
-    if s.quote.offer().is_some_and(|o| Some(&o.session) != session.as_ref()) {
+    // Every poll comes here: the session is compared in place, and copied only for a read.
+    let session = s.quote.toolbar.settle.and_then(|_| available(s).map(str::to_owned));
+    if s.quote.offer().is_some_and(|o| Some(o.session.as_str()) != available(s)) {
         s.quote.step(machine::Event::Reset, tx);
         changed = true;
     }

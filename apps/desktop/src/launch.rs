@@ -379,7 +379,7 @@ pub(crate) fn window_server(s: &App) -> Option<ServerId> {
     Some(crate::servers::runtime::active(s).as_str().to_owned())
 }
 
-fn window_phase(s: &App) -> Option<&Phase> { window_server(s).and_then(|server| s.launch.phase(&server)) }
+fn window_phase(s: &App) -> Option<&Phase> { s.launch.phase(crate::servers::runtime::active(s).as_str()) }
 
 /// The window's server didn't answer: Home shows the card, a session the unavailable panel.
 pub fn offline(s: &App) -> bool { window_phase(s).is_some_and(Phase::offline) }
@@ -496,12 +496,12 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
-    let Some(server) = window_server(s) else { return false };
     let now = s.clock;
     if s.live() && crate::attended() {
         step(s, LaunchEvent::Tick { now }, tx);
     }
-    let Some(Phase::Probing { rx, .. }) = s.launch.phase(&server) else { return false };
+    // Every poll comes here: the window's key is borrowed, not copied.
+    let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return false };
     let ready = match rx.try_recv() {
         Ok(r) => r,
         Err(TryRecvError::Empty) => return false,

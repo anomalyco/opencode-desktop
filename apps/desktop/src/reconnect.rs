@@ -221,10 +221,10 @@ pub fn heard(s: &mut App) -> bool {
 }
 
 /// The window's server's link is down or in doubt.
-pub fn down(s: &App) -> bool { server_of(s).is_some_and(|server| s.server_links.get(&server).down()) }
+pub fn down(s: &App) -> bool { s.server_links.get(crate::servers::runtime::active(s).as_str()).down() }
 
 /// The header says Reconnecting for the window's server.
-pub fn shown(s: &App) -> bool { server_of(s).is_some_and(|server| s.server_links.get(&server).shown()) }
+pub fn shown(s: &App) -> bool { s.server_links.get(crate::servers::runtime::active(s).as_str()).shown() }
 
 /// Marks the header once trouble has lasted [`QUIET`], for every server in trouble.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {

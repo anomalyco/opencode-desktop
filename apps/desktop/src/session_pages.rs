@@ -684,8 +684,9 @@ impl super::App {
         changed |= self.poll_open(tx);
         changed |= self.tell_stall();
         // Each timed history (the first page's wait, a slow or stuck older page).
-        let server = self.pages.server().to_owned();
-        for id in self.pages.histories.timed(&server) {
+        let timed = self.pages.histories.timed(self.pages.server());
+        let server = if timed.is_empty() { String::new() } else { self.pages.server().to_owned() };
+        for id in timed {
             let routed = self.route == super::Route::here(id.clone());
             let expanding = matches!(self.pages.histories.get(&server, &id), Some(History::Expanding { .. }));
             if routed || !expanding { changed |= self.step_history(&id, HistoryEvent::Tick { now: Instant::now() }, tx); }
@@ -723,8 +724,9 @@ impl super::App {
     /// top. It lands above what's on screen without moving it: the virtual list holds its
     /// first visible row (Rune `VirtualList::anchor_delta`).
     fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
-        let super::Route::Session { id, .. } = self.route.clone() else { return false };
-        if *self.pages.near_top.borrow() != id || self.pages.pool.is_none() { return false; }
+        let super::Route::Session { id, .. } = &self.route else { return false };
+        if *self.pages.near_top.borrow() != *id || self.pages.pool.is_none() { return false; }
+        let id = id.clone();
         self.step_history(&id, HistoryEvent::NearTop { now: Instant::now() }, tx)
     }
 }
