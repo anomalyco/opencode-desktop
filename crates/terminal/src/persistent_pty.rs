@@ -88,7 +88,15 @@ pub(crate) fn run_persistent_worker(
     };
     let mut ws = match tungstenite::connect(&url) {
         Ok((socket, _)) => socket,
-        Err(_) => return finish(&shared, &waker, failed(Failure::Failed)),
+        // Setting the socket up failed (`socket.errored`).
+        Err(_) => {
+            for effect in conn.step(Event::SocketErrored) {
+                if let Effect::Fail(failure) = effect {
+                    return finish(&shared, &waker, failed(failure));
+                }
+            }
+            return;
+        }
     };
     set_read_timeout(&ws, Duration::from_millis(3));
     *shared.status.lock() = SessionStatus::Connected;
