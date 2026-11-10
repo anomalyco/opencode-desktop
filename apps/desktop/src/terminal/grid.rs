@@ -15,6 +15,7 @@ use terminal::{
     SelectionOp, TerminalRow, UnderlineKind,
 };
 
+use super::mount::TextDrag;
 use super::draw::{detect_url_in_row, draw_box_or_block, draw_special_underline};
 use super::{TERM_FONT, TERM_SIZE, TerminalTab};
 use crate::App;
@@ -37,7 +38,7 @@ pub(crate) static TERMINAL_ICON: rune::Icon = rune::Icon {
 };
 
 thread_local! {
-    static METRIC_CACHE: RefCell<HashMap<(u8, u32, u64), (f32, f32)>> = RefCell::new(HashMap::new());
+    static METRIC_CACHE: RefCell<HashMap<(u8, u32, u64), (f32, f32, f32)>> = RefCell::new(HashMap::new());
 }
 
 thread_local! {
@@ -83,20 +84,49 @@ pub fn terminal_font_style(knobs: &Knobs) -> (u8, TextStyle) {
 }
 
 pub fn cell_metrics(choice: u8, style: TextStyle) -> (f32, f32) {
+    cell_metrics_at(choice, style, 1.0)
+}
+
+/// The cell at `scale` device pixels a point, as ghostty-web measures it (`renderer.ts`
+/// `measureFont`): the advance of "M" and the face's ascent plus descent, each rounded to whole
+/// device pixels, so the grid stays integral. At 14 pt on a 1x screen JetBrains Mono's 8.4 pt
+/// advance makes an 8 pt cell, 8.67 at 1.5x.
+pub fn cell_metrics_at(choice: u8, style: TextStyle, scale: f32) -> (f32, f32) {
+    let (cw, ch, _) = measure(choice, style, scale);
+    (cw, ch)
+}
+
+/// The spacing that sets the face's glyphs one cell apart: the cell less the face's advance.
+pub fn cell_tracking(choice: u8, style: TextStyle, scale: f32) -> f32 {
+    let (cw, _, advance) = measure(choice, style, scale);
+    cw - advance
+}
+
+fn measure(choice: u8, style: TextStyle, scale: f32) -> (f32, f32, f32) {
     // A font switch (Settings › Appearance) can change what a style's family resolves to.
     // A typed family measures apart from the knob's faces and from another typed family.
     let family = match style.family { Family::Named(list) => list.as_ptr() as u64, _ => 0 };
-    let key = (choice, style.size.to_bits(), rune::text::font_epoch() ^ family);
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let key = (choice, style.size.to_bits() ^ scale.to_bits().rotate_left(16), rune::text::font_epoch() ^ family);
     METRIC_CACHE.with(|c| {
         if let Some(&m) = c.borrow().get(&key) {
             return m;
         }
-        let cw = rune::text::advance("MMMMMMMMMM", style) / 10.0;
-        let cw = if cw > 1.0 { cw } else { (style.size * 0.6).max(6.0) };
-        let ch = style.line_px().max(style.size.ceil() + 2.0);
-        let pair = (cw, ch);
-        c.borrow_mut().insert(key, pair);
-        pair
+        let style = style.tracking(0.0);
+        let advance = rune::text::advance("MMMMMMMMMM", style) / 10.0;
+        let advance = if advance > 1.0 { advance } else { (style.size * 0.6).max(6.0) };
+        let cw = (advance * scale).round().max(1.0) / scale;
+        // JetBrains Mono's font box (hhea 1020 up, 300 down), each side rounded as the canvas
+        // reports it; another face keeps its line height.
+        let ch = if choice == 3 {
+            let px = style.size * scale;
+            ((px * 1.02).round() + (px * 0.3).round()).max(1.0) / scale
+        } else {
+            style.line_px().max(style.size.ceil() + 2.0)
+        };
+        let m = (cw, ch, advance);
+        c.borrow_mut().insert(key, m);
+        m
     })
 }
 
@@ -119,7 +149,10 @@ pub fn render_terminal_pane(
     focused: bool,
 ) -> El {
     let (font_choice, style) = terminal_font_style(&s.knobs);
-    let (cell_w, cell_h) = cell_metrics(font_choice, style);
+    // ghostty-web's whole-device-pixel cell, the glyphs spaced one cell apart.
+    let scale = s.zoom * env_scale;
+    let (cell_w, cell_h) = cell_metrics_at(font_choice, style, scale);
+    let style = style.tracking(cell_tracking(font_choice, style, scale)).lh(cell_h);
     let (pane_w, pane_h) = (pane_size.0.max(200.0), pane_size.1.max(100.0));
     let body_w = (pane_w - PAD_X * 2.0).max(cell_w * 10.0);
     let body_h = (pane_h - PAD_Y * 2.0).max(cell_h * 2.0);
@@ -178,7 +211,9 @@ pub fn render_terminal_pane(
             .py(12.0)
             .fill(p.bg_base)
             .inert()
-            .child(text(why).font(UI_SMALL).color(p.danger))
+            // Desktop's `text-text-danger-base` names no token, so the notice keeps the pane's
+            // strong ink.
+            .child(text(why).font(UI_SMALL).color(p.text))
     }));
 
     // A bell flashes the pane's top edge in the accent.
@@ -301,6 +336,10 @@ fn render_viewport(
             let Some(t) = app.terminal_tab_mut(&wk_drag, &tid_drag) else {
                 return;
             };
+            // A press takes control of a shared terminal at this pane's size (interacted).
+            if matches!(d.phase, Phase::Down) {
+                t.session.interact();
+            }
             if alt_mouse {
                 let kind = match d.phase {
                     Phase::Down => MouseKind::Press,
@@ -322,7 +361,7 @@ fn render_viewport(
 
             match d.phase {
                 Phase::Down => {
-                    t.drag_anchor = Some((col, row));
+                    t.drag = TextDrag::Selecting { anchor: (col, row) };
                     match d.clicks {
                         2 => t.session.select(SelectionOp::Word(GridPoint::Viewport { col, row })),
                         3.. => t.session.select(SelectionOp::Line(GridPoint::Viewport { col, row })),
@@ -331,7 +370,7 @@ fn render_viewport(
                 }
                 Phase::Move => {
                     if (d.dx.hypot(d.dy)) > 3.0
-                        && let Some(start) = t.drag_anchor
+                        && let TextDrag::Selecting { anchor: start } = t.drag
                     {
                         t.session.select_range_viewport(start, (col, row), false);
                     }
@@ -344,7 +383,7 @@ fn render_viewport(
                             let _ = tx.open_url(&url);
                         }
                     }
-                    t.drag_anchor = None;
+                    t.drag = TextDrag::Idle;
                 }
             }
         })

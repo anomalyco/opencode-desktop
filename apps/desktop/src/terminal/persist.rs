@@ -375,10 +375,9 @@ impl App {
                     stream: Some(handle),
                     fixture_shell: false,
                     scroll_px_accum: 0.0,
-                    drag_anchor: None,
-                    needs_recovery: false,
-                    recovery_buffer: Vec::new(),
-                    last_fit: std::cell::Cell::new((0, 0, 0, 0)),
+                    drag: super::mount::TextDrag::Idle,
+                    mount: super::mount::Mount::Live { connection: 0 },
+                    fit: std::cell::Cell::new(super::mount::Fit::Unmeasured),
                 })
             })
             .collect();

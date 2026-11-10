@@ -37,7 +37,7 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
                     .max_w(160.0)
                     .shrink()
                     .opacity(if field.is_some() { 0.0 } else { 1.0 })
-                    .on_double_press_tx(move |s: &mut App, tx: &mut Tx| super::rename::start(s, &rename_id, tx)),
+                    .on_double_press_tx(move |s: &mut App, tx: &mut Tx| super::rename::start(s, &rename_id, super::rename::Source::Pointer, tx)),
             )
             .children(field)
 }

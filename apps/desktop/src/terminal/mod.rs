@@ -11,6 +11,7 @@ pub mod persist;
 mod rename;
 mod side_ops;
 pub mod story;
+pub mod mount;
 pub mod streams;
 #[cfg(test)]
 mod tests;
@@ -79,10 +80,10 @@ pub struct TerminalTab {
     pub stream: Option<StreamHandle>,
     pub fixture_shell: bool,
     pub scroll_px_accum: f32,
-    pub drag_anchor: Option<(u16, u16)>,
-    pub needs_recovery: bool,
-    pub recovery_buffer: Vec<u8>,
-    pub(crate) last_fit: Cell<(u16, u16, u32, u32)>,
+    pub drag: mount::TextDrag,
+    /// Whether it has an attachment (`surface-machine.ts`).
+    pub mount: mount::Mount,
+    pub(crate) fit: Cell<mount::Fit>,
 }
 
 impl TerminalTab {
@@ -94,10 +95,11 @@ impl TerminalTab {
         }
     }
 
+    /// Asks the session for the pane's grid when it changed (the worker debounces it).
     pub fn ensure_fit(&self, cols: u16, rows: u16, cw_px: u32, ch_px: u32) {
-        let next = (cols, rows, cw_px, ch_px);
-        if self.last_fit.get() != next {
-            self.last_fit.set(next);
+        let next = mount::Fit::Fitted { cols, rows, cell_px: (cw_px, ch_px) };
+        if self.fit.get() != next {
+            self.fit.set(next);
             self.session.resize(cols, rows, cw_px, ch_px);
         }
     }
@@ -147,7 +149,9 @@ pub struct TerminalPane {
     pub story_focused: bool,
     pub story_built_variant: Option<usize>,
     /// The tab whose title is a field (`TerminalTabLabel`'s inline rename).
-    pub renaming: Option<rename::Renaming>,
+    pub renaming: rename::Renames,
+    /// The server's connections so far: each reconnect starts the next (`machine.ts` `connections`).
+    pub connections: u32,
 }
 
 impl Default for TerminalPane {
@@ -164,7 +168,8 @@ impl Default for TerminalPane {
             dirty_flag: Arc::new(AtomicBool::new(false)),
             story_focused: true,
             story_built_variant: None,
-            renaming: None,
+            renaming: rename::Renames::default(),
+            connections: 0,
         }
     }
 }
@@ -506,10 +511,9 @@ impl App {
             stream: None,
             fixture_shell: false,
             scroll_px_accum: 0.0,
-            drag_anchor: None,
-            needs_recovery: false,
-            recovery_buffer: Vec::new(),
-            last_fit: Cell::new((0, 0, 0, 0)),
+            drag: mount::TextDrag::Idle,
+            mount: mount::Mount::Live { connection: self.terminal.connections },
+            fit: Cell::new(mount::Fit::Unmeasured),
         })
     }
 
@@ -545,13 +549,63 @@ impl App {
             stream: Some(handle),
             fixture_shell: false,
             scroll_px_accum: 0.0,
-            drag_anchor: None,
-            needs_recovery: false,
-            recovery_buffer: Vec::new(),
-            last_fit: Cell::new((0, 0, 0, 0)),
+            drag: mount::TextDrag::Idle,
+            mount: mount::Mount::Live { connection: self.terminal.connections },
+            fit: Cell::new(mount::Fit::Unmeasured),
         });
         ws.active = Some(id.to_owned());
         Some(id.to_owned())
+    }
+
+    /// Steps each session terminal's [`mount::Mount`]: a failed one leaves once it doesn't show,
+    /// and showing it again, or the server reconnecting, attaches it anew. Quiet (and free of
+    /// allocations) while every terminal is live.
+    fn sync_terminal_mounts(&mut self) -> bool {
+        let Some((srv, observer)) = self.live_terminals() else { return false };
+        let failed = |t: &TerminalTab| matches!(t.session.status(), SessionStatus::Failed(_));
+        let quiet = self.terminal.workspaces.values().flat_map(|ws| &ws.tabs).all(|t| matches!(t.mount, mount::Mount::Live { .. }) && !failed(t));
+        if quiet {
+            return false;
+        }
+        let routed = self.active_terminal_workspace_key();
+        let connection = self.terminal.connections;
+        let mut attach = Vec::new();
+        let mut changed = false;
+        let ids: Vec<(String, String)> = self.terminal.workspaces.iter().flat_map(|(wk, ws)| ws.tabs.iter().map(|t| (wk.clone(), t.id.clone()))).collect();
+        for (wk, id) in ids {
+            let shown = routed.as_deref() == Some(wk.as_str()) && self.side_tab_visible(&crate::panels::panel_key(side_ops::PLUGIN, &id));
+            let Some(tab) = self.terminal_tab_mut(&wk, &id) else { continue };
+            let event = if matches!(tab.mount, mount::Mount::Live { .. }) && failed(tab) {
+                mount::MountEvent::Failed { shown, connection }
+            } else {
+                mount::MountEvent::Sync { shown, connection }
+            };
+            let before = tab.mount;
+            for effect in tab.mount.step(event) {
+                match effect {
+                    mount::MountEffect::Mount => attach.push((wk.clone(), id.clone())),
+                }
+            }
+            changed |= tab.mount != before;
+        }
+        for (wk, id) in attach {
+            self.attach_terminal(srv.clone(), &wk, &id, observer);
+        }
+        changed
+    }
+
+    /// A new attachment for terminal `id`, at the size its screen had.
+    fn attach_terminal(&mut self, srv: opencode_kit::client::Server, wk: &str, id: &str, observer: bool) {
+        let theme = theme_from_pal(pal(self.terminal_dark()));
+        let waker = self.terminal_waker();
+        let Some(tab) = self.terminal_tab_mut(wk, id) else { return };
+        let snap = tab.session.snapshot();
+        let config = TerminalConfig { cols: snap.cols.max(1), rows: snap.rows.max(1), theme, ..TerminalConfig::default() };
+        if let Ok(session) = TerminalSession::spawn_persistent_pty(srv, id.to_owned(), config, observer, waker) {
+            tab.session = session;
+            tab.fit.set(mount::Fit::Unmeasured);
+            tab.drag = mount::TextDrag::Idle;
+        }
     }
 
     /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
@@ -633,6 +687,8 @@ impl App {
                 tx.wake_after(Duration::from_millis(145));
             }
         }
+
+        changed |= self.sync_terminal_mounts();
 
         if self.terminal.bell_until > 0.0 && self.clock >= self.terminal.bell_until {
             self.terminal.bell_until = 0.0;

@@ -1,5 +1,5 @@
 //! Off-main-thread terminal session worker (`TerminalSession`) and deterministic [`StreamHandle`].
-//! OpenCode `/api/pty` WebSocket worker lives in `server_pty.rs`.
+//! An OpenCode session terminal's worker lives in `persistent_pty.rs`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -12,7 +12,6 @@ use rune::Waker;
 
 use crate::core::VtCore;
 use crate::persistent_pty::run_persistent_worker;
-use crate::server_pty::run_server_worker;
 use crate::theme::TerminalTheme;
 use crate::types::{
     GridPoint, KeyInput, MouseInput, ScrollOp, SelectionOp, TerminalSnapshot, VtEvent,
@@ -68,7 +67,6 @@ pub struct PersistedTerminal {
 pub enum SessionStatus {
     Connecting,
     Connected,
-    Reconnecting { attempt: u32 },
     Exited { code: Option<u32> },
     Failed(String),
 }
@@ -88,6 +86,8 @@ pub(crate) enum WorkerCmd {
     Select(SelectionOp),
     SetTheme(TerminalTheme),
     Persist(Sender<PersistedTerminal>),
+    /// The user pressed on the pane, which takes control of a shared terminal at its size.
+    Interact,
     Shutdown,
 }
 
@@ -201,45 +201,6 @@ impl TerminalSession {
         ))
     }
 
-    pub fn spawn_server_pty(
-        server: Server,
-        directory: String,
-        pty_id: String,
-        config: TerminalConfig,
-        restore: Option<RestoreState>,
-        waker: Waker,
-    ) -> Result<Self, String> {
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (init_snap, init_revealed, init_cursor) = bootstrap_initial(&config, restore.as_ref())?;
-        let shared = Arc::new(SharedState {
-            snapshot: Mutex::new(init_snap),
-            status: Mutex::new(SessionStatus::Connecting),
-            selected_text: Mutex::new(None),
-            events: Mutex::new(Vec::new()),
-            cursor: AtomicI64::new(init_cursor),
-            revealed: AtomicBool::new(init_revealed),
-        });
-
-        let worker_shared = shared.clone();
-        std::thread::Builder::new()
-            .name("terminal-pty".into())
-            .spawn(move || {
-                run_server_worker(
-                    server,
-                    directory,
-                    pty_id,
-                    config,
-                    restore,
-                    cmd_rx,
-                    worker_shared,
-                    waker,
-                );
-            })
-            .map_err(|e| format!("failed to spawn terminal PTY worker: {e}"))?;
-
-        Ok(Self { shared, cmd_tx })
-    }
-
     /// Attaches to an OpenCode session terminal (`persistent_pty.rs`): restores its screen from
     /// the server's snapshot, then streams it. An observer watches without taking control.
     pub fn spawn_persistent_pty(
@@ -322,6 +283,12 @@ impl TerminalSession {
 
     pub fn select(&self, op: SelectionOp) {
         let _ = self.cmd_tx.send(WorkerCmd::Select(op));
+    }
+
+    /// The user pressed on the pane: a shared session terminal comes under this window's
+    /// control at its size (Desktop's `interacted`).
+    pub fn interact(&self) {
+        let _ = self.cmd_tx.send(WorkerCmd::Interact);
     }
 
     pub fn select_range_viewport(&self, start: (u16, u16), end: (u16, u16), rectangular: bool) {
@@ -496,6 +463,7 @@ pub(crate) fn apply_worker_cmd(
                 cursor: shared.cursor.load(Ordering::Acquire),
             });
         }
+        WorkerCmd::Interact => {}
         WorkerCmd::Shutdown => return false,
     }
     true

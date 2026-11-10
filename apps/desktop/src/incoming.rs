@@ -51,6 +51,8 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::session_state::reconnected(s, tx);
             s.sidebar_inbox.branches.reconnected();
             reconnect::back(s);
+            // Terminals that failed under the old connection attach again (`server.connected`).
+            s.terminal.connections += 1;
             s.pump_outbox();
             s.stream_back();
             s.check_sends();
