@@ -22,6 +22,9 @@ struct Live {
 /// The fixture's open session mid-run on a live source: its writes land in a channel and nothing
 /// answers them until a test says so.
 fn live() -> Live {
+    // A live window reads the wall clock (`now_ms`), which Stop's deadline runs on (bc84ce46):
+    // it follows the frames' time here, as the fuzzer's does.
+    crate::interaction_fuzz::set_wall(Some(WALL_T0));
     let mut app = App::fixture_session();
     crate::scenes::busy_scene(&mut app);
     let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
@@ -75,8 +78,12 @@ fn esc(l: &mut Live) {
     l.rt.frame(DT);
 }
 
+/// The wall clock's start in a live test; [`play`] moves it with the frames.
+const WALL_T0: i64 = 1_800_000_000_000;
+
 fn play(l: &mut Live, secs: f64) {
     for _ in 0..(secs / DT).round() as usize {
+        crate::interaction_fuzz::set_wall(Some(WALL_T0 + ((l.rt.state.clock + DT) * 1000.0).round() as i64));
         l.rt.frame(DT);
     }
 }
