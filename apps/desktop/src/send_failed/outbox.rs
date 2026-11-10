@@ -113,9 +113,18 @@ impl App {
         self.show_outbox();
     }
 
+    /// Each unsent prompt where it waits: a follow-up behind steers already waiting waits with
+    /// them, as the server will deliver it after them (t1361); the rest show as their bubble.
     pub(crate) fn show_outbox(&mut self) {
         for s in self.unsent.sent.iter().filter(|s| s.journaled && s.phase != Phase::Accepted) {
-            if self.inboxes.get(&s.session).is_some_and(|i| i.items.iter().any(|i| i.id == s.id)) {
+            let inbox = self.inboxes.get(&s.session);
+            if inbox.is_some_and(|i| i.items.iter().any(|i| i.id == s.id)) {
+                continue;
+            }
+            if s.inbox && inbox.is_some_and(|i| i.steering().next().is_some()) {
+                let delivery = s.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(opencode_kit::model::Delivery::Steer);
+                let item = opencode_kit::model::InboxItem { id: s.id.clone(), text: s.draft.text.clone(), files: s.files.clone(), delivery };
+                self.inboxes.entry(s.session.clone()).or_default().upsert(item);
                 continue;
             }
             let t = self
