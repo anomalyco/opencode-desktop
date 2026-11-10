@@ -74,9 +74,11 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                 )
                 .child(slash(p, 6.5, 3.5));
         }
-        // A running subagent's header spins beside its title (`SessionWorkingIndicator`).
+        // A running subagent's header spins beside its title (`SessionWorkingIndicator`): the
+        // 16 px session progress indicator in a 16 px box, 4 after the crumbs and 2 before the
+        // title on top of the gap (`ms-1 me-0.5 h-4 w-4`).
         if info.parent.is_some() && s.subtree_running(&info.id) {
-            title_box = title_box.child(activity_ring(p).key("working"));
+            title_box = title_box.child(row().key("working").size(16.0, 16.0).ml(4.0).mr(2.0).center().child(activity_ring_sized(p, 16.0)));
         }
         title_box = title_box.children(header_title(s, p, info));
     }
@@ -152,7 +154,7 @@ fn title_width(s: &App, info: &SessionInfo) -> f32 {
     let title = text_w(&title_of(info), CRUMB) + 8.0;
     let root = info.parent.is_none();
     let more = if root { 28.0 } else { 0.0 };
-    let working = if !root && s.subtree_running(&info.id) { 14.0 } else { 0.0 };
+    let working = if !root && s.subtree_running(&info.id) { 16.0 + 4.0 + 2.0 } else { 0.0 };
     let count = 2 + usize::from(root) + usize::from(working > 0.0);
     title + more + working + (count - 1) as f32 * TITLE_GAP
 }

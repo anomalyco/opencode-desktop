@@ -40,7 +40,7 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         .close_icon(&ic::XMARK_SMALL)
         // Close tab is a Tab stop after its tab, as Desktop's button is.
         .close_tab_stop(true)
-        .busy_indicator(|k| session_view::style::busy_glyph(k, 14.0))
+        .busy_indicator(|k| session_view::style::tab_busy_glyph(k, 14.0))
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
         .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)

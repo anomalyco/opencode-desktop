@@ -446,15 +446,21 @@ pub fn activity_ring_sized(p: &Pal, size: f32) -> El {
     busy_glyph(crate::palette::kit(p), size)
 }
 
-/// The one busy glyph, rune-kit's `Spinner` at `size` in [`busy_ink`]: every tab, row, capsule
-/// and card that works draws this, so they all read alike at any size.
+/// The one busy glyph, rune-kit's `Spinner` at `size` in [`busy_ink`]: every row, capsule and
+/// card that works draws this, so they all read alike at any size.
 pub fn busy_glyph(k: &rune_kit::Kit, size: f32) -> El {
     rune_kit::Spinner::new().size(size).color(busy_ink(k)).build(k).key("ring")
 }
 
-/// The busy glyph's ink in light and dark: `icon_muted`, quiet beside text yet lit enough to
-/// read as working. Rune's tab strip spins in `icon_base` in dark, which glared beside the
-/// capsule's and the cards', so the tabs take this one too.
+/// A busy tab's glyph (`TabNavItem`'s `ActivityRing data-mark="busy"`): [`busy_glyph`], but in
+/// `icon_base` in dark, where Desktop's muted dim dots vanish against the tab
+/// (`tab-nav.css:64-67`). The top and side tabs and the narrow drawer's tab list show it.
+pub fn tab_busy_glyph(k: &rune_kit::Kit, size: f32) -> El {
+    rune_kit::Spinner::new().size(size).color(if k.dark { k.c.icon_base } else { busy_ink(k) }).build(k).key("ring")
+}
+
+/// The busy glyph's ink in light and dark: `icon_muted` (`activity-ring.css`,
+/// `session-progress-indicator-v2.css`).
 pub fn busy_ink(k: &rune_kit::Kit) -> Color {
     k.c.icon_muted
 }

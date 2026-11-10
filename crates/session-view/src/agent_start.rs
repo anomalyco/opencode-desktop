@@ -83,7 +83,8 @@ fn pattern() -> &'static [Dot] {
 }
 
 fn dots(fg: Color) -> El {
-    let mut r = el().key("dots").size(SIZE, SIZE);
+    // Unsnapped like the radar it hands off to (`rune_kit::Spinner`), so the two grids' dots sit on each other.
+    let mut r = el().key("dots").size(SIZE, SIZE).pixel_snap(false);
     for (k, d) in pattern().iter().enumerate() {
         r = r.child(el().key(format!("d{k}")).absolute(d.x, d.y).size(d.size, d.size).radius(d.size * 0.24).fill(fg).cycle(d.cycle));
     }

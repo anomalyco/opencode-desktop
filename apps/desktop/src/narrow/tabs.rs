@@ -209,7 +209,7 @@ pub(super) fn wash(over: rune::Color, radius: f32) -> El {
 fn status_mark(p: &Pal, st: crate::TabStatus) -> El {
     let dot = |c| el().size(7.0, 7.0).radius(3.5).fill(c);
     let mark = match st {
-        crate::TabStatus::Busy => crate::view::activity_ring(p),
+        crate::TabStatus::Busy => session_view::style::tab_busy_glyph(crate::palette::kit(p), 14.0),
         crate::TabStatus::Attention => dot(p.warning),
         crate::TabStatus::Unread => dot(p.bg_accent),
         crate::TabStatus::Failed => dot(p.danger),

@@ -18,7 +18,7 @@ use opencode_kit::model::{Message, SessionInfo};
 
 use super::run_time;
 use crate::palette::Pal;
-use crate::view::{INSTANT, activity_ring};
+use crate::view::{INSTANT, activity_ring_sized};
 use crate::{App, Route};
 
 /// Replies on their way, by session: the prompt's id and the words typed.
@@ -126,7 +126,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
         let mark = el().key("status-icon").size(16.0, 16.0).center();
         line = line.child(match glyph {
             Some(g) => mark.child(icon(g, 14.0).color(p.icon_faint)),
-            None => mark.child(activity_ring(p)),
+            None => mark.child(activity_ring_sized(p, 16.0)),
         });
     }
     let back = row()
