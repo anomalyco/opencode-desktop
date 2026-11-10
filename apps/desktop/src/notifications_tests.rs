@@ -178,8 +178,9 @@ fn a_click_opens_its_session_and_closes_settings() {
     let target = app.sessions.iter().find(|s| s.parent.is_none()).unwrap().id.clone();
     app.settings.open = true;
     let clicks = app.notify.clicks.clone();
-    Notifier::click(&clicks, target.clone(), String::new());
+    // Since MS-2 a click on another server's notification opens it too, so the last click wins.
     Notifier::click(&clicks, "ses_elsewhere".into(), "http://other.example:4096".into());
+    Notifier::click(&clicks, target.clone(), String::new());
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 820.0), Env::new(true, 1.0));
     rt.frame(0.0);
     assert!(rt.update_if(|s, tx| poll(s, tx)));
@@ -194,7 +195,9 @@ fn a_click_opens_its_session_and_closes_settings() {
 fn settings_lists_the_three_switches() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
-    app.settings.open = true;
+    // The switches have had their own page since d5c7a898.
+    app.open_settings();
+    app.show_settings_page(crate::settings::pages::Page::Notifications);
     let mut rt = Runtime::new(app, crate::view::app, (1280.0, 1400.0), Env::new(true, 1.0));
     rt.frame(0.0);
     for key in ["notify-agent", "notify-permissions", "notify-errors"] {
