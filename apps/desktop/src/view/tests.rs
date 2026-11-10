@@ -74,12 +74,15 @@ fn the_new_session_page_picks_its_project() {
         rt.frame(1.0 / 60.0);
     };
     assert_eq!(rt.state.draft_project().map(|p| p.name.as_str()), Some("lumen"));
+    // The project button opens Desktop's location dialog (b005ad28).
     tap(&mut rt, "project");
-    assert_eq!(rt.state.pickers.open, Some(crate::pickers::Kind::Project));
-    let harbor = rt.state.projects.iter().find(|p| p.name == "harbor").unwrap().id.clone();
-    tap(&mut rt, &format!("option-{harbor}"));
+    assert!(rt.state.project_switcher.open);
+    rt.update(|s, _| s.project_switcher.search = rune::TextEdit::new("harbor"));
+    rt.frame(1.0 / 60.0);
+    let harbor = rt.state.project_switcher_rows().into_iter().find(|r| r.title == "harbor").expect("harbor is listed").key;
+    tap(&mut rt, &format!("psw-{harbor}"));
     assert_eq!(rt.state.draft_dir(), "/Users/demo/code/harbor");
-    assert_eq!(rt.state.pickers.open, None);
+    assert!(!rt.state.project_switcher.open);
 }
 
 #[test]
@@ -150,7 +153,8 @@ fn a_link_in_a_message_opens() {
     let mut rt = Runtime::new(App::empty(), view, (600.0, 200.0), Env::new(true, 1.0));
     rt.frame(0.0);
     let link = rt.elements().into_iter().find(|e| e.text.as_deref().is_some_and(|t| t.contains("openthislink"))).unwrap();
-    let (x, y) = (link.rect[0] + 8.0, link.rect[1] + link.rect[3] / 2.0);
+    // Past the favicon a web link leads with (b86a5b0d).
+    let (x, y) = (link.rect[0] + 40.0, link.rect[1] + link.rect[3] / 2.0);
     rt.pointer_move(x, y);
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
@@ -404,8 +408,10 @@ fn working_stays_up_between_steps_until_the_run_ends() {
             // The shimmer's lit copy sits exactly on the label while its window sweeps.
             let els = rt.elements();
             let label = els.iter().find(|e| e.path.contains("/working/") && e.key.as_deref() == Some("label")).unwrap();
-            let lit = els.iter().find(|e| e.path.contains("/lit/") && e.text.is_some()).unwrap();
-            let (sheen, lit_box) = (els.iter().find(|e| e.key.as_deref() == Some("sheen")).unwrap(), els.iter().find(|e| e.key.as_deref() == Some("lit")).unwrap());
+            // Working's own shimmer: a thought's row shimmers too since 6c1cfbaf.
+            let ours = |e: &&rune::ElementInfo| e.path.contains("/working/");
+            let lit = els.iter().filter(ours).find(|e| e.path.contains("/lit/") && e.text.is_some()).unwrap();
+            let (sheen, lit_box) = (els.iter().filter(ours).find(|e| e.key.as_deref() == Some("sheen")).unwrap(), els.iter().filter(ours).find(|e| e.key.as_deref() == Some("lit")).unwrap());
             assert!((label.rect[2] - crate::working::width("Working")).abs() < 2.0, "the label is {} wide", label.rect[2]);
             assert!((lit.rect[0] - label.rect[0]).abs() < 0.01 && (lit.rect[1] - label.rect[1]).abs() < 0.01, "{t:.3}s: lit {:?} on label {:?}", lit.rect, label.rect);
             assert_eq!(sheen.loop_phase, lit_box.loop_phase, "{t:.3}s: one sweep");
@@ -471,13 +477,21 @@ fn a_run_of_prompts_sits_close_with_tight_trailing_corners() {
     assert!((b.rect[1] - (a.rect[1] + a.rect[3]) - 4.0).abs() < 0.5, "4 apart: {:?} {:?}", a.rect, b.rect);
     assert!((c.rect[1] - (b.rect[1] + b.rect[3]) - 4.0).abs() < 0.5, "4 apart: {:?} {:?}", b.rect, c.rect);
     assert!(a.rect[2] <= super::BUBBLE_MAX + 0.5, "64ch at most: {:?}", a.rect);
-    // Only the run's last prompt has a copy line under it.
+    // No prompt has a copy line under it: its actions open from the chevron in its bubble's
+    // corner (6c1cfbaf), so nothing pushes the run apart.
     let lines = rt.elements().into_iter().filter(|e| !e.exiting && e.path.contains("/u-") && e.key.as_deref() == Some("actions")).count();
-    assert_eq!(lines, 1);
+    assert_eq!(lines, 0);
 }
 
+/// The fixture with its tabs down the sidebar: the titlebar holds them by default since Top
+/// tabs became Desktop's default layout (42172690).
 fn sidebar() -> Runtime<App> {
-    settled(90)
+    let mut rt = crate::fixture_runtime();
+    rt.update(|s, tx| s.set_tab_layout(crate::layout_state::TabLayout::Vertical, tx));
+    for _ in 0..90 {
+        rt.frame(1.0 / 60.0);
+    }
+    rt
 }
 
 fn tab_key(rt: &Runtime<App>, i: usize) -> String {
@@ -497,7 +511,8 @@ fn pill(rt: &Runtime<App>, key: &str) -> rune::ElementInfo {
 fn the_gap_between_tabs_belongs_to_a_tab() {
     let mut rt = sidebar();
     let (a, b) = (pill(&rt, &tab_key(&rt, 1)), pill(&rt, &tab_key(&rt, 2)));
-    assert!(b.rect[1] - (a.rect[1] + a.rect[3]) > 3.5, "the pills keep their gap: {:?} {:?}", a.rect, b.rect);
+    // The side strip's 3 pt gap (42172690).
+    assert!((b.rect[1] - (a.rect[1] + a.rect[3]) - 3.0).abs() < 0.5, "the pills keep their gap: {:?} {:?}", a.rect, b.rect);
     // Just under tab 1's pill, in the gap: a click there opens tab 1.
     let (x, y) = (a.rect[0] + a.rect[2] / 2.0, a.rect[1] + a.rect[3] + 1.0);
     rt.pointer_move(x, y);
@@ -667,7 +682,8 @@ fn typing_reuses_memoized_timeline_rows() {
 
 #[test]
 fn a_long_header_title_shrinks_before_usage_at_large_zoom() {
-    for w in [1040.0, 860.0] {
+    // Wide at zoom 1.6 (768 pt and up): a narrower window hides the header (`narrow`).
+    for w in [1440.0, 1240.0] {
         let mut app = App::fixture_session();
         app.zoom = 1.6;
         if let crate::Route::Session { id, .. } = app.route.clone()
@@ -680,10 +696,12 @@ fn a_long_header_title_shrinks_before_usage_at_large_zoom() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        let rect = |key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).unwrap().rect;
-        let (crumbs, title, usage) = (rect("crumbs"), rect("title"), rect("usage"));
+        // The header's own: the titlebar's tabs carry a `title` too.
+        let rect = |key: &str| rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key) && (key != "title" || e.path.contains("/header-title/"))).unwrap_or_else(|| panic!("no {key}")).rect;
+        // Usage is the context ring among the header's actions (3609b1dd).
+        let (crumbs, title, usage) = (rect("crumbs"), rect("title"), rect("header-actions"));
         assert!(crumbs[0] + crumbs[2] <= usage[0] + 0.5, "w={w}: crumbs {:?} must stay left of usage {:?}", crumbs, usage);
-        if w >= 1040.0 {
+        if w >= 1440.0 {
             assert!(title[2] > 80.0, "w={w}: title keeps readable room before fading: {:?}", title);
         }
     }
@@ -719,7 +737,8 @@ fn zoomed(w: f32, h: f32, f: impl FnOnce(&mut App)) -> Runtime<App> {
 
 #[test]
 fn at_zoom_the_queue_hint_measures_its_room_in_the_shells_points() {
-    let rt = zoomed(778.0, 820.0, |s| {
+    // Since 6c1cfbaf and 9f47c92e the toolbar leaves this much room only in a narrow window.
+    let rt = zoomed(570.0, 820.0, |s| {
         let crate::Route::Session { id, .. } = s.route.clone() else { unreachable!() };
         s.running.insert(id);
         s.composer = TextEdit::new("next");

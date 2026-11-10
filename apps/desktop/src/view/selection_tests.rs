@@ -173,7 +173,8 @@ fn a_link_still_opens_on_a_click() {
     });
     settle(&mut rt);
     let link = text(&rt, "the reconnect docs");
-    click(&mut rt, (link.rect[0] + 12.0, link.rect[1] + link.rect[3] / 2.0));
+    // Past the favicon a web link leads with (b86a5b0d).
+    click(&mut rt, (link.rect[0] + 40.0, link.rect[1] + link.rect[3] / 2.0));
     assert_eq!(rt.take_url_requests(), ["https://example.com/docs"]);
     assert_eq!(rt.selected_text(), None);
 }
