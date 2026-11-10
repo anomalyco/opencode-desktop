@@ -179,28 +179,16 @@ jobs:
 
   # ---- Sign: release environment; checks out ONLY main's .github/release/ -----
 
-  sign-macos:
-    needs: [plan, build-macos]
-    if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
-    runs-on: macos-26
-    timeout-minutes: 90
+  # Checks for the Apple values on Linux, so sign-macos only takes one of the org's
+  # few macOS runners when it will sign.
+  apple-credentials:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     environment: release
-    env:
-      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
-      OPENCODE_RUNE_APP_NAME: ${{ needs.plan.outputs.app-name }}
-      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
-      OPENCODE_RUNE_FILE_STEM: ${{ needs.plan.outputs.file-stem }}
     outputs:
-      signed: ${{ steps.credentials.outputs.available }}
-      digest: ${{ steps.upload.outputs.digest }}
+      available: ${{ steps.credentials.outputs.available }}
     steps:
-      - name: Check out trusted release scripts from base branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.plan.outputs.base-sha }}
-          sparse-checkout: /.github/release/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
       - id: credentials
         name: Check Apple signing credentials
         env:
@@ -220,32 +208,53 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "Skipping Developer ID signing for PR build: release environment lacks:$missing." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  sign-macos:
+    needs: [plan, build-macos, apple-credentials]
+    if: >-
+      ${{ !cancelled()
+      && needs.build-macos.result == 'success'
+      && needs.apple-credentials.outputs.available == 'true' }}
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: release
+    env:
+      OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
+      OPENCODE_RUNE_APP_NAME: ${{ needs.plan.outputs.app-name }}
+      OPENCODE_RUNE_BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
+      OPENCODE_RUNE_FILE_STEM: ${{ needs.plan.outputs.file-stem }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - name: Check out trusted release scripts from base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.base-sha }}
+          sparse-checkout: /.github/release/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Download unsigned PR app
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/download
         with:
           pattern: build-opencode-rune-pr-macos-arm64
           digests: build-opencode-rune-pr-macos-arm64=${{ needs.build-macos.outputs.digest }}
       - name: Import the certificate and notary key
-        if: steps.credentials.outputs.available == 'true'
         run: bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
         env:
           APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
           APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
           APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
       - name: Sign, notarize, and staple PR build
-        if: steps.credentials.outputs.available == 'true'
         run: bash .github/release/opencode-rune-sign-macos.sh "$RUNNER_TEMP/in/build-opencode-rune-pr-macos-arm64/OpenCode-Rune-PR.app.zip" "$RUNNER_TEMP/out"
         env:
           SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
           SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
       - name: Remove the credentials
-        if: always() && steps.credentials.outputs.available == 'true'
+        if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
           rm -rf "$RUNNER_TEMP/credentials"
       - id: upload
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/upload
         with:
           name: sign-opencode-rune-pr-macos
@@ -256,7 +265,7 @@ jobs:
 
   verify-macos:
     needs: [plan, sign-macos]
-    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && needs.sign-macos.outputs.signed == 'true' }}
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -289,12 +298,12 @@ jobs:
   # ---- Publish PR pre-release + sticky PR comment ----------------------------
 
   publish-pr-build:
-    needs: [plan, build-macos, build-windows, sign-macos, verify-macos]
+    needs: [plan, build-macos, build-windows, apple-credentials, sign-macos, verify-macos]
     if: >-
       ${{ !cancelled()
       && needs.build-macos.result == 'success'
-      && needs.sign-macos.result == 'success'
-      && (needs.sign-macos.outputs.signed != 'true' || needs.verify-macos.result == 'success') }}
+      && needs.apple-credentials.result == 'success'
+      && (needs.apple-credentials.outputs.available != 'true' || needs.verify-macos.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -310,7 +319,7 @@ jobs:
       VERSION: ${{ needs.plan.outputs.version }}
       FILE_STEM: ${{ needs.plan.outputs.file-stem }}
       RELEASE_TAG: ${{ needs.plan.outputs.release-tag }}
-      SIGNED: ${{ needs.sign-macos.outputs.signed }}
+      SIGNED: ${{ needs.apple-credentials.outputs.available }}
     steps:
       - name: Check out trusted release helpers from base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
