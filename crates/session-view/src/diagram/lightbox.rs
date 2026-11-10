@@ -1,7 +1,9 @@
-//! The open diagram: the same card the reply draws, laid out at the column's width and drawn
-//! larger with `El::scale`, over a scrim. It mounts exactly over its card in the reply, then
-//! springs to the middle of the window, sized to fit; closing springs it back there before it
-//! goes. Pinches, scrolls and drags move it at once, on the fingers.
+//! The open diagram over a scrim: drawn again for the window, not the column (so a wide
+//! flowchart isn't turned on its side or shrunk as it was there), in a card like the reply's
+//! whose padding and border stay their size while the drawing scales with `El::scale`. It
+//! mounts over its card in the reply, the drawing fitted inside, then springs to the middle of
+//! the window, sized to fit; closing springs it back there before it goes. Pinches, scrolls and
+//! drags move it at once, on the fingers.
 
 use rune::{Cx, Drag, El, Phase as Pointer, Spring, SpringPair, Transition, Tx, el};
 
@@ -9,35 +11,35 @@ use super::{Open, Phase};
 use crate::TimelineHost;
 use crate::palette::Pal;
 
-/// Points of the card's side padding (`rune_mermaid`'s card) on each side of its drawing.
+/// Points of the card's padding (`rune_mermaid`'s card) on each side of its drawing.
 const CARD_PAD: f32 = 16.0;
-/// The most a fitted card grows; past that only a pinch or ⌘+ makes it bigger.
+/// The most a fitted drawing grows; past that only a pinch or ⌘+ makes it bigger.
 const FIT_MAX: f32 = 2.0;
-/// The least and most the card draws at, as a multiple of its laid-out size.
+/// The least and most the drawing draws at, as a multiple of its full size.
 const SCALE_MIN: f32 = 0.2;
 const SCALE_MAX: f32 = 8.0;
-/// Points of the card that stay in the window however far it's panned.
+/// Points of the drawing that stay in the window however far it's panned.
 const KEEP: f32 = 64.0;
 
 /// What the open diagram was last fitted to, in the zoomed shell's points.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Fit {
-    /// The scale that fits the card in the window, at zoom 1.
+    /// The scale that fits the drawing's card in the window, at zoom 1.
     pub k: f32,
     pub win: [f32; 2],
-    /// The card's laid-out size.
+    /// The drawing's full size.
     pub size: [f32; 2],
 }
 
 impl Fit {
-    /// The card's scale and top-left at `zoom` times the fit, `pan` points from the middle.
+    /// The drawing's scale and top-left at `zoom` times the fit, `pan` points from the middle.
     pub fn place(&self, zoom: f32, pan: [f32; 2]) -> (f32, [f32; 2]) {
         let k = self.k * zoom;
         let centred = |i: usize| (self.win[i] - k * self.size[i]) / 2.0;
         (k, [centred(0) + pan[0], centred(1) + pan[1]])
     }
 
-    /// `pan` held so at least [`KEEP`] points of the card stay in the window.
+    /// `pan` held so at least [`KEEP`] points of the drawing stay in the window.
     fn clamp(&self, zoom: f32, pan: [f32; 2]) -> [f32; 2] {
         let k = self.k * zoom;
         let axis = |i: usize| {
@@ -47,19 +49,36 @@ impl Fit {
         [axis(0), axis(1)]
     }
 
+    /// The card around the drawing at `zoom` and `pan`: its padding stays its size.
+    pub fn card(&self, zoom: f32, pan: [f32; 2]) -> [f32; 4] {
+        let (k, [x, y]) = self.place(zoom, pan);
+        [x - CARD_PAD, y - CARD_PAD, k * self.size[0] + 2.0 * CARD_PAD, k * self.size[1] + 2.0 * CARD_PAD]
+    }
+
     /// Whether `(x, y)` is on the card at `zoom` and `pan`.
     pub fn hits(&self, zoom: f32, pan: [f32; 2], x: f32, y: f32) -> bool {
-        let (k, [cx, cy]) = self.place(zoom, pan);
-        x >= cx && y >= cy && x <= cx + k * self.size[0] && y <= cy + k * self.size[1]
+        let [cx, cy, w, h] = self.card(zoom, pan);
+        x >= cx && y >= cy && x <= cx + w && y <= cy + h
     }
 }
 
-/// The scale that fits a card of `size` in a `win` window: inside 56 points top and bottom and
-/// 3% of the width (20 to 48 points) at the sides, as the image viewer fits a still.
-pub fn fit_scale(win: [f32; 2], size: [f32; 2]) -> f32 {
+/// The box a card fits in, in a `win` window: inside 56 points top and bottom and 3% of the
+/// width (20 to 48 points) at the sides, as the image viewer fits a still.
+fn room(win: [f32; 2]) -> [f32; 2] {
     let side = (win[0] * 0.03).clamp(8.0, 36.0) + 12.0;
-    let (bw, bh) = ((win[0] - 2.0 * side).max(1.0), (win[1] - 2.0 * 56.0).max(1.0));
-    (bw / size[0].max(1.0)).min(bh / size[1].max(1.0)).min(FIT_MAX)
+    [(win[0] - 2.0 * side).max(1.0), (win[1] - 2.0 * 56.0).max(1.0)]
+}
+
+/// The scale that fits a drawing of `size` in a `win` window with its card's padding around it.
+pub fn fit_scale(win: [f32; 2], size: [f32; 2]) -> f32 {
+    let [bw, bh] = room(win);
+    contain([bw, bh], size).min(FIT_MAX)
+}
+
+/// The scale that fits `size` inside a card `box_` points big, padding and all.
+fn contain(box_: [f32; 2], size: [f32; 2]) -> f32 {
+    let inner = |i: usize| (box_[i] - 2.0 * CARD_PAD).max(1.0) / size[i].max(1.0);
+    inner(0).min(inner(1))
 }
 
 /// The flight out and back: the image viewer's spring (its knob).
@@ -149,35 +168,32 @@ fn drag<S: TimelineHost>(s: &mut S, d: &mut Drag, tx: &mut Tx) {
 /// The open diagram over the whole window: the scrim, and the card over it.
 pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let Some(o) = &s.diagrams().open else { return Vec::new() };
-    let Some(card) = rune_kit::mermaid::render(&o.seen.source, &o.seen.style) else { return Vec::new() };
     let shell = cx.layout("zoomed").or_else(|| cx.layout("window")).unwrap_or([0.0, 0.0, 1280.0, 820.0]);
-    let [x0, y0, w0, h0] = o.seen.rect;
-    let from = [x0 - shell[0], y0 - shell[1]];
-    // The card hugs its drawing once it's out of the column.
-    let drawing = cx.layout_size("diagram-lightbox/diagram");
-    let height = cx.layout_size("diagram-lightbox").map_or(h0, |[_, h]| h);
-    let hug = drawing.map_or(w0, |[w, _]| (w + 2.0 * CARD_PAD + 1.0).min(w0));
-    let fit = Fit { k: 0.0, win: [shell[2], shell[3]], size: [hug, height] };
-    let fit = Fit { k: fit_scale(fit.win, fit.size), ..fit };
+    let win = [shell[2], shell[3]];
+    let Some(drawing) = rune_kit::mermaid::drawing(&o.seen.source, &o.seen.style, room(win)[0]) else { return Vec::new() };
+    let fit = Fit { k: fit_scale(win, drawing.size), win, size: drawing.size };
     s.diagrams().fit.set(fit);
-    let (width, k, [x, y]) = match o.phase {
-        Phase::Open => {
-            let (k, at) = fit.place(o.zoom, o.pan);
-            (hug, k, at)
+    let (card, k) = match o.phase {
+        Phase::Open => (fit.card(o.zoom, o.pan), fit.place(o.zoom, o.pan).0),
+        // Over its card in the reply, the drawing fitted inside it.
+        Phase::Opening | Phase::Closing { .. } => {
+            let [x, y, w, h] = o.seen.rect;
+            ([x - shell[0], y - shell[1], w, h], contain([w, h], drawing.size))
         }
-        Phase::Opening | Phase::Closing { .. } => (w0, 1.0, from),
     };
+    let inset = |i: usize| (card[2 + i] - k * drawing.size[i]) / 2.0;
     let spring = flight(s);
     let body = el()
         .key("diagram-lightbox")
         .role("dialog")
         .label(opencode_i18n::t!("rune.diagram.title"))
-        .absolute(x, y)
-        .w(width)
-        .origin(0.0, 0.0)
-        .scale(k)
+        .absolute(card[0], card[1])
+        .size(card[2], card[3])
+        .radius(6.0)
+        .fill(drawing.surface)
+        .border(0.5, drawing.surface_border)
+        .clip_rounded(6.0)
         .motion(spring)
-        .scale_motion(spring)
         .transition(Transition::none())
         .on_layout_tx(|s: &mut S, _, tx| match &mut s.diagrams_mut().open {
             Some(Open { phase, .. }) if *phase == Phase::Opening => {
@@ -186,7 +202,15 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
             }
             _ => tx.live_only(),
         })
-        .child(card);
+        .child(
+            el().key("diagram-lightbox-drawing")
+                .absolute(inset(0), inset(1))
+                .size(drawing.size[0], drawing.size[1])
+                .origin(0.0, 0.0)
+                .scale(k)
+                .scale_motion(spring)
+                .child(drawing.el),
+        );
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let open = !matches!(o.phase, Phase::Closing { .. });
     let mut stage = el()
