@@ -10,7 +10,7 @@ use crate::{App, Route};
 pub fn open_child(s: &mut App) {
     crate::scenes::open_scene(s);
     s.finish_stream();
-    s.route = Route::Session(CHILD.into());
+    s.route = Route::here(CHILD.into());
 }
 
 const KEYS: &[Trigger] = &[Trigger { key: 'w', label: "It works on a reply, or finishes", run: |s, tx| work(s, tx) }];

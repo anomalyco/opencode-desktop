@@ -164,15 +164,16 @@ pub fn view(s: &App, id: &str) -> View {
         Some(Resolution::Ready) => View::Session,
         _ if known => View::Session,
         Some(Resolution::Unreachable) => View::Unreachable,
-        // Nothing known of it and its server isn't answering: say so rather than wait blank.
-        _ if crate::launch::offline(s) => View::Unreachable,
+        // Nothing known of it and its server isn't answering (never reached, or its stream is
+        // down): say so rather than wait blank, as Desktop's `unreachable | stopped` health does.
+        _ if crate::launch::offline(s) || s.server_links.get(&server(s)).dropped() => View::Unreachable,
         _ => View::Session,
     }
 }
 
 /// The open session's panel, when it can't show.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
-    let Route::Session(open) = &s.route else { return None };
+    let Route::Session { id: open, .. } = &s.route else { return None };
     if open != id {
         return None;
     }
@@ -190,10 +191,10 @@ const BODY: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
 /// The session id: IBM Plex Mono 13 at 530 on 16.
 const ID: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).mono().lh(16.0);
 
-/// The server's name as the panel says it: the window's address without its scheme.
+/// The server's name as the panel says it: the app's own server's address without its scheme,
+/// another server's name (`servers::runtime::label`).
 fn server_label(s: &App) -> String {
-    let base = server(s);
-    base.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_owned()
+    crate::servers::runtime::label(crate::servers::runtime::active(s))
 }
 
 /// `SessionStatePanel`'s frame: centred, 24 in from the sides, 168 clear below, 16 up.

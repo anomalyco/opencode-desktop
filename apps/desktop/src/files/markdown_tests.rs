@@ -12,7 +12,7 @@ fn runtime() -> Runtime<App> {
     let s = spec(|| {
         let mut a = App::empty();
         a.load_fixture(FIXTURE);
-        a.route = Route::Session(THIRD.into());
+        a.route = Route::here(THIRD.into());
         a.finish_stream();
         crate::plugin_host::setup(&mut a, std::sync::Arc::new(|| {}));
         a

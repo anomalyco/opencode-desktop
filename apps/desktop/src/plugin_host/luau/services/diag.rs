@@ -210,7 +210,7 @@ fn append(file: &Path, now: i64) -> std::io::Result<()> {
 /// native, so its own process is measured rather than snapshotted.
 fn heap_snapshot(_: &Lua, _: MultiValue, done: Completer) -> mlua::Result<()> {
     let app = cx::app().ok_or_else(|| mlua::Error::runtime("Diagnostics:HeapSnapshotAsync needs a window"))?;
-    let (server, started) = (app.own_server.clone(), app.now_ms);
+    let (server, started) = (crate::servers::runtime::own_server(), app.now_ms);
     let failed = |e: String| map([("error", Data::String(e))]);
     let Some(directory) = crate::dirs::downloads().map(|d| d.join(format!("opencode-heap-{}", stamp(started)))) else {
         done.complete(failed("There is no downloads folder".into()));

@@ -27,7 +27,7 @@ fn open(fetch: Fetch, after: Duration) -> App {
     pages.request(Key { id: ID.into(), updated: 1 }, true);
     let mut app = App::empty();
     app.pages.stall_after(after);
-    app.route = crate::Route::Session(ID.into());
+    app.route = crate::Route::here(ID.into());
     app.pages.set(pages);
     app
 }

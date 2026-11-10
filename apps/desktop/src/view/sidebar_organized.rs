@@ -273,8 +273,8 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
 /// its title (the text colour when it is the current session opened from this list, faint
 /// otherwise), and a ring while it works or a dot while it is unread.
 fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
-    let active = s.route == Route::Session(ses.id.clone()) && s.project_state.organize_selected.as_deref() == Some(ses.id.as_str());
-    let open_tab = s.tabs.iter().any(|t| t.route() == Route::Session(ses.id.clone()));
+    let active = s.route == Route::here(ses.id.clone()) && s.project_state.organize_selected.as_deref() == Some(ses.id.as_str());
+    let open_tab = s.tabs.iter().any(|t| t.route() == Route::here(ses.id.clone()));
     let id = ses.id.clone();
     let mark = match s.tab_status(&ses.id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),

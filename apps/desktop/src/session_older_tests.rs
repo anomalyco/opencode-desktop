@@ -86,7 +86,7 @@ fn scrolling_up_reads_older_pages_without_moving_what_is_on_screen() {
     let wake = Mutex::new(wake);
     let pages = Pages::new(serve(requests.clone(), gate), None, Arc::new(move || { let _ = wake.lock().unwrap().send(()); }));
     let mut app = App::empty();
-    app.route = Route::Session("ses_previous".into());
+    app.route = Route::here("ses_previous".into());
     app.transcripts.insert("ses_previous".into(), opencode_kit::model::Transcript { session: "ses_previous".into(), messages: vec![] });
     app.pages.set(pages);
     let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));

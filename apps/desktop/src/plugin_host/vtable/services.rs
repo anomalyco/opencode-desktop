@@ -75,7 +75,7 @@ impl HostView {
         HostView {
             popover: host.popover.as_ref().filter(|o| o.slot == slot).map(|o| o.id.clone()),
             dialog: host.dialog.as_ref().filter(|o| o.slot == slot).map(|o| o.id.clone()),
-            current_server: app.server_key.as_deref().and_then(|k| k.strip_prefix(plugin.as_str())?.strip_prefix(':')).map(str::to_owned),
+            current_server: app.server_key().as_deref().and_then(|k| k.strip_prefix(plugin.as_str())?.strip_prefix(':')).map(str::to_owned),
             can_write: app.can_write(),
             servers: servers(app),
             local: local(app),
@@ -251,7 +251,7 @@ pub(super) unsafe extern "C" fn host_state(ctx: *mut c_void, what: u32, arg: Abi
             STATE_NOW_MS => app.now_ms.max(0) as u64,
             STATE_CAN_WRITE => u64::from(app.can_write()),
             STATE_DIALOG => u64::from(app.plugins.dialog.as_ref().is_some_and(|o| o.slot == r.build.slot && o.id == arg)),
-            STATE_SERVER_CURRENT => u64::from(app.server_key.as_deref() == Some(format!("{}:{arg}", r.build.plugin).as_str())),
+            STATE_SERVER_CURRENT => u64::from(app.server_key().as_deref() == Some(format!("{}:{arg}", r.build.plugin).as_str())),
             _ => 0,
         };
     }

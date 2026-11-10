@@ -46,7 +46,7 @@ fn a_live_send_shows_one_message_under_the_id_it_sends() {
     use opencode_kit::client::Write;
     let mut app = App::empty();
     let writes = app.fake_writes();
-    app.route = crate::Route::Session("ses_a".into());
+    app.route = crate::Route::here("ses_a".into());
     app.composer = rune::TextEdit::new("look at this");
     app.attach.add(Attachment { mime: "image/png".into(), name: "a.png".into(), bytes: Arc::from(&b"ab"[..]), media: None });
     app.send(&mut Tx::default());
@@ -220,7 +220,7 @@ fn a_thumbnail_grows_into_the_viewer_and_escape_shrinks_it_back() {
     }
     assert!(rt.state.attach.viewing.is_none());
     assert!(rect(&rt, "/image-viewer").is_none());
-    assert!(matches!(rt.state.route, crate::Route::Session(_)), "Escape only closes the viewer");
+    assert!(matches!(rt.state.route, crate::Route::Session { .. }), "Escape only closes the viewer");
     flies(&close, large, thumb);
 }
 
@@ -228,7 +228,7 @@ fn a_thumbnail_grows_into_the_viewer_and_escape_shrinks_it_back() {
 fn a_sent_image_opens_from_the_transcript_and_a_click_outside_closes_it() {
     let mut app = App::empty();
     let _writes = app.fake_writes();
-    app.route = crate::Route::Session("ses_a".into());
+    app.route = crate::Route::here("ses_a".into());
     app.composer = rune::TextEdit::new("look");
     let a = Attachment { mime: "image/png".into(), name: "sent.png".into(), bytes: png(800, 400).into(), media: None };
     app.attach.add(a.clone());
@@ -392,7 +392,7 @@ fn a_ref_withdrawn_from_the_queue_goes_back_as_its_uri() {
     use opencode_kit::model::Delivery;
     let mut app = App::empty();
     let writes = app.fake_writes();
-    app.route = crate::Route::Session("ses_q".into());
+    app.route = crate::Route::here("ses_q".into());
     let hash = "a1".repeat(32);
     // As an opted-in `session.inbox.list` returns a queued prompt with a ref.
     let listed = serde_json::json!({"sessionID": "ses_q", "items": [{"id": "msg_queued", "type": "user", "delivery": "queue",

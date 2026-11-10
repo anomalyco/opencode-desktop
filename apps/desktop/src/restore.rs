@@ -1,29 +1,33 @@
 //! What survives a relaunch beyond the tabs: the open page, every composer draft, the closed
 //! tabs ⇧⌘T reopens and the inbox's disclosures. The auto-rebuild restarts the app on each
-//! merge, so live mode writes this on every change, to `ui.json` in the app's data folder
-//! (`crate::dirs`), one entry per server.
+//! merge, so live mode writes this on every change: the window's own (its page, drafts, panes
+//! and closed tabs, from every server) to its file in Desktop's shape (`windows::store`,
+//! `lastActiveUrl`, `tabs.recent`, `drafts`, `side`, `tabs.closed`), and what every window
+//! shares (the sidebar, the inbox's and the organized sidebar's state) to `ui.json` in the app's
+//! data folder (`crate::dirs`), under the app's own server.
+
+mod doc;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 
+use opencode_kit::servers::TabKey;
+use opencode_kit::servers::key::Route as Page;
+use opencode_kit::servers::tabs::WindowDoc;
 use serde_json::{Value, json};
 
 use crate::{App, Route};
 
+pub use doc::read_window;
+
 /// The draft key for a route: a session's id, or a draft tab's.
 pub fn draft_key(route: &Route) -> Option<String> {
     match route {
-        Route::Session(id) | Route::Draft(id) => Some(id.clone()),
+        Route::Session { id, .. } | Route::Draft(id) => Some(id.clone()),
         Route::Home => None,
     }
 }
-
-/// The key the one new-session page kept its words under before drafts were tabs.
-const LEGACY_DRAFT: &str = "new";
-
-/// What a window keeps in its own file rather than `ui.json`.
-const WINDOW_KEYS: [&str; 4] = ["route", "drafts", "side", "closedTabs"];
 
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
 /// showing its first ten; and Home's automation folds, shut.
@@ -74,101 +78,89 @@ fn read() -> Value {
     file().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
 }
 
-fn route_json(route: &Route) -> Value {
-    match route {
-        Route::Session(id) => json!({ "session": id }),
-        Route::Draft(id) => json!({ "draft": id }),
-        Route::Home => json!("home"),
-    }
-}
-
-/// The page as Desktop's last active URL keeps it: Settings, while open, is the page
-/// (`/settings?tab=`), whatever it was opened over.
-fn page_json(app: &App) -> Value {
+/// The page as Desktop's last active URL keeps it (`route-storage.ts`): Settings, while open, is
+/// the page (`/settings?tab=`), whatever it was opened over.
+fn page_href(app: &App) -> String {
     if app.settings.open {
-        return json!({ "settings": settings_tab(&app.settings_pages.page) });
+        return Page::Settings(Some(app.settings_pages.page.id().to_owned())).href();
     }
-    route_json(&app.route)
+    route_href(&app.route)
 }
 
-/// Desktop's `?tab=` for a settings page.
-fn settings_tab(page: &crate::settings::pages::Page) -> String {
-    page.id().to_owned()
+fn route_href(route: &Route) -> String {
+    match route {
+        Route::Home => Page::Home,
+        Route::Draft(id) => Page::Draft(id.clone()),
+        Route::Session { server, id } => Page::Session { server: server.clone(), session_id: id.clone() },
+    }
+    .href()
 }
 
-fn settings_page(tab: &str) -> crate::settings::pages::Page {
-    crate::settings::pages::Page::parse(tab)
-}
-
-/// A saved route.
+/// A saved page.
 #[derive(Debug, PartialEq)]
 enum Saved {
     Route(Route),
-    /// The new-session page, saved before drafts were tabs: it comes back as a draft tab.
-    LegacyDraft,
     /// Settings on this tab, which closes to Home (Desktop's `source` without a saved one).
     Settings(String),
 }
 
-fn route_from(v: &Value) -> Option<Saved> {
-    if let Some(id) = v["session"].as_str() {
-        return Some(Saved::Route(Route::Session(id.to_owned())));
-    }
-    if let Some(id) = v["draft"].as_str() {
-        return Some(Saved::Route(Route::Draft(id.to_owned())));
-    }
-    if let Some(tab) = v["settings"].as_str() {
-        return Some(Saved::Settings(tab.to_owned()));
-    }
-    match v.as_str()? {
-        "new" => Some(Saved::LegacyDraft),
-        "home" => Some(Saved::Route(Route::Home)),
-        _ => None,
-    }
+fn route_from(href: &str) -> Option<Saved> {
+    Some(match Page::parse(href)? {
+        Page::Home | Page::Settings(None) => Saved::Route(Route::Home),
+        Page::Settings(Some(tab)) => Saved::Settings(tab),
+        Page::Draft(id) => Saved::Route(Route::Draft(id)),
+        Page::Session { server, session_id } => Saved::Route(Route::session(server, session_id)),
+    })
 }
 
 impl App {
-    /// Puts back the saved route and drafts for `server` (live mode, before the first frame).
-    pub fn restore_ui(&mut self, server: &str) {
+    /// Puts back the window's saved page, drafts, closed tabs and panes, and what every window
+    /// shares under the app's own server `server` (live mode, before the first frame).
+    pub fn restore_ui(&mut self, doc: &WindowDoc, server: &str) {
         let global = &read()[server];
-        let own = (!self.window.id.is_empty()).then(|| crate::windows::store::load(&self.window, server));
-        let v = own.as_ref().unwrap_or(global);
         // A draft is its text, or `{ text, mode }` for one in shell mode, as Desktop keeps the
         // mode in the draft it persists (`ComposerPersistedState.mode`).
         self.restore.drafts = HashMap::new();
-        for (k, d) in v["drafts"].as_object().into_iter().flatten() {
+        for (key, d) in &doc.drafts {
+            let k = match key {
+                TabKey::Draft(id) => id.clone(),
+                TabKey::Session { session_id, .. } => session_id.clone(),
+            };
             let text = d.as_str().or(d["text"].as_str()).unwrap_or_default();
             if !text.is_empty() {
                 self.restore.drafts.insert(k.clone(), text.to_owned());
             }
             if d["mode"].as_str() == Some("shell") {
-                self.add.park(k.clone(), session_view::composer::mode::Mode::Shell);
+                self.add.park(k, session_view::composer::mode::Mode::Shell);
             }
         }
-        self.closed = crate::tabs::Closed::from_json(&v["closedTabs"]);
+        self.closed = crate::tabs::Closed::from_doc(&doc.closed);
         self.restore.inbox = InboxUi::from_json(&global["inbox"]);
         self.restore_organize(&global["organize"]);
-        let saved = match route_from(&v["route"]) {
-            Some(Saved::LegacyDraft) => Some(self.migrate_legacy_draft(server)),
+        let saved = match doc.last_active_url.as_deref().and_then(route_from) {
             Some(Saved::Route(route)) => Some(route),
             Some(Saved::Settings(tab)) => {
                 self.settings.open = true;
-                self.settings_pages.page = settings_page(&tab);
+                self.settings_pages.page = crate::settings::pages::Page::parse(&tab);
                 Some(Route::Home)
             }
             None => None,
         };
         if let Some(route) = saved {
-            let waiting = self.launch.phase(server).is_some_and(crate::launch::Phase::waiting);
-            let known = |id: &str| waiting || self.tabs.iter().any(|t| t.id == id) || self.sessions.iter().any(|s| s.id == id);
+            // The window starts on the app's own server (`App::load_live`).
+            let own = opencode_kit::servers::ServerKey::sidecar();
+            let waiting = self.launch.phase(own.as_str()).is_some_and(crate::launch::Phase::waiting);
             let lost = match &route {
-                Route::Session(id) => !known(id),
+                // A session of another server keeps its page while its tab does: that server
+                // answers after the window opens.
+                Route::Session { server, id } => !(waiting && *server == own) && !self.tabs.iter().any(|t| t.id == *id) && !(*server == own && self.sessions.iter().any(|s| s.id == *id)),
                 Route::Draft(id) => !self.tabs.iter().any(|t| t.id == *id && t.is_draft()),
                 Route::Home => false,
             };
             if !lost {
                 if waiting
-                    && let Route::Session(id) = &route
+                    && let Route::Session { server: on, id } = &route
+                    && *on == own
                     && !self.transcripts.contains_key(id)
                     && let Some(messages) = crate::session_pages::load_cached_latest(server, id)
                 {
@@ -184,7 +176,7 @@ impl App {
         if let Some(w) = global["sidebarWidth"].as_f64() {
             self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
         }
-        self.side.restore_json(&v["side"]);
+        self.side.restore_json(doc.side.as_ref().unwrap_or(&Value::Null));
         self.load_persisted_terminals(server);
         self.show_draft();
         self.restore.saved = Some(self.ui_json());
@@ -199,21 +191,6 @@ impl App {
         }
     }
 
-    /// The new-session page saved before drafts were tabs comes back as a draft tab with its words.
-    fn migrate_legacy_draft(&mut self, server: &str) -> Route {
-        let id = crate::tabs::draft_id();
-        if let Some(text) = self.restore.drafts.remove(LEGACY_DRAFT) {
-            self.restore.drafts.insert(id.clone(), text);
-        }
-        self.tabs.push(crate::tabs::Tab::draft(id.clone(), self.default_dir.clone()));
-        // The source isn't live yet, so `save_tabs` would skip it: written here, once, unless
-        // the tabs still come from Beta.
-        if !crate::headless() && !cfg!(test) && !self.launch.phase(server).is_some_and(|p| p.offline() || p.beta_tabs()) {
-            crate::tabs::save(&self.window, server, &self.tabs);
-        }
-        Route::Draft(id)
-    }
-
     /// When the window closes: the newest draft goes out, and every write waits to land.
     pub fn save_on_close(&mut self) {
         // A tab on its way out takes its window back, and a gap it opened in another closes.
@@ -224,7 +201,7 @@ impl App {
             self.queue_terminal_save();
         }
         self.window_closed();
-        crate::windows::peer::leave_server(self);
+        crate::servers::runtime::leave_all(self);
         crate::disk::flush();
     }
 
@@ -264,20 +241,23 @@ impl App {
     }
 
     fn ui_json(&self) -> Value {
+        let recent = self.current_tab().and_then(|id| self.tabs.iter().find(|t| t.id == id)).map(|t| json!({ "key": t.key().encode() }));
         json!({
-            "route": page_json(self),
+            "lastActiveUrl": page_href(self),
+            "tabs.recent": recent,
             "drafts": self.drafts_json(),
             "sidebar": self.sidebar_open,
             "sidebarWidth": self.sidebar_w,
             "side": self.side.to_json(),
-            "closedTabs": self.closed.to_json(),
+            "tabs.closed": self.closed.to_doc().iter().map(opencode_kit::servers::tabs::ClosedTab::to_json).collect::<Value>(),
             "inbox": self.restore.inbox.to_json(),
             "organize": self.organize_json(),
         })
     }
 
-    /// Each draft's text, and its mode when it is shell (`{ text, mode: "shell" }`), so a draft
-    /// left in shell mode comes back in it, empty or not.
+    /// Each draft's text under its tab's key (`draft:<id>`, or the session's server and route),
+    /// and its mode when it is shell (`{ text, mode: "shell" }`), so a draft left in shell mode
+    /// comes back in it, empty or not.
     fn drafts_json(&self) -> Value {
         use session_view::composer::mode::Mode;
         let mut drafts: HashMap<String, (String, Mode)> = self.restore.drafts.iter().map(|(k, t)| (k.clone(), (t.clone(), Mode::Normal))).collect();
@@ -289,27 +269,45 @@ impl App {
         }
         let out: serde_json::Map<String, Value> = drafts
             .into_iter()
-            .filter_map(|(k, (text, mode))| match mode {
-                Mode::Shell => Some((k, json!({ "text": text, "mode": "shell" }))),
-                Mode::Normal if text.trim().is_empty() => None,
-                Mode::Normal => Some((k, json!(text))),
+            .filter_map(|(k, (text, mode))| {
+                let v = match mode {
+                    Mode::Shell => json!({ "text": text, "mode": "shell" }),
+                    Mode::Normal if text.trim().is_empty() => return None,
+                    Mode::Normal => json!(text),
+                };
+                Some((self.draft_tab_key(&k).encode(), v))
             })
             .collect();
         Value::Object(out)
     }
 
+    /// The tab key draft `k` is kept under: a draft tab's, or its session's on its server.
+    fn draft_tab_key(&self, k: &str) -> TabKey {
+        if let Some(t) = self.tabs.iter().find(|t| t.id == k) {
+            return t.key();
+        }
+        if k.starts_with("draft_") {
+            return TabKey::draft(k);
+        }
+        let server = match &self.route {
+            Route::Session { server, id } if id == k => server.clone(),
+            _ => crate::servers::runtime::current(),
+        };
+        TabKey::session(server, k)
+    }
+
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
         (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
-        self.settings.open.then(|| settings_tab(&self.settings_pages.page)).hash(&mut h);
+        self.settings.open.then(|| self.settings_pages.page.id().to_owned()).hash(&mut h);
         self.side.stamp_hash(&mut h);
         let st = &self.project_state;
         (st.organize_collapsed, organize_expanded(st), &st.organize_order).hash(&mut h);
         h.finish()
     }
 
-    /// Called every poll: keeps drafts per route and, on any change, writes the file off the UI
-    /// thread (it's a few hundred bytes, renamed into place).
+    /// Called every poll: keeps drafts per route and, on any change, writes the files off the UI
+    /// thread (a few hundred bytes, renamed into place).
     pub fn poll_restore(&mut self) {
         self.show_draft();
         self.freeze_organize_order();
@@ -318,27 +316,21 @@ impl App {
             return;
         }
         self.restore.stamp = Some(stamp);
-        let crate::Source::Live { server, .. } = &self.source else { return };
+        if !self.live() {
+            return;
+        }
         let v = self.ui_json();
         if self.restore.saved.as_ref() == Some(&v) {
             return;
         }
         let Some(path) = file() else { return };
-        let server = server.base.clone();
+        let Some(server) = crate::servers::runtime::own_server().map(|s| s.base) else { return };
         self.restore.saved = Some(v.clone());
-        if self.window.id.is_empty() {
-            crate::disk::later("ui", move || {
-                let mut all = read();
-                all[server] = v;
-                crate::disk::replace(&path, all.to_string().as_bytes());
-            });
-            return;
-        }
         // The page, drafts, panes and closed tabs are the window's own (Desktop's
         // `opencode.window.<id>.dat`); the sidebar, the inbox's disclosures and the organized
         // sidebar's are every window's.
-        for key in WINDOW_KEYS {
-            crate::windows::store::save(&self.window, &server, key, v[key].clone());
+        for key in ["lastActiveUrl", "tabs.recent", "drafts", "side", "tabs.closed"] {
+            crate::windows::store::save(&self.window, key, v[key].clone());
         }
         crate::disk::later("ui", move || {
             let mut all = read();
@@ -384,24 +376,24 @@ mod tests {
 
     #[test]
     fn routes_round_trip() {
-        for r in [Route::Home, Route::Draft("draft_AbC".into()), Route::Session("ses_AbC".into())] {
-            assert_eq!(route_from(&route_json(&r)), Some(Saved::Route(r)));
+        for r in [Route::Home, Route::Draft("draft_AbC".into()), Route::here("ses_AbC".into())] {
+            assert_eq!(route_from(&route_href(&r)), Some(Saved::Route(r)));
         }
     }
 
     #[test]
     fn each_session_keeps_its_own_draft() {
         let mut a = App::empty();
-        a.route = Route::Session("ses_a".into());
+        a.route = Route::here("ses_a".into());
         a.show_draft();
         a.composer = rune::TextEdit::new("half a thought");
-        a.route = Route::Session("ses_b".into());
+        a.route = Route::here("ses_b".into());
         a.show_draft();
         assert_eq!(a.composer.text, "");
         a.composer = rune::TextEdit::new("other");
-        a.route = Route::Session("ses_a".into());
+        a.route = Route::here("ses_a".into());
         a.show_draft();
         assert_eq!(a.composer.text, "half a thought");
-        assert_eq!(a.ui_json()["drafts"]["ses_b"], "other");
+        assert_eq!(a.ui_json()["drafts"][TabKey::session(crate::servers::runtime::current(), "ses_b").encode()], "other");
     }
 }

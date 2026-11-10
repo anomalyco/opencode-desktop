@@ -109,19 +109,19 @@ impl App {
 
     /// Whether `/undo` and `⌘K → Undo` are enabled on the open session.
     pub fn can_undo_session(&self) -> bool {
-        let Route::Session(id) = &self.route else { return false };
+        let Route::Session { id, .. } = &self.route else { return false };
         self.can_rewind_session(id) && !self.rewind.busy(id) && self.undo_target(id).is_some()
     }
 
     /// Whether `/redo` and `⌘K → Redo` are enabled on the open session.
     pub fn can_redo_session(&self) -> bool {
-        let Route::Session(id) = &self.route else { return false };
+        let Route::Session { id, .. } = &self.route else { return false };
         self.can_rewind_session(id) && !self.rewind.busy(id) && self.session(id).and_then(|i| i.revert.as_ref()).is_some()
     }
 
     /// Captures `session`'s current composer draft, attachments and quotes.
     pub fn capture_draft(&self, session: &str) -> SavedDraft {
-        if self.route == Route::Session(session.to_owned()) {
+        if self.route == Route::here(session.to_owned()) {
             return SavedDraft {
                 entry: Entry::of(&self.composer),
                 caret: self.composer.range().1.min(self.composer.text.len()),
@@ -150,7 +150,7 @@ impl App {
         } else {
             self.rewind.drafts.insert(session.to_owned(), draft.clone());
         }
-        if self.route == Route::Session(session.to_owned()) {
+        if self.route == Route::here(session.to_owned()) {
             self.write_composer_draft(draft);
         }
     }
@@ -179,7 +179,7 @@ impl App {
 
     /// Preserves per-session drafts created by rewind/fork across tab switches.
     pub(crate) fn sync_route_draft(&mut self, prev: &Route, next_session: &str) {
-        if let Route::Session(old) = prev
+        if let Route::Session { id: old, .. } = prev
             && old != next_session
             && (self.rewind.drafts.contains_key(old) || self.rewind.drafts.contains_key(next_session))
         {
@@ -274,7 +274,7 @@ impl App {
     /// `/undo` and `⌘K → Undo`: rewinds to the newest user message before the session's boundary,
     /// or withdraws it when it's still undelivered (`revert-machine.ts` `undo.requested`).
     pub fn undo_last(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session(session) = self.route.clone() else { return false };
+        let Route::Session { id: session, .. } = self.route.clone() else { return false };
         if self.rewind.busy(&session) {
             return false;
         }
@@ -290,7 +290,7 @@ impl App {
 
     /// `/redo` and `⌘K → Redo`: restores every reverted message at once and leaves the composer alone.
     pub fn redo_revert(&mut self, _tx: &mut Tx) -> bool {
-        let Route::Session(session) = self.route.clone() else { return false };
+        let Route::Session { id: session, .. } = self.route.clone() else { return false };
         if !self.can_rewind_session(&session) || self.rewind.busy(&session) {
             return false;
         }

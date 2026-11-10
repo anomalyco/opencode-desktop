@@ -102,7 +102,7 @@ fn story_view(s: &App, p: &Pal) -> El {
     let panel_w = if s.route == Route::Home && s.variant == 3 { 900.0 } else { 720.0 };
     let page = match &s.route {
         Route::Draft(_) => view::draft_page(s, p, panel_w),
-        Route::Session(id) => view::session_page(s, p, id),
+        Route::Session { id, .. } => view::session_page(s, p, id),
         Route::Home => view::home(s, p, [panel_w, 0.0], [0.0, 0.0]),
     };
     row()

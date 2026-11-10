@@ -70,7 +70,7 @@ impl App {
 
     /// ⌃B and the hint: moves the open session's blocking work, reporting a failure.
     pub fn move_to_background(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session(id) = self.route.clone() else { return false };
+        let Route::Session { id, .. } = self.route.clone() else { return false };
         tx.instant();
         self.move_blocking(&id, false)
     }
@@ -114,7 +114,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !crate::keymap::Bind::Background.matches_tx(ev, tx) {
         return false;
     }
-    let Route::Session(id) = s.route.clone() else { return false };
+    let Route::Session { id, .. } = s.route.clone() else { return false };
     if blocking(s, &id).is_empty() {
         return false;
     }

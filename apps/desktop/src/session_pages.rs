@@ -465,7 +465,7 @@ fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
 impl super::App {
     pub fn cancel_open(&mut self, tx: &mut rune::Tx) {
         if let Some(opening) = self.opening.take() {
-            if let super::Route::Session(id) = &opening.from {
+            if let super::Route::Session { id, .. } = &opening.from {
                 self.sync_route_draft(&self.route.clone(), id);
             }
             self.route = opening.from;
@@ -487,7 +487,7 @@ impl super::App {
 
     fn poll_open(&mut self, tx: &mut rune::Tx) -> bool {
         let Some(opening) = &self.opening else { return false };
-        if self.route != opening.from && self.route != super::Route::Session(opening.id.clone()) {
+        if self.route != opening.from && self.route != super::Route::here(opening.id.clone()) {
             self.opening = None;
             return false;
         }
@@ -510,7 +510,7 @@ impl super::App {
 
     /// The session on screen with its messages painted (not held, not loading), for traces.
     pub fn painted_session(&self) -> Option<(&str, usize)> {
-        let super::Route::Session(id) = &self.route else { return None };
+        let super::Route::Session { id, .. } = &self.route else { return None };
         if self.opening.is_some() { return None; }
         Some((id, self.transcripts.get(id).map_or(0, |t| t.messages.len())))
     }
@@ -522,7 +522,7 @@ impl super::App {
     /// The held transcript is read-only; the route and composer already belong to the target.
     pub(crate) fn displayed_session<'a>(&'a self, id: &'a str) -> Option<&'a str> {
         match self.opening.as_ref().filter(|o| o.id == id && !o.loading()) {
-            Some(o) => match &o.from { super::Route::Session(from) => Some(from), _ => None },
+            Some(o) => match &o.from { super::Route::Session { id: from, .. } => Some(from), _ => None },
             None => Some(id),
         }
     }
@@ -621,7 +621,7 @@ impl super::App {
 
     fn schedule_history(&mut self, page: &Page, tx: &mut rune::Tx) {
         let id = &page.key.id;
-        if self.route == super::Route::Session(id.clone()) && !page.history && !page.cached && let Some(cursor) = &page.cursor {
+        if self.route == super::Route::here(id.clone()) && !page.history && !page.cached && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
             let id = id.clone();
             self.step_history(&id, HistoryEvent::Latest { key: page.key.clone(), cursor, now: Instant::now() }, tx);
@@ -657,7 +657,7 @@ impl super::App {
                 changed = true;
             }
             match result {
-                Ok(page) if self.route == super::Route::Session(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
+                Ok(page) if self.route == super::Route::here(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && crate::session_state::not_found_error(&error) => {
                     self.opening = None;
                     changed |= crate::session_state::missing(self, &key.id, tx);
@@ -667,10 +667,10 @@ impl super::App {
                     if let Some(o) = &mut self.opening { o.step(OpenEvent::Failed(error)); }
                     changed = true;
                 }
-                Err((key, error)) if self.route == super::Route::Session(key.id.clone()) && crate::session_state::not_found_error(&error) => {
+                Err((key, error)) if self.route == super::Route::here(key.id.clone()) && crate::session_state::not_found_error(&error) => {
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
-                Err((key, error)) if self.route == super::Route::Session(key.id.clone()) => {
+                Err((key, error)) if self.route == super::Route::here(key.id.clone()) => {
                     // A failure while its older page loads fails that page (its cooldown, then a retry).
                     changed |= self.step_history(&key.id, HistoryEvent::Failed { now: Instant::now() }, tx);
                     // A busy server is waited out; only silence that lasts is told (below).
@@ -686,7 +686,7 @@ impl super::App {
         // Each timed history (the first page's wait, a slow or stuck older page).
         let server = self.pages.server().to_owned();
         for id in self.pages.histories.timed(&server) {
-            let routed = self.route == super::Route::Session(id.clone());
+            let routed = self.route == super::Route::here(id.clone());
             let expanding = matches!(self.pages.histories.get(&server, &id), Some(History::Expanding { .. }));
             if routed || !expanding { changed |= self.step_history(&id, HistoryEvent::Tick { now: Instant::now() }, tx); }
         }
@@ -723,7 +723,7 @@ impl super::App {
     /// top. It lands above what's on screen without moving it: the virtual list holds its
     /// first visible row (Rune `VirtualList::anchor_delta`).
     fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
-        let super::Route::Session(id) = self.route.clone() else { return false };
+        let super::Route::Session { id, .. } = self.route.clone() else { return false };
         if *self.pages.near_top.borrow() != id || self.pages.pool.is_none() { return false; }
         self.step_history(&id, HistoryEvent::NearTop { now: Instant::now() }, tx)
     }
@@ -803,7 +803,7 @@ mod tests {
     #[test]
     fn cached_page_and_history_do_not_rewind_live_messages() {
         let mut app = App::empty();
-        app.route = Route::Session("ses_a".into());
+        app.route = Route::here("ses_a".into());
         let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, images: vec![], bytes: 0, read: Default::default() };
         app.show_page(&p, &mut Tx::default());
         p.messages = model::parse_messages(&page("old"));
@@ -879,10 +879,10 @@ mod tests {
         rt.update(|s, tx| { s.open("ses_b", tx); s.open("ses_c", tx); });
         send.send(Ok(result("ses_b"))).unwrap();
         rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::Session("ses_c".into()), "input follows the newest click immediately");
+        assert_eq!(rt.state.route, Route::here("ses_c".into()), "input follows the newest click immediately");
         send.send(Ok(result("ses_c"))).unwrap();
         rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::Session("ses_c".into()));
+        assert_eq!(rt.state.route, Route::here("ses_c".into()));
 
         rt.update(|s, tx| { s.open("ses_cancel", tx); s.route = Route::Home; s.poll_pages(tx); });
         send.send(Ok(result("ses_cancel"))).unwrap();
@@ -924,7 +924,7 @@ mod tests {
             Ok(data.clone())
         }), None, Arc::new(|| {}));
         let mut app = App::empty();
-        app.route = Route::Session("ses_previous".into());
+        app.route = Route::here("ses_previous".into());
         app.transcripts.insert("ses_previous".into(), model::Transcript { session:"ses_previous".into(), messages:model::parse_messages(&page("Previous session stays here")) });
         app.pages.set(pages);
         if prefetched {
@@ -955,7 +955,7 @@ mod tests {
             rt.frame(1.0/60.0);
             let elements = rt.elements();
             let loading = elements.iter().any(|e| e.text.as_deref() == Some("Loading messages…"));
-            let target = rt.state.route == Route::Session("ses_target".into());
+            let target = rt.state.route == Route::here("ses_target".into());
             let grey = rt.state.opening.is_none() && target && rt.state.attach.image_handles().iter().any(|img| !img.is_ready());
             let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.label.as_deref() == Some("0"));
             let at_bottom = rt.scroll_at_bottom("scroll-ses_target");
@@ -968,6 +968,6 @@ mod tests {
         // Release the refresh requested by a prefetched open.
         let _ = release.send(());
         assert!(bad.is_empty(), "intermediate frames flashed: {bad:?}");
-        assert_eq!(rt.state.route, Route::Session("ses_target".into()));
+        assert_eq!(rt.state.route, Route::here("ses_target".into()));
     }
 }

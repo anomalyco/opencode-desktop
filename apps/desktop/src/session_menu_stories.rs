@@ -33,7 +33,7 @@ fn spot(v: usize) -> Spot {
 /// The session the story is on: the open one, which is the first tab's.
 fn first(s: &App) -> String {
     match &s.route {
-        Route::Session(id) => s.root_of(id).to_owned(),
+        Route::Session { id, .. } => s.root_of(id).to_owned(),
         _ => s.tabs.first().map_or_else(String::new, |t| t.id.clone()),
     }
 }

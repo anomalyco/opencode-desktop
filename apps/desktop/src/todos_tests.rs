@@ -161,7 +161,7 @@ fn one_list_opens_at_a_time() {
         s.running.insert(main);
     });
     rt.frame(DT);
-    assert_eq!(rt.state.route, Route::Session(crate::fixture_ids::MAIN.into()));
+    assert_eq!(rt.state.route, Route::here(crate::fixture_ids::MAIN.into()));
     assert!(has(&rt, "activity-chip") && has(&rt, "todo-pill"));
     let chip = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("activity-chip")).unwrap().rect;
     let pill = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("todo-pill")).unwrap().rect;
@@ -189,7 +189,7 @@ fn the_list_closes_when_the_pill_goes() {
     let mut rt = plan();
     tap(&mut rt, "todo-pill");
     assert!(has(&rt, "todo-panel"));
-    let id = match &rt.state.route { Route::Session(id) => id.clone(), _ => unreachable!() };
+    let id = match &rt.state.route { Route::Session { id, .. } => id.clone(), _ => unreachable!() };
     let stop = id.clone();
     rt.update(move |s, _| {
         s.running.remove(&stop);

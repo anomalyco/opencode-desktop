@@ -65,7 +65,7 @@ fn spans_come_from_the_real_gate_and_page_reader() {
     let (_, spans) = capture(|| {
         let pages = Pages::new(Arc::new(|_| Ok(wire(12))), None, Arc::new(|| {}));
         let mut app = App::empty();
-        app.route = Route::Session("ses_previous".into());
+        app.route = Route::here("ses_previous".into());
         app.transcripts.insert("ses_previous".into(), opencode_kit::model::Transcript { session: "ses_previous".into(), messages: vec![] });
         app.pages.set(pages);
         let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));

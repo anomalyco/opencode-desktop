@@ -69,7 +69,7 @@ fn request(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             Err(e) => map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(e))]),
         });
     };
-    match (path.strip_prefix("local:"), app.own_server.clone()) {
+    match (path.strip_prefix("local:"), crate::servers::runtime::own_server()) {
         (Some(local), Some(own)) => {
             let local = local.to_owned();
             rune_luau::spawn_blocking(move || send(&own, &local));

@@ -6,8 +6,8 @@ impl App {
     pub fn open(&mut self, id: &str, tx: &mut Tx) {
         self.close_settings();
         if self.opening.as_ref().is_some_and(|o| o.id == id) { return; }
-        let held = self.pages.has_pool() && self.route != Route::Session(id.to_owned());
-        if self.route != Route::Session(id.to_owned()) { crate::telemetry::open_begin(id, held); }
+        let held = self.pages.has_pool() && self.route != Route::here(id.to_owned());
+        if self.route != Route::here(id.to_owned()) { crate::telemetry::open_begin(id, held); }
         if held {
             self.begin_open(id, tx);
         } else {
@@ -39,11 +39,11 @@ impl App {
         self.close_fork_dialog(false);
         crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
-        if self.route != Route::Session(id.to_owned()) {
+        if self.route != Route::here(id.to_owned()) {
             // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
             self.ends.forget(id);
         }
-        self.route = Route::Session(id.to_owned());
+        self.route = Route::here(id.to_owned());
         crate::session_state::opened(self, id, tx);
         self.sync_route_draft(&prev_route, id);
         let root = self.root_of(id).to_owned();
@@ -109,12 +109,12 @@ impl App {
     /// and latest page, and its subagents' pages.
     pub(crate) fn resync_view(&mut self) {
         crate::subagents::shells::forget_lists(self);
-        let dir = match &self.route { Route::Session(id) => self.session(id).map(|i| i.directory.clone()), _ => None };
+        let dir = match &self.route { Route::Session { id, .. } => self.session(id).map(|i| i.directory.clone()), _ => None };
         if let Some(dir) = dir {
             crate::subagents::shells::list(self, &dir);
         }
         let Source::Live { requests: Some(r), .. } = &self.source else { return };
-        if let Route::Session(id) = self.route.clone() {
+        if let Route::Session { id, .. } = self.route.clone() {
             let _ = r.send(Request::Inbox(id.clone()));
             self.read_open_requests(&id);
             self.reload_session(&id);

@@ -8,7 +8,7 @@ use crate::{App, Route};
 
 fn busy_app() -> (Runtime<App>, String) {
     let mut app = App::fixture_session();
-    let Route::Session(id) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
     app.running.insert(id.clone());
     let mut rt = app.into_runtime();
     for _ in 0..60 {
@@ -23,7 +23,7 @@ fn enter(rt: &mut Runtime<App>, body: &str) -> String {
         s.send(tx);
     });
     rt.frame(1.0 / 120.0);
-    let sid = match &rt.state.route { Route::Session(s) => s.clone(), _ => unreachable!() };
+    let sid = match &rt.state.route { Route::Session { id: s, .. } => s.clone(), _ => unreachable!() };
     let t = &rt.state.transcripts[&sid];
     let in_inbox = rt.state.inboxes.get(&sid).and_then(|i| i.items.iter().find(|i| i.text == body)).map(|i| i.id.clone());
     in_inbox.or_else(|| t.messages.iter().rev().find(|m| matches!(m, crate::Message::User { text, .. } if text == body)).map(|m| m.id().to_owned())).expect("sent")

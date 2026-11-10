@@ -11,7 +11,7 @@ fn runtime(reduced: bool) -> (Runtime<App>, String) {
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
-    let crate::Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let crate::Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     app.reduced_motion = reduced;
     // Only this session runs, so a quiet frame is the row's doing.
     app.running.retain(|id| *id == sid);

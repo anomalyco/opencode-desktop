@@ -206,7 +206,7 @@ fn the_pages_own_request_goes_before_its_subagents() {
 #[test]
 fn a_subagents_permission_shows_on_its_own_page_and_not_its_parents_on_it() {
     let mut l = live(&[("per_main", MAIN, "bash", &["main"])]);
-    l.rt.update(|s, _| s.route = Route::Session(CHILD.into()));
+    l.rt.update(|s, _| s.route = Route::here(CHILD.into()));
     settle(&mut l.rt);
     assert!(l.rt.state.permission_asked().is_none(), "the parent's stays on the parent's page");
     let data = json!({ "id": "per_child", "sessionID": CHILD, "action": "bash", "resources": ["child"] });

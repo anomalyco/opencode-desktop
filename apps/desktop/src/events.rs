@@ -244,7 +244,7 @@ impl App {
     /// Whether `sid`'s transcript is on screen: the open session's family (its page, agent
     /// rows and subagent panels) is the only place transcripts draw.
     fn shows_transcript(&self, sid: &str) -> bool {
-        matches!(&self.route, Route::Session(open) if self.root_of(open) == self.root_of(sid))
+        matches!(&self.route, Route::Session { id: open, .. } if self.root_of(open) == self.root_of(sid))
     }
 
     /// An event the server's copy took, in this window: what it shows and does. True when its
@@ -290,7 +290,7 @@ impl App {
         if ty.starts_with("session.") && !sid.is_empty() {
             // A plain session page with side/top tabs shows neither the age nor the
             // recency order of unrelated sessions. Still keep their metadata current.
-            let shows_age = !matches!(self.route, Route::Session(_)) || self.shows_transcript(&sid)
+            let shows_age = !matches!(self.route, Route::Session { .. }) || self.shows_transcript(&sid)
                 || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
                 || self.suggest.state.context().is_some() || self.side_open() || self.settings.open;
             if done.touched || done.renamed {
@@ -298,7 +298,7 @@ impl App {
             }
             changed |= (done.touched && shows_age) || done.renamed;
             // A step started in the open session may follow a prompt we haven't seen.
-            if ty == "session.step.started" && self.route == Route::Session(sid.clone()) {
+            if ty == "session.step.started" && self.route == Route::here(sid.clone()) {
                 self.reload_session(&sid);
             }
         }
@@ -320,7 +320,7 @@ impl App {
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 // Desktop reports the open session's idle mark as viewed, so it never lights
                 // up: every window that shows it marks it, whichever window took the event.
-                let open = matches!(&self.route, Route::Session(r) if self.root_of(r) == self.root_of(sid));
+                let open = matches!(&self.route, Route::Session { id: r, .. } if self.root_of(r) == self.root_of(sid));
                 let marked = open && self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
                     let was = s.viewed;
                     s.viewed = s.viewed.max(s.idle);

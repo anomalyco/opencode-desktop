@@ -16,15 +16,14 @@ use crate::{App, Route};
 /// Desktop's window size when none was saved.
 const DEFAULT_SIZE: (f32, f32) = (1280.0, 800.0);
 
-/// What a window opened from another starts with, so it shows its tabs at once: the opener's
-/// shared session data, and the tabs it moves.
+/// What a window opened from another starts with: the tabs it moves, each with its server, and
+/// their drafts. It shows them at once from their servers' shared copies (`servers::runtime`).
 pub struct Seed {
     pub tabs: Vec<Tab>,
     pub route: Route,
     pub drafts: HashMap<String, String>,
     /// The moving drafts in shell mode, which they keep.
     shell: Vec<String>,
-    peer: peer::Link,
     default_dir: String,
 }
 
@@ -37,7 +36,6 @@ impl Seed {
             shell: tabs.iter().filter(|t| s.draft_mode(&t.id) == Mode::Shell).map(|t| t.id.clone()).collect(),
             tabs,
             route,
-            peer: peer::link_of(s),
             default_dir: s.default_dir.clone(),
         }
     }
@@ -55,7 +53,6 @@ impl App {
     }
 
     fn plant(&mut self, seed: Seed) {
-        peer::adopt(self, &seed.peer);
         self.default_dir = seed.default_dir;
         self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);
@@ -63,7 +60,7 @@ impl App {
             self.add.park(id, Mode::Shell);
         }
         self.route = seed.route;
-        // Before the window's first turn: the copy comes in for this, and goes back.
+        // Before the window's first turn: the page's server's copy comes in for this, and goes back.
         peer::in_turn(self, |s| {
             s.set_media_fetch();
             s.show_draft();

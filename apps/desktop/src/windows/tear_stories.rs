@@ -24,7 +24,7 @@ const PATH: &[(f64, f32)] = &[(0.3, 0.9), (0.6, 0.62), (0.9, 0.38), (1.2, 0.2), 
 fn scene(s: &mut App) {
     s.tabs = roots(s).into_iter().take(3).collect();
     if let Some(first) = s.tabs.first() {
-        s.route = crate::Route::Session(first.id.clone());
+        s.route = crate::Route::here(first.id.clone());
     }
     stage(s, view);
 }

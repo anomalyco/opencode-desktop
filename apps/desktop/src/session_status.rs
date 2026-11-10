@@ -121,7 +121,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let layout = s.tab_layout();
     // The tab strip (top or side tabs): a tab other than the shown one, whose family runs.
     let shown = match &s.route {
-        Route::Session(id) => Some(s.root_of(id).to_owned()),
+        Route::Session { id, .. } => Some(s.root_of(id).to_owned()),
         _ => None,
     };
     let tabs: Vec<(usize, String)> = if layout == TabLayout::Inbox {

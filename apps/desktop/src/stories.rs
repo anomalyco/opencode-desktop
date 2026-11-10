@@ -450,7 +450,7 @@ pub(crate) fn history_view(s: &App, p: &Pal) -> El {
 
 pub(crate) fn sid(s: &App) -> String {
     match &s.route {
-        Route::Session(id) => id.clone(),
+        Route::Session { id, .. } => id.clone(),
         _ => String::new(),
     }
 }

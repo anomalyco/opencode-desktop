@@ -355,7 +355,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
 
 /// Whether the open session has prompts in the queue, which squares the composer's top corners.
 pub fn docked(s: &App) -> bool {
-    matches!(&s.route, crate::Route::Session(id) if !shown_rows(s, id).is_empty())
+    matches!(&s.route, crate::Route::Session { id, .. } if !shown_rows(s, id).is_empty())
 }
 
 /// The queue's rows: the session's queued prompts, less those a change took out of the strip
@@ -479,7 +479,7 @@ pub(crate) fn keycap(p: &Pal, key: &str) -> El {
 /// when `ask`.
 pub fn scene(s: &mut App, n: usize, ask: bool) {
     crate::scenes::busy_scene(s);
-    let crate::Route::Session(id) = s.route.clone() else { return };
+    let crate::Route::Session { id, .. } = s.route.clone() else { return };
     let words = ["Then write up what changed in the PR description", "And keep the retry budget as it is", "Bump the version and tag it"];
     for k in 0..n {
         let item = InboxItem { id: format!("msg_zzqueued{k}"), text: words[k % words.len()].into(), delivery: Delivery::Queue, files: Vec::new() };
@@ -579,7 +579,7 @@ mod tests {
     fn busy_app_at(zoom: f32) -> Runtime<App> {
         let mut app = App::fixture_session();
         app.zoom = zoom;
-        let Route::Session(id) = app.route.clone() else { panic!("no open session") };
+        let Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
         app.running.insert(id);
         let mut rt = app.into_runtime();
         rt.frame(0.0);
@@ -715,7 +715,7 @@ mod tests {
     /// re-reads the page.
     fn live_steer_events(rt: &mut Runtime<App>, id: &str, text: &str) {
         use serde_json::json;
-        let Route::Session(sid) = rt.state.route.clone() else { panic!("no open session") };
+        let Route::Session { id: sid, .. } = rt.state.route.clone() else { panic!("no open session") };
         let running = rt.state.transcripts[&sid].messages.iter().rev().find(|m| matches!(m, crate::Message::Assistant(_))).unwrap().id().to_owned();
         let next = "msg_zzzzsteerreply";
         let item = json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": text } } });
@@ -750,7 +750,7 @@ mod tests {
         leaves_composer(&rt, &drawn[0]);
         let (first, last) = (drawn[0][0], drawn[0][119]);
         assert!(first[1] > last[1] + 20.0, "rises into the timeline: {first:?} to {last:?}");
-        let sid = match &rt.state.route { Route::Session(s) => s.clone(), _ => unreachable!() };
+        let sid = match &rt.state.route { Route::Session { id: s, .. } => s.clone(), _ => unreachable!() };
         assert!(rt.state.transcripts[&sid].messages.iter().any(|m| m.id() == id), "delivered under its own id");
     }
 

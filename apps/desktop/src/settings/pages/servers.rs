@@ -248,7 +248,7 @@ pub(crate) fn http_row(p: &Pal, server: &crate::servers::Server) -> El {
 
 /// The app's own server's address, also while the window works with a contributed one.
 fn own_address(s: &App) -> String {
-    s.own_server.as_ref().map_or_else(|| s.server_base().to_owned(), |own| own.base.clone())
+    crate::servers::runtime::own_server().map_or_else(|| s.server_base().to_owned(), |own| own.base)
 }
 
 /// Desktop's `SettingsServerSwitcher` on the pages that show one server's settings (Providers,
@@ -256,11 +256,11 @@ fn own_address(s: &App) -> String {
 /// works with. Nothing while no other server is listed.
 #[allow(deprecated)]
 pub fn switcher(s: &App, p: &Pal) -> Option<El> {
-    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed && !c.by_address()).collect();
+    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed).collect();
     if listed.is_empty() {
         return None;
     }
-    let current = match &s.server_key {
+    let current = match &s.server_key() {
         Some(key) => listed.iter().find(|c| &c.key == key).map_or_else(|| key.clone(), |c| c.rec.name.clone()),
         None => name(s),
     };
@@ -279,8 +279,8 @@ pub fn switcher(s: &App, p: &Pal) -> Option<El> {
 }
 
 fn open_switcher(s: &mut App, tx: &mut Tx) {
-    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed && !c.by_address()).collect();
-    let current = s.server_key.clone().unwrap_or_default();
+    let listed: Vec<_> = crate::plugin_host::contributed_servers(s).into_iter().filter(|c| c.rec.listed).collect();
+    let current = s.server_key().unwrap_or_default();
     let mut menu = Menu::new(t!("settings.server.switcher.label")).item(Item::new("", name(s)).checked(current.is_empty()));
     for c in &listed {
         menu = menu.item(Item::new(c.key.clone(), c.rec.name.clone()).checked(current == c.key));
@@ -290,11 +290,7 @@ fn open_switcher(s: &mut App, tx: &mut Tx) {
     popup::open(s, menu, "settings-server-switcher", tx, |s: &mut App, picked: Option<&str>, tx: &mut Tx| match picked {
         None => {}
         Some("manage") => s.open_settings_page(super::Page::Servers, tx),
-        Some("") => {
-            if let Some(own) = s.own_server.clone() {
-                s.switch_server(own, None, tx);
-            }
-        }
-        Some(key) => crate::plugin_host::connect_server(s, key, tx),
+        Some("") => s.focus_server(&opencode_kit::servers::ServerKey::sidecar(), tx),
+        Some(key) => s.focus_server(&opencode_kit::servers::ServerKey::new(key), tx),
     });
 }

@@ -28,7 +28,7 @@ fn keys(rt: &mut Runtime<App>, c: char) {
 
 fn sid(rt: &Runtime<App>) -> String {
     match &rt.state.route {
-        Route::Session(id) => id.clone(),
+        Route::Session { id, .. } => id.clone(),
         _ => panic!("no open session"),
     }
 }

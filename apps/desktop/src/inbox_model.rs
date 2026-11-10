@@ -121,7 +121,7 @@ impl App {
 
     /// Whether `e` is the open session, or the root of the open subagent.
     pub fn inbox_selected(&self, e: &Entry<'_>) -> bool {
-        matches!(&self.route, Route::Session(id) if !self.settings.open && self.root_of(id) == e.session.id)
+        matches!(&self.route, Route::Session { id, .. } if !self.settings.open && self.root_of(id) == e.session.id)
     }
 
     /// The groups the sidebar shows (`SidebarInbox`'s `sections`).

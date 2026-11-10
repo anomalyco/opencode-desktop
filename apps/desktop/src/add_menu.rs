@@ -171,7 +171,7 @@ impl App {
     pub fn has_composer(&self) -> bool {
         match &self.route {
             Route::Draft(_) => true,
-            Route::Session(id) => self.session(id).is_none_or(|i| i.parent.is_none()),
+            Route::Session { id, .. } => self.session(id).is_none_or(|i| i.parent.is_none()),
             Route::Home => false,
         }
     }
@@ -285,11 +285,11 @@ impl App {
     /// the server), or in a new one from a draft.
     pub fn send_command(&mut self, mut prompt: Prompt, alternate: bool, tx: &mut Tx) {
         match self.route.clone() {
-            Route::Session(_) if matches!(self.source, Source::Fixture) => {
+            Route::Session { .. } if matches!(self.source, Source::Fixture) => {
                 crate::status_toast::say(self, t!("rune.composer.commandsNeedServer"), t!("rune.composer.needServer.description"));
                 return;
             }
-            Route::Session(id) => {
+            Route::Session { id, .. } => {
                 if self.busy(&id) {
                     let queue = alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue);
                     prompt.delivery = Some(if queue { Delivery::Queue } else { Delivery::Steer });
@@ -329,7 +329,7 @@ impl App {
         if command.is_empty() {
             return;
         }
-        let Route::Session(id) = self.route.clone() else {
+        let Route::Session { id, .. } = self.route.clone() else {
             crate::status_toast::say(self, t!("rune.composer.shell.needsSession"), t!("rune.composer.shell.needsSession.description"));
             return;
         };
@@ -546,7 +546,7 @@ mod tests {
     fn path_attachments_go_out_as_lines_and_metadata() {
         let mut app = App::empty();
         let writes = app.fake_writes();
-        app.route = Route::Session("ses_a".into());
+        app.route = Route::here("ses_a".into());
         app.composer = rune::TextEdit::new("what failed?");
         app.attach.add_path(opencode_kit::client::PathAttachment { name: "b.log".into(), mime: "text/plain".into(), path: "/w/b.log".into() });
         app.send(&mut Tx::default());
@@ -600,7 +600,7 @@ mod tests {
         let mut app = App::empty();
         let writes = app.fake_writes();
         app.add.slash.commands = commands(&serde_json::json!({"data": [{"name": "review", "description": ""}]}));
-        app.route = Route::Session("ses_a".into());
+        app.route = Route::here("ses_a".into());
         app.composer = rune::TextEdit::new("/review HEAD~1");
         app.send(&mut Tx::default());
         let Ok(Write::Send { session, prompt }) = writes.try_recv() else { panic!("no command") };
@@ -639,7 +639,7 @@ mod tests {
     fn shell_commands_post_now_and_never_queue() {
         let mut app = App::empty();
         let writes = app.fake_writes();
-        app.route = Route::Session("ses_a".into());
+        app.route = Route::here("ses_a".into());
         app.add.mode = Mode::Shell;
         app.composer = rune::TextEdit::new("ls -la ");
         app.send(&mut Tx::default());

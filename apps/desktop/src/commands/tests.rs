@@ -48,7 +48,7 @@ fn compact_and_export_go_to_the_server() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     let writes = app.fake_writes();
-    app.route = Route::Session(crate::fixture_ids::MAIN.into());
+    app.route = Route::here(crate::fixture_ids::MAIN.into());
     app.composer = rune::TextEdit::new("/compact");
     app.send(&mut rune::Tx::default());
     assert!(matches!(writes.try_recv(), Ok(Write::Compact(s)) if s == crate::fixture_ids::MAIN));

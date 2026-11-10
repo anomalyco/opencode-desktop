@@ -1,0 +1,537 @@
+//! Every server the app knows, live at once, as OpenCode Desktop keeps them
+//! (`packages/app/src/runtime/server/machine.ts`, `runtime.tsx:62-138`): the app's own server
+//! (`"sidecar"`), the servers added by address (`servers.json`) and plugins' ready servers, each
+//! listed with a controller ([`opencode_kit::servers::controllers`]) and its one shared copy of
+//! the session data and event stream ([`ServerPeer`]), held for as long as it's listed, whatever
+//! windows come and go.
+//!
+//! A window holds a half of its own for each server ([`Half`]: its reads' and writes' channels,
+//! page loads, jobs, model catalog and used projects), and works against one server at a time,
+//! the one its page shows ([`desired`]): that server's half and copy are checked out into the
+//! window's plain fields, so the code that reads `s.sessions` or sends on `s.source` reads and
+//! sends on that server. [`with_server`] checks another server out for a moment (its stream's
+//! events, its replies, its launch), and [`switch`] changes the page's server. Every turn starts
+//! checked out on the page's server ([`enter`]).
+//!
+//! What a window shows of the servers it isn't checked out on (its tabs' marks and titles) is
+//! read whenever each was last checked out ([`Checkout::snap`]).
+
+#![forbid(unsafe_code)]
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::mpsc::Receiver;
+
+use opencode_kit::client::{Incoming, Server};
+use opencode_kit::servers::plugin_server::PluginStatus;
+use opencode_kit::servers::{HttpBase, ServerConn, ServerKey, controllers};
+use rune::Tx;
+use rune::machine::Attempt;
+
+use crate::windows::peer::{self, ServerPeer};
+use crate::{App, Route, Source, TabStatus};
+
+/// A listed server, as windows connect to it.
+#[derive(Clone)]
+pub struct Listed {
+    pub key: ServerKey,
+    /// Its controller's attempt: a new one (new HTTP credentials) is a new connection.
+    pub attempt: Attempt,
+    pub server: Server,
+    pub conn: ServerConn,
+    /// What lists and panels call it.
+    pub name: String,
+}
+
+#[derive(Default)]
+struct Runtime {
+    controllers: controllers::State,
+    listed: Vec<Listed>,
+    /// Each listed server's copy and stream, held while it's listed.
+    peers: HashMap<ServerKey, Rc<ServerPeer>>,
+    /// The app's own server, as launch found it.
+    sidecar: Option<Server>,
+    /// What the last sync listed, to step the controllers only on a change.
+    inputs: Vec<(ServerConn, String)>,
+    version: u64,
+}
+
+thread_local! {
+    static RUNTIME: RefCell<Runtime> = RefCell::default();
+    /// The server the running turn is checked out on (`Route::here`, `Tab::session`).
+    static CURRENT: RefCell<ServerKey> = RefCell::new(ServerKey::sidecar());
+}
+
+/// The server the running turn works against.
+pub fn current() -> ServerKey {
+    CURRENT.with_borrow(Clone::clone)
+}
+
+fn set_current(key: &ServerKey) {
+    CURRENT.with_borrow_mut(|c| {
+        if c != key {
+            *c = key.clone();
+        }
+    });
+}
+
+/// The app's own server, as the first window's launch found it.
+pub fn set_sidecar(server: &Server) {
+    RUNTIME.with_borrow_mut(|r| {
+        if r.sidecar.as_ref().map(|s| &s.base) != Some(&server.base) {
+            r.sidecar = Some(server.clone());
+        }
+    });
+}
+
+/// The app's own server (`"sidecar"`), whichever server a window shows.
+pub fn own_server() -> Option<Server> {
+    RUNTIME.with_borrow(|r| r.sidecar.clone())
+}
+
+/// The listed servers, the app's own first.
+pub fn listed() -> Vec<Listed> {
+    RUNTIME.with_borrow(|r| r.listed.clone())
+}
+
+/// Changes whenever the listed servers do.
+pub fn version() -> u64 {
+    RUNTIME.with_borrow(|r| r.version)
+}
+
+pub(crate) fn peer(key: &ServerKey) -> Option<Rc<ServerPeer>> {
+    RUNTIME.with_borrow(|r| r.peers.get(key).cloned())
+}
+
+/// A window started `key`'s copy and stream: the runtime holds them while `key` is listed.
+pub(crate) fn keep_peer(key: &ServerKey, peer: &Rc<ServerPeer>) {
+    RUNTIME.with_borrow_mut(|r| {
+        if r.listed.iter().any(|l| l.key == *key) {
+            r.peers.insert(key.clone(), peer.clone());
+        }
+    });
+}
+
+/// What panels and lists call server `key` (`serverName`): the app's own by its address, as
+/// before; another by its name.
+pub fn label(key: &ServerKey) -> String {
+    let named = RUNTIME.with_borrow(|r| r.listed.iter().find(|l| l.key == *key).map(|l| l.name.clone())).filter(|n| !n.is_empty());
+    let address = if key.is_sidecar() { own_server().map_or_else(|| key.as_str().to_owned(), |s| s.base) } else { key.as_str().to_owned() };
+    named.unwrap_or_else(|| address.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_owned())
+}
+
+/// Lists the app's servers anew (`servers.synced`): the controllers start a connection for each
+/// new server, end the ones gone, and start again for an HTTP server with new credentials.
+fn sync(s: &App) {
+    let Some(own) = own_server() else { return };
+    let mut inputs: Vec<(ServerConn, String)> = vec![(ServerConn::Sidecar { http: HttpBase::new(&own.base), display_name: None, label: None }, String::new())];
+    for x in crate::servers::list() {
+        let Some(conn) = ServerConn::http_server(&x.url) else { continue };
+        let conn = match conn {
+            ServerConn::Http { http, auth_token, label, .. } => ServerConn::Http { http: HttpBase { url: http.url, password: x.password.clone() }, auth_token, display_name: x.name.clone(), label },
+            other => other,
+        };
+        inputs.push((conn, x.label()));
+    }
+    for c in crate::plugin_host::contributed_servers(s).into_iter().filter(|c| !c.by_address() && c.rec.listed && c.rec.state == opencode_plugin::abi::SERVER_READY && !c.rec.url.is_empty()) {
+        let mut http = HttpBase::new(&c.rec.url);
+        if !c.rec.password.is_empty() {
+            http = http.with_password(&c.rec.password);
+        }
+        let label = (!c.rec.label.is_empty()).then(|| c.rec.label.clone());
+        let plugin = c.key.split(':').next().unwrap_or_default().to_owned();
+        let conn = ServerConn::Plugin { key: ServerKey::new(&c.key), plugin, status: PluginStatus::Ready { http }, managed: false, display_name: Some(c.rec.name.clone()), label };
+        inputs.push((conn, c.rec.name.clone()));
+    }
+    RUNTIME.with_borrow_mut(|r| {
+        if r.inputs == inputs {
+            return;
+        }
+        r.inputs = inputs.clone();
+        r.version += 1;
+        let conns = inputs.iter().map(|(c, _)| c.clone()).collect();
+        for effect in controllers::step(&mut r.controllers, controllers::Event::ServersSynced(conns)) {
+            match effect {
+                controllers::Effect::Dispose { key, attempt } => {
+                    r.listed.retain(|l| !(l.key == key && l.attempt == attempt));
+                    r.peers.remove(&key);
+                }
+                controllers::Effect::Create { key, attempt, conn } => {
+                    r.listed.retain(|l| l.key != key);
+                    r.listed.push(Listed { key: key.clone(), attempt, server: server_for(&conn, &own), conn, name: String::new() });
+                    controllers::step(&mut r.controllers, controllers::Event::ControllerCreated { key, attempt });
+                }
+            }
+        }
+        // A server that keeps its controller may still move (the sidecar, a plugin's port): its
+        // connection follows, and the copy starts again on the new address.
+        for (conn, name) in &inputs {
+            let key = conn.key();
+            let Some(l) = r.listed.iter_mut().find(|l| l.key == key) else { continue };
+            let server = server_for(conn, &own);
+            if server.base != l.server.base {
+                r.peers.remove(&key);
+            }
+            l.server = server;
+            l.conn = conn.clone();
+            l.name = name.clone();
+        }
+        let order: Vec<ServerKey> = inputs.iter().map(|(c, _)| c.key()).collect();
+        r.listed.sort_by_key(|l| order.iter().position(|k| *k == l.key));
+    });
+}
+
+/// The connection for `conn`: the app's own server as launch found it; another with its
+/// password, its files another machine's unless it's on the app's own loopback port.
+fn server_for(conn: &ServerConn, own: &Server) -> Server {
+    let Some(http) = conn.http().filter(|_| !conn.builtin()) else { return own.clone() };
+    let mut server = Server::new(&http.url).with_media_refs();
+    if let Some(p) = &http.password {
+        server = server.with_password(p);
+    }
+    if conn.local(Some(&own.base)) { server } else { server.with_remote_files() }
+}
+
+/// Which listing of its server a window's half connects to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Listing {
+    /// Made before its server was listed: the app's own at launch, a tab's server not listed
+    /// yet. The first listing with its address takes it over.
+    #[default]
+    Unlisted,
+    /// The controller's attempt it connects to; another attempt is a new connection.
+    Listed(Attempt),
+}
+
+/// What ties a window's half to its server's listing.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Meta {
+    listing: Listing,
+    base: String,
+}
+
+/// A window's own part of one server, checked out into its plain fields while it works against
+/// that server.
+#[derive(Default)]
+pub struct Half {
+    source: Source,
+    inbox: Option<Receiver<Incoming>>,
+    pages: crate::session_pages::State,
+    opening: Option<crate::session_pages::Opening>,
+    store: peer::Link,
+    jobs: crate::jobs::Jobs,
+    request_reads: crate::session_status::RequestReads,
+    used: Vec<String>,
+    home_selected: Option<String>,
+    /// The server's models, providers and agents (the pickers' catalog).
+    pickers: crate::pickers::Pickers,
+}
+
+impl Half {
+    /// Trades places with the window's fields: no copies.
+    fn swap(&mut self, s: &mut App) {
+        use std::mem::swap;
+        swap(&mut self.source, &mut s.source);
+        swap(&mut self.inbox, &mut s.inbox);
+        swap(&mut self.pages, &mut s.pages);
+        swap(&mut self.opening, &mut s.opening);
+        swap(&mut self.store, &mut s.store);
+        swap(&mut self.jobs, &mut s.jobs);
+        swap(&mut self.request_reads, &mut s.request_reads);
+        swap(&mut self.used, &mut s.project_state.used);
+        swap(&mut self.home_selected, &mut s.project_state.home_selected);
+        let (a, b) = (&mut self.pickers, &mut s.pickers);
+        swap(&mut a.models, &mut b.models);
+        swap(&mut a.providers, &mut b.providers);
+        swap(&mut a.provider_order, &mut b.provider_order);
+        swap(&mut a.configured, &mut b.configured);
+        swap(&mut a.limits, &mut b.limits);
+        swap(&mut a.paid, &mut b.paid);
+        swap(&mut a.agents, &mut b.agents);
+        swap(&mut a.agent_models, &mut b.agent_models);
+    }
+}
+
+/// How far the window's start is: its servers' first reads wait for its first frame
+/// (`on_ready`) in a windowed run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Boot {
+    #[default]
+    Before,
+    Ready,
+}
+
+/// A window's servers: the one checked out into its fields, and its halves of the others.
+pub struct Checkout {
+    active: ServerKey,
+    meta: Meta,
+    parked: Vec<(ServerKey, Meta, Half)>,
+    /// The server Home shows (Home's own selection, `notes/multi-server.md` MS-4).
+    pub home: ServerKey,
+    /// Each tab's mark on a server the window isn't checked out on, as of its last checkout.
+    snaps: HashMap<(ServerKey, String), Option<TabStatus>>,
+    pub boot: Boot,
+    synced: u64,
+}
+
+impl Default for Checkout {
+    fn default() -> Self {
+        Checkout { active: ServerKey::sidecar(), meta: Meta::default(), parked: Vec::new(), home: ServerKey::sidecar(), snaps: HashMap::new(), boot: Boot::default(), synced: 0 }
+    }
+}
+
+impl Checkout {
+    /// Tab `id`'s mark on `server`, as of when the window last worked against it.
+    pub fn snap(&self, server: &ServerKey, id: &str) -> Option<TabStatus> {
+        self.snaps.get(&(server.clone(), id.to_owned())).copied().flatten()
+    }
+
+    /// Every server the window has a half of, the checked-out one first.
+    pub fn keys(&self) -> Vec<ServerKey> {
+        std::iter::once(self.active.clone()).chain(self.parked.iter().map(|(k, ..)| k.clone())).collect()
+    }
+}
+
+/// The server the window works against now.
+pub fn active(s: &App) -> &ServerKey {
+    &s.checkout.active
+}
+
+impl App {
+    /// The server the window works against, when it isn't the app's own (a plugin's `<plugin>:<id>`,
+    /// an added server's address): what plugins see as the current server.
+    pub fn server_key(&self) -> Option<String> {
+        Some(self.checkout.active.as_str().to_owned()).filter(|_| !self.checkout.active.is_sidecar())
+    }
+}
+
+/// The server the window's page is on: a session's, a draft tab's, else Home's.
+pub fn desired(s: &App) -> ServerKey {
+    match &s.route {
+        Route::Session { server, .. } => server.clone(),
+        Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| s.checkout.home.clone(), |t| t.server.clone()),
+        Route::Home => s.checkout.home.clone(),
+    }
+}
+
+/// `App::turn_scope`: the turn starts checked out on the page's server.
+pub fn enter(s: &mut App) {
+    let want = desired(s);
+    if want != s.checkout.active && s.live() {
+        peer::enter(s);
+        snap(s);
+        peer::leave(s);
+        swap_to(s, &want);
+    }
+    set_current(&s.checkout.active);
+    peer::enter(s);
+}
+
+/// `App::turn_scope`: the turn ends; the copy goes back.
+pub fn leave(s: &mut App) {
+    peer::leave(s);
+}
+
+/// The window works against `key` from now on, mid-turn (a tab or a session of another server
+/// opens).
+pub fn switch(s: &mut App, key: &ServerKey) {
+    if *key == s.checkout.active || !s.live() {
+        return;
+    }
+    snap(s);
+    peer::leave(s);
+    swap_to(s, key);
+    set_current(key);
+    peer::enter(s);
+}
+
+/// Runs `f` checked out on `key`, then checks the window's own server out again. None when the
+/// window has no half of `key`.
+pub fn with_server<R>(s: &mut App, key: &ServerKey, f: impl FnOnce(&mut App) -> R) -> Option<R> {
+    if *key == s.checkout.active {
+        return Some(f(s));
+    }
+    if !s.checkout.parked.iter().any(|(k, ..)| k == key) {
+        return None;
+    }
+    let back = s.checkout.active.clone();
+    peer::leave(s);
+    swap_to(s, key);
+    set_current(key);
+    peer::enter(s);
+    let r = f(s);
+    snap(s);
+    peer::leave(s);
+    swap_to(s, &back);
+    set_current(&back);
+    peer::enter(s);
+    Some(r)
+}
+
+/// Moves the window's fields to `key`'s half (made for it when the window has none), parking the
+/// checked-out one. Nothing may be checked out of a peer.
+fn swap_to(s: &mut App, key: &ServerKey) {
+    let (meta, mut half) = match s.checkout.parked.iter().position(|(k, ..)| k == key) {
+        Some(at) => {
+            let (_, meta, half) = s.checkout.parked.remove(at);
+            (meta, half)
+        }
+        None => new_half(s, key, true),
+    };
+    peer::stash(s);
+    half.swap(s);
+    peer::unstash(s);
+    let old_meta = std::mem::replace(&mut s.checkout.meta, meta);
+    let old = std::mem::replace(&mut s.checkout.active, key.clone());
+    s.checkout.parked.push((old, old_meta, half));
+}
+
+/// A half for server `key`: connected to its listing, or, while it isn't listed (a tab's plugin
+/// server still starting), offline until it is. `adopt`: it reads nothing of its own yet, so it
+/// starts in the server's live copy, if there is one.
+fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
+    // A restored page's server may be listed before the window's first poll lists it.
+    if !listed().iter().any(|l| l.key == *key) {
+        sync(s);
+    }
+    let listed = listed().into_iter().find(|l| l.key == *key);
+    let allow_send = matches!(s.source, Source::Live { allow_send: true, .. });
+    let (meta, server) = match &listed {
+        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
+        None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
+    };
+    let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
+    s.launch.set_phase(key.as_str(), phase);
+    let wake = s.launch.inbox_wake.clone().or_else(|| s.waker.clone());
+    let store = peer(key).filter(|_| adopt).map(|p| peer::member(p, wake)).unwrap_or_default();
+    (meta, Half { source: Source::Live { server, requests: None, writes: None, allow_send }, store, ..Half::default() })
+}
+
+/// Notes the marks of the checked-out server's tabs, and their titles, for while it isn't.
+fn snap(s: &mut App) {
+    let key = s.checkout.active.clone();
+    let ids: Vec<String> = s.tabs.iter().filter(|t| !t.is_draft() && t.server == key).map(|t| t.id.clone()).collect();
+    for id in ids {
+        let status = s.tab_status(&id);
+        s.checkout.snaps.insert((key.clone(), id.clone()), status);
+        if let Some((title, dir)) = s.session(&id).map(|i| (i.title.clone(), i.directory.clone()))
+            && let Some(t) = s.tabs.iter_mut().find(|t| t.id == id && t.server == key)
+        {
+            t.title = title;
+            t.directory = dir;
+        }
+    }
+}
+
+/// `poll`: the listing's changes reach the window's halves, the servers it hasn't started yet
+/// start, and each server it isn't checked out on takes what came in. True when what the window
+/// shows of them changed.
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    if !s.live() {
+        return false;
+    }
+    sync(s);
+    if s.checkout.synced != version() {
+        s.checkout.synced = version();
+        refit(s);
+    }
+    let mut changed = false;
+    for key in s.checkout.keys() {
+        if s.checkout.boot == Boot::Ready && s.launch.phase(key.as_str()).is_some_and(|p| matches!(p, crate::launch::Phase::Waiting { .. })) {
+            with_server(s, &key, |s| {
+                s.open_outbox();
+                crate::launch::start(s, tx);
+            });
+        }
+        if key != s.checkout.active {
+            changed |= with_server(s, &key, |s| background(s, tx)).unwrap_or(false);
+        }
+    }
+    changed
+}
+
+/// A server the window isn't checked out on: its launch, page loads, sends, jobs, replies and
+/// stream events. True when its tabs' marks or titles changed.
+fn background(s: &mut App, tx: &mut Tx) -> bool {
+    let before = marks(s);
+    crate::launch::poll(s, tx);
+    s.poll_pages(tx);
+    s.poll_sends();
+    s.tick_outbox(tx);
+    s.poll_jobs(tx);
+    crate::incoming::poll(s, tx, &mut None);
+    crate::stop::poll(s, s.clock, tx);
+    crate::session_state::poll(s, tx);
+    before != marks(s)
+}
+
+fn marks(s: &App) -> Vec<(Option<TabStatus>, String)> {
+    let key = &s.checkout.active;
+    s.tabs.iter().filter(|t| t.server == *key && !t.is_draft()).map(|t| (s.tab_status(&t.id), s.session(&t.id).map_or_else(|| t.title.clone(), |i| i.title.clone()))).collect()
+}
+
+/// The listing changed: halves of servers no longer listed, or listed anew, go (their tabs stay,
+/// as Desktop keeps a tab while its server is away); listed servers the window has no half of
+/// get one.
+fn refit(s: &mut App) {
+    let listed = listed();
+    let stale = |key: &ServerKey, meta: &Meta| match listed.iter().find(|l| l.key == *key) {
+        Some(l) => meta.base != l.server.base || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
+        None => meta.listing != Listing::Unlisted,
+    };
+    let gone: Vec<ServerKey> = s.checkout.parked.iter().filter(|(k, m, _)| stale(k, m)).map(|(k, ..)| k.clone()).collect();
+    for key in gone {
+        with_server(s, &key, peer::leave_server);
+        s.checkout.parked.retain(|(k, ..)| *k != key);
+        s.launch.forget(key.as_str());
+        s.server_links.forget(key.as_str());
+    }
+    let key = s.checkout.active.clone();
+    if stale(&key, &s.checkout.meta) {
+        peer::leave_server(s);
+        let (meta, mut half) = new_half(s, &key, false);
+        half.swap(s);
+        s.checkout.meta = meta;
+        peer::enter(s);
+    }
+    if let Some(l) = listed.iter().find(|l| l.key == key) {
+        s.checkout.meta.listing = Listing::Listed(l.attempt);
+    }
+    for l in &listed {
+        if l.key != s.checkout.active && !s.checkout.parked.iter().any(|(k, ..)| *k == l.key) {
+            let (meta, half) = new_half(s, &l.key, true);
+            s.checkout.parked.push((l.key.clone(), meta, half));
+        }
+    }
+    for (k, meta, _) in &mut s.checkout.parked {
+        if let Some(l) = listed.iter().find(|l| l.key == *k) {
+            meta.listing = Listing::Listed(l.attempt);
+        }
+    }
+}
+
+/// The window starts on the app's own server (`App::load_live`): `server`, or where an earlier
+/// window's launch found it.
+pub fn bind(s: &mut App, server: Server) -> Server {
+    let server = own_server().unwrap_or(server);
+    s.checkout.meta.base = server.base.clone();
+    set_sidecar(&server);
+    server
+}
+
+/// The app's own server moved (`service.json` named another port): the checked-out half follows
+/// it without starting again.
+pub fn moved(s: &mut App, server: &Server) {
+    if s.checkout.active.is_sidecar() {
+        s.checkout.meta.base = server.base.clone();
+    }
+    set_sidecar(server);
+}
+
+/// The window closes: it leaves every server's copy, which the other windows and the runtime keep.
+pub fn leave_all(s: &mut App) {
+    for key in s.checkout.keys() {
+        with_server(s, &key, peer::leave_server);
+    }
+}

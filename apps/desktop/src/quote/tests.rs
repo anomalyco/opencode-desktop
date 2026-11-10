@@ -195,7 +195,7 @@ fn a_selection_in_the_composer_never_shows_it() {
 fn live(typed: &str, quotes: &[Quote]) -> (App, std::sync::mpsc::Receiver<Write>) {
     let mut app = App::empty();
     let writes = app.fake_writes();
-    app.route = Route::Session("ses_a".into());
+    app.route = Route::here("ses_a".into());
     app.composer = rune::TextEdit::new(typed);
     for q in quotes {
         app.quote.push(q.clone());

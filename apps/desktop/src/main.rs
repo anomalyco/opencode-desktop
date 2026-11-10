@@ -197,6 +197,7 @@ mod quote_stories;
 mod recently_closed;
 mod restore;
 mod review;
+mod route;
 #[cfg(test)]
 mod revert;
 mod rewind;
@@ -277,6 +278,7 @@ use rune::{AppSpec, Key, KeyEvent, TextEdit, Tx, Waker};
 use serde_json::Value;
 
 use opencode_kit::client::{DEFAULT_SERVER, Incoming, Prompt, Request, Server, Write};
+use opencode_kit::servers::ServerKey;
 use opencode_kit::model::{Delivery, Inbox, Message, Pending, Project, SessionInfo, Transcript};
 use keys::on_key;
 pub(crate) use scenes::open_scene;
@@ -284,14 +286,7 @@ use tabs::Tab;
 
 const FIXTURE: &str = include_str!("../assets/fixture.json");
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Route {
-    #[default]
-    Home,
-    Session(String),
-    /// "New session": an empty page with the composer, shown by the draft tab with this id.
-    Draft(String),
-}
+pub use route::Route;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TabStatus {
@@ -502,10 +497,8 @@ pub struct App {
     pub rune_mcp: rune_mcp::WindowMcp,
     /// Native plugins over the C ABI: their panels, commands and settings rows (`plugin_host`).
     pub plugins: plugin_host::PluginHost,
-    /// The contributed server (`<plugin>:<id>`) the window is connected to; `None` for its own.
-    pub server_key: Option<String>,
-    /// The app's own server while the window is connected to a contributed one.
-    pub own_server: Option<Server>,
+    /// The server the window works against now and its halves of the others (`servers::runtime`).
+    pub checkout: servers::runtime::Checkout,
     /// The session header's location card: each folder's branch once read.
     pub location: view::location::Location,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
@@ -598,7 +591,7 @@ impl session_view::TimelineHost for App {
     }
     fn active_session_id(&self) -> Option<&str> {
         match &self.route {
-            Route::Session(id) => Some(id.as_str()),
+            Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
     }
@@ -983,20 +976,24 @@ impl App {
                 Err(_) if fallback_fixture => return false,
                 // No answer before the first frame: the launch tries again from `poll`.
                 Err(_) => {
-                    self.launch.set_phase(&server.base, launch::Phase::Offline { retries: 0, retry_at: 0.0 });
+                    self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Offline { retries: 0, retry_at: 0.0 });
                     None
                 }
             }
         };
+        // The window starts on the app's own server; its tabs' other servers join as they're listed.
+        let server = servers::runtime::bind(self, server);
+        let doc = restore::read_window(self, &server);
+        let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
         // Desktop Beta's tabs come into the profile's first window only.
         let beta = self.window.legacy && server.base == DEFAULT_SERVER;
-        match tabs::load(&self.window, &server.base).or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
+        match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
             Some(tabs) => self.tabs = tabs,
-            None if deferred => self.launch.set_phase(&server.base, launch::Phase::Waiting { beta_tabs: beta }),
+            None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta }),
             None => {}
         }
-        if deferred && self.launch.phase(&server.base).is_none() {
-            self.launch.set_phase(&server.base, launch::Phase::Waiting { beta_tabs: false });
+        if deferred && self.launch.phase(ServerKey::SIDECAR).is_none() {
+            self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: false });
         }
         if let Some(first) = first {
             self.apply_first(first);
@@ -1014,7 +1011,7 @@ impl App {
         }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::load();
-        self.restore_ui(&server.base);
+        self.restore_ui(&doc, &server.base);
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         let allow_send = !flag("--read-only") && attended();
@@ -1123,7 +1120,7 @@ impl App {
     }
 
     pub(crate) fn route_busy(&self) -> bool {
-        matches!(&self.route, Route::Session(id) if self.busy(id))
+        matches!(&self.route, Route::Session { id, .. } if self.busy(id))
     }
 
     /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's or draft's
@@ -1142,7 +1139,7 @@ impl App {
             Some(project.directory.clone())
         } else {
             match &self.route {
-                Route::Session(id) => self.session(id).map(|s| s.directory.clone()),
+                Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()),
                 Route::Draft(_) => Some(self.draft_dir().to_owned()),
                 Route::Home => None,
             }
@@ -1172,6 +1169,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
+    // The servers the window isn't checked out on: their launches, replies and streams.
+    changed |= servers::runtime::poll(s, tx);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     changed |= updater::poll(s, tx);
@@ -1216,7 +1215,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 continue;
             }
             s.apply_event(&ty, &data);
-            if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::Session(sid.to_string())) {
+            if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::here(sid.to_string())) {
                 s.refresh_fixture_page(sid);
             }
             changed = true;
@@ -1353,8 +1352,8 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .playground(stories::playground())
             .on_ime(|s, ime, _| s.panels_ime(ime))
             .on_open_url(deep_links::open)
-            // The server's copy of the session data moves into the window whose turn it is.
-            .turn_scope(windows::peer::enter, windows::peer::leave)
+            // The page's server's copy of the session data moves into the window whose turn it is.
+            .turn_scope(servers::runtime::enter, servers::runtime::leave)
             .on_modifiers(view::home_modifiers)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {

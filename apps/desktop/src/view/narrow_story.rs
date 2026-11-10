@@ -14,7 +14,7 @@ const KEYS: &[Trigger] = &[
 ];
 
 fn view(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return el() };
+    let Route::Session { id, .. } = &s.route else { return el() };
     let (info, t) = (s.session(id), s.transcripts.get(id));
     let mut widths = col().key("narrow-widths").gap(16.0).items_center();
     for w in WIDTHS {

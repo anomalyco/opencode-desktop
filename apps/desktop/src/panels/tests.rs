@@ -253,7 +253,7 @@ fn per_session_persistence_roundtrips_and_isolates_sessions() {
     // Switching to another session isolates side-region state.
     rt.update(|s, tx| s.open(&s2, tx));
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.route, Route::Session(s2));
+    assert_eq!(rt.state.route, Route::here(s2));
     assert!(!rt.state.side_open());
 
     // Switching back restores s1's open side region.

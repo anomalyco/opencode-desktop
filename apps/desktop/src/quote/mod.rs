@@ -136,7 +136,7 @@ impl Quotes {
 /// The session the composer can take a quote into: not a subagent's (it has no composer), and
 /// not in shell mode (a command takes no quotes).
 fn available(s: &App) -> Option<&str> {
-    let Route::Session(id) = &s.route else { return None };
+    let Route::Session { id, .. } = &s.route else { return None };
     let child = s.session(id).is_some_and(|i| i.parent.is_some());
     (!child && !s.add.shell() && !s.settings.open).then_some(id.as_str())
 }

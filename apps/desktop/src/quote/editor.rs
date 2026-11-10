@@ -78,7 +78,7 @@ fn save(s: &mut App) {
 /// Where Ctrl+Return sends the prompt (`quoteSubmit.delivery`): steering or queueing, whichever
 /// Return doesn't, while the session works; a plain send otherwise.
 fn delivery(s: &App) -> &'static str {
-    let working = matches!(&s.route, crate::Route::Session(id) if s.busy(id));
+    let working = matches!(&s.route, crate::Route::Session { id, .. } if s.busy(id));
     match (working, s.settings.follow_up) {
         (false, _) => opencode_i18n::t!("session.quote.send"),
         (true, crate::settings::FollowUp::Queue) => opencode_i18n::t!("session.quote.steer"),
@@ -88,7 +88,7 @@ fn delivery(s: &App) -> &'static str {
 
 /// `quoteSubmit.available`: the prompt can go now.
 fn send_available(s: &App) -> bool {
-    matches!(s.route, crate::Route::Session(_)) && s.attach.uploads.is_empty() && s.opening.is_none()
+    matches!(s.route, crate::Route::Session { .. }) && s.attach.uploads.is_empty() && s.opening.is_none()
 }
 
 /// The alternate action (`quoteComment.send`): this quote goes with this comment, on its own, as

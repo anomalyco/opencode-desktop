@@ -11,7 +11,7 @@ fn slow_image_opening_keeps_loading_until_pixels_arrive() {
         let loading = elements.iter().any(|e| e.text.as_deref() == Some("Loading messages…"));
         let image = elements.iter().any(|e| e.path.ends_with("/img-0"));
         if frame < 9 {
-            assert_eq!(world(&rt).route, Route::Session("ses_open_story".into()));
+            assert_eq!(world(&rt).route, Route::here("ses_open_story".into()));
             assert!(!loading && !image);
         } else if frame >= 10 && frame < 24 {
             assert!(loading && !image, "frame {frame}: loading={loading}, image={image}");

@@ -33,7 +33,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx, arrivals: &mut Option<arrivals::Arr
             crate::events::Heard::Event(e) => {
                 s.motion_events.note(&e.ty);
                 // A session deleted while its tab is open: the tab says it's gone (`session_state`).
-                let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::Session(id.to_owned()));
+                let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react(e) | gone
             }
@@ -131,7 +131,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             t.merge(messages);
             reconnect::page_in(s, &session);
             s.settle_inbox(&session, &delivered);
-            if (first || cold) && s.route == Route::Session(session) {
+            if (first || cold) && s.route == Route::here(session) {
                 // Guarantee 8: the first load of the open session lands, nothing grows in.
                 tx.settle();
             }

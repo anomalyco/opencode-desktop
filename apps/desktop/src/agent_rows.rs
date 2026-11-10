@@ -235,7 +235,7 @@ impl App {
 
     /// Whether the open page shows a running time: a subagent at or below it runs.
     fn run_times_shown(&self) -> bool {
-        let Route::Session(id) = &self.route else { return false };
+        let Route::Session { id, .. } = &self.route else { return false };
         self.running.iter().any(|r| self.descends(r, id) && self.session(r).is_some_and(|i| i.parent.is_some()))
     }
 }

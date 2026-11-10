@@ -320,7 +320,7 @@ impl App {
     /// the palette opens over a session (`DialogCommandPalette`), not on Home.
     pub(crate) fn switcher_files_session(&self) -> Option<&str> {
         match (&self.route, self.switcher.mode) {
-            (Route::Session(_), SwitcherMode::All) => self.active_session_id(),
+            (Route::Session { .. }, SwitcherMode::All) => self.active_session_id(),
             _ => None,
         }
     }
@@ -637,7 +637,7 @@ impl App {
             }
             return true;
         }
-        if Bind::FileOpen.matches_tx(ev, tx) && matches!(self.route, Route::Session(_)) && !self.settings.open {
+        if Bind::FileOpen.matches_tx(ev, tx) && matches!(self.route, Route::Session { .. }) && !self.settings.open {
             if self.switcher.open && self.switcher.mode == SwitcherMode::All {
                 tx.instant();
                 self.close_switcher(true);

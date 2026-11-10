@@ -78,17 +78,17 @@ const PILL_WAIT: f32 = 0.3;
 /// The storybook's stages (`stories.rs`): the open session's timeline and what sits under it,
 /// its header, and its composer with the subagent capsule over it.
 pub(crate) fn story_session(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return el() };
+    let Route::Session { id, .. } = &s.route else { return el() };
     session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0))
 }
 
 pub(crate) fn story_header(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return el() };
+    let Route::Session { id, .. } = &s.route else { return el() };
     header(s, p, s.session(id), s.transcripts.get(id))
 }
 
 pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
-    let Route::Session(id) = &s.route else { return composer_dock(s, p) };
+    let Route::Session { id, .. } = &s.route else { return composer_dock(s, p) };
     let pills = pills(s, p, id);
     col().key("session")
         .w_full()

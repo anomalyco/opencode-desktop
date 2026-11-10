@@ -85,7 +85,7 @@ pub fn running_for<'a>(s: &'a App, id: &str) -> Vec<&'a Shell> {
 
 /// What runs in the open session's background now, as the machine sees it.
 pub fn work(s: &App) -> Work {
-    let Route::Session(id) = &s.route else { return Work::default() };
+    let Route::Session { id, .. } = &s.route else { return Work::default() };
     Work {
         enabled: s.settings.background_activity != crate::settings::BackgroundActivity::Off,
         subagents: s.running_subagents(id).into_iter().map(|r| r.session).collect(),
@@ -234,7 +234,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 /// The open shell consoles of the open session that read their shell, each
 /// `(shell, directory, running)` (`tools::shell_follow`).
 fn followed(s: &App) -> Vec<(String, String, bool)> {
-    let Route::Session(id) = &s.route else { return Vec::new() };
+    let Route::Session { id, .. } = &s.route else { return Vec::new() };
     let Some(t) = s.transcripts.get(id) else { return Vec::new() };
     let directory = s.session(id).map(|i| i.directory.clone()).unwrap_or_default();
     let running = |shell: &str| s.shells.running.iter().any(|r| r.id == shell);

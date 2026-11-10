@@ -82,7 +82,7 @@ impl App {
     /// The view the routed session shows in a narrow window: "session" or a panel's plugin.
     pub fn narrow_view(&self) -> &str {
         let routed = match &self.route {
-            Route::Session(id) if !self.settings.open => Some(id.as_str()),
+            Route::Session { id, .. } if !self.settings.open => Some(id.as_str()),
             _ => None,
         };
         self.layout.narrow.view.shown(routed)
@@ -167,7 +167,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         sr.narrow.set_wrap(wrap);
     }
     let routed = match &s.route {
-        Route::Session(id) => Some(id.clone()),
+        Route::Session { id, .. } => Some(id.clone()),
         _ => None,
     };
     if routed != s.layout.narrow.routed {

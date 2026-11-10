@@ -135,7 +135,7 @@ impl App {
     /// Stops only the open session, as Desktop does. The server cancels its blocking work;
     /// detached background helpers keep running and can be stopped from their own pages.
     pub fn stop(&mut self) {
-        let Route::Session(sid) = self.route.clone() else { return };
+        let Route::Session { id: sid, .. } = self.route.clone() else { return };
         if !self.running.contains(&sid) || self.stops.has(&sid) {
             return;
         }
@@ -189,14 +189,14 @@ impl App {
 /// Whether Escape stops the open session's run: the composer has focus while it runs or its stop
 /// settles (the escape stack's `Run` layer).
 pub fn escape_stops(s: &App) -> bool {
-    let Route::Session(id) = &s.route else { return false };
+    let Route::Session { id, .. } = &s.route else { return false };
     s.composer.focused && (s.busy(id) || s.stopping(id))
 }
 
 /// Esc or ⌃G in the composer while the open session runs, as Desktop's: stops it. Again while
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
-    let Route::Session(id) = s.route.clone() else { return false };
+    let Route::Session { id, .. } = s.route.clone() else { return false };
     if !session_view::composer::is_stop_shortcut(ev) || !s.composer.focused {
         return false;
     }

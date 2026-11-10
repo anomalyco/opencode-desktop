@@ -208,7 +208,7 @@ impl App {
     /// The composer's directory: the open session's, or where a new one starts.
     pub fn composer_directory(&self) -> String {
         match &self.route {
-            Route::Session(id) => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
+            Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
             _ => self.draft_dir().to_owned(),
         }
     }
@@ -231,7 +231,7 @@ impl App {
     /// the open one.
     fn mention_sessions(&self) -> Vec<&SessionInfo> {
         let current = match &self.route {
-            Route::Session(id) => Some(id.as_str()),
+            Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         };
         self.merged_roots(&self.mentions.found)

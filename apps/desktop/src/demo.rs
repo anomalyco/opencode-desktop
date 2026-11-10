@@ -53,7 +53,7 @@ pub fn start(s: &mut App) {
     });
     s.transcripts.insert(ids.session.clone(), Transcript { session: ids.session.clone(), messages: Vec::new() });
     s.tabs.push(Tab::session(ids.session.clone(), "", from.directory));
-    s.route = Route::Session(ids.session.clone());
+    s.route = Route::here(ids.session.clone());
     s.composer.clear();
     let now = s.clock;
     for (t, ty, data) in demo_script::events(&ids) {
@@ -84,7 +84,7 @@ pub fn apply(s: &mut App, ty: &str, data: &Value, tx: &mut Tx) {
         }
         "demo.send" => s.submit(false, tx),
         "demo.child" => {
-            let Route::Session(parent) = s.route.clone() else { return };
+            let Route::Session { id: parent, .. } = s.route.clone() else { return };
             let id = data["id"].as_str().unwrap_or("").to_owned();
             let from = s.session(&parent).cloned().unwrap_or_default();
             s.sessions.push(SessionInfo {

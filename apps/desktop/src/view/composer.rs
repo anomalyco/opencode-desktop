@@ -14,7 +14,7 @@ use opencode_i18n::t;
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
     let (queue, status) = match &s.route {
-        Route::Session(id) => (
+        Route::Session { id, .. } => (
             Some(crate::queue::panel(s, p, id, s.busy(id))),
             crate::subagents::reply::status_line(s, p, id),
         ),
@@ -22,7 +22,7 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
     };
     // Plugins' composer pills float over a root session's composer (`ComposerPill`).
     let pills = match &s.route {
-        Route::Session(id) if s.session(id).is_none_or(|i| i.parent.is_none()) => crate::plugin_host::composer_pills(s, p, id),
+        Route::Session { id, .. } if s.session(id).is_none_or(|i| i.parent.is_none()) => crate::plugin_host::composer_pills(s, p, id),
         _ => None,
     };
     // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
@@ -103,7 +103,7 @@ impl ComposerHost for App {
         &mut self.composer
     }
     fn composer_busy(&self) -> bool {
-        matches!(&self.route, Route::Session(id) if self.busy(id))
+        matches!(&self.route, Route::Session { id, .. } if self.busy(id))
     }
     fn composer_send(&mut self, tx: &mut Tx) {
         self.send(tx);
@@ -154,7 +154,7 @@ impl ComposerHost for App {
     /// Desktop's (`composer/model.ts:113-120`): a shell example, a follow-up while the session
     /// works or has prompts queued, else the question.
     fn composer_placeholder(&self) -> String {
-        let queued = matches!(&self.route, Route::Session(id) if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
+        let queued = matches!(&self.route, Route::Session { id, .. } if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
         if self.add.shell() {
             t!("prompt.placeholder.shell", example = "git status")
         } else if self.composer_busy() || queued {

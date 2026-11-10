@@ -52,7 +52,7 @@ fn send_shows_the_new_session_with_its_prompt_and_working_at_once() {
     let (id, prompt) = send(&mut l);
     assert!(id.starts_with("ses_") && id.len() == 30, "{id}");
     let s = &l.rt.state;
-    assert_eq!(s.route, Route::Session(id.clone()), "the page is the new session's on Send");
+    assert_eq!(s.route, Route::here(id.clone()), "the page is the new session's on Send");
     assert!(s.starts.has(&id));
     assert_eq!(s.session(&id).map(|i| i.directory.as_str()), Some(DIR));
     assert!(s.tabs.iter().any(|t| t.id == id), "it takes a tab");
@@ -73,7 +73,7 @@ fn the_servers_session_lands_without_a_reload() {
     l.rt.frame(DT);
     let s = &l.rt.state;
     assert!(!s.starts.has(&id));
-    assert_eq!(s.route, Route::Session(id.clone()), "still on it");
+    assert_eq!(s.route, Route::here(id.clone()), "still on it");
     assert_eq!(s.sessions.iter().filter(|i| i.id == id).count(), 1);
     assert_eq!(s.session(&id).unwrap().title, "Fix the sidebar");
     assert!(s.opening.is_none(), "nothing holds the page");
@@ -89,7 +89,7 @@ fn a_disconnected_start_keeps_its_tab_and_prompt_for_reconnect() {
     l.server.send(Incoming::SendFailed { session: id.clone(), id: prompt.clone(), error: "POST /api/session: Connection refused".into() }).unwrap();
     l.rt.frame(DT);
     let s = &l.rt.state;
-    assert_eq!(s.route, Route::Session(id.clone()));
+    assert_eq!(s.route, Route::here(id.clone()));
     assert_eq!(s.unsent.state(&prompt),Some(crate::send_failed::State::Waiting));
     assert!(s.transcripts[&id].messages.iter().any(|m| m.id()==prompt));
     assert!(s.toast.current().is_none());
@@ -104,7 +104,7 @@ fn a_fixture_start_opens_and_replies() {
         s.composer = rune::TextEdit::new("start");
         s.send(tx);
     });
-    let Route::Session(id) = rt.state.route.clone() else { panic!("no session") };
+    let Route::Session { id, .. } = rt.state.route.clone() else { panic!("no session") };
     assert!(!rt.state.starts.has(&id), "a fixture has nothing to wait for");
     assert!(rt.state.playback.iter().any(|e| e.2["sessionID"] == id.as_str()), "its reply is on the way");
     rt.frame(DT);

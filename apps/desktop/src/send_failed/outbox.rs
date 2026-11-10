@@ -232,7 +232,7 @@ impl App {
 
     pub(super) fn restore_rejection(&mut self, id: &str) {
         let Some(s) = self.unsent.get(id).cloned() else { return };
-        if self.route != Route::Session(s.session.clone()) {
+        if self.route != Route::here(s.session.clone()) {
             self.restore.drafts.entry(s.session).or_insert(s.draft.text);
             return;
         }
@@ -248,7 +248,7 @@ impl App {
     }
 
     fn matches_restored(&self, s: &Sent) -> bool {
-        self.route == Route::Session(s.session.clone())
+        self.route == Route::here(s.session.clone())
             && Entry::of(&self.composer) == s.draft
             && self.attach.files == s.files
             && self.attach.paths == s.paths
@@ -280,7 +280,7 @@ impl App {
     /// An Edit or Delete the machine says to carry out now. An Edit waits while its session
     /// isn't the open one.
     pub(super) fn run_outbox_action(&mut self, id: &str, action: AfterCheck) {
-        let elsewhere = self.unsent.get(id).is_some_and(|s| self.route != Route::Session(s.session.clone()));
+        let elsewhere = self.unsent.get(id).is_some_and(|s| self.route != Route::here(s.session.clone()));
         if action == AfterCheck::Edit && elsewhere {
             self.step_send(id, Event::Parked);
             return;
@@ -317,7 +317,7 @@ impl App {
             return;
         }
         let act = if action == "outbox-edit" { AfterCheck::Edit } else { AfterCheck::Delete };
-        if act == AfterCheck::Edit && matches!(s.phase, Phase::Waiting { .. } | Phase::Failed { .. }) && self.route != Route::Session(s.session.clone()) {
+        if act == AfterCheck::Edit && matches!(s.phase, Phase::Waiting { .. } | Phase::Failed { .. }) && self.route != Route::here(s.session.clone()) {
             return;
         }
         self.step_send(id, Event::Act(act));

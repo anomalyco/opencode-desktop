@@ -388,7 +388,7 @@ impl App {
     }
 
     pub fn route_supports_review(&self) -> bool {
-        matches!(self.route, Route::Session(_))
+        matches!(self.route, Route::Session { .. })
     }
 
     /// Opens the review of `sid` (the MCP `open_diff` tool, a tool step's change), in `mode` and

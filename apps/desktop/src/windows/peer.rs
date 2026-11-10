@@ -14,14 +14,16 @@
 //! included, then reacts to each in its own view (`App::react`), in order. A window that closes
 //! or opens mid-stream loses nothing: the events wait in the peer, not in a window. A window
 //! that changes the copy from what only it heard (its own reads' replies, a press of Stop)
-//! marks it ([`touch`]), and the others draw it when its turn ends. The peer goes, stream and
-//! data, with the last window to leave it.
+//! marks it ([`touch`]), and the others draw it when its turn ends. The app's server runtime
+//! (`servers::runtime`) holds each listed server's peer, so it lives as long as the server is
+//! listed, with or without windows; a window works against one server at a time, and its halves
+//! of the others keep what they read before joining (`stash`, `unstash`).
 
 #![forbid(unsafe_code)]
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
@@ -151,12 +153,46 @@ pub struct Link {
     /// This window among the members.
     token: u64,
     edit: Edit,
+    /// What the window read of the server before it joined the peer, while it works against
+    /// another server (`servers::runtime`).
+    local: ServerData,
 }
 
 thread_local! {
-    /// Each server's peer, by its base URL, while a window holds it.
-    static PEERS: RefCell<HashMap<String, Weak<ServerPeer>>> = RefCell::default();
     static TOKENS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn next_token() -> u64 {
+    TOKENS.with(|t| {
+        t.set(t.get() + 1);
+        t.get()
+    })
+}
+
+/// The window's half of a server it hasn't joined is put away: what it read goes with the half.
+pub fn stash(s: &mut App) {
+    if s.store.peer.is_none() {
+        s.store.local = ServerData::take(s);
+    }
+}
+
+/// The window's half of a server it hasn't joined comes back, with what it read.
+pub fn unstash(s: &mut App) {
+    if s.store.peer.is_none() {
+        let mut local = std::mem::take(&mut s.store.local);
+        local.swap(s);
+    }
+}
+
+/// A new member of `peer` for a window's half that has read nothing of its own yet: the copy is
+/// its from the start (a torn-out tab's window, a server the window gets a half of).
+pub fn member(peer: Rc<ServerPeer>, wake: Option<rune::Waker>) -> Link {
+    let token = next_token();
+    if let Some(w) = &wake {
+        peer.wakers.lock().unwrap_or_else(|e| e.into_inner()).push((token, w.clone()));
+    }
+    peer.members.borrow_mut().push(Member { token, wake, heard: VecDeque::new(), view: View::Current });
+    Link { peer: Some(peer), token, edit: Edit::Clean, local: ServerData::default() }
 }
 
 /// `App::turn_scope`: the window's turn starts, with its server's copy in its fields.
@@ -213,11 +249,9 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
         return;
     }
     leave_server(s);
-    let token = TOKENS.with(|t| {
-        t.set(t.get() + 1);
-        t.get()
-    });
-    let found = PEERS.with(|p| p.borrow().get(&base).and_then(Weak::upgrade));
+    let token = next_token();
+    let key = crate::servers::runtime::active(s).clone();
+    let found = crate::servers::runtime::peer(&key).filter(|p| p.stream.hub.base() == base);
     let peer = match found {
         Some(peer) => {
             let mut vault = peer.vault.borrow_mut();
@@ -235,7 +269,8 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
             let hub = EventHub::start(server.clone(), crate::reconnect::STREAM_IDLE);
             let events = hub.subscribe(Arc::new(move || all.lock().unwrap_or_else(|e| e.into_inner()).iter().for_each(|(_, w)| w())));
             let peer = Rc::new(ServerPeer { vault: RefCell::new(Vault::Out { token }), stream: Stream { hub, events }, members: RefCell::default(), wakers });
-            PEERS.with(|p| p.borrow_mut().insert(base, Rc::downgrade(&peer)));
+            // The runtime holds it while the server is listed, whatever windows come and go.
+            crate::servers::runtime::keep_peer(&key, &peer);
             peer
         }
     };
@@ -243,7 +278,7 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
         peer.wakers.lock().unwrap_or_else(|e| e.into_inner()).push((token, w.clone()));
     }
     peer.members.borrow_mut().push(Member { token, wake, heard: VecDeque::new(), view: View::Current });
-    s.store = Link { peer: Some(peer), token, edit: Edit::Dirty };
+    s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
 }
 
 /// The window leaves its server's peer (it closes, moves to another server, or loses it): it
@@ -267,20 +302,6 @@ pub fn leave_server(s: &mut App) {
     if std::mem::take(&mut s.store.edit) == Edit::Dirty {
         stale_others(&peer, token);
     }
-    drop(peer);
-    PEERS.with(|p| p.borrow_mut().retain(|_, w| w.strong_count() > 0));
-}
-
-/// A torn-out tab's window starts in its opener's peer, so it shows the tab at once. `s` holds
-/// nothing of its own yet, and isn't in a turn.
-pub fn adopt(s: &mut App, from: &Link) {
-    let Some(peer) = from.peer.clone() else { return };
-    let token = TOKENS.with(|t| {
-        t.set(t.get() + 1);
-        t.get()
-    });
-    peer.members.borrow_mut().push(Member { token, wake: None, heard: VecDeque::new(), view: View::Current });
-    s.store = Link { peer: Some(peer), token, edit: Edit::Clean };
 }
 
 /// `setup`, for an adopted window: the stream wakes it from now on.
@@ -306,17 +327,12 @@ pub fn joined(s: &App) -> bool {
     s.store.peer.is_some()
 }
 
-/// The window's opener's place, for a window it opens.
-pub fn link_of(s: &App) -> Link {
-    Link { peer: s.store.peer.clone(), token: 0, edit: Edit::Clean }
-}
-
 /// Runs `f` on `s` in a turn of its own, for work outside the event loop's turns (a window's
 /// first state, built before its first turn).
 pub fn in_turn(s: &mut App, f: impl FnOnce(&mut App)) {
-    enter(s);
+    crate::servers::runtime::enter(s);
     f(s);
-    leave(s);
+    crate::servers::runtime::leave(s);
 }
 
 /// `poll`: the stream's new events, applied to the copy once by whichever window polls first,

@@ -273,7 +273,7 @@ impl App {
         if self.stage.is_some() {
             return Some("story\0/workspace/seer".into());
         }
-        let Route::Session(sid) = &self.route else {
+        let Route::Session { id: sid, .. } = &self.route else {
             return None;
         };
         Some(self.terminal_workspace_key_for_session(sid))

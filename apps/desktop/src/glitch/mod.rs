@@ -109,7 +109,7 @@ fn bundle_dir(s: &App) -> PathBuf {
 /// The session the bundle goes to: the open one, or the last tab from Home.
 fn target(s: &App) -> Option<String> {
     match &s.route {
-        Route::Session(id) => Some(id.clone()),
+        Route::Session { id, .. } => Some(id.clone()),
         _ => s.tabs.iter().rev().find(|t| !t.is_draft()).map(|t| t.id.clone()),
     }
 }

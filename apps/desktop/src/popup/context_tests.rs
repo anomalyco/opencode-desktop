@@ -10,7 +10,7 @@ const DT: f64 = 1.0 / 120.0;
 
 fn session() -> (Runtime<App>, String) {
     let app = App::fixture_session();
-    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     let mut rt = app.into_runtime();
     rt.frame(0.0);
     rt.wheel(640.0, 400.0, 520.0);

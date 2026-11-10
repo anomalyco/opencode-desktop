@@ -111,7 +111,7 @@ fn a_subagents_header_has_no_menu() {
     let (mut rt, _) = app();
     let child = rt.state.sessions.iter().find(|s| s.parent.is_some()).map(|s| s.id.clone()).expect("the fixture has a subagent");
     assert!(lines(&rt.state, &Target::new(&child, Spot::Header)).is_empty());
-    go(&mut rt, Route::Session(child));
+    go(&mut rt, Route::here(child));
     assert!(rt.elements().iter().all(|e| e.exiting || e.key.as_deref() != Some("header-more")), "no ⋯ button on a subagent");
 }
 
@@ -283,7 +283,7 @@ fn a_home_row_that_loses_focus_cancels_as_desktops_does() {
 #[test]
 fn the_headers_title_renames_on_a_click_and_its_menu_opens_two_ways() {
     let (mut rt, writes) = app();
-    let Route::Session(id) = rt.state.route.clone() else { panic!("open session") };
+    let Route::Session { id, .. } = rt.state.route.clone() else { panic!("open session") };
     let id = rt.state.root_of(&id).to_owned();
     open_menu(&mut rt, "title", &["rename", "export", "delete"]);
     assert_eq!(rt.state.menus.on, Some(Target::new(&id, Spot::Header)));
@@ -337,7 +337,7 @@ fn the_headers_rename_field_hugs_its_title_so_the_more_button_moves_only_with_ty
 #[test]
 fn control_r_renames_the_open_session() {
     let (mut rt, _) = app();
-    let Route::Session(id) = rt.state.route.clone() else { panic!("open session") };
+    let Route::Session { id, .. } = rt.state.route.clone() else { panic!("open session") };
     rt.key(KeyEvent { key: Key::Text("r".into()), mods: Mods { ctrl: true, ..Mods::default() } });
     frames(&mut rt, 2);
     assert_eq!(rt.state.menus.renaming(), Some(Target::new(&id, Spot::Header)));

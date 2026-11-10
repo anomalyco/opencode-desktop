@@ -115,7 +115,7 @@ fn event(rt: &mut Runtime<App>, ty: &str, data: serde_json::Value) {
 
 fn sid(rt: &Runtime<App>) -> String {
     match &rt.state.route {
-        crate::Route::Session(id) => id.clone(),
+        crate::Route::Session { id, .. } => id.clone(),
         _ => panic!("no open session"),
     }
 }

@@ -68,7 +68,7 @@ impl App {
     fn sessions_key(&self) -> SessionsKey {
         SessionsKey {
             route: match &self.route {
-                Route::Session(id) => Some(id.clone()),
+                Route::Session { id, .. } => Some(id.clone()),
                 _ => None,
             },
             directory: self.composer_directory(),

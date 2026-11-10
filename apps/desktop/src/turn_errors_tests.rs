@@ -9,7 +9,7 @@ const SID: &str = "ses_turn_errors";
 fn app(messages: Vec<Message>) -> App {
     let mut s = App::empty();
     s.transcripts.insert(SID.into(), Transcript { session: SID.into(), messages });
-    s.route = Route::Session(SID.into());
+    s.route = Route::here(SID.into());
     s
 }
 
@@ -127,7 +127,7 @@ fn the_fixture_has_each_row() {
     let mut s = App::empty();
     s.load_fixture(crate::FIXTURE);
     let keys = |s: &mut App, id: &str| {
-        s.route = Route::Session(id.into());
+        s.route = Route::here(id.into());
         crate::view::row_keys(s, &s.transcripts[id])
     };
     for id in [FREE_LIMIT, GO_LIMIT, BUDGET, MODEL_BUDGET, ERRORED] {

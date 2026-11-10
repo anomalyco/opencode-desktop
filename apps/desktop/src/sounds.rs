@@ -39,7 +39,9 @@ pub fn event(app: &App, e: &crate::events::StreamEvent, sid: &str) {
         return;
     }
     let sounds = &app.settings.sounds;
-    let has_tab = |id: &str| app.tabs.iter().any(|t| t.id == id);
+    // A tab on the event's server: the window is checked out on it while it reacts.
+    let server = crate::servers::runtime::active(app);
+    let has_tab = |id: &str| app.tabs.iter().any(|t| t.id == id && t.server == *server);
     let root = |id: &str| app.session(id).is_none_or(|s| s.parent.is_none());
     let id = match ty {
         "session.execution.succeeded" if root(sid) && has_tab(sid) => sounds.agent.as_deref(),

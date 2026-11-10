@@ -13,7 +13,7 @@ const REPLY: &str = "msg_zzzzbgreply";
 /// writes when `live`.
 fn app(live: bool) -> (Runtime<App>, Option<Receiver<Write>>, String) {
     let mut app = App::fixture_session();
-    let Route::Session(id) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
     let writes = live.then(|| app.fake_writes());
     app.apply_event("session.execution.started", &json!({ "sessionID": id }));
     app.apply_event("session.step.started", &json!({ "sessionID": id, "assistantMessageID": REPLY, "agent": "build", "model": { "id": "m", "providerID": "p" } }));
@@ -51,7 +51,7 @@ fn steer(rt: &mut Runtime<App>, text: &str) -> String {
 }
 
 fn session(rt: &Runtime<App>) -> String {
-    let Route::Session(id) = rt.state.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = rt.state.route.clone() else { panic!("no open session") };
     id
 }
 

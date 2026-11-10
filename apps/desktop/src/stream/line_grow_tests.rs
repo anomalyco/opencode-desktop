@@ -34,7 +34,7 @@ fn run(word: f64, reveal: Reveal) -> Vec<Look> {
     while t < end {
         rt.frame(dt);
         t += dt;
-        let crate::Route::Session(sid) = rt.state.route.clone() else { panic!("no open session") };
+        let crate::Route::Session { id: sid, .. } = rt.state.route.clone() else { panic!("no open session") };
         let keys = crate::view::row_keys(&rt.state, &rt.state.transcripts[&sid]);
         let Some(i) = keys.iter().position(|k| k == "turn-actions").filter(|&i| i > 0) else { continue };
         let els = rt.elements();

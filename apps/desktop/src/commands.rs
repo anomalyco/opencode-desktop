@@ -205,7 +205,7 @@ impl App {
 
     fn open_session(&self) -> Option<String> {
         match &self.route {
-            Route::Session(id) => Some(id.clone()),
+            Route::Session { id, .. } => Some(id.clone()),
             _ => None,
         }
     }

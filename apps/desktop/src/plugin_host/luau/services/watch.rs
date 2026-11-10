@@ -63,7 +63,7 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))
         }
         "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
-        "Server.Connected" => Some((hash(&app.server_key), Data::Bool(true))),
+        "Server.Connected" => Some((hash(&app.server_key()), Data::Bool(true))),
         "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
         n => {
             if let Some(store) = n.strip_prefix("Store.").and_then(|s| s.strip_suffix(".Changed")) {

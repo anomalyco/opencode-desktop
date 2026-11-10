@@ -70,7 +70,7 @@ fn a_reply_goes_to_the_subagent_as_its_own_agent_and_model() {
     assert_eq!(prompt.agent.as_deref(), Some(info.agent.as_str()));
     assert_eq!(prompt.model.as_ref().map(|m| m.id.as_str()), Some(info.model.id.as_str()));
     assert!(echoed(&l, "also check the timeout path"), "it shows on the press");
-    assert_eq!(l.rt.state.route, Route::Session(CHILD.into()), "and the page stays put");
+    assert_eq!(l.rt.state.route, Route::here(CHILD.into()), "and the page stays put");
 }
 
 #[test]
@@ -125,10 +125,10 @@ fn esc_goes_back_only_from_an_empty_composer() {
     assert!(l.rt.state.composer.focused);
     l.rt.update(|s, _| s.composer.replace_text("half a thought"));
     esc(&mut l);
-    assert_eq!(l.rt.state.route, Route::Session(CHILD.into()), "typed text keeps the page");
+    assert_eq!(l.rt.state.route, Route::here(CHILD.into()), "typed text keeps the page");
     l.rt.update(|s, _| s.composer.replace_text(""));
     esc(&mut l);
-    assert_eq!(l.rt.state.route, Route::Session(MAIN.into()));
+    assert_eq!(l.rt.state.route, Route::here(MAIN.into()));
 }
 
 #[test]

@@ -129,12 +129,44 @@ pub struct Notifier {
     sink: Option<Box<dyn Sink>>,
     /// Whether this run looked for the system's notifications yet.
     tried: bool,
-    /// Ids posted this run, oldest first, at most `CAP`.
+    /// Sessions whose notification was clicked, from the click's thread, with their server's key.
+    clicks: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+/// What every window and every server's events share, as Desktop's one `NotificationCoordinator`
+/// for all its servers (`shell/notifications/coordinator.ts`, `runtime/server/runtime.tsx:55`):
+/// the requests already posted, claimed as `<server>\0<request id>`, and the notifications
+/// posted this run, oldest first, at most [`CAP`] in the system's list.
+#[derive(Default)]
+pub struct Coordinator {
     shown: VecDeque<String>,
     asked: VecDeque<String>,
     posted: u64,
-    /// Sessions whose notification was clicked, from the click's thread.
-    clicks: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+thread_local! {
+    static COORDINATOR: std::cell::RefCell<Coordinator> = std::cell::RefCell::default();
+}
+
+impl Coordinator {
+    /// Claims request `id` of `server` for one notification; false when some window already did.
+    fn claim(&mut self, server: &str, id: &str) -> bool {
+        let key = format!("{server}\0{id}");
+        if self.asked.contains(&key) {
+            return false;
+        }
+        if self.asked.len() >= ASKED {
+            self.asked.pop_front();
+        }
+        self.asked.push_back(key);
+        true
+    }
+}
+
+/// How many notifications this run keeps in the system's list.
+#[cfg(test)]
+pub fn shown() -> usize {
+    COORDINATOR.with_borrow(|c| c.shown.len())
 }
 
 impl Notifier {
@@ -153,15 +185,17 @@ impl Notifier {
         if sink.focused() {
             return;
         }
-        if self.shown.len() >= CAP
-            && let Some(oldest) = self.shown.pop_front()
-        {
-            sink.remove(&oldest);
-        }
-        self.posted += 1;
-        let note = Note { id: format!("opencode-rune-{}-{}", std::process::id(), self.posted), kind, title, body, session: session.to_owned() };
-        sink.post(&note, server);
-        self.shown.push_back(note.id);
+        COORDINATOR.with_borrow_mut(|c| {
+            if c.shown.len() >= CAP
+                && let Some(oldest) = c.shown.pop_front()
+            {
+                sink.remove(&oldest);
+            }
+            c.posted += 1;
+            let note = Note { id: format!("opencode-rune-{}-{}", std::process::id(), c.posted), kind, title, body, session: session.to_owned() };
+            sink.post(&note, server);
+            c.shown.push_back(note.id);
+        });
     }
 }
 
@@ -177,9 +211,11 @@ impl App {
         format!("Live · {}", self.server_base().trim_start_matches("http://"))
     }
 
-    /// A session with a tab open, as Desktop asks of every notification: its title, or None.
+    /// A session with a tab open on the server the window is checked out on (the event's), as
+    /// Desktop asks of every notification (`sessionIDHasOpenTab`): its title, or None.
     fn tab_title(&self, id: &str) -> Option<String> {
-        let tab = self.tabs.iter().find(|t| t.id == id)?;
+        let server = crate::servers::runtime::active(self);
+        let tab = self.tabs.iter().find(|t| t.id == id && t.server == *server)?;
         let title = self.session(id).map_or(tab.title.as_str(), |s| s.title.as_str());
         Some(title.to_owned())
     }
@@ -248,21 +284,19 @@ pub fn event(app: &mut App, e: &crate::events::StreamEvent, sid: &str) {
     }
     if matches!(ty, "permission.asked" | "form.created") {
         let id = if data["form"].is_object() { &data["form"]["id"] } else { &data["id"] };
-        let id = id.as_str().unwrap_or("").to_owned();
-        if id.is_empty() || app.notify.asked.contains(&id) {
+        let id = id.as_str().unwrap_or("");
+        let server = crate::servers::runtime::active(app).as_str().to_owned();
+        if id.is_empty() || !COORDINATOR.with_borrow_mut(|c| c.claim(&server, id)) {
             return;
         }
-        if app.notify.asked.len() >= ASKED {
-            app.notify.asked.pop_front();
-        }
-        app.notify.asked.push_back(id);
     }
     let decided = decide(app, ty, data, sid);
     if !crate::events::StreamEvent::take(&e.notice, decided.is_some()) {
         return;
     }
     let Some((kind, title, session, body)) = decided else { return };
-    let server = app.server_base().to_owned();
+    // The click opens the session on its own server (`openNotificationSession`).
+    let server = crate::servers::runtime::active(app).as_str().to_owned();
     app.notify.post(kind, title, &session, body, &server);
 }
 
@@ -274,21 +308,30 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         install(app);
     }
     let clicks = std::mem::take(&mut *app.notify.clicks.lock().unwrap_or_else(|e| e.into_inner()));
-    let server = app.server_base().to_owned();
     let mut opened = false;
     for (session, from) in clicks {
-        // A notification left from a run against another server.
-        if session.is_empty() || (!from.is_empty() && from != server) {
+        if session.is_empty() {
             continue;
         }
         if app.live() {
             rune_notify::bring_to_front();
         }
         app.close_settings();
+        crate::servers::runtime::switch(app, &click_server(&from));
         app.open(&session, tx);
         opened = true;
     }
     opened
+}
+
+/// The server a click's notification came from: its key, or, from a build that named servers by
+/// address, the app's own server's address.
+fn click_server(from: &str) -> opencode_kit::servers::ServerKey {
+    let own = crate::servers::runtime::own_server().map(|s| s.base);
+    if from.is_empty() || own.as_deref() == Some(from) {
+        return opencode_kit::servers::ServerKey::sidecar();
+    }
+    opencode_kit::servers::ServerKey::new(from)
 }
 
 fn install(app: &mut App) {

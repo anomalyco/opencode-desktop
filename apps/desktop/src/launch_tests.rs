@@ -44,7 +44,7 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
-    app.route = Route::Session("ses_gone".into());
+    app.route = Route::here("ses_gone".into());
     let (out, rx) = channel();
     app.launch.set_first("http://127.0.0.1:9", rx);
     let beta = vec![crate::tabs::Tab::session(crate::fixture_ids::THIRD, "Pinned", "/w")];
@@ -142,7 +142,7 @@ fn a_run_that_ended_during_a_stream_gap_stops_after_reconnect() {
     app.load_fixture(FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
-    let Route::Session(id) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
     app.running.insert(id.clone());
     let (requests, asked) = channel();
     let (send, inbox) = channel();

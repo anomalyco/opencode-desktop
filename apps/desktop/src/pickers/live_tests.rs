@@ -35,7 +35,7 @@ fn send(rt: &mut Runtime<App>, writes: &std::sync::mpsc::Receiver<Write>, text: 
 #[test]
 fn the_keys_and_toolbar_choose_in_a_live_session() {
     let (mut rt, _) = live();
-    assert_eq!(rt.state.route, Route::Session(SES.into()));
+    assert_eq!(rt.state.route, Route::here(SES.into()));
     press(&mut rt, Key::Command('\''), false);
     assert_eq!(rt.state.pickers.open, Some(Kind::Model), "⌘' opens the model list");
     press(&mut rt, Key::Escape, false);
@@ -126,7 +126,7 @@ fn each_agent_brings_back_its_model_and_each_session_keeps_its_own() {
     pick(&mut rt, Kind::Model, "openai:gpt-6-astra");
     assert_eq!(rt.state.selection().model.variant, "low");
 
-    rt.state.route = Route::Session("ses_fx0003aaaaaaaaaaaaaaaaaa".into());
+    rt.state.route = Route::here("ses_fx0003aaaaaaaaaaaaaaaaaa".into());
     let other = rt.state.selection();
     assert_eq!((other.agent.as_str(), other.model.id.as_str(), other.model.variant.as_str()), ("build", "claude-opus-5-5", "high"));
 }

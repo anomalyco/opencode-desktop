@@ -27,7 +27,7 @@ fn send(s: &mut App, tx: &mut Tx) {
 
 /// As the server's refusal would: the session goes and the words come back.
 fn fail(s: &mut App, tx: &mut Tx) {
-    let Route::Session(id) = s.route.clone() else { return };
+    let Route::Session { id, .. } = s.route.clone() else { return };
     let Some(Message::User { id: prompt, text }) = s.transcripts.get(&id).and_then(|t| t.messages.iter().find(|m| matches!(m, Message::User { .. }))).cloned() else { return };
     s.playback.retain(|e| e.2["sessionID"] != id.as_str());
     let directory = s.draft_dir().to_owned();
@@ -38,7 +38,7 @@ fn fail(s: &mut App, tx: &mut Tx) {
 
 fn view(s: &App, p: &Pal) -> El {
     let page = match &s.route {
-        Route::Session(id) => crate::view::session_page(s, p, id),
+        Route::Session { id, .. } => crate::view::session_page(s, p, id),
         _ => crate::view::draft_page(s, p, 820.0),
     };
     frame(p, "story-new-session").h_full().max_h(680.0).child(page)

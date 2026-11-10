@@ -159,7 +159,7 @@ fn at_most_forty_stay_and_the_oldest_goes_first() {
     let log = fake.0.borrow();
     assert_eq!(log.posted.len(), CAP + 2);
     assert_eq!(log.removed, [log.posted[0].0.clone(), log.posted[1].0.clone()]);
-    assert_eq!(app.notify.shown.len(), CAP);
+    assert_eq!(super::shown(), CAP);
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn without_a_sink_nothing_is_decided() {
     app.notify = Notifier::default();
     app.settings.notify.agent = true;
     ended(&mut app, "session.execution.succeeded", "root");
-    assert!(app.notify.shown.is_empty());
+    assert!(super::shown() == 0);
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn a_click_opens_its_session_and_closes_settings() {
     assert!(rt.update_if(|s, tx| poll(s, tx)));
     rt.frame(1.0 / 60.0);
     assert!(!rt.state.settings.open);
-    assert!(matches!(&rt.state.route, crate::Route::Session(id) if *id == target), "{:?}", rt.state.route);
+    assert!(matches!(&rt.state.route, crate::Route::Session { id, .. } if *id == target), "{:?}", rt.state.route);
     assert!(rt.state.tabs.iter().any(|t| t.id == target));
     assert!(!rt.update_if(|s, tx| poll(s, tx)), "each click opens once");
 }

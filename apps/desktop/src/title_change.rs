@@ -35,12 +35,12 @@ fn toggle(s: &mut App, _: &mut Play<App>) {
 }
 
 fn current(s: &App) -> Option<String> {
-    let Route::Session(id) = &s.route else { return None };
+    let Route::Session { id, .. } = &s.route else { return None };
     s.sessions.iter().find(|x| &x.id == id).map(|i| i.title.clone())
 }
 
 fn set(s: &mut App, to: &str) {
-    let Route::Session(id) = s.route.clone() else { return };
+    let Route::Session { id, .. } = s.route.clone() else { return };
     if let Some(i) = s.sessions.iter_mut().find(|x| x.id == id) {
         i.title = to.into();
     }

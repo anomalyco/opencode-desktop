@@ -61,7 +61,7 @@ fn picking_a_folder_adds_the_project_opens_a_session_and_puts_it_in_the_sidebar(
     assert_eq!(project.name, "orbit");
     assert_eq!(rt.state.project_state.used.first().map(String::as_str), Some(project.id.as_str()));
 
-    let Route::Session(sid) = rt.state.route.clone() else { panic!("expected session route, got {:?}", rt.state.route) };
+    let Route::Session { id: sid, .. } = rt.state.route.clone() else { panic!("expected session route, got {:?}", rt.state.route) };
     let info = rt.state.session(&sid).expect("session created");
     assert_eq!(info.directory, "/Users/demo/code/orbit");
     assert_eq!(info.project, project.id);
@@ -89,7 +89,7 @@ fn draft_project_picker_add_project_and_cmd_k_trigger_open_project() {
     assert_eq!(rt.file_dialog().map(|(k, _)| k), Some(FileDialogKind::Folder));
     rt.resolve_file_dialog(Some("/Users/demo/code/nova".into())).unwrap();
     rt.frame(1.0 / 60.0);
-    assert!(matches!(&rt.state.route, Route::Session(id) if rt.state.session(id).unwrap().directory == "/Users/demo/code/nova"));
+    assert!(matches!(&rt.state.route, Route::Session { id, .. } if rt.state.session(id).unwrap().directory == "/Users/demo/code/nova"));
 
     // ⌘K finds "Open project" and "Search projects".
     rt.key(KeyEvent { key: Key::Command('k'), mods: Mods { cmd: true, ..Default::default() } });
@@ -154,7 +154,7 @@ fn live_open_project_queues_write_and_applies_server_reply() {
         .unwrap();
     rt.frame(1.0 / 60.0);
 
-    assert_eq!(rt.state.route, Route::Session("ses_live_beacon_0001".into()));
+    assert_eq!(rt.state.route, Route::here("ses_live_beacon_0001".into()));
     assert!(rt.state.tabs.iter().any(|t| t.id == "ses_live_beacon_0001"));
     assert_eq!(rt.state.projects[0].id, "proj_beacon");
     assert!(rt.state.composer.focused);
@@ -190,7 +190,7 @@ fn shift_cmd_o_switches_recent_projects_worktrees_and_other_projects() {
     key(&mut rt, Key::Down);
     key(&mut rt, Key::Enter);
     assert!(!rt.state.project_switcher.open);
-    let Route::Session(wt_sid) = rt.state.route.clone() else { panic!("expected session in worktree") };
+    let Route::Session { id: wt_sid, .. } = rt.state.route.clone() else { panic!("expected session in worktree") };
     assert_eq!(rt.state.session(&wt_sid).unwrap().directory, "/Users/demo/code/worktrees/lumen/reconnect-fix");
 
     // On Draft, ⇧⌘O updates draft_dir in place (including finding hidden kiln by search) and keeps Route::Draft.

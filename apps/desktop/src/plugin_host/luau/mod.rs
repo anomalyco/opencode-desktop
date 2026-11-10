@@ -453,7 +453,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         for (ty, data) in &events {
             let listeners: Vec<mlua::Value> = half.events.borrow().iter().filter(|(v, prefix, _)| *v == vm && ty.starts_with(prefix.as_str())).map(|(_, _, s)| s.clone()).collect();
             for signal in listeners {
-                let event = services::map([("type", Data::String(ty.clone())), ("data", services::json_to_data(data)), ("serverId", Data::String(app.server_key.clone().unwrap_or_else(|| "local".into())))]);
+                let event = services::map([("type", Data::String(ty.clone())), ("data", services::json_to_data(data)), ("serverId", Data::String(app.server_key().unwrap_or_else(|| "local".into())))]);
                 changed |= fire_value(app, i, signal, Data::List(vec![event]));
             }
         }

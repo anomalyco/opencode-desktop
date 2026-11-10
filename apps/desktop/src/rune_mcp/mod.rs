@@ -528,7 +528,7 @@ fn sync_window(s: &mut App) {
         }
     }
     match &s.route {
-        Route::Session(sid) => {
+        Route::Session { id: sid, .. } => {
             if let Some(info) = s.session(sid) {
                 let d = clean_dir(&info.directory);
                 if !d.is_empty() {
@@ -547,7 +547,7 @@ fn sync_window(s: &mut App) {
 
     let mut open_roots: HashSet<String> = s.tabs.iter().map(|t| t.id.clone()).collect();
     let (routed_exact, routed_root) = match &s.route {
-        Route::Session(sid) => {
+        Route::Session { id: sid, .. } => {
             let root = s.root_of(sid).to_owned();
             open_roots.insert(sid.clone());
             open_roots.insert(root.clone());

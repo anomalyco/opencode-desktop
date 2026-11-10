@@ -24,7 +24,7 @@ static DRAFT_PENCIL: Icon = Icon {
 /// (its width at the last layout) and keeps `trailing` (the `+` button) after its last tab.
 pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>) -> El {
     let current = match &s.route {
-        Route::Session(id) if !s.settings.open => Some(s.root_of(id)),
+        Route::Session { id, .. } if !s.settings.open => Some(s.root_of(id)),
         Route::Draft(id) if !s.settings.open => Some(id.as_str()),
         _ => None,
     };
@@ -102,7 +102,7 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, index: usize, nav_ids:
     let spring = s.switch_spring();
     let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
-    let active = matches!(&s.route, Route::Session(r) if s.root_of(r) == t.id);
+    let active = matches!(&s.route, Route::Session { id: r, .. } if s.root_of(r) == t.id);
     let id = t.id.clone();
     item.decorate(move |slot, _| {
         // The arrows open the tab they reach as they pass it; its menu on a right-click.

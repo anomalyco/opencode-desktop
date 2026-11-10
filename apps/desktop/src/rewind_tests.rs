@@ -19,7 +19,7 @@ struct Harness {
 fn harness() -> Harness {
     let mut app = App::fixture_session();
     app.finish_stream();
-    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     let writes = app.fake_writes();
     let (server, inbox) = channel();
     app.inbox = Some(inbox);
@@ -143,7 +143,7 @@ fn undo_after_switching_tabs_restages_prior_revert_and_restores_source_draft() {
     // Switch to another tab, then click Undo on the Rewound toast.
     h.rt.update(|s, tx| s.open(&other, tx));
     h.rt.frame(DT);
-    assert_eq!(h.rt.state.route, Route::Session(other.clone()));
+    assert_eq!(h.rt.state.route, Route::here(other.clone()));
 
     tap_in(&mut h.rt, "status-toast", "toast-undo");
     assert_eq!(h.rt.state.session(&h.sid).unwrap().revert.as_deref(), Some(second.as_str()));
@@ -292,7 +292,7 @@ fn fork_from_menu_and_dialog_opens_forked_session_with_prompt_in_composer() {
         .unwrap();
     h.rt.frame(DT);
 
-    assert_eq!(h.rt.state.route, Route::Session("ses_forked_live".into()));
+    assert_eq!(h.rt.state.route, Route::here("ses_forked_live".into()));
     assert_eq!(h.rt.state.composer.text, target_body);
 
     // Also verify the Fork from message dialog filters and forks on Enter.

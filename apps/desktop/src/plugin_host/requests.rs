@@ -167,7 +167,7 @@ pub fn server(app: &mut App, i: usize, scope: Scope, method: String, path: Strin
         Box::new(move |s: &mut App, tx: &mut Tx| answer_bytes(s, n, EVENT_RESPONSE, u32::from(answer.is_err()), answer, tx)) as Apply
     };
     // `local:` asks the app's own server, even while the window is connected to another.
-    match (path.strip_prefix(opencode_plugin::abi::LOCAL_SERVER_PREFIX), app.own_server.clone()) {
+    match (path.strip_prefix(opencode_plugin::abi::LOCAL_SERVER_PREFIX), crate::servers::runtime::own_server()) {
         (Some(local), Some(own)) => {
             let (local, deliver) = (local.to_owned(), app.deliverer());
             super::tasks::run(move || {

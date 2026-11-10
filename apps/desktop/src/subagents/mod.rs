@@ -102,11 +102,11 @@ impl App {
     /// From a subagent's session back to the one that started it.
     /// The open session is a subagent's, with the session that started it known.
     pub fn has_parent(&self) -> bool {
-        matches!(&self.route, Route::Session(id) if self.session(id).is_some_and(|s| s.parent.is_some()))
+        matches!(&self.route, Route::Session { id, .. } if self.session(id).is_some_and(|s| s.parent.is_some()))
     }
 
     pub fn open_parent(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session(id) = &self.route else { return false };
+        let Route::Session { id, .. } = &self.route else { return false };
         let Some(parent) = self.session(id).and_then(|s| s.parent.clone()) else { return false };
         self.open(&parent, tx);
         true
@@ -384,14 +384,14 @@ mod tests {
         assert!(has(&rt, "", "activity-chip"));
 
         press(&mut rt, "agent-line");
-        assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
+        assert_eq!(rt.state.route, Route::here(REVIEW.into()));
         // Still the parent's tab, and the composer has the subagent's status line under it.
         assert!(!rt.state.tabs.iter().any(|t| t.id == REVIEW));
         assert!(has(&rt, "", "subagent-bar"));
         assert!(has(&rt, "", "prompt"));
 
         press(&mut rt, "back");
-        assert_eq!(rt.state.route, Route::Session(MAIN.into()));
+        assert_eq!(rt.state.route, Route::here(MAIN.into()));
     }
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
         press(&mut rt, "activity-chip");
         assert!(has(&rt, "", &format!("sub-{REVIEW}")));
         press(&mut rt, &format!("sub-{REVIEW}"));
-        assert_eq!(rt.state.route, Route::Session(REVIEW.into()));
+        assert_eq!(rt.state.route, Route::here(REVIEW.into()));
         assert!(!rt.state.shells.activity.is_open());
     }
 
@@ -524,7 +524,7 @@ mod tests {
         rt.frame(1.0 / 120.0);
         rt.key(rune::KeyEvent { key: rune::Key::Escape, mods: Default::default() });
         rt.frame(1.0 / 120.0);
-        assert_eq!(rt.state.route, Route::Session(MAIN.into()));
+        assert_eq!(rt.state.route, Route::here(MAIN.into()));
     }
 
     #[test]
@@ -532,7 +532,7 @@ mod tests {
         let mut rt = rt();
         rt.update(|s, tx| s.open_child(MAIN, "ses_unlisted", "Probe the cache", "explore", tx));
         let s = &rt.state;
-        assert_eq!(s.route, Route::Session("ses_unlisted".into()));
+        assert_eq!(s.route, Route::here("ses_unlisted".into()));
         assert_eq!(s.root_of("ses_unlisted"), MAIN);
         assert!(!s.tabs.iter().any(|t| t.id == "ses_unlisted"));
     }

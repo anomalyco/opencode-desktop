@@ -242,7 +242,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("permission", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        let Route::Session(id) = s.route.clone() else { return };
+        let Route::Session { id, .. } = s.route.clone() else { return };
         let ask = json!({ "id": "per_scene_bash", "sessionID": id, "action": "bash", "resources": ["bun test test/net/backoff.test.ts"] });
         s.playback.push_back((s.clock + 0.6, "permission.asked".into(), ask));
         s.wake_at_playback();

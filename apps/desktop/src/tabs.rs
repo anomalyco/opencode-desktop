@@ -1,13 +1,17 @@
-//! Pinned session tabs. OpenCode Desktop keeps its tab list on the client (Electron's
-//! `drafts.sqlite`), never on the server, so this example keeps its own in
-//! `<data dir>/rune-opencode/tabs.json`, one list per server.
+//! Pinned tabs, from every server the app keeps live, in one list per window, as OpenCode
+//! Desktop keeps them (`shell/tabs/schema.ts`): each tab carries its server, so a window mixes
+//! sessions of the app's own server, servers added by address and plugins' servers. The list,
+//! the saved titles and the closed tabs live in the window's own file (`windows::store`,
+//! `opencode.window.<id>.dat`'s `tabs`, `tabs.info` and `tabs.closed`), never on a server.
 //!
-//! Until you change a tab here, each launch reads Desktop Beta's list (read-only, through the
-//! `sqlite3` CLI) so the two show the same tabs; without Beta it starts from recent sessions.
+//! A profile's first window with nothing saved reads Desktop Beta's list (read-only, through the
+//! `sqlite3` CLI) so the two show the same tabs; without Beta it starts with none.
 
 use std::path::PathBuf;
 use std::process::Command;
 
+use opencode_kit::servers::tabs as doc;
+use opencode_kit::servers::{ServerKey, TabKey};
 use serde_json::{Value, json};
 
 use crate::Route;
@@ -25,6 +29,8 @@ pub struct Tab {
     /// A session's id, or a draft's own `draft_…` id.
     pub id: String,
     pub kind: TabKind,
+    /// The server its session is on, or where a draft's session will start.
+    pub server: ServerKey,
     /// The title and directory when the tab was saved, for a session outside the loaded list.
     /// A draft's directory is where its session will start; its title is unused.
     pub title: String,
@@ -32,23 +38,61 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// A tab for session `id` on the server the window works against now.
     pub fn session(id: impl Into<String>, title: impl Into<String>, directory: impl Into<String>) -> Tab {
-        Tab { id: id.into(), kind: TabKind::Session, title: title.into(), directory: directory.into() }
+        Tab { id: id.into(), kind: TabKind::Session, server: crate::servers::runtime::current(), title: title.into(), directory: directory.into() }
     }
 
+    /// A draft tab whose session will start on the server the window works against now.
     pub fn draft(id: impl Into<String>, directory: impl Into<String>) -> Tab {
-        Tab { id: id.into(), kind: TabKind::Draft, title: String::new(), directory: directory.into() }
+        Tab { id: id.into(), kind: TabKind::Draft, server: crate::servers::runtime::current(), title: String::new(), directory: directory.into() }
+    }
+
+    /// The tab on `server` instead.
+    pub fn on(mut self, server: ServerKey) -> Tab {
+        self.server = server;
+        self
     }
 
     pub fn is_draft(&self) -> bool {
         self.kind == TabKind::Draft
     }
 
+    /// Whether it is this session's tab on `server`, or this draft's.
+    pub fn is(&self, server: &ServerKey, id: &str) -> bool {
+        self.id == id && (self.is_draft() || self.server == *server)
+    }
+
     /// The page this tab shows.
     pub fn route(&self) -> Route {
         match self.kind {
-            TabKind::Session => Route::Session(self.id.clone()),
+            TabKind::Session => Route::session(self.server.clone(), self.id.clone()),
             TabKind::Draft => Route::Draft(self.id.clone()),
+        }
+    }
+
+    /// Its identity in the window's file (`tabKey`).
+    pub fn key(&self) -> TabKey {
+        match self.kind {
+            TabKind::Session => TabKey::session(self.server.clone(), self.id.clone()),
+            TabKind::Draft => TabKey::draft(self.id.clone()),
+        }
+    }
+
+    /// The tab as the window's file keeps it, with what `tabs.info` saves of it.
+    pub fn to_doc(&self) -> (doc::Tab, doc::TabInfo) {
+        let text = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+        match self.kind {
+            TabKind::Session => (doc::Tab::Session(doc::SessionTab::new(self.server.clone(), &self.id)), doc::TabInfo { title: text(&self.title), directory: text(&self.directory), prompted: None }),
+            TabKind::Draft => (doc::Tab::Draft(doc::DraftTab::new(&self.id, self.server.clone(), &self.directory)), doc::TabInfo::default()),
+        }
+    }
+
+    pub fn from_doc(tab: &doc::Tab, info: Option<&doc::TabInfo>) -> Tab {
+        let field = |f: fn(&doc::TabInfo) -> &Option<String>| info.and_then(|i| f(i).clone()).unwrap_or_default();
+        match tab {
+            doc::Tab::Session(t) => Tab { id: t.session_id.clone(), kind: TabKind::Session, server: t.server.clone(), title: field(|i| &i.title), directory: field(|i| &i.directory) },
+            doc::Tab::Draft(d) => Tab { id: d.draft_id.clone(), kind: TabKind::Draft, server: d.server.clone(), title: String::new(), directory: d.directory.clone() },
         }
     }
 }
@@ -93,7 +137,8 @@ pub struct ClosedTab {
 }
 
 /// Closed session tabs, oldest first, as Desktop's `tabs.closed`: a session appears once, at
-/// its latest close. Drafts are never recorded; their state goes with them.
+/// its latest close, keyed by its server and id (`shell/tabs/closed.ts`). Drafts are never
+/// recorded; their state goes with them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Closed(Vec<ClosedTab>);
 
@@ -102,7 +147,7 @@ impl Closed {
         if entry.tab.is_draft() {
             return;
         }
-        self.0.retain(|e| e.tab.id != entry.tab.id);
+        self.0.retain(|e| !e.tab.is(&entry.tab.server, &entry.tab.id));
         self.0.push(entry);
         let over = self.0.len().saturating_sub(CLOSED_LIMIT);
         self.0.drain(..over);
@@ -111,7 +156,7 @@ impl Closed {
     /// Takes the newest closed tab that isn't open again (or `target`'s), dropping stale ones
     /// passed on the way (`takeClosedTab`).
     pub fn take(&mut self, open: &[Tab], target: Option<&str>) -> Option<ClosedTab> {
-        let is_open = |e: &ClosedTab| open.iter().any(|t| t.kind == TabKind::Session && t.id == e.tab.id);
+        let is_open = |e: &ClosedTab| open.iter().any(|t| t.kind == TabKind::Session && t.is(&e.tab.server, &e.tab.id));
         if let Some(id) = target {
             let at = self.0.iter().rposition(|e| e.tab.id == id)?;
             return (!is_open(&self.0[at])).then(|| self.0.remove(at));
@@ -126,28 +171,34 @@ impl Closed {
 
     /// Newest first, without tabs open again (`listClosedTabs`).
     pub fn list<'a>(&'a self, open: &'a [Tab]) -> impl Iterator<Item = &'a ClosedTab> + 'a {
-        self.0.iter().rev().filter(|e| !open.iter().any(|t| t.kind == TabKind::Session && t.id == e.tab.id))
+        self.0.iter().rev().filter(|e| !open.iter().any(|t| t.kind == TabKind::Session && t.is(&e.tab.server, &e.tab.id)))
     }
 
-    /// Sessions that are gone for good leave the list (`removeClosedTabs`).
+    /// Sessions of the server the window works against now that are gone for good leave the
+    /// list (`removeClosedTabs`).
     pub fn remove(&mut self, gone: impl Fn(&str) -> bool) {
-        self.0.retain(|e| !gone(&e.tab.id));
+        let server = crate::servers::runtime::current();
+        self.0.retain(|e| e.tab.server != server || !gone(&e.tab.id));
     }
 
-    pub fn to_json(&self) -> Value {
+    /// `tabs.closed`, as the window's file keeps it.
+    pub fn to_doc(&self) -> Vec<doc::ClosedTab> {
         self.0
             .iter()
-            .map(|e| json!({ "index": e.index, "id": e.tab.id, "title": e.tab.title, "directory": e.tab.directory, "prompted": e.prompted }))
+            .map(|e| {
+                let (_, mut info) = e.tab.to_doc();
+                info.prompted = e.prompted.then_some(true);
+                doc::ClosedTab { tab: doc::SessionTab::new(e.tab.server.clone(), &e.tab.id), index: e.index as u64, info: (!info.is_empty()).then_some(info) }
+            })
             .collect()
     }
 
-    pub fn from_json(v: &Value) -> Closed {
-        let list = v.as_array().into_iter().flatten().filter_map(|e| {
-            let tab = Tab::session(e["id"].as_str()?, e["title"].as_str().unwrap_or(""), e["directory"].as_str().unwrap_or(""));
-            Some(ClosedTab { tab, index: e["index"].as_u64().unwrap_or(0) as usize, prompted: e["prompted"].as_bool().unwrap_or(false) })
-        });
+    pub fn from_doc(list: &[doc::ClosedTab]) -> Closed {
         let mut closed = Closed::default();
-        list.for_each(|e| closed.push(e));
+        for c in list {
+            let tab = Tab::from_doc(&doc::Tab::Session(c.tab.clone()), c.info.as_ref());
+            closed.push(ClosedTab { tab, index: c.index as usize, prompted: c.info.as_ref().and_then(|i| i.prompted).unwrap_or(false) });
+        }
         closed
     }
 }
@@ -162,74 +213,8 @@ fn file() -> Option<PathBuf> {
     crate::dirs::data().map(|d| d.join("tabs.json"))
 }
 
-fn parse(list: &Value) -> Vec<Tab> {
-    list.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| {
-            let id = t["id"].as_str()?;
-            let directory = t["directory"].as_str().unwrap_or("");
-            // Lists saved before drafts were tabs have no kind: they're all sessions.
-            Some(match t["kind"].as_str() {
-                Some("draft") => Tab::draft(id, directory),
-                _ => Tab::session(id, t["title"].as_str().unwrap_or(""), directory),
-            })
-        })
-        .collect()
-}
-
-/// Window `w`'s saved list for `server`, if you've changed tabs there before.
-pub fn load(w: &crate::windows::Window, server: &str) -> Option<Vec<Tab>> {
-    if w.id.is_empty() {
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
-        return saved(&v, server);
-    }
-    let v = crate::windows::store::load(w, server);
-    v.get("tabs").filter(|t| t.is_array()).map(parse)
-}
-
-/// `server`'s list in the file's JSON; none when only other keys (such as `zoom`) are there.
-fn saved(v: &Value, server: &str) -> Option<Vec<Tab>> {
-    v.get(server)?.as_array()?;
-    Some(parse(&v[server]))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_file_with_only_zoom_has_no_saved_tabs() {
-        let v = json!({ "zoom": 1.2 });
-        assert_eq!(saved(&v, "http://x"), None);
-        let v = json!({ "zoom": 1.2, "http://x": [{ "id": "a", "title": "A", "directory": "/d" }] });
-        assert_eq!(saved(&v, "http://x").map(|t| t.len()), Some(1));
-        assert_eq!(saved(&json!({ "http://x": [] }), "http://x"), Some(vec![]));
-    }
-}
-
-/// Saves window `w`'s list for `server`: in its own file, or `tabs.json` for a window without one.
-pub fn save(w: &crate::windows::Window, server: &str, tabs: &[Tab]) {
-    // Tests record what they would save in `SAVED`; they never touch the saved file.
-    if cfg!(test) {
-        return;
-    }
-    let list: Value = tabs
-        .iter()
-        .map(|t| {
-            let kind = if t.is_draft() { "draft" } else { "session" };
-            json!({ "id": t.id, "title": t.title, "directory": t.directory, "kind": kind })
-        })
-        .collect();
-    if w.id.is_empty() {
-        update("tabs", server.to_owned(), list);
-    } else {
-        crate::windows::store::save(w, server, "tabs", list);
-    }
-}
-
-/// Sets `key` in the tabs file, off the UI thread. Tabs and zoom share the file, so each read
-/// and write happens on the saves thread, in order.
+/// Sets `key` in the tabs file, off the UI thread. The zoom and the projects used share the
+/// file, so each read and write happens on the saves thread, in order.
 fn update(slot: &'static str, key: String, value: Value) {
     let Some(path) = file() else { return };
     crate::disk::later(slot, move || {
@@ -237,6 +222,12 @@ fn update(slot: &'static str, key: String, value: Value) {
         v[key] = value;
         crate::disk::replace(&path, v.to_string().as_bytes());
     });
+}
+
+/// `tabs.json` and `ui.json`, the files every window read before windows had their own.
+pub fn legacy_files() -> (Option<Value>, Option<Value>) {
+    let read = |name: &str| crate::dirs::data().and_then(|d| std::fs::read_to_string(d.join(name)).ok()).and_then(|s| serde_json::from_str(&s).ok());
+    (read("tabs.json"), read("ui.json"))
 }
 
 /// The saved UI zoom (1.0 is 100%), kept in the same file under its own key.
@@ -289,18 +280,8 @@ pub(crate) fn from_beta_db(db: &std::path::Path) -> Option<Vec<Tab>> {
             .and_then(|r| serde_json::from_str(r["value"].as_str()?).ok())
             .unwrap_or(Value::Null)
     };
-    let (tabs, info) = (get("tabs"), get("tabs.info"));
-    let list: Vec<Tab> = tabs
-        .as_array()?
-        .iter()
-        .filter(|t| t["type"] == "session" && t["server"] == "sidecar")
-        .filter_map(|t| {
-            let id = t["sessionId"].as_str()?.to_owned();
-            // tabs.info is keyed "<server>\n/server/<base64 server>/session/<id>".
-            let meta = info.as_object().and_then(|m| m.iter().find(|(k, _)| k.ends_with(&format!("/session/{id}"))).map(|e| e.1));
-            let field = |k: &str| meta.and_then(|m| m[k].as_str()).unwrap_or("").to_owned();
-            Some(Tab::session(id, field("title"), field("directory")))
-        })
-        .collect();
+    // Beta's rows are already in the mixed-server shape; its own sidecar's tabs are this app's.
+    let beta = opencode_kit::servers::migration::window::from_beta(&get("tabs"), &get("tabs.info"));
+    let list = beta.tabs.iter().flatten().filter(|t| matches!(t, doc::Tab::Session(s) if s.server.is_sidecar())).map(|t| Tab::from_doc(t, beta.info(&t.key()))).collect();
     Some(list)
 }

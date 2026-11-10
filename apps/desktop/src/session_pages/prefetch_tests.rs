@@ -45,7 +45,7 @@ fn card_and_menu_prefetch_before_a_press_and_open_on_its_first_frame() {
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
-        assert_eq!(rt.state.route, Route::Session(CHILD.into()));
+        assert_eq!(rt.state.route, Route::here(CHILD.into()));
         assert!(rt.state.opening.is_none());
         assert!(!rt.state.transcripts[CHILD].messages.is_empty());
         assert!(!rt.elements().iter().any(|e| e.text.as_deref() == Some("Loading messages…")));

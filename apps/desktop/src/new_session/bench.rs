@@ -38,7 +38,7 @@ fn once(latency: Latency) -> (f64, f64, f64) {
         last = now;
         let ms = start.elapsed().as_secs_f64() * 1000.0;
         first.get_or_insert(ms);
-        let on = matches!(rt.state.route, Route::Session(_));
+        let on = matches!(rt.state.route, Route::Session { .. });
         let els = rt.elements();
         if prompt.is_none() && on && els.iter().any(|e| e.path.contains("/u-") && e.text.as_deref() == Some(PROMPT) && e.opacity > 0.5) {
             prompt = Some(ms);

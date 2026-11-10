@@ -44,13 +44,13 @@ pub fn view(s: &App, p: &Pal) -> El {
         let name = match &place.route {
             Route::Home => "Home".to_owned(),
             Route::Draft(_) => "New session".to_owned(),
-            Route::Session(id) => s.session(id).map_or(id.clone(), |x| x.title.chars().take(18).collect()),
+            Route::Session { id, .. } => s.session(id).map_or(id.clone(), |x| x.title.chars().take(18).collect()),
         };
         let chip = col().px(8.0).py(4.0).radius(6.0).fill(if here { p.layer3 } else { p.layer1 });
         strip.child(chip.child(text(name).font(crate::view::UI).color(if here { p.text } else { p.muted })))
     });
     let page = match &s.route {
-        Route::Session(id) => crate::view::session_page(s, p, id),
+        Route::Session { id, .. } => crate::view::session_page(s, p, id),
         _ => col().h_full().child(text("Home").font(crate::view::UI).color(p.muted).px(16.0)),
     };
     col().key("history-stage").w_full().h_full().child(strip).child(page)

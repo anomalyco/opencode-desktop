@@ -180,7 +180,7 @@ impl RealWorld {
         if let Ok(page) = direct.read(&format!("/api/session/{sid}/message?limit={}&order=desc", crate::session_pages::LATEST)) {
             app.transcripts.insert(sid.clone(), Transcript { session: sid.clone(), messages: model::parse_messages(&page) });
         }
-        app.route = Route::Session(sid.clone());
+        app.route = Route::here(sid.clone());
         let waker: rune::Waker = Arc::new(|| {});
         app.waker = Some(waker.clone());
         app.pages.set(Pages::live(via.clone(), waker.clone()));

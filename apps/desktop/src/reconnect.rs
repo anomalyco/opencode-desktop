@@ -26,7 +26,7 @@ pub const RECONNECTING: &str = "Reconnecting…";
 /// heartbeat every 15 s, so a tunnel that accepts but never answers is caught here.
 pub const STREAM_IDLE: Duration = Duration::from_secs(25);
 
-/// A server's key: its base URL, until the registry's keys (`notes/multi-server.md` MS-1).
+/// A server's key (`opencode_kit::servers::ServerKey`'s text: `"sidecar"`, an address, `wsl:…`).
 pub type ServerId = String;
 
 /// Whether a lost link says so yet.
@@ -114,6 +114,9 @@ impl Link {
     /// The link is down or in doubt.
     pub fn down(&self) -> bool { !matches!(self, Link::Live) }
 
+    /// The event stream dropped.
+    pub fn dropped(&self) -> bool { matches!(self, Link::Down { .. }) }
+
     /// The header says Reconnecting.
     pub fn shown(&self) -> bool {
         matches!(self, Link::Suspect { notice: Notice::Shown, .. } | Link::Down { notice: Notice::Shown, .. })
@@ -164,13 +167,10 @@ impl Links {
     pub fn set(&mut self, server: &str, link: Link) { self.links.insert(server.to_owned(), link); }
 }
 
-/// The window's server today (one per window until `notes/multi-server.md` MS-2): the key its
-/// stream's lines and replies come under.
+/// The server the window is checked out on (`servers::runtime`): the key the stream's lines and
+/// replies it takes now come under.
 fn server_of(s: &App) -> Option<ServerId> {
-    match &s.source {
-        Source::Live { server, .. } => Some(server.base.clone()),
-        Source::Fixture => Some(String::new()),
-    }
+    crate::launch::window_server(s)
 }
 
 fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
@@ -240,7 +240,7 @@ pub fn catch_up(s: &mut App) {
     let Some(server) = server_of(s) else { return };
     s.server_links.catch_up.insert(server.clone(), CatchUp::AwaitingActive);
     s.server_links.refreshing.remove(&server);
-    let Route::Session(open) = &s.route else { return };
+    let Route::Session { id: open, .. } = &s.route else { return };
     let root = s.root_of(open);
     let mut kids: Vec<String> = s.running.iter().filter(|id| id.as_str() != root && s.descends(id, root)).cloned().collect();
     for id in [root, open.as_str()] {

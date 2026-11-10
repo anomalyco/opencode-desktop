@@ -7,7 +7,7 @@ use crate::App;
 #[test]
 fn lazy_timeline_keeps_visible_rows_and_builds_only_the_window() {
     fn scene(s: &App, _: &mut rune::Cx<App>) -> rune::El {
-        let crate::Route::Session(id) = &s.route else { unreachable!() };
+        let crate::Route::Session { id, .. } = &s.route else { unreachable!() };
         rune::col().w_full().h_full().child(super::timeline(s, super::pal(true), id, s.transcripts.get(id), 0.0))
     }
     fn visible(rt: &Runtime<App>) -> Vec<(String, Option<String>, [f32; 4])> {
@@ -41,7 +41,7 @@ fn lazy_timeline_keeps_visible_rows_and_builds_only_the_window() {
                     1 => { s.apply_event("session.text.delta", &serde_json::json!({"sessionID":"bench", "assistantMessageID":"stream", "ordinal":0, "delta":" more text"})); }
                     2 => { s.expanded.insert("c-a0799-0".into()); }
                     3 => { s.apply_event("session.prompted", &serde_json::json!({"sessionID":"bench", "messageID":"new", "text":"Next question"})); }
-                    4 => s.route = crate::Route::Session("other".into()),
+                    4 => s.route = crate::Route::here("other".into()),
                     _ => {}
                 }
             });
@@ -120,7 +120,7 @@ fn only_mounted_image_rows_fetch_their_media() {
     model::set_user_files("msg_lazy_first", vec![image('a', "first.png")]);
     model::set_user_files("msg_lazy_last", vec![image('c', "last.png")]);
     app.transcripts.insert("lazy-media".into(), Transcript { session: "lazy-media".into(), messages });
-    app.route = crate::Route::Session("lazy-media".into());
+    app.route = crate::Route::here("lazy-media".into());
     app.reduced_motion = true;
     let mut rt = Runtime::new(app, scene, (800.0, 600.0), Env::new(true, 1.0));
     for _ in 0..30 {
@@ -215,7 +215,7 @@ fn bubble(rt: &Runtime<App>, id: &str) -> Option<Bubble> {
 
 fn deliver(rt: &mut Runtime<App>, messages: Vec<Message>) {
     let (tx, rx) = std::sync::mpsc::channel();
-    let session = rt.state.transcripts.keys().find(|k| rt.state.route == crate::Route::Session((*k).clone())).unwrap().clone();
+    let session = rt.state.transcripts.keys().find(|k| rt.state.route == crate::Route::here((*k).clone())).unwrap().clone();
     tx.send(Incoming::Messages { session, messages }).unwrap();
     rt.state.inbox = Some(rx);
 }
@@ -322,7 +322,7 @@ fn a_message_sent_while_reading_up_does_not_fly() {
     for _ in 0..60 {
         rt.frame(1.0 / 60.0);
     }
-    let crate::Route::Session(sid) = rt.state.route.clone() else { panic!("no open session") };
+    let crate::Route::Session { id: sid, .. } = rt.state.route.clone() else { panic!("no open session") };
     assert!(!rt.state.ends.at_end(&sid), "scrolled up off the end");
     rt.key(KeyEvent { key: Key::Enter, mods: Default::default() });
     let id = "msg_zzzzsent0001";
@@ -346,7 +346,7 @@ fn working_stays_up_between_steps_until_the_run_ends() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
-    let crate::Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let crate::Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     let mut rt = Runtime::new(app, super::app, (1280.0, 820.0), Env::new(true, 1.0));
     rt.frame(0.0);
     let ev = |t: f64, ty: &str, step: &str, more: serde_json::Value| {
@@ -455,7 +455,7 @@ fn a_run_of_prompts_sits_close_with_tight_trailing_corners() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
-    let crate::Route::Session(id) = app.route.clone() else { panic!("no open session") };
+    let crate::Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
     let t = app.transcripts.get_mut(&id).unwrap();
     t.messages.truncate(1);
     for (n, text) in ["Also the toast says reconnected twice.", "And keep the cap at 30s."].iter().enumerate() {
@@ -507,7 +507,7 @@ fn the_gap_between_tabs_belongs_to_a_tab() {
         rt.frame(1.0 / 60.0);
     }
     let id = rt.state.tabs[1].id.clone();
-    assert_eq!(rt.state.route, crate::Route::Session(id));
+    assert_eq!(rt.state.route, crate::Route::here(id));
 }
 
 fn ids(rt: &Runtime<App>) -> Vec<String> {
@@ -565,7 +565,7 @@ fn dragging_a_tab_moves_it_saves_the_order_and_slides_every_row() {
     want.insert(3, moved);
     assert_eq!(ids(&rt), want, "the drop moves it");
     assert_eq!(crate::tabs::SAVED.with(|s| s.borrow().clone()), Some(want), "and saves the new order");
-    assert_eq!(rt.state.route, crate::Route::Session(before[0].clone()), "a drag doesn't open the tab");
+    assert_eq!(rt.state.route, crate::Route::here(before[0].clone()), "a drag doesn't open the tab");
 
     // Every row's drawn top, frame to frame: no jumps, no reversals once it starts toward
     // its place, and each lands where it rests.
@@ -599,7 +599,7 @@ fn switching_tabs_lets_you_type() {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
-        assert_eq!(rt.state.route, crate::Route::Session(before[i].clone()));
+        assert_eq!(rt.state.route, crate::Route::here(before[i].clone()));
         rt.state.composer.text.clear();
         rt.key(KeyEvent { key: Key::Text("hi".into()), mods: Default::default() });
         rt.frame(1.0 / 60.0);
@@ -619,7 +619,7 @@ fn a_click_without_a_drag_still_opens_the_tab() {
     rt.frame(1.0 / 60.0);
     rt.pointer_up(x, y + 2.0);
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.route, crate::Route::Session(before[2].clone()), "the click opens it");
+    assert_eq!(rt.state.route, crate::Route::here(before[2].clone()), "the click opens it");
     assert_eq!(ids(&rt), before, "and moves nothing");
     assert_eq!(rt.state.tab_drag.dragging(), None);
 }
@@ -670,7 +670,7 @@ fn a_long_header_title_shrinks_before_usage_at_large_zoom() {
     for w in [1040.0, 860.0] {
         let mut app = App::fixture_session();
         app.zoom = 1.6;
-        if let crate::Route::Session(id) = app.route.clone()
+        if let crate::Route::Session { id, .. } = app.route.clone()
             && let Some(info) = app.sessions.iter_mut().find(|s| s.id == id)
         {
             info.title = "Refactor reconnect backoff, bounded session cache, and virtual timeline rows".into();
@@ -720,7 +720,7 @@ fn zoomed(w: f32, h: f32, f: impl FnOnce(&mut App)) -> Runtime<App> {
 #[test]
 fn at_zoom_the_queue_hint_measures_its_room_in_the_shells_points() {
     let rt = zoomed(778.0, 820.0, |s| {
-        let crate::Route::Session(id) = s.route.clone() else { unreachable!() };
+        let crate::Route::Session { id, .. } = s.route.clone() else { unreachable!() };
         s.running.insert(id);
         s.composer = TextEdit::new("next");
     });

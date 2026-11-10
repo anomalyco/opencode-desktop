@@ -147,7 +147,7 @@ fn virtual_session_finds_unmounted_matches_centres_them_and_skips_rebuilding_unr
 
     // Switching sessions keeps each session's Find state separate.
     rt.update(|s, tx| {
-        s.route = Route::Session("other".into());
+        s.route = Route::here("other".into());
         tx.settle();
     });
     rt.frame(DT);

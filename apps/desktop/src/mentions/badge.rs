@@ -56,7 +56,7 @@ impl App {
         if self.session(id).is_none() {
             let found = self.mentions.found_session(id).cloned();
             let here = match &self.route {
-                crate::Route::Session(open) => self.session(open).cloned(),
+                crate::Route::Session { id: open, .. } => self.session(open).cloned(),
                 _ => None,
             };
             let from = here.unwrap_or_default();

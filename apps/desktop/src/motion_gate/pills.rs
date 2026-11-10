@@ -22,7 +22,7 @@ fn under_pills(els: &[ElementInfo]) -> Vec<String> {
 fn play_clear(r: &mut Run, secs: f64, what: &str) {
     for _ in 0..(secs / super::DT).round() as usize {
         r.play(super::DT);
-        let at_end = match &r.rt.state.route { crate::Route::Session(id) => r.rt.state.ends.at_end(id), _ => true };
+        let at_end = match &r.rt.state.route { crate::Route::Session { id, .. } => r.rt.state.ends.at_end(id), _ => true };
         let over = under_pills(&r.rt.elements());
         assert!(!at_end || over.is_empty(), "{what}: text under a pill at the end: {over:?}");
     }

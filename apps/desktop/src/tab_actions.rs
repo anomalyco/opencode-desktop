@@ -4,7 +4,8 @@ use crate::tabs::{ClosedTab, TabKind};
 impl App {
     pub(crate) fn save_tabs(&mut self) {
         // Keep titles fresh for sessions outside the loaded list next launch.
-        for t in self.tabs.iter_mut().filter(|t| t.kind == TabKind::Session) {
+        let here = crate::servers::runtime::active(self).clone();
+        for t in self.tabs.iter_mut().filter(|t| t.kind == TabKind::Session && t.server == here) {
             if let Some(s) = self.sessions.iter().find(|s| s.id == t.id) {
                 t.title = s.title.clone();
                 t.directory = s.directory.clone();
@@ -12,10 +13,17 @@ impl App {
         }
         #[cfg(test)]
         tabs::SAVED.with(|saved| *saved.borrow_mut() = Some(self.tabs.iter().map(|t| t.id.clone()).collect()));
-        if let Source::Live { server, .. } = &self.source
-            && self.persists()
-        {
-            tabs::save(&self.window, &server.base, &self.tabs);
+        if self.persists() {
+            // The mixed list and what `tabs.info` keeps of each, as Desktop's window file has them.
+            let (list, info): (Vec<_>, serde_json::Map<String, Value>) = self.tabs.iter().map(Tab::to_doc).fold((Vec::new(), serde_json::Map::new()), |(mut list, mut info), (tab, i)| {
+                if !i.is_empty() {
+                    info.insert(tab.key().encode(), i.to_json());
+                }
+                list.push(tab.to_json());
+                (list, info)
+            });
+            crate::windows::store::save(&self.window, "tabs", Value::Array(list));
+            crate::windows::store::save(&self.window, "tabs.info", Value::Object(info));
         }
     }
 
@@ -38,11 +46,17 @@ impl App {
     /// family works (unless it's waiting on you), then nothing for the open tab, then attention
     /// before unread.
     pub fn tab_status(&self, id: &str) -> Option<TabStatus> {
+        // A tab of a server the window isn't working against: its mark as of when it last did.
+        if let Some(t) = self.tabs.iter().find(|t| t.id == id && !t.is_draft())
+            && t.server != *crate::servers::runtime::active(self)
+        {
+            return self.checkout.snap(&t.server, id);
+        }
         let marks = self.marks(id);
         if marks.busy {
             return Some(TabStatus::Busy);
         }
-        if self.route == Route::Session(id.to_owned()) {
+        if self.route == Route::here(id.to_owned()) {
             return None;
         }
         if marks.attention {
@@ -132,6 +146,10 @@ impl App {
 
     /// Shows tab `id`: a session tab opens its session, a draft tab its new-session page.
     pub fn select_tab(&mut self, id: &str, tx: &mut Tx) {
+        // The window works against the tab's server from here on (`servers::runtime`).
+        if let Some(server) = self.tabs.iter().find(|t| t.id == id).map(|t| t.server.clone()) {
+            crate::servers::runtime::switch(self, &server);
+        }
         if !self.tabs.iter().any(|t| t.id == id && t.is_draft()) {
             return self.open(id, tx);
         }
@@ -162,7 +180,7 @@ impl App {
         let back = Tab::draft(draft, directory);
         match self.tabs.iter_mut().find(|t| t.id == id) {
             Some(tab) => *tab = back,
-            None if self.route == Route::Session(id.to_owned()) => self.tabs.push(back),
+            None if self.route == Route::here(id.to_owned()) => self.tabs.push(back),
             None => return,
         }
         self.save_tabs();
@@ -176,7 +194,8 @@ impl App {
         match tab.kind {
             TabKind::Session => {
                 self.forget_history(|s, x| s.root_of(x) == id);
-                let prompted = self.prompted(id);
+                let server = tab.server.clone();
+                let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(id)).unwrap_or(false);
                 self.closed.push(ClosedTab { tab, index: i, prompted });
             }
             // A closed draft goes with its words; it can't be reopened (Desktop's `disposeTab`).
@@ -215,6 +234,7 @@ impl App {
         let Some(entry) = self.closed.take(&self.tabs, target) else { return };
         let at = if append { self.tabs.len() } else { entry.index.min(self.tabs.len()) };
         let id = entry.tab.id.clone();
+        crate::servers::runtime::switch(self, &entry.tab.server);
         self.tabs.insert(at, entry.tab);
         self.open(&id, tx);
         self.save_tabs();
@@ -238,7 +258,7 @@ impl App {
     pub(crate) fn current_tab(&self) -> Option<String> {
         match &self.route {
             Route::Draft(id) => self.tabs.iter().any(|t| t.id == *id).then(|| id.clone()),
-            Route::Session(id) => {
+            Route::Session { id, .. } => {
                 let root = self.root_of(id);
                 self.tabs.iter().any(|t| t.id == root && !t.is_draft()).then(|| root.to_owned())
             }
@@ -261,7 +281,7 @@ impl App {
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
         match (&self.route, self.tab_layout()) {
-            (Route::Session(id), crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(self.root_of(id).to_owned()),
+            (Route::Session { id, .. }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(self.root_of(id).to_owned()),
             _ => self.current_tab(),
         }
     }

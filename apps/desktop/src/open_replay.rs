@@ -78,7 +78,7 @@ fn open_replay() {
         })), None, Arc::new(move || { let _ = w.lock().unwrap().send(()); }));
         let mut app = App::empty();
         app.attach.set_waker(Arc::new(move || { let _ = wake.lock().unwrap().send(()); }));
-        app.route = Route::Session("ses_previous".into());
+        app.route = Route::here("ses_previous".into());
         app.transcripts.insert("ses_previous".into(), opencode_kit::model::Transcript { session: "ses_previous".into(), messages: vec![] });
         app.pages.set(pages);
         let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));

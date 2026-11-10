@@ -41,7 +41,7 @@ pub fn setup(s: &mut App, at: usize) {
     s.opening = None;
     s.attach = Default::default();
     s.attach.fixture_media(MEDIA, prefetched.then(|| png.clone()));
-    s.route = Route::Session("ses_open_previous".into());
+    s.route = Route::here("ses_open_previous".into());
     s.transcripts.insert("ses_open_previous".into(), Transcript { session:"ses_open_previous".into(), messages:vec![Message::User { id:"story_previous".into(), text:"Keep this session visible while the dashboard review gets ready.".into() }] });
     if !s.sessions.iter().any(|i| i.id == TARGET) {
         let mut info = s.sessions.first().cloned().unwrap_or_default();
@@ -105,7 +105,7 @@ fn pixels(s: &mut App, _: &mut Play<App>) {
 
 pub fn view(s: &App, p: &Pal) -> El {
     let Some(d) = s.open_demo.as_ref() else { return col() };
-    let Route::Session(id) = &s.route else { return col() };
+    let Route::Session { id, .. } = &s.route else { return col() };
     let label = if d.before { "Immediate transcript" } else { "Type while the transcript loads" };
     col().key("opening-stage").w_full().h_full()
         .child(text(label).font(crate::view::UI).color(p.muted).px(16.0).py(16.0))

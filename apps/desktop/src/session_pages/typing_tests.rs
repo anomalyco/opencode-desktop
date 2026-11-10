@@ -69,7 +69,7 @@ fn typing_during_load_follows_the_latest_click_without_exposing_a_partial_page()
     rt.frame(1.0 / 60.0);
     rt.key(KeyEvent { key: RuneKey::Text("new draft".into()), mods: Mods::default() });
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.route, Route::Session("ses_next".into()));
+    assert_eq!(rt.state.route, Route::here("ses_next".into()));
     assert_eq!(rt.state.composer.text, "new draft");
 }
 

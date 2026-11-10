@@ -32,7 +32,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("shell-fold", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        if let crate::Route::Session(id) = s.route.clone() {
+        if let crate::Route::Session { id, .. } = s.route.clone() {
             add_shell_fold(s, &id);
         }
     }),

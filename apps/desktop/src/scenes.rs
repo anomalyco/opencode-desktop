@@ -3,14 +3,14 @@ use super::*;
 pub(crate) fn open_scene(s: &mut App) {
     let id = s.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));
     if let Some(id) = id {
-        s.route = Route::Session(id.clone());
+        s.route = Route::here(id.clone());
     }
 }
 
 pub(crate) fn busy_scene(s: &mut App) {
     open_scene(s);
     s.finish_stream();
-    if let Route::Session(id) = s.route.clone() {
+    if let Route::Session { id, .. } = s.route.clone() {
         if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
             a.completed = None;
         }
@@ -81,7 +81,7 @@ rune_register::register!(SCENE_LIST: Scene = [
     // 7.6 s: with `scripts/steer-dock.json`, a steer and two queued prompts delivered.
     ("busy-deliver", |s| {
         busy_scene(s);
-        let Route::Session(id) = s.route.clone() else { return };
+        let Route::Session { id, .. } = s.route.clone() else { return };
         let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
         s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
     }),

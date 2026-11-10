@@ -143,7 +143,10 @@ impl App {
         self.cancel_open(tx);
         self.close_picker(false);
         match to.route {
-            Route::Session(id) => self.open(&id, tx),
+            Route::Session { id, server } => {
+                crate::servers::runtime::switch(self, &server);
+                self.open(&id, tx);
+            }
             route => self.route = route,
         }
         match (to.settings, self.settings.open) {
@@ -166,11 +169,11 @@ impl App {
             .stack
             .iter()
             .filter_map(|p| match &p.route {
-                Route::Session(id) if gone(self, id) => Some(id.clone()),
+                Route::Session { id, server } if server == crate::servers::runtime::active(self) && gone(self, id) => Some(id.clone()),
                 _ => None,
             })
             .collect();
-        self.nav.forget(|p| matches!(&p.route, Route::Session(id) if ids.contains(id)));
+        self.nav.forget(|p| matches!(&p.route, Route::Session { id, .. } if ids.contains(id)));
     }
 }
 

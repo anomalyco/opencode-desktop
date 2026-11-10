@@ -29,7 +29,7 @@ pub fn fixture() -> App {
         parts: vec![Part::Text { text: "Streaming answer".into() }],
         ..Default::default()
     }));
-    app.route = Route::Session("bench".into());
+    app.route = Route::here("bench".into());
     app.transcripts.insert("bench".into(), Transcript { session: "bench".into(), messages });
     let mut other = app.transcripts["bench"].clone();
     other.session = "other".into();
@@ -92,7 +92,7 @@ fn timeline_benchmark() {
                     });
                     } else {
                         rt.update(|s, tx| {
-                            s.route = Route::Session(if frame % 2 == 0 { "other" } else { "bench" }.into());
+                            s.route = Route::here(if frame % 2 == 0 { "other" } else { "bench" }.into());
                             tx.settle();
                         });
                     }
@@ -222,7 +222,7 @@ fn frame_benchmark() {
                                 s.apply_event("session.prompted", &serde_json::json!({"sessionID":"bench", "messageID":format!("arrival{frame}"), "text":"Please inspect the next boundary."}));
                             }),
                             "switch" => rt.update(|s, tx| {
-                                s.route = Route::Session(if frame % 2 == 0 { "other" } else { "bench" }.into());
+                                s.route = Route::here(if frame % 2 == 0 { "other" } else { "bench" }.into());
                                 tx.settle();
                             }),
                             "typing" => rt.key(rune::KeyEvent { key: rune::Key::Text("a".into()), mods: rune::Mods::default() }),
@@ -431,7 +431,7 @@ fn cold_image_benchmark() {
         for n in 0..8 {
             let mut app = App::empty();
             app.zoom = 1.3;
-            app.route = Route::Session(id.into());
+            app.route = Route::here(id.into());
             app.transcripts.insert(id.into(), Transcript { session: id.into(), messages: opencode_kit::model::parse_messages(&value) });
             let (wake, woke) = channel();
             app.attach.set_waker(Arc::new(move || { let _ = wake.send(()); }));
@@ -472,7 +472,7 @@ fn latest_page_benchmark() {
             let page = pages.results.recv_timeout(Duration::from_secs(20)).unwrap().unwrap();
             let ready = start.elapsed();
             let mut app = App::empty();
-            app.route = Route::Session(id.into());
+            app.route = Route::here(id.into());
             app.zoom = 1.3;
             app.attach.adopt(&page.images);
             app.transcripts.insert(id.into(), Transcript { session: id.into(), messages: page.messages.clone() });
@@ -516,7 +516,7 @@ fn prefetched_image_benchmark() {
         for n in 0..8 {
             let mut app = App::empty();
             app.zoom = 1.3;
-            app.route = Route::Session(id.into());
+            app.route = Route::here(id.into());
             let messages = opencode_kit::model::parse_messages(&value);
             let source = messages.clone();
             let start = Instant::now();
@@ -588,11 +588,11 @@ fn launch_first_frame_benchmark() {
             if variant == 0 {
                 let _ = opencode_kit::client::Server::new("http://127.0.0.1:9").reachable();
                 app.tabs = crate::tabs::from_beta_db(&db).unwrap_or_default();
-                app.route = Route::Session("ses_bench1".into());
+                app.route = Route::here("ses_bench1".into());
             } else {
                 app.launch.set_phase("", crate::launch::Phase::Waiting { beta_tabs: true });
                 app.tabs = vec![crate::tabs::Tab::session("ses_bench1", "Bench", "/w")];
-                app.route = Route::Session("ses_bench1".into());
+                app.route = Route::here("ses_bench1".into());
                 let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&page_file).unwrap()).unwrap();
                 app.transcripts.insert("ses_bench1".into(), Transcript { session: "ses_bench1".into(), messages: opencode_kit::model::parse_messages(&v) });
             }

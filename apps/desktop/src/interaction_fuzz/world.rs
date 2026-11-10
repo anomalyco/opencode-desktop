@@ -85,7 +85,7 @@ impl World {
     pub fn new(seed: u64) -> World {
         super::set_wall(Some(sim::T0));
         let mut app = App::fixture_session();
-        let Route::Session(sid) = app.route.clone() else { panic!("the fixture opens a session") };
+        let Route::Session { id: sid, .. } = app.route.clone() else { panic!("the fixture opens a session") };
         let mut template = app.session(&sid).cloned().unwrap_or_default();
         template.id = sid.clone();
         template.parent = None;

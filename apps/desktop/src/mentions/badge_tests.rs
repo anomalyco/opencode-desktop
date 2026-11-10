@@ -95,7 +95,7 @@ fn a_session_mention_is_one_badge_that_opens_it_at_zoom_1_6() {
         app.load_fixture(crate::FIXTURE);
         crate::open_scene(&mut app);
         app.finish_stream();
-        app.route = Route::Session(SESSION.into());
+        app.route = Route::here(SESSION.into());
         app.zoom = 1.6;
         let id = format!("msg_zzzzmention{n:02}");
         let body = format!("the @session:{target} session");
@@ -127,7 +127,7 @@ fn a_session_mention_is_one_badge_that_opens_it_at_zoom_1_6() {
         for _ in 0..10 {
             rt.frame(1.0 / 60.0);
         }
-        assert_eq!(rt.state.route, Route::Session(target.to_owned()), "pressing {label} opens it");
+        assert_eq!(rt.state.route, Route::here(target.to_owned()), "pressing {label} opens it");
         assert!(rt.state.session(target).is_some());
     }
 }
@@ -135,7 +135,7 @@ fn a_session_mention_is_one_badge_that_opens_it_at_zoom_1_6() {
 #[test]
 fn a_sent_session_mention_echoes_as_its_token() {
     let mut rt = runtime();
-    rt.state.route = Route::Session(SESSION.into());
+    rt.state.route = Route::here(SESSION.into());
     rt.frame(1.0 / 60.0);
     // Its own message id: the mention store is shared with tests running beside it.
     rt.state.sends = 800;
@@ -176,7 +176,7 @@ fn the_echo_counts_from_the_trimmed_text() {
 #[test]
 fn a_sent_prompt_shows_badges_in_its_bubble_and_sends_the_same_payload() {
     let mut rt = runtime();
-    rt.state.route = Route::Session(SESSION.into());
+    rt.state.route = Route::here(SESSION.into());
     rt.frame(1.0 / 60.0);
     tap(&mut rt, "prompt");
     typed(&mut rt, "what other @op");
@@ -216,7 +216,7 @@ fn a_badge_wider_than_the_bubble_wraps_inside_it_at_the_largest_zoom() {
     app.load_fixture(crate::FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
-    app.route = Route::Session(SESSION.into());
+    app.route = Route::here(SESSION.into());
     app.zoom = crate::shortcuts::ZOOM_MAX;
     // Its own message id: the mention store is shared with tests running beside it.
     app.sends = 700;

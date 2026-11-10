@@ -14,7 +14,7 @@ fn outbox_holds_a_send_before_the_writer_connects() {
     let mut app = App::fixture_session();
     app.fake_writes();
     if let Source::Live { writes, .. } = &mut app.source { *writes = None; }
-    let Route::Session(session) = app.route.clone() else { unreachable!() };
+    let Route::Session { id: session, .. } = app.route.clone() else { unreachable!() };
     app.composer = TextEdit::new("send when ready");
     app.send(&mut rune::Tx::default());
     assert!(app.composer.text.is_empty());
@@ -25,7 +25,7 @@ fn app_with_echo(inbox: bool) -> App {
     let mut app = App::empty();
     app.fake_writes();
     app.unsent.fetch = Some(Arc::new(|_| Err("offline".into())));
-    app.route = Route::Session(SES.into());
+    app.route = Route::here(SES.into());
     app.transcripts.insert(SES.into(), Transcript { session: SES.into(), messages: vec![] });
     let prompt = Prompt { id: Some(ID.into()), text: "hey".into(), delivery: inbox.then_some(Delivery::Steer), ..Default::default() };
     if inbox {
@@ -70,7 +70,7 @@ fn another_draft_or_session_is_never_overwritten() {
     app.edit_failed_send(ID);
     assert_eq!(app.composer.text, "something newer");
     app.composer.clear();
-    app.route = Route::Session("ses_other".into());
+    app.route = Route::here("ses_other".into());
     app.edit_failed_send(ID);
     assert!(app.composer.text.is_empty());
 }

@@ -73,7 +73,7 @@ impl App {
             return self.send_command(prompt, alternate, tx);
         }
         let quotes = prompt.quotes.clone();
-        if let Route::Session(id) = self.route.clone()
+        if let Route::Session { id, .. } = self.route.clone()
             && (self.busy(&id) || self.steers_waiting(&id))
         {
             let local = prompt.id.clone().unwrap_or_default();
@@ -95,7 +95,7 @@ impl App {
         // From the new-session page, the session shows at once under an id chosen here.
         let starting = matches!(self.route, Route::Draft(_));
         let id = match self.route.clone() {
-            Route::Session(id) => id,
+            Route::Session { id, .. } => id,
             Route::Draft(_) if self.live() && crate::new_session::before() => {
                 if self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
                     self.composer.clear();

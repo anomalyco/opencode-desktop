@@ -16,7 +16,7 @@ fn compaction(status: CompactionStatus, manual: bool) -> Compaction {
 fn app(messages: Vec<Message>) -> App {
     let mut s = App::empty();
     s.transcripts.insert(SID.into(), Transcript { session: SID.into(), messages });
-    s.route = Route::Session(SID.into());
+    s.route = Route::here(SID.into());
     s
 }
 
@@ -145,7 +145,7 @@ fn one_compaction_is_one_divider_wherever_a_page_read_lands() {
     for at in [None, Some(0), Some(1), Some(2)] {
         let mut s = App::empty();
         s.transcripts.insert(wisp::SID.into(), Transcript { session: wisp::SID.into(), messages: wisp::page(&[wisp::prompt()]) });
-        s.route = Route::Session(wisp::SID.into());
+        s.route = Route::here(wisp::SID.into());
         for (i, (ty, data)) in events.iter().enumerate() {
             if at == Some(i) {
                 s.transcripts.get_mut(wisp::SID).unwrap().merge(wisp::page(&[wisp::prompt(), wisp::compaction()]));
@@ -159,7 +159,7 @@ fn one_compaction_is_one_divider_wherever_a_page_read_lands() {
     // Reloaded, the same rows show it once.
     let mut s = App::empty();
     s.transcripts.insert(wisp::SID.into(), Transcript { session: wisp::SID.into(), messages: wisp::page(&[wisp::prompt(), wisp::compaction()]) });
-    s.route = Route::Session(wisp::SID.into());
+    s.route = Route::here(wisp::SID.into());
     assert_eq!(quiet_dividers(&s, wisp::SID).len(), 1);
 }
 

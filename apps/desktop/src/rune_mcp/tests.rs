@@ -149,7 +149,7 @@ fn make_single_folder_app(server: Server, dir: &str, sid: &str) -> App {
         ..SessionInfo::default()
     }];
     app.tabs = vec![crate::tabs::Tab::session(sid, "Session", dir)];
-    app.route = Route::Session(sid.into());
+    app.route = Route::here(sid.into());
     app.default_dir = dir.into();
     with_plugins(&mut app);
     app.source = Source::Live { server, requests: None, writes: None, allow_send: true };

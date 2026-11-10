@@ -1,10 +1,12 @@
 //! What each window keeps across launches, in the files Desktop keeps it in
 //! (`packages/desktop/src/main/windows`): the open windows' ids (`windowIds` in
 //! `opencode.settings.dat`), each window's tabs, page, closed tabs, panes and drafts
-//! (`opencode.window.<id>.dat`, one entry per server) and its frame (`window-state-<id>.json`).
+//! (`opencode.window.<id>.dat`, one mixed-server document, as Desktop's) and its frame
+//! (`window-state-<id>.json`).
 //!
-//! The first window of a profile from before windows had files reads `tabs.json` and `ui.json`
-//! until it writes its own.
+//! A file from before the app kept many servers live at once (one entry per server) is migrated
+//! once, losslessly; the first window of a profile from before windows had files migrates
+//! `tabs.json` and `ui.json`.
 
 use std::path::PathBuf;
 
@@ -37,43 +39,46 @@ pub fn new_id() -> String {
     id.strip_prefix("ses_").unwrap_or(&id).to_owned()
 }
 
-/// What window `w` saved for `server`: its own file's entry, or for the profile's first window,
-/// the files from before windows had their own.
-pub fn load(w: &Window, server: &str) -> Value {
-    let own = window_file(&w.id).map(|f| read(&Some(f))).and_then(|v| v.get(server).cloned());
-    match own {
-        Some(v) => v,
-        None if w.legacy => legacy(server),
-        None => json!({}),
+/// What window `w` saved, in Desktop's mixed-server shape (`opencode_kit::servers::tabs::WindowDoc`):
+/// its own file, migrated once from the per-server shape this app kept while a window held one
+/// server (`opencode_kit::servers::migration::window`), the profile's first window's from the
+/// shared `tabs.json` and `ui.json` it read then. True when it was migrated: the caller writes
+/// the new file, which keeps what the old shape held under `legacy`.
+pub fn load(w: &Window, ctx: &opencode_kit::servers::migration::Context) -> (Value, bool) {
+    use opencode_kit::servers::migration::window::{Legacy, is_legacy, migrate};
+    let file = window_file(&w.id).and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    if !is_legacy(file.as_ref()) {
+        return (file.unwrap_or_else(|| json!({})), false);
     }
+    let (tabs_json, ui_json) = if w.legacy { crate::tabs::legacy_files() } else { (None, None) };
+    let input = Legacy { file: file.as_ref(), first: w.legacy, tabs_json: tabs_json.as_ref(), ui_json: ui_json.as_ref() };
+    (migrate(&input, ctx), true)
 }
 
-/// `tabs.json` and `ui.json` for `server`, in a window entry's shape.
-fn legacy(server: &str) -> Value {
-    let ui = read(&crate::dirs::data().map(|d| d.join("ui.json")))[server].clone();
-    let tabs = read(&crate::dirs::data().map(|d| d.join("tabs.json"))).get(server).cloned();
-    let mut v = json!({ "route": ui["route"], "drafts": ui["drafts"], "side": ui["side"], "closedTabs": ui["closedTabs"] });
-    if let Some(tabs) = tabs.filter(Value::is_array) {
-        v["tabs"] = tabs;
-    }
-    v
-}
-
-/// Sets `key` in window `w`'s entry for `server`, off the UI thread. The window's writes share
-/// its file, so each reads and writes it on the saves thread, in order.
-pub fn save(w: &Window, server: &str, key: &'static str, value: Value) {
+/// Sets `key` in window `w`'s file, off the UI thread. The window's writes share its file, so
+/// each reads and writes it on the saves thread, in order.
+pub fn save(w: &Window, key: &'static str, value: Value) {
     let Some(path) = window_file(&w.id) else { return };
-    let server = server.to_owned();
     crate::disk::later(super::slot(&w.id, key), move || {
         let mut v = read(&Some(path.clone()));
         if !v.is_object() {
             v = json!({});
         }
-        if !v[&server].is_object() {
-            v[&server] = json!({});
+        match value {
+            Value::Null => {
+                v.as_object_mut().map(|m| m.remove(key));
+            }
+            value => v[key] = value,
         }
-        v[&server][key] = value;
         crate::disk::replace(&path, v.to_string().as_bytes());
+    });
+}
+
+/// Writes window `w`'s whole file: a migration's result.
+pub fn save_all(w: &Window, doc: Value) {
+    let Some(path) = window_file(&w.id) else { return };
+    crate::disk::later(super::slot(&w.id, "doc"), move || {
+        crate::disk::replace(&path, doc.to_string().as_bytes());
     });
 }
 

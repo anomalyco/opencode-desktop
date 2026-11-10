@@ -24,7 +24,7 @@ struct Live {
 fn live() -> Live {
     let mut app = App::fixture_session();
     crate::scenes::busy_scene(&mut app);
-    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     app.running.retain(|id| *id == sid);
     let writes = app.fake_writes();
     let (server, inbox) = channel();
@@ -239,7 +239,7 @@ fn the_fixture_ends_its_stream_as_a_server_would() {
     let mut app = App::empty();
     app.load_fixture(crate::FIXTURE);
     crate::scenes::open_scene(&mut app);
-    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     app.start_stream_if_due(&sid);
     let mut rt = app.into_runtime();
     rt.frame(0.0);
@@ -330,7 +330,7 @@ fn stop_on_a_child_interrupts_that_child_not_its_parent() {
     let mut l = live();
     let child = crate::fixture_ids::CHILD;
     l.rt.update(|s, _| {
-        s.route = Route::Session(child.into());
+        s.route = Route::here(child.into());
         s.running.insert(child.into());
         s.stop();
     });

@@ -393,7 +393,7 @@ impl App {
 
     pub(crate) fn edit_failed_send(&mut self, id: &str) {
         let Some(sent) = self.unsent.get(id).filter(|s| s.phase_is(State::Failed)).cloned() else { return };
-        if self.route != crate::Route::Session(sent.session.clone()) || !self.composer.text.is_empty() || self.attach.any() { return; }
+        if self.route != crate::Route::here(sent.session.clone()) || !self.composer.text.is_empty() || self.attach.any() { return; }
         self.restore_draft(sent);
         self.composer.focused = true;
     }

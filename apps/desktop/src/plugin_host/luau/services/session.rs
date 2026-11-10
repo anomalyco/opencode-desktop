@@ -70,7 +70,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
 /// Session `id` as a `Session` record, kept per VM while its version and the server hold.
 fn session_value(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let mut h = std::hash::DefaultHasher::new();
-    (session_version(app, id), &app.server_key).hash(&mut h);
+    (session_version(app, id), &app.server_key()).hash(&mut h);
     snapshot(lua, &format!("session:{id}"), h.finish(), || build_session(lua, app, id))
 }
 
@@ -83,7 +83,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let cost = info.cost.max(t.map_or(0.0, session_view::usage::spent));
     let s = record(lua, 20, |s| {
         s.str(c"id", &info.id);
-        s.str(c"serverId", app.server_key.as_deref().unwrap_or("local"));
+        s.str(c"serverId", app.server_key().as_deref().unwrap_or("local"));
         s.str(c"directory", &info.directory);
         s.str(c"title", &info.title);
         s.opt_str(c"parentId", info.parent.as_deref());
@@ -293,7 +293,7 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             })
             .collect();
         let mut h = std::hash::DefaultHasher::new();
-        (&others, &app.server_key).hash(&mut h);
+        (&others, &app.server_key()).hash(&mut h);
         snapshot(lua, "servers", h.finish(), || {
             let list = lua.create_table_with_capacity(others.len() + 1, 0)?;
             list.raw_push(record(lua, 5, |own| {
@@ -301,11 +301,11 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 own.str(c"name", "Local");
                 own.str(c"state", "ready");
                 own.bool(c"isLocal", true);
-                own.bool(c"current", app.server_key.is_none());
+                own.bool(c"current", app.server_key().is_none());
             })?)?;
             for (key, name, label, state, version) in &others {
                 list.raw_push(record(lua, 7, |e| {
-                    e.bool(c"current", app.server_key.as_deref() == Some(key.as_str()));
+                    e.bool(c"current", app.server_key().as_deref() == Some(key.as_str()));
                     e.str(c"key", key);
                     e.str(c"name", name);
                     e.opt_str(c"label", (!label.is_empty()).then_some(label.as_str()));
@@ -319,7 +319,7 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Current", |_, ()| {
         cx::read(Dep::Server);
-        Ok(app_now("Servers:Current")?.server_key.clone().or_else(|| Some("local".to_owned())))
+        Ok(app_now("Servers:Current")?.server_key().or_else(|| Some("local".to_owned())))
     })?;
     method(lua, t, "Health", |lua, key: String| {
         cx::read(Dep::Servers);

@@ -8,6 +8,7 @@
 pub mod dialog;
 pub mod machine;
 pub mod pairing;
+pub mod runtime;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};

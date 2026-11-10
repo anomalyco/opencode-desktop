@@ -398,7 +398,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Panel(plugin, panel) => ui::panel_state(app, plugin, panel, app.active_session_id().unwrap_or_default()).hash(&mut h),
         Dep::Narrow => ui::narrow(app).hash(&mut h),
         Dep::Locale => opencode_i18n::locale().id().hash(&mut h),
-        Dep::Server => (&app.server_key, app.can_write()).hash(&mut h),
+        Dep::Server => (app.server_key(), app.can_write()).hash(&mut h),
         Dep::Servers => servers_version(app).hash(&mut h),
         Dep::Contract(id) => store::contract_generation(id).hash(&mut h),
         Dep::Dev(name) => format!("{:?}", diag::get(app, name)).hash(&mut h),

@@ -165,7 +165,7 @@ impl Fill {
 /// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132),
 /// starts a fill for each todo that has just finished, and draws each frame of those filling.
 pub fn sync(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let crate::Route::Session(id) = &s.route else { return false };
+    let crate::Route::Session { id, .. } = &s.route else { return false };
     let todos = s.shown_todos(id);
     let (secs, bounce) = (s.knobs.get(&CLOSE), s.knobs.get(&BOUNCE));
     let ticks = &mut s.todo_ticks;

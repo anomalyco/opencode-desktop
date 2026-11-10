@@ -30,7 +30,7 @@ pub struct MessageNav {
 impl App {
     /// Steps `offset` prompts from the one in view.
     pub fn navigate_message(&mut self, offset: i32, tx: &mut Tx) {
-        let Route::Session(id) = &self.route else { return };
+        let Route::Session { id, .. } = &self.route else { return };
         let Some(sid) = self.displayed_session(id).map(str::to_owned) else { return };
         let Some([x, y, w, _]) = self.message_nav.view else { return jump(self, &sid, None, offset, tx) };
         tx.element_at_in(format!("scroll-{sid}"), x + w / 2.0, y + LINE, move |s: &mut App, picked, tx| {
@@ -46,7 +46,7 @@ impl App {
 /// Scrolls the open session's timeline to the row with the call that ran shell `shell`, as
 /// Desktop's `revealPart` does when a finished shell's notice is pressed.
 pub fn reveal_shell(s: &mut App, shell: &str, tx: &mut Tx) {
-    let Route::Session(id) = &s.route else { return };
+    let Route::Session { id, .. } = &s.route else { return };
     let Some(sid) = s.displayed_session(id).map(str::to_owned) else { return };
     let Some(t) = s.transcripts.get(&sid) else { return };
     let ran = |a: &Assistant| a.parts.iter().any(|p| matches!(p, Part::Tool { metadata, .. } if metadata["shellID"] == shell));

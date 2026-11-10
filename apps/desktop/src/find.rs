@@ -199,7 +199,7 @@ impl App {
 
     /// Opens Find in the active session (or focuses and selects its query when already open).
     pub fn open_find(&mut self, tx: &mut Tx) {
-        let Route::Session(id) = self.route.clone() else { return };
+        let Route::Session { id, .. } = self.route.clone() else { return };
         let had_composer = self.composer.focused;
         self.sync_find_session(&id);
         self.close_picker(false);
@@ -309,7 +309,7 @@ impl App {
     }
 
     fn seek_active(&mut self, glide: bool, tx: &mut Tx) {
-        let Route::Session(sid) = self.route.clone() else { return };
+        let Route::Session { id: sid, .. } = self.route.clone() else { return };
         let idx = self.find.active_index();
         let Some(hit) = self.find.matches.get(idx).cloned() else { return };
         if self.unfold_if_hidden(&sid, &hit) {
@@ -357,7 +357,7 @@ impl App {
 
     pub(crate) fn sync_find_index(&mut self) {
         let current = match &self.route {
-            Route::Session(id) if !self.settings.open => id.clone(),
+            Route::Session { id, .. } if !self.settings.open => id.clone(),
             _ => String::new(),
         };
         self.sync_find_session(&current);
@@ -491,7 +491,7 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
 
 pub fn poll(s: &mut App) -> bool {
     let cur = match &s.route {
-        Route::Session(id) if !s.settings.open => id.as_str(),
+        Route::Session { id, .. } if !s.settings.open => id.as_str(),
         _ => "",
     };
     if !s.find.open && s.find.session == cur && !s.find.saved.contains_key(cur) {
@@ -510,13 +510,13 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if Bind::Find.matches_tx(ev, tx) {
         return match s.route {
-            Route::Session(_) => { s.open_find(tx); true }
+            Route::Session { .. } => { s.open_find(tx); true }
             Route::Home => { s.focus_home_search(tx); true }
             Route::Draft(_) => false,
         };
     }
     let step = [(Bind::FindNext, 1), (Bind::FindPrev, -1)].into_iter().find(|(b, _)| b.matches_tx(ev, tx));
-    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session(_)) && s.find.open) {
+    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session { .. }) && s.find.open) {
         s.step_find(d, tx);
         return true;
     }
@@ -525,7 +525,7 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Escape when Find is open (outside a busy composer's stop).
 pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let take = ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session(_));
+    let take = ev.key == Key::Escape && s.find.open && matches!(s.route, Route::Session { .. });
     // Desktop leaves nothing focused once Escape closes the bar (`esc-find`).
     if take { s.close_find(false, tx); }
     take
@@ -627,7 +627,7 @@ pub fn menu_items() -> Vec<MenuItem<App>> {
     [
         MenuItem::separator().menu("Edit").after("selectAll:"),
         item(opencode_i18n::t!("rune.menu.edit.find"), "Edit/Find", Bind::Find, |s, tx| match s.route {
-            Route::Session(_) => s.open_find(tx),
+            Route::Session { .. } => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),
             Route::Draft(_) => {}
         }),

@@ -26,7 +26,7 @@ fn connected() -> (Runtime<App>, Sender<Incoming>, std::sync::mpsc::Receiver<Req
     app.load_fixture(FIXTURE);
     crate::open_scene(&mut app);
     app.finish_stream();
-    let Route::Session(id) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = app.route.clone() else { panic!("no open session") };
     let (requests, asked) = channel();
     let (send, inbox) = channel();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: Some(requests), writes: None, allow_send: false };
@@ -56,7 +56,7 @@ fn a_dropped_stream_keeps_the_page_and_resyncs_when_back() {
     send.send(Incoming::Status("events: Connection refused".into())).unwrap();
     frames(&mut rt, 0.5);
     assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING));
-    assert_eq!(rt.state.route, Route::Session(id.clone()), "the page stays");
+    assert_eq!(rt.state.route, Route::here(id.clone()), "the page stays");
     assert_eq!(rt.state.transcripts[&id].messages.len(), messages);
     assert_eq!(rt.state.tabs.len(), sidebar);
     assert_eq!(rt.state.composer.text, "half a thought");
@@ -130,7 +130,7 @@ fn a_read_that_times_out_says_reconnecting_until_the_server_answers() {
     send.send(Incoming::Status(format!("GET /api/session/{id}/message: timeout: global"))).unwrap();
     frames(&mut rt, super::QUIET + 0.2);
     assert_eq!(header_status(&rt).as_deref(), Some(RECONNECTING), "a timeout is a drop");
-    assert_eq!(rt.state.route, Route::Session(id.clone()));
+    assert_eq!(rt.state.route, Route::here(id.clone()));
     assert_eq!(rt.state.composer.text, "half a thought");
     send.send(Incoming::Active(vec![])).unwrap();
     frames(&mut rt, 0.1);

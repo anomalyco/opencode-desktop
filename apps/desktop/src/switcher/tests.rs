@@ -45,7 +45,7 @@ fn twelve_thousand_session_keystrokes() {
     };
     let mut a = app();
     let seed = a.sessions[0].clone();
-    a.route = Route::Session(seed.id.clone());
+    a.route = Route::here(seed.id.clone());
     for i in 0..12_000 {
         let mut s = seed.clone();
         s.id = format!("ses_fixture{i:018}");
@@ -142,7 +142,7 @@ fn server_finds_join_the_matches() {
     query(&mut a, "reconnect");
     assert_eq!(keys(&a).last().map(String::as_str), Some("session:ses_far000000000000000000"));
     a.switcher_run(Action::Session("ses_far000000000000000000".into()), &mut Tx::default());
-    assert_eq!(a.route, Route::Session("ses_far000000000000000000".into()));
+    assert_eq!(a.route, Route::here("ses_far000000000000000000".into()));
     assert!(a.tabs.iter().any(|t| t.id == "ses_far000000000000000000" && t.title == "An old reconnect fix"));
 }
 
@@ -184,7 +184,7 @@ fn cmd_k_arrows_enter_and_escape() {
     assert_eq!(active(&rt).as_deref(), Some("session:ses_fx0010aaaaaaaaaaaaaaaaaa"));
     key(&mut rt, Key::Enter);
     assert!(!rt.state.switcher.open);
-    assert_eq!(rt.state.route, Route::Session("ses_fx0010aaaaaaaaaaaaaaaaaa".into()));
+    assert_eq!(rt.state.route, Route::here("ses_fx0010aaaaaaaaaaaaaaaaaa".into()));
     assert_ne!(rt.state.route, before);
     // ⌘K toggles; Escape closes and gives the composer its focus back.
     rt.update(|s, _| s.composer.focused = true);
@@ -198,7 +198,7 @@ fn cmd_k_arrows_enter_and_escape() {
     cmd_k(&mut rt);
     cmd_k(&mut rt);
     assert!(!rt.state.switcher.open);
-    assert_eq!(rt.state.route, Route::Session("ses_fx0010aaaaaaaaaaaaaaaaaa".into()));
+    assert_eq!(rt.state.route, Route::here("ses_fx0010aaaaaaaaaaaaaaaaaa".into()));
 }
 
 /// Each letter filters the drawn rows in the frame it lands, already in place and opaque, and
@@ -242,14 +242,14 @@ fn a_click_opens_a_row_and_outside_closes() {
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     rt.frame(1.0 / 60.0);
-    assert_eq!(rt.state.route, Route::Session(crate::fixture_ids::THIRD.into()));
+    assert_eq!(rt.state.route, Route::here(crate::fixture_ids::THIRD.into()));
     assert!(!rt.state.switcher.open);
     cmd_k(&mut rt);
     rt.pointer_down(10.0, 400.0);
     rt.pointer_up(10.0, 400.0);
     rt.frame(1.0 / 60.0);
     assert!(!rt.state.switcher.open);
-    assert_eq!(rt.state.route, Route::Session(crate::fixture_ids::THIRD.into()));
+    assert_eq!(rt.state.route, Route::here(crate::fixture_ids::THIRD.into()));
 }
 
 #[test]
@@ -265,7 +265,7 @@ fn cold_session_shows_on_click_without_a_page_reply() {
     rt.frame(0.0);
     rt.pointer_up(x, y);
     rt.frame(0.0);
-    assert_eq!(rt.state.route, Route::Session(id.into()));
+    assert_eq!(rt.state.route, Route::here(id.into()));
     assert_eq!(rt.state.displayed_session(id), Some(id));
     assert!(rt.state.loading_session(id));
     assert!(!rt.state.switcher.open);

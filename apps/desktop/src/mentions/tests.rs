@@ -296,7 +296,7 @@ fn files_rank_with_sessions_and_pick_into_a_pill() {
 #[test]
 fn sending_carries_the_mentions() {
     let mut rt = runtime();
-    rt.state.route = Route::Session(crate::fixture_ids::THIRD.into());
+    rt.state.route = Route::here(crate::fixture_ids::THIRD.into());
     rt.frame(1.0 / 60.0);
     tap(&mut rt, "prompt");
     typed(&mut rt, "@exp");

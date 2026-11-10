@@ -29,7 +29,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     if s.popup.open_at(TRIGGER) {
         return popup::dismiss(s, tx);
     }
-    let crate::Route::Session(id) = &s.route else { return };
+    let crate::Route::Session { id, .. } = &s.route else { return };
     let Some(info) = s.session(id).cloned() else { return };
     // The changes row keeps the session's changes fresh while the card shows, and Move session
     // to lists the project's worktrees as they are now.
@@ -56,7 +56,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
 /// Draws the open card again with what it's learned.
 fn reshow(s: &mut App, tx: &mut Tx) {
     if s.popup.open_at(TRIGGER)
-        && let crate::Route::Session(id) = &s.route
+        && let crate::Route::Session { id, .. } = &s.route
         && let Some(info) = s.session(id).cloned()
     {
         tx.instant();

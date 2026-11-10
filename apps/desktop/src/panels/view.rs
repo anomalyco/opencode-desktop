@@ -53,7 +53,7 @@ fn pane_slug(pane: SessionPane) -> &'static str {
 
 /// Right-hand column of `Side` tabs, animated on `SIDE_SPRING`.
 pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
-    let on_session = matches!(s.route, Route::Session(_)) && !s.settings.open;
+    let on_session = matches!(s.route, Route::Session { .. }) && !s.settings.open;
     let reg = if on_session { s.resolve_side_region() } else { None };
     super::drag::note_zones(s);
     // Until the window is first measured, the last width it had.
@@ -588,11 +588,11 @@ fn empty_pane_view(p: &Pal) -> El {
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
 pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
     // A narrow window has none (`screen.tsx:456`).
-    if !matches!(s.route, Route::Session(_)) || s.settings.open || s.narrow() {
+    if !matches!(s.route, Route::Session { .. }) || s.settings.open || s.narrow() {
         return None;
     }
     // A session its server can't give shows Desktop's state panel, which has no header.
-    if let Route::Session(id) = &s.route && crate::session_state::view(s, id) != crate::session_state::View::Session {
+    if let Route::Session { id, .. } = &s.route && crate::session_state::view(s, id) != crate::session_state::View::Session {
         return None;
     }
     let open = s.side_open();
@@ -635,7 +635,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
 /// leaves the side region `SIDE_PANE_MIN_W`; the side region takes the rest. A double press
 /// does nothing, as Desktop's handle ignores one.
 pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
-    if !matches!(s.route, Route::Session(_)) || s.settings.open || !s.side_open() || zoomed_w <= 0.0 {
+    if !matches!(s.route, Route::Session { .. }) || s.settings.open || !s.side_open() || zoomed_w <= 0.0 {
         return None;
     }
     let x = (zoomed_w - s.side_width(zoomed_w) - 16.0).max(0.0);

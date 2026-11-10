@@ -279,8 +279,7 @@ impl Phase {
     pub fn checking(&self) -> bool { matches!(self, Phase::Probing { again: None | Some(Again { quiet: false, .. }), .. }) }
     /// The first reads haven't landed.
     pub fn waiting(&self) -> bool { matches!(self, Phase::Waiting { .. } | Phase::Probing { again: None, .. }) }
-    /// Desktop Beta's tabs are still to read.
-    pub fn beta_tabs(&self) -> bool { matches!(self, Phase::Waiting { beta_tabs: true }) }
+
 }
 
 #[derive(Default)]
@@ -289,7 +288,7 @@ pub struct Launch {
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
     pub inbox_wake: Option<rune::Waker>,
-    /// Each server's launch, many at once (the window's one today; `notes/multi-server.md` MS-2).
+    /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
     /// Fall back to the built-in fixture when the background probe finds no server.
     pub fallback_fixture: bool,
@@ -366,18 +365,18 @@ pub(crate) fn probe(server: &Server, discover: bool, grace: Duration) -> (Server
 
 /// `setup`: connects now unless `on_ready` will start the reads (or a synchronous live probe found no server).
 pub fn setup(s: &mut App) {
+    if !deferred() {
+        s.checkout.boot = crate::servers::runtime::Boot::Ready;
+    }
     if matches!(window_phase(s), None | Some(Phase::Connected)) {
         start(s, &mut Tx::default());
     }
 }
 
-/// The server this window connects to: one per window today (`notes/multi-server.md` MS-2 keeps
-/// many live at once), keyed as `reconnect::Links` keys it.
+/// The server the window works against now (`servers::runtime`'s checkout), keyed as
+/// `reconnect::Links` keys it.
 pub(crate) fn window_server(s: &App) -> Option<ServerId> {
-    match &s.source {
-        Source::Live { server, .. } => Some(server.base.clone()),
-        Source::Fixture => Some(String::new()),
-    }
+    Some(crate::servers::runtime::active(s).as_str().to_owned())
 }
 
 fn window_phase(s: &App) -> Option<&Phase> { window_server(s).and_then(|server| s.launch.phase(&server)) }
@@ -413,6 +412,8 @@ pub fn ready(s: &mut App, tx: &mut Tx) {
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
+    // The window's other servers start from its next poll (`servers::runtime::poll`).
+    s.checkout.boot = crate::servers::runtime::Boot::Ready;
     start(s, tx);
 }
 
@@ -461,9 +462,12 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
 fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     let (out, rx) = std::sync::mpsc::channel();
     let Source::Live { server, .. } = &s.source else { return rx };
-    let (server, wake) = (server.clone(), s.waker.clone());
-    let fallback = s.launch.fallback_fixture;
-    let discover_local = s.server_key.is_none() && crate::arg("--server").is_none();
+    let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| s.waker.clone()));
+    // Only the app's own server may stand down for the fixture, or move to the port
+    // `service.json` names.
+    let own = crate::servers::runtime::active(s).is_sidecar();
+    let fallback = s.launch.fallback_fixture && own;
+    let discover_local = own && crate::arg("--server").is_none();
     std::thread::Builder::new()
         .name("opencode-first".into())
         .spawn(move || {
@@ -520,13 +524,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         return true;
     };
     if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut s.source) {
-        *server = actual;
-    }
-    // The key moves with the address `service.json` named.
-    if let Some(moved) = window_server(s).filter(|key| *key != server)
-        && let Some(phase) = s.launch.phases.remove(&server)
-    {
-        s.launch.set_phase(&moved, phase);
+        *server = actual.clone();
+        if crate::servers::runtime::active(s).is_sidecar() {
+            crate::servers::runtime::moved(s, &actual);
+        }
     }
     if let Some(tabs) = ready.beta_tabs {
         let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
@@ -552,53 +553,19 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
 }
 impl App {
-    /// Connects the window to `server` in place of the one it has: what it held of the old one
-    /// goes, its own saved tabs come, and Home shows its projects. `key` is a
-    /// contributed server's (`<plugin>:<id>`), `None` for the app's own. The app holds one server
-    /// at a time; Desktop keeps them all connected at once.
-    pub(crate) fn switch_server(&mut self, server: Server, key: Option<String>, tx: &mut Tx) {
+    /// Home shows server `key` (a server picked in Settings' switcher, a plugin's `Servers:Connect`):
+    /// every server stays connected, and the window's tabs stay, as Desktop never switches a
+    /// window to a server (`notes/multi-server.md` §5.1).
+    pub(crate) fn focus_server(&mut self, key: &opencode_kit::servers::ServerKey, tx: &mut Tx) {
         if !self.live() {
             return;
         }
-        if let Source::Live { server: old, .. } = &self.source {
-            // The window leaves the old server: its launch and link go with it.
-            let old_key = old.base.clone();
-            self.launch.forget(&old_key);
-            self.server_links.forget(&old_key);
-            if self.persists() {
-                crate::tabs::save(&self.window, &old.base, &self.tabs);
-            }
-            if self.server_key.is_none() {
-                self.own_server = Some(old.clone());
-            }
-        }
         tx.instant();
-        self.close_settings();
+        self.checkout.home = key.clone();
         self.opening = None;
         self.route = Route::Home;
-        self.tabs = crate::tabs::load(&self.window, &server.base).unwrap_or_default();
-        // Its windows keep the old server's data; this one starts empty for the new server.
-        crate::windows::peer::leave_server(self);
-        self.sessions.clear();
-        self.transcripts.clear();
-        self.projects.clear();
-        self.running.clear();
-        self.requests.clear();
-        self.inbox = None;
-        self.server_key = key;
+        crate::servers::runtime::switch(self, key);
         self.plugins.forget_reads();
-        if let Source::Live { server: s, requests, writes, .. } = &mut self.source {
-            *s = server;
-            *requests = None;
-            *writes = None;
-        }
-        self.launch.cold_transcript = None;
-        self.open_outbox();
-        // Desktop Beta's saved tabs are the app's own server's.
-        if let Some(key) = window_server(self) {
-            self.launch.set_phase(&key, Phase::Waiting { beta_tabs: false });
-        }
-        start(self, tx);
     }
 
     /// Attachments and markdown images read through the server, so a window that opens with
@@ -661,7 +628,8 @@ impl App {
             Source::Fixture => None,
         };
         self.init_used_projects(saved_projects);
-        if let Route::Session(id) = &self.route
+        if let Route::Session { id, server } = &self.route
+            && server == crate::servers::runtime::active(self)
             && !self.tabs.iter().any(|t| t.id == *id)
             && !self.sessions.iter().any(|s| s.id == *id)
         {
@@ -699,13 +667,15 @@ fn connect(s: &mut App, tx: &mut Tx) {
         crate::windows::peer::set_waker(s, inbox_wake);
         s.list_unlisted_worktrees();
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
-        if let Route::Session(id) = s.route.clone() {
+        if let Route::Session { id, server } = s.route.clone()
+            && server == *crate::servers::runtime::active(s)
+        {
             crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));
             s.open(&id, tx);
         }
     }
-    // `--session <id or title words>` opens a session at start.
-    if let Some(raw) = arg("--session") {
+    // `--session <id or title words>` opens a session of the app's own server at start.
+    if let Some(raw) = arg("--session").filter(|_| crate::servers::runtime::active(s).is_sidecar()) {
         let q = raw.to_lowercase();
         let found = s.sessions.iter().find(|x| x.id == raw).or_else(|| s.sessions.iter().find(|x| x.title.to_lowercase().contains(&q))).map(|x| x.id.clone());
         if let Some(id) = found {
@@ -720,7 +690,8 @@ fn connect(s: &mut App, tx: &mut Tx) {
     }
     // Deterministic headless snapshots have no wall-clock event loop to await the worker.
     if headless()
-        && let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
+        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&s.route, &s.source)
+        && on == crate::servers::runtime::active(s)
         && !s.transcripts.contains_key(id)
         && let Ok(v) = server.read(&format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST))
     {
@@ -728,7 +699,8 @@ fn connect(s: &mut App, tx: &mut Tx) {
     }
     // And what waits in its inbox: steers, and shells and subagents that came back.
     if headless()
-        && let (Route::Session(id), Source::Live { server, .. }) = (&s.route, &s.source)
+        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&s.route, &s.source)
+        && on == crate::servers::runtime::active(s)
         && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
     {
         let id = id.clone();

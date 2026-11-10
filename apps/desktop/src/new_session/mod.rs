@@ -142,7 +142,7 @@ impl App {
         let draft = draft.unwrap_or_else(crate::tabs::draft_id);
         self.demote_session(session, &draft, &directory);
         self.forget_history(|_, id| id == session);
-        if self.route == Route::Session(session.into()) {
+        if self.route == Route::here(session.into()) {
             self.route = Route::Draft(draft);
             // The composer swaps to the draft's words now, so the prompt below lands in them.
             self.show_draft();

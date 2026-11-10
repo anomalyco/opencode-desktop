@@ -107,7 +107,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     };
     inner = inner.children(crate::narrow::sheet::layer(s, p, cx));
     inner = inner.children(session_view::pickers::view::layer(s, p));
-    if let Route::Session(id) = &s.route
+    if let Route::Session { id, .. } = &s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
     {
         inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
@@ -117,7 +117,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
-    if let Route::Session(id) = &s.route
+    if let Route::Session { id, .. } = &s.route
         && let Some(panel) = crate::todos::panel(s, p, id)
     {
         inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
@@ -207,7 +207,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let open = s.sidebar_open && side_tabs;
     // The side region keeps its open width as the far end of a close's travel, so the row's width
     // is read whenever a session shows.
-    let win_w = if matches!(s.route, Route::Session(_)) {
+    let win_w = if matches!(s.route, Route::Session { .. }) {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
     } else {
         0.0
@@ -276,7 +276,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .on_drop_hover(crate::dropzone::hover)
                 .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
                     Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w / s.zoom, h / s.zoom])),
-                    Route::Session(id) => session_page(s, p, id),
+                    Route::Session { id, .. } => session_page(s, p, id),
                     Route::Draft(_) => draft_page(s, p, panel_sz.0),
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
@@ -303,7 +303,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // Plugins' `window.bottom` slot (the debug bar) runs across the window's foot, under the
     // panels, taking its own room (`shell.tsx`'s last `PluginSlot`).
     let sid = match &s.route {
-        Route::Session(id) => id.as_str(),
+        Route::Session { id, .. } => id.as_str(),
         _ => "",
     };
     let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);

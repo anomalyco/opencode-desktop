@@ -55,7 +55,7 @@ pub(crate) fn step(stack: &[Layer], event: Event) -> Option<Effect> {
 
 /// The open layers, bottom first.
 pub(crate) fn stack(s: &App) -> Vec<Layer> {
-    let session = matches!(s.route, Route::Session(_));
+    let session = matches!(s.route, Route::Session { .. });
     [
         (Layer::ChildSession, crate::subagents::reply::composer_empty(s) && s.has_parent()),
         (Layer::ToolStep, s.tool_view_open()),

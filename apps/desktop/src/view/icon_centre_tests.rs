@@ -28,7 +28,7 @@ fn window(zoom: f32, scale: f32, setup: impl FnOnce(&mut App)) -> Runtime<App> {
 
 /// A session whose last turn ends in text, so its Copy sits under a reply's last line.
 fn reply(zoom: f32, scale: f32) -> Runtime<App> {
-    window(zoom, scale, |s| s.route = crate::Route::Session("ses_fx0004aaaaaaaaaaaaaaaaaa".into()))
+    window(zoom, scale, |s| s.route = crate::Route::here("ses_fx0004aaaaaaaaaaaaaaaaaa".into()))
 }
 
 fn centre(r: [f32; 4]) -> [f32; 2] {

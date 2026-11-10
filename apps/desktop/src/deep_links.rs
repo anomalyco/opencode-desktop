@@ -125,20 +125,16 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
     changed
 }
 
-/// The server a link opens on: the window's (one per window until MS-2).
-fn server_of(s: &App) -> Option<ServerId> {
-    match &s.source {
-        Source::Live { server, .. } => Some(server.base.clone()),
-        Source::Fixture => Some(String::new()),
-    }
+/// The server a link opens on: the app's own (a folder on this machine).
+fn server_of(_: &App) -> Option<ServerId> {
+    Some(opencode_kit::servers::ServerKey::SIDECAR.to_owned())
 }
 
-/// The server that can take writes in this window, once connected.
+/// The server the window works against, once it can take writes.
 fn ready_server(s: &App) -> Option<ServerId> {
     match &s.source {
-        Source::Live { server, writes: Some(_), .. } => Some(server.base.clone()),
+        Source::Live { writes: Some(_), .. } | Source::Fixture => crate::launch::window_server(s),
         Source::Live { .. } => None,
-        Source::Fixture => Some(String::new()),
     }
 }
 

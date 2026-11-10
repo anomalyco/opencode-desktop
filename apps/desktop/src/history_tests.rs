@@ -29,7 +29,7 @@ fn route(rt: &Runtime<App>) -> Route {
 }
 
 fn session(id: &str) -> Route {
-    Route::Session(id.into())
+    Route::here(id.into())
 }
 
 #[test]

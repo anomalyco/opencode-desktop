@@ -66,14 +66,14 @@ fn a_session_in_the_sidebar_leaves_settings_for_it() {
     tap(&mut rt, &format!("t-{THIRD}"));
     for _ in 0..30 { rt.frame(1.0 / 60.0); }
     assert!(!rt.state.settings.open);
-    assert_eq!(rt.state.route, Route::Session(THIRD.into()));
+    assert_eq!(rt.state.route, Route::here(THIRD.into()));
 }
 
 #[test]
 fn no_sidebar_row_reads_as_selected_in_settings_and_it_comes_back() {
     let selected = |rt: &Runtime<App>| rt.elements().into_iter().filter(|e| e.item_selected && !e.exiting).count();
     let mut rt = fixture_runtime();
-    assert!(matches!(rt.state.route, Route::Session(_)));
+    assert!(matches!(rt.state.route, Route::Session { .. }));
     let route = rt.state.route.clone();
     assert!(selected(&rt) > 0, "the open session is highlighted");
     let mut rt = in_settings(rt);

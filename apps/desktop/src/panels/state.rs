@@ -202,7 +202,7 @@ impl App {
 
     pub fn active_session_id(&self) -> Option<&str> {
         match &self.route {
-            Route::Session(id) => Some(id.as_str()),
+            Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
     }

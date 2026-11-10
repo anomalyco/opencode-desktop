@@ -20,7 +20,7 @@ pub struct Arrivals {
 impl Arrivals {
     pub fn before(s: &App) -> Arrivals {
         let session = match &s.route {
-            Route::Session(id) if s.transcripts.contains_key(id) => Some(id.clone()),
+            Route::Session { id, .. } if s.transcripts.contains_key(id) => Some(id.clone()),
             _ => None,
         };
         // Prompts already showing in a queue or steer list aren't arriving either.
@@ -35,7 +35,7 @@ impl Arrivals {
     /// end of the timeline, when that end is in view. Only a one-line prompt flies: its row shows
     /// the whole of it, where a longer one's row shows only its first line.
     fn launch(&self, s: &App, tx: &mut Tx) {
-        let Some(id) = self.session.as_ref().filter(|id| s.route == Route::Session((*id).clone()) && s.ends.at_end(id)) else { return };
+        let Some(id) = self.session.as_ref().filter(|id| s.route == Route::here((*id).clone()) && s.ends.at_end(id)) else { return };
         let Some(t) = s.transcripts.get(id) else { return };
         let waiting = |q: &String| s.inboxes.get(id).is_some_and(|i| i.items.iter().any(|i| &i.id == q));
         for q in self.queued.iter().filter(|q| !waiting(q)) {
@@ -52,7 +52,7 @@ impl Arrivals {
     }
 
     fn glow(self, s: &mut App, now: f64) {
-        let Some(id) = self.session.filter(|id| s.route == Route::Session(id.clone())) else { return };
+        let Some(id) = self.session.filter(|id| s.route == Route::here(id.clone())) else { return };
         if s.reduced_motion {
             return;
         }

@@ -150,7 +150,7 @@ fn esc_shuts_a_side_region_the_step_opened() {
     assert!(rt.state.side_open());
     esc(&mut rt);
     assert!(!rt.state.side_open());
-    assert!(matches!(rt.state.route, crate::Route::Session(_)), "Esc closed the side region, not the session");
+    assert!(matches!(rt.state.route, crate::Route::Session { .. }), "Esc closed the side region, not the session");
 }
 
 #[test]

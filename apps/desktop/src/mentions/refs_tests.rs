@@ -39,17 +39,17 @@ fn a_known_id_reads_as_its_title_and_the_rest_stay_as_written() {
 #[test]
 fn pressing_the_chip_opens_the_subagent() {
     let mut rt = reply();
-    assert_eq!(rt.state.route, Route::Session(MAIN.into()));
+    assert_eq!(rt.state.route, Route::here(MAIN.into()));
     let e = paragraph(&rt);
     let y = e.rect[1] + 11.0;
     let mut x = e.rect[0] + 2.0;
-    while x < e.rect[0] + e.rect[2] && rt.state.route == Route::Session(MAIN.into()) {
+    while x < e.rect[0] + e.rect[2] && rt.state.route == Route::here(MAIN.into()) {
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         rt.frame(DT);
         x += 6.0;
     }
-    assert_eq!(rt.state.route, Route::Session(CHILD.into()));
+    assert_eq!(rt.state.route, Route::here(CHILD.into()));
 }
 
 #[test]

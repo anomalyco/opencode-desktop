@@ -277,7 +277,7 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) 
 fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str) -> (Option<El>, Option<(El, f32)>) {
     let marks = s.marks(id);
     // The open session reads itself, so only a request waiting in it marks it.
-    let unread = !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::Session(id.to_owned())));
+    let unread = !marks.busy && (marks.attention || (marks.unread && s.route != crate::Route::here(id.to_owned())));
     let avatar = crate::icons::session_avatar(s, p, s.project(&e.project), &e.description, e.open, unread);
     if marks.busy {
         let ring = row().key("meta").size(14.0, 16.0).center().child(session_view::style::activity_ring(p));

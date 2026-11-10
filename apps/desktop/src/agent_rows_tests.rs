@@ -66,7 +66,7 @@ fn the_poll_redraws_once_a_second_while_a_run_time_shows() {
         crate::agent_rows::poll(s, &mut rune::Tx::default())
     });
     assert_eq!(redraws.count(), 3);
-    let Route::Session(id) = s.route.clone() else { panic!("no open session") };
+    let Route::Session { id, .. } = s.route.clone() else { panic!("no open session") };
     s.running.retain(|r| *r == id);
     s.running.insert(id);
     assert!((1..=3000).all(|ms| {

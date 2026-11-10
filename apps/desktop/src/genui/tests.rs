@@ -186,7 +186,7 @@ fn a_streamed_outline_grows_without_its_source_showing() {
     let mut rt = crate::fixture_runtime();
     rt.update(|s, _| {
         s.finish_stream();
-        s.route = crate::Route::Session(MAIN.into());
+        s.route = crate::Route::here(MAIN.into());
     });
     settle(&mut rt);
     let id = "msg_zzgenuitest";

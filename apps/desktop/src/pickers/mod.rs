@@ -21,13 +21,13 @@ impl PickerHost for App {
         Some(crate::widgets::provider_mark(provider, p.icon))
     }
     fn picker_scope(&self) -> String {
-        match &self.route { Route::Session(id) => id.clone(), _ => "draft".into() }
+        match &self.route { Route::Session { id, .. } => id.clone(), _ => "draft".into() }
     }
     fn picker_draft(&self) -> bool {
-        !matches!(self.route, Route::Session(_))
+        !matches!(self.route, Route::Session { .. })
     }
     fn picker_running(&self) -> Option<Selection> {
-        let Route::Session(id) = &self.route else { return None };
+        let Route::Session { id, .. } = &self.route else { return None };
         self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone() })
     }
     /// Desktop's order, not another session's model: a server with no sessions still names one.

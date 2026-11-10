@@ -9,7 +9,7 @@ const DT: f64 = 1.0 / 60.0;
 fn long_fork_dialog() -> Runtime<App> {
     let mut app = App::fixture_session();
     app.finish_stream();
-    let Route::Session(sid) = app.route.clone() else { panic!("no open session") };
+    let Route::Session { id: sid, .. } = app.route.clone() else { panic!("no open session") };
     let t = app.transcripts.get_mut(&sid).expect("transcript");
     for i in 0..24 {
         t.messages.push(Message::User { id: format!("msg_more_{i:02}"), text: format!("Prompt number {i}") });

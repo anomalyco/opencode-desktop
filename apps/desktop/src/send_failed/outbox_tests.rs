@@ -126,7 +126,7 @@ fn server_restart_on_either_side_of_admission_delivers_one_message() {
 fn accepted_busy_followup_returns_to_pending_until_delivery() {
     let path = path();
     let (mut app, _) = fresh(&path);
-    let crate::Route::Session(session) = app.route.clone() else { unreachable!() };
+    let crate::Route::Session { id: session, .. } = app.route.clone() else { unreachable!() };
     app.running.insert(session.clone());
     if let Source::Live { writes, .. } = &mut app.source {
         *writes = None;
@@ -313,7 +313,7 @@ fn permanent_rejection_restores_words_but_never_overwrites_new_typing() {
 fn busy_offline_prompt_keeps_delivery_and_can_be_edited_or_deleted() {
     let path = path();
     let (mut app, _) = fresh(&path);
-    let crate::Route::Session(session) = app.route.clone() else { unreachable!() };
+    let crate::Route::Session { id: session, .. } = app.route.clone() else { unreachable!() };
     app.running.insert(session.clone());
     if let Source::Live { writes, .. } = &mut app.source {
         *writes = None;
@@ -378,7 +378,7 @@ fn rejected_busy_steer_moves_out_of_the_inbox_and_restores_its_words() {
     for code in [400, 401, 403, 404, 409, 413, 422] {
         let path = path();
         let (mut app, writes) = fresh(&path);
-        let crate::Route::Session(session) = app.route.clone() else { unreachable!() };
+        let crate::Route::Session { id: session, .. } = app.route.clone() else { unreachable!() };
         app.running.insert(session.clone());
         let id = send(&mut app, "keep my follow-up");
         let _ = post(&writes);

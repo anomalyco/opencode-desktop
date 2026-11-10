@@ -387,7 +387,7 @@ impl App {
     /// Home if it was theirs (`notifySessionTabsRemoved`).
     fn session_removed(&mut self, gone: &[String]) {
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
-        let open_gone = matches!(&self.route, Route::Session(open) if gone.contains(open));
+        let open_gone = matches!(&self.route, Route::Session { id: open, .. } if gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
         self.tabs.retain(|t| !gone.contains(&t.id));
         self.closed.remove(|id| gone.iter().any(|g| g == id));
@@ -425,7 +425,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !crate::keymap::Bind::Rename.matches_tx(ev, tx) || pane_owns || s.stage.is_some() {
         return false;
     }
-    let Route::Session(id) = s.route.clone() else { return false };
+    let Route::Session { id, .. } = s.route.clone() else { return false };
     if s.session(&id).is_none_or(|i| i.parent.is_some()) {
         return false;
     }

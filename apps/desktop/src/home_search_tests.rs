@@ -51,7 +51,7 @@ fn cmd_f_on_home_focuses_search_filters_by_title_and_project_steps_and_opens_on_
     let second_id = matches[1].id.clone();
     press_key(&mut rt, Key::Down);
     press_key(&mut rt, Key::Enter);
-    assert_eq!(rt.state.route, Route::Session(second_id));
+    assert_eq!(rt.state.route, Route::here(second_id));
     assert!(rt.state.search.text.is_empty(), "opening a result clears Home's search");
 
     // ⌘B back to Home focuses Home's session search, and Esc clears and blurs it.

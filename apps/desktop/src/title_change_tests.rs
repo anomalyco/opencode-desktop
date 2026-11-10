@@ -9,7 +9,7 @@ fn titles(rt: &rune::Runtime<crate::App>) -> (Vec<(String, f32)>, Vec<(String, f
 
 fn rename(rt: &mut rune::Runtime<crate::App>, to: &str) {
     rt.update(|s, _| {
-        let Route::Session(id) = s.route.clone() else { panic!("a session is open") };
+        let Route::Session { id, .. } = s.route.clone() else { panic!("a session is open") };
         s.sessions.iter_mut().find(|x| x.id == id).unwrap().title = to.into();
     });
 }
@@ -36,7 +36,7 @@ fn a_renamed_title_crossfades() {
 #[test]
 fn another_session_shows_its_title_at_once() {
     let mut rt = crate::fixture_runtime();
-    let other = rt.state.sessions.iter().map(|x| x.id.clone()).find(|id| Route::Session(id.clone()) != rt.state.route).unwrap();
+    let other = rt.state.sessions.iter().map(|x| x.id.clone()).find(|id| Route::here(id.clone()) != rt.state.route).unwrap();
     rt.update(|s, tx| s.open_now(&other, tx));
     rt.frame(1.0 / 60.0);
     let (now, leaving) = titles(&rt);

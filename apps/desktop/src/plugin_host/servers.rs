@@ -104,12 +104,14 @@ pub fn read_own_version(app: &mut App) {
     });
 }
 
-/// Connects the window to plugin server `key` once it's ready and listed. Servers added by
-/// address join the registry only: the window doesn't switch to them.
+/// Home shows plugin server `key` once it's ready and listed (`Servers:Connect`, kept as the
+/// design's deprecated alias): every listed server is live at once (`servers::runtime`), so
+/// nothing connects or switches.
 pub fn connect(app: &mut App, key: &str, tx: &mut Tx) {
-    let Some(s) = all(app).into_iter().find(|s| !s.by_address() && s.key == key && s.rec.listed && s.rec.state == SERVER_READY) else { return };
-    let server = opencode_kit::client::Server::new(&s.rec.url).with_password(&s.rec.password).with_media_refs().with_remote_files();
-    app.switch_server(server, Some(key.to_owned()), tx);
+    if !all(app).into_iter().any(|s| !s.by_address() && s.key == key && s.rec.listed && s.rec.state == SERVER_READY) {
+        return;
+    }
+    app.focus_server(&opencode_kit::servers::ServerKey::new(key), tx);
 }
 
 /// Contributed server `c`'s connection row in Settings › Servers, as its plugin draws it.
