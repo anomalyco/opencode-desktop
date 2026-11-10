@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use mlua::{Lua, LuaString, Table, Value};
@@ -249,14 +250,24 @@ fn number_format(t: &Table) -> mlua::Result<spec::NumberFormat> {
 }
 
 /// The interface language as a `LocaleInfo`.
+/// The interface language as a `LocaleInfo`: built once per language, then copied.
 pub fn locale_value(lua: &Lua) -> mlua::Result<Table> {
     let l = opencode_i18n::locale();
-    let t = lua.create_table()?;
-    t.raw_set("id", l.id())?;
-    t.raw_set("tag", l.tag())?;
-    t.raw_set("name", l.label())?;
-    t.raw_set("direction", direction().as_str())?;
-    Ok(t)
+    let mut h = std::hash::DefaultHasher::new();
+    l.id().hash(&mut h);
+    let made = super::snapshot(lua, "locale", h.finish(), || {
+        super::record(lua, 4, |info| {
+            info.str(c"id", l.id());
+            info.str(c"tag", l.tag());
+            info.str(c"name", l.label());
+            info.str(c"direction", direction().as_str());
+        })
+        .map(Value::Table)
+    })?;
+    match made {
+        Value::Table(t) => Ok(t),
+        _ => lua.create_table(),
+    }
 }
 
 pub fn direction() -> spec::TextDirection {

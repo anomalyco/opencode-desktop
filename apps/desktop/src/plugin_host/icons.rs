@@ -63,8 +63,12 @@ pub fn intern_icon(plugin: &str, name: &str, body: &str, view: f32) -> u32 {
         }
     };
     pool.named.entry(plugin.to_owned()).or_default().insert(name.to_owned(), id);
+    NAMED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     id
 }
+
+/// Moves whenever a plugin names an icon, so a name [`resolve`] remembered resolves again.
+static NAMED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Interns plugin `plugin`'s SVG file as its icon `name`: the `<svg>` element's content, sized
 /// by its `viewBox` width (else its `width`, else 16). False when it isn't an `<svg>`.
@@ -92,6 +96,32 @@ pub fn resolve(plugin: &str, name: &str) -> &'static Icon {
     if let Some(file) = name.strip_prefix("file:") {
         return rune_theme_opencode::file_icons::file(file);
     }
+    // A render resolves the same few names many times: each thread remembers them until a
+    // plugin names an icon of its own.
+    thread_local! {
+        static RESOLVED: std::cell::RefCell<(u64, Vec<(Box<str>, Box<str>, &'static Icon)>)> = std::cell::RefCell::default();
+    }
+    let named = NAMED.load(std::sync::atomic::Ordering::Relaxed);
+    let hit = RESOLVED.with_borrow_mut(|(at, seen)| {
+        if *at != named {
+            *at = named;
+            seen.clear();
+        }
+        seen.iter().find(|(p, n, _)| **n == *name && **p == *plugin).map(|(_, _, icon)| *icon)
+    });
+    if let Some(icon) = hit {
+        return icon;
+    }
+    let found = resolve_fresh(plugin, name);
+    RESOLVED.with_borrow_mut(|(_, seen)| {
+        if seen.len() < 128 {
+            seen.push((plugin.into(), name.into(), found));
+        }
+    });
+    found
+}
+
+fn resolve_fresh(plugin: &str, name: &str) -> &'static Icon {
     let own = intern_icon(plugin, name, "", 0.0);
     // Icons the host made itself (a QR code) go by the empty plugin.
     let host = || intern_icon("", name, "", 0.0);
