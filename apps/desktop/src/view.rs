@@ -208,9 +208,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // A narrow window's panel runs edge to edge, 1 pt clear for its outline (`--shell-inline-inset`).
     let inset = if s.narrow() { 1.0 } else { 8.0 };
     let open = s.sidebar_open && side_tabs;
-    // The side region keeps its open width as the far end of a close's travel, so the row's width
-    // is read whenever a session shows.
-    let win_w = if matches!(s.route, Route::Session { .. }) {
+    // The side region's width comes from the row's while it's open or sliding shut (it keeps the
+    // last as the far end of a close's travel); shut, nothing reads it, so a resize runs no view.
+    // Opening reads it fresh, in the frame it opens.
+    let win_w = if matches!(s.route, Route::Session { .. }) && (s.side_open() || s.side.mounted) {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
     } else {
         0.0

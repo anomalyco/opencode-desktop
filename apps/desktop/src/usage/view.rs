@@ -26,6 +26,10 @@ const BADGE: TextStyle = TextStyle::new(11.0, 530.0).lh(12.0).tracking(0.05);
 
 /// The dialog over its scrim, centred as Desktop's dialogs are.
 pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
+    // Closed, it reads nothing: a read of the window's width would run the view on every resize.
+    if s.usage.open.is_none() {
+        return Vec::new();
+    }
     let zoom = s.zoom.max(0.5);
     let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w / zoom);
     // Escape and a press outside close it (`modal`).

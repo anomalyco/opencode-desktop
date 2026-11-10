@@ -126,21 +126,26 @@ fn slash(p: &Pal, before: f32, after: f32) -> El {
 fn fit(s: &App, info: Option<&SessionInfo>, proj: &str, worktree: Option<&str>, scope: &str) -> HeaderFit {
     let Some(info) = info else { return HeaderFit::Full };
     let width = |key: &str| rune::memo::layout_with(&scoped(scope, key), |r| r[2]);
-    let (Some(location), Some(title_box)) = (width("header-location"), width("header-title")) else { return HeaderFit::Full };
+    // The location and the actions are as wide as what they show, and a root's limit is none, so
+    // a resize moves none of these; only the title's box grows and shrinks with the window.
+    let Some(location) = width("header-location") else { return HeaderFit::Full };
     let actions = rune::memo::layout_with("header-actions", |r| r[2]).unwrap_or(0.0);
-    let header = width("header").unwrap_or(0.0) - 22.0;
+    let limit = if info.parent.is_some() { (width("header").unwrap_or(0.0) - 22.0) * 0.6 } else { f32::INFINITY };
     let label = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
-    let measured = Measured {
+    let base = Measured {
         location,
-        title_box,
+        title_box: 0.0,
         title: title_width(s, info),
         project: text_w(proj, label) + 8.0,
         worktree: worktree.map(|w| text_w(w, label) + 8.0),
-        limit: if info.parent.is_some() { header * 0.6 } else { f32::INFINITY },
+        limit,
         actions,
     };
-    let state = if scope.is_empty() { FIT.get() } else { HeaderFit::Full };
-    let next = state.settled(actions).measured(measured);
+    let state = if scope.is_empty() { FIT.get() } else { HeaderFit::Full }.settled(actions);
+    // Read as the fit it gives, so a resize re-runs the view only when the fit flips.
+    let Some(next) = rune::memo::layout_with(&scoped(scope, "header-title"), move |r| state.measured(Measured { title_box: r[2], ..base })) else {
+        return HeaderFit::Full;
+    };
     if scope.is_empty() {
         FIT.set(next);
     }

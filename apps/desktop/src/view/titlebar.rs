@@ -4,7 +4,7 @@
 //! bands above and below the controls and the stretch after `+` move the window, double-click
 //! to maximize it and, on Windows, right-click for the window menu.
 
-use rune_kit::shell::{TabOrientation, WindowTitlebar};
+use rune_kit::shell::{TabOrientation, TabOverflow, WindowTitlebar};
 
 use super::*;
 use crate::layout_state::TabLayout;
@@ -56,7 +56,11 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         return Some(bar.leading(toggle_button(s, p, s.sidebar_open)).build(crate::palette::kit(p)));
     }
     let nav = row().key("titlebar-nav").gap(2.0).center_y().child(home_button(s, p)).child(search_button(p));
-    let viewport = cx.layout_size(STRIP).map(|[w, _]| w);
+    // The strip's width matters only while the tabs can't all have their full 224 pt: below
+    // that the tabs share it. Read through `layout_with`, a resize where every tab keeps its
+    // full width runs no view; the strip only lays out again.
+    let fits = full_strip_w(s.tabs.len());
+    let viewport = cx.layout_with(STRIP, move |r| (r[2] < fits).then_some(r[2])).flatten();
     let strip = tab_strip(s, p, STRIP, TabOrientation::Horizontal, viewport, Some(new_button(p)));
     Some(bar.leading(nav).tabs(strip).build(crate::palette::kit(p)))
 }
@@ -129,4 +133,12 @@ fn new_button(p: &Pal) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx))
         .child(icon(&ic::PLUS, 16.0).color(p.icon_muted))
+}
+
+/// A width at which `tabs` titlebar tabs, the gaps between them and the + after them all fit
+/// at their full width: from there up the strip's width changes nothing the view draws. It
+/// errs wide (every tab unpinned, a generous gap and +), which only reads the width sooner.
+fn full_strip_w(tabs: usize) -> f32 {
+    let TabOverflow::ShrinkThenScroll { max_width, .. } = TabOverflow::HORIZONTAL_DEFAULT else { return f32::INFINITY };
+    tabs as f32 * (max_width + 8.0) + 96.0
 }
