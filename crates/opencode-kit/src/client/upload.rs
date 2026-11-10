@@ -23,7 +23,8 @@ impl Server {
     /// answers false the request ends there. Like Desktop's, the request has no time limit of its
     /// own: the caller decides when a body that stops moving has stalled.
     pub fn upload(&self, directory: &str, name: &str, body: &mut dyn Read, size: u64, sent: &mut dyn FnMut(u64) -> bool) -> Result<String, UploadError> {
-        let failed = |e: String| UploadError::Failed(format!("upload {name}: {e}"));
+        // What Desktop's request rejects with (`destination.ts:60-64`): its status, or nothing more.
+        let failed = |status: Option<u16>| UploadError::Failed(status.map_or_else(|| "Upload failed".to_owned(), |n| format!("Upload failed with status {n}")));
         let info = self.get("/api/info").map_err(UploadError::Failed)?;
         let tmp = info["paths"]["tmp"].as_str().ok_or_else(|| UploadError::Failed("GET /api/info: no paths.tmp".into()))?;
         let target = format!("{}/uploads/{}/{name}", tmp.trim_end_matches('/'), message_id());
@@ -44,10 +45,13 @@ impl Server {
         if reader.stopped {
             return Err(UploadError::Aborted);
         }
-        let mut resp = result.map_err(|e| failed(e.to_string()))?;
-        let text = resp.body_mut().read_to_string().map_err(|e| failed(e.to_string()))?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| failed(e.to_string()))?;
-        v["data"]["path"].as_str().map(str::to_owned).ok_or_else(|| failed("no path in the reply".into()))
+        let mut resp = result.map_err(|e| failed(match e {
+            ureq::Error::StatusCode(n) => Some(n),
+            _ => None,
+        }))?;
+        let text = resp.body_mut().read_to_string().map_err(|_| failed(None))?;
+        let v: Value = serde_json::from_str(&text).map_err(|_| failed(None))?;
+        v["data"]["path"].as_str().map(str::to_owned).ok_or_else(|| failed(None))
     }
 }
 

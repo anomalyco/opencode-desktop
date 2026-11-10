@@ -115,9 +115,8 @@ pub enum Copied {
     Done(Attempt, Result<PathAttachment, Option<Failed>>),
 }
 
-/// An upload that didn't reach the server: the file, to try again.
+/// An upload that didn't reach the server, and why.
 pub struct Failed {
-    path: std::path::PathBuf,
     error: String,
 }
 
@@ -208,7 +207,7 @@ impl App {
             let done = match copied {
                 Ok(at) => Ok(PathAttachment { name, mime, path: at }),
                 Err(opencode_kit::client::UploadError::Aborted) => Err(None),
-                Err(opencode_kit::client::UploadError::Failed(error)) => Err(Some(Failed { path, error })),
+                Err(opencode_kit::client::UploadError::Failed(error)) => Err(Some(Failed { error })),
             };
             let _ = out.send(Copied::Done(attempt, done));
             woke();
@@ -270,14 +269,11 @@ impl App {
                         _ => None,
                     };
                     let line = match (why, &failed) {
-                        (uploads::Reject::Failed, Some(f)) => crate::status_toast::plain(f.error.trim_start_matches("upload ")),
+                        (uploads::Reject::Failed, Some(f)) => crate::status_toast::plain(&f.error),
                         _ => opencode_i18n::t!("common.requestFailed").to_owned(),
                     };
-                    let title = opencode_i18n::t!("prompt.toast.uploadFailed.title");
-                    match failed {
-                        Some(f) => crate::status_toast::fail_retry(self, title, line, crate::status_toast::ToastAction::Attach(f.path)),
-                        None => crate::status_toast::fail(self, title, line),
-                    }
+                    // Desktop's `onUploadError` toast: no action, gone after the region's 5 s.
+                    crate::status_toast::say(self, opencode_i18n::t!("prompt.toast.uploadFailed.title"), line);
                 }
             }
         }

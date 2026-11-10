@@ -6,7 +6,7 @@
 //!   hovered or dismissed.
 //! - [`say`]: a message that leaves after [`DURATION`] s.
 //! - [`fail`]: `"Request failed"` (or custom title) with the server's error message, staying until
-//!   Kit dismisses it (`×` or `Escape`); [`fail_retry`] adds its fix as a Retry button.
+//!   Kit dismisses it (`×` or `Escape`).
 //! - [`from_server`]: a line from the server's worker threads, as the toast Desktop shows for it.
 //!
 //! Each also sets `s.status`, which `--debug`'s status bar shows.
@@ -30,8 +30,6 @@ const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 #[derive(Clone, Debug)]
 pub enum ToastAction {
     UndoRewind(UndoRewind),
-    /// Retry: attach this file again (an upload that failed).
-    Attach(PathBuf),
     /// A plugin's button (its label) that shows a path in the file manager (desktop.reveal).
     Reveal(String, PathBuf),
 }
@@ -88,14 +86,6 @@ pub fn succeed(s: &mut App, title: impl Into<String>, description: impl Into<Str
     say(s, title, description);
     if let Some(e) = s.toast.current.as_mut() {
         e.icon = Some(&rune_theme_opencode::icons::CIRCLE_CHECK);
-    }
-}
-
-/// [`fail`] with a Retry button that runs `fix`.
-pub fn fail_retry(s: &mut App, title: impl Into<String>, description: impl Into<String>, fix: ToastAction) {
-    fail(s, title, description);
-    if let Some(e) = s.toast.current.as_mut() {
-        e.action = Some(fix);
     }
 }
 
@@ -254,7 +244,6 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
     let action_btn = entry.action.as_ref().map(|action| {
         let (key, label) = match action {
             ToastAction::UndoRewind(_) => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
-            ToastAction::Attach(_) => ("toast-retry", opencode_i18n::t!("common.retry").to_owned()),
             ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
         };
         let action = action.clone();
@@ -277,10 +266,6 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                     dismiss(s);
                     match action.clone() {
                         ToastAction::UndoRewind(undo) => s.undo_rewind(undo, tx),
-                        ToastAction::Attach(path) => {
-                            tx.instant();
-                            s.attach_path(&path);
-                        }
                         ToastAction::Reveal(_, path) => crate::plugin_host::reveal(&path.to_string_lossy()),
                     }
                 })

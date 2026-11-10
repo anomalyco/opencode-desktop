@@ -1,6 +1,6 @@
 use rune::{Key, KeyEvent, Mods, Runtime};
 
-use crate::status_toast::{ToastAction, fail, fail_retry, from_server, plain};
+use crate::status_toast::{fail, from_server, plain};
 use crate::App;
 
 const DT: f64 = 1.0 / 120.0;
@@ -49,10 +49,9 @@ fn a_message_shows_then_leaves_after_five_seconds() {
 #[test]
 fn a_failure_stays_until_esc_or_its_close_button() {
     let mut rt = crate::fixture_runtime();
-    rt.update(|s, _| fail_retry(s, "Upload failed", "Connection refused", ToastAction::Attach("/tmp/a.png".into())));
+    rt.update(|s, _| fail(s, "Upload failed", "Connection refused"));
     play(&mut rt, 12.0);
     assert_eq!(title(&rt).as_deref(), Some("Upload failed"), "a failure doesn't time out");
-    assert!(drawn(&rt, "toast-retry").is_some(), "it carries its fix");
 
     rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
     rt.frame(DT);
