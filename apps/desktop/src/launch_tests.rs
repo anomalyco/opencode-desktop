@@ -1,6 +1,7 @@
 use std::sync::mpsc::channel;
 
 use opencode_kit::client::{Incoming, Server};
+use opencode_kit::servers::ServerKey;
 use rune::Tx;
 use serde_json::{Value, json};
 
@@ -27,7 +28,7 @@ fn first_reads_land_in_one_poll() {
     let mut app = App::empty();
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     let (out, rx) = channel();
-    app.launch.set_first("http://127.0.0.1:9", rx);
+    app.launch.set_first(ServerKey::SIDECAR, rx);
     assert!(!poll(&mut app, &mut Tx::default()), "nothing has landed");
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: Some(json!({ "data": { crate::fixture_ids::SIXTH: {} } })), config: None };
     out.send(Ready { server: None, beta_tabs: None, first: Some(Ok(first)) }).unwrap();
@@ -46,7 +47,7 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     app.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     app.route = Route::here("ses_gone".into());
     let (out, rx) = channel();
-    app.launch.set_first("http://127.0.0.1:9", rx);
+    app.launch.set_first(ServerKey::SIDECAR, rx);
     let beta = vec![crate::tabs::Tab::session(crate::fixture_ids::THIRD, "Pinned", "/w")];
     let first = First { projects: fixture["projects"].clone(), sessions: Some(fixture["sessions"].clone()), models: None, providers: None, active: None, config: None };
     out.send(Ready { server: None, beta_tabs: Some(beta.clone()), first: Some(Ok(first)) }).unwrap();
@@ -59,7 +60,7 @@ fn deferred_beta_tabs_win_and_unreachable_falls_back_to_fixture() {
     offline.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: None, allow_send: false };
     offline.launch.fallback_fixture = true;
     let (out, rx) = channel();
-    offline.launch.set_first("http://127.0.0.1:9", rx);
+    offline.launch.set_first(ServerKey::SIDECAR, rx);
     out.send(Ready { server: None, beta_tabs: None, first: None }).unwrap();
     assert!(poll(&mut offline, &mut Tx::default()));
     assert!(matches!(offline.source, Source::Fixture));
@@ -74,7 +75,7 @@ fn unreachable_live_launch_shows_no_server_instead_of_fixture() {
     app.route = Route::Home;
     app.tabs.push(crate::tabs::Tab::session("ses_restored", "Old", "/w"));
     let (out, rx) = channel();
-    app.launch.set_first("http://127.0.0.1:4096", rx);
+    app.launch.set_first(ServerKey::SIDECAR, rx);
     out.send(Ready {
         server: Some(Server::new("http://127.0.0.1:4096")),
         beta_tabs: None,
