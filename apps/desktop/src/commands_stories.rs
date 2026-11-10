@@ -42,10 +42,9 @@ fn show(s: &mut App, variant: usize, tx: &mut Tx) {
     }
 }
 
+/// The composer; the window's own layer draws the open switcher over it, so drawing it here too
+/// would be a second `switcher` beside it.
 fn view(s: &App, p: &Pal) -> El {
-    if s.switcher.open {
-        return crate::switcher::dialog(s, p, 480.0, 480.0);
-    }
     col().key("story-commands").w_full().max_w(820.0).pt(340.0).child(crate::stories::composer_view(s, p))
 }
 

@@ -238,8 +238,9 @@ fn a_sent_image_opens_from_the_transcript_and_a_click_outside_closes_it() {
     for _ in 0..40 {
         rt.frame(1.0 / 60.0);
     }
-    let thumb = rect(&rt, "/img-0").expect("the sent image shows in the transcript");
-    let (x, y) = rt.find("img-0").unwrap();
+    // A sent prompt's image is a thumbnail over its bubble (ee6441b9).
+    let thumb = rect(&rt, "/file-0").expect("the sent image shows in the transcript");
+    let (x, y) = rt.find("file-0").unwrap();
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
     let mut open = Vec::new();
@@ -261,7 +262,7 @@ fn a_sent_image_opens_from_the_transcript_and_a_click_outside_closes_it() {
     let mut close = Vec::new();
     for _ in 0..45 {
         rt.frame(1.0 / 60.0);
-        close.push(rect(&rt, "/img-0").unwrap());
+        close.push(rect(&rt, "/file-0").unwrap());
     }
     assert!(rt.state.attach.viewing.is_none());
     flies(&close, large, thumb);
