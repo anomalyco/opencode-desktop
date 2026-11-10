@@ -40,9 +40,11 @@ const RING: f32 = 0.5;
 
 /// Desktop's console card: the command over its result, each with a copy button. Each section
 /// scrolls on its own past its cap, its text held 12 pt in from every edge and fading where
-/// it's cut; the ring stays whole round all four corners, the sections inside it.
+/// it's cut; the ring stays whole round all four corners, the sections inside it. The card shows
+/// as much as Desktop's does: its sections stand at most [`MAX_H`] together (`bash-scroll`'s
+/// `max-height`, which takes the command and the output in one region), the output giving way.
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>, out: &str) -> El {
-    let mut card = col().key("console").w_full().radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group();
+    let mut card = col().key("console").w_full().max_h(MAX_H + 2.0 * RING).radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group();
     let inner = RADIUS - RING;
     let result = !out.is_empty();
     if let Some(cmd) = command {
@@ -111,8 +113,12 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> 
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
     let holder = el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0).child(backdrop).child(button);
     let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
-    let viewport = col().key("scroll").w_full().max_h(part.cap).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(ScrollFade::feather(PAD + 4.0)).child(inset);
+    let viewport = col().key("scroll").w_full().max_h(part.cap).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(ScrollFade::feather(PAD + 4.0)).child(inset);
     let mut sec = col().key(part.name).w_full().fill(fill).corners(part.corners).clip_corners(part.corners).child(viewport).child(holder);
+    // The output gives way to the command within the card's cap.
+    if part.name == "result" {
+        sec = sec.shrink().min_h(0.0);
+    }
     // `border-block-start: 0.5px`, drawn after the copy button's backdrop, which stops below it.
     if part.rule {
         sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(RING).fill(p.ring));
