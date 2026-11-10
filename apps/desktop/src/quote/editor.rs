@@ -402,8 +402,13 @@ fn action(s: &App, p: &Pal, empty: bool, alternate: bool, sending: bool, key: u6
             .press(p.pressed)
     };
     let disabled = sending || (alternate && !available);
-    // Rune's tooltip holds one line: the action showing and its keys (Desktop lists the send too).
-    let tip = if alternate { face.help(label).help_keys(alt_keys) } else { face.help(label).help_keys(["⏎".to_owned()]) };
+    // The action showing and its keys; while the tick shows, the send on a row of its own under
+    // it (`line-comment.tsx`, a `flex-col gap-1.5` of rows).
+    let tip = if alternate {
+        face.help(label).help_keys(alt_keys)
+    } else {
+        face.help(label).help_keys(["⏎".to_owned()]).help_row(delivery(s)).help_keys(alt_keys)
+    };
     let b = tip.label(label).help_above().motion(Spring::NONE).child(glyph);
     if disabled {
         return b.opacity(if sending { 1.0 } else { 0.5 }).focusable(false);
