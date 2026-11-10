@@ -166,19 +166,23 @@ pub fn trailing(s: &App, p: &Pal, dir: &str, m: &McpServer) -> El {
     let (dir, name) = (dir.to_owned(), m.name.clone());
     if matches!(m.status, McpStatus::NeedsAuth(_)) && m.integration.is_some() {
         let label = if busy { opencode_i18n::t!("dialog.mcp.signingIn") } else { opencode_i18n::t!("dialog.mcp.signIn") };
+        // `.mcp-status-action:last-child`: the label lines up with the switches above and below it.
         return e.child(action(p, "mcp-sign-in", label, &opencode_i18n::t!("dialog.mcp.signIn.open", name = m.name), busy, move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.toggle_mcp(&dir, &name, true);
-        }));
+        }).mr(-5.0));
     }
     let on = m.status != McpStatus::Disabled;
     let pending = busy || m.status == McpStatus::Pending;
-    e.child(Switch::new(on).web().label(m.name.clone()).hide_label().disabled(pending)
+    // The switch's label holds only the name in an `sr-only` span, so it lays out empty, yet it
+    // is still a flex item 8 pt before the control (`switch.css` gap), and the switch stands 32
+    // wide (`mcp-dialog.tsx`, `extensions.tsx`).
+    e.child(row().key("mcp-switch-root").pl(8.0).center_y().child(Switch::new(on).web().label(m.name.clone()).hide_label().disabled(pending)
         .on_toggle_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.toggle_mcp(&dir, &name, !on);
         })
-        .build(kit(p)).key("mcp-switch"))
+        .build(kit(p)).key("mcp-switch")))
 }
 
 /// `.mcp-status-action`: a quiet small ghost-muted button in a switch's weight.
