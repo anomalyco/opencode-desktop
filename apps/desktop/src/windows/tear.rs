@@ -2,9 +2,14 @@
 //! is the browser's gesture, carried out in Kit's motion: pull a tab off the strip and a window
 //! opens with it under the pointer, the tab where the pointer holds it, and follows the pointer
 //! while the button stays down. Bring it back to the strip and the window goes; let go over
-//! another window's strip and the tab moves into that strip instead; let go anywhere else and
-//! the new window stays, in front. The window opens inactive, so the strip that holds the press
-//! keeps it to the end.
+//! another window's strip and the tab moves into that strip, into the gap it opened; let go over
+//! another window anywhere else and the tab joins the end of its strip; let go on the desktop
+//! and the new window stays, in front. The window opens inactive, so the strip that holds the
+//! press keeps it to the end.
+//!
+//! A window's only tab tears out too while another window is open, so a torn-out tab can go
+//! back: the window it leaves empty closes, and let go on the desktop, the window moves there
+//! instead.
 
 use rune::{AppHandle, Tx, WindowHandle};
 use rune_kit::shell::{TabTearMove, TabTearOut};
@@ -33,6 +38,8 @@ pub struct Out {
     /// The window whose strip is under the pointer, where letting go would put the tab: its
     /// strip opens a gap there, and the tab's own window hides meanwhile.
     over: Option<Over>,
+    /// The window's only tab: letting go on the desktop moves the window rather than splitting it.
+    lone: bool,
 }
 
 /// Another window's strip with a gap open for the torn tab, and where the pointer last was on it.
@@ -42,13 +49,13 @@ struct Over {
     at: [f32; 2],
 }
 
-/// Another window's strip under a desktop point: its id, handle and app, and the point in its
-/// window points.
+/// Another window under a desktop point: its id, handle and app, and the point in its window
+/// points when it's over the strip (`None` over the rest of the window).
 struct Target {
     id: String,
     handle: WindowHandle,
     app: AppHandle<App>,
-    at: [f32; 2],
+    at: Option<[f32; 2]>,
 }
 
 impl App {
@@ -70,19 +77,19 @@ impl App {
         let me = self.window.id.clone();
         let Tear::Out(out) = &mut self.window.tear else { return };
         out.handle.set_position((point.0 - out.offset.0, point.1 - out.offset.1));
-        let target = target(point, &[&me, &out.id]);
+        // Over another window's body the tab's window stays in sight: no gap shows where it goes.
+        let target = target(point, &[&me, &out.id]).and_then(|t| Some((t.at?, t)));
         if target.is_some() != out.over.is_some() {
             if target.is_some() { out.handle.hide() } else { out.handle.show() }
         }
-        if out.over.as_ref().is_some_and(|o| target.as_ref().is_none_or(|t| t.id != o.id)) {
+        if out.over.as_ref().is_some_and(|o| target.as_ref().is_none_or(|(_, t)| t.id != o.id)) {
             close_gap(out.over.take());
         }
-        let Some(t) = target else { return };
+        let Some((at, t)) = target else { return };
         // The gap follows the pointer along the strip; a move within a point changes nothing.
-        if out.over.as_ref().is_some_and(|o| (o.at[0] - t.at[0]).abs() < 1.0 && (o.at[1] - t.at[1]).abs() < 1.0) {
+        if out.over.as_ref().is_some_and(|o| (o.at[0] - at[0]).abs() < 1.0 && (o.at[1] - at[1]).abs() < 1.0) {
             return;
         }
-        let at = t.at;
         t.app.update_if(move |a, tx| a.tab_incoming(Some(at), tx));
         out.over = Some(Over { id: t.id, app: t.app, at });
     }
@@ -95,9 +102,13 @@ impl App {
             Tear::Out(out) => out,
             // No window followed the pointer: open one where it let go.
             Tear::Idle => {
-                let Some(tab) = self.tabs.iter().find(|x| x.id == t.id).cloned().filter(|_| self.tabs.len() > 1) else { return };
+                let Some(tab) = self.tabs.iter().find(|x| x.id == t.id).cloned() else { return };
                 if let Some(target) = target(point, &[&self.window.id]) {
                     return self.move_tab_to(tab, target, tx);
+                }
+                // The only tab, let go on the desktop: its window is already its own.
+                if self.tabs.len() < 2 {
+                    return;
                 }
                 let Some((frame, _)) = self.torn_frame(point, [0.0, 0.0]) else { return };
                 let seed = Seed::from(self, vec![tab.clone()], tab.route());
@@ -114,6 +125,15 @@ impl App {
                     close_gap(out.over);
                 }
                 self.move_tab_to(out.tab, target, tx);
+            }
+            // The only tab: its window goes where the tab's is, as a browser's moves with it.
+            None if out.lone => {
+                close_gap(out.over);
+                if let (Some(p), Some(me)) = (out.handle.placement(), super::handle(&self.window.id)) {
+                    me.set_position(p.position);
+                    me.focus();
+                }
+                out.handle.close();
             }
             None => {
                 close_gap(out.over);
@@ -144,9 +164,10 @@ impl App {
     /// Pulled off the strip: a window opens with the tab, under the pointer, inactive, as wide
     /// and tall as this one.
     fn tear_open(&mut self, m: &TabTearMove, point: (i32, i32)) {
-        if self.tabs.len() < 2 || !self.persists() {
+        if !self.can_tear() {
             return;
         }
+        let lone = self.tabs.len() == 1;
         let Some(tab) = self.tabs.iter().find(|t| t.id == m.id).cloned() else { return };
         let Some((frame, offset)) = self.torn_frame(point, m.grab) else { return };
         let seed = Seed::from(self, vec![tab.clone()], tab.route());
@@ -155,7 +176,7 @@ impl App {
         let id = w.id.clone();
         let Some(handle) = open(self, w, Some(frame), true) else { return };
         self.tab_drag.hand_off();
-        self.window.tear = Tear::Out(Out { tab, id, handle, offset, over: None });
+        self.window.tear = Tear::Out(Out { tab, id, handle, offset, over: None, lone });
     }
 
     /// Where a window showing the torn tab goes so the pointer at `point` holds it at `grab`
@@ -172,6 +193,12 @@ impl App {
         Some((frame, (x, y)))
     }
 
+    /// Whether a tab can leave the strip for a window of its own or another window's strip:
+    /// one of several, or the only one while another window is open to take it.
+    pub(crate) fn can_tear(&self) -> bool {
+        self.persists() && (self.tabs.len() > 1 || (self.tabs.len() == 1 && self.other_windows()))
+    }
+
     /// Sends `tab` to the window under the pointer, where it joins the strip, and drops it here.
     fn move_tab_to(&mut self, tab: Tab, target: Target, tx: &mut Tx) {
         let draft = self.draft_text(&tab.id);
@@ -179,12 +206,20 @@ impl App {
         let at = target.at;
         target.app.update(move |a, tx| a.receive_tab(tab, draft, at, tx));
         target.handle.focus();
-        self.tab_moved_out(&id, tx);
+        self.tab_left(&id, tx);
+    }
+
+    /// Tab `id` went to another window; a window it leaves with no tabs closes.
+    pub(crate) fn tab_left(&mut self, id: &str, tx: &mut Tx) {
+        self.tab_moved_out(id, tx);
+        if self.tabs.is_empty() {
+            tx.close_window();
+        }
     }
 
     /// A tab dragged from another window is over this window's strip at `at` (window points), or
     /// left it: the strip opens a gap where it would land (`TabDragState::set_incoming`).
-    fn tab_incoming(&mut self, at: Option<[f32; 2]>, tx: &mut Tx) -> bool {
+    pub(crate) fn tab_incoming(&mut self, at: Option<[f32; 2]>, tx: &mut Tx) -> bool {
         let open = self.tab_drag.incoming_slot().is_some();
         self.tab_drag.set_incoming(at);
         if !open && at.is_none() {
@@ -194,17 +229,17 @@ impl App {
         true
     }
 
-    /// A tab dropped onto this window's strip from another, at `at` (window points): into the gap
-    /// the strip opened for it, found from its own tabs, or where `at` falls when the strip never
-    /// opened one (a drop with no window following the pointer).
-    fn receive_tab(&mut self, tab: Tab, draft: Option<String>, at: [f32; 2], tx: &mut Tx) {
+    /// A tab dropped onto this window from another: on the strip at `at` (window points), into
+    /// the gap the strip opened for it, found from its own tabs, or where `at` falls when the strip
+    /// never opened one (a drop with no window following the pointer); anywhere else, at the end.
+    pub(crate) fn receive_tab(&mut self, tab: Tab, draft: Option<String>, at: Option<[f32; 2]>, tx: &mut Tx) {
         if let Some(text) = draft {
             self.restore.drafts.insert(tab.id.clone(), text);
         }
         let slot = self.tab_drag.incoming_slot();
         self.tab_drag.set_incoming(None);
         if !self.tabs.iter().any(|t| t.id == tab.id) {
-            let index = slot.unwrap_or_else(|| self.drop_index(at)).min(self.tabs.len());
+            let index = slot.or_else(|| at.map(|at| self.drop_index(at))).unwrap_or(self.tabs.len()).min(self.tabs.len());
             self.tabs.insert(index, tab.clone());
         }
         self.select_tab(&tab.id, tx);
@@ -257,18 +292,28 @@ fn seeded(seed: Seed) -> Window {
     w
 }
 
-/// The window, other than `skip`, whose strip is under desktop point `point`.
+/// The front-most window, other than `skip`, under desktop point `point` (`at` set when the
+/// point is on its strip).
 fn target(point: (i32, i32), skip: &[&str]) -> Option<Target> {
-    let open: Vec<(String, WindowHandle, AppHandle<App>, Option<[f32; 4]>)> =
-        OPEN.with(|o| o.borrow().iter().map(|w| (w.id.clone(), w.handle.clone(), w.app.clone(), w.strip)).collect());
-    open.into_iter().filter(|(id, ..)| !skip.contains(&id.as_str())).find_map(|(id, handle, app, strip)| {
-        let r = strip?;
+    let mut open: Vec<(String, WindowHandle, AppHandle<App>, Option<[f32; 4]>, u64)> = OPEN.with(|o| {
+        o.borrow().iter().filter(|w| w.life.saved() && !skip.contains(&w.id.as_str())).map(|w| (w.id.clone(), w.handle.clone(), w.app.clone(), w.strip, w.focused)).collect()
+    });
+    open.sort_by_key(|w| std::cmp::Reverse(w.4));
+    open.into_iter().find_map(|(id, handle, app, strip, _)| {
         let p = handle.placement().filter(|p| !p.minimized)?;
         let s = p.scale as f32;
         let at = [(point.0 - p.content_position.0) as f32 / s, (point.1 - p.content_position.1) as f32 / s];
-        // A little slack around the strip, as the strip's own reattach distance gives.
-        let slack = 12.0;
-        let inside = at[0] >= r[0] - slack && at[0] <= r[0] + r[2] + slack && at[1] >= r[1] - slack && at[1] <= r[1] + r[3] + slack;
-        inside.then_some(Target { id, handle, app, at })
+        let size = [p.content_size.0 as f32 / s, p.content_size.1 as f32 / s];
+        let (on_strip, inside) = hit(at, strip, size);
+        inside.then(|| Target { id, handle, app, at: on_strip.then_some(at) })
     })
+}
+
+/// A point in a window's points: whether it's on the strip `strip` (with a little slack, as the
+/// strip's own reattach distance gives), and whether it's in the window at all (`size`).
+pub(crate) fn hit(at: [f32; 2], strip: Option<[f32; 4]>, size: [f32; 2]) -> (bool, bool) {
+    let slack = 12.0;
+    let on_strip = strip.is_some_and(|r| at[0] >= r[0] - slack && at[0] <= r[0] + r[2] + slack && at[1] >= r[1] - slack && at[1] <= r[1] + r[3] + slack);
+    let inside = on_strip || (at[0] >= 0.0 && at[1] >= 0.0 && at[0] <= size[0] && at[1] <= size[1]);
+    (on_strip, inside)
 }
