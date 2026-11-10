@@ -167,10 +167,12 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         sr.narrow.set_wrap(wrap);
     }
     let routed = match &s.route {
-        Route::Session { id, .. } => Some(id.clone()),
+        Route::Session { id, .. } => Some(id.as_str()),
         _ => None,
     };
-    if routed != s.layout.narrow.routed {
+    // Every poll comes here: the route is compared in place, and copied only when it moved.
+    if routed != s.layout.narrow.routed.as_deref() {
+        let routed = routed.map(str::to_owned);
         s.layout.narrow.routed = routed.clone();
         s.layout.narrow.view = std::mem::take(&mut s.layout.narrow.view).step(ViewEvent::RouteChanged { routed }).0;
         s.tabs_drawer(TabsEvent::RouteChanged, tx);

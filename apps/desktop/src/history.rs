@@ -47,14 +47,16 @@ impl History {
 
     /// Where the app is now. The first call starts the stack with Home behind it.
     fn observe(&mut self, route: &Route, settings: Option<Page>, opening: bool) {
-        let now = Place { route: route.clone(), settings };
+        // Every poll lands here, so staying put clones nothing.
         if self.expect.is_none()
             && let Some(cur) = self.stack.get_mut(self.index)
-            && cur.same(&now)
+            && cur.route == *route
+            && cur.settings.is_some() == settings.is_some()
         {
-            cur.settings = now.settings;
+            cur.settings = settings;
             return;
         }
+        let now = Place { route: route.clone(), settings };
         if let Some(want) = &self.expect {
             if *want == now {
                 self.expect = None;

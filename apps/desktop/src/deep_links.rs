@@ -103,7 +103,10 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
 
 /// Opens the links waiting for a server once it connects (from `poll`).
 pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
-    let Some(server) = ready_server(s).filter(|_| s.deep_links.is_waiting()) else { return false };
+    if !s.deep_links.is_waiting() {
+        return false;
+    }
+    let Some(server) = ready_server(s) else { return false };
     let ready = Some(server.clone());
     let effects = s.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.as_deref() == Some(server));
     run(s, effects, tx)

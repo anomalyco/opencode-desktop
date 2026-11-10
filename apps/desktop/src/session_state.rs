@@ -145,6 +145,10 @@ pub fn reconnected(s: &mut App, tx: &mut Tx) {
 /// `poll`: a resolving session its info or page reached is ready; one that waited too long can't
 /// be reached.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let key = crate::servers::runtime::active(s).as_str();
+    if !s.session_states.0.iter().any(|((k, _), r)| k == key && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)) {
+        return false;
+    }
     let (server, now) = (server(s), s.clock);
     let resolving: Vec<String> = s.session_states.0.iter().filter(|((k, _), r)| *k == server && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)).map(|((_, id), _)| id.clone()).collect();
     let mut changed = false;

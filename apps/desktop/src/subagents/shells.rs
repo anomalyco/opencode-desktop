@@ -236,7 +236,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 fn followed(s: &App) -> Vec<(String, String, bool)> {
     let Route::Session { id, .. } = &s.route else { return Vec::new() };
     let Some(t) = s.transcripts.get(id) else { return Vec::new() };
-    let directory = s.session(id).map(|i| i.directory.clone()).unwrap_or_default();
+    let directory = s.session(id).map_or("", |i| i.directory.as_str());
     let running = |shell: &str| s.shells.running.iter().any(|r| r.id == shell);
     let steps = t.messages.iter().filter_map(|m| match m {
         Message::Assistant(a) => Some(a),
@@ -248,10 +248,9 @@ fn followed(s: &App) -> Vec<(String, String, bool)> {
         .filter_map(|p| match p {
             Part::Tool { id, name, status, input, metadata, .. } if name == "shell" => {
                 let call = session_view::tools::Call { id, name, status, input, metadata };
-                if !session_view::tools::console_open(s, &call) {
-                    return None;
-                }
-                session_view::tools::shell_follow(&call, running).map(|(shell, live)| (shell.to_owned(), directory.clone(), live))
+                // A saved shell has nothing to follow; asking first spares `console_open`'s key on every poll.
+                let (shell, live) = session_view::tools::shell_follow(&call, running)?;
+                session_view::tools::console_open(s, &call).then(|| (shell.to_owned(), directory.to_owned(), live))
             }
             _ => None,
         })
