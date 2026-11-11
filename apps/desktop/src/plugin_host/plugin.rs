@@ -114,7 +114,7 @@ pub struct Half {
     pub resources: RefCell<HashMap<String, Resource>>,
     /// What each surface read when it last ran, by surface id.
     pub reads: RefCell<HashMap<String, Vec<Dep>>>,
-    pub catalogs: RefCell<BTreeMap<String, BTreeMap<String, String>>>,
+    pub catalogs: RefCell<super::sources::Catalogs>,
     /// Its processes, and the inbox their threads fill.
     pub procs: RefCell<HashMap<u64, super::services::process::Proc>>,
     pub inbox: super::services::process::Inbox,

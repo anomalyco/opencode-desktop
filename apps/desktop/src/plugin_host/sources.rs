@@ -244,16 +244,33 @@ pub fn script_sources(files: &[(String, String)], folder: &str, entry: &str) -> 
 }
 
 /// The message catalogs in `locales/<id>.json`, by locale id: flat objects of strings.
-pub fn catalogs(files: &[(String, String)]) -> BTreeMap<String, BTreeMap<String, String>> {
-    files
-        .iter()
-        .filter_map(|(path, text)| {
-            let lang = path.strip_prefix("locales/")?.strip_suffix(".json")?;
-            let v: serde_json::Value = serde_json::from_str(text).ok()?;
-            let map = v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
-            Some((lang.to_owned(), map))
-        })
-        .collect()
+pub fn catalogs(files: &[(String, String)]) -> Catalogs {
+    Catalogs {
+        texts: files.iter().filter_map(|(path, text)| Some((path.strip_prefix("locales/")?.strip_suffix(".json")?.to_owned(), text.clone()))).collect(),
+        parsed: Default::default(),
+    }
+}
+
+/// A plugin's catalogs (`locales/<lang>.json`): each language's file is parsed the first time a string
+/// is read in it, so a plugin parses the interface language and English, not all 63 (16 plugins x 63
+/// files were parsed before each plugin ran).
+#[derive(Default)]
+pub struct Catalogs {
+    texts: BTreeMap<String, String>,
+    parsed: std::sync::Mutex<BTreeMap<String, std::sync::Arc<BTreeMap<String, String>>>>,
+}
+
+impl Catalogs {
+    /// Language `lang`'s strings; None when the plugin has no file for it.
+    pub fn get(&self, lang: &str) -> Option<std::sync::Arc<BTreeMap<String, String>>> {
+        if let Some(found) = self.parsed.lock().unwrap_or_else(|e| e.into_inner()).get(lang) {
+            return Some(found.clone());
+        }
+        let v: serde_json::Value = serde_json::from_str(self.texts.get(lang)?).ok()?;
+        let map: std::sync::Arc<BTreeMap<String, String>> = std::sync::Arc::new(v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect());
+        self.parsed.lock().unwrap_or_else(|e| e.into_inner()).insert(lang.to_owned(), map.clone());
+        Some(map)
+    }
 }
 
 /// The SHA-256 of every file the plugin runs from: what trusting it means.

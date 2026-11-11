@@ -22,7 +22,7 @@ pub struct Prepared {
     pub compiled: Compiled,
     pub compile: Duration,
     /// Its message catalogs, read off the UI thread too.
-    pub catalogs: BTreeMap<String, BTreeMap<String, String>>,
+    pub catalogs: super::sources::Catalogs,
 }
 
 /// What the watcher's thread saw, in order: a save, then what compiling it gave.
