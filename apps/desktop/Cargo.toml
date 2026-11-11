@@ -14,10 +14,6 @@ office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
-# Built-in plugins linked into the binary through their own entry points, for headless and
-# fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
-# rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports.
-static-builtins = []
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
 
@@ -35,7 +31,6 @@ hex-client = { path = "../../crates/hex-client" }
 # fuzzysort's accent folding (`mentions::fuzzysort`): NFD and the Latin script, already in the tree.
 icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
 icu_properties = "2"
-libloading = "0.8"
 notify = "8"
 rune-mac.workspace = true
 rune-notify.workspace = true

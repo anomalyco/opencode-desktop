@@ -3271,7 +3271,6 @@ dependencies = [
  "icu_properties",
  "image",
  "libc",
- "libloading",
  "memchr",
  "mimalloc",
  "mlua",

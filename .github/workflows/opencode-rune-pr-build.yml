@@ -16,7 +16,6 @@ on:
       - "crates/hex-client/**"
       - "crates/opencode-i18n/**"
       - "crates/opencode-kit/**"
-      - "crates/opencode-plugin/**"
       - "crates/opencode-plugin-spec/**"
       - "crates/otlp-lite/**"
       - "crates/project-icon/**"

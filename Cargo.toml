@@ -58,30 +58,6 @@ opt-level = 3
 codegen-units = 16
 incremental = true
 
-# Plugin libraries: one codegen unit and no symbols keep a cdylib small. Each plugin crate
-# needs its own line; a profile override can't match a family of packages.
-[profile.release.package.opencode-plugin-hello]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin-hello-impl]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-hello-api]
-codegen-units = 1
-opt-level = "s"
-
-[profile.release.package.opencode-plugin-echo]
-codegen-units = 1
-opt-level = "s"
-strip = "symbols"
-
-[profile.release.package.opencode-plugin]
-codegen-units = 1
-opt-level = "s"
-
 [profile.rune-hot]
 inherits = "dev"
 debug = 0
