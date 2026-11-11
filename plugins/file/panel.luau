@@ -91,7 +91,7 @@ local function title(env: Env, directory: string): ui.Node
     if name == "" then
         name = env.I18n:T("rune.files.workspace")
     end
-    return ui.text(name, { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text", fadeOut = true, shrink = true, minW = 0 })
+    return ui.text(name, { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-strong", fadeOut = true, shrink = true, minW = 0 })
 end
 
 -- `session-review-v2-sidebar`: its header 48 tall, 54 in past the toggle (gap 10), Open in at its
@@ -112,7 +112,7 @@ local function empty(env: Env): ui.Node
     return ui.col({ key = "files-placeholder", w = "full", grow = 1, align = "center", pad = 24 }, {
         ui.icon("file-tree", { size = 20, color = "text-weak" }),
         ui.col({ h = 16 }, {}),
-        ui.text(env.I18n:T("command.open"), { size = 13, weight = "medium", lineHeight = 13, color = "text" }),
+        ui.text(env.I18n:T("command.open"), { size = 13, weight = "medium", lineHeight = 13, color = "text-strong" }),
         ui.col({ h = 8 }, {}),
         ui.row({ h = 20, align = "center" }, {
             ui.text(env.I18n:T("selectToOpen"), { size = 13, lineHeight = 20, tracking = -0.04, color = "text-weak" }),
