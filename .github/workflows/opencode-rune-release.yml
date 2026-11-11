@@ -8,7 +8,21 @@ name: OpenCode (Rune) Release
 # - sign and publish jobs run in the `release` environment, check out only
 #   /.github/release/, and treat artifacts strictly as SHA-256-verified data.
 
+#
+# When (notes/ci-cost.md in the operation-detox workspace has the numbers behind this):
+# - dev, hourly at :17 (off the top of the hour, when GitHub's scheduler is busiest): Windows x64,
+#   the platform the rolling dev installer is used on. Pushes to main don't start it: agents push
+#   about 80 times a day, and nearly every push-started build was superseded before it finished.
+# - dev, nightly at 17:17 UTC (03:17 in Brisbane): every platform, Windows arm64 and macOS too.
+# - A scheduled run builds nothing when main hasn't changed an app file since the last successful
+#   dev run of its scope (only its plan job runs, about a Linux minute).
+# - workflow_dispatch builds now, whatever changed: channel check, dev or stable, and platforms.
+# - stable and the Browser Engine: their tags, every platform, as before.
+
 on:
+  schedule:
+    - cron: "17 0-16,18-23 * * *"
+    - cron: "17 17 * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -20,37 +34,31 @@ on:
         type: choice
         options: [check, dev, stable]
         default: check
+      platforms:
+        description: windows-x64 (the hourly build), or all (Windows x64 and arm64, and macOS; stable always builds all)
+        type: choice
+        options: [windows-x64, all]
+        default: windows-x64
   push:
-    branches: [main]
     tags: ["opencode-rune-v*", "browser-engine-*"]
-    paths:
-      - "apps/desktop/**"
-      - "apps/installer/**"
-      - "crates/browser-pane/**"
-      - "crates/hex-client/**"
-      - "crates/opencode-i18n/**"
-      - "crates/opencode-kit/**"
-      - "crates/opencode-plugin-spec/**"
-      - "crates/otlp-lite/**"
-      - "crates/project-icon/**"
-      - "crates/rune-parts/**"
-      - "crates/session-view/**"
-      - "crates/terminal/**"
-      - "crates/win-install/**"
-      - "plugins/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
-      - ".github/workflows/opencode-rune-release.yml"
-      - ".github/release/**"
+
+run-name: >-
+  ${{ github.event_name == 'schedule' && (github.event.schedule == '17 17 * * *' && 'dev: every platform (nightly)' || 'dev: Windows x64 (hourly)')
+  || github.event_name == 'workflow_dispatch' && format('{0}: {1} ({2}, dispatched)', inputs.channel, inputs.platforms == 'all' && 'every platform' || 'Windows x64', inputs.ref)
+  || github.ref_name }}
 
 permissions:
   contents: read
 
+# A newer dev or check run of the same scope cancels an older one still building; a stable or
+# Browser Engine release always finishes.
 concurrency:
-  group: opencode-rune-${{ github.event_name == 'workflow_dispatch' && format('dispatch-{0}', inputs.channel) || github.ref_type == 'tag' && format('tag-{0}', github.ref_name) || 'main-dev' }}
-  cancel-in-progress: false
+  group: >-
+    opencode-rune-${{ github.ref_type == 'tag' && format('tag-{0}', github.ref_name)
+    || github.event_name == 'workflow_dispatch' && inputs.channel == 'stable' && format('stable-{0}', inputs.ref)
+    || format('{0}-{1}', github.event_name == 'workflow_dispatch' && inputs.channel || 'dev',
+      (github.event.schedule == '17 17 * * *' || inputs.platforms == 'all') && 'all' || 'x64') }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.channel == 'stable') }}
 
 defaults:
   run:
@@ -58,10 +66,16 @@ defaults:
 
 env:
   SEER_TEAM_ID: 5NZ4Q7NXJ4
+  # A release build starts from the cache, not from an earlier build of its own: incremental
+  # state only makes CI's build slower and its cache larger.
+  CARGO_INCREMENTAL: "0"
 
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
       channel: ${{ steps.plan.outputs.channel }}
@@ -71,6 +85,10 @@ jobs:
       release-channel: ${{ steps.plan.outputs.release-channel }}
       release-version: ${{ steps.plan.outputs.release-version }}
       build-desktop: ${{ steps.plan.outputs.build-desktop }}
+      windows-arches: ${{ steps.plan.outputs.windows-arches }}
+      macos: ${{ steps.plan.outputs.macos }}
+      feed-windows-arches: ${{ steps.plan.outputs.feed-windows-arches }}
+      feed-macos: ${{ steps.plan.outputs.feed-macos }}
       publish-engine: ${{ steps.plan.outputs.publish-engine }}
       engine-version: ${{ steps.plan.outputs.engine-version }}
       engine-release-version: ${{ steps.plan.outputs.engine-release-version }}
@@ -93,12 +111,55 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           INPUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
           CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || github.ref_type == 'tag' && 'stable' || 'dev' }}
+          SCOPE: ${{ (github.event.schedule == '17 17 * * *' || inputs.platforms == 'all') && 'all' || 'x64' }}
+          GH_TOKEN: ${{ github.token }}
+
+  # Which signing values the release environment holds, read on Linux, so a Windows or macOS
+  # runner is booked only to sign. Stable fails here when either is missing.
+  credentials:
+    needs: plan
+    if: >-
+      ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.channel != 'pr-check'
+      && (needs.plan.outputs.feed-windows-arches != '[]' || needs.plan.outputs.feed-macos == 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    outputs:
+      azure: ${{ steps.check.outputs.azure }}
+      apple: ${{ steps.check.outputs.apple }}
+    steps:
+      - id: check
+        env:
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          MACOS: ${{ needs.plan.outputs.feed-macos }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT || secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE || secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+          APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          missing() { for name in "$@"; do [ -n "$(printenv "$name")" ] || printf ' %s' "$name"; done; }
+          azure=$(missing AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE)
+          apple=$(missing APPLE_SIGNING_CERTIFICATE APPLE_NOTARY_KEY APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID)
+          [ -z "$azure" ] && echo "azure=true" >> "$GITHUB_OUTPUT" || echo "azure=false" >> "$GITHUB_OUTPUT"
+          [ -z "$apple" ] && echo "apple=true" >> "$GITHUB_OUTPUT" || echo "apple=false" >> "$GITHUB_OUTPUT"
+          if [ "$CHANNEL" = stable ] && { [ -n "$azure" ] || [ -n "$apple" ]; }; then
+            echo "::error::Stable releases need signed Windows and macOS builds; the release environment lacks:$azure$apple."
+            exit 1
+          fi
+          [ -z "$azure" ] || echo "Skipping Authenticode signing, so no Windows targets in the feed: the release environment lacks$azure. The unsigned setups still go to the rolling pre-release (dev)." >> "$GITHUB_STEP_SUMMARY"
+          [ "$MACOS" != true ] || [ -z "$apple" ] || echo "Skipping Developer ID signing: the release environment lacks$apple." >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Build: repository code; no environment, secrets, or id-token ----------
 
   build-macos:
     needs: plan
-    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
+    if: ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.macos == 'true' }}
     runs-on: macos-26
     timeout-minutes: 120
     env:
@@ -134,7 +195,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: ${{ fromJSON(needs.plan.outputs.windows-arches) }}
     runs-on: windows-latest
     timeout-minutes: 120
     env:
@@ -180,11 +241,11 @@ jobs:
   # build-desktop-windows-installer); sign-windows-setup signs the setup next.
   package-windows:
     needs: [plan, sign-windows]
-    if: ${{ !cancelled() && needs.sign-windows.outputs.signed == 'true' }}
+    if: ${{ !cancelled() && needs.sign-windows.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        arch: ${{ fromJSON(needs.plan.outputs.feed-windows-arches) }}
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -202,10 +263,8 @@ jobs:
         run: |
           rustup toolchain install
           [ "${{ matrix.arch }}" = x64 ] || rustup target add aarch64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: windows-setup-${{ matrix.arch }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # No cache: the setup and its few dependencies build in less time than a cache takes to
+      # restore and save, and the app's caches keep the repository's 10 GB.
       - uses: ./.github/release/download
         with:
           pattern: sign-opencode-rune-windows-app
@@ -215,10 +274,11 @@ jobs:
         run: |
           $zip = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows-app/OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-${{ matrix.arch }}.zip"
           apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/setup" -Arch ${{ matrix.arch }} -Payload $zip
+      # Not build-opencode-rune-windows-*: publish-windows-dev downloads that pattern.
       - id: upload
         uses: ./.github/release/upload
         with:
-          name: build-opencode-rune-windows-setup-${{ matrix.arch }}
+          name: setup-opencode-rune-windows-${{ matrix.arch }}
           path: ${{ runner.temp }}/setup
           retention-days: "7"
       - id: digest
@@ -226,17 +286,18 @@ jobs:
 
   # ---- Sign: release environment; only .github/release/ is checked out -------
 
-  # Authenticode-signs opencode-desktop.exe and every program and library of both install folders
-  # through Azure Artifact Signing, as OpenCode's and Hex's release workflows do (GitHub OIDC into
-  # the release environment's AZURE_* values), then zips the signed folders: the updater's
-  # windows-<arch> targets, which it checks against updater::windows::EXPECTED_PUBLISHER.
-  # package-windows builds the setups around those zips and sign-windows-setup signs them.
-  # Without the Azure values, dev and check go on without Windows in the feed; stable fails.
+  # Authenticode-signs opencode-desktop.exe and every program and library of the install folders the
+  # feed carries (feed-windows-arches) through Azure Artifact Signing, as OpenCode's and Hex's
+  # release workflows do (GitHub OIDC into the release environment's AZURE_* values), then zips the
+  # signed folders: the updater's windows-<arch> targets, which it checks against
+  # updater::windows::EXPECTED_PUBLISHER. package-windows builds the setups around those zips and
+  # sign-windows-setup signs them. Without the Azure values (`credentials`), dev and check go on
+  # without Windows in the feed, and this job never books a runner; stable fails.
   sign-windows:
-    needs: [plan, build-windows]
+    needs: [plan, credentials, build-windows]
     if: >-
-      ${{ !cancelled() && needs.plan.outputs.build-desktop == 'true'
-      && needs.plan.outputs.channel != 'pr-check'
+      ${{ !cancelled() && needs.credentials.outputs.azure == 'true'
+      && needs.plan.outputs.feed-windows-arches != '[]'
       && needs.build-windows.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 30
@@ -247,6 +308,7 @@ jobs:
     env: &windows-sign-env
       CHANNEL: ${{ needs.plan.outputs.channel }}
       VERSION: ${{ needs.plan.outputs.release-version }}
+      ARCHES: ${{ join(fromJSON(needs.plan.outputs.feed-windows-arches), ' ') }}
       AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
@@ -254,7 +316,6 @@ jobs:
       AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME || secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
       AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE || secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
     outputs:
-      signed: ${{ steps.credentials.outputs.available }}
       digest: ${{ steps.upload.outputs.digest }}
     steps:
       - &checkout-release
@@ -265,26 +326,7 @@ jobs:
           sparse-checkout: /.github/release/
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - &azure-credentials
-        id: credentials
-        name: Require the Azure values
-        run: |
-          missing=
-          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_TRUSTED_SIGNING_ENDPOINT \
-            AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE; do
-            [ -n "$(printenv "$name")" ] || missing="$missing $name"
-          done
-          if [ -z "$missing" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          elif [ "$CHANNEL" = stable ]; then
-            echo "::error::Stable releases need signed Windows builds, and the release environment lacks:$missing."
-            exit 1
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping Authenticode signing, so no Windows targets in the feed: the release environment lacks$missing. The unsigned setups still go to the rolling pre-release (dev)." >> "$GITHUB_STEP_SUMMARY"
-          fi
       - name: Download the unsigned builds
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/download
         with:
           pattern: build-opencode-rune-windows-*
@@ -292,15 +334,13 @@ jobs:
             build-opencode-rune-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
             build-opencode-rune-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
       - name: Unpack the install folders
-        if: steps.credentials.outputs.available == 'true'
         shell: pwsh
         run: |
-          foreach ($arch in 'x64', 'arm64') {
+          foreach ($arch in $env:ARCHES -split ' ') {
             Expand-Archive -LiteralPath "$env:RUNNER_TEMP/in/build-opencode-rune-windows-$arch/OpenCode-Rune-$env:VERSION-windows-$arch.zip" -DestinationPath "$env:RUNNER_TEMP/work/windows-$arch"
           }
       - &azure-login
         name: Sign in to Azure
-        if: steps.credentials.outputs.available == 'true'
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -308,7 +348,6 @@ jobs:
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - &azure-sign
         name: Sign
-        if: steps.credentials.outputs.available == 'true'
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
         with:
           endpoint: ${{ env.AZURE_TRUSTED_SIGNING_ENDPOINT }}
@@ -334,19 +373,16 @@ jobs:
           exclude-interactive-browser-credential: true
       - &azure-verify
         name: Check the signatures
-        if: steps.credentials.outputs.available == 'true'
         shell: pwsh
         run: .github/release/opencode-rune-verify-windows.ps1 -Folders "$env:RUNNER_TEMP/work"
       - name: Zip the signed install folders
-        if: steps.credentials.outputs.available == 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/out" | Out-Null
-          foreach ($arch in 'x64', 'arm64') {
+          foreach ($arch in $env:ARCHES -split ' ') {
             Compress-Archive -Path "$env:RUNNER_TEMP/work/windows-$arch/*" -DestinationPath "$env:RUNNER_TEMP/out/OpenCode-Rune-$env:VERSION-windows-$arch.zip"
           }
       - id: upload
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/upload
         with:
           name: sign-opencode-rune-windows-app
@@ -354,7 +390,7 @@ jobs:
 
   sign-windows-setup:
     needs: [plan, sign-windows, package-windows]
-    if: ${{ !cancelled() && needs.sign-windows.outputs.signed == 'true' && needs.package-windows.result == 'success' }}
+    if: ${{ !cancelled() && needs.sign-windows.result == 'success' && needs.package-windows.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 30
     environment: release
@@ -366,14 +402,13 @@ jobs:
       digest: ${{ steps.upload.outputs.digest }}
     steps:
       - *checkout-release
-      - *azure-credentials
       - name: Download the setups
         uses: ./.github/release/download
         with:
-          pattern: build-opencode-rune-windows-setup-*
+          pattern: setup-opencode-rune-windows-*
           digests: >-
-            build-opencode-rune-windows-setup-x64=${{ needs.package-windows.outputs.digest-x64 }}
-            build-opencode-rune-windows-setup-arm64=${{ needs.package-windows.outputs.digest-arm64 }}
+            setup-opencode-rune-windows-x64=${{ needs.package-windows.outputs.digest-x64 }}
+            setup-opencode-rune-windows-arm64=${{ needs.package-windows.outputs.digest-arm64 }}
       - name: Download the signed zips
         uses: ./.github/release/download
         with:
@@ -383,7 +418,7 @@ jobs:
       - name: Gather the setups
         run: |
           temp=$(cygpath -u "$RUNNER_TEMP")
-          mkdir -p "$temp/work" && cp "$temp"/in/build-opencode-rune-windows-setup-*/*.exe "$temp/work/"
+          mkdir -p "$temp/work" && cp "$temp"/in/setup-opencode-rune-windows-*/*.exe "$temp/work/"
       - *azure-login
       - *azure-sign
       - *azure-verify
@@ -397,11 +432,13 @@ jobs:
           name: sign-opencode-rune-windows
           path: ${{ runner.temp }}/out
 
+  # Developer ID signing and notarization, for the channels that publish macOS (feed-macos: stable,
+  # and check rehearsing it); booked only when the release environment holds the Apple values.
   sign-macos:
-    needs: [plan, build-macos]
+    needs: [plan, credentials, build-macos]
     if: >-
-      ${{ !cancelled() && needs.plan.outputs.build-desktop == 'true'
-      && needs.plan.outputs.channel != 'pr-check'
+      ${{ !cancelled() && needs.plan.outputs.feed-macos == 'true'
+      && needs.credentials.outputs.apple == 'true'
       && needs.build-macos.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 90
@@ -410,58 +447,31 @@ jobs:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
       CHANNEL: ${{ needs.plan.outputs.channel }}
     outputs:
-      signed: ${{ steps.credentials.outputs.available }}
       digest: ${{ steps.upload.outputs.digest }}
     steps:
       - *checkout-release
-      - id: credentials
-        name: Require the Apple values
-        env:
-          CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
-          KEY: ${{ secrets.APPLE_NOTARY_KEY }}
-          KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
-          ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
-        run: |
-          missing=
-          [ -n "$CERTIFICATE" ] || missing="$missing APPLE_SIGNING_CERTIFICATE"
-          [ -n "$KEY" ] || missing="$missing APPLE_NOTARY_KEY"
-          [ -n "$KEY_ID" ] || missing="$missing APPLE_NOTARY_KEY_ID"
-          [ -n "$ISSUER" ] || missing="$missing APPLE_NOTARY_ISSUER_ID"
-          if [ -z "$missing" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          elif [ "$CHANNEL" = stable ]; then
-            echo "::error::Stable releases require Apple signing credentials; missing:$missing."
-            exit 1
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping Developer ID signing: release environment lacks:$missing." >> "$GITHUB_STEP_SUMMARY"
-          fi
       - name: Download unsigned app
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/download
         with:
           pattern: build-opencode-rune-macos-arm64
           digests: build-opencode-rune-macos-arm64=${{ needs.build-macos.outputs.digest }}
       - name: Import the certificate and notary key
-        if: steps.credentials.outputs.available == 'true'
         run: bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
         env:
           APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
           APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
           APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
       - name: Sign, notarize, and staple
-        if: steps.credentials.outputs.available == 'true'
         run: bash .github/release/opencode-rune-sign-macos.sh "$RUNNER_TEMP/in/build-opencode-rune-macos-arm64/OpenCode-Rune.app.zip" "$RUNNER_TEMP/out"
         env:
           SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID || secrets.APPLE_NOTARY_KEY_ID }}
           SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID || secrets.APPLE_NOTARY_ISSUER_ID }}
       - name: Remove the credentials
-        if: always() && steps.credentials.outputs.available == 'true'
+        if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
           rm -rf "$RUNNER_TEMP/credentials"
       - id: upload
-        if: steps.credentials.outputs.available == 'true'
         uses: ./.github/release/upload
         with:
           name: sign-opencode-rune-macos
@@ -471,7 +481,7 @@ jobs:
 
   verify-macos:
     needs: [plan, sign-macos]
-    if: ${{ !cancelled() && needs.sign-macos.result == 'success' && needs.sign-macos.outputs.signed == 'true' }}
+    if: ${{ !cancelled() && needs.sign-macos.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -514,6 +524,7 @@ jobs:
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
       OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
+      ARCHES: ${{ join(fromJSON(needs.plan.outputs.feed-windows-arches), ' ') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -533,7 +544,7 @@ jobs:
           $in = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows"
           $publisher = [regex]::Match((Get-Content -Raw apps/desktop/src/updater/windows.rs), 'pub const EXPECTED_PUBLISHER: &str = "([^"]+)";').Groups[1].Value
           if (-not $publisher) { throw 'Could not read EXPECTED_PUBLISHER from apps/desktop/src/updater/windows.rs.' }
-          foreach ($arch in 'x64', 'arm64') {
+          foreach ($arch in $env:ARCHES -split ' ') {
             foreach ($name in "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch.zip", "OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-$arch-setup.exe") {
               if (-not (Test-Path -LiteralPath "$in/$name")) { throw "The signed artifact has no $name." }
             }
@@ -548,15 +559,15 @@ jobs:
   # ---- Publish desktop: release environment; OIDC only -----------------------
   # A channel has one current release, and publishing replaces it whole (targets included), so
   # macOS and Windows go out in one release: each platform that's signed and verified this run,
-  # and one that isn't never holds the other back. Only signed Windows builds reach the feed.
+  # and one that isn't never holds the other back. Only signed Windows builds reach the feed. The
+  # dev feed carries Windows x64 alone (opencode-rune-plan.sh, FEED).
 
   publish-desktop:
     needs: [plan, sign-macos, verify-macos, verify-windows, sign-windows-setup]
     if: >-
       ${{ !cancelled()
       && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
-      && ((needs.sign-macos.outputs.signed == 'true' && needs.verify-macos.result == 'success')
-        || needs.verify-windows.result == 'success') }}
+      && (needs.verify-macos.result == 'success' || needs.verify-windows.result == 'success') }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -567,8 +578,9 @@ jobs:
       VERSION: ${{ needs.plan.outputs.release-version }}
       CHANNEL: ${{ needs.plan.outputs.release-channel }}
       NOTES_URL: ${{ needs.plan.outputs.notes-url }}
-      MACOS: ${{ needs.sign-macos.outputs.signed == 'true' && needs.verify-macos.result == 'success' }}
+      MACOS: ${{ needs.verify-macos.result == 'success' }}
       WINDOWS: ${{ needs.verify-windows.result == 'success' }}
+      ARCHES: ${{ join(fromJSON(needs.plan.outputs.feed-windows-arches), ' ') }}
     steps:
       - *checkout-release
       - if: env.MACOS == 'true'
@@ -593,7 +605,7 @@ jobs:
           fi
           if [ "$WINDOWS" = true ]; then
             dir="$RUNNER_TEMP/windows/sign-opencode-rune-windows"
-            for arch in x64 arm64; do
+            for arch in $ARCHES; do
               targets+=(--target "windows-$arch=$dir/OpenCode-Rune-$VERSION-windows-$arch.zip")
               targets+=(--target "windows-$arch-setup=$dir/OpenCode-Rune-$VERSION-windows-$arch-setup.exe")
             done
@@ -617,8 +629,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
-  # Every main build replaces the setups on opencode-rune-windows-dev, under names that stay the
-  # same, so the download links never change. Signed builds go to the feed too (publish-desktop).
+  # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
+  # the same, so the download links never change: x64 hourly (when main changed), arm64 nightly.
+  # A setup this run didn't build stays, with its line in SHA256SUMS. Signed builds go to the feed
+  # too (publish-desktop).
 
   publish-windows-dev:
     needs: [plan, build-windows]
@@ -645,21 +659,29 @@ jobs:
             build-opencode-rune-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
       - name: Replace the setups on the rolling pre-release
         run: |
-          mkdir -p "$RUNNER_TEMP/publish"
+          mkdir -p "$RUNNER_TEMP/publish" "$RUNNER_TEMP/old"
+          built=""
           for arch in x64 arm64; do
             setup="$RUNNER_TEMP/in/build-opencode-rune-windows-$arch/OpenCode-Rune-$VERSION-windows-$arch-setup.exe"
-            if [ -f "$setup" ]; then cp "$setup" "$RUNNER_TEMP/publish/OpenCode-Rune-windows-$arch-setup.exe"; fi
+            if [ -f "$setup" ]; then
+              cp "$setup" "$RUNNER_TEMP/publish/OpenCode-Rune-windows-$arch-setup.exe"
+              built="$built $arch"
+            fi
           done
           (cd "$RUNNER_TEMP/publish" && sha256sum -- *.exe > SHA256SUMS)
+          exists=false
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exists=true; fi
+          # The setups this run didn't build stay, and so do their checksums.
+          if [ "$exists" = true ] && gh release download "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP/old" 2>/dev/null; then
+            while read -r sum name; do
+              [ -f "$RUNNER_TEMP/publish/$name" ] || printf '%s  %s\n' "$sum" "$name" >> "$RUNNER_TEMP/publish/SHA256SUMS"
+            done < "$RUNNER_TEMP/old/SHA256SUMS"
+          fi
           title="OpenCode (Rune) for Windows, dev ($VERSION)"
-          notes="Unsigned Windows setup built from main @ ${SHA:0:9} ($VERSION). Replaced on every push to main. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
+          notes="Unsigned Windows setups from main: x64 rebuilt hourly when main changes, arm64 nightly. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
 
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [ "$exists" = true ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true >/dev/null
-            # An arch that didn't build this time loses its old setup rather than keep a stale one.
-            gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | while IFS= read -r name; do
-              [ -f "$RUNNER_TEMP/publish/$name" ] || gh release delete-asset "$RELEASE_TAG" "$name" --yes -R "$GITHUB_REPOSITORY"
-            done
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
           else
