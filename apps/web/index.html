@@ -3,46 +3,82 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
 <title>OpenCode (Rune)</title>
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
   body { font: 13px/18px system-ui, sans-serif; background: Canvas; color: CanvasText; }
-  #connect { display: none; max-width: 360px; margin: 96px auto; padding: 16px; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+  .box { box-sizing: border-box; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); background: Canvas; }
+  #connect { display: none; max-width: 380px; margin: 96px auto; padding: 16px; }
   #connect h1 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
   #connect label { display: block; margin: 8px 0 4px; color: color-mix(in srgb, CanvasText 60%, transparent); }
   #connect input { box-sizing: border-box; width: 100%; height: 28px; padding: 0 8px; font: 11px/16px ui-monospace, monospace; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 0; background: Canvas; color: CanvasText; }
-  #connect button { margin-top: 12px; height: 28px; padding: 0 12px; font: inherit; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; cursor: pointer; }
+  button { height: 28px; padding: 0 12px; font: inherit; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; cursor: pointer; }
+  .limits { margin: 12px 0 0; color: color-mix(in srgb, CanvasText 60%, transparent); }
   #status { position: fixed; inset: 0; display: grid; place-items: center; color: color-mix(in srgb, CanvasText 60%, transparent); pointer-events: none; }
+  #notice { position: fixed; right: 12px; bottom: 12px; z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
+  #notice button { margin-top: 8px; height: 24px; }
 </style>
-<form id="connect">
+<form id="connect" class="box" autocomplete="off">
   <h1>Connect to an OpenCode server</h1>
   <label for="server">Server URL</label>
-  <input id="server" name="server" placeholder="http://127.0.0.1:4096" required>
+  <input id="server" placeholder="http://127.0.0.1:4096" required>
   <label for="password">Password (if it has one)</label>
-  <input id="password" name="password" type="password" autocomplete="off">
+  <input id="password" type="password">
+  <p class="limits" id="limits-form"></p>
   <button type="submit">Connect</button>
 </form>
+<div id="notice" class="box" role="status"><span id="limits-notice"></span><br><button type="button">OK</button></div>
 <div id="status"></div>
 <script type="module">
-  const params = new URLSearchParams(location.search);
+  // What this build can't do yet, said where it shows, not only in the notes.
+  const limits = 'A preview: sending prompts, the terminal, the embedded browser, dictation and updates don\u2019t work in the browser yet. Sessions you open are the server\u2019s own: renames and deletes reach it.';
+  document.querySelector('#limits-form').textContent = limits;
+  document.querySelector('#limits-notice').textContent = limits;
   const status = document.querySelector('#status');
-  if (!params.has('server')) {
-    // The page never guesses a server: it asks, then reloads with `?server=`.
-    document.querySelector('#connect').style.display = 'block';
-  } else {
-    status.textContent = 'Loading…';
+  const params = new URLSearchParams(location.search);
+  // A password never stays in the address: taken out before anything loads, kept only in this
+  // page's memory (the app sends it as the Authorization header), never stored.
+  let password = params.get('password') ?? params.get('auth_token');
+  if (password !== null) {
+    params.delete('password');
+    params.delete('auth_token');
+    history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : ''));
+  }
+  async function boot() {
+    status.textContent = 'Loading\u2026';
     try {
       if (!navigator.gpu) throw new Error('This page needs WebGPU: use a current Chrome or Edge.');
       // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.
       if (!('Suspending' in WebAssembly)) throw new Error('This page needs JS Promise Integration: use Chrome or Edge 137 or newer.');
       const app = await import('./app.js');
       await app.default();
-      app.start();
+      app.start(password ?? undefined);
+      password = null;
       status.remove();
+      const notice = document.querySelector('#notice');
+      notice.style.display = 'block';
+      notice.querySelector('button').onclick = () => notice.remove();
     } catch (error) {
       status.textContent = String(error);
       console.error(error);
     }
+  }
+  if (params.has('server')) {
+    boot();
+  } else {
+    // The page never guesses a server: it asks, and starts without reloading, so the password
+    // never enters an address.
+    const form = document.querySelector('#connect');
+    form.style.display = 'block';
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      params.set('server', document.querySelector('#server').value.trim());
+      password = document.querySelector('#password').value || null;
+      history.replaceState(null, '', `${location.pathname}?${params}`);
+      form.remove();
+      boot();
+    });
   }
 </script>
 </html>
