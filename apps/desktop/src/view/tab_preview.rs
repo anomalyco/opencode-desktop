@@ -145,10 +145,12 @@ impl App {
             p.card = if draft { Card::Resting { tab: id.to_owned() } } else { Card::Waiting { tab: id.to_owned(), at: now + open_delay(&p.state) } };
         }
         self.settle_preview(now, tx);
-        // Never live-only: the strip's hover handler that calls this has just moved the hovered
-        // tab, which the strip draws (its status slot, its emphasis), so the hover commits.
+        // The strip draws its hover by hover groups, so only the card opening or closing changes
+        // what the view draws; a hover that doesn't runs no view.
         if self.previewed() != shown.as_deref() {
             tx.instant();
+        } else {
+            tx.live_only();
         }
     }
 
