@@ -10,6 +10,11 @@
 //! Linux follows XDG. The folder names differ from OpenCode Desktop's (`ai.opencode.desktop*`),
 //! so the two apps never share files. `RUNE_DIRS_ROOT=<root>` moves every folder this app writes
 //! under `<root>` for an isolated run.
+//!
+//! A debug build keeps its own folders, `rune-opencode.debug` in place of `rune-opencode`, unless
+//! `RUNE_DIRS_ROOT` places them: a development or harness run never reads or writes the profile a
+//! release build keeps, as OpenCode Desktop's unpackaged runs keep `ai.opencode.desktop.dev`
+//! apart from the release's (`packages/desktop/src/main/constants.ts`, `APP_ID`).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -19,10 +24,16 @@ use rune::dirs::AppDirs;
 use crate::App;
 
 const APP_ID: &str = "rune-opencode";
+const DEBUG_APP_ID: &str = "rune-opencode.debug";
 
-fn app() -> Option<&'static AppDirs> {
+/// The app's folders, for code that removes them (`install`).
+pub(crate) fn app() -> Option<&'static AppDirs> {
     static DIRS: OnceLock<Option<AppDirs>> = OnceLock::new();
-    DIRS.get_or_init(|| AppDirs::new(APP_ID)).as_ref()
+    DIRS.get_or_init(|| {
+        let dirs = AppDirs::new(APP_ID)?;
+        if cfg!(debug_assertions) && !dirs.is_rooted() { AppDirs::new(DEBUG_APP_ID) } else { Some(dirs) }
+    })
+    .as_ref()
 }
 
 /// Whether `RUNE_DIRS_ROOT` put every folder this app writes under one scratch root.

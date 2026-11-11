@@ -114,9 +114,11 @@ fn uninstall(a: &Args) -> i32 {
         }
         return 1;
     }
+    let started = std::time::Instant::now();
     for line in win_install::unregister(&p, &root) {
         a.log(&line);
     }
+    a.log(&format!("unregistered in {} µs", started.elapsed().as_micros()));
     match start_cleanup(&root, others.is_empty(), delete_data, a.log.as_deref()) {
         Ok(pid) => a.log(&format!("cleanup (pid {pid}) removes the files once this process exits")),
         Err(e) => {
@@ -165,7 +167,7 @@ fn cleanup(a: &Args) -> i32 {
     for dir in updater_folders(&a.root) {
         remove(&dir);
     }
-    let app = rune::dirs::AppDirs::new("rune-opencode");
+    let app = crate::dirs::app();
     // The browser engine's folder is shared by every app with a browser pane: only this
     // install's socket, and with its data its browser profile, are its own.
     let engine = rune::dirs::AppDirs::new("co.anomaly.opencode");
@@ -175,12 +177,12 @@ fn cleanup(a: &Args) -> i32 {
     }
     // Caches, logs and the updater's downloads: `%LOCALAPPDATA%\rune-opencode` (separate folders
     // under `RUNE_DIRS_ROOT`).
-    if let Some(app) = app.as_ref().filter(|_| a.caches) {
+    if let Some(app) = app.filter(|_| a.caches) {
         remove(app.cache());
         remove(app.logs());
         remove(app.state());
     }
-    if let Some(app) = app.as_ref().filter(|_| a.delete_data) {
+    if let Some(app) = app.filter(|_| a.delete_data) {
         remove(app.data());
         remove(app.config());
     }

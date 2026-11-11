@@ -45,8 +45,12 @@ fn run(q: &Shared) {
     }
 }
 
-/// Runs `job` off the UI thread, replacing `slot`'s write if one is still waiting.
+/// Runs `job` off the UI thread, replacing `slot`'s write if one is still waiting. A run nobody
+/// attends (a snapshot, a tree, a script without `--harness-writes`) writes nothing.
 pub fn later(slot: impl Into<Cow<'static, str>>, job: impl FnOnce() + Send + 'static) {
+    if !crate::attended() {
+        return;
+    }
     let slot = slot.into();
     let (lock, cv) = &**queue();
     let mut queue = lock.lock().unwrap();
@@ -70,8 +74,12 @@ pub fn flush() {
     }
 }
 
-/// Writes `bytes` to `path` through a temp file renamed into place, making its folder first.
+/// Writes `bytes` to `path` through a temp file renamed into place, making its folder first;
+/// never in a run nobody attends.
 pub fn replace(path: &std::path::Path, bytes: &[u8]) -> bool {
+    if !crate::attended() {
+        return false;
+    }
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
