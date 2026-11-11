@@ -72,7 +72,6 @@ return plugin.defineApp(function(ctx)
     local results: { [string]: { error: string? } } = {}
     local order: { string } = {}
     local sidecars: { [number]: Sidecar } = {}
-    local settled = ctx:CreateSignal()
 
     local source = ctx:AddServerSource({ id = "wsl", title = I18n:T("server.label"), order = 1 })
     local provided: Contribution? = nil
@@ -122,7 +121,6 @@ return plugin.defineApp(function(ctx)
         while #order > RESULTS_KEPT do
             results[table.remove(order, 1) :: string] = nil
         end
-        settled:Fire(id)
     end
 
     local function settle(attempt: number, err: string?)
@@ -565,25 +563,15 @@ return plugin.defineApp(function(ctx)
         return id
     end
 
-    -- Waits for call `id` to settle; its error, if any.
-    local function await(id: number): string?
-        while calls[id] do
-            settled:Wait()
-        end
-        local r = results[tostring(id)]
-        return r and r.error
-    end
-
     publish()
 
-    -- Starts at launch have no caller to answer; WSL and its distros are read at once, so the
-    -- add dialog opens on what this machine has (the reads only list).
+    -- Starts at launch have no caller to answer. Only the configured servers start, as Desktop's
+    -- `main.ts` does (`startConfiguredServers`): WSL itself and its distros are read when the add
+    -- dialog plans them (`model.plan`, Desktop's `autoProbePlan`), so a launch starts no
+    -- `wsl.exe` unless a WSL server is configured.
     task.spawn(function()
         for _, c in state.configured do
             dispatch({ type = "start", id = c.id, attempt = nextAttempt() })
-        end
-        if await(dispatchRequest("probeRuntime", nil)) == nil and state.runtime and state.runtime.available then
-            await(dispatchRequest("refreshDistros", nil))
         end
     end)
 
