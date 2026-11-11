@@ -189,10 +189,12 @@ impl Writer {
                 Ok(Msg::Flush { reason, started, reply }) => {
                     let report = self.flush(reason, started);
                     reply.send(report).ok();
+                    self.quit_checkpoint(reason);
                 }
                 Ok(Msg::FirstFrame { done }) => self.first_frame(done),
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
                     self.flush(FlushReason::Quit, Instant::now());
+                    self.quit_checkpoint(FlushReason::Quit);
                     self.close_machines();
                     return;
                 }
@@ -440,11 +442,19 @@ impl Writer {
         batches.extend(step_buffer(&mut self.seq, &mut self.previews, WriteBehindEvent::FlushRequested, PREVIEWS_MS, "previews", &mut self.timers).into_iter().map(|(a, m)| Batch::Previews(a, m)));
         batches.extend(step_buffer(&mut self.seq, &mut self.caches, WriteBehindEvent::FlushRequested, CACHES_MS, "caches", &mut self.timers).into_iter().map(|(a, m)| Batch::Caches(a, m)));
         self.commit(batches);
+        // At quit the WAL goes back into the file (`quit_checkpoint`) after the caller has its
+        // answer: the rows are committed now, and the synced checkpoint overlaps the windows
+        // closing; closing the storage waits for it.
         let checkpointed = quit && self.wal != WalState::Clean;
-        if quit {
+        FlushReport { clean: false, rows: self.written, micros: super::micros(started), checkpointed, timed_out: false }
+    }
+
+    /// The quit's checkpoint, after its flush answered: the next open finds the WAL empty and
+    /// reads the boot record raw.
+    fn quit_checkpoint(&mut self, reason: FlushReason) {
+        if matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart) {
             self.wal_event(WalEvent::QuitRequested);
         }
-        FlushReport { clean: false, rows: self.written, micros: super::micros(started), checkpointed, timed_out: false }
     }
 
     fn close_machines(&mut self) {

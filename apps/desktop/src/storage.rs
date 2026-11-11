@@ -37,8 +37,9 @@ enum Effect {
     Join(Opening),
     /// Wait for stage B here (the app quits before it was joined).
     JoinNow(Opening),
-    /// Hand the writes made while booting to the storage, tell it the first frame is up, wake every window.
-    Adopt(Storage, Queued),
+    /// Hand the writes made while booting to the storage, tell it the first frame is up, wake
+    /// every window; with why the database didn't open, when it didn't.
+    Adopt(Storage, Queued, Option<String>),
 }
 
 enum Event {
@@ -46,7 +47,7 @@ enum Event {
     TakeBoot,
     /// The first window presented its first frame.
     Presented,
-    Joined(Storage),
+    Joined(Storage, Option<String>),
     /// The app quits: stage B is needed now.
     Quit,
 }
@@ -56,6 +57,8 @@ pub const DEV: &str = "rune.dev";
 
 static PHASE: Mutex<Option<Phase>> = Mutex::new(None);
 static READY: Condvar = Condvar::new();
+/// Why the database didn't open, until a window says so.
+static DEGRADED: Mutex<Option<String>> = Mutex::new(None);
 /// Each window's waker, woken once the storage is ready.
 static WAKERS: Mutex<Vec<Waker>> = Mutex::new(Vec::new());
 
@@ -65,11 +68,11 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
         (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default() }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
-            Some((storage, _)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued))),
+            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, report.error))),
             None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
         },
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
-        (Phase::Joining { queued, .. }, Event::Joined(storage)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued))),
+        (Phase::Joining { queued, .. }, Event::Joined(storage, error)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, error))),
         (phase, _) => (phase, None),
     }
 }
@@ -129,19 +132,23 @@ fn send(event: Event) {
     let effect = {
         let mut guard = lock();
         let Some(phase) = guard.take() else { return };
-        let (next, effect) = step(phase, event);
+        let (next, mut effect) = step(phase, event);
+        // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
+        if let Some(Effect::Adopt(_, _, error)) = &mut effect {
+            *DEGRADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error.take();
+        }
         *guard = Some(next);
         effect
     };
     match effect {
         Some(Effect::Join(opening)) => {
-            let spawned = std::thread::Builder::new().name("opencode-storage-join".into()).spawn(move || send(Event::Joined(opening.storage().0)));
+            let spawned = std::thread::Builder::new().name("opencode-storage-join".into()).spawn(move || joined(opening));
             if let Err(e) = spawned {
                 eprintln!("opencode-storage: couldn't start the join thread: {e}");
             }
         }
-        Some(Effect::JoinNow(opening)) => send(Event::Joined(opening.storage().0)),
-        Some(Effect::Adopt(storage, queued)) => {
+        Some(Effect::JoinNow(opening)) => joined(opening),
+        Some(Effect::Adopt(storage, queued, _)) => {
             queued.apply(&storage);
             storage.first_frame_presented(Some(Box::new(wake_all)));
             READY.notify_all();
@@ -149,6 +156,17 @@ fn send(event: Event) {
         }
         None => {}
     }
+}
+
+fn joined(opening: Opening) {
+    let (storage, report) = opening.storage();
+    send(Event::Joined(storage, report.error));
+}
+
+/// Why the database didn't open, once: the first window to take it says so. A run in memory by
+/// design (headless, fixtures) has none.
+pub fn take_degraded() -> Option<String> {
+    DEGRADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
 }
 
 fn wake_all() {
@@ -178,6 +196,7 @@ fn config() -> Option<StorageConfig> {
     // reads its own until its package moves them.
     StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser], clock: crate::wall_ms })
 }
+
 /// The first window presented its first frame: stage B is joined off the UI thread.
 pub fn presented() {
     send(Event::TakeBoot);
@@ -420,4 +439,16 @@ pub fn flush(reason: FlushReason, wait: bool) {
     };
     let deadline = if wait { Duration::from_secs(2) } else { Duration::ZERO };
     storage.flush(reason, deadline);
+}
+
+/// The app is ending: every queued row lands, the WAL is checkpointed when it holds writes, and
+/// the database closes, so its exclusive lock goes now rather than when the process is gone (an
+/// update's helper, the next launch). Later reads and writes stay in memory.
+pub fn close() {
+    flush(FlushReason::Quit, true);
+    let storage = match &*lock() {
+        Some(Phase::Ready(s)) => s.clone(),
+        _ => return,
+    };
+    storage.close();
 }

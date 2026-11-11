@@ -224,15 +224,20 @@ impl App {
     }
 
     /// The storage is ready (or the drafts it was reading came in): the window takes its closed
-    /// tabs and the drafts the boot packet didn't hold. Steps [`Hydration`].
-    pub fn hydrate_restore(&mut self) {
+    /// tabs and the drafts the boot packet didn't hold. Steps [`Hydration`]; true when it did
+    /// (the window has more to draw).
+    pub fn hydrate_restore(&mut self) -> bool {
         match &self.restore.hydration {
-            Hydration::Done => return,
-            Hydration::Loading { read } if !read.load(std::sync::atomic::Ordering::Acquire) => return,
-            _ if !crate::storage::is_ready() => return,
+            Hydration::Done => return false,
+            Hydration::Loading { read } if !read.load(std::sync::atomic::Ordering::Acquire) => return false,
+            _ if !crate::storage::is_ready() => return false,
             _ => {}
         }
         if matches!(self.restore.hydration, Hydration::Boot) {
+            if let Some(why) = crate::storage::take_degraded() {
+                let description = opencode_i18n::t!("rune.storage.memoryOnly.description", why = crate::status_toast::plain(&why));
+                crate::status_toast::fail(self, opencode_i18n::t!("rune.storage.memoryOnly.title"), description);
+            }
             let doc = WindowDoc::from_json(&crate::windows::store::load(&self.window));
             // Tabs closed since launch stay newest.
             let mut closed = crate::tabs::Closed::from_doc(&doc.closed);
@@ -247,7 +252,7 @@ impl App {
         // A draft that still can't be read after its load stays where it is, unshown.
         if pending.is_empty() || matches!(self.restore.hydration, Hydration::Loading { .. }) {
             self.restore.hydration = Hydration::Done;
-            return;
+            return true;
         }
         let read = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.restore.hydration = Hydration::Loading { read: read.clone() };
@@ -259,6 +264,7 @@ impl App {
                 w();
             }
         }));
+        true
     }
 
     /// Whether the window has everything it saved (`Hydration::Done`).

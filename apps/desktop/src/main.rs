@@ -1251,6 +1251,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
     changed |= s.show_draft();
     if s.persists() {
+        changed |= s.hydrate_restore();
         s.poll_restore();
         s.poll_preview(false);
         s.prompts.hydrate(s.waker.clone());
@@ -1387,14 +1388,15 @@ fn main() {
     if genui::skill::maybe_cli() {
         return;
     }
-    // The app's state: one database, read on its own thread while the windows are made.
-    storage::start();
-    rune::marks::mark("storage.started");
-    // A launch while the app runs hands its links (`deep_links`) to it and ends here.
+    // A launch while the app runs hands its links (`deep_links`) to it and ends here, before it
+    // opens the database the running one holds.
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return;
     }
     rune::marks::mark("instance.claimed");
+    // The app's state: one database, read on its own thread while the windows are made.
+    storage::start();
+    rune::marks::mark("storage.started");
     opencode_kit::client::set_download_dir(dirs::downloads());
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
@@ -1419,7 +1421,8 @@ fn main() {
             // Every window saved at the last quit, each with its own tabs (`windows`).
             let opened = windows::launch(diagnostics.clone());
             disk::flush();
-            storage::flush(opencode_storage::FlushReason::Quit, true);
+            // Landed and closed: the file's lock goes before the update helper takes over.
+            storage::close();
             rune::marks::mark("storage.flushed");
             diagnostics.shutdown();
             rune::marks::mark("diagnostics.stopped");
@@ -1459,7 +1462,7 @@ fn main() {
             })
             .run();
         disk::flush();
-        storage::flush(opencode_storage::FlushReason::Quit, true);
+        storage::close();
         diagnostics.shutdown();
         // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the
         // browser engine's timing.

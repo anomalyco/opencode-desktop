@@ -41,6 +41,8 @@ pub struct BootReport {
     pub created: bool,
     /// The database couldn't open or migrate: this run keeps state in memory.
     pub error: Option<String>,
+    /// Opens retried because another process held the file.
+    pub busy_retries: u32,
     pub open_ns: u64,
     pub pragma_ns: u64,
     pub schema_ns: u64,
@@ -59,6 +61,12 @@ pub struct BootReport {
 }
 
 const MMAP_SIZE: i64 = 64 * 1024 * 1024;
+/// Opens tried while another process holds the file, each waiting `busy_timeout` (5 s).
+const BUSY_TRIES: u32 = 6;
+
+fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(e, rusqlite::Error::SqliteFailure(f, _) if matches!(f.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+}
 
 fn ns(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_nanos()).unwrap_or(u64::MAX)
@@ -131,7 +139,7 @@ fn priority(level: i32) {
 fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport) {
     let t0 = Instant::now();
     let mut report = BootReport { started: Some(t0), ..BootReport::default() };
-    let mut sent = false;
+    let mut packet: Option<BootPacket> = None;
     match boot_record::read_raw(&config.path) {
         FastBoot::Record(bytes) => {
             report.raw_read_ns = ns(t0);
@@ -145,15 +153,26 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
                     p.read_ns = report.raw_read_ns;
                     p.decode_ns = report.decode_ns;
                     report.stage_a_ns = ns(t0);
+                    packet = Some(p.clone());
                     send(p);
-                    sent = true;
                 }
                 None => report.raw_miss = Some("torn record"),
             }
         }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
-    let result = stage_b(&config, &mut report, t0, if sent { None } else { Some(send) });
+    let sent = packet.is_some();
+    let mut result = stage_b(&config, &mut report, t0, if sent { None } else { Some(send) });
+    // Another process holds the file (an instance still exiting, a tool reading it): wait for it
+    // a while longer (busy_timeout is 5 s a try) rather than give the windows a store that can't
+    // keep what they write. With the first frame built from the record already, the windows
+    // work meanwhile; without it they wait, so for less.
+    let mut tries = 1;
+    while tries < if sent { BUSY_TRIES } else { 2 } && result.as_ref().is_err_and(is_busy) {
+        tries += 1;
+        report.busy_retries += 1;
+        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) });
+    }
     report.total_ns = ns(t0);
     match result {
         Ok((conn, cache, deferred)) => {
@@ -169,9 +188,12 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
             if let Some(import) = &config.import {
                 import::hydrate_memory(&mut cache, import);
             }
-            if !sent {
-                send(boot_record::from_cache(&cache));
+            // The windows were built from the record: memory keeps what they show.
+            match &packet {
+                Some(p) => p.fill_cache(&mut cache),
+                None => send(boot_record::from_cache(&cache)),
             }
+            eprintln!("opencode-storage: the database couldn't open ({}); this run keeps its changes in memory", report.error.as_deref().unwrap_or_default());
             (Storage::from_parts(super::shared(cache), Backend::memory()), report)
         }
     }

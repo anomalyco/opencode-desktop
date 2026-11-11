@@ -141,6 +141,8 @@
   "rune.stop.failed": "Couldn't stop the session",
   "rune.stop.unconfirmed": "The server didn't confirm the stop",
   "rune.stop.unreachable": "Can't reach OpenCode to stop the session",
+  "rune.storage.memoryOnly.description": "OpenCode couldn't open its saved state ({{why}}). What you change now is lost when it quits.",
+  "rune.storage.memoryOnly.title": "Changes won't be saved",
   "rune.subagent.background": "{{title}} (background)",
   "rune.subagent.starting": "Starting",
   "rune.subagent.steered": "Steered",

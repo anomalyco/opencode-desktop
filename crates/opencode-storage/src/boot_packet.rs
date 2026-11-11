@@ -145,6 +145,28 @@ impl BootPacket {
         Some((i64::from_le_bytes(v.get(..8)?.try_into().ok()?), &v[8..]))
     }
 
+    /// Puts what the packet holds into `cache` where it has nothing (an open that failed after
+    /// the first frame was built from the packet: memory keeps what the screen shows).
+    pub(crate) fn fill_cache(&self, cache: &mut crate::cache::Cache) {
+        for e in self.of(Kind::State) {
+            let (name, key) = (self.str_of(&e.a), self.str_of(&e.b));
+            if matches!(cache.get(name, key), crate::Lookup::Ready(None)) {
+                cache.set(name, key.to_owned(), Some(self.str_of(&e.value).into()));
+            }
+        }
+        for e in self.of(Kind::Document) {
+            cache.docs.entry(self.str_of(&e.a).to_owned()).or_insert_with(|| crate::cache::Doc::Present(self.str_of(&e.value).into()));
+        }
+        for (id, f) in self.frames() {
+            cache.windows.entry(id.to_owned()).or_insert(f);
+        }
+        for (id, on) in self.plugins() {
+            cache.plugins.entry(id.to_owned()).or_insert(on);
+        }
+        for (id, sha) in self.trusted() {
+            cache.trust.entry(id.to_owned()).or_insert_with(|| sha.to_owned());
+        }
+    }
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
