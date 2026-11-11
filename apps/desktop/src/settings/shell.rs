@@ -70,7 +70,10 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
         return col().key("settings-page").w_full().grow(1.0).shrink().min_h(0.0)
             .child(narrow_bar(s, p, inset))
             .child(col().key("settings-sidebar").w_full().px(inset).py(8.0).child(field))
-            .child(screen(col().w_full().px(inset).child(content)));
+            // The page sits at the wide layout's path (`#0/#0/settings-content`), so a control keeps
+            // keyboard focus while a layout switch or zoom moves the screen across 800, as the
+            // same DOM does under Desktop's container query.
+            .child(screen(row().w_full().px(inset).child(row().w_full().child(col().key("settings-content").w_full().min_w(0.0).child(content)))));
     }
     let wide = width <= 0.0 || width >= 1048.0;
     let (rail_w, pad_start, pad_end, gutter) = if wide { (328.0, 24.0, 64.0, 0.0) } else { (240.0, 16.0, 24.0, 24.0) };
