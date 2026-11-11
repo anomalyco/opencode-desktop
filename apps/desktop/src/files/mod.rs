@@ -485,8 +485,10 @@ impl App {
                     .session(session_id)
                     .map(|s| s.directory.clone())
                     .unwrap_or_default();
-                // A video streams into its player where it lies: nothing is read first.
-                if video::is_video(path) {
+                // A video streams into its player where it lies: nothing is read first. One that
+                // can't play is read as any other file, and shows as the binary file it is.
+                let failed = self.files.sessions.get(session_id).and_then(|w| w.videos.get(path)).is_some_and(video::FileVideo::failed);
+                if video::is_video(path) && !failed {
                     let source = if server.is_local() {
                         std::path::Path::new(&directory).join(path).to_string_lossy().into_owned()
                     } else {

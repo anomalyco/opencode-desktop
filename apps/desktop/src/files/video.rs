@@ -47,6 +47,8 @@ pub struct FileVideo {
     pub overlay: Overlay,
     /// The timeline under a drag: the clip time it points at.
     pub scrub: Scrub,
+    /// It can't play, and the file was read as any other instead (`poll`).
+    read_instead: bool,
 }
 
 impl FileVideo {
@@ -58,7 +60,12 @@ impl FileVideo {
             player.set_waker(waker);
         }
         player.preload();
-        FileVideo { player, overlay: Overlay::default(), scrub: Scrub::Idle }
+        FileVideo { player, overlay: Overlay::default(), scrub: Scrub::Idle, read_instead: false }
+    }
+
+    /// It can't play (Desktop's `decode.failed`).
+    pub fn failed(&self) -> bool {
+        matches!(self.player.state(), PlayerState::Failed(_))
     }
 
     /// Chromium's controls show (and so does Desktop's expand button).
@@ -144,8 +151,13 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let now = tx.clock();
     let mut changed = false;
     let mut playing = false;
-    for ws in s.files.sessions.values_mut() {
-        for v in ws.videos.values_mut() {
+    let mut read = Vec::new();
+    for (sid, ws) in s.files.sessions.iter_mut() {
+        for (path, v) in ws.videos.iter_mut() {
+            if v.failed() && !v.read_instead {
+                v.read_instead = true;
+                read.push((sid.clone(), path.clone()));
+            }
             let paused = !v.player.is_playing();
             let before = v.overlay;
             let event = match (v.overlay, v.player.state()) {
@@ -164,6 +176,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             changed |= v.overlay != before;
             playing |= !paused;
         }
+    }
+    // A clip that can't play is read as the file it is, as Desktop shows a failed decode.
+    for (sid, path) in read {
+        if let Some(ws) = s.files.sessions.get_mut(&sid) { ws.docs.remove(&path); }
+        s.ensure_file_loaded(&sid, &path);
+        changed = true;
     }
     if playing {
         tx.wake_at(now + TICK);
