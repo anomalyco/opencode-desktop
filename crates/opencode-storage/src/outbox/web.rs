@@ -60,8 +60,11 @@ pub(crate) fn handle(web: &Rc<RefCell<Web>>, op: OutboxOp, done: Option<Done>) {
     match op {
         OutboxOp::Put(build) => {
             let put = build();
-            let Some(tx) = transaction(web, &["blobs", "outbox"], IdbTransactionMode::Readwrite) else { return unavailable(done) };
-            let (Ok(blobs), Ok(rows)) = (tx.object_store("blobs"), tx.object_store("outbox")) else { return unavailable(done) };
+            let Some(tx) = transaction(web, &["blobs", "outbox", "documents"], IdbTransactionMode::Readwrite) else { return unavailable(done) };
+            let (Ok(blobs), Ok(rows), Ok(docs)) = (tx.object_store("blobs"), tx.object_store("outbox"), tx.object_store("documents")) else { return unavailable(done) };
+            for key in &put.clear_documents {
+                docs.delete(&JsValue::from_str(key)).ok();
+            }
             let now = now_ms();
             for (id, data) in &put.blobs {
                 blobs.put_with_key(&js_sys::Uint8Array::from(&**data).into(), &JsValue::from_str(id)).ok();

@@ -64,7 +64,7 @@ pub(super) fn build(server: String, s: Sent) -> OutboxPut {
         durable: s.journaled,
         legacy_json: None,
     };
-    OutboxPut { row, blobs }
+    OutboxPut { row, blobs, clear_documents: s.left_draft.into_iter().collect() }
 }
 
 /// The columns a later step changes: where it is, why, and what waits on it.
@@ -160,5 +160,6 @@ pub(super) fn sent(entry: OutboxEntry) -> Sent {
         seq: row.seq,
         row: super::store::Row::Written,
         handoffs: 0,
+        left_draft: None,
     }
 }

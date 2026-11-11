@@ -379,6 +379,12 @@ impl App {
         self.restore.written.drafts.extend(drafts);
     }
 
+    /// The document draft `k`'s words are kept in (none in a window without an id, which keeps
+    /// no drafts): the outbox clears it in the same transaction as the prompt's first row.
+    pub(crate) fn draft_document_of(&self, k: &str) -> Option<String> {
+        (!self.window.id.is_empty()).then(|| crate::windows::store::draft_key(&self.window, &self.draft_tab_key(k)))
+    }
+
     /// The tab key draft `k` is kept under: a draft tab's, or its session's on its server.
     fn draft_tab_key(&self, k: &str) -> TabKey {
         if let Some(t) = self.tabs.iter().find(|t| t.id == k) {

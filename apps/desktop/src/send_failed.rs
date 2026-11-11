@@ -70,6 +70,9 @@ pub struct Sent {
     row: store::Row,
     /// How many times it was handed to a writer (`Phase::Sending`'s `handoff`).
     handoffs: u32,
+    /// The composer draft its words left, cleared in the transaction of its first row, so a crash
+    /// never finds them both in the outbox and back in the composer (a second send).
+    left_draft: Option<String>,
 }
 
 /// Whether a receipt check is out.
@@ -170,6 +173,7 @@ impl Sent {
             seq: store::next_seq(),
             row: store::Row::None,
             handoffs: 0,
+            left_draft: None,
         }
     }
 

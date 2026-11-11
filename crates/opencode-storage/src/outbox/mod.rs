@@ -14,10 +14,12 @@ use std::sync::Arc;
 use crate::cache::OutboxCache;
 use crate::{Cmd, Done, Loaded, OutboxRow, Storage, StorageError};
 
-/// A prompt's first row and the blobs it names (id, bytes).
+/// A prompt's first row, the blobs it names (id, bytes), and the documents removed in the same
+/// transaction (the composer draft the prompt's words left: they're the row's now).
 pub struct OutboxPut {
     pub row: OutboxRow,
     pub blobs: Vec<(String, Arc<[u8]>)>,
+    pub clear_documents: Vec<String>,
 }
 
 /// Builds a prompt's first row, on the storage thread.

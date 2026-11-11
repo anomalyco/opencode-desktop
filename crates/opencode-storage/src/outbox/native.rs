@@ -7,9 +7,10 @@ use rusqlite::{Connection, params};
 use super::{OutboxEntry, OutboxOp, OutboxRead, Written};
 use crate::native::sql;
 
-/// An outbox request with its builder run: what to commit, or what to read.
+/// An outbox request with its builder run: what to commit (with its blobs and the documents it
+/// clears), or what to read.
 pub(crate) enum Prepared {
-    Write(Written, Vec<(String, Arc<[u8]>)>),
+    Write(Written, Vec<(String, Arc<[u8]>)>, Vec<String>),
     Read { server: String, adopt: Vec<String>, done: OutboxRead },
 }
 
@@ -20,20 +21,23 @@ pub(crate) fn prepare(op: OutboxOp) -> Prepared {
             rune::marks::mark("outbox.taken");
             let put = build();
             rune::marks::mark("outbox.built");
-            Prepared::Write(Written::Put(put.row), put.blobs)
+            Prepared::Write(Written::Put(put.row), put.blobs, put.clear_documents)
         }
-        OutboxOp::Update { server, id, update } => Prepared::Write(Written::Update { server, id, update }, Vec::new()),
-        OutboxOp::Delete { server, id } => Prepared::Write(Written::Delete { server, id }, Vec::new()),
+        OutboxOp::Update { server, id, update } => Prepared::Write(Written::Update { server, id, update }, Vec::new(), Vec::new()),
+        OutboxOp::Delete { server, id } => Prepared::Write(Written::Delete { server, id }, Vec::new(), Vec::new()),
         OutboxOp::Read { server, adopt, done } => Prepared::Read { server, adopt, done },
     }
 }
 
 /// Commits a write inside the caller's transaction. A blob already stored (a draft held the
 /// same image) isn't written again; an update of a row that isn't there is an error.
-pub(crate) fn write(c: &Connection, w: &Written, blobs: &[(String, Arc<[u8]>)], now_ms: i64) -> rusqlite::Result<()> {
+pub(crate) fn write(c: &Connection, w: &Written, blobs: &[(String, Arc<[u8]>)], clear: &[String], now_ms: i64) -> rusqlite::Result<()> {
     match w {
         Written::Put(row) => {
             rune::marks::mark("outbox.sql");
+            for key in clear {
+                sql::put_document(c, key, None)?;
+            }
             for (id, data) in blobs {
                 if !blob_stored(c, id)? {
                     sql::insert_blob(c, id, data, now_ms)?;

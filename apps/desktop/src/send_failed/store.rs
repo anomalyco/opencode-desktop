@@ -211,7 +211,10 @@ impl Log {
         rune::marks::mark("outbox.put");
         if first {
             let build = {
-                let (server, s) = (server.clone(), s.clone());
+                let snapshot = s.clone();
+                // Its draft goes with its first row only.
+                s.left_draft = None;
+                let (server, s) = (server.clone(), snapshot);
                 Box::new(move || row::build(server, s)) as opencode_storage::OutboxBuild
             };
             crate::storage::with_storage(move |st| st.outbox().put(build, Some(done)));

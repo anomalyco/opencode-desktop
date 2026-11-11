@@ -337,8 +337,8 @@ impl Writer {
                 answer(done, r);
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
-                outbox::native::Prepared::Write(w, blobs) => {
-                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, now));
+                outbox::native::Prepared::Write(w, blobs, clear) => {
+                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
                     if r.is_ok() {
                         outbox::cached(&mut self.cache().outbox, &w);
                     }

@@ -1276,6 +1276,8 @@ fn desktop_icons() -> project_icon::Icons {
 fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
     storage::on_ready(waker.clone());
+    // The outbox was opened before the window had a waker: its stored prompts wake it when they're in.
+    s.listen_outbox();
     windows::peer::set_waker(s, waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());

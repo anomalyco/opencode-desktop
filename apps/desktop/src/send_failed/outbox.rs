@@ -73,6 +73,13 @@ impl App {
         self.unsent.store = Store::Reading { server: base };
     }
 
+    /// This window is woken when the storage thread answers its server's outbox.
+    pub(crate) fn listen_outbox(&self) {
+        if let Some(server) = self.unsent.store.server() {
+            store::listen(server, self.waker.clone());
+        }
+    }
+
     /// What the storage thread sent back for this server: its stored prompts, a row that couldn't
     /// be saved, a writer that was gone.
     pub(super) fn take_mail(&mut self) -> bool {
@@ -167,6 +174,13 @@ impl App {
         };
         sent.journaled = true;
         sent.seq = store::next_seq();
+        // Words that leave the composer leave its saved draft in the same transaction as their row.
+        if self.route == Route::here(sent.session.clone()) && !self.composer.text.is_empty() && Entry::of(&self.composer) == sent.draft && self.unsent.store != Store::Memory {
+            sent.left_draft = crate::restore::draft_key(&self.route).and_then(|k| self.draft_document_of(&k));
+            if let Some(key) = &sent.left_draft {
+                crate::storage::set_doc(key, None);
+            }
+        }
         let offline = crate::reconnect::down(self) || matches!(self.source, Source::Live { writes: None, .. });
         sent.phase = Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } };
         let (id, session) = (sent.id.clone(), sent.session.clone());
