@@ -1285,12 +1285,9 @@ fn setup(s: &mut App, waker: Waker) {
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     rune::marks::mark("browser.setup");
-    if launch::deferred() && !headless() && s.launch.cold_transcript.is_some() {
-        s.launch.plugins = launch::PluginSetup::AfterFrame(waker.clone());
-    } else {
-        telemetry::startup("launch.plugins", || plugin_host::setup(s, waker.clone()));
-        rune::marks::mark("plugins.started");
-    }
+    // Only the plugins this launch's first screen shows start before its first frame (`first_screen`).
+    telemetry::startup("launch.plugins", || plugin_host::setup(s, waker.clone()));
+    rune::marks::mark("plugins.started");
     s.setup_rune_mcp(waker);
     rune::marks::mark("mcp.setup");
     if !s.playback.is_empty() {

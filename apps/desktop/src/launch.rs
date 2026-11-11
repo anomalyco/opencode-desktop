@@ -60,6 +60,7 @@ pub fn unidle_gpu_threads() {
 /// Raises this process's threads whose name passes `named` and whose priority is under `floor` to
 /// `floor`.
 #[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 fn raise_threads(named: impl Fn(&str) -> bool, floor: i32) {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, LocalFree};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next};
@@ -139,11 +140,6 @@ pub fn instance_id() -> String {
     let tag: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
     format!("{}-{tag}", product().id())
 }
-
-/// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow), for the
-/// notification center's icon file.
-#[cfg(target_os = "windows")]
-pub const WINDOWS_ICON: &[u8] = include_bytes!("../assets/icon/art-512.png");
 
 /// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
 /// (`build.rs`), so nothing is decoded or resized at launch.
@@ -344,15 +340,7 @@ impl Phase {
 }
 
 #[derive(Default)]
-pub enum PluginSetup {
-    #[default]
-    Immediate,
-    AfterFrame(rune::Waker),
-}
-
-#[derive(Default)]
 pub struct Launch {
-    pub plugins: PluginSetup,
     network_change: Option<std::sync::Arc<network::Change>>,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
@@ -484,18 +472,14 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
     start(s, tx);
-    // Start the probe first so its I/O overlaps plugin setup. Redraw the newly
-    // registered panels and commands without waiting for a server response.
-    let deferred = if let PluginSetup::AfterFrame(wake) = std::mem::take(&mut s.launch.plugins) {
-        crate::plugin_host::setup(s, wake);
+    // The built-ins the first screen didn't show start now; plugins from folders (`--plugin-dir`,
+    // overrides, installed) are read on a worker. Redraw for their panels and commands without
+    // waiting for a server response.
+    let started = crate::plugin_host::first_frame(s);
+    if started {
         tx.instant();
-        true
-    } else {
-        false
-    };
-    // Plugins from folders (`--plugin-dir`, overrides, installed) are read now, on a worker.
-    crate::plugin_host::first_frame(s);
-    deferred
+    }
+    started
 }
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).

@@ -69,6 +69,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     std::fs::create_dir_all(&bytecode).ok();
     let (mut consts, mut precompiled) = (String::new(), String::from("pub static PRECOMPILED: &[(&str, &[u8])] = &[\n"));
     let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)])] = &[\n");
+    // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
+    // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
+    let mut contributions = String::from("pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[\n");
     let mut dirs: Vec<_> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).collect();
     dirs.sort();
     for dir in dirs {
@@ -81,6 +84,16 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         walk(&dir, &dir, &mut files);
         files.sort();
         writeln!(code, "    ({id:?}, &[").ok();
+        let mut kinds: Vec<String> = files
+            .iter()
+            .filter(|(rel, _)| rel.ends_with(".luau"))
+            .filter_map(|(_, path)| std::fs::read_to_string(path).ok())
+            .flat_map(|src| src.split("ctx:Add").skip(1).filter_map(|rest| rest.split_once('(').map(|(name, _)| name.to_owned())).collect::<Vec<_>>())
+            .filter(|name| !name.is_empty() && name.chars().all(char::is_alphanumeric))
+            .collect();
+        kinds.sort();
+        kinds.dedup();
+        writeln!(contributions, "    ({id:?}, &{kinds:?}),").ok();
         for (rel, path) in files {
             println!("cargo:rerun-if-changed={}", path.display());
             let name = format!("FILE_{}", consts.lines().count());
@@ -98,7 +111,8 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     }
     code.push_str("];\n");
     precompiled.push_str("];\n");
-    code = consts + &code + &precompiled;
+    contributions.push_str("];\n");
+    code = consts + &code + &precompiled + &contributions;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();

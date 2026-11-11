@@ -114,6 +114,12 @@ pub fn folders() -> Vec<Found> {
     }
     found
 }
+/// What built-in `id` contributes (`Slot`, `Panel`, `ComposerPill`, ...: its `ctx:Add…` calls, read at
+/// build time); empty for a plugin that isn't built in.
+pub fn contributions(id: &str) -> &'static [&'static str] {
+    embedded::CONTRIBUTIONS.iter().find(|(p, _)| *p == id).map_or(&[], |(_, kinds)| kinds)
+}
+
 /// The built-ins' Luau bytecode, by source text, compiled at build time (`build.rs`).
 pub fn precompiled() -> impl Iterator<Item = (&'static str, &'static [u8])> {
     embedded::PRECOMPILED.iter().copied()

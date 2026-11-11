@@ -32,6 +32,7 @@ mod contrib;
 mod ctx;
 pub mod cx;
 mod editors;
+mod first_screen;
 pub mod flyout;
 mod hot;
 pub(crate) mod icons;
@@ -205,6 +206,8 @@ pub struct PluginHost {
     pub cover_visit: servers::CoverVisit,
     /// Where reading the plugin folders stands.
     folders: Folders,
+    /// Built-ins this launch's first screen doesn't show, started after its first frame.
+    later: Vec<sources::Found>,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
@@ -298,7 +301,12 @@ pub fn setup(app: &mut App, waker: Waker) {
     servers::read_own_version(app);
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
-    adopt(app, sources::builtins());
+    // The built-ins this launch's first screen shows start now, the rest after its first frame
+    // (`first_screen`); a headless run and a hot build (no first-frame hook) start them all.
+    let first = (!crate::headless() && !cfg!(feature = "hot")).then(|| first_screen::plugins(app));
+    let (now, later): (Vec<_>, Vec<_>) = sources::builtins().into_iter().partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
+    adopt(app, now);
+    app.plugins.later = later;
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
     // reads them on a worker after its first frame ([`first_frame`]).
     if crate::headless() {
@@ -322,11 +330,31 @@ enum Folders {
     Read,
 }
 
-/// The window's first frame is up: its plugin folders are read now, off the app's thread.
-pub fn first_frame(app: &mut App) {
+/// The window's first frame is up: the built-ins it didn't show start one per turn from the next
+/// one, so the first key isn't held behind all of them, and its plugin folders are read now, off
+/// the app's thread. True when some start (the window redraws for them).
+pub fn first_frame(app: &mut App) -> bool {
+    let later = !app.plugins.later.is_empty();
+    if later {
+        app.later(Box::new(start_one_later));
+    }
     if app.plugins.started && app.plugins.folders == Folders::Unread {
         read_folders(app);
     }
+    later
+}
+
+/// Starts the next built-in the first screen didn't show, and queues the one after for the next turn.
+fn start_one_later(app: &mut App, tx: &mut Tx) {
+    if app.plugins.later.is_empty() {
+        return;
+    }
+    let found = app.plugins.later.remove(0);
+    adopt(app, vec![found]);
+    if !app.plugins.later.is_empty() {
+        app.later(Box::new(start_one_later));
+    }
+    tx.instant();
 }
 
 fn read_folders(app: &mut App) {

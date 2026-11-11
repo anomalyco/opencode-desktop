@@ -239,6 +239,11 @@ fn remember(plugin: &str) {
 }
 
 /// Runs `f` on the saved lists, read from disk the first time.
+/// Whether plugin `plugin`'s servers were listed at the last run, so their rows show before it starts.
+pub fn remembers(plugin: &str) -> bool {
+    known(|k| k.get(plugin).is_some_and(|inv| !inv.servers.is_empty()))
+}
+
 fn known<R>(f: impl FnOnce(&mut BTreeMap<String, Inventory>) -> R) -> R {
     KNOWN.with_borrow_mut(|k| f(k.get_or_insert_with(load)))
 }
