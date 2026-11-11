@@ -419,13 +419,16 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     start(s, tx);
     // Start the probe first so its I/O overlaps plugin setup. Redraw the newly
     // registered panels and commands without waiting for a server response.
-    if let PluginSetup::AfterFrame(wake) = std::mem::take(&mut s.launch.plugins) {
+    let deferred = if let PluginSetup::AfterFrame(wake) = std::mem::take(&mut s.launch.plugins) {
         crate::plugin_host::setup(s, wake);
         tx.instant();
         true
     } else {
         false
-    }
+    };
+    // Plugins from folders (`--plugin-dir`, overrides, installed) are read now, on a worker.
+    crate::plugin_host::first_frame(s);
+    deferred
 }
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).

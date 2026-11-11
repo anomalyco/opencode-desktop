@@ -203,6 +203,8 @@ pub struct PluginHost {
     checking: HashSet<String>,
     /// The window's page visits, for server covers' one sign-in offer per visit.
     pub cover_visit: servers::CoverVisit,
+    /// Where reading the plugin folders stands.
+    folders: Folders,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
@@ -295,20 +297,45 @@ pub fn setup(app: &mut App, waker: Waker) {
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
     adopt(app, sources::builtins());
-    // Plugin folders are read off the app's thread, so a launch reads none of them before its
-    // first frame; a headless run (a capture, a check) waits for them.
+    // A headless run (a capture, a check) reads the plugin folders before it draws; a window
+    // reads them on a worker after its first frame ([`first_frame`]).
     if crate::headless() {
         let found = sources::folders();
         adopt(app, found);
         folders_read(app);
-        return;
+        app.plugins.folders = Folders::Read;
+    } else if cfg!(feature = "hot") {
+        // A hot build has no first-frame hook.
+        read_folders(app);
     }
+}
+
+/// The plugin folders (`--plugin-dir`, overrides, installed plugins) of a window: not read yet,
+/// being read on a worker, or in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Folders {
+    #[default]
+    Unread,
+    Reading,
+    Read,
+}
+
+/// The window's first frame is up: its plugin folders are read now, off the app's thread.
+pub fn first_frame(app: &mut App) {
+    if app.plugins.started && app.plugins.folders == Folders::Unread {
+        read_folders(app);
+    }
+}
+
+fn read_folders(app: &mut App) {
+    app.plugins.folders = Folders::Reading;
     let deliver = app.deliverer();
     tasks::run(move || {
         let found = sources::folders();
         deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
             adopt(app, found);
             folders_read(app);
+            app.plugins.folders = Folders::Read;
             tx.instant();
         }));
     });
