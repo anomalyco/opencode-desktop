@@ -192,7 +192,28 @@ rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
 pub fn poll(s: &mut App, tx: &mut Tx) {
     let effects = s.text_rendering.step(RenderingEvent::Poll(s.settings.text_renderer));
     s.apply_rendering(effects);
-    tx.set_font_smoothing(s.text_rendering.mode());
+    let (mode, name) = match measured() {
+        Some(forced) => forced,
+        None => (s.text_rendering.mode(), s.settings.text_renderer.name()),
+    };
+    crate::launch::trace::renderer(name);
+    tx.set_font_smoothing(mode);
+}
+
+/// `--font-smoothing <mode>`, for the launch bench only: the run draws with that mode whatever
+/// Text rendering says, including `original`, the CPU outline rasteriser Windows drew with before
+/// DirectWrite (`FontSmoothing::Off`), which the picker doesn't offer.
+fn measured() -> Option<(FontSmoothing, &'static str)> {
+    static FORCED: std::sync::OnceLock<Option<(FontSmoothing, &'static str)>> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| {
+        Some(match crate::arg("--font-smoothing")?.as_str() {
+            "original" => (FontSmoothing::Off, "original"),
+            "classic" => (FontSmoothing::DirectWrite, "classic"),
+            "windfoil-chromium" => (FontSmoothing::WindfoilChromium, "windfoil-chromium"),
+            "windfoil" => (FontSmoothing::Windfoil, "windfoil"),
+            _ => return None,
+        })
+    })
 }
 
 impl App {

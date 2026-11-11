@@ -843,6 +843,7 @@ impl App {
 
     /// `new`, for window `window`: its own tabs and page.
     fn new_window(window: windows::Window) -> App {
+        rune::marks::mark("state.load");
         let mut app = telemetry::startup("launch.load", || Self::load(window));
         appearance::apply_args(&mut app);
         if let Some(layout) = arg("--tab-layout") {
@@ -859,6 +860,7 @@ impl App {
         for pair in all.iter().zip(all.iter().skip(1)).filter(|(k, _)| *k == "--knob").map(|(_, v)| v) {
             knobs::apply_arg(&mut app, pair);
         }
+        rune::marks::mark("state.restored");
         app
     }
 
@@ -1112,6 +1114,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= project_switcher::poll(s);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
+    launch::trace::poll(tx);
     changed |= updater::poll(s, tx);
     #[cfg(feature = "office")]
     {
@@ -1252,12 +1255,15 @@ fn setup(s: &mut App, waker: Waker) {
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
+    rune::marks::mark("browser.setup");
     if launch::deferred() && !headless() && s.launch.cold_transcript.is_some() {
         s.launch.plugins = launch::PluginSetup::AfterFrame(waker.clone());
     } else {
         telemetry::startup("launch.plugins", || plugin_host::setup(s, waker.clone()));
+        rune::marks::mark("plugins.started");
     }
     s.setup_rune_mcp(waker);
+    rune::marks::mark("mcp.setup");
     if !s.playback.is_empty() {
         s.wake_at_playback();
     }
@@ -1318,6 +1324,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    launch::trace::begin();
     telemetry::launched();
     launch::attach_console();
     askpass::run_if_asked();
@@ -1336,6 +1343,7 @@ fn main() {
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return;
     }
+    rune::marks::mark("instance.claimed");
     opencode_kit::client::set_download_dir(dirs::downloads());
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
@@ -1348,10 +1356,14 @@ fn main() {
         let diagnostics = diagnostics::Diagnostics::default();
         if !headless() {
             launch::defer();
+            rune::marks::mark("windows.launch");
             // Every window saved at the last quit, each with its own tabs (`windows`).
-            windows::launch(diagnostics.clone());
+            let opened = windows::launch(diagnostics.clone());
             disk::flush();
+            rune::marks::mark("storage.flushed");
             diagnostics.shutdown();
+            rune::marks::mark("diagnostics.stopped");
+            launch::trace::finish(opened);
             return;
         }
         // The harness's `--realtime` probes launch as a window does: the server's first reads

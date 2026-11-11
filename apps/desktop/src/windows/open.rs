@@ -88,13 +88,14 @@ impl App {
 }
 
 /// Opens every window saved at the last quit, or one for a new profile, each where it was.
-pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
+pub fn launch(diagnostics: crate::diagnostics::Diagnostics) -> usize {
     let saved = store::has_ids();
     let mut ids = store::ids();
     if ids.is_empty() {
         ids.push(store::new_id());
     }
     store::save_ids(ids.clone());
+    let opened = ids.len();
     rune::run_windows(move |displays: &[Display]| {
         ids.iter()
             .enumerate()
@@ -104,6 +105,7 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
             })
             .collect::<Vec<_>>()
     });
+    opened
 }
 
 /// New Window: another window of this app, on the same server, showing Home (Desktop's
@@ -161,6 +163,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
                 crate::telemetry::drawn(rt.state.painted_session(), frame);
                 crate::telemetry::stream_drawn(&rt.state.window.id, frame.0);
             }
+            crate::launch::trace::drawn(&rt.state);
             motion_log.frame(rt);
         })
         // Back on screen (the Dock icon, the Window menu): no longer the hidden last window.

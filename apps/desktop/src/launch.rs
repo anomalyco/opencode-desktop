@@ -331,6 +331,9 @@ pub const GRACE: Duration = Duration::from_secs(5);
 /// How often the setup card tries again on its own.
 fn retry_delay(attempt: u32) -> f64 { (0.25 * 2_f64.powi(attempt.min(4) as i32)).min(3.0) }
 mod network;
+#[cfg(target_os = "windows")]
+pub mod io_trace;
+pub mod trace;
 pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
     if !s.live() { return; }
     Server::wake_reconnects();
@@ -514,6 +517,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         },
     };
     let reached = ready.first.as_ref().map(Result::is_ok);
+    rune::marks::mark("server.answered");
     tx.instant();
     let Some(result) = ready.first else {
         step(s, LaunchEvent::Landed { reached, now }, tx);
@@ -539,6 +543,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     match result {
         Ok(first) => {
             s.apply_first(first);
+            rune::marks::mark("server.first_reads");
             step(s, LaunchEvent::Landed { reached, now }, tx);
             s.show_outbox();
             s.pump_outbox();
