@@ -105,7 +105,9 @@ fn raise_threads(named: impl Fn(&str) -> bool, floor: i32) {
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("opencode-rune {} ({})", crate::updater::build_version(), crate::updater::build_channel());
+        // A reader that went away (a GUI-subsystem exe captured by a shell that stopped waiting) is
+        // no reason to panic.
+        let _ = std::io::Write::write_fmt(&mut std::io::stdout(), format_args!("opencode-rune {} ({})\n", crate::updater::build_version(), crate::updater::build_channel()));
         std::process::exit(0);
     }
 }
