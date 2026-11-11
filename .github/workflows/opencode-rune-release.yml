@@ -10,10 +10,13 @@ name: OpenCode (Rune) Release
 
 #
 # When (notes/ci-cost.md in the operation-detox workspace has the numbers behind this):
-# - dev, hourly at :17 (off the top of the hour, when GitHub's scheduler is busiest): Windows x64,
-#   the platform the rolling dev installer is used on. Pushes to main don't start it: agents push
+# - dev, four times a day at :17 past 02, 07, 12 and 21 UTC (12:17, 17:17, 22:17 and 07:17 in
+#   Brisbane; off the top of the hour, when GitHub's scheduler is busiest): Windows x64, the
+#   platform the rolling dev installer is used on. Pushes to main don't start it: agents push
 #   about 80 times a day, and nearly every push-started build was superseded before it finished.
 # - dev, nightly at 17:17 UTC (03:17 in Brisbane): every platform, Windows arm64 and macOS too.
+# - dev builds and puts its unsigned setups on the rolling pre-release, nothing more: release,
+#   signing and publishing are deferred to the opencode repository (opencode-rune-plan.sh, FEED).
 # - A scheduled run builds nothing when main hasn't changed an app file since the last successful
 #   dev run of its scope (only its plan job runs, about a Linux minute).
 # - workflow_dispatch builds now, whatever changed: channel check, dev or stable, and platforms.
@@ -21,7 +24,7 @@ name: OpenCode (Rune) Release
 
 on:
   schedule:
-    - cron: "17 0-16,18-23 * * *"
+    - cron: "17 2,7,12,21 * * *"
     - cron: "17 17 * * *"
   workflow_dispatch:
     inputs:
@@ -35,7 +38,7 @@ on:
         options: [check, dev, stable]
         default: check
       platforms:
-        description: windows-x64 (the hourly build), or all (Windows x64 and arm64, and macOS; stable always builds all)
+        description: windows-x64 (the scheduled build), or all (Windows x64 and arm64, and macOS; stable always builds all)
         type: choice
         options: [windows-x64, all]
         default: windows-x64
@@ -43,7 +46,7 @@ on:
     tags: ["opencode-rune-v*", "browser-engine-*"]
 
 run-name: >-
-  ${{ github.event_name == 'schedule' && (github.event.schedule == '17 17 * * *' && 'dev: every platform (nightly)' || 'dev: Windows x64 (hourly)')
+  ${{ github.event_name == 'schedule' && (github.event.schedule == '17 17 * * *' && 'dev: every platform (nightly)' || 'dev: Windows x64 (scheduled)')
   || github.event_name == 'workflow_dispatch' && format('{0}: {1} ({2}, dispatched)', inputs.channel, inputs.platforms == 'all' && 'every platform' || 'Windows x64', inputs.ref)
   || github.ref_name }}
 
@@ -85,6 +88,7 @@ jobs:
       release-channel: ${{ steps.plan.outputs.release-channel }}
       release-version: ${{ steps.plan.outputs.release-version }}
       build-desktop: ${{ steps.plan.outputs.build-desktop }}
+      sign: ${{ steps.plan.outputs.sign }}
       windows-arches: ${{ steps.plan.outputs.windows-arches }}
       macos: ${{ steps.plan.outputs.macos }}
       feed-windows-arches: ${{ steps.plan.outputs.feed-windows-arches }}
@@ -115,12 +119,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # Which signing values the release environment holds, read on Linux, so a Windows or macOS
-  # runner is booked only to sign. Stable fails here when either is missing.
+  # runner is booked only to sign. Stable fails here when either is missing. dev signs nothing,
+  # so for dev neither this job nor any signing, verify or publish job starts a runner.
   credentials:
     needs: plan
-    if: >-
-      ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.channel != 'pr-check'
-      && (needs.plan.outputs.feed-windows-arches != '[]' || needs.plan.outputs.feed-macos == 'true') }}
+    if: ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.sign == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: release
@@ -559,8 +562,9 @@ jobs:
   # ---- Publish desktop: release environment; OIDC only -----------------------
   # A channel has one current release, and publishing replaces it whole (targets included), so
   # macOS and Windows go out in one release: each platform that's signed and verified this run,
-  # and one that isn't never holds the other back. Only signed Windows builds reach the feed. The
-  # dev feed carries Windows x64 alone (opencode-rune-plan.sh, FEED).
+  # and one that isn't never holds the other back. Only signed Windows builds reach the feed. Only
+  # stable publishes; release set-up is deferred to the opencode repository (opencode-rune-plan.sh,
+  # FEED).
 
   publish-desktop:
     needs: [plan, sign-macos, verify-macos, verify-windows, sign-windows-setup]
@@ -630,7 +634,7 @@ jobs:
 
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
   # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
-  # the same, so the download links never change: x64 hourly (when main changed), arm64 nightly.
+  # the same, so the download links never change: x64 four times a day (when main changed), arm64 nightly.
   # A setup this run didn't build stays, with its line in SHA256SUMS. Signed builds go to the feed
   # too (publish-desktop).
 
@@ -678,7 +682,7 @@ jobs:
             done < "$RUNNER_TEMP/old/SHA256SUMS"
           fi
           title="OpenCode (Rune) for Windows, dev ($VERSION)"
-          notes="Unsigned Windows setups from main: x64 rebuilt hourly when main changes, arm64 nightly. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
+          notes="Unsigned Windows setups from main: x64 rebuilt four times a day when main changes, arm64 nightly. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
 
           if [ "$exists" = true ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true >/dev/null

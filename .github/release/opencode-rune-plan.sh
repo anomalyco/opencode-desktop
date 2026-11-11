@@ -3,19 +3,21 @@
 # publishes from the event and ref alone, plus the pinned Browser Engine version and SHA-256.
 #
 #   pr-check  pull_request to main: builds and smoke-tests OpenCode (Rune).app; no signing/publish.
-#   dev       the schedule (or dispatch dev on main): 0.0.0-dev-<run> on opencode-rune/desktop/dev
-#             plus browser-engine/stable sync. SCOPE x64 (hourly) builds Windows x64; all
-#             (nightly) also Windows arm64 and macOS. The dev feed carries Windows x64 only (see
-#             FEED below). A scheduled run builds nothing when main hasn't changed an app file
-#             since the last successful dev run of its scope.
+#   dev       the schedule (or dispatch dev on main): 0.0.0-dev-<run>, built only. SCOPE x64
+#             (four times a day) builds Windows x64; all (nightly) also Windows arm64 and
+#             macOS. dev signs and publishes nothing (see
+#             FEED below): its unsigned setups go to the rolling pre-release. A scheduled run
+#             builds nothing when main hasn't changed an app file since the last successful dev
+#             run of its scope.
 #   check     dispatch check on main: builds, signs (when secrets exist), and verifies; no publish.
 #   stable    tag opencode-rune-v<version> (or dispatch stable on that tag): publishes <version>
 #             on opencode-rune/desktop/stable, every platform.
 #   engine    tag browser-engine-<version>: publishes only opencode-rune/browser-engine/stable.
 #
 # Besides the release's identity it outputs windows-arches (JSON: the Windows builds), macos
-# (whether macOS builds), feed-windows-arches and feed-macos (what is signed, verified and
-# published), and publish-engine (only when the pinned engine isn't live yet).
+# (whether macOS builds), sign (whether anything is signed, verified and published),
+# feed-windows-arches and feed-macos (what is, when it is), and publish-engine (only when the
+# pinned engine isn't live yet).
 . "$(dirname "$0")/lib.sh"
 
 crate_version=$(awk '/^\[package\]/ { package = 1; next } /^\[/ { package = 0 } package && /^version = "/ { gsub(/^version = "|"$/, ""); print; exit }' apps/desktop/Cargo.toml)
@@ -74,7 +76,7 @@ else
       channel=dev
       release_channel=dev
       release_version="0.0.0-dev-$GITHUB_RUN_NUMBER"
-      publish_engine=true
+      publish_engine=false
       notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
       ;;
     check)
@@ -129,18 +131,16 @@ if [ "$publish_engine" = true ]; then
 fi
 
 if [ "$scope" = all ]; then windows_arches='["x64","arm64"]' macos=true; else windows_arches='["x64"]' macos=false; fi
-# FEED: a channel's release is replaced whole, so an hourly x64 release drops the other
-# platforms' targets; carrying their old archives forward under the new version would make
-# those builds install the same archive at every check (the updater compares versions until an
-# update has recorded the archive's SHA-256, updater/protocol.rs `decide`). So the dev feed
-# carries Windows x64 alone: arm64 and macOS build nightly to show they still build (the
-# unsigned arm64 setup goes to the rolling pre-release), and only stable, and check rehearsing
-# it, signs and publishes them.
-if [ "$channel" = dev ]; then
-  feed_windows_arches='["x64"]' feed_macos=false
-else
-  feed_windows_arches=$windows_arches feed_macos=$macos
-fi
+# FEED: release, signing and publishing are deferred (the brief, 2026-11-12): Rune's desktop app
+# will ship from the opencode repository, which sets them up there. So dev signs and publishes
+# nothing and books no runner for it (sign=false): its builds keep main building and give the
+# rolling pre-release its unsigned setups. check and stable keep the signing, verify and publish
+# jobs working as the worked example for that set-up. (Were dev to publish again: a channel's
+# release is replaced whole, and carrying arm64's or macOS's older archive forward under a new
+# version makes those builds reinstall it at every check, because the updater compares versions
+# until an update has recorded the archive's SHA-256, updater/protocol.rs `decide`.)
+if [ "$channel" = dev ]; then sign=false; else sign=true; fi
+feed_windows_arches=$windows_arches feed_macos=$macos
 
 {
   echo "sha=$SHA"
@@ -151,6 +151,7 @@ fi
   echo "release-channel=$release_channel"
   echo "release-version=$release_version"
   echo "build-desktop=$build_desktop"
+  echo "sign=$sign"
   echo "windows-arches=$windows_arches"
   echo "macos=$macos"
   echo "feed-windows-arches=$feed_windows_arches"
@@ -163,5 +164,5 @@ fi
 if [ -n "$reason" ]; then
   echo "Nothing to build: $reason" >> "$GITHUB_STEP_SUMMARY"
 else
-  echo "Planned OpenCode (Rune) ($channel, $scope): desktop=$build_desktop ($release_channel $release_version; Windows $windows_arches, macOS $macos; signed and published: Windows $feed_windows_arches, macOS $feed_macos), engine=$publish_engine ($engine_version) at $SHA." >> "$GITHUB_STEP_SUMMARY"
+  echo "Planned OpenCode (Rune) ($channel, $scope): desktop=$build_desktop ($release_channel $release_version; Windows $windows_arches, macOS $macos; signed and published: $sign), engine=$publish_engine ($engine_version) at $SHA." >> "$GITHUB_STEP_SUMMARY"
 fi
