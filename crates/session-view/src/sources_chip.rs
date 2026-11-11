@@ -152,6 +152,9 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
 /// A site's own icon (`site-icon`, site): its favicon covering a 16 round tile on layer-02
 /// (`[data-state]`), fading in over 150 ms once it loaded (`transition: opacity 150ms ease-out`),
 /// and the letter tile in its place once it failed (`site-icon.tsx:13-44`).
+/// `site-icon-image`'s `opacity` from 0 to 1 over 150 ms ease-out.
+static FADE_IN: [rune::Beat; 2] = [rune::Beat::new(0.0).opacity(0.0), rune::Beat::new(0.15).opacity(1.0).easing(rune::Easing::EASE_OUT)];
+
 fn site_icon<S: TimelineHost>(s: &S, p: &Pal, site: &str, host: &str) -> El {
     let pixels = match s.media_store().markdown.site_icon(host) {
         crate::images::markdown::SiteIcon::Failed => return tile(p, site),
@@ -160,12 +163,11 @@ fn site_icon<S: TimelineHost>(s: &S, p: &Pal, site: &str, host: &str) -> El {
     };
     let token = |name: &str| crate::palette::token(p.dark, name);
     let ring = token("alpha-dark-12").unwrap_or(p.border);
-    // It comes in as it lands, on a 150 ms critically damped spring: an element at opacity 0
-    // isn't painted, so it can't fade from there.
-    let fade = rune::Transition::opacity().springs(rune::SpringPair::new(rune::Spring::new(0.15, 0.0), rune::Spring::new(0.15, 0.0)));
+    // It mounts as it shows and plays `opacity` 0 to 1 over 150 ms ease-out from that frame
+    // (`sources.css`), cached or not: Chromium's `load` event lands after the `<img>` mounts.
     let tile = el().size(16.0, 16.0).radius(8.0).fill(p.layer2).box_shadow(Shadow { spread: 0.5, color: ring, inset: true, ..Shadow::default() }).clip_rounded(8.0);
     match pixels {
-        Some(pixels) => tile.child(el().key("favicon").size(16.0, 16.0).pixels_fit(&pixels, rune::SurfaceFit::Fill).transition(fade)),
+        Some(pixels) => tile.child(el().key("favicon").size(16.0, 16.0).pixels_fit(&pixels, rune::SurfaceFit::Fill).animated_changes().transition(rune::Transition::none()).sequence(rune::Sequence::new(&FADE_IN))),
         None => tile,
     }
 }
