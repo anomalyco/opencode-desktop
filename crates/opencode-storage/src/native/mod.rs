@@ -94,17 +94,35 @@ pub(crate) enum Writer {
     Off,
 }
 
+/// Commands on their way to the writer, in the order they were made. While a write-behind
+/// buffer's timer is armed (`armed`), the writer will wake on it and take the queue then, so a
+/// coalesced write (a keystroke's draft, a drag step's layout) is a push under a lock and no
+/// wake-up of its own; anything else, or a write to a buffer with no timer armed, wakes it at once.
+#[derive(Default)]
+pub(crate) struct Queue {
+    pub(crate) cmds: Vec<Cmd>,
+    /// The buffers (crate::BUFFER_*) whose timer is armed.
+    pub(crate) armed: u8,
+}
+
+pub(crate) type SharedQueue = Arc<Mutex<Queue>>;
+
+pub(crate) fn lock_queue(q: &SharedQueue) -> std::sync::MutexGuard<'_, Queue> {
+    q.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub(crate) struct Backend {
     writer: Mutex<Writer>,
+    queue: SharedQueue,
 }
 
 impl Backend {
     pub(crate) fn memory() -> Backend {
-        Backend { writer: Mutex::new(Writer::Off) }
+        Backend { writer: Mutex::new(Writer::Off), queue: SharedQueue::default() }
     }
 
     pub(crate) fn parked(w: writer::Writer) -> Backend {
-        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))) }
+        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Writer> {
@@ -117,7 +135,8 @@ impl Backend {
         match std::mem::replace(&mut *w, Writer::Off) {
             Writer::Parked(parked) => {
                 let (tx, rx) = mpsc::channel();
-                let spawned = std::thread::Builder::new().name("opencode-storage".into()).spawn(move || parked.run(rx));
+                let queue = self.queue.clone();
+                let spawned = std::thread::Builder::new().name("opencode-storage".into()).spawn(move || parked.run(rx, queue));
                 match spawned {
                     Ok(join) => {
                         *w = Writer::Running { tx: tx.clone(), join };
@@ -135,12 +154,30 @@ impl Backend {
     }
 
     pub(crate) fn send(&self, cmd: Cmd) {
+        {
+            let w = self.lock();
+            if let Writer::Running { tx, .. } = &*w {
+                if self.enqueue(cmd) {
+                    tx.send(writer::Msg::Wake).ok();
+                }
+                return;
+            }
+        }
         match self.sender() {
             Some(tx) => {
-                tx.send(writer::Msg::Cmd(cmd)).ok();
+                self.enqueue(cmd);
+                tx.send(writer::Msg::Wake).ok();
             }
             None => answer_offline(cmd),
         }
+    }
+
+    /// Queues `cmd`; true when the writer must be woken for it.
+    fn enqueue(&self, cmd: Cmd) -> bool {
+        let mut q = lock_queue(&self.queue);
+        let wake = q.armed & cmd.buffer() == 0;
+        q.cmds.push(cmd);
+        wake
     }
 
     pub(crate) fn flush(&self, reason: FlushReason, deadline: Duration) -> FlushReport {

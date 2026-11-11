@@ -25,7 +25,8 @@ use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEve
 use crate::{Cmd, FlushReason, FlushReport, Loaded, OutboxOp, StorageError, WindowFrame};
 
 pub(crate) enum Msg {
-    Cmd(Cmd),
+    /// Commands are in the queue (`super::Queue`).
+    Wake,
     Flush { reason: FlushReason, started: Instant, reply: SyncSender<FlushReport> },
     FirstFrame { done: Option<Loaded> },
     Stop,
@@ -152,17 +153,38 @@ impl Writer {
         self.deferred.pending()
     }
 
-    pub(crate) fn run(mut self, rx: Receiver<Msg>) {
+    pub(crate) fn run(mut self, rx: Receiver<Msg>, queue: super::SharedQueue) {
         let (gc, effects) = draft_gc::initial(&mut self.seq, (self.clock)(), STARTUP_COLLECT_DELAY_MS);
         self.gc = gc;
         self.gc_effects(effects);
         loop {
+            // Take what's queued, then say whether a buffer's timer will wake this thread: until
+            // it does, coalesced writes are queued without a wake.
+            loop {
+                let armed = self.buffer_armed();
+                let cmds = {
+                    let mut q = super::lock_queue(&queue);
+                    q.armed = armed;
+                    std::mem::take(&mut q.cmds)
+                };
+                if cmds.is_empty() {
+                    break;
+                }
+                for cmd in cmds {
+                    self.handle(cmd);
+                }
+            }
             let msg = match self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() {
                 Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
+            // Commands made before the message (a flush, the first frame, a stop) come first.
+            let cmds = std::mem::take(&mut super::lock_queue(&queue).cmds);
+            for cmd in cmds {
+                self.handle(cmd);
+            }
             match msg {
-                Ok(Msg::Cmd(cmd)) => self.handle(cmd),
+                Ok(Msg::Wake) => {}
                 Ok(Msg::Flush { reason, started, reply }) => {
                     let report = self.flush(reason, started);
                     reply.send(report).ok();
@@ -177,6 +199,14 @@ impl Writer {
             }
             self.fire_due();
         }
+    }
+
+    /// The write-behind buffers whose timer is armed (it wakes this thread, which takes the queue).
+    fn buffer_armed(&self) -> u8 {
+        [("state", crate::BUFFER_STATE), ("docs", crate::BUFFER_DOCS), ("windows", crate::BUFFER_WINDOWS), ("previews", crate::BUFFER_PREVIEWS), ("caches", crate::BUFFER_CACHES)]
+            .iter()
+            .filter(|(n, _)| self.timers.get(n).is_some_and(Option::is_some))
+            .fold(0, |m, (_, b)| m | b)
     }
 
     fn fire_due(&mut self) {

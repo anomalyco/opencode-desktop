@@ -140,6 +140,28 @@ pub(crate) enum Cmd {
     GetCache { key: String, version: i64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send> },
 }
 
+pub(crate) const BUFFER_STATE: u8 = 1;
+pub(crate) const BUFFER_DOCS: u8 = 2;
+pub(crate) const BUFFER_WINDOWS: u8 = 4;
+pub(crate) const BUFFER_PREVIEWS: u8 = 8;
+pub(crate) const BUFFER_CACHES: u8 = 16;
+
+impl Cmd {
+    /// The write-behind buffer that coalesces this write (`BUFFER_*`), if any: while that buffer's
+    /// timer is armed the write waits for it and needs no wake of its own.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn buffer(&self) -> u8 {
+        match self {
+            Cmd::State { .. } => BUFFER_STATE,
+            Cmd::Doc { .. } => BUFFER_DOCS,
+            Cmd::Window { .. } => BUFFER_WINDOWS,
+            Cmd::Preview { .. } => BUFFER_PREVIEWS,
+            Cmd::Cache { .. } => BUFFER_CACHES,
+            _ => 0,
+        }
+    }
+}
+
 /// The process's storage. Clone it freely: every clone shares one cache and one writer.
 #[derive(Clone)]
 pub struct Storage {
