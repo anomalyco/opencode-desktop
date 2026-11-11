@@ -260,6 +260,8 @@ pub struct App {
     pub projects: Vec<Project>,
     pub sessions: Vec<SessionInfo>,
     pub route: Route,
+    /// The open tab this window left for Home, independent of tab order or layout.
+    home_return_tab: Option<String>,
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: history::History,
     pub transcripts: HashMap<String, Transcript>,
@@ -826,6 +828,9 @@ impl App {
 
     /// Back to Home, dropping a session that was still opening.
     pub(crate) fn go_home(&mut self, tx: &mut Tx) {
+        if self.route != Route::Home {
+            self.home_return_tab = self.current_tab();
+        }
         self.close_settings();
         self.opening = None;
         self.route = Route::Home;
@@ -1461,4 +1466,3 @@ fn main() {
         launch::trace::finish(1);
     }
 }
-
