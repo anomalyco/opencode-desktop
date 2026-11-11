@@ -1,7 +1,8 @@
 //! Server requests that run off the main thread and land back on it: a job reads or writes
 //! through the live server and hands back what to do with the answer, which the next poll
 //! applies. A headless run asks inline, so a snapshot sees the answer on its first frame; it
-//! never writes (see [`App::can_write`]) and skips delayed jobs (polls of a sign-in).
+//! never writes (see [`App::can_write`]) and skips delayed jobs (polls of a sign-in). The
+//! harness's realtime probes (`--harness-writes`) ask as a window does.
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
@@ -35,7 +36,9 @@ impl App {
     /// [`App::job`] after `delay`, as a sign-in's next status poll.
     pub(crate) fn job_after(&self, delay: Duration, work: impl FnOnce(&Server) -> Apply + Send + 'static) {
         let Source::Live { server, .. } = &self.source else { return };
-        if crate::headless() {
+        // The harness's realtime probes stand in for a window, so they ask off the main thread as
+        // one does: an answer asked inline holds the frame clock while the server moves on.
+        if crate::headless() && !crate::harness_writes() {
             if delay.is_zero() {
                 let _ = self.jobs.tx.send(work(server));
             }
