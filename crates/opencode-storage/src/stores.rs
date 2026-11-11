@@ -300,7 +300,8 @@ impl PreviewStore<'_> {
 }
 
 /// Discardable caches of computed inputs (compiled bytecode, shaped runs), by key and version.
-/// Never read at boot; a version other than the stored one reads as absent.
+/// Never read by the first frame's path: a row it can use is read on the open's thread instead
+/// (`StorageConfig::early_cache`). A version other than the stored one reads as absent.
 pub struct CacheStore<'a> {
     pub(crate) storage: &'a Storage,
 }

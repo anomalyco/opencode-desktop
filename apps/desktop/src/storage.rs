@@ -194,7 +194,7 @@ fn config() -> Option<StorageConfig> {
     sidecar.extend(crate::arg("--server"));
     // The groups whose files the app has cut over (the crate's staged import): the plugin host still
     // reads its own until its package moves them.
-    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser], clock: crate::wall_ms })
+    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser], clock: crate::wall_ms }).map(crate::glyph_masks::early)
 }
 
 /// The first window presented its first frame: stage B is joined off the UI thread.

@@ -43,6 +43,10 @@ pub struct BootReport {
     pub error: Option<String>,
     /// Opens retried because another process held the file.
     pub busy_retries: u32,
+    /// The early cache rows (`StorageConfig::early_cache`): read and offered, open start to the
+    /// last offer, and their bytes.
+    pub early_cache_ns: u64,
+    pub early_cache_bytes: usize,
     pub open_ns: u64,
     pub pragma_ns: u64,
     pub schema_ns: u64,
@@ -136,8 +140,9 @@ fn priority(level: i32) {
     drop(level);
 }
 
-fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport) {
+fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport) {
     let t0 = Instant::now();
+    let mut early = std::mem::take(&mut config.early);
     let mut report = BootReport { started: Some(t0), ..BootReport::default() };
     let mut packet: Option<BootPacket> = None;
     match boot_record::read_raw(&config.path) {
@@ -162,7 +167,7 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
     let sent = packet.is_some();
-    let mut result = stage_b(&config, &mut report, t0, if sent { None } else { Some(send) });
+    let mut result = stage_b(&config, &mut report, t0, if sent { None } else { Some(send) }, &mut early);
     // Another process holds the file (an instance still exiting, a tool reading it): wait for it
     // a while longer (busy_timeout is 5 s a try) rather than give the windows a store that can't
     // keep what they write. With the first frame built from the record already, the windows
@@ -171,7 +176,7 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
     while tries < if sent { BUSY_TRIES } else { 2 } && result.as_ref().is_err_and(is_busy) {
         tries += 1;
         report.busy_retries += 1;
-        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) });
+        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early);
     }
     report.total_ns = ns(t0);
     match result {
@@ -201,7 +206,7 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
 
 /// SQLite's part. `send` is set when stage A still owes the UI its packet: then the record is
 /// read through SQLite as soon as the schema and import allow.
-fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: Option<&dyn Fn(BootPacket)>) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
+fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: Option<&dyn Fn(BootPacket)>, early: &mut Vec<super::EarlyCache>) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
     let mut at = Instant::now();
     let lap = |at: &mut Instant| {
         let n = ns(*at);
@@ -223,6 +228,13 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
         schema::set_flags(&conn, flags)?;
     }
     report.schema_ns = lap(&mut at);
+    // The early cache rows go before the import (long on a first launch), unless the boot
+    // packet is still owed: the first frame waits on that, not on these.
+    let mut sums = Vec::new();
+    if send.is_none() {
+        sums = offer_early(&conn, early, report, t0);
+        at = Instant::now();
+    }
     let deferred = match &config.import {
         Some(import) => {
             let path = config.path.clone();
@@ -261,14 +273,34 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
         report.decode_ns = ns(t);
         report.stage_a_ns = ns(t0);
         send(packet.unwrap_or_default());
+        sums = offer_early(&conn, early, report, t0);
+        at = Instant::now();
     }
     let mut cache = read(&conn, report)?;
+    // What was offered is what's stored: putting the same bytes back writes nothing.
+    cache.cache_sums.extend(sums);
     cache.complete = report.created && report.import.rows == 0;
     if cache.complete {
         cache.outbox = OutboxCache::Loaded(BTreeMap::new());
     }
     report.read_ns = lap(&mut at);
     Ok((conn, cache, deferred))
+}
+
+/// Reads each early cache row and offers its bytes, here on the open's thread; returns their
+/// sums for the write-behind's unchanged-write check.
+fn offer_early(conn: &Connection, early: &mut Vec<super::EarlyCache>, report: &mut BootReport, t0: Instant) -> Vec<(String, (i64, u64))> {
+    use rusqlite::OptionalExtension;
+    let mut sums = Vec::new();
+    for e in early.drain(..) {
+        let row: Option<Vec<u8>> = conn.query_row("SELECT data FROM cache WHERE key = ?1 AND version = ?2", rusqlite::params![e.key, e.version], |r| r.get(0)).optional().ok().flatten();
+        let Some(bytes) = row else { continue };
+        report.early_cache_bytes += bytes.len();
+        sums.push((e.key.to_owned(), (e.version, twox_hash::XxHash3_64::oneshot(&bytes))));
+        (e.offer)(Arc::from(bytes));
+        report.early_cache_ns = ns(t0);
+    }
+    sums
 }
 
 /// Opens an existing database without the create probe; creates it only when it isn't there.

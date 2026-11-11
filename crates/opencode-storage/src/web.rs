@@ -605,6 +605,12 @@ impl StorageConfig {
     pub fn app(_app: crate::AppStorage) -> Option<StorageConfig> {
         Some(StorageConfig(()))
     }
+
+    /// The native open's early cache read; the browser keeps no cache rows yet, so nothing is
+    /// offered.
+    pub fn early_cache(self, _key: &'static str, _version: i64, _offer: impl FnOnce(std::sync::Arc<[u8]>) + Send + 'static) -> StorageConfig {
+        self
+    }
 }
 
 /// The open, as the native backend stages it: here it's done at once (the state is read from

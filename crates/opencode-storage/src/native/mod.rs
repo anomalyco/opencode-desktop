@@ -34,11 +34,30 @@ pub struct StorageConfig {
     /// Wall-clock milliseconds since the epoch, for `updated_at` (injected: the workspace forbids
     /// `SystemTime::now` outside its config).
     pub(crate) clock: fn() -> i64,
+    /// Cache rows read on the open's thread as soon as SQLite is open ([`StorageConfig::early_cache`]).
+    pub(crate) early: Vec<EarlyCache>,
+}
+
+/// A `cache` row wanted before the first frame, off the UI thread.
+pub(crate) struct EarlyCache {
+    pub(crate) key: &'static str,
+    pub(crate) version: i64,
+    pub(crate) offer: Box<dyn FnOnce(Arc<[u8]>) + Send>,
 }
 
 impl StorageConfig {
     pub fn native(path: impl Into<PathBuf>, clock: fn() -> i64) -> StorageConfig {
-        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock }
+        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock, early: Vec::new() }
+    }
+
+    /// Reads `cache` row `key` at `version` on the open's thread right after SQLite opens (once
+    /// the boot packet is out, when the open owes it), and hands its bytes to `offer` there: for
+    /// a cache the first frame uses if it's in time (Rune's glyph masks) and does without if not.
+    /// No row, another version, or an open that fails: no call. Never on the UI thread, never in
+    /// the boot record.
+    pub fn early_cache(mut self, key: &'static str, version: i64, offer: impl FnOnce(Arc<[u8]>) + Send + 'static) -> StorageConfig {
+        self.early.push(EarlyCache { key, version, offer: Box::new(offer) });
+        self
     }
 
     /// Imports the files Rune kept before the database, once, from `import.dir`.
