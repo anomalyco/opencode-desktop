@@ -91,13 +91,14 @@ impl App {
         self.tab_at(key).map(|i| &self.tabs[i])
     }
 
-    /// Home's button and ⌘B: Home, or back from it to the last tab.
+    /// Home's button and ⌘B: Home, or back to the tab that opened Home if it's still here.
     pub(crate) fn toggle_home(&mut self, tx: &mut Tx) -> bool {
         if self.route == Route::Home && !self.settings.open {
-            self.opening = None;
-            self.route = self.tabs.last().map_or(Route::Home, crate::tabs::Tab::route);
-            let _ = self.show_draft();
-            tx.settle();
+            if let Some(uid) = self.home_return_tab.take()
+                && self.tabs.iter().any(|tab| tab.uid() == uid)
+            {
+                self.select_tab(&uid, tx);
+            }
             return false;
         }
         self.go_home(tx);
