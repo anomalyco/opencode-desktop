@@ -24,6 +24,8 @@ mod downloads;
 mod hub;
 mod ids;
 mod mentions;
+#[cfg(not(target_arch = "wasm32"))]
+mod reach;
 pub mod rewrite;
 mod upload;
 #[cfg(target_arch = "wasm32")]
@@ -34,6 +36,23 @@ mod worker;
 pub use downloads::{export_filename, save_download, set_download_dir};
 pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};
+#[cfg(not(target_arch = "wasm32"))]
+pub use reach::reach_back;
+
+/// In a browser no address is watched: the page's own requests find a server back.
+#[cfg(target_arch = "wasm32")]
+pub fn reach_back(_seen: &mut u64) -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Server {
+    pub fn watch_reach(&self, _wake: Option<Waker>) {}
+
+    pub fn refusing(&self) -> bool {
+        false
+    }
+}
 pub use upload::UploadError;
 pub use wire::{Incoming, Request, Ticket, TicketKind, Write};
 pub use worker::{connect, connect_with_idle};

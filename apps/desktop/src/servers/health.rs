@@ -29,12 +29,11 @@ enum Timer {
     Every { due: f64, interval: f64 },
 }
 
-struct Answer {
-    key: ServerKey,
-    attempt: Attempt,
-    result: ProbeResult,
-    /// Its home folder, asked for once it answers (`sync.data.path.home`).
-    home: Option<String>,
+enum Answer {
+    Probe { key: ServerKey, attempt: Attempt, result: ProbeResult },
+    /// Its home folder, asked for once it answers (`sync.data.path.home`), after the probe's
+    /// answer: a server that just started takes seconds over it.
+    Home { key: ServerKey, home: String },
 }
 
 struct Runtime {
@@ -52,11 +51,20 @@ struct Runtime {
     /// `retry` callers whose every probe answered, until they ask ([`resolved`]).
     resolved: HashSet<u64>,
     version: u64,
+    /// The reach watcher's comebacks taken so far (`opencode_kit::client::reach_back`).
+    reach_seen: u64,
+    /// Servers that accept connections again, whose next probe waits out their start ([`PATIENCE`]).
+    patient: HashSet<ServerKey>,
 }
+
+/// How long a probe of a server that accepts connections again keeps asking while it doesn't
+/// answer: a server accepts a while before it answers (1.1-5.4 s for the harness's), and past this
+/// the 10 s poll asks anyway.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Default for Runtime {
     fn default() -> Self {
-        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), homes: HashMap::new(), answers: channel(), waiters: 0, resolved: HashSet::new(), version: 0 }
+        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), homes: HashMap::new(), answers: channel(), waiters: 0, resolved: HashSet::new(), version: 0, reach_seen: 0, patient: HashSet::new() }
     }
 }
 
@@ -140,12 +148,30 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
     if let Some(fx) = synced {
         run(s, fx, tx);
     }
+    // A server that refused connections accepts again: probe it now, not at the next poll.
+    let back = HEALTH.with_borrow_mut(|h| opencode_kit::client::reach_back(&mut h.reach_seen));
+    if !back.is_empty() {
+        let keys: Vec<ServerKey> = HEALTH.with_borrow(|h| h.conns.iter().filter(|(_, c)| super::registry::server_for(c).is_some_and(|sv| back.contains(&sv.base))).map(|(k, _)| k.clone()).collect());
+        for key in keys {
+            HEALTH.with_borrow_mut(|h| h.patient.insert(key.clone()));
+            nudge(s, &key, tx);
+            // A server the nudge didn't probe (no endpoint) leaves nothing for a later one.
+            HEALTH.with_borrow_mut(|h| h.patient.remove(&key));
+        }
+    }
     let answers: Vec<Answer> = HEALTH.with_borrow(|h| h.answers.1.try_iter().collect());
     for a in answers {
-        if let Some(home) = a.home {
-            HEALTH.with_borrow_mut(|h| h.homes.insert(a.key.clone(), home));
-        }
-        let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key: a.key, attempt: a.attempt, result: a.result }));
+        let (key, attempt, result) = match a {
+            Answer::Home { key, home } => {
+                HEALTH.with_borrow_mut(|h| {
+                    h.homes.insert(key, home);
+                    h.version += 1;
+                });
+                continue;
+            }
+            Answer::Probe { key, attempt, result } => (key, attempt, result),
+        };
+        let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key, attempt, result }));
         run(s, fx, tx);
     }
     let due = HEALTH.with_borrow(|h| match h.timer {
@@ -170,16 +196,23 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
 }
 
 fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
+    // Only what rows show moves the version and asks for a frame: an answer that says what the
+    // last one did (an unreachable server's every 10 s) changes nothing on screen.
+    let before = HEALTH.with_borrow(|h| shown(h));
     let mut changed = false;
+    let mut known = Vec::new();
     for effect in fx {
         match effect {
-            Effect::Probe { key, attempt, .. } => probe(s, key, attempt),
+            Effect::Probe { key, attempt, .. } => {
+                if let Some(result) = probe(s, &key, attempt) {
+                    known.push((key, attempt, result));
+                }
+            }
             Effect::NotifyProbe(probe) => {
                 if let ProbeResult::Healthy { hostname: Some(name), .. } = &probe.result {
                     HEALTH.with_borrow_mut(|h| h.hostnames.insert(probe.key.clone(), name.clone()));
                 }
                 crate::servers::runtime::reported(&probe);
-                changed = true;
             }
             Effect::TimerStart { interval_ms } => {
                 let interval = interval_ms as f64 / 1000.0;
@@ -193,37 +226,73 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
             }
         }
     }
-    // Every step that settles a slot changes what rows show.
-    HEALTH.with_borrow_mut(|h| h.version += 1);
+    changed |= HEALTH.with_borrow(|h| shown(h)) != before;
     if changed {
+        HEALTH.with_borrow_mut(|h| h.version += 1);
         tx.instant();
     }
+    for (key, attempt, result) in known {
+        let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key, attempt, result }));
+        run(s, fx, tx);
+    }
+}
+
+/// What rows show of every server's health.
+fn shown(h: &Runtime) -> Vec<(Health, Option<String>)> {
+    h.state.entries.iter().map(|(k, slot)| (slot.health(), h.hostnames.get(k).cloned())).collect()
 }
 
 /// `checkServerHealth` on a worker: healthy with the version and hostname `/api/info` reports,
 /// unauthorized on 401, unreachable otherwise. A server that answers for the first time is asked
 /// where it runs too (`/api/location`, `loadPathQuery`), for its home.
-fn probe(s: &App, key: ServerKey, attempt: Attempt) {
-    let Some(server) = HEALTH.with_borrow(|h| h.conns.get(&key).cloned()).and_then(|c| super::registry::server_for(&c)) else { return };
-    let ask_home = HEALTH.with_borrow(|h| !h.homes.contains_key(&key));
+///
+/// A server whose address refused every connection the reach watcher tried in the last second
+/// answers Unreachable at once, with no request (the watcher sees it come back sooner than this
+/// poll would): the answer, for the caller to settle.
+fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
+    let server = HEALTH.with_borrow(|h| h.conns.get(key).cloned()).and_then(|c| super::registry::server_for(&c))?;
+    // The windows' quiet poll: answers landing together wake the window once, and draw only if
+    // something changed.
+    let wake = s.launch.inbox_wake.clone().or_else(|| s.waker.clone());
+    let patient = HEALTH.with_borrow_mut(|h| h.patient.remove(key));
+    if !patient && server.refusing() {
+        server.watch_reach(wake);
+        return Some(ProbeResult::Unreachable);
+    }
+    let ask_home = HEALTH.with_borrow(|h| !h.homes.contains_key(key));
     let send = HEALTH.with_borrow(|h| h.answers.0.clone());
-    let wake = s.waker.clone();
+    let key = key.clone();
     crate::plugin_host::tasks::run(move || {
-        let result = match server.get("/api/info") {
-            Ok(v) => {
-                let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
-                ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
+        let started = rune::time::Instant::now();
+        let result = loop {
+            let result = match server.get("/api/info") {
+                Ok(v) => {
+                    let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
+                    ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
+                }
+                Err(e) if e.ends_with("http status: 401") => ProbeResult::Unauthorized,
+                Err(_) => ProbeResult::Unreachable,
+            };
+            if !patient || result != ProbeResult::Unreachable || started.elapsed() >= PATIENCE {
+                break result;
             }
-            Err(e) if e.ends_with("http status: 401") => ProbeResult::Unauthorized,
-            Err(_) => ProbeResult::Unreachable,
+            std::thread::sleep(std::time::Duration::from_millis(250));
         };
-        let home = (ask_home && matches!(result, ProbeResult::Healthy { .. })).then(|| server.get("/api/location").ok()).flatten().map(|v| {
-            let dir = |v: &serde_json::Value| v["directory"].as_str().unwrap_or_default().to_owned();
-            Some(opencode_kit::path::infer_home(&dir(&v))).filter(|h| !h.is_empty()).unwrap_or_else(|| opencode_kit::path::infer_home(&dir(&v["project"])))
-        });
-        let _ = send.send(Answer { key, attempt, result, home });
-        if let Some(w) = wake {
+        if result == ProbeResult::Unreachable {
+            server.watch_reach(wake.clone());
+        }
+        let healthy = matches!(result, ProbeResult::Healthy { .. });
+        let _ = send.send(Answer::Probe { key: key.clone(), attempt, result });
+        if let Some(w) = &wake {
+            w();
+        }
+        let Some(v) = (ask_home && healthy).then(|| server.get("/api/location").ok()).flatten() else { return };
+        let dir = |v: &serde_json::Value| v["directory"].as_str().unwrap_or_default().to_owned();
+        let home = Some(opencode_kit::path::infer_home(&dir(&v))).filter(|h| !h.is_empty()).unwrap_or_else(|| opencode_kit::path::infer_home(&dir(&v["project"])));
+        let _ = send.send(Answer::Home { key, home });
+        if let Some(w) = &wake {
             w();
         }
     });
+    None
 }

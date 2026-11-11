@@ -54,23 +54,38 @@ pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Inc
     retry_events(server,idle,inbox_tx,wake,250);
 }
 
+/// How long a stream whose server refuses connections waits before trying on its own: the
+/// reach watcher ([`super::reach`]) wakes it the moment the server accepts again, so this is only
+/// a backstop.
+#[cfg(not(target_arch = "wasm32"))]
+const PARKED: Duration = Duration::from_secs(30);
+
 #[cfg(not(target_arch = "wasm32"))]
 fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Waker, mut backoff:u64) {
     let mut resumed = false;
+    // The failure the window last heard of: the same one again tells it nothing, so it isn't woken.
+    let mut said: Option<String> = None;
     loop {
         let mut opened = false;
         let generation = *RETRY.0.lock().unwrap();
         if let Err(e) = server.events(idle, inbox_tx, wake, resumed, &mut opened) {
-            if inbox_tx.send(Incoming::Status(e)).is_err() {
+            let news = opened || said.as_deref() != Some(e.as_str());
+            // Sent either way: a closed inbox is how this thread learns its window went.
+            if inbox_tx.send(Incoming::Status(e.clone())).is_err() {
                 return;
             }
-            wake();
+            if news {
+                wake();
+            }
+            said = Some(e);
+            server.watch_reach(None);
         }
         if opened {
             backoff = 250;
         }
         resumed = true;
-        let _wait = RETRY.1.wait_timeout_while(RETRY.0.lock().unwrap(),Duration::from_millis(backoff),|g| *g == generation).unwrap();
+        let wait = if server.refusing() { PARKED } else { Duration::from_millis(backoff) };
+        let _wait = RETRY.1.wait_timeout_while(RETRY.0.lock().unwrap(),wait,|g| *g == generation).unwrap();
         backoff = (backoff * 2).min(3000);
     }
 }
