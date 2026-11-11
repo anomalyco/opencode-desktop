@@ -84,7 +84,9 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .min_h(0.0)
                 .w_full()
                 .fill(p.bg_base)
-                .child(s.browser.host.surface_el("browser-surface", tab.id, scale, s.zoom, |app: &mut App| &mut app.browser.host))
+                // The page lays out in window points at the window's scale, whatever the app's zoom:
+                // `scale` is the view's, the window's times the zoom.
+                .child(s.browser.host.surface_el("browser-surface", tab.id, scale / s.zoom, s.zoom, |app: &mut App| &mut app.browser.host))
         }
     })
 }

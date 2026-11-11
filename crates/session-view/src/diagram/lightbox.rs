@@ -237,9 +237,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
                 if e.mods.cmd {
                     zoom_about(s, (-e.dy * 0.01).exp(), e.x, e.y);
                 } else {
-                    // Deltas come in window points; the shell is laid out at 1/zoom.
-                    let z = s.zoom().max(0.01);
-                    pan_by(s, e.dx / z, e.dy / z);
+                    pan_by(s, e.dx, e.dy);
                 }
                 tx.instant();
                 true

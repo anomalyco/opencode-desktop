@@ -185,7 +185,7 @@ fn handle(p: &crate::palette::Pal, id: &str, width: f32, min: f32, max: f32, dra
             tx.instant();
             let event = match d.phase {
                 Phase::Down => ResizeEvent::Down { width },
-                Phase::Move => ResizeEvent::Move { dx: d.dx / s.zoom, min, max },
+                Phase::Move => ResizeEvent::Move { dx: d.dx, min, max },
                 Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
             };
             s.panel_sidebar.step(event);

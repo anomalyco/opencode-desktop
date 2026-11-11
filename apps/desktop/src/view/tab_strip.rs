@@ -33,7 +33,6 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
         .tabs(items)
         .active(current.as_deref())
         .viewport_width(viewport)
-        .zoom(s.zoom)
         .fill(p.bg_deep)
         .close_icon(&ic::XMARK_SMALL)
         // Close tab is a Tab stop after its tab, as Desktop's button is.

@@ -191,7 +191,7 @@ fn split_handle(s: &App, p: &Pal, col_h: f32, split_h: f32) -> El {
             let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
             let event = match d.phase {
                 Phase::Down => ResizeEvent::Down { size: split_h, stored: s.session_side_mut(&sid).split_ratio, clicks: d.clicks },
-                Phase::Move => ResizeEvent::Move { by: -d.dy / s.zoom },
+                Phase::Move => ResizeEvent::Move { by: -d.dy },
                 Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
             };
             match s.side.split_resize.step(event) {
@@ -392,7 +392,7 @@ fn tab_bar(
             })
             .on_secondary_press(move |s: &mut App, ev: PointerPress, tx: &mut Tx| {
                 tx.instant();
-                s.side.add_menu = Some((pane, ev.x / s.zoom, ev.y / s.zoom));
+                s.side.add_menu = Some((pane, ev.x, ev.y));
             })
             .child(icon(&ic::PLUS, 16.0).color(p.icon_muted)),
     );
@@ -486,7 +486,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
         })
         .on_secondary_press(move |s: &mut App, ev: PointerPress, tx: &mut Tx| {
             tx.instant();
-            s.side.tab_menu = Some((menu_key.clone(), ev.x / s.zoom, ev.y / s.zoom));
+            s.side.tab_menu = Some((menu_key.clone(), ev.x, ev.y));
         });
     if !entry.tab.pinned && entry.tab.draggable {
         pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx));
@@ -647,7 +647,7 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
                 let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
                 let event = match d.phase {
                     Phase::Down => ResizeEvent::Down { size: chat, stored: s.session_side_mut(&sid).session_width, clicks: d.clicks },
-                    Phase::Move => ResizeEvent::Move { by: d.dx / s.zoom },
+                    Phase::Move => ResizeEvent::Move { by: d.dx },
                     Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
                 };
                 match s.side.chat_resize.step(event) {

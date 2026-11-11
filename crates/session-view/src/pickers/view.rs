@@ -15,7 +15,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     // A narrow window picks from drawers (`composer.tsx:192`, `editor.tsx:1126`); a project
     // keeps its menu.
     if crate::style::narrow() && s.pickers().open.is_some_and(|k| k != Kind::Project) {
-        let win_h = rune::memo::layout_with("zoom", |r| r[3]).map_or(800.0, |h| h / s.zoom());
+        let win_h = rune::memo::layout_with("zoom", |r| r[3]).map_or(800.0, |h| h);
         return super::drawer::layer(s, p, win_h);
     }
     match s.pickers().open {

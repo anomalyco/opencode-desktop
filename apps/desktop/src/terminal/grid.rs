@@ -143,8 +143,9 @@ pub fn render_terminal_pane(
     focused: bool,
 ) -> El {
     let (font_choice, style) = terminal_font_style(&s.knobs);
-    // ghostty-web's whole-device-pixel cell, the glyphs spaced one cell apart.
-    let scale = s.zoom * env_scale;
+    // ghostty-web's whole-device-pixel cell, the glyphs spaced one cell apart. `env_scale` is the
+    // view's, at the app's zoom.
+    let scale = env_scale;
     let (cell_w, cell_h) = cell_metrics_at(font_choice, style, scale);
     let style = style.tracking(cell_tracking(font_choice, style, scale)).lh(cell_h);
     let (pane_w, pane_h) = (pane_size.0.max(200.0), pane_size.1.max(100.0));
@@ -152,8 +153,8 @@ pub fn render_terminal_pane(
     let body_h = (pane_h - PAD_Y * 2.0).max(cell_h * 2.0);
     let fit_cols = ((body_w / cell_w).floor() as u16).clamp(10, 500);
     let fit_rows = ((body_h / cell_h).floor() as u16).clamp(2, 240);
-    let cw_px = ((cell_w * s.zoom * env_scale).round() as u32).max(1);
-    let ch_px = ((cell_h * s.zoom * env_scale).round() as u32).max(1);
+    let cw_px = ((cell_w * scale).round() as u32).max(1);
+    let ch_px = ((cell_h * scale).round() as u32).max(1);
 
     let Some(ws) = s.terminal.workspaces.get(ws_key) else {
         return col().key("terminal-empty").w_full().h_full().fill(p.bg_base).child(notice(p, opencode_i18n::t!("plugin.terminal.loading"), None));

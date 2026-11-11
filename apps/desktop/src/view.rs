@@ -51,17 +51,16 @@ pub(crate) use session_view::style::{BUBBLE, CODE, DOCK_SIDE, H2, INSTANT, UI, U
 /// What a layout switch flies its tabs and controls on (`layouts-design.md`'s GLIDE).
 pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 
-/// The window, drawn at the app's zoom: the shell is laid out at 1/zoom of the window and
-/// scaled up about the centre, so text re-rasterizes crisp and hits follow what's drawn. The
-/// outer, unscaled element is always mounted (it reports the window's size and keeps every
-/// path below it stable across zoom changes).
+/// The window, at the app's zoom (Desktop's `setZoomFactor`): Rune lays the view out in the
+/// window's points over the zoom at its scale times the zoom (`Cx::zoom`), as Chromium folds a
+/// page zoom into the device scale, so every size, border, icon and motion is the zoomed one.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
+    cx.zoom(s.zoom);
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     // Desktop's `(max-width: 767px)`: the shell's width, read once it crosses or while narrow.
-    let zoom = s.zoom;
-    let width = cx.layout_with("zoom", move |r| (r[2] / zoom).min(crate::narrow::machine::BREAKPOINT));
+    let width = cx.layout_with("zoom", move |r| r[2].min(crate::narrow::machine::BREAKPOINT));
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
@@ -164,12 +163,6 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::plugin_host::popover_view(s, p));
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
-    let sized = if (s.zoom - 1.0).abs() > 1e-4 {
-        let [w, h] = cx.layout_size("zoom").unwrap_or([0.0, 0.0]);
-        if w > 0.0 && h > 0.0 { el().w(w / s.zoom).h(h / s.zoom) } else { el().w_full().h_full() }
-    } else {
-        el().w_full().h_full()
-    };
     let root = el().key("zoom");
     // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
@@ -192,7 +185,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .center()
         // Hovers land and leave at once, like Desktop.
         .hover_motion_within(INSTANT, INSTANT)
-        .child(crate::glitch::wrap(s, sized.key("zoomed").scale(s.zoom).child(inner)))
+        .child(crate::glitch::wrap(s, el().key("zoomed").w_full().h_full().child(inner)))
         .child(crate::knobs::layer(s))
 }
 
@@ -210,7 +203,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // last as the far end of a close's travel); shut, nothing reads it, so a resize runs no view.
     // Opening reads it fresh, in the frame it opens.
     let win_w = if matches!(s.route, Route::Session { .. }) && (s.side_open() || s.side.mounted) {
-        cx.layout_size("zoom").map_or(0.0, |[w, _]| w / s.zoom)
+        cx.layout_size("zoom").map_or(0.0, |[w, _]| w)
     } else {
         0.0
     };
@@ -277,7 +270,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .accepts_files(|path| !session_view::images::drag::is_own(path))
                 .on_drop_hover(crate::dropzone::hover)
                 .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
-                    Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w / s.zoom, h / s.zoom])),
+                    Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
                     Route::Session { id, .. } => session_page(s, p, id),
                     Route::Draft(_) => draft_page(s, p, panel_sz.0),
                 } })

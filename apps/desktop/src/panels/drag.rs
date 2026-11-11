@@ -192,7 +192,7 @@ impl App {
 
     /// A tab's drag gesture, from its `on_drag`: `phase` at window point `at`.
     pub fn pane_drag_gesture(&mut self, key: &str, title: &str, d: &rune::Drag, tx: &mut Tx) {
-        let at = d.window_point().map(|v| v / self.zoom);
+        let at = d.window_point();
         let session = self.active_session_id().unwrap_or_default().to_owned();
         match d.phase {
             rune::Phase::Down => {

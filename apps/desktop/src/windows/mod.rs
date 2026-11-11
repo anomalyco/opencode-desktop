@@ -160,8 +160,10 @@ fn slot(id: &str, what: &str) -> String {
 }
 
 impl App {
-    /// Notes the strip's rect (window points) for drops from other windows.
+    /// Notes the strip's rect for drops from other windows: laid out in the view's points, kept
+    /// in the window's (times the zoom), as other windows find it.
     pub(crate) fn strip_laid_out(&mut self, rect: [f32; 4]) {
+        let rect = rect.map(|v| v * self.zoom);
         self.window.strip = Some(rect);
         let id = self.window.id.clone();
         OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = Some(rect)));

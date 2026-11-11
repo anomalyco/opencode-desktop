@@ -113,9 +113,6 @@ impl TimelineHost for Host {
     fn now_ms(&self) -> i64 {
         self.now_ms
     }
-    fn zoom(&self) -> f32 {
-        self.zoom
-    }
     fn active_session_id(&self) -> Option<&str> {
         Some(SESSION_ID)
     }
@@ -223,8 +220,9 @@ pub fn is_dark(cx: &Cx<Host>) -> bool {
     }
 }
 
-/// Renders the read-only session timeline inside a centered panel stage, scaled by `s.zoom`.
+/// Renders the read-only session timeline inside a centered panel stage, at `s.zoom` (`Cx::zoom`).
 pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
+    cx.zoom(s.zoom);
     crate::themes::set_active(&s.theme);
     let p: &Pal = pal(is_dark(cx));
     let body = if s.show_composer {
@@ -255,22 +253,12 @@ pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
         .center()
         .child(card)
         .children(crate::overlays(s, p, cx));
-    let sized = if (s.zoom - 1.0).abs() > 1e-4 {
-        let [w, h] = cx.layout_size("zoom").unwrap_or([1280.0, 820.0]);
-        if w > 0.0 && h > 0.0 {
-            el().w(w / s.zoom).h(h / s.zoom)
-        } else {
-            el().w_full().h_full()
-        }
-    } else {
-        el().w_full().h_full()
-    };
     el().key("zoom")
         .w_full()
         .h_full()
         .center()
         .hover_motion_within(INSTANT, INSTANT)
-        .child(sized.key("zoomed").scale(s.zoom).child(inner))
+        .child(el().key("zoomed").w_full().h_full().child(inner))
 }
 
 pub const READ_ONLY_VARIANTS: &[(&str, usize)] = &[

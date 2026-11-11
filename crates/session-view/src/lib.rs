@@ -109,9 +109,6 @@ pub trait TimelineHost: Sized + 'static {
     fn reduced_motion(&self) -> bool {
         false
     }
-    fn zoom(&self) -> f32 {
-        1.0
-    }
 
     fn active_session_id(&self) -> Option<&str>;
     fn transcript(&self, _session: &str) -> Option<&Transcript> {

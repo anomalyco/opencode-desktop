@@ -35,7 +35,7 @@ fn bottom_pane_height(s: &App, _cx: &mut Cx<App>) -> f32 {
 
 /// The tallest a drag takes the bottom pane: 70% of the window (`window.innerHeight * 0.7`).
 fn bottom_pane_max(s: &App, cx: &mut Cx<App>) -> f32 {
-    (cx.layout_size("zoom").map_or(820.0, |[_, h]| h / s.zoom) * 0.7).round()
+    (cx.layout_size("zoom").map_or(820.0 / s.zoom, |[_, h]| h) * 0.7).round()
 }
 
 /// The bottom pane across the session screen, while any tab is in it.
@@ -67,7 +67,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
             let event = match d.phase {
                 Phase::Down => ResizeEvent::Down { size: h, stored: s.session_side_mut(&sid).bottom_height, clicks: d.clicks },
-                Phase::Move => ResizeEvent::Move { by: -d.dy / s.zoom },
+                Phase::Move => ResizeEvent::Move { by: -d.dy },
                 Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
             };
             match s.side.bottom_resize.step(event) {

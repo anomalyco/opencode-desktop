@@ -99,7 +99,7 @@ fn pick(s: &mut App, id: &str, tx: &mut Tx) {
 pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let Some(open) = &s.connect.open else { return vec![] };
     let zoom = s.zoom.max(0.5);
-    let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w / zoom, h / zoom]);
+    let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
     let top = ((win_h - 512.0) / 2.0).max(8.0);
     let frame = dialog::frame(&open.dialog);
     let authorizing = open.dialog.provider.as_ref().and_then(|p| p.step.connect()).is_some_and(super::machine::authorizing);

@@ -221,7 +221,8 @@ impl App {
     /// left it: the strip opens a gap where it would land (`TabDragState::set_incoming`).
     pub(crate) fn tab_incoming(&mut self, at: Option<[f32; 2]>, tx: &mut Tx) -> bool {
         let open = self.tab_drag.incoming_slot().is_some();
-        self.tab_drag.set_incoming(at);
+        // The strip lays out in the view's points, the window's over its zoom.
+        self.tab_drag.set_incoming(at.map(|a| a.map(|v| v / self.zoom)));
         if !open && at.is_none() {
             tx.live_only();
             return false;

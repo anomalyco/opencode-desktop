@@ -13,7 +13,7 @@ pub fn layer(s: &App, p: &Pal, cx: &mut rune::Cx<App>) -> Vec<El> {
         return Vec::new();
     }
     let n = &s.layout.narrow;
-    let win_h = cx.layout_size("zoom").map_or(800.0, |[_, h]| h / s.zoom);
+    let win_h = cx.layout_size("zoom").map_or(800.0 / s.zoom, |[_, h]| h);
     let mut out = Vec::new();
     for (key, presence, content, dismiss) in [
         (super::tabs::SHEET, n.tabs_presence, (|s, p| super::tabs::drawer(s, p)) as fn(&App, &Pal) -> El, (|s, tx| s.tabs_drawer(TabsEvent::Changed { open: false }, tx)) as fn(&mut App, &mut rune::Tx)),

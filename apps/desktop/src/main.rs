@@ -492,9 +492,6 @@ impl session_view::TimelineHost for App {
     fn reduced_motion(&self) -> bool {
         self.reduced_motion
     }
-    fn zoom(&self) -> f32 {
-        self.zoom
-    }
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
     }

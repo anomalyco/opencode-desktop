@@ -259,8 +259,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let draft = s.quote.comment.draft()?;
     let f = s.quote.comment.field()?;
     let sending = s.quote.comment.sending();
-    let zoom = s.zoom.max(1e-3);
-    let [vw, vh] = cx.layout_size("zoom").map_or([f32::INFINITY, f32::INFINITY], |[w, h]| [w / zoom, h / zoom]);
+    let [vw, vh] = cx.layout_size("zoom").map_or([f32::INFINITY, f32::INFINITY], |[w, h]| [w, h]);
     let [ox, oy] = cx.layout_with("zoomed", |r| [r[0], r[1]]).unwrap_or([0.0, 0.0]);
     let shell = |r: [f32; 4]| [r[0] - ox, r[1] - oy, r[2], r[3]];
     let width = WIDTH.min(vw - GAP * 2.0);

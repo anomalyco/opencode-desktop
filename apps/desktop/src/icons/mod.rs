@@ -32,7 +32,7 @@ pub fn palette(p: &Pal) -> Palette {
 
 /// Before a frame: images and SVGs rasterize for the screen and zoom, in the knob's finish.
 pub fn prepare(s: &App, cx: &Cx<App>) {
-    s.icons.set_scale(cx.env().scale * s.zoom);
+    s.icons.set_scale(cx.env().scale);
     s.icons.set_look(Look::style(Style::Desktop));
     s.icons.set_finish(finish(s));
 }

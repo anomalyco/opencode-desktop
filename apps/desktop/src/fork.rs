@@ -352,7 +352,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let zoom = s.zoom.max(0.5);
     let [win_w, win_h] = cx
         .layout_size("zoom")
-        .map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w / zoom, h / zoom]);
+        .map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
     let w = (win_w - 24.0).min(480.0);
     let max_h = (win_h - 96.0).min(480.0);
     let all = s.fork_messages();

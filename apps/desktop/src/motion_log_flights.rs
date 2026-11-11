@@ -170,7 +170,7 @@ impl Flight {
         let start = r[0];
         let mut out = Vec::new();
         if let Some((key, s)) = &self.source {
-            let near = NEAR * window.zoom;
+            let near = NEAR;
             let off = |v: f32, lo: f32, len: f32| if v < lo - near { v - lo } else if v > lo + len + near { v - (lo + len) } else { 0.0 };
             let (dx, dy) = (off(start[0], s[0], s[2]), off(start[1], s[1], s[3]));
             if dx != 0.0 || dy != 0.0 {

@@ -29,7 +29,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     }
     let insets = cx.chrome_insets();
     let top = chrome.layout == TabLayout::Horizontal;
-    let mut bar = WindowTitlebar::from_insets(insets, s.zoom)
+    let mut bar = WindowTitlebar::from_insets(insets)
         .key("titlebar")
         .height(chrome.row_h)
         .top_padding(chrome.row_pad)
@@ -72,8 +72,9 @@ fn leading_pad(top: bool, lights: f32, zoom: f32) -> f32 {
     match () {
         _ if cfg!(target_os = "windows") && top => 14.0,
         _ if cfg!(target_os = "windows") => INSET_START - 2.0,
-        // `WindowTitlebar` already keeps the lights' own width clear.
-        _ if lights > 0.0 => ((LIGHTS_W - lights) / zoom).max(0.0) + 10.0,
+        // `WindowTitlebar` already keeps the lights' own width clear; `lights` is in the
+        // view's points, the lights' 74 in the window's.
+        _ if lights > 0.0 => (LIGHTS_W / zoom - lights).max(0.0) + 10.0,
         _ => 8.0,
     }
 }

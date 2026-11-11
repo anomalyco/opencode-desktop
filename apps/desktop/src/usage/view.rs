@@ -31,7 +31,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         return Vec::new();
     }
     let zoom = s.zoom.max(0.5);
-    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w / zoom);
+    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w);
     // Escape and a press outside close it (`modal`).
     dialog(s, p, win_w).map_or_else(Vec::new, |d| widgets::modal("usage", p, d.modal(true, |s: &mut App| s.close_usage()), None))
 }

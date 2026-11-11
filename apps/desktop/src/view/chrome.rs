@@ -77,7 +77,7 @@ pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32, bottom: bool) -> Titleb
 }
 
 /// Notes the window's chrome for this frame's view (`view::app`), drawn at the app's `zoom`.
-/// The insets are window points; the shell is laid out at 1/zoom of them. On Windows the row
+/// The insets and `scale` are the view's (`Cx::chrome_insets`, `Cx::env`), at the zoom. On Windows the row
 /// is the titlebar's height (`titlebar_height`), so it lines up with the caption buttons at
 /// every zoom: 44pt zoomed out (`44 / min(zoom, 1)` in the shell, as Desktop's), and 44 shell
 /// points zoomed in.
@@ -88,9 +88,8 @@ pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: Ta
         _ if layout == TabLayout::Horizontal => (TOP_ROW_H, TOP_ROW_PAD),
         _ => (0.0, 0.0),
     };
-    let px = scale * zoom;
-    let hairline = px.floor().max(1.0) / px;
-    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing / zoom, hairline, layout, narrow, bottom: narrow && bottom };
+    let hairline = scale.floor().max(1.0) / scale;
+    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing, hairline, layout, narrow, bottom: narrow && bottom };
     CHROME.with(|c| c.set(chrome));
 }
 

@@ -51,7 +51,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         return vec![];
     }
     let zoom = s.zoom.max(0.5);
-    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w / zoom);
+    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w);
     let words = t!("provider.connect.chatgptWelcome.usage");
     let usage = text(words)
         .key("chatgpt-welcome-usage")

@@ -70,7 +70,7 @@ fn select(s: &mut App, name: &str, tx: &mut Tx) {
 pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let Some(open) = &s.mcp.open else { return vec![] };
     let zoom = s.zoom.max(0.5);
-    let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w / zoom, h / zoom]);
+    let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
     let body = match &open.detail {
         Detail::Open { name, error, copied, .. } => detail(s, p, &open.dir, name, error, copied.as_deref() == Some(error.as_str())),
         // `max-width: 639px`: each row stands at least 44 tall, 8 in above and below (`search-list.css:291-297`).

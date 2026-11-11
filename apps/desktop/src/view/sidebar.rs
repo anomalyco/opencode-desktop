@@ -237,7 +237,7 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
                 Phase::Down => s.sidebar_drag = Some(s.sidebar_w),
                 Phase::Move => {
                     let from = s.sidebar_drag.unwrap_or(s.sidebar_w);
-                    s.sidebar_w = (from + d.dx / s.zoom).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    s.sidebar_w = (from + d.dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
                 }
                 Phase::Up => {
                     if d.cancelled() && let Some(w) = s.sidebar_drag { s.sidebar_w = w; }

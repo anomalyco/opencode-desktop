@@ -158,7 +158,7 @@ impl App {
             tx.live_only();
             return;
         }
-        let at = (window_y, window_y - local_y * self.zoom);
+        let at = (window_y, window_y - local_y);
         step(&mut self.tab_preview.state, Event::Pointer { tab: id, at }, tx.clock());
         tx.instant();
     }
@@ -284,11 +284,11 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     };
     if let (Some(card_h), Some((y, top))) = (card_h, pointer) {
         // The pointer stays level with the middle of a row-sized slot, clamped to the strip
-        // (`cursorOffset`), in window points; the offset is the card's own.
-        let (row_h, card_h, z) = (28.0 * s.zoom, card_h * s.zoom, s.zoom);
-        let (lo, hi) = s.window.strip.map_or((f32::MIN, f32::MAX), |r| (r[1], r[1] + r[3]));
+        // (`cursorOffset`), in the view's points; the strip is kept in the window's.
+        let row_h = 28.0;
+        let (lo, hi) = s.window.strip.map_or((f32::MIN, f32::MAX), |r| (r[1] / s.zoom, (r[1] + r[3]) / s.zoom));
         let clamped = (y - row_h / 2.0).min(hi - card_h).max(lo);
-        card = card.offset(0.0, (clamped - top) / z).offset_motion(Spring::NONE);
+        card = card.offset(0.0, clamped - top).offset_motion(Spring::NONE);
     }
     Some(card)
 }
