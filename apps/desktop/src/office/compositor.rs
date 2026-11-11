@@ -65,6 +65,11 @@ struct SlotUniform {
 }
 
 impl rune::Compositor<App> for OfficeCompositor {
+    /// Only while a page is on screen: otherwise the window's frame is Rune's own.
+    fn draws_own(&self) -> bool {
+        self.gpu.is_some()
+    }
+
     fn render(&mut self, f: &mut Frame<'_, App>) {
         let slots: Vec<(u32, [f32; 4])> = f.rt.instances.iter().filter(|i| i.params[1] == KIND_EFFECT).filter(|i| registry::is_mark(mark(i))).map(|i| (mark(i), i.rect)).collect();
         if slots.is_empty() {
