@@ -212,7 +212,9 @@ fn handle(web: &Rc<RefCell<Web>>, cmd: Cmd) {
                 done(r.map_err(crate::StorageError));
             }
         }
-        Cmd::LoadState { done, .. } => {
+        // Every namespace was read at open.
+        Cmd::LoadState { names, done } => {
+            drop(names);
             if let Some(done) = done {
                 done();
             }
@@ -284,7 +286,7 @@ fn open_idb(web: &Rc<RefCell<Web>>) {
     };
     let upgrade = req.clone();
     let on_upgrade = Closure::once_into_js(move || {
-        let Ok(db) = upgrade.result().and_then(|r| r.dyn_into::<IdbDatabase>().map_err(JsValue::from)) else { return };
+        let Ok(db) = upgrade.result().and_then(|r| r.dyn_into::<IdbDatabase>()) else { return };
         for store in STORES {
             if !db.object_store_names().contains(store) {
                 db.create_object_store(store).ok();
@@ -348,7 +350,9 @@ fn put(web: &Rc<RefCell<Web>>, name: &str, key: &str, value: Option<&JsValue>, d
                     done(Ok(()));
                 }
             });
+            let store_name = name.to_owned();
             let on_error = Closure::once_into_js(move || {
+                let name = store_name;
                 if let Some(done) = failed.borrow_mut().take() {
                     done(Err(crate::StorageError(format!("IndexedDB {name} write failed"))));
                 }

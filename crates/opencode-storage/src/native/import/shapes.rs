@@ -72,6 +72,26 @@ pub fn scan(cfg: &ImportConfig) -> Vec<PathBuf> {
     found
 }
 
+/// Which group a legacy file belongs to.
+pub fn group_of(cfg: &ImportConfig, p: &Path) -> Option<super::ImportGroup> {
+    use super::ImportGroup as G;
+    if p.parent().and_then(Path::file_name).is_some_and(|d| d == "plugins-state") {
+        return Some(G::Plugins);
+    }
+    if cfg.updates_dir.as_deref().is_some_and(|u| p.parent() == Some(u)) {
+        return Some(G::Updater);
+    }
+    let name = p.file_name()?.to_str()?;
+    Some(match name {
+        "plugins-state.json" => G::Plugins,
+        "terminals.json" => G::Terminal,
+        "browser-zoom.json" => G::Browser,
+        n if n.starts_with("outbox-") => G::Outbox,
+        _ if is_legacy_name(p) => G::App,
+        _ => return None,
+    })
+}
+
 fn is_legacy_name(p: &Path) -> bool {
     let Some(name) = p.file_name().and_then(|n| n.to_str()) else { return false };
     SHARED.contains(&name)

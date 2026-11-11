@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension};
 
-use super::schema::{FLAG_BOOT_PAGE2, SCHEMA_VERSION};
+use super::schema::{FLAG_BITS, FLAG_BOOT_PAGE2, SCHEMA_VERSION};
 use crate::WindowFrame;
 
 const MAGIC: &[u8; 4] = b"RNB1";
@@ -201,6 +201,18 @@ struct Writer {
 }
 
 impl Writer {
+    /// The record: header (magic, generation, count, length, xxh3) then the entries.
+    fn finish(mut self, generation: u32) -> Vec<u8> {
+        let payload_len = (self.buf.len() - HEAD) as u32;
+        let sum = twox_hash::XxHash3_64::oneshot(&self.buf[HEAD..]);
+        self.buf[..4].copy_from_slice(MAGIC);
+        self.buf[4..8].copy_from_slice(&generation.to_le_bytes());
+        self.buf[8..12].copy_from_slice(&self.count.to_le_bytes());
+        self.buf[12..16].copy_from_slice(&payload_len.to_le_bytes());
+        self.buf[16..24].copy_from_slice(&sum.to_le_bytes());
+        self.buf
+    }
+
     fn push(&mut self, kind: Kind, a: &str, b: &str, value: &[u8]) {
         let (Ok(al), Ok(bl), Ok(vl)) = (u16::try_from(a.len()), u16::try_from(b.len()), u32::try_from(value.len())) else { return };
         self.buf.push(kind as u8);
@@ -276,17 +288,46 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
         w.push(Kind::Trust, id, "", sha.as_bytes());
     }
     let generation = tx.query_row("PRAGMA application_id", [], |r| r.get::<_, i64>(0)).map(|g| (g as u32).wrapping_add(1))?;
-    let payload_len = (w.buf.len() - HEAD) as u32;
-    let sum = twox_hash::XxHash3_64::oneshot(&w.buf[HEAD..]);
-    w.buf[..4].copy_from_slice(MAGIC);
-    w.buf[4..8].copy_from_slice(&generation.to_le_bytes());
-    w.buf[8..12].copy_from_slice(&w.count.to_le_bytes());
-    w.buf[12..16].copy_from_slice(&payload_len.to_le_bytes());
-    w.buf[16..24].copy_from_slice(&sum.to_le_bytes());
-    tx.prepare_cached("INSERT INTO boot (id, data) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET data = excluded.data")?.execute([&w.buf])?;
+    let bytes = w.finish(generation);
+    tx.prepare_cached("INSERT INTO boot (id, data) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET data = excluded.data")?.execute([&bytes])?;
     // application_id is a signed 32-bit header field: the same bits.
     tx.execute_batch(&format!("PRAGMA application_id = {}", generation as i32))?;
-    Ok(w.buf.len())
+    Ok(bytes.len())
+}
+
+/// The record built from memory (the database couldn't open), so the first frame still draws
+/// what the user had.
+pub(crate) fn from_cache(cache: &crate::cache::Cache) -> BootPacket {
+    let mut w = Writer { buf: vec![0u8; HEAD], count: 0 };
+    for (name, ns) in &cache.state {
+        let crate::cache::Namespace::Loaded { rows, .. } = ns else { continue };
+        if !crate::is_boot_namespace(name) {
+            continue;
+        }
+        for (key, value) in rows {
+            if name.starts_with("opencode.window.") && LAZY_KEYS.contains(&key.as_str()) {
+                continue;
+            }
+            w.push(Kind::State, name, key, value.as_bytes());
+            if key == "tabs.recent"
+                && let Some(tab) = serde_json::from_str::<serde_json::Value>(value).ok().and_then(|v| v["key"].as_str().map(str::to_owned))
+                && let Some(crate::cache::Doc::Present(text)) = cache.docs.get(&format!("{name}:draft:{tab}"))
+                && text.len() <= DOC_CAP
+            {
+                w.push(Kind::Document, &format!("{name}:draft:{tab}"), "", text.as_bytes());
+            }
+        }
+    }
+    for (id, f) in &cache.windows {
+        w.push(Kind::Window, id, "", &encode_frame(f));
+    }
+    for (id, on) in &cache.plugins {
+        w.push(Kind::Plugin, id, "", &[u8::from(*on)]);
+    }
+    for (id, sha) in &cache.trust {
+        w.push(Kind::Trust, id, "", sha.as_bytes());
+    }
+    BootPacket::parse(w.finish(0)).unwrap_or_default()
 }
 
 /// `(server, session)` of an encoded session tab key (`<server>\n/server/<b64>/session/<id>`).
@@ -327,7 +368,7 @@ pub fn read_raw(db: &Path) -> FastBoot {
     let usable = page_size - usize::from(first[20]);
     let version = u32::from_be_bytes([first[60], first[61], first[62], first[63]]);
     let generation = u32::from_be_bytes([first[68], first[69], first[70], first[71]]);
-    if version >> 8 != SCHEMA_VERSION || version & FLAG_BOOT_PAGE2 == 0 {
+    if version >> FLAG_BITS != SCHEMA_VERSION || version & FLAG_BOOT_PAGE2 == 0 {
         return FastBoot::UseSqlite("boot isn't on page 2");
     }
     // Pages smaller than 64 KiB: page 2 is already in the first read.

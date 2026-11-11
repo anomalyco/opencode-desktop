@@ -19,12 +19,56 @@ use rusqlite::Connection;
 /// Bumped with every migration added below.
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// `user_version` = `SCHEMA_VERSION << 8 | flags`.
-pub const FLAG_LEGACY_SETTLED: u32 = 1;
+/// `user_version` = `SCHEMA_VERSION << 16 | flags`: one header field answers, before any table
+/// is read, what the open needs to know.
+pub const FLAG_BITS: u32 = 16;
+pub const FLAG_MASK: u32 = (1 << FLAG_BITS) - 1;
+/// The App group's legacy files were imported (or there were none): see [`ImportGroup`].
+pub const FLAG_APP: u32 = 1;
 pub const FLAG_SEED_SETTLED: u32 = 2;
-/// `boot`'s root is page 2, so the fast reader may trust it.
+/// `boot`'s root is page 2, so the raw reader may trust it.
 pub const FLAG_BOOT_PAGE2: u32 = 4;
+pub const FLAG_PLUGINS: u32 = 8;
+pub const FLAG_OUTBOX: u32 = 16;
+pub const FLAG_TERMINAL: u32 = 32;
+pub const FLAG_UPDATER: u32 = 64;
+pub const FLAG_BROWSER: u32 = 128;
+/// A `retired-<date>` folder of imported files waits to be purged (`state(rune.storage, retired)`).
+pub const FLAG_RETIRED: u32 = 256;
 
+/// The legacy files, in the groups the app's packages cut over one at a time. A group's files
+/// are imported, verified and retired only once the running build names the group
+/// (`ImportConfig::groups`), and never looked at again once its flag is set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ImportGroup {
+    /// The window list, windows, frames, the shared app files, settings, history and small prefs.
+    App,
+    /// `plugins-state.json` and `plugins-state\<id>.json`.
+    Plugins,
+    /// `outbox-<sha>.json`.
+    Outbox,
+    /// `terminals.json`.
+    Terminal,
+    /// The updater's `ready` and `rollout-bucket`.
+    Updater,
+    /// `browser-zoom.json`.
+    Browser,
+}
+
+impl ImportGroup {
+    pub const ALL: [ImportGroup; 6] = [ImportGroup::App, ImportGroup::Plugins, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser];
+
+    pub fn flag(self) -> u32 {
+        match self {
+            ImportGroup::App => FLAG_APP,
+            ImportGroup::Plugins => FLAG_PLUGINS,
+            ImportGroup::Outbox => FLAG_OUTBOX,
+            ImportGroup::Terminal => FLAG_TERMINAL,
+            ImportGroup::Updater => FLAG_UPDATER,
+            ImportGroup::Browser => FLAG_BROWSER,
+        }
+    }
+}
 /// Created before anything else in a new file, so it takes page 2.
 const BOOT: &str = "CREATE TABLE IF NOT EXISTS boot (id INTEGER PRIMARY KEY, data BLOB NOT NULL)";
 
@@ -78,5 +122,5 @@ pub fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
 }
 
 pub fn set_flags(conn: &Connection, flags: u32) -> rusqlite::Result<()> {
-    conn.execute_batch(&format!("PRAGMA user_version = {}", (SCHEMA_VERSION << 8) | flags))
+    conn.execute_batch(&format!("PRAGMA user_version = {}", (SCHEMA_VERSION << FLAG_BITS) | flags))
 }

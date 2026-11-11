@@ -6,6 +6,7 @@
 
 pub mod machine;
 mod outbox;
+mod retire;
 pub mod shapes;
 
 use std::path::PathBuf;
@@ -16,7 +17,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use self::machine::{ImportEffect, ImportEvent, ImportState};
 use self::shapes::{Plan, Row};
-use super::schema::{self, FLAG_LEGACY_SETTLED, FLAG_SEED_SETTLED};
+use super::schema::{self, FLAG_RETIRED, FLAG_SEED_SETTLED};
+pub use super::schema::ImportGroup;
 use super::sql;
 use opencode_kit::servers::migration::Context;
 
@@ -29,13 +31,27 @@ pub struct ImportConfig {
     pub(crate) updates_dir: Option<PathBuf>,
     pub(crate) context: Context,
     pub(crate) servers: Vec<String>,
+    pub(crate) groups: Vec<ImportGroup>,
 }
 
 impl ImportConfig {
-    /// `dir`: the app's data folder (`%APPDATA%\rune-opencode`).
+    /// `dir`: the app's data folder (`%APPDATA%\rune-opencode`). Every group is imported unless
+    /// [`ImportConfig::groups`] narrows it.
     pub fn new(dir: impl Into<PathBuf>) -> ImportConfig {
         let context = Context { sidecar: vec![opencode_kit::client::DEFAULT_SERVER.to_owned()], ..Context::default() };
-        ImportConfig { dir: dir.into(), updates_dir: None, context, servers: Vec::new() }
+        ImportConfig { dir: dir.into(), updates_dir: None, context, servers: Vec::new(), groups: ImportGroup::ALL.to_vec() }
+    }
+
+    /// The groups the running build has cut over: only their files are scanned, imported,
+    /// verified and retired; every other file is left as it is, unread.
+    pub fn groups(mut self, groups: &[ImportGroup]) -> ImportConfig {
+        self.groups = groups.to_vec();
+        self
+    }
+
+    /// The flags of the cut-over groups not settled in `flags`.
+    pub(crate) fn pending(&self, flags: u32) -> u32 {
+        self.groups.iter().map(|g| g.flag()).filter(|f| flags & f == 0).fold(0, |a, f| a | f)
     }
 
     /// The updater's folder (`Cache\Updates`), whose `ready` and `rollout-bucket` markers move in.
@@ -69,7 +85,8 @@ pub struct ImportSummary {
     pub verified_files: usize,
     pub mismatched: Vec<PathBuf>,
     pub unreadable: Vec<PathBuf>,
-    pub removed: usize,
+    /// Files moved into the retired folder.
+    pub retired: usize,
     pub seeded_rows: usize,
     pub scan_ns: u64,
     pub write_ns: u64,
@@ -83,12 +100,17 @@ pub(crate) struct Deferred {
     pub state: ImportState,
     pub official: Vec<PathBuf>,
     pub flags: u32,
+    /// The cut-over groups this run settles once their files are retired.
+    pub groups: u32,
+    /// The data folder, where the retired folder goes.
+    pub dir: Option<PathBuf>,
     pub summary: ImportSummary,
 }
 
 impl Deferred {
+    /// After the first frame there's work: files to retire, a seed, or a retired folder to check.
     pub fn pending(&self) -> bool {
-        matches!(self.state, ImportState::RemovalDeferred { .. } | ImportState::SeedDeferred)
+        matches!(self.state, ImportState::RetireDeferred { .. } | ImportState::SeedDeferred) || self.flags & FLAG_RETIRED != 0
     }
 }
 
@@ -102,6 +124,8 @@ struct Driver<'a> {
     official: &'a [PathBuf],
     now_ms: i64,
     flags: u32,
+    groups: u32,
+    dir: Option<PathBuf>,
     summary: ImportSummary,
     files: Vec<PathBuf>,
     plan: Plan,
@@ -114,21 +138,27 @@ struct Driver<'a> {
 /// the first frame, and the header flags to store.
 pub(crate) fn run(conn: &mut Connection, reopen: Reopen<'_>, cfg: &ImportConfig, official: &[PathBuf], flags: u32, now_ms: i64) -> (ImportSummary, Deferred, u32) {
     let mut state = ImportState::default();
-    let effects = machine::step(&mut state, ImportEvent::SchemaReady { legacy_settled: flags & FLAG_LEGACY_SETTLED != 0, seed_settled: flags & FLAG_SEED_SETTLED != 0 });
-    let mut d = Driver { conn, reopen: Some(reopen), cfg: Some(cfg), official, now_ms, flags, summary: ImportSummary::default(), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let groups = cfg.pending(flags);
+    let effects = machine::step(&mut state, ImportEvent::SchemaReady { pending: groups != 0, seed_settled: flags & FLAG_SEED_SETTLED != 0 });
+    let mut d = Driver { conn, reopen: Some(reopen), cfg: Some(cfg), official, now_ms, flags, groups, dir: Some(cfg.dir.clone()), summary: ImportSummary::default(), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
     drive(&mut state, effects, &mut d);
     let flags = d.flags;
     let summary = d.summary;
-    (summary.clone(), Deferred { state, official: official.to_vec(), flags, summary }, flags)
+    (summary.clone(), Deferred { state, official: official.to_vec(), flags, groups, dir: Some(cfg.dir.clone()), summary }, flags)
 }
 
-/// The first frame is up: removes verified files, or seeds a fresh profile from Desktop's
-/// database. Returns the `state` rows the seed added, for the cache.
+/// The first frame is up: retires verified files, or seeds a fresh profile from Desktop's
+/// database, then purges a retired folder whose 14 clean days are up. Returns the `state` rows
+/// the seed added, for the cache.
 pub(crate) fn after_first_frame(conn: &mut Connection, deferred: &mut Deferred, now_ms: i64) -> Vec<(String, String, String)> {
     let effects = machine::step(&mut deferred.state, ImportEvent::FirstFramePresented);
     let official = std::mem::take(&mut deferred.official);
-    let mut d = Driver { conn, reopen: None, cfg: None, official: &official, now_ms, flags: deferred.flags, summary: std::mem::take(&mut deferred.summary), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let mut d = Driver { conn, reopen: None, cfg: None, official: &official, now_ms, flags: deferred.flags, groups: deferred.groups, dir: deferred.dir.clone(), summary: std::mem::take(&mut deferred.summary), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
     drive(&mut deferred.state, effects, &mut d);
+    if d.flags & FLAG_RETIRED != 0 {
+        let clean = d.summary.mismatched.is_empty() && !d.summary.reports.iter().any(|r| r.contains("failed"));
+        retire::sweep(&mut d, clean);
+    }
     deferred.flags = d.flags;
     deferred.summary = d.summary;
     d.seeded
@@ -142,17 +172,9 @@ fn drive(state: &mut ImportState, effects: Effects<ImportEffect>, d: &mut Driver
             ImportEffect::Scan => Some(scan(d)),
             ImportEffect::Import => Some(import(d)),
             ImportEffect::Verify => Some(verify(d)),
-            ImportEffect::Remove(verified) => {
-                let failed = verified.paths().iter().filter(|p| std::fs::remove_file(p).is_err_and(|e| e.kind() != std::io::ErrorKind::NotFound)).count();
-                d.summary.removed += verified.paths().len() - failed;
-                // `plugins-state\` goes too once its last store moved in (`remove_dir` keeps a
-                // folder that still has anything in it).
-                let mut dirs: Vec<&std::path::Path> = verified.paths().iter().filter_map(|p| p.parent()).filter(|p| p.file_name().is_some_and(|n| n == "plugins-state")).collect();
-                dirs.dedup();
-                for dir in dirs {
-                    std::fs::remove_dir(dir).ok();
-                }
-                Some(ImportEvent::FilesRemoved { failed })
+            ImportEffect::Retire(verified) => {
+                let failed = retire::retire(d, &verified);
+                Some(ImportEvent::FilesRetired { failed })
             }
             ImportEffect::Seed => {
                 let (rows, report) = super::seed::run(d.conn, d.official, d.now_ms);
@@ -161,7 +183,7 @@ fn drive(state: &mut ImportState, effects: Effects<ImportEffect>, d: &mut Driver
                 d.seeded = rows;
                 Some(ImportEvent::OfficialSeedSettled)
             }
-            ImportEffect::MarkLegacySettled => mark(d, FLAG_LEGACY_SETTLED),
+            ImportEffect::MarkGroupsSettled => mark(d, d.groups),
             ImportEffect::MarkSeedSettled => mark(d, FLAG_SEED_SETTLED),
             ImportEffect::FallBackToMemory => None,
             ImportEffect::Report(msg) => {
@@ -192,11 +214,15 @@ fn ns_since(t: Instant) -> u64 {
 
 fn scan(d: &mut Driver<'_>) -> ImportEvent {
     let t = Instant::now();
-    d.files = d.cfg.map(shapes::scan).unwrap_or_default();
+    let Some(cfg) = d.cfg else { return ImportEvent::NoRuneFiles { fresh: false } };
+    // One listing; only the pending groups' files are kept, the others only counted.
+    let all = shapes::scan(cfg);
+    let any = !all.is_empty();
+    d.files = all.into_iter().filter(|p| shapes::group_of(cfg, p).is_some_and(|g| d.groups & g.flag() != 0)).collect();
     d.summary.scan_ns = ns_since(t);
     if d.files.is_empty() {
         let empty = !d.conn.query_row("SELECT EXISTS (SELECT 1 FROM state) OR EXISTS (SELECT 1 FROM document) OR EXISTS (SELECT 1 FROM window_state)", [], |r| r.get::<_, bool>(0)).unwrap_or(true);
-        return ImportEvent::NoRuneFiles { db_empty: empty };
+        return ImportEvent::NoRuneFiles { fresh: empty && !any };
     }
     ImportEvent::FoundRuneFiles { files: d.files.len() }
 }
@@ -325,4 +351,35 @@ fn check(ro: &Connection, row: &Row, fresh: bool) -> rusqlite::Result<bool> {
             found.is_some_and(|f| !fresh || f == **row)
         }
     })
+}
+
+/// When the database can't be opened: the cut-over groups' files as rows in memory, so the app
+/// runs from what the user had rather than from nothing. The files are only read.
+pub(crate) fn hydrate_memory(cache: &mut crate::cache::Cache, cfg: &ImportConfig) {
+    let files: Vec<PathBuf> = shapes::scan(cfg).into_iter().filter(|p| shapes::group_of(cfg, p).is_some_and(|g| cfg.groups.contains(&g))).collect();
+    let plan = shapes::plan(cfg, &files);
+    for row in plan.sources.into_iter().flat_map(|s| s.rows) {
+        match row {
+            Row::State { name, key, value } => {
+                cache.set(&name, key, Some(value.into()));
+            }
+            Row::Doc { key, value } => {
+                cache.docs.insert(key, crate::cache::Doc::Present(value.into()));
+            }
+            Row::Window { id, frame } => {
+                cache.windows.insert(id, frame);
+            }
+            Row::Plugin { id, enabled } => {
+                cache.plugins.insert(id, enabled);
+            }
+            Row::Trust { id, sha256 } => {
+                cache.trust.insert(id, sha256);
+            }
+            Row::Outbox(row) => {
+                if let crate::cache::OutboxCache::Loaded(all) = &mut cache.outbox {
+                    all.entry(row.server.clone()).or_default().push(*row);
+                }
+            }
+        }
+    }
 }

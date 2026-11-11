@@ -116,6 +116,7 @@ impl Cache {
     }
 
     /// Rows read from disk for `name`: what was written since open wins.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn hydrate(&mut self, name: &str, mut rows: BTreeMap<String, Arc<str>>) {
         let revision = match self.state.remove(name) {
             Some(Namespace::Loaded { rows: current, revision }) => {

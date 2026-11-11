@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 pub use boot::{BootReport, Opening};
 pub use boot_record::{BootPacket, BootSource};
-pub use import::ImportConfig;
+pub use import::{ImportConfig, ImportGroup};
 pub use schema::SCHEMA_VERSION;
 
 use crate::{Cmd, FlushReason, FlushReport, Loaded, Storage};

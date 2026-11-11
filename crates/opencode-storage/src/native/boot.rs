@@ -19,7 +19,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::boot_record::{self, BootPacket, BootSource, FastBoot};
 use super::import::{self, ImportSummary};
-use super::schema::{self, FLAG_BOOT_PAGE2, FLAG_LEGACY_SETTLED, FLAG_SEED_SETTLED, SCHEMA_VERSION};
+use super::schema::{self, FLAG_BITS, FLAG_BOOT_PAGE2, FLAG_MASK, FLAG_SEED_SETTLED, ImportGroup, SCHEMA_VERSION};
 use super::{Backend, StorageConfig, sql, writer};
 use crate::cache::{Cache, Doc, Namespace, OutboxCache};
 use crate::{Storage, WindowFrame};
@@ -100,6 +100,15 @@ impl Opening {
         self.boot.recv().unwrap_or_default()
     }
 
+    /// The storage if stage B is done, without waiting: poll it after the first frame. Taken
+    /// once; later calls (and [`Opening::storage`] after it) answer none / memory.
+    pub fn try_storage(&mut self) -> Option<(Storage, BootReport)> {
+        if !self.join.as_ref().is_some_and(std::thread::JoinHandle::is_finished) {
+            return None;
+        }
+        self.join.take().and_then(|j| j.join().ok())
+    }
+
     /// The storage once stage B is done. A failed thread gives storage in memory.
     pub fn storage(self) -> (Storage, BootReport) {
         self.join.and_then(|j| j.join().ok()).unwrap_or_else(|| (Storage::memory(), BootReport { error: Some("the open thread didn't run".into()), ..BootReport::default() }))
@@ -155,10 +164,15 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
         }
         Err(e) => {
             report.error = Some(e.to_string());
-            if !sent {
-                send(BootPacket::default());
+            // Never empty: the files the user had, read into memory (and left where they are).
+            let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
+            if let Some(import) = &config.import {
+                import::hydrate_memory(&mut cache, import);
             }
-            (Storage::memory(), report)
+            if !sent {
+                send(boot_record::from_cache(&cache));
+            }
+            (Storage::from_parts(super::shared(cache), Backend::memory()), report)
         }
     }
 }
@@ -178,8 +192,8 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
     configure(&conn)?;
     report.pragma_ns = lap(&mut at);
     let version = schema::user_version(&conn)?;
-    let mut flags = version & 0xff;
-    if version >> 8 != SCHEMA_VERSION {
+    let mut flags = version & FLAG_MASK;
+    if version >> FLAG_BITS != SCHEMA_VERSION {
         conn.execute_batch("PRAGMA journal_mode = WAL")?;
         let (migrated, page2) = schema::migrate(&mut conn, (config.clock)())?;
         report.migrated = migrated;
@@ -199,7 +213,8 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
             deferred
         }
         None => {
-            let settled = flags | FLAG_LEGACY_SETTLED | FLAG_SEED_SETTLED;
+            // No import asked for: nothing of any group will ever be read.
+            let settled = ImportGroup::ALL.iter().fold(flags | FLAG_SEED_SETTLED, |f, g| f | g.flag());
             if flags != settled {
                 schema::set_flags(&conn, settled)?;
             }
