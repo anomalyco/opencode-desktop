@@ -284,7 +284,6 @@ pub fn setup(app: &mut App, waker: Waker) {
     // Keep screen active was the app's own setting before the Pairing plugin took the page: it
     // moves into the plugin's store once.
     if keep_screen && persists {
-        host.shared.stores.load("pairing");
         if host.shared.stores.text("pairing", "keepScreenActive", "").is_none() {
             host.shared.stores.set("pairing", "keepScreenActive", "", "true");
         }
@@ -402,7 +401,6 @@ fn start(app: &mut App, i: usize) {
     let files = app.plugins.list[i].origin.files();
     let p = &app.plugins.list[i];
     let (id, manifest) = (p.manifest.id.clone(), p.manifest.clone());
-    app.plugins.shared.stores.load(&id);
     *p.half.catalogs.borrow_mut() = sources::catalogs(&files);
     sources::intern_icons(&id, &files);
     if let Some(entry) = &manifest.app {
