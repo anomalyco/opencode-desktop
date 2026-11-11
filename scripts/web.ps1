@@ -45,7 +45,9 @@ if (-not $NoBuild) {
   $env:AR_wasm32_unknown_unknown = Join-Path $WasiSdk "bin/llvm-ar$exe"
   $env:CXXSTDLIB_wasm32_unknown_unknown = 'c++'
   $env:CFLAGS_wasm32_unknown_unknown = '--target=wasm32-wasip1'
-  $env:LUAU_CXXFLAGS = '--target=wasm32-wasip1 -fexceptions -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false'
+  # The wasm target's C++ alone (cc's per-target variable): the app's build script also compiles
+  # Luau for the host, which must not get these. WebAssembly exception handling, as Rune's web build.
+  $env:CXXFLAGS_wasm32_unknown_unknown = '--target=wasm32-wasip1 -fexceptions -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false'
   $env:WASI_SDK_PATH = $WasiSdk
   $cargo = if ($env:CARGO) { $env:CARGO } else { 'cargo' }
   $cargoArgs = @('build', '-p', 'opencode-web', '--lib', '--target', 'wasm32-unknown-unknown')

@@ -1,23 +1,47 @@
 name: OpenCode (Rune) Web Build
 
-# Builds the browser build (apps/web: the desktop app as wasm with WebGPU) on every push to
-# main and uploads the static folder as an artifact. It deploys nothing: serve the folder
-# locally (`pwsh scripts/web.ps1 -NoBuild`, or any static server) and open it in Chrome or Edge.
+# Builds the browser build (apps/web: the desktop app as wasm with WebGPU) and uploads the
+# static folder as an artifact, to keep main's web build honest and to give a bundle to try. It
+# deploys nothing: serve the folder locally (`pwsh scripts/web.ps1 -NoBuild`, or any static
+# server) and open it in Chrome or Edge.
+#
+# Three times a day, and only when main moved since the last green run; or by hand. Not on every
+# push: main moves dozens of times a day, and every push's own wasm32 check runs before it.
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "17 3,11,19 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: opencode-rune-web-${{ github.ref }}
+  group: opencode-rune-web
   cancel-in-progress: true
 
 jobs:
+  moved:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow opencode-rune-web.yml --branch main --status success --limit 1 --json headSha -q '.[0].headSha' || true)
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$last" != "$GITHUB_SHA" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main hasn't moved since the last green run ($last)"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   web:
+    needs: moved
+    if: needs.moved.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -37,18 +61,34 @@ jobs:
         with:
           key: web-wasm32
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # Luau's C++ builds for the web with WASI SDK's clang.
+      # Luau's C++ builds for the web with WASI SDK's clang (LLVM and the WASI sysroot in one).
+      - id: wasi-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/wasi-sdk-${{ env.WASI_SDK_VERSION }}.0-x86_64-linux
+          key: wasi-sdk-${{ env.WASI_SDK_VERSION }}-${{ env.WASI_SDK_SHA256 }}
       - name: WASI SDK
+        if: steps.wasi-cache.outputs.cache-hit != 'true'
         run: |
           file="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
           curl -fsSL -o "$RUNNER_TEMP/$file" "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/$file"
           echo "$WASI_SDK_SHA256  $RUNNER_TEMP/$file" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$file" -C "$RUNNER_TEMP"
-          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
-      - name: wasm-bindgen at the lockfile's version
+      - name: WASI SDK path
         run: |
-          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
-          cargo install wasm-bindgen-cli --version "$version" --locked
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux/bin/clang" --version
+      - name: wasm-bindgen version
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - id: bindgen-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-${{ steps.bindgen.outputs.version }}-linux
+      - name: wasm-bindgen
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version "${{ steps.bindgen.outputs.version }}" --locked
       - name: Build
         shell: pwsh
         run: scripts/web.ps1 -NoServe -Out "$env:RUNNER_TEMP/web"
