@@ -12,6 +12,7 @@ use crate::style::{UI, activity_ring};
 use crate::turns::{self, Block, Entry, Step};
 
 pub mod attachments;
+mod delivery;
 mod dividers;
 pub mod parts;
 pub mod rhythm;
@@ -496,7 +497,8 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     // where the last run's Changed files went.
     let mut run: Option<(String, std::collections::BTreeSet<String>)> = None;
     let mut diff_at: Option<usize> = None;
-    for (mi, m) in t.messages[..shown].iter().enumerate() {
+    let mut messages = t.messages[..shown].iter().enumerate().peekable();
+    while let Some((mi, m)) = messages.next() {
         match m {
             Message::Assistant(a) => {
                 // A reply doesn't join a shell command's turn.
@@ -546,20 +548,15 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
                 }
             }
-            Message::User { id, text: body, .. } => {
+            Message::User { id, .. } => {
                 run.get_or_insert_with(|| (id.clone(), Default::default()));
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                let above = mi > 0 && joins(&t.messages[mi - 1], m);
-                // The last prompt runs on into the pending steers under it, unless Working
-                // stands between them.
-                let below = match t.messages[..shown].get(mi + 1) {
-                    Some(n) => joins(m, n),
-                    None => !runs_off && pending.first().is_some_and(|n| prompts_join(body, n)),
-                };
-                let tight = prompt_images(&mut out, id, older);
-                if !body.trim().is_empty() || !model::user_comments(id).is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, reply: 0.0, fold: fold(id) }, streaming: false });
-                }
+                let end = delivery::end(&steps, &t.messages[..shown], mi);
+                // Keep source indices: the virtualizer rebuilds each group from this slice.
+                if !steps.is_empty() { steps.extend(entries(&t.messages[mi..end], &detail)); }
+                turn_rows(&mut out, &std::mem::take(&mut steps), start, end, false, &detail);
+                delivery::rows(&mut out, &t.messages[..shown], mi..end, older, &detail, &fold,
+                    pending.first().copied().filter(|_| !runs_off));
+                while messages.next_if(|(i, _)| *i < end).is_some() {}
             }
             // A shell command run from the composer is a turn of its own: its shell call, on its
             // own row or in a group as Timeline detail places shells, with the notices that
@@ -625,6 +622,12 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         Some(i) if revert.is_none() => i.waiting_notices().filter(|n| crate::detail::notice_placement(n, &detail) != crate::detail::Placement::Hidden).collect(),
         _ => Vec::new(),
     };
+    // Job reports belong to work already started, not to the steers waiting to run.
+    let (jobs, notices): (Vec<_>, Vec<_>) = notices.into_iter().partition(|n| matches!(n.kind, model::NoticeKind::Job { .. }));
+    for n in jobs {
+        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
+        prev = None;
+    }
     let mut notices = notices.into_iter().peekable();
     for (k, item) in pending.iter().enumerate() {
         while let Some(n) = notices.next_if(|n| n.id < item.id) {
