@@ -13,7 +13,7 @@ pub mod select;
 pub mod state;
 
 use office_preview::xlsx::{LAST_CELL, Range};
-use rune::{Color, Cursor, El, Family, ScrollPos, TextStyle, col, el, memo, text};
+use rune::{Color, Cursor, El, Family, LineCap, ScrollPos, Shape, TextStyle, canvas, col, el, memo, text};
 
 use super::registry::{self, Snapshot};
 use super::worker::SheetFrame;
@@ -30,10 +30,6 @@ fn ink_selected_label() -> Color { rune::color::hex("#185c37").unwrap_or(Color::
 fn ink_accent() -> Color { rune::color::hex("#217346").unwrap_or(Color::BLACK) }
 /// `rgba(33, 115, 70, 0.12)`: the selected cells' tint.
 fn ink_selection() -> Color { Color { a: 0.12, ..ink_accent() } }
-
-/// `line`'s one-pixel stroke, centred on a whole-pixel edge as the canvas draws it: half its colour
-/// on each of the two pixels it straddles.
-fn half(c: Color) -> Color { Color { a: c.a * 0.5, ..c } }
 
 /// The column headers' height (`headerHeight`).
 pub const HEADER_H: f32 = 20.0;
@@ -148,7 +144,9 @@ fn column_name(index: u32) -> String {
 /// The strip of column letters, held at the top as the sheet scrolls down; the selected columns
 /// lit.
 fn column_headers(snap: &Snapshot, header_w: f32, content_w: f32, range: Range) -> El {
-    let mut strip = el().key("office-sheet-columns").w(header_w + content_w.max(1.0)).h(HEADER_H).fill(ink_header()).sticky_top(0.0).cursor(Cursor::Default);
+    let width = header_w + content_w.max(1.0);
+    let strip = el().key("office-sheet-columns").w(width).h(HEADER_H).fill(ink_header()).sticky_top(0.0).cursor(Cursor::Default);
+    let (mut paint, mut labels) = (Shape::new(), Vec::new());
     if let Some(frame) = &snap.frame {
         let x0 = header_w + frame.viewport[0] as f32;
         let offsets = &frame.grid.col_offsets;
@@ -156,15 +154,21 @@ fn column_headers(snap: &Snapshot, header_w: f32, content_w: f32, range: Range) 
             let index = track(frame.grid.start_col, frame.grid.col_indices.as_deref(), position);
             let selected = index >= range[1] && index <= range[3];
             let (x, w) = (x0 + pair[0], pair[1] - pair[0]);
-            strip = strip.child(memo(format!("office-col-{index}"), (x.to_bits(), w.to_bits(), selected), || header_cell(x, 0.0, w, HEADER_H, column_name(index), selected, true)));
+            paint = header_paint(paint, [x, 0.0, w, HEADER_H], selected, true, header_w..width);
+            labels.push(memo(format!("office-col-{index}"), (x.to_bits(), w.to_bits(), selected), || header_label(x, 0.0, w, HEADER_H, column_name(index), selected, true)));
         }
     }
-    strip.child(el().absolute(0.0, HEADER_H - 1.0).w(header_w + content_w.max(1.0)).h(2.0).fill(half(ink_edge()))).child(corner(header_w))
+    // `paintHeaders` draws the edge along the cells over every header.
+    paint = paint.line([0.0, HEADER_H], [width, HEADER_H], 1.0, LineCap::Butt, ink_edge());
+    // The canvas under the labels, as Desktop's draws its tints before its text.
+    strip.child(canvas(paint).key("office-sheet-columns-paint").absolute(0.0, 0.0).size(width, HEADER_H + 1.0).inert()).children(labels).child(corner(header_w))
 }
 
 /// The strip of row numbers, held at the left as the sheet scrolls across; the selected rows lit.
 fn row_headers(snap: &Snapshot, header_w: f32, content_h: f32, range: Range) -> El {
-    let mut strip = el().key("office-sheet-rows").absolute(0.0, HEADER_H).w(header_w).h(content_h.max(1.0)).fill(ink_header()).sticky_left(0.0).cursor(Cursor::Default);
+    let height = content_h.max(1.0);
+    let strip = el().key("office-sheet-rows").absolute(0.0, HEADER_H).w(header_w).h(height).fill(ink_header()).sticky_left(0.0).cursor(Cursor::Default);
+    let (mut paint, mut labels) = (Shape::new(), Vec::new());
     if let Some(frame) = &snap.frame {
         let y0 = frame.viewport[1] as f32;
         let offsets = &frame.grid.row_offsets;
@@ -172,39 +176,57 @@ fn row_headers(snap: &Snapshot, header_w: f32, content_h: f32, range: Range) -> 
             let index = track(frame.grid.start_row, frame.grid.row_indices.as_deref(), position);
             let selected = index >= range[0] && index <= range[2];
             let (y, h) = (y0 + pair[0], pair[1] - pair[0]);
-            strip = strip.child(memo(format!("office-row-{index}"), (y.to_bits(), h.to_bits(), header_w.to_bits(), selected), || header_cell(0.0, y, header_w, h, (index + 1).to_string(), selected, false)));
+            paint = header_paint(paint, [0.0, y, header_w, h], selected, false, 0.0..height);
+            labels.push(memo(format!("office-row-{index}"), (y.to_bits(), h.to_bits(), header_w.to_bits(), selected), || header_label(0.0, y, header_w, h, (index + 1).to_string(), selected, false)));
         }
     }
-    strip.child(el().absolute(header_w - 1.0, 0.0).w(2.0).h(content_h.max(1.0)).fill(half(ink_edge())))
+    paint = paint.line([header_w, 0.0], [header_w, height], 1.0, LineCap::Butt, ink_edge());
+    strip.child(canvas(paint).key("office-sheet-rows-paint").absolute(0.0, 0.0).size(header_w + 1.0, height).inert()).children(labels)
 }
 
-/// The select-all corner over both strips, with Excel's small triangle pointing at the cells.
+/// The select-all corner over both strips, with Excel's small triangle pointing at the cells and
+/// the two edges where they pass it.
 fn corner(header_w: f32) -> El {
-    let triangle = rune::Shape::new().fill(vec![[header_w - 4.0, HEADER_H - 12.0], [header_w - 4.0, HEADER_H - 4.0], [header_w - 12.0, HEADER_H - 4.0]], rune::color::hex("#c8c8c8").unwrap_or(Color::BLACK));
-    el().key("office-sheet-corner").absolute(0.0, 0.0).size(header_w, HEADER_H).fill(ink_header()).sticky_left(0.0).child(rune::canvas(triangle).absolute(0.0, 0.0).size(header_w, HEADER_H)).child(el().absolute(0.0, HEADER_H - 1.0).w(header_w).h(2.0).fill(half(ink_edge()))).child(el().absolute(header_w - 1.0, 0.0).w(2.0).h(HEADER_H).fill(half(ink_edge())))
+    let paint = Shape::new()
+        .fill(vec![[header_w - 4.0, HEADER_H - 12.0], [header_w - 4.0, HEADER_H - 4.0], [header_w - 12.0, HEADER_H - 4.0]], rune::color::hex("#c8c8c8").unwrap_or(Color::BLACK))
+        .line([0.0, HEADER_H], [header_w, HEADER_H], 1.0, LineCap::Butt, ink_edge())
+        .line([header_w, 0.0], [header_w, HEADER_H], 1.0, LineCap::Butt, ink_edge());
+    el().key("office-sheet-corner").absolute(0.0, 0.0).size(header_w, HEADER_H).fill(ink_header()).sticky_left(0.0).child(canvas(paint).absolute(0.0, 0.0).size(header_w + 1.0, HEADER_H + 1.0))
 }
 
-/// One header: its label centred, tinted with a bar toward the cells when selected, and the line
-/// after it where the gridline meets it.
-fn header_cell(x: f32, y: f32, w: f32, h: f32, label: String, selected: bool, columns: bool) -> El {
+/// One header's paint, after `paint`, as `paintHeader` draws it on Desktop's canvas, at its exact
+/// place: tinted with a bar toward the cells when selected, then the 1 px line after it, centred
+/// on its edge where the gridline meets it. Like the canvas, it lands between device pixels at
+/// any scale (a 1.5 px line at 1.5x), and the next header's tint covers this line's far half.
+/// `clip` is the strip's run along the headers, which the tint stays inside.
+fn header_paint(paint: Shape, [x, y, w, h]: [f32; 4], selected: bool, columns: bool, clip: std::ops::Range<f32>) -> Shape {
     if w <= 0.0 || h <= 0.0 {
+        return paint;
+    }
+    let rect = |paint: Shape, [x, y, w, h]: [f32; 4], c: Color| {
+        let (lo, hi) = if columns { (x.max(clip.start), (x + w).min(clip.end)) } else { (y.max(clip.start), (y + h).min(clip.end)) };
+        if hi <= lo {
+            return paint;
+        }
+        let [x0, y0, x1, y1] = if columns { [lo, y, hi, y + h] } else { [x, lo, x + w, hi] };
+        paint.fill(vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]], c)
+    };
+    let mut paint = paint;
+    if selected {
+        paint = rect(paint, [x, y, w, h], ink_selected_header());
+        paint = rect(paint, if columns { [x, y + h - 2.0, w, 2.0] } else { [x + w - 2.0, y, 2.0, h] }, ink_accent());
+    }
+    let (a, b) = if columns { ([x + w, y], [x + w, y + h]) } else { ([x, y + h], [x + w, y + h]) };
+    paint.line(a, b, 1.0, LineCap::Butt, ink_line())
+}
+
+/// One header's label, centred in it; a track too small for its label shows none.
+fn header_label(x: f32, y: f32, w: f32, h: f32, label: String, selected: bool, columns: bool) -> El {
+    let fits = if columns { label.len() as f32 * 6.2 + 2.0 <= w } else { h >= 9.0 };
+    if w <= 0.0 || h <= 0.0 || !fits {
         return el();
     }
-    // Only a selected header paints over the strip's fill, so the line before it shows whole.
-    let mut cell = el().absolute(x, y).size(w, h).center();
-    if selected {
-        cell = cell.fill(ink_selected_header());
-    }
-    // A track too small for its label shows none.
-    let fits = if columns { label.len() as f32 * 6.2 + 2.0 <= w } else { h >= 9.0 };
-    if fits {
-        cell = cell.child(text(label).font(LABEL_STYLE).color(if selected { ink_selected_label() } else { ink_label() }));
-    }
-    if selected {
-        cell = cell.child(if columns { el().absolute(0.0, h - 2.0).w(w).h(2.0).fill(ink_accent()) } else { el().absolute(w - 2.0, 0.0).w(2.0).h(h).fill(ink_accent()) });
-    }
-    let rule = if columns { el().absolute(w - 1.0, 0.0).w(2.0).h(h).fill(half(ink_line())) } else { el().absolute(0.0, h - 1.0).w(w).h(2.0).fill(half(ink_line())) };
-    cell.child(rule)
+    el().absolute(x, y).size(w, h).center().inert().child(text(label).font(LABEL_STYLE).color(if selected { ink_selected_label() } else { ink_label() }))
 }
 
 /// Where a range's tracks on show sit in the frame (`rangeRect`): x, y, width, height; `None`

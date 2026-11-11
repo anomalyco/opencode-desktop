@@ -107,19 +107,23 @@ function view.workbook(services: Services, v: View, document: OfficeDocument, ac
                 copyFailed = services.I18n:T("sheet.copyFailed"),
             },
         }),
-        if #tabs > 0 then ui.divider() else nil,
+        -- The tabs' `h-9 border-t`: 36 tall with its rule inside.
         if #tabs > 0
-            then ui.row({
-                key = "office-sheet-tabs",
-                role = "group",
-                label = services.I18n:T("sheet.tabs"),
-                w = "full",
-                h = 36,
-                px = 8,
-                gap = 4,
-                align = "center",
-                scrollX = true,
-            }, tabs)
+            then ui.col({ key = "office-sheet-tabs-bar", w = "full", h = 36 }, {
+                ui.divider(),
+                ui.row({
+                    key = "office-sheet-tabs",
+                    role = "group",
+                    label = services.I18n:T("sheet.tabs"),
+                    w = "full",
+                    grow = 1,
+                    minH = 0,
+                    px = 8,
+                    gap = 4,
+                    align = "center",
+                    scrollX = true,
+                }, tabs),
+            })
             else nil,
     })
 end

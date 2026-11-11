@@ -14,7 +14,7 @@ string_enum! {
         Col = "col",
         /// Flexible space in a stack.
         Spacer = "spacer",
-        /// A hairline rule.
+        /// A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content.
         Divider = "divider",
         /// Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are.
         Text = "text",

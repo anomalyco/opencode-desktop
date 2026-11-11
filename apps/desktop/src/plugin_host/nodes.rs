@@ -84,9 +84,11 @@ fn style(a: &NodeArgs, base: TextStyle) -> TextStyle {
     s
 }
 
+/// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
+/// 1.5x, two at 2x (`rune::rule`), so a box that holds one ends where Desktop's does.
 fn divider(a: &mut NodeArgs) -> Result<El, String> {
     let c = a.color("color").unwrap_or(p(a).border_muted);
-    Ok(if a.flag("vertical") { el().w(1.0).h_full().fill(c) } else { el().w_full().h(1.0).fill(c) })
+    Ok(if a.flag("vertical") { el().h_full().border_sides([0.0, 0.0, 0.0, 1.0], c).border_layout() } else { rune::rule(1.0, c).w_full() })
 }
 
 fn icon(a: &mut NodeArgs) -> Result<El, String> {

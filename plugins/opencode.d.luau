@@ -5380,7 +5380,7 @@ export type UiLibrary = {
     col: ((props: UiBoxProps, children: { UiNode }?) -> UiNode) & ((style: UiBoxProps, props: UiBoxProps?, children: { UiNode }?) -> UiNode),
     --- Flexible space in a stack.
     spacer: (props: UiSpacerProps?) -> UiNode,
-    --- A hairline rule.
+    --- A 1 px rule, laid out as a 1px CSS border is: one device pixel up to 1.5x, two at 2x. A box whose height counts its border holds it beside its content.
     divider: (props: UiDividerProps?) -> UiNode,
     --- Text. Values after the props fill `{1}`, `{2}`... in `content`, written straight into the text: `ui.text("{1} / {2}", VALUE, read, write)`. Other braces stay as they are.
     text: ((content: string, props: UiTextProps?, ...string | number) -> UiNode) & ((content: string, style: UiTextProps, props: UiTextProps, ...string | number) -> UiNode),

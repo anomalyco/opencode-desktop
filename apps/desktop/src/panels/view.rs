@@ -308,8 +308,8 @@ pub(super) fn pane_box(
             s.composer.focused = false;
         })
         .child(bar)
-        // `tabs.css:589`: `border-bottom: 0.5px solid border-base`, drawn on whole device pixels.
-        .child(el().w_full().h(crate::view::chrome().half_hairline).fill(p.border))
+        // `tabs.css:589`: `border-bottom: 0.5px solid border-base`, a device pixel of room.
+        .child(rune::rule(0.5, p.border))
         .child(content)
 }
 
