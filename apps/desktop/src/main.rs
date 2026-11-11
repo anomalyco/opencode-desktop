@@ -1358,6 +1358,14 @@ fn main() {
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
     telemetry::startup("launch.gpu", rune::prewarm_gpu);
+    // Windows: the first window's GPU device and renderer start on a thread now, beside the
+    // launch, as `prewarm_gpu` does on macOS. Picking the adapter lists every adapter through wgpu,
+    // which makes a device on each (909,300 µs p50 on blade, the discrete GPU waking up), until
+    // Rune can take one adapter; the window takes what's made, waiting if it isn't ready.
+    #[cfg(windows)]
+    if !headless() {
+        rune::warm_gpu(Default::default());
+    }
     telemetry::startup("launch.icon", launch::apply_app_icon);
     #[cfg(feature = "hot")]
     rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::hot) });
