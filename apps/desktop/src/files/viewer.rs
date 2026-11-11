@@ -93,8 +93,9 @@ pub(super) fn files_main(
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
     let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
-    // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
+    // A picture or a video shows on its stage, with no lines to find or wrap.
+    let lines = picture.is_none() && !ws.videos.contains_key(path);
     let wrap_on = doc.is_some_and(|d| d.wrap());
     let find_on = doc.is_some_and(|d| d.find_open);
     let sel_badge = doc.filter(|_| !rendered).and_then(|d| d.selection()).map(|sel| {
@@ -140,14 +141,14 @@ pub(super) fn files_main(
             let (glyph, label) = if rendered { (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource")) } else { (&READ_ICON, opencode_i18n::t!("plugin.file.view.viewPreview")) };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
-        .children(picture.is_none().then(|| tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
+        .children(lines.then(|| tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
                 d.find_open = !d.find_open;
                 d.find_input.focused = d.find_open;
             }
         })).help_keys(crate::keymap::Bind::Find.keycaps())))
-        .children((!rendered && picture.is_none()).then(|| {
+        .children((!rendered && lines).then(|| {
             tool(p, "files-wrap-btn", &WRAP_ICON, wrap_on, opencode_i18n::t!("plugin.review.settings.wrapLines.title"), opencode_i18n::t!("plugin.review.settings.wrapLines.title"), at(|s, sid, path, tx| {
                 tx.instant();
                 let wrap = s.files.sessions.get(sid).and_then(|w| w.docs.get(path)).is_some_and(|d| d.wrap());
@@ -178,13 +179,14 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
+    let clip = ws.videos.get(path);
     let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
     // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
     let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path);
     // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
     // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
     // `ArtifactToolbar`.
-    let toolbar = artifact && (markdown_doc || picture.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
+    let toolbar = artifact && (markdown_doc || picture.is_some() || clip.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
     if artifact && !toolbar {
         out = out.pt(12.0);
     }
@@ -209,6 +211,10 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     }
     if let Some(img) = picture {
         return out.child(super::image::stage(s, p, img));
+    }
+    // One that can't play shows as another binary file, as Desktop's `decode.failed` does.
+    if let Some(v) = clip.filter(|v| !matches!(v.player.state(), rune::PlayerState::Failed(_))) {
+        return out.child(super::video::stage(s, p, v));
     }
     if rendered && markdown::is_markdown(path) && let Some(d) = doc {
         return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path), ws.code_paths.get(path), artifact));

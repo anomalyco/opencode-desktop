@@ -152,6 +152,8 @@ pub enum Dep {
     Browser,
     /// Where a plugin's image stands (`Images:State`, `ui.image`).
     Image(Rc<str>, u32),
+    /// Whether a plugin's video (`ui.video`) can play, by its URL.
+    Video(Rc<str>, String),
 }
 
 /// Records that the running render read `dep`. Outside a recorded render it does nothing.

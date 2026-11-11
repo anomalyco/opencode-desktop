@@ -115,15 +115,18 @@ fn plugin_file(origin: Origin, path: &str) -> Option<Source> {
     }
 }
 
-/// `ui.video(props)`: the video playing muted on a loop while it shows, its first frame before.
+/// `ui.video(props)`: the video playing muted on a loop while it shows. As a page's `<video>`,
+/// its box shows what's behind it until the first frame, and stays that way if it can't play.
 pub fn video_node(a: &mut NodeArgs) -> Result<El, String> {
     let app = cx::app().ok_or("ui.video draws only in a window")?;
     let plugin = cx::rendering().ok_or("ui.video draws only while a plugin renders")?;
     let src = a.string("src").filter(|s| s.starts_with("https://") || s.starts_with("http://")).ok_or("give it an http or https src")?.to_owned();
     let fit = if a.string("fit") == Some("cover") { SurfaceFit::Fill } else { SurfaceFit::Fit };
     let radius = a.number("radius").unwrap_or(0.0) as f32;
+    cx::read(Dep::Video(plugin.clone(), src.clone()));
     let player = app.plugins.shared.images.borrow_mut().player(&plugin, &src);
-    let mut out = el().role("img").video(&player, fit);
+    let failed = matches!(player.state(), rune::PlayerState::Failed(_));
+    let mut out = if failed { el().role("img") } else { el().role("img").video(&player, fit) };
     if let Some(label) = a.string("label") {
         out = out.label(label.to_owned());
     }

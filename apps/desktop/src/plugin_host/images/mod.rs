@@ -172,6 +172,11 @@ impl Images {
             })
             .clone()
     }
+
+    /// Whether plugin `plugin`'s video at `url` can't play.
+    pub fn video_failed(&self, plugin: &str, url: &str) -> bool {
+        self.players.get(&(plugin.to_owned(), url.to_owned())).is_some_and(|p| matches!(p.state(), rune::PlayerState::Failed(_)))
+    }
 }
 
 /// An image handle for the viewer, with the bytes its menu saves.

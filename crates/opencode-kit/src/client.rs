@@ -268,6 +268,16 @@ impl Server {
         self.get_bytes(&format!("/api/experimental/media/{hash}"))
     }
 
+    /// `path` as a URL a media player opens on its own, which sends no header of ours: the
+    /// credential rides along as `auth_token`, which the server takes in its place
+    /// (`packages/server/src/middleware/authorization.ts`).
+    pub fn stream_url(&self, path: &str) -> String {
+        let url = format!("{}{path}", self.base);
+        let Some(token) = self.auth.as_deref().and_then(|a| a.strip_prefix("Basic ")) else { return url };
+        let token: String = token.chars().map(|c| match c { '+' => "%2B".into(), '/' => "%2F".into(), '=' => "%3D".into(), c => c.to_string() }).collect();
+        format!("{url}{}auth_token={token}", if path.contains('?') { '&' } else { '?' })
+    }
+
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
     pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
         let mut req = Self::agent(Some(Duration::from_secs(60))).get(format!("{}{path}", self.base));

@@ -5388,7 +5388,7 @@ export type UiLibrary = {
     icon: ((name: IconName, props: UiIconProps?) -> UiNode) & ((name: IconName, style: UiIconProps, props: UiIconProps) -> UiNode),
     --- An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon).
     image: ((props: UiImageProps, fallback: UiNode?) -> UiNode) & ((style: UiImageProps, props: UiImageProps, fallback: UiNode?) -> UiNode),
-    --- A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box.
+    --- A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`. Until its first frame, and if it can't play, its box shows what's behind it.
     video: (props: UiVideoProps) -> UiNode,
     --- A number shown as text. Hosts that can animate changed digits do.
     metric: (props: UiMetricProps) -> UiNode,

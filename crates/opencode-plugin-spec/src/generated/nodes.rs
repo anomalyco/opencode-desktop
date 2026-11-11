@@ -22,7 +22,7 @@ string_enum! {
         Icon = "icon",
         /// An image the host holds, or loads from `src`. While it loads its box shows the `placeholder`; `fallback` takes its place when it fails (a site's letter in place of its icon).
         Image = "image",
-        /// A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`, and its first frame before it plays. A host that plays no video on this platform yet shows a neutral placeholder in its box.
+        /// A video playing muted on a loop while it shows, as a page's `<video autoplay loop muted playsinline>`. Until its first frame, and if it can't play, its box shows what's behind it.
         Video = "video",
         /// A number shown as text. Hosts that can animate changed digits do.
         Metric = "metric",

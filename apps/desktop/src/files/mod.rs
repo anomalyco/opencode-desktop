@@ -12,6 +12,7 @@ pub mod markdown;
 pub mod narrow;
 mod markdown_stories;
 mod stories;
+pub mod video;
 pub mod view;
 pub(crate) mod viewer;
 
@@ -49,6 +50,8 @@ pub struct SessionFiles {
     pub code_paths: HashMap<String, code_paths::CodePaths>,
     /// Picture files (and SVGs) as decoded images, with their zoom.
     pub images: HashMap<String, image::FileImage>,
+    /// Video files, each with its player and controls.
+    pub videos: HashMap<String, video::FileVideo>,
     pub ready: bool,
     /// What the narrow window's Files view shows (`narrow`).
     pub narrow: narrow::NarrowFiles,
@@ -127,6 +130,7 @@ impl Default for SessionFiles {
             md: HashMap::new(),
             code_paths: HashMap::new(),
             images: HashMap::new(),
+            videos: HashMap::new(),
             ready: false,
             narrow: narrow::NarrowFiles::default(),
         }
@@ -259,6 +263,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     for ws in s.files.sessions.values_mut() {
         changed |= ws.images.values_mut().fold(false, |any, i| i.landed() | any);
     }
+    changed |= video::poll(s, tx);
     if s.files.dirty {
         s.files.dirty = false;
         if let Some(sid) = s.active_session_id().map(str::to_owned) {
@@ -476,12 +481,27 @@ impl App {
             }
             Source::Live { server, .. } => {
                 let wrap = self.files.wrap;
-                let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
-                ws.docs.insert(path.to_owned(), wrap.doc(path, ""));
                 let directory = self
                     .session(session_id)
                     .map(|s| s.directory.clone())
                     .unwrap_or_default();
+                // A video streams into its player where it lies: nothing is read first.
+                if video::is_video(path) {
+                    let source = if server.is_local() {
+                        std::path::Path::new(&directory).join(path).to_string_lossy().into_owned()
+                    } else {
+                        server.stream_url(&format!("/api/fs/read/{}?location%5Bdirectory%5D={}", crate::review::data::encode_fs_path(path), crate::switcher::encode(&directory)))
+                    };
+                    let clip = video::FileVideo::new(&source, self.files.waker.clone());
+                    let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
+                    let mut doc = wrap.doc(path, "");
+                    doc.set_binary(0);
+                    ws.docs.insert(path.to_owned(), doc);
+                    ws.videos.insert(path.to_owned(), clip);
+                    return;
+                }
+                let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
+                ws.docs.insert(path.to_owned(), wrap.doc(path, ""));
                 let srv = server.clone();
                 let sid = session_id.to_owned();
                 let p = path.to_owned();
