@@ -2,7 +2,6 @@ use super::*;
 use crate::inbox_model::{Entry, InboxStatus, Sections, age};
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
-use rune_kit::ScrollBar;
 
 // ---------------------------------------------------------------------------------------------
 // Inbox: Desktop's Inbox layout in the sidebar (`shell/titlebar/inbox.tsx`): Needs attention,
@@ -88,55 +87,15 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
                 tx.live_only();
             }
         })
-        .child(scroller(s, p, "inbox-scroll", Pane::List, list).grow(1.0))
+        .child(scroller(p, "inbox-scroll", list).grow(1.0))
         .children((!sections.working.is_empty()).then(|| working(s, p, &sections, inset)))
 }
 
 /// Which of the inbox's two scroll areas.
-#[derive(Clone, Copy)]
-enum Pane {
-    List,
-    Shelf,
+/// A plain `overflow-y-auto` area, with `scrollbar.css`'s bar in the gutter it takes while it overflows.
+fn scroller(p: &Pal, key: &str, content: El) -> El {
+    session_view::scroller::scroller(key).build::<App>(p, col().w_full().shrink().min_h(0.0), content)
 }
-
-/// A plain `overflow-y-auto` area: while its content overflows, Chromium's styled scroll bar
-/// (`scrollbar.css`) takes an 8pt gutter from its width. Both heights are measured, so the
-/// gutter comes and goes with the overflow.
-fn scroller(s: &App, p: &Pal, key: &str, pane: Pane, content: El) -> El {
-    let fit = match pane {
-        Pane::List => s.sidebar_inbox.list,
-        Pane::Shelf => s.sidebar_inbox.shelf,
-    };
-    let measure = move |s: &mut App, h: f32, tx: &mut Tx, content: bool| {
-        let fit = match pane {
-            Pane::List => &mut s.sidebar_inbox.list,
-            Pane::Shelf => &mut s.sidebar_inbox.shelf,
-        };
-        let slot = if content { &mut fit.content } else { &mut fit.view };
-        if (*slot - h).abs() > 0.5 {
-            *slot = h;
-        } else {
-            tx.live_only();
-        }
-    };
-    col()
-        .key(key)
-        .w_full()
-        .shrink()
-        .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .on_layout_tx(move |s: &mut App, r: [f32; 4], tx: &mut Tx| measure(s, r[3], tx, false))
-        .child(
-            content
-                .pr(if fit.overflows() { SCROLLBAR_GUTTER } else { 0.0 })
-                .on_layout_tx(move |s: &mut App, r: [f32; 4], tx: &mut Tx| measure(s, r[3], tx, true)),
-        )
-        // `scrollbar.css`: the plain `overflow-y: auto` box's own bar, in the gutter it takes.
-        .scroll_bar_styled(rune_kit::ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside())
-}
-
-/// The width a styled Chromium scroll bar takes from layout (`--scrollbar-size`).
-const SCROLLBAR_GUTTER: f32 = 8.0;
 
 /// Working sessions, in a shelf pinned below the list: at most 40% of the inbox, behind a
 /// full-bleed hairline.
@@ -157,7 +116,7 @@ fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
     }
     if open {
         let rows = col().key("content").w_full().gap(2.0).children(cards(s, p, &sections.working));
-        shelf = shelf.child(scroller(s, p, "inbox-working-rows", Pane::Shelf, rows));
+        shelf = shelf.child(scroller(p, "inbox-working-rows", rows));
     }
     shelf
 }

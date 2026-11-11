@@ -11,7 +11,7 @@ use crate::popover::Highlight;
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::{project_git, project_sandboxes};
 use opencode_kit::path;
-use rune::{Align, Color, El, Key, KeyEvent, ScrollSpec, Side, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -552,7 +552,8 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         .on_press(|_: &mut App| {})
         .child(search)
         .child(el().key("branch-picker-divider").h(0.5).w_full().fill(p.border))
-        .child(col().key("branch-picker-scroll").w_full().h(list_h.min(224.0)).scroll(ScrollSpec { stick_bottom: false }).child(list));
+        // The location dialog's `MenuScroll` (`new-session/location/dialog.tsx:335`).
+        .child(session_view::scroller::scroller("branch-picker-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().h(list_h.min(224.0)), list));
     let scrim = el()
         .key("branch-picker-scrim")
         .absolute(0.0, 0.0)

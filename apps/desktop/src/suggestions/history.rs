@@ -80,6 +80,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             .preserve_focus_on_press(true)
             .on_press(|_: &mut App| {})
             .child(suggest_search(p, &s.suggest.search, opencode_i18n::t!("ui.promptInput.history"), opencode_i18n::t!("ui.promptInput.history.search")))
-            .child(col().key("history-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).child(items)),
+            // `MenuScroll` (`editor.tsx:1314`).
+            .child(session_view::scroller::scroller("history-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().h(list_h), items)),
     )
 }

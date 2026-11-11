@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use rune::{Color, El, Key, ScrollSpec, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, El, Key, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use super::{Model, ModelAction, PickerHost, host, mark, search};
@@ -135,9 +135,8 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             .children(s.picker_model_actions().contains(&ModelAction::Connect).then(|| connect::<S>(p))))
         .child(search_row)
         .child(hairline)
-        .child(col().key("manage-models-scroll").w_full().grow(1.0).shrink().min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false })
-            .child(body));
+        // `settings-panel`: no bar, as Desktop hides it (`manage.tsx:134-135`, `settings.css:593-607`).
+        .child(crate::scroller::scroller("manage-models-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), body));
     let scrim = el().key("manage-models-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     let modal = el().key("manage-models-modal").absolute(0.0, 0.0).w_full().h_full().center().transition(Transition::none()).child(dialog).raise();
     vec![scrim, modal]

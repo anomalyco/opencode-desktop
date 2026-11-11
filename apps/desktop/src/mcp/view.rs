@@ -3,7 +3,7 @@
 //! Sign in), and a failed server's error view with Copy details, Disable and Try again.
 
 use opencode_kit::integration::{McpServer, McpStatus};
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_kit::{ButtonVariant, Switch};
 use rune_theme_opencode::icons as ic;
 
@@ -123,7 +123,8 @@ fn list(s: &App, p: &Pal, dir: &str, tall: bool) -> El {
     }
     col().key("mcp-list").w_full().min_h(0.0).shrink()
         .child(search)
-        .child(col().key("mcp-scroll").w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(results))
+        // `SearchList`'s `MenuScroll` (`mcp-dialog.tsx:231`, `search-list.tsx:319`).
+        .child(session_view::scroller::scroller("mcp-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().shrink().min_h(0.0), results))
 }
 
 /// One server: its dot and name, then View error and its switch, or Sign in.

@@ -1,6 +1,6 @@
 //! The question's face of the composer surface: header, answers and footer.
 
-use rune::{Anim, Color, El, ScrollSpec, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
+use rune::{Anim, Color, El, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
 
 use super::*;
 use crate::dock::{Variant, button, face_transition};
@@ -40,7 +40,8 @@ fn arrival(k: &rune_knobs::Knobs, step: i32) -> Transition {
 
 /// Question `tab`'s text and answers in their own viewport, so a new question starts at its top.
 fn scroller(tab: usize, page: El) -> El {
-    col().key(format!("q-scroll-{tab}")).w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(FADE).scroll_margin(FADE).child(page)
+    // No bar, as Desktop hides it (`question-prompt-experimental.css:97-106`).
+    crate::scroller::scroller(format!("q-scroll-{tab}")).hidden(col().w_full().shrink().min_h(0.0).scroll_edge_fade(FADE).scroll_margin(FADE), page)
 }
 
 /// An answer's key and mark: round for one answer, square for many, filled once picked.

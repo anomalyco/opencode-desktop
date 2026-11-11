@@ -5,7 +5,7 @@
 
 use opencode_i18n::t;
 use rune::machine::{Attempt, Seq};
-use rune::{El, Key, KeyEvent, ScrollSpec, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
+use rune::{El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, Loader};
 
 use crate::App;
@@ -331,8 +331,12 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let body = match error {
         // `ErrorDetails`: the error in a selectable block above the actions.
         Some(e) => col().key("move-recovery-error").w_full().gap(12.0).px(16.0).pb(16.0)
-            .child(col().key("move-recovery-error-text").w_full().max_h(240.0).scroll(ScrollSpec { stick_bottom: false }).py(8.0).px(12.0).radius(6.0).fill(p.layer3)
-                .child(text(e).font(ERROR).color(p.text).wrap_anywhere().selectable(true).selection_style(p.field_selection)))
+            // `error-details-text`: a plain `overflow: auto` box's bar (`error-details.css:12-14`).
+            .child(session_view::scroller::scroller("move-recovery-error-text").build::<App>(
+                p,
+                col().w_full().max_h(240.0).py(8.0).px(12.0).radius(6.0).fill(p.layer3),
+                text(e).font(ERROR).color(p.text).wrap_anywhere().selectable(true).selection_style(p.field_selection),
+            ))
             .child(actions),
         None => actions.padding(16.0),
     };

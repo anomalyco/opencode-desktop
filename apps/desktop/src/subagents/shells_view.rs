@@ -171,9 +171,9 @@ pub fn panel(s: &App, p: &Pal) -> Option<El> {
         .mt(4.0)
         .radius(6.0)
         .fill(p.bg_base)
-        .scroll(rune::ScrollSpec { stick_bottom: true })
-        .instant_changes()
-        .child(col().w_full().py(8.0).px(10.0).child(body));
+        .instant_changes();
+    // `session-activity-shell-output`: a plain `overflow-y: auto` box's bar (`activity-chips.css:207-212`).
+    let output = session_view::scroller::scroller("shell-output").stick_bottom().build::<App>(p, output, col().w_full().py(8.0).px(10.0).child(body));
     let panel = col()
         .key("activity-panel")
         .role("menu")

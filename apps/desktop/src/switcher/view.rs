@@ -2,8 +2,7 @@
 //! dialog (`dialog.css:141-234`) over `SearchList` (`ui/forms/search-list/search-list.css`), its
 //! rows `PaletteRow` with `palette-menu.css`'s title and `keybind.css`'s chips.
 
-use rune::{Color, Cx, El, PointerEvent, ScrollSpec, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
-use rune_kit::ScrollBar as _;
+use rune::{Color, Cx, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::{file_icons, icons as ic};
 
 use super::shown::Empty;
@@ -163,19 +162,15 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
         .child(el().key("switcher-divider").w_full().h(0.5).mt(8.5).mb(8.0).fill(p.border))
         .child(
-            col()
-                .key("switcher-scroll")
-                .role("listbox")
-                .w_full()
-                .h(scroll_h)
-                .scroll(ScrollSpec { stick_bottom: false })
+            // `MenuScroll`: the thumb shows while the list scrolls (`search-list.tsx:311`).
+            session_view::scroller::scroller("switcher-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(
+                p,
                 // `search-list.css:63-92`, `search-list.tsx:141-163`: rows fade out over 24 past the
                 // bottom edge and under the stuck section header, each linear, at full strength
                 // once 15 are hidden.
-                .scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky())
-                .child(results)
-                // `MenuScroll`: the thumb shows while the list scrolls (`search-list.tsx:311`).
-                .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
+                col().role("listbox").w_full().h(scroll_h).scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky()),
+                results,
+            ),
         )
 }
 

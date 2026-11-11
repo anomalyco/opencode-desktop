@@ -282,16 +282,11 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     }
     let n = items.len() + shell_items.len();
     let h = (n as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
-    let rows = col()
-        .key("activity-scroll")
-        .w_full()
-        .h(h)
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .scroll_edge_fade(12.0)
-        .scroll_margin(PANEL_PAD)
-        // What it holds comes in with the list, not on fades of its own.
-        .instant_changes()
-        .child(list);
+    // `MenuScroll` (`activity-chips.tsx:214`). What it holds comes in with the list, not on fades
+    // of its own.
+    let rows = session_view::scroller::scroller("activity-scroll")
+        .bar(session_view::scroller::Bar::MenuScroll)
+        .build::<App>(p, col().w_full().h(h).scroll_edge_fade(12.0).scroll_margin(PANEL_PAD).instant_changes(), list);
     let label = if items.is_empty() { opencode_i18n::t!("session.activity.section.shells") } else { opencode_i18n::t!("session.activity.section.subagents") };
     let panel = col()
         .key("activity-panel")

@@ -4,7 +4,6 @@
 //! with 24 pt gutters; below that the rail gives way to a bar with Back and the page menu. The
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
-use rune_kit::ScrollBar as _;
 use rune::{Color, El, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -53,13 +52,11 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     let narrow = width > 0.0 && width < 800.0;
     crate::settings::note_panel_width(if narrow { width - 8.0 } else { 0.0 }, s.layout.narrow.sm());
     let content = pages::view(s, p);
-    // Desktop's ScrollView bar over the whole screen, as Home has; the pointer over it shows it.
-    let screen = |inner: El| col().key("settings").role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0)
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .child(inner)
-        .scroll_bar_styled(rune_kit::ScrollBarStyle::scroll_view(&crate::palette::kit(p)))
-        // The bar's column takes the viewport's place, so it takes its sizing too.
-        .w_full().grow(1.0).shrink().min_h(0.0);
+    // The whole screen scrolls with no bar, as Desktop hides it (`.settings-screen > .settings`:
+    // `scrollbar-width: none`, `settings.css:913-919`; the narrow `.settings-panel`, `:593-607`).
+    let screen = |inner: El| {
+        session_view::scroller::scroller("settings").hidden(col().role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0), inner)
+    };
 
     if narrow {
         // `--settings-mobile-inner-inset`: 8 in a narrow window, else 16 (`settings.css:33`).
@@ -116,10 +113,8 @@ fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
     }
     // `.settings-nav-groups` (`settings.css:84-146`): each edge fades in by what's hidden behind
     // it, up to 24.
-    let groups = col().key("settings-nav-groups").w_full().shrink().min_h(0.0)
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .scroll_fade(rune::ScrollFade::feather(24.0))
-        .child(list);
+    // A plain `overflow-y: auto` box's bar (`settings.css:88-91`).
+    let groups = session_view::scroller::scroller("settings-nav-groups").build::<App>(p, col().w_full().shrink().min_h(0.0).scroll_fade(rune::ScrollFade::feather(24.0)), list);
     nav.child(col().key("settings-nav-room").w_full().max_h(room).child(groups))
 }
 

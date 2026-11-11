@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rune::{Anim, Color, Cursor, El, GrowthSpec, ScrollSpec, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Cursor, El, GrowthSpec, TextEdit, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::tree_icons;
 
@@ -161,13 +161,9 @@ pub(crate) fn workspace_tree_view(
                 crate::open_in::context(r, id_ctx)
             },
         );
-    col()
-        .key("files-tree")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(list)
+    // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
+    // reach (`gui-plugins/src/file/pierre-tree.tsx:32-50`): not matched yet, no bar.
+    session_view::scroller::scroller("files-tree").hidden(col().w_full().grow(1.0).min_h(0.0), list)
 }
 
 /// The files whose path holds `query`, flat, best first; the highlighted one (else the first)
@@ -249,13 +245,8 @@ pub(crate) fn filtered_files_view(
                 crate::open_in::context(r, path.clone())
             },
         );
-    col()
-        .key("files-filter-scroll")
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(list)
+    // The filter's rows in the same Pierre tree as the folders (see `tree`): no bar yet.
+    session_view::scroller::scroller("files-filter-scroll").hidden(col().w_full().grow(1.0).min_h(0.0), list)
 }
 
 /// The change letter a `review.changes` kind (`add`, `del`, `mix`) ends a row with.

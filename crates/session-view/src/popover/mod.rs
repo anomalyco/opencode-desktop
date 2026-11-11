@@ -19,7 +19,7 @@ mod slide;
 
 use std::ops::Range;
 
-use rune::{Align, Color, El, ScrollSpec, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text, text_input};
+use rune::{Align, Color, El, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text, text_input};
 use rune_kit::ScrollBar as _;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
@@ -406,13 +406,12 @@ impl List {
         } else {
             rune::ScrollFade::strength(8.0)
         };
-        let scroll = col().key(key.to_owned()).w_full().h(self.h.min(max_h)).shrink().min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false }).scroll_fade(fade)
-            .child(list);
+        let viewport = col().w_full().h(self.h.min(max_h)).shrink().min_h(0.0).scroll_fade(fade);
         match self.stuck {
             // The arrow keys keep the lit row clear of the stuck header (`scroll-padding-top: 36px`).
-            Some(stuck) => scroll.scroll_margin(36.0).scroll_bar_styled(stuck.bar),
-            None => scroll,
+            // The model list's thumb (its own style), else no bar as the menus' lists here have none.
+            Some(stuck) => crate::scroller::scroller(key).hidden(viewport.scroll_margin(36.0), list).scroll_bar_styled(stuck.bar),
+            None => crate::scroller::scroller(key).hidden(viewport, list),
         }
     }
 }

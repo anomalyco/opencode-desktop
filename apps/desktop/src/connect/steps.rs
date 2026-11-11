@@ -4,7 +4,7 @@
 //! start with.
 
 use opencode_kit::integration::FieldKind;
-use rune::{El, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune::{El, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, Checkbox, RadioItem, TextInput};
 use rune_theme_opencode::icons as ic;
 
@@ -94,10 +94,13 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
     };
     let notice = (console && !s.server_is_local()).then(|| col().px(12.0).mb(20.0).child(remote_notice(s, p)));
     // A provider step fits its content; the Console's steps scroll in theirs.
-    let mut inner = col().key("connect-content").w_full().min_h(0.0).children(notice).child(content.w_full());
-    if console {
-        inner = inner.scroll(ScrollSpec { stick_bottom: false }).pb(if frame == Frame::Accounts { 0.0 } else { 16.0 });
-    }
+    let body = col().w_full().children(notice).child(content.w_full());
+    // A plain `overflow-y-auto` box's bar (`providers/connect/dialog.tsx:1332`).
+    let inner = if console {
+        session_view::scroller::scroller("connect-content").build::<App>(p, col().w_full().min_h(0.0).pb(if frame == Frame::Accounts { 0.0 } else { 16.0 }), body)
+    } else {
+        col().key("connect-content").w_full().min_h(0.0).child(body)
+    };
     let (px, pb) = if frame == Frame::Accounts { (6.0, 6.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0).px(px).pb(pb).child(inner)
 }
@@ -230,8 +233,9 @@ fn command(s: &App, p: &Pal) -> El {
     };
     let mut e = col().key("connect-command").px(12.0).gap(16.0);
     if !output.is_empty() {
-        e = e.child(col().key("connect-command-output").w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3)
-            .scroll(ScrollSpec { stick_bottom: true }).child(text(output).font(MONO).color(p.text).wrap().selectable(true)));
+        // `max-h-60 overflow-auto`: a plain box's bar (`providers/connect/dialog.tsx:751`).
+        let viewport = col().w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3);
+        e = e.child(session_view::scroller::scroller("connect-command-output").stick_bottom().build::<App>(p, viewport, text(output).font(MONO).color(p.text).wrap().selectable(true)));
     }
     e.child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.command.waiting")))
 }
@@ -655,8 +659,7 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
         col().key("connected-models").w_full().radius(8.0).fill(p.layer2).box_shadow(Pal::ring_in(p.border_muted)).clip_soft(0.0)
             .children(models.iter().enumerate().map(|(at, m)| row_for(m, at + 1 == n)))
     };
-    let mut scroll = col().key("first-provider-model-scroll").w_full().grow(1.0).shrink().min_h(0.0).gap(12.0).pb(16.0)
-        .scroll(ScrollSpec { stick_bottom: false })
+    let mut scroll = col().w_full().gap(12.0).pb(16.0)
         .child(row().key("available-models-heading").gap(6.0).center_y().child(text(opencode_i18n::t!("provider.connect.models.available")).font(LABEL).color(p.text)));
     if groups.len() == 1 {
         scroll = scroll.child(list(&groups[0].1));
@@ -688,7 +691,8 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0)
         .child(col().w_full().grow(1.0).shrink().min_h(0.0).px(20.0)
             .child(text(opencode_i18n::t!("provider.connect.models.description")).font(BODY).color(p.muted).pb(20.0))
-            .child(scroll))
+            // `settings-panel`: no bar, as Desktop hides it (`dialog.tsx:1241`, `settings.css:593-607`).
+            .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), scroll)))
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(footer)
 }

@@ -107,28 +107,18 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let message = (!message.is_empty()).then(|| text(message.clone()).key("permission-message").font(HINT).color(p.muted).wrap());
     // The arguments scroll rather than truncate: all of what's approved must be reachable.
     let input = (!input.is_empty()).then(|| {
-        col()
-            .key("permission-input")
-            .w_full()
-            .max_h(INPUT_MAX_H)
-            .scroll(rune::ScrollSpec { stick_bottom: false })
-            .mt(8.0)
-            .child(col().key("permission-input-list").w_full().gap(2.0).children(input.iter().enumerate().map(|(i, line)| {
-                text(line.clone()).key(format!("input-{i}")).font(CODE).color(p.v1_text_weak).wrap_anywhere()
-            })))
+        // A plain `overflow-y: auto` box's bar (`message-part.css:1583-1586`).
+        let list = col().key("permission-input-list").w_full().gap(2.0).children(input.iter().enumerate().map(|(i, line)| {
+            text(line.clone()).key(format!("input-{i}")).font(CODE).color(p.v1_text_weak).wrap_anywhere()
+        }));
+        crate::scroller::scroller("permission-input").build::<S>(p, col().w_full().max_h(INPUT_MAX_H).mt(8.0), list)
     });
     let patterns = (!resources.is_empty()).then(|| {
-        col()
-            .key("permission-patterns")
-            .w_full()
-            .max_h(PATTERNS_MAX_H)
-            .scroll(rune::ScrollSpec { stick_bottom: false })
-            .scroll_edge_fade(16.0)
-            .mt(8.0)
-            .mb(16.0)
-            .child(col().key("permission-pattern-list").w_full().gap(6.0).pt(1.0).pb(8.0).children(resources.iter().enumerate().map(|(i, r)| {
-                text(r.clone()).key(format!("pattern-{i}")).font(CODE).color(p.v1_text_base).wrap_anywhere()
-            })))
+        // No bar, as Desktop hides it (`message-part.css:1604-1612`).
+        let list = col().key("permission-pattern-list").w_full().gap(6.0).pt(1.0).pb(8.0).children(resources.iter().enumerate().map(|(i, r)| {
+            text(r.clone()).key(format!("pattern-{i}")).font(CODE).color(p.v1_text_base).wrap_anywhere()
+        }));
+        crate::scroller::scroller("permission-patterns").hidden(col().w_full().max_h(PATTERNS_MAX_H).scroll_edge_fade(16.0).mt(8.0).mb(16.0), list)
     });
     let body = col()
         .key("permission")

@@ -111,7 +111,8 @@ pub fn drawer(s: &App, p: &Pal) -> El {
         .mt(8.0)
         .gap(8.0)
         .min_h(0.0)
-        .child(col().key("narrow-tabs-scroll").w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(tabs))
+        // The drawer's vertical tab strip: no bar, as Desktop hides it (`no-scrollbar`, `tab-strip.tsx:629`).
+        .child(session_view::scroller::scroller("narrow-tabs-scroll").hidden(col().w_full().shrink().min_h(0.0), tabs))
         .child(new.w_full())
         .child(
             col()

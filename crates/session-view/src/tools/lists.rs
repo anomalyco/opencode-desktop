@@ -119,7 +119,7 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     disclosure(trigger(s, p, cx, c, d, t, press, None), d, || {
         // `tool-output`: the result as written (`white-space: pre`), 240 px and scrolling.
         let words = readable(p, text(out.to_owned()).font(MD).color(p.text).wrap_anywhere()).w_full();
-        body(col().key("output").w_full().max_h(MAX_H).scroll(rune::ScrollSpec { stick_bottom: false }).child(words), true, 4.0)
+        body(crate::scroller::scroller("output").hidden(col().w_full().max_h(MAX_H), words), true, 4.0)
     })
 }
 

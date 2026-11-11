@@ -282,9 +282,6 @@ pub struct SidebarInbox {
     pub asked: HashMap<String, i64>,
     /// The inbox's laid-out height: the Working shelf takes at most 40% of it.
     pub height: f32,
-    /// The list's and the shelf's viewport and content heights, for their scroll bars' gutter.
-    pub list: Fit,
-    pub shelf: Fit,
     /// The age labels' last tick: seconds while something works, minutes otherwise.
     tick: i64,
     /// The newest archived root sessions (the list leaves them out): the Archived button shows
@@ -325,19 +322,6 @@ enum Settle {
 struct Heard {
     sessions: bool,
     read: HashSet<String>,
-}
-
-/// A scroll area's viewport and content heights, as laid out.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Fit {
-    pub view: f32,
-    pub content: f32,
-}
-
-impl Fit {
-    pub fn overflows(self) -> bool {
-        self.view > 0.0 && self.content > self.view + 0.5
-    }
 }
 
 /// Branch lookups each run git on the server, so a few at a time (`BRANCH_BATCH`).

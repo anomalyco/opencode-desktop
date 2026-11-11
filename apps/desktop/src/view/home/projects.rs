@@ -25,26 +25,29 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
-    // `pr-3`, rows `gap-1`.
+    // `pr-3`, rows `gap-1`; a row is as wide as the list leaves it, less the scroll bar's gutter
+    // while the rows overflow.
+    let row_w = PROJECTS_W - 12.0 - if wide { session_view::scroller::gutter("home-projects-scroll") } else { 0.0 };
     let mut rows = col().key("home-projects-list").w_full().pr(12.0).gap(4.0);
     if super::servers::grouped(s) {
-        rows = rows.child(super::servers::groups(s, p, false, PROJECTS_W - 12.0));
+        rows = rows.child(super::servers::groups(s, p, false, row_w));
     } else if used.is_empty() {
         // `HomeProjectEmpty`: Add project, disabled (60%) while the server is down.
         let add = nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full();
         rows = rows.child(if failed { add.opacity(0.6) } else { add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) });
     } else {
         for proj in used {
-            rows = rows.child(project_row(s, p, server, proj, selected.is_some_and(|sel| sel.id == proj.id), PROJECTS_W - 12.0));
+            rows = rows.child(project_row(s, p, server, proj, selected.is_some_and(|sel| sel.id == proj.id), row_w));
         }
     }
     if !wide {
         return col().key("home-projects").w_full().mt(10.0).gap(16.0).child(header).child(rows);
     }
     // `home-projects-viewport`: the rows scroll in what the column leaves them, their edges
-    // masked 16 pt while rows hide past them (`index.css:353-376`).
-    let rows = col().key("home-projects-scroll").w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false })
-        .scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(0.01)).child(rows);
+    // masked 16 pt while rows hide past them (`index.css:353-376`), with a plain
+    // `overflow-y-auto` box's bar (`view.tsx:227`).
+    let viewport = col().w_full().shrink().min_h(0.0).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(0.01));
+    let rows = session_view::scroller::scroller("home-projects-scroll").build::<App>(p, viewport, rows);
     let c = col().key("home-projects").w(PROJECTS_W).gap(16.0).child(header).child(rows);
     let c = if page_h > 56.0 { c.h(page_h - 56.0).self_start() } else { c };
     // `HomeUtilityNav` `mb-8 mt-4`, after the panel's `gap-4`.
@@ -315,13 +318,16 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     let width = s.project_state.trigger_w.max(160.0);
     let server = crate::servers::runtime::active(s);
     let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
-    let scroll = col().key("home-projects-scroll").w_full().max_h(320.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0));
+    // The same `home-projects-viewport` as the column's, its bar too.
+    let viewport = col().w_full().max_h(320.0).scroll_fade(rune::ScrollFade::strength(16.0).linear().full_at(1.0));
+    let scroll = |viewport: El, rows: El| session_view::scroller::scroller("home-projects-menu-scroll").build::<App>(p, viewport, rows);
+    let row_w = width - 12.0 - session_view::scroller::gutter("home-projects-menu-scroll");
     // Grouped by server, the rows are the whole panel (`view.tsx:236-325`): no All projects, no
     // Add project row.
     let (all, body, add) = if super::servers::grouped(s) {
         // `max-h-[min(60dvh,…)]`: the whole panel is the list.
         let window_h = rune::memo::layout_with("window", |r| r[3]).unwrap_or(800.0);
-        (None, scroll.max_h(0.6 * window_h - 12.0).child(super::servers::groups(s, p, true, width - 12.0)), None)
+        (None, scroll(viewport.max_h(0.6 * window_h - 12.0), super::servers::groups(s, p, true, row_w)), None)
     } else {
         let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
         if selected_id.is_none() {
@@ -329,11 +335,11 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         }
         let mut list = col().key("home-projects-options").w_full().gap(4.0);
         for proj in s.used_projects() {
-            list = list.child(project_row(s, p, server, proj, selected_id == Some(proj.id.as_str()), width - 12.0));
+            list = list.child(project_row(s, p, server, proj, selected_id == Some(proj.id.as_str()), row_w));
         }
         let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0);
         let add = if failed { add.opacity(0.6) } else { add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
-        (Some(all), scroll.child(list), Some(add))
+        (Some(all), scroll(viewport, list), Some(add))
     };
     let menu = col()
         .key("home-projects-popover")

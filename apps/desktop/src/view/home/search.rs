@@ -110,14 +110,11 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
             // `max-h-[min(20rem,40dvh)]`.
             // `MenuScroll` (`home/sessions/view.tsx:459`): its thumb shows while the list scrolls.
             .child(
-                col()
-                    .key("home-search-list")
-                    .w_full()
-                    .max_h(320.0f32.min(window_h * 0.4))
-                    .scroll(ScrollSpec { stick_bottom: false })
-                    .clip_soft(0.0)
-                    .child(rows)
-                    .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
+                session_view::scroller::scroller("home-search-list").bar(session_view::scroller::Bar::MenuScroll).build::<App>(
+                    p,
+                    col().w_full().max_h(320.0f32.min(window_h * 0.4)).clip_soft(0.0),
+                    rows,
+                ),
             )
     };
     col()

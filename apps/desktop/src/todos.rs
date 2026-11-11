@@ -282,19 +282,11 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .child(words(t, color, wrap, fill)),
         );
     }
-    let rows = col()
-        .key("todo-scroll")
-        .transition(rune::Transition::none())
-        .w_full()
-        .max_h(MAX_H)
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .scroll_edge_fade(12.0)
-        .scroll_margin(PAD)
-        // What it holds comes in with the list, not on fades of its own, and changes at once;
-        // only a finishing todo's fill springs, on its own curves. An `instant_changes` here
-        // would land those too, so each piece around the fill says so itself.
-        .motion(rune::Spring::NONE)
-        .child(list);
+    // `MenuScroll` (`todo-pill.tsx:85`). What it holds comes in with the list, not on fades of its
+    // own, and changes at once; only a finishing todo's fill springs, on its own curves. An
+    // `instant_changes` here would land those too, so each piece around the fill says so itself.
+    let viewport = col().transition(rune::Transition::none()).w_full().max_h(MAX_H).scroll_edge_fade(12.0).scroll_margin(PAD).motion(rune::Spring::NONE);
+    let rows = session_view::scroller::scroller("todo-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, viewport, list);
     Some(
         col()
             .key("todo-panel")

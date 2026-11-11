@@ -81,7 +81,8 @@ fn models<S: PickerHost>(s: &S, p: &Pal) -> El {
                 .shrink()
                 .min_h(0.0)
                 .child(col().w_full().pt(1.0).pb(12.0).child(search))
-                .child(col().key("picker-drawer-scroll").w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(groups)),
+                // `settings-panel`: no bar, as Desktop hides it (`select-dialog.tsx:174-178`, `settings.css:593-607`).
+                .child(crate::scroller::scroller("picker-drawer-scroll").hidden(col().w_full().shrink().min_h(0.0), groups)),
         )
         .child(actions)
 }

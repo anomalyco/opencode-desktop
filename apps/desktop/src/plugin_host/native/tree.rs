@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
-use rune::{Color, Cursor, El, GrowthSpec, ScrollSpec, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, El, GrowthSpec, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_luau::{Data, NodeArgs, Press};
 use rune_theme_opencode::tree_icons;
@@ -210,7 +210,9 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 crate::open_in::context(row, tr.id.to_owned())
             },
         );
-    col().key("review-tree").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list)
+    // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
+    // reach (`session-review-v2.css:206-210`): not matched yet, no bar.
+    session_view::scroller::scroller("review-tree").hidden(col().w_full().grow(1.0).min_h(0.0), list)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -257,7 +259,8 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
             crate::open_in::context(picked(r, &pick, path), path.clone())
         },
     );
-    col().key("review-filter-scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list)
+    // The filter's rows in the same Pierre tree (see `tree`): no bar yet.
+    session_view::scroller::scroller("review-filter-scroll").hidden(col().w_full().grow(1.0).min_h(0.0), list)
 }
 
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {

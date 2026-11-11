@@ -9,7 +9,7 @@
 
 use std::f32::consts::PI;
 
-use rune::{Anim, Color, Curve, Easing, El, Key, KeyEvent, ScrollSpec, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Anim, Color, Curve, Easing, El, Key, KeyEvent, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use super::*;
@@ -72,15 +72,9 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let question = text(text_of.clone()).key("q-text").font(QUESTION).color(p.text).wrap_anywhere();
     let question = readable(p, if minimized { question.max_lines(3) } else { question });
     let hint = if multi { opencode_i18n::t!("ui.question.classic.multiHint") } else { opencode_i18n::t!("ui.question.singleHint") };
-    let details = col()
-        .key(format!("q-details-{tab}"))
-        .w_full()
-        .gap(8.0)
-        .shrink()
-        .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(question)
-        .children((!minimized).then(|| text(hint).key("q-hint").font(HINT).color(p.faint).wrap()));
+    // No bar, as Desktop hides it (`question-prompt.css:77-85`).
+    let text_and_hint = col().w_full().gap(8.0).child(question).children((!minimized).then(|| text(hint).key("q-hint").font(HINT).color(p.faint).wrap()));
+    let details = crate::scroller::scroller(format!("q-details-{tab}")).hidden(col().w_full().shrink().min_h(0.0), text_and_hint);
     let details = match max {
         Some(m) => details.max_h(((m - 120.0) * 0.45).max(48.0)),
         None => details,
@@ -122,7 +116,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         if has_custom(field) {
             answers = answers.child(custom(s, p, &f, tab, multi, editing, ring && focus >= list.len()));
         }
-        col().key(format!("q-scroll-{tab}")).w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).transition(fade()).child(answers)
+        // No bar, as Desktop hides it (`question-prompt.css:186-194`).
+        crate::scroller::scroller(format!("q-scroll-{tab}")).hidden(col().w_full().shrink().min_h(0.0).transition(fade()), answers)
     });
 
     let body = col()

@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use rune::{El, Icon, ScrollSpec, Tx, col, memo};
+use rune::{El, Icon, Tx, col, memo};
 use rune_kit::Markdown;
 use rune_kit::markdown::Case;
 
@@ -188,23 +188,14 @@ pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option
             .elevate(p.raised)
             .border(0.5, p.border)
             .child(body.w_full().max_w(768.0));
-        return col()
-            .key(key)
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .fill(p.layer1)
-            .scroll(ScrollSpec { stick_bottom: false })
-            .child(col().w_full().px(gutter).pt(1.0).pb(foot).child(sheet));
+        // A plain `overflow-y-auto` box's bar, as the file view's (`gui-plugins/src/file/view.tsx:517`).
+        return session_view::scroller::scroller(key).build::<App>(p, col().w_full().grow(1.0).min_h(0.0).fill(p.layer1), col().w_full().px(gutter).pt(1.0).pb(foot).child(sheet));
     }
-    col()
-        .key(key)
-        .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .fill(p.bg_base)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(col().w_full().items_center().px(28.0).pt(20.0).pb(48.0).child(body.w_full().max_w(READ_W)))
+    session_view::scroller::scroller(key).build::<App>(
+        p,
+        col().w_full().grow(1.0).min_h(0.0).fill(p.bg_base),
+        col().w_full().items_center().px(28.0).pt(20.0).pb(48.0).child(body.w_full().max_w(READ_W)),
+    )
 }
 
 impl App {

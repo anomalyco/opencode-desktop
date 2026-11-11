@@ -80,9 +80,12 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 /// from a peek only widens the aside under it.
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let switching = s.switching_layout();
-    let aside = el().key("sidebar").role("navigation").h_full().motion(if switching { GLIDE } else { SIDEBAR_SPRING });
+    // The aside reaches into the gap before the panel, taking it back with its end margin so the
+    // panel keeps its place: the organized list's thumb runs there, past the sidebar's end, inside
+    // the aside's clip (`sidebar-organized.tsx:111-117`).
+    let aside = el().key("sidebar").role("navigation").h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.shows_sidebar() {
-        return aside.w(0.0).clip_soft(0.0);
+        return aside.w(GAP_ROOM).clip_soft(0.0);
     }
     let (w, open, peek, k) = (s.sidebar_w, s.sidebar_open, s.layout.peek, &s.knobs);
     let reduced = s.reduced_motion;
@@ -120,7 +123,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         .box_shadow(Shadow { x: blur / 3.0, blur, color: tint(p.shadow), ..Shadow::default() })
         .box_shadow(Shadow { x: 1.0, blur: 4.0, color: tint(p.shadow), ..Shadow::default() })
         .box_shadow(Shadow { color: tint(p.floating[2].color), ..p.floating[2] });
-    let aside = aside.w(if open { w } else { 0.0 });
+    let aside = aside.w(if open { w } else { 0.0 } + GAP_ROOM);
     if peek.shown() {
         // Over the panel, which comes after it; the aside's clip would hide it.
         aside.child(inner.raise())
@@ -128,6 +131,9 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         aside.clip_soft(0.0).child(inner)
     }
 }
+
+/// How far the aside reaches past the sidebar into the gap before the panel (`--shell-inline-inset`).
+const GAP_ROOM: f32 = 8.0;
 
 /// What the sidebar holds, `w` wide from `top` down: the header line where the traffic lights
 /// share it, Home, Search sessions and New session, then the tabs (or the inbox).

@@ -5,7 +5,7 @@
 //! session works), and `@` lists files to mention. It stands where the Quote toolbar was when
 //! it replaced it, else over its card, and keeps its bottom edge as the draft grows.
 
-use rune::{Color, Cx, El, Icon, KeyEvent, Mods, ScrollSpec, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cx, El, Icon, KeyEvent, Mods, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -331,7 +331,8 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let alert = s.quote.comment.failed().then(|| {
         row().key("quote-comment-failed").role("alert").w_full().px(12.0).pb(12.0).child(text(opencode_i18n::t!("session.quote.sendFailed")).font(ALERT).color(p.text).wrap())
     });
-    let body = col().key("quote-comment-scroll").w_full().max_h(available).scroll(ScrollSpec { stick_bottom: false }).child(shell_col).children(alert);
+    // `MenuScroll` (`quote-comment.tsx:147`).
+    let body = session_view::scroller::scroller("quote-comment-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().max_h(available), col().w_full().child(shell_col).children(alert));
     Some(
         col()
             .key("quote-comment")
@@ -492,17 +493,11 @@ pub(crate) fn mention_rows(p: &Pal, mention: &Mention, act: std::rc::Rc<dyn Fn(&
             )
     });
     Some(
-        col()
-            .key("line-comment-mentions")
-            .w_full()
-            .mt(8.0)
-            .padding(4.0)
-            .gap(4.0)
-            .max_h(180.0)
-            .scroll(ScrollSpec { stick_bottom: false })
-            .radius(6.0)
-            .fill(p.layer2)
-            .box_shadow(Pal::ring_in(p.border_muted))
-            .children(rows),
+        // `line-comment-v2-mention-list`: a plain `overflow: auto` box's bar (`line-comment.css:294-296`).
+        session_view::scroller::scroller("line-comment-mentions").build::<App>(
+            p,
+            col().w_full().mt(8.0).padding(4.0).max_h(180.0).radius(6.0).fill(p.layer2).box_shadow(Pal::ring_in(p.border_muted)),
+            col().w_full().gap(4.0).children(rows),
+        ),
     )
 }

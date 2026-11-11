@@ -586,7 +586,8 @@ pub fn results(s: &App, p: &Pal) -> El {
     let footer = more.then(|| row().key("settings-results-footer").w_full().pt(4.0).px(18.0).pb(12.0)
         .child(text(t!("settings.search.refine")).font(ROW).color(p.muted).wrap()));
     col().key("settings-results").w_full().min_h(0.0)
-        .child(col().key("settings-results-scroll").w_full().shrink().min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade(0.0, 0.0, 0.0, 24.0).child(body))
+        // `SearchList`'s `MenuScroll` (`search.tsx:125`, `search-list.tsx:319`).
+        .child(session_view::scroller::scroller("settings-results-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 24.0), body))
         .children(footer)
 }
 

@@ -12,7 +12,7 @@ use rune::machine::Attempt;
 use opencode_kit::mention;
 use opencode_kit::model::{Message, SessionInfo, Transcript};
 use rune::{
-    Color, Cx, El, Key, KeyEvent, ScrollSpec, Spring, TextEdit, Transition, Tx, col, el, icon, row,
+    Color, Cx, El, Key, KeyEvent, Spring, TextEdit, Transition, Tx, col, el, icon, row,
     text, text_input,
 };
 use rune_theme_opencode::icons as ic;
@@ -487,15 +487,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .child(text(opencode_i18n::t!("dialog.fork.description")).font(UI.lh(20.0)).color(p.muted)),
         )
         .child(
-            col()
-                .key("fork-scroll")
-                .role("listbox")
-                .w_full()
-                .h(scroll_h)
-                // A `MenuScroll` with the app's `.search-list-scroll` (`fork-dialog.tsx:152`): no
-                // edge fades.
-                .scroll(ScrollSpec { stick_bottom: false })
-                .child(list),
+            // A `MenuScroll` with the app's `.search-list-scroll` (`fork-dialog.tsx:152`): no
+            // edge fades.
+            session_view::scroller::scroller("fork-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().role("listbox").w_full().h(scroll_h), list),
         );
 
     let scrim = el()

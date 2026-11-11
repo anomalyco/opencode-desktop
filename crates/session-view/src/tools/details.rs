@@ -3,7 +3,7 @@
 //! copy button. Escape or a click outside closes it.
 
 use opencode_kit::model::{Message, Part, ToolStatus};
-use rune::{Cx, El, ScrollSpec, Transition, Tx, col, el, icon, row, text};
+use rune::{Cx, El, Transition, Tx, col, el, icon, row, text};
 
 use super::Call;
 use crate::TimelineHost;
@@ -96,7 +96,8 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         .transition(Transition::none())
         .modal(true, close)
         .child(header)
-        .child(col().key("body").w_full().shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(sections));
+        // `DialogBody` with `overflow-y-auto`: a plain box's bar (`tool-renderer.tsx:2024`).
+        .child(crate::scroller::scroller("body").build::<S>(p, col().w_full().shrink().min_h(0.0), sections));
     let scrim = el().key("execute-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     let modal = el().key("execute-modal").absolute(0.0, 0.0).w_full().h_full().center().transition(Transition::none()).child(dialog).raise();
     vec![scrim, modal]
@@ -156,15 +157,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, label: &'stati
         head = head.child(text(m).font(rune::TextStyle::new(12.0, 440.0).lh(16.0)).color(p.faint));
     }
     head = head.child(el().grow(1.0)).child(button);
-    let boxed = col()
-        .key("source")
-        .w_full()
-        .max_h(360.0)
-        .padding(0.5)
-        .radius(8.0)
-        .border(0.5, p.border)
-        .clip_rounded(8.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(source);
+    // `execute-details-source`: a plain `overflow: auto` box's bar (`message-part.css:1150-1153`).
+    let boxed = crate::scroller::scroller("source").build::<S>(p, col().w_full().max_h(360.0).padding(0.5).radius(8.0).border(0.5, p.border).clip_rounded(8.0), source);
     col().key(part.to_owned()).w_full().gap(6.0).child(head).child(boxed)
 }

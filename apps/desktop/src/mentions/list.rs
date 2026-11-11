@@ -159,7 +159,7 @@ pub fn popup(
         // height ends as Desktop's are.
         let search = if searching { SEARCH_H } else { 0.0 };
         let h = (search + count as f32 * ROW_H + 2.0 * PAD).min(max_height(spec.boundary.unwrap_or(2.0 * MAX_H), searching, false));
-        col().key(scroll).w_full().h(h).scroll(rune::ScrollSpec { stick_bottom: false }).scroll_margin(PAD).child(list)
+        session_view::scroller::scroller(scroll).hidden(col().w_full().h(h).scroll_margin(PAD), list)
     };
     // `rounded-xl bg-v2-background-bg-base p-1.5 shadow-[var(--v2-elevation-raised)]`: 10 pt
     // corners and the raised ring and drops, no border of its own.

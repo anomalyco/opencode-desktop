@@ -79,23 +79,15 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
         Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false, panel_h)).child(sessions),
         Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
-    let scroller = col()
-        .key("home")
-        .w_full()
-        .shrink()
-        .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .clip_soft(0.0)
-        // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), drawing no ring.
-        .focusable(true)
-        .role("region")
-        .label(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        .no_focus_ring()
-        .child(col().key("home-content").w_full().items_center().child(grid))
-        // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a
-        // track as long as the page below it, shown while the pointer is on that column
-        // (`route.tsx:34-40`, `sessions/view.tsx`'s `home-session-scroll-track`).
-        .scroll_bar_styled(ScrollBarStyle::scroll_view(&crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad)))
+    // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), drawing no ring.
+    let viewport = col().w_full().shrink().min_h(0.0).clip_soft(0.0).focusable(true).role("region").label(opencode_i18n::t!("ui.scrollView.ariaLabel")).no_focus_ring();
+    // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a track as
+    // long as the page below it, shown while the pointer is on that column (`route.tsx:34-40`,
+    // `sessions/view.tsx`'s `home-session-scroll-track`).
+    let bar = ScrollBarStyle::scroll_view(&crate::palette::kit(p)).hover_target().track_offset(tier.header_top(), gutter_end(panel, pad));
+    let scroller = session_view::scroller::scroller("home")
+        .bar(session_view::scroller::Bar::Styled(bar))
+        .build::<App>(p, viewport, col().key("home-content").w_full().items_center().child(grid))
         .grow(1.0);
     let mut page = col().key("home-page").grow(1.0).w_full().h_full();
     if tier == Tier::Narrow {
@@ -599,13 +591,8 @@ fn no_server_home(s: &App, p: &Pal) -> El {
         .children(local.then_some(cmd_row))
         .child(row().w_full().child(retry));
 
-    col()
-        .key("home")
-        .grow(1.0)
-        .w_full()
-        .scroll(ScrollSpec { stick_bottom: false })
-        .clip_soft(0.0)
-        .child(col().key("home-content").w_full().center().px(24.0).pt(96.0).child(card))
+    // `connect-server`: a plain `overflow: auto` box's bar (`servers/connect/screen.css:5-7`).
+    session_view::scroller::scroller("home").build::<App>(p, col().grow(1.0).w_full().clip_soft(0.0), col().key("home-content").w_full().center().px(24.0).pt(96.0).child(card))
 }
 
 mod no_server_story {

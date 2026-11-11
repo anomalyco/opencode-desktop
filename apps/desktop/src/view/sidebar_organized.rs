@@ -3,6 +3,7 @@
 //! sessions, then a divider and the side tabs. The projects are one server's, the one the current
 //! tab is on (else Home's), which the window works against (`servers::runtime`); the tabs are
 //! every server's.
+use rune_kit::ScrollBar;
 use rune_kit::shell::TabOrientation;
 
 use super::*;
@@ -29,23 +30,29 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     if !st.organize_collapsed {
         section = section.child(col().key("organize-project-list").w_full().gap(4.0).children(projects(s, p)));
     }
-    // The projects scroll in what the side tabs leave them; the side tabs scroll in their own strip.
-    let projects = col()
-        .key("organize-scroll")
-        .w_full()
-        .shrink()
-        .min_h(0.0)
-        .scroll(rune::ScrollSpec { stick_bottom: false })
-        .child(section);
-    let mut list = col().key("organize").w_full().grow(1.0).shrink().min_h(0.0).gap(12.0).child(projects);
+    // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
+    // `ScrollView`, `sidebar-organized.tsx:118-158`).
+    let mut content = col().key("organize-content").w_full().gap(12.0).child(section);
     if !s.tabs.is_empty() {
+        let mut tabs = col().key("organize-tabs-section").w_full().gap(12.0);
         if !st.organize_collapsed {
-            list = list.child(el().key("organize-divider").mx(8.0).h(1.0).fill(p.border_muted));
+            tabs = tabs.child(el().key("organize-divider").mx(8.0).h(1.0).fill(p.border_muted));
         }
-        list = list.child(col().key("organize-tabs").w_full().grow(1.0).min_h(0.0).child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None)));
+        content = content.child(tabs.child(col().key("organize-tabs").w_full().child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None))));
     }
-    list
+    // Its thumb runs in a 12 pt track past the list's end edge, across the sidebar's end inset and
+    // the gap to the panel (`inset-inline-end: calc(-1 * (3px + 8px))`), and the pointer anywhere
+    // over the list shows it (`thumbContainer`, `thumbHoverTarget`, `:107-118`).
+    // The scroll reaches that far past the list, so its track is inside it; the rows keep to the list.
+    let bar = rune_kit::ScrollBarStyle::scroll_view(crate::palette::kit(p)).hover_target();
+    let viewport = col().grow(1.0).shrink().min_h(0.0).mr(-TRACK_PAST_END);
+    let scroll = session_view::scroller::scroller("organize-scroll").bar(session_view::scroller::Bar::Styled(bar)).build::<App>(p, viewport, col().w_full().pr(TRACK_PAST_END).child(content));
+    col().key("organize").w_full().grow(1.0).shrink().min_h(0.0).child(scroll).scroll_bar_hover("organize-scroll")
 }
+
+/// How far past the list's end edge the thumb's track ends: the sidebar's end inset and the
+/// shell's inline inset (`--sidebar-inset-end`, `--shell-inline-inset`).
+const TRACK_PAST_END: f32 = 3.0 + 8.0;
 
 /// The Projects toggle: its label and a triangle that turns shut.
 fn header(p: &Pal, collapsed: bool) -> El {

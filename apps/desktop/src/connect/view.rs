@@ -3,7 +3,7 @@
 //! tall, the models 560, and a provider's step fits its content. The list is the search dialog's
 //! (`search-list.css` `.search-dialog`): a bare search under a compact header, a hairline across.
 
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
+use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::TextInput;
 use rune_theme_opencode::icons as ic;
 
@@ -247,10 +247,8 @@ fn picker(s: &App, p: &Pal) -> El {
     }
     col().key("connect-picker").w_full().grow(1.0).shrink().min_h(0.0).px(6.0).pb(6.0).gap(2.0)
         .child(search)
-        .child(col().key("connect-list").w_full().grow(1.0).shrink().min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false })
-            .clip_fade(0.0, 0.0, 0.0, 40.0)
-            .child(list))
+        // No bar, as Desktop hides it (`[scrollbar-width:none]`, `providers/connect/dialog.tsx:338`).
+        .child(session_view::scroller::scroller("connect-list").hidden(col().w_full().grow(1.0).shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 40.0), list))
 }
 
 fn provider_row(p: &Pal, r: &Row, active: bool) -> El {

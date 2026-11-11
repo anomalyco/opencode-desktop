@@ -1,7 +1,7 @@
 //! Shell: "Shell" and its command; open, Desktop's console card (`ConsoleOutput`) of the command
 //! over its output, which Execute's output row opens too.
 
-use rune::{Color, El, ScrollFade, ScrollSpec, Tx, col, el, row, text};
+use rune::{Color, El, ScrollFade, Tx, col, el, row, text};
 
 use super::plain::{clean, linked, one_line};
 use super::{Call, Ctx, Display, Phase, Press, Trigger, body, disclosure, field, output, trigger};
@@ -87,9 +87,10 @@ pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>,
     card
 }
 
-/// `content` in a region at most [`MAX_H`] tall that scrolls the rest, with no scroll bar, as Desktop hides it.
+/// `content` in a region at most [`MAX_H`] tall that scrolls the rest, with no scroll bar, as Desktop hides it
+/// (`message-part.css:746-755`).
 pub fn capped(content: El) -> El {
-    col().key("scroll").w_full().max_h(MAX_H).scroll(ScrollSpec { stick_bottom: false }).child(content)
+    crate::scroller::scroller("scroll").hidden(col().w_full().max_h(MAX_H), content)
 }
 
 /// One section of a console.
@@ -138,7 +139,8 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> 
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
     let holder = el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0).child(backdrop).child(button);
     let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
-    let viewport = col().key("scroll").w_full().max_h(part.cap).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_fade(ScrollFade::feather(PAD + 4.0)).child(inset);
+    // `bash-scroll`: no bar, as Desktop hides it (`message-part.css:815-824`).
+    let viewport = crate::scroller::scroller("scroll").hidden(col().w_full().max_h(part.cap).shrink().min_h(0.0).scroll_fade(ScrollFade::feather(PAD + 4.0)), inset);
     let mut sec = col().key(part.name).w_full().fill(fill).corners(part.corners).clip_corners(part.corners).child(viewport).child(holder);
     // The output gives way to the command within the card's cap.
     if part.name == "result" {

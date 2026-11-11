@@ -11,9 +11,10 @@ use std::cell::Cell;
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{
-    Color, El, Key, KeyEvent, MotionIntent, ScrollSpec, Shadow, Spring, SpringPair, TextEdit, TextStyle,
+    Color, El, Key, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
     Transition, Tx, col, el, icon, row, spacer, text, text_input,
 };
+use rune_kit::ScrollBarStyle;
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
@@ -443,19 +444,19 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .shrink()
                     .grow(if held.is_some() { 1.0 } else { 0.0 })
                     .pb(8.0)
-                    .child(
+                    // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
+                    // the room `editor-pad` keeps for it.
+                    .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside())).build::<S>(
+                        p,
                         col()
-                            .key("editor-scroll")
                             .w_full()
                             .shrink()
                             .max_h(COMPOSER_MAX_H - 8.0)
-                            .scroll(ScrollSpec { stick_bottom: false })
                             // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
                             // bottom feathering by as much as is left to scroll, up to 16.
                             .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
                             .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
-                            .scroll_margin(16.0)
-                            .child(
+                            .scroll_margin(16.0),
                                 // The scroll box keeps its 8 pt scroll bar's room at its end
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(
@@ -487,8 +488,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                     .on_input_paste(attachments::paste::<S>)
                                     .on_submit(submit_or_stop::<S>),
                                 ),
-                            ),
-                    ),
+                    )),
             )
             .child(
                 row()

@@ -8,8 +8,7 @@
 
 use crate::pickers::PickerHost as _;
 use opencode_kit::model::{Project, project_git};
-use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
-use rune_kit::ScrollBar as _;
+use rune::{Color, Cx, El, Key, KeyEvent, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::Highlight;
@@ -697,15 +696,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .child(col().key("project-switcher-search").w_full().pt(6.0).px(6.0).child(search))
         .child(el().key("project-switcher-divider").h(0.5).w_full().mt(8.0).mb(8.5).fill(p.border))
         .child(
-            col()
-                .key("project-switcher-scroll")
-                .role("listbox")
-                .w_full()
-                .h(scroll_h)
-                .scroll(ScrollSpec { stick_bottom: false })
-                .child(list)
-                // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
-                .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
+            // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
+            session_view::scroller::scroller("project-switcher-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().role("listbox").w_full().h(scroll_h), list),
         );
     let y = ((win_h - 480.0) / 2.0).max(48.0);
     let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());

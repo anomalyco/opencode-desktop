@@ -4,7 +4,7 @@
 use crate::pickers::PickerHost as _;
 
 use rune::{
-    AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase, ScrollSpec,
+    AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase,
     Align, Side, Spring, TextStyle, Tx, col, el, icon, row, spacer, text, text_input,
 };
 

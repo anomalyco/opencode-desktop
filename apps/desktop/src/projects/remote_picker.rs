@@ -614,7 +614,9 @@ pub mod view {
             }
             rows.push(r);
         }
-        frame.child(col().key("directory-picker-tree").role("tree").w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).children(rows))
+        // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
+        // reach (`workspaces/selection/dialog.tsx:533`): not matched yet, no bar.
+        frame.child(session_view::scroller::scroller("directory-picker-tree").hidden(col().role("tree").w_full().grow(1.0).min_h(0.0), col().w_full().children(rows)))
     }
 
     /// The open folders' rows, each folder's children right under it.
