@@ -55,6 +55,7 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// window's points over the zoom at its scale times the zoom (`Cx::zoom`), as Chromium folds a
 /// page zoom into the device scale, so every size, border, icon and motion is the zoomed one.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
+    s.view_runs.set(s.view_runs.get().wrapping_add(1));
     cx.zoom(s.zoom);
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());

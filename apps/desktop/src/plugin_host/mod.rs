@@ -560,7 +560,9 @@ pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
 /// Runs what is due in every plugin: finished work, timers, process output, server events,
 /// store and contract changes, saved files, and steps their servers' sign-ins. At rest it enters
 /// no VM.
-pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
+/// `fresh`: the app's state may have moved since the last poll (`App::poll_panels`); only then
+/// are the plugins' watched signals compared again.
+pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     servers::poll_actions(app, tx);
     let now = app.clock;
     mark(&app.plugins, now);
@@ -610,7 +612,9 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                 changed |= fire_value(app, i, signal, Data::List(vec![event]));
             }
         }
-        changed |= services::fire_watched(app, i, vm);
+        if fresh || changed {
+            changed |= services::fire_watched(app, i, vm);
+        }
         let p = &app.plugins.list[i];
         let Some(script) = p.script() else { continue };
         changed |= cx::with_app(app, || script.poll(now, tx));

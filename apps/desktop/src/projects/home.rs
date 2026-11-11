@@ -337,10 +337,13 @@ fn added(s: &mut App) {
 
 /// Each poll: the servers' latest state reaches the selection, and while Home shows, its list's
 /// phase follows the focused server. True when what Home shows changed.
-pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+/// `fresh`: the app's state may have moved since the last poll, so Home's servers are read again.
+pub fn poll(s: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     let before = (selection(s), s.home_state.servers.iter().map(|v| (v.key.clone(), v.health.clone(), v.projects.len(), v.loaded)).collect::<Vec<_>>(), list_view(s));
     let closed = super::remote_picker::poll(s, tx);
-    sync(s);
+    if fresh || closed {
+        sync(s);
+    }
     let shown = s.route == Route::Home && !s.settings.open;
     let target = shown.then(|| target(s));
     let fx = home_load::step(&mut s.home_state.load, home_load::Event::ContextChanged(target));

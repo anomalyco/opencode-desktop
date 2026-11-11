@@ -69,14 +69,17 @@ impl App {
         changed
     }
 
-    pub fn poll_panels(&mut self, tx: &mut Tx) -> bool {
+    /// `fresh`: the view ran or an earlier poll changed something since the last poll, so what
+    /// derives from the app's state (tab keys, transient tabs, plugins' watched signals) may
+    /// have moved. Otherwise those checks are skipped: nothing they read changed.
+    pub fn poll_panels(&mut self, fresh: bool, tx: &mut Tx) -> bool {
         let mut changed = false;
         if let Some(sid) = self.side.closing.session().map(str::to_owned) {
             let shut = self.side_region_shut(&sid, None);
             let effects = self.side.closing.step(Event::Frame { clock: self.clock, shut });
             changed |= self.run_closing(effects, tx);
         }
-        let has_stored_tabs = self
+        let has_stored_tabs = fresh && self
             .active_session_id()
             .and_then(|sid| self.side.sessions.get(sid))
             .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
@@ -125,7 +128,7 @@ impl App {
         // The native views Luau panels place (Review's diffs).
         changed |= crate::plugin_host::native::poll(self, tx);
         // The plugins: what came due, finished or arrived for them. At rest it enters no VM.
-        changed |= crate::plugin_host::poll(self, tx);
+        changed |= crate::plugin_host::poll(self, fresh || changed, tx);
         changed
     }
 

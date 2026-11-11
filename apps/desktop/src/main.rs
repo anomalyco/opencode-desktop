@@ -428,6 +428,11 @@ pub struct App {
     pub now_ms: i64,
     base_ms: i64,
     clock: f64,
+    /// How many times the view has run, and the count the last poll saw: state that a poll
+    /// derives from other state (panel tabs, plugins' watched signals) can only have moved when
+    /// the view ran since, or when an earlier poll this frame changed something.
+    pub view_runs: std::cell::Cell<u64>,
+    polled_runs: u64,
     fixture: Value,
     playback: VecDeque<(f64, String, Value)>,
     /// What the fixture's server stored from the replies it streamed (`served.rs`).
@@ -1122,12 +1127,15 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.stage.is_some_and(|st| st.watch()) {
         s.composer.focused = false;
     }
+    // The view ran since the last poll: state the polls below derive from other state may have moved.
+    let viewed = s.view_runs.get() != s.polled_runs;
+    s.polled_runs = s.view_runs.get();
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
     changed |= servers::health::poll(s, tx);
-    changed |= projects::home::poll(s, tx);
+    changed |= projects::home::poll(s, viewed || changed, tx);
     changed |= project_switcher::poll(s);
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
@@ -1221,7 +1229,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_delete(now, tx);
     changed |= s.poll_uploads(tx);
     changed |= s.attach.poll();
-    changed |= s.poll_panels(tx);
+    changed |= s.poll_panels(viewed || changed, tx);
     changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();
     changed |= settings::pages::project::poll(s, tx);
