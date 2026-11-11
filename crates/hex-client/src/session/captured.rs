@@ -4,7 +4,10 @@
 //! pastes nothing.
 
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// The page's clock in a browser, where std's panics; std's own natively.
+use web_time::Instant;
 
 use super::{Cmd, Heard, Problem, TAIL};
 use crate::{Capture, Hex, NO_ENGINE};

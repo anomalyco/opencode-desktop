@@ -20,7 +20,7 @@
   pwsh scripts/web.ps1 -NoServe             # build only (CI)
   pwsh scripts/web.ps1 -NoBuild             # serve the last build
   pwsh scripts/web.ps1 -SkipCargo           # package what cargo last built (a build run elsewhere)
-  pwsh scripts/web.ps1 -Check               # cargo check the app for the web, nothing else (before a push)
+  pwsh scripts/web.ps1 -Check               # cargo check the app for the web, and that it names no std clock (before a push)
   pwsh scripts/web.ps1 -Check -Cargo <wrapper.ps1>   # the same through a cargo wrapper script
 #>
 param(
@@ -58,7 +58,13 @@ if (-not $NoBuild) {
   $wrap = if ($Cargo -like '*.ps1') { @('-NoProfile', '-File', $Cargo) } else { @() }
   if ($Check) {
     Push-Location $root
-    try { & $runCargo @wrap check -p opencode-web --lib --target wasm32-unknown-unknown; exit $LASTEXITCODE } finally { Pop-Location }
+    try {
+      & $runCargo @wrap check -p opencode-web --lib --target wasm32-unknown-unknown
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # std::time::Instant panics in a browser; clippy can't ban it natively, where rune's is std's.
+      & bun (Join-Path $PSScriptRoot 'web-clock.ts')
+      exit $LASTEXITCODE
+    } finally { Pop-Location }
   }
   $cargoArgs = @('build', '-p', 'opencode-web', '--lib', '--target', 'wasm32-unknown-unknown')
   if (-not $Dev) {

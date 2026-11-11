@@ -1941,6 +1941,7 @@ dependencies = [
  "serde_json",
  "ureq",
  "ureq-web",
+ "web-time",
  "windows",
 ]
 

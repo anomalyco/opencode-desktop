@@ -10,7 +10,10 @@
 
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// The page's clock in a browser, where std's panics; std's own natively.
+use web_time::Instant;
 
 use crate::install::{Fix, Presence};
 use crate::{Hex, NOT_RUNNING, OUTDATED};
