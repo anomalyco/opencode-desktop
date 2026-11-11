@@ -308,7 +308,8 @@ pub(super) fn pane_box(
             s.composer.focused = false;
         })
         .child(bar)
-        .child(el().w_full().h(0.5).fill(p.border_muted))
+        // `tabs.css:589`: `border-bottom: 0.5px solid border-base`, drawn on whole device pixels.
+        .child(el().w_full().h(crate::view::chrome().half_hairline).fill(p.border))
         .child(content)
 }
 

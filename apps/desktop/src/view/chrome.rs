@@ -42,6 +42,8 @@ pub(crate) struct WindowChrome {
     pub caption_w: f32,
     /// One device pixel in shell points, as Chromium draws a 1px CSS rule at this scale and zoom.
     pub hairline: f32,
+    /// What Chromium draws a 0.5px CSS border as: whole device pixels, one at least.
+    pub half_hairline: f32,
     /// The layout the shell shows: top tabs' while the window is narrow.
     pub layout: TabLayout,
     /// The window is below Desktop's 768 px breakpoint (`narrow`).
@@ -52,7 +54,7 @@ pub(crate) struct WindowChrome {
 
 thread_local! {
     static CHROME: Cell<WindowChrome> = const {
-        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false, bottom: false })
+        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, half_hairline: 1.0, layout: TabLayout::Horizontal, narrow: false, bottom: false })
     };
 }
 
@@ -89,7 +91,8 @@ pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: Ta
         _ => (0.0, 0.0),
     };
     let hairline = scale.floor().max(1.0) / scale;
-    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing, hairline, layout, narrow, bottom: narrow && bottom };
+    let half_hairline = (scale * 0.5).floor().max(1.0) / scale;
+    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing, hairline, half_hairline, layout, narrow, bottom: narrow && bottom };
     CHROME.with(|c| c.set(chrome));
 }
 

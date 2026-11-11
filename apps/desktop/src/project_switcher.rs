@@ -9,6 +9,7 @@
 use crate::pickers::PickerHost as _;
 use opencode_kit::model::{Project, project_git};
 use rune::{Color, Cx, El, Key, KeyEvent, ScrollSpec, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
+use rune_kit::ScrollBar as _;
 use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::Highlight;
@@ -702,7 +703,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .w_full()
                 .h(scroll_h)
                 .scroll(ScrollSpec { stick_bottom: false })
-                .child(list),
+                .child(list)
+                // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
+                .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
         );
     let y = ((win_h - 480.0) / 2.0).max(48.0);
     let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());

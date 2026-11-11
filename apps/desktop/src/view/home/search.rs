@@ -108,7 +108,17 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
             // `my-1.5 pl-[18px] pr-6`.
             .child(row().key("home-search-label").w_full().pl(18.0).pr(24.0).my(6.0).child(text(opencode_i18n::t!("home.sessions.search.sessions")).font(UI).color(p.muted)))
             // `max-h-[min(20rem,40dvh)]`.
-            .child(col().key("home-search-list").w_full().max_h(320.0f32.min(window_h * 0.4)).scroll(ScrollSpec { stick_bottom: false }).clip_soft(0.0).child(rows))
+            // `MenuScroll` (`home/sessions/view.tsx:459`): its thumb shows while the list scrolls.
+            .child(
+                col()
+                    .key("home-search-list")
+                    .w_full()
+                    .max_h(320.0f32.min(window_h * 0.4))
+                    .scroll(ScrollSpec { stick_bottom: false })
+                    .clip_soft(0.0)
+                    .child(rows)
+                    .scroll_bar_styled(rune_kit::ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
+            )
     };
     col()
         .key("home-search-panel")
