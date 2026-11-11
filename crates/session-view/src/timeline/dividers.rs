@@ -27,7 +27,7 @@ pub(super) fn stack(t: &Transcript, out: &mut [RowSpec]) {
         };
         let run = Run { above, below };
         match &mut out[i].content {
-            RowContent::Notice(_, r) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = run,
+            RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = run,
             _ => {}
         }
     }
@@ -45,7 +45,7 @@ enum Kind {
 
 fn kind(t: &Transcript, c: &RowContent) -> Kind {
     match c {
-        RowContent::Notice(i, _) => match &t.messages[*i] {
+        RowContent::Notice(i, ..) => match &t.messages[*i] {
             Message::Notice(n) if crate::turn_errors::is_divider(n) => Kind::Divider,
             _ => Kind::Other,
         },
@@ -64,7 +64,7 @@ fn kind(t: &Transcript, c: &RowContent) -> Kind {
 pub fn divider_runs<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<(String, Run)> {
     super::rows(s, t).into_iter().filter(|r| kind(t, &r.content) == Kind::Divider).map(|r| {
         let run = match r.content {
-            RowContent::Notice(_, run) | RowContent::Compaction { run, .. } | RowContent::CompactionQueued(run) | RowContent::TurnDivider(run) => run,
+            RowContent::Notice(_, run, _) | RowContent::Compaction { run, .. } | RowContent::CompactionQueued(run) | RowContent::TurnDivider(run) => run,
             _ => unreachable!(),
         };
         (r.key, run)

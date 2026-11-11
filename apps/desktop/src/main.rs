@@ -141,6 +141,8 @@ mod review;
 mod route;
 mod rewind;
 mod rewind_stories;
+#[path = "view/rhythm_stories.rs"]
+mod rhythm_stories;
 mod rune_mcp;
 mod scenes;
 mod scrollbar;

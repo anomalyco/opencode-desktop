@@ -14,6 +14,7 @@ use crate::turns::{self, Block, Entry, Step};
 pub mod attachments;
 mod dividers;
 pub mod parts;
+pub mod rhythm;
 
 pub use dividers::divider_runs;
 pub use parts::*;
@@ -26,16 +27,17 @@ pub struct RowSpec {
 }
 
 pub enum RowContent {
-    User { message: usize, tight: bool, above: bool, below: bool, fold: Fold },
+    /// `reply`: set by `rhythm`.
+    User { message: usize, tight: bool, above: bool, below: bool, reply: bool, fold: Fold },
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
-    Pending { id: String, tight: bool, above: bool, below: bool, fold: Fold },
+    Pending { id: String, tight: bool, above: bool, below: bool, reply: bool, fold: Fold },
     /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
-    /// beside it should it draw as a divider.
-    Notice(usize, Run),
+    /// beside it should it draw as a divider, and the room over it as a line (`rhythm`).
+    Notice(usize, Run, f32),
     /// A background shell or subagent that came back, its message still waiting in the inbox:
-    /// the notice it shows as once delivered, under the same row key.
-    PendingNotice(String),
+    /// the notice it shows as once delivered, under the same row key, and the room over it.
+    PendingNotice(String, f32),
     /// The turn's last step's error, or its Retry row while the server waits to try it again.
     Error { message: usize, pt: f32 },
     Retry { message: usize, pt: f32 },
@@ -164,7 +166,7 @@ impl RowSpec {
                         self.wrap(s, el)
                     });
                 }
-                RowContent::User { message, tight, above, below, fold } => {
+                RowContent::User { message, tight, above, below, reply, fold } => {
                     if let Message::User { id, text, .. } = &t.messages[*message]
                         && s.user_glow_at(id).is_none()
                         && !s.user_menu_open_on(id)
@@ -174,10 +176,10 @@ impl RowSpec {
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, *reply, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                            let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
                             self.wrap(s, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
                         });
                     }
@@ -187,32 +189,32 @@ impl RowSpec {
         }
         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
         let el = match &self.content {
-            RowContent::User { message, tight, above, below, fold } => match &t.messages[*message] {
+            RowContent::User { message, tight, above, below, reply, fold } => match &t.messages[*message] {
                 Message::User { id, text, .. } => {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
-                    let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                    let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
                     user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)))
                 }
                 _ => unreachable!(),
             },
-            RowContent::Pending { id, tight, above, below, fold } => {
+            RowContent::Pending { id, tight, above, below, reply, fold } => {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
                         let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text);
                         let label = if cards.is_some() { item.text.clone() } else { s.pending_steer_label(item) };
-                        let run = Place { tight: *tight, above: *above, below: *below, fold: *fold };
+                        let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
                         user_bubble(s, p, &t.session, id, &label, run, 0.0, true, cards, &prompt_meta(s, t, None))
                     }
                     None => col(),
                 }
             }
-            RowContent::Notice(i, run) => match &t.messages[*i] {
-                Message::Notice(n) => crate::turn_errors::notice(s, p, n, *run),
+            RowContent::Notice(i, run, pt) => match &t.messages[*i] {
+                Message::Notice(n) => col().w_full().pt(*pt).child(crate::turn_errors::notice(s, p, n, *run)),
                 _ => unreachable!(),
             },
-            RowContent::PendingNotice(id) => match s.inbox_for(&t.session).and_then(|i| i.waiting_notices().find(|n| &n.id == id)) {
-                Some(n) => crate::turn_errors::notice(s, p, n, Run::default()),
+            RowContent::PendingNotice(id, pt) => match s.inbox_for(&t.session).and_then(|i| i.waiting_notices().find(|n| &n.id == id)) {
+                Some(n) => col().w_full().pt(*pt).child(crate::turn_errors::notice(s, p, n, Run::default())),
                 None => col(),
             },
             RowContent::Error { message, pt } => match &t.messages[*message] {
@@ -490,13 +492,13 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                     crate::detail::Placement::Hidden => steps.push(Entry::Skip),
                     crate::detail::Placement::Separate => {
                         turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
+                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
                     }
                 }
             }
             Message::Notice(n) => {
                 if crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Separate {
-                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default()), streaming: false });
+                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
                 }
             }
             Message::User { id, text: body, .. } => {
@@ -511,7 +513,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                 };
                 let tight = prompt_images(&mut out, id, older);
                 if !body.trim().is_empty() || !model::user_comments(id).is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, fold: fold(id) }, streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, reply: false, fold: fold(id) }, streaming: false });
                 }
             }
             // A shell command run from the composer is a turn of its own: its shell call, on its
@@ -581,19 +583,20 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let mut notices = notices.into_iter().peekable();
     for (k, item) in pending.iter().enumerate() {
         while let Some(n) = notices.next_if(|n| n.id < item.id) {
-            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone()), streaming: false });
+            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
             prev = None;
         }
         let above = prev.is_some_and(|x| prompts_join(x, item));
         let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n)) && notices.peek().is_none_or(|n| n.id > pending[k + 1].id);
         let tight = prompt_images(&mut out, &item.id, older);
-        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, fold: fold(&item.id) }, streaming: false });
+        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, reply: false, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
     }
     for n in notices {
-        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone()), streaming: false });
+        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
     }
     dividers::stack(t, &mut out);
+    rhythm::space(t, &detail, &mut out);
     // Input waiting to send (queued, or steers) lands as the turn ends, so the reply's footer
     // takes its room only once nothing waits.
     let waiting = s.inbox_for(&t.session).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some());
@@ -622,7 +625,7 @@ pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool) -> bool {
     tight
 }
 
-/// Space above a turn's row, as Desktop spaces assistant parts (`session-timeline-row.tsx:696-700`):
+/// Space above a turn's row (`rhythm` respaces it under a row it knows), as Desktop spaces assistant parts (`session-timeline-row.tsx:696-700`):
 /// none under the prompt but a text part's own 24 (`message-part.css:569-571`), 8 between two
 /// tools, 16 before anything else.
 pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
@@ -680,7 +683,7 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
     if live && a.retry.is_some() {
         out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false });
     } else if a.error.is_some() && !a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) {
-        // The error's row always sits 24 below what's above it, the prompt too (`pt-6`).
+        // 24 below what's above it (`pt-6`), until `rhythm` respaces it.
         out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false });
     }
 }

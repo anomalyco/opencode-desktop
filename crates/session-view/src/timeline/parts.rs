@@ -13,6 +13,8 @@ pub struct Place {
     pub tight: bool,
     pub above: bool,
     pub below: bool,
+    /// A reply's work sits right above it: it stands a turn's room under it (`rhythm::TURN`).
+    pub reply: bool,
     pub fold: Fold,
 }
 
@@ -108,7 +110,7 @@ pub fn prompt_meta<S: TimelineHost>(s: &S, t: &Transcript, message: Option<usize
 /// `message-part.css:1931-1967`), or in its place when it has none.
 #[allow(clippy::too_many_arguments)]
 pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, body: &str, place: Place, glow: f32, pending: bool, quotes: Option<El>, meta: &[(String, bool)]) -> El {
-    let Place { tight, above, below, fold } = place;
+    let Place { tight, above, below, reply, fold } = place;
     let menu = s.user_menu(p, session, id, body, pending);
     let open = s.user_menu_open_on(id);
     let (top, end) = (if above { 4.0 } else { 10.0 }, if below { 4.0 } else { 10.0 });
@@ -206,7 +208,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     }
     let c = col()
         .w_full()
-        .pt(if above { 4.0 } else if tight { 8.0 } else { 16.0 })
+        .pt(if above { 4.0 } else if tight { 8.0 } else if reply { super::rhythm::TURN } else { 16.0 })
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
     match status {
         Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
