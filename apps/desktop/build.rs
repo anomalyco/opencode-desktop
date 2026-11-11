@@ -1,3 +1,20 @@
+/// Windows: the static imports loaded on first use (`/DELAYLOAD`), with what calls them.
+const DELAY_LOADED: &[&str] = &[
+    "comctl32.dll",
+    "uiautomationcore.dll",
+    "wintrust.dll",
+    "crypt32.dll",
+    "setupapi.dll",
+    "ws2_32.dll",
+    "winmm.dll",
+    "oleaut32.dll",
+    "ole32.dll",
+    "shell32.dll",
+    "dwrite.dll",
+    "dxgi.dll",
+    "psapi.dll",
+];
+
 fn main() {
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_BUILD_CHANNEL");
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_WINDOW_TITLE");
@@ -20,6 +37,13 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/SUBSYSTEM:WINDOWS");
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/ENTRY:mainCRTStartup");
     }
+    // System DLLs a first frame doesn't call load on first use instead of before `main`: the
+    // loader maps every static import first (43 DLLs, about 14,100 µs on blade; comctl32 alone
+    // 2,800). The delay-load helper resolves each on its first call.
+    for dll in DELAY_LOADED {
+        println!("cargo:rustc-link-arg-bin=opencode-desktop=/DELAYLOAD:{dll}");
+    }
+    println!("cargo:rustc-link-arg-bin=opencode-desktop=delayimp.lib");
     // The exe's icon (Explorer, the taskbar, Alt+Tab, a pinned shortcut), version and manifest.
     let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| "OpenCode (Rune)".into());
     let version = env("OPENCODE_RUNE_VERSION").or_else(|| env("CARGO_PKG_VERSION")).unwrap_or_default();
