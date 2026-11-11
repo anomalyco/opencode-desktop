@@ -318,7 +318,7 @@ impl App {
                 open_ids: &open_ids,
             };
             launchers.extend(p.launcher_entries(self, &ctx).into_iter().map(|(desc, launch)| (p.plugin, desc, launch)));
-            for tab in (p.list)(self, &ctx) {
+            for tab in p.list(self, &ctx) {
                 let key = panel_key(p.plugin, &tab.id);
                 let pane = if tab.pinned {
                     SessionPane::Side

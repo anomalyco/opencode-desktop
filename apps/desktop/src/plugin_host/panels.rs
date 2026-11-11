@@ -74,7 +74,7 @@ pub fn providers(app: &App) -> Vec<PanelRegistration> {
             let order = c.panels.iter().filter_map(|c| c.spec.order).min().unwrap_or(40) as i32;
             // A transient panel's tabs leave the strip once its `list` no longer names them.
             let transient = c.panels.iter().any(|c| c.spec.transient == Some(true));
-            Some(PanelRegistration::luau(intern(&p.manifest.id), order, pane(c.panels.first().and_then(|f| f.spec.pane))).transient(transient))
+            Some(PanelRegistration::new(intern(&p.manifest.id), order, pane(c.panels.first().and_then(|f| f.spec.pane)), transient))
         })
         .collect()
 }

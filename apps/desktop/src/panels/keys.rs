@@ -89,17 +89,7 @@ impl App {
             let panels = self.all_panels();
             if let Some(st) = self.side.sessions.get_mut(&sid) {
                 for prov in &panels {
-                    for &(old, new_id) in prov.legacy {
-                        for k in &mut st.tab_state.tabs.all {
-                            if k == old {
-                                *k = panel_key(prov.plugin, new_id);
-                                changed = true;
-                            }
-                        }
-                    }
-                    if prov.luau {
-                        changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
-                    }
+                    changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
                 }
             }
             if panels.iter().any(|p| p.transient)
@@ -137,17 +127,7 @@ impl App {
         if !any_open || self.composer.focused {
             return false;
         }
-        if crate::plugin_host::native::on_ime(self, ime) {
-            return true;
-        }
-        for p in self.all_panels() {
-            if let Some(on_ime) = p.on_ime
-                && on_ime(self, ime)
-            {
-                return true;
-            }
-        }
-        false
+        crate::plugin_host::native::on_ime(self, ime)
     }
 
     pub fn panels_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -178,29 +158,7 @@ impl App {
             return true;
         }
 
-        // 2. Registered panels' launcher commands (Browser, Review, Files, Terminal; chords in `keymap`).
-        for p in self.all_panels() {
-            if let Some(sc) = p.shortcut
-                && sc.matches_tx(ev, tx)
-            {
-                if let Some(run) = p.run {
-                    run(self, tx);
-                    return true;
-                }
-                if let Some(open_fn) = p.open_launcher {
-                    open_fn(self, p.default_pane, tx);
-                    return true;
-                }
-            }
-            for &(sc, handler) in p.extra_shortcuts {
-                if sc.matches_tx(ev, tx) {
-                    handler(self, tx);
-                    return true;
-                }
-            }
-        }
-
-        // The Luau panels' commands, likewise (Toggle terminal, New terminal, Open review).
+        // 2. The panels' commands (Toggle terminal, New terminal, Open review; chords in `keymap`).
         if crate::plugin_host::commands::panel_key(self, ev, tx) {
             return true;
         }
@@ -225,13 +183,6 @@ impl App {
         // and the native views Luau panels place.
         if crate::plugin_host::native::on_key(self, ev, tx) {
             return true;
-        }
-        for p in self.all_panels() {
-            if let Some(on_key) = p.on_key
-                && on_key(self, ev, tx)
-            {
-                return true;
-            }
         }
 
         if !self.side.focused {

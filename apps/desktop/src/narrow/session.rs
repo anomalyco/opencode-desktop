@@ -217,7 +217,7 @@ fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
         focused: s.side.focused,
         mobile: true,
     };
-    (provider.render)(s, p, &ctx)
+    provider.render(s, p, &ctx)
 }
 
 /// A Luau plugin panel's narrow view (`<plugin>:<panel>`): its plugin's provider, and the tab,
@@ -225,7 +225,7 @@ fn panel(s: &App, p: &Pal, id: &str, view: &str) -> El {
 fn plugin_tab(s: &App, view: &str) -> Option<(crate::panels::PanelRegistration, PanelTabDesc)> {
     let (plugin, tab) = crate::panels::split_panel_key(view)?;
     let v = views(s).into_iter().find(|v| v.id == view)?;
-    let provider = s.find_panel(plugin).filter(|p| p.luau)?;
+    let provider = s.find_panel(plugin)?;
     Some((provider, PanelTabDesc::new(tab, v.title)))
 }
 

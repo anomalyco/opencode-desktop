@@ -78,11 +78,10 @@ impl Cmd {
     }
 }
 
-/// How a listed command runs: its own function, a panel's launcher, or a plugin's command.
+/// How a listed command runs: its own function, or a plugin's command.
 #[derive(Clone, Copy, Debug)]
 pub enum Run {
     Fn(fn(&mut App, &mut Tx)),
-    Panel(&'static str),
     Plugin(&'static str),
 }
 
@@ -144,20 +143,7 @@ impl App {
             hidden: c.hidden,
             run: Run::Fn(c.run),
         });
-        let panels = self.all_panels().into_iter().filter_map(|p| {
-            Some(Command {
-                id: p.plugin,
-                title: opencode_i18n::I18N.text(p.command_title?),
-                description: p.command_description.map_or("", |d| opencode_i18n::I18N.text(d)),
-                slash: p.slash,
-                keys: p.shortcut,
-                chord: None,
-                section: None,
-                hidden: false,
-                run: Run::Panel(p.plugin),
-            })
-        });
-        own.chain(panels).chain(crate::plugin_host::commands(self, offered)).collect()
+        own.chain(crate::plugin_host::commands(self, offered)).collect()
     }
 
     pub fn run_command(&mut self, id: &str, tx: &mut Tx) {
@@ -169,16 +155,6 @@ impl App {
             Run::Fn(f) => f(self, tx),
             Run::Plugin(id) => {
                 crate::plugin_host::run_command(self, id, tx);
-            }
-            Run::Panel("file") => self.open_file_search(tx),
-            Run::Panel(plugin) => {
-                if let Some(p) = self.all_panels().into_iter().find(|p| p.plugin == plugin) {
-                    if let Some(run) = p.run {
-                        run(self, tx);
-                    } else if let Some(open) = p.open_launcher {
-                        open(self, p.default_pane, tx);
-                    }
-                }
             }
         }
     }

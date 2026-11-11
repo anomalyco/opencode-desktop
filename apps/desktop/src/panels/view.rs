@@ -282,7 +282,7 @@ pub(super) fn pane_box(
             focused: s.side.focused && s.side.active_pane_focus == pane,
             mobile: false,
         };
-        let panel_el = (selected.provider.render)(s, p, &vctx);
+        let panel_el = selected.provider.render(s, p, &vctx);
         let content_key = match selected.tab.group {
             Some(g) => format!("panel-{}-{g}", selected.plugin),
             None => format!("panel-{}", selected.key),
