@@ -14,7 +14,7 @@ use crate::App;
 /// A Text rendering choice, as saved (`textRenderer`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextRenderer {
-    /// Rune's default here: Windfoil with the macOS weight, or Retina-like on macOS.
+    /// Rune's default here: Windfoil with Chromium's weight, or Retina-like on macOS.
     #[default]
     Default,
     WindfoilMac,
