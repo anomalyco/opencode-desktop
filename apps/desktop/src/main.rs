@@ -1,12 +1,19 @@
 //! OpenCode Desktop in Rune: OpenCode's home and session pages in Rune, live against the local OpenCode server or
 //! from a synthetic fixture. Live, it sends prompts, answers permission requests and questions,
 //! stops runs and starts sessions (`--read-only` turns all of that off).
+// apps/web builds this crate for the browser; built by it for any other target, it's empty.
+#![cfg(not(opencode_web_host))]
 
 /// Counts each thread's allocations for the frame diagnostics and the benchmarks, over mimalloc:
 /// the system heap costs a Luau plugin's rebuild (its tables, strings and elements) about a fifth
 /// more on Windows.
+#[cfg(not(target_arch = "wasm32"))]
 #[global_allocator]
 static ALLOC: procwatch::alloc::Counting<mimalloc::MiMalloc> = procwatch::alloc::Counting::new(mimalloc::MiMalloc);
+
+// A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
+#[cfg(target_arch = "wasm32")]
+extern crate ureq_web as ureq;
 
 use crate::pickers::PickerHost as _;
 pub use session_view::{
@@ -789,7 +796,7 @@ fn attended() -> bool {
 }
 
 fn wall_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 impl App {
@@ -1346,6 +1353,12 @@ fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
     }
 }
 
+/// The browser build's entry (apps/web).
+#[cfg(target_arch = "wasm32")]
+#[path = "../../web/src/web.rs"]
+mod web;
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     launch::trace::begin();
     telemetry::launched();

@@ -1792,9 +1792,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1938,6 +1940,7 @@ version = "0.0.1"
 dependencies = [
  "serde_json",
  "ureq",
+ "ureq-web",
  "windows",
 ]
 
@@ -3317,11 +3320,16 @@ dependencies = [
 name = "opencode-kit"
 version = "0.0.1"
 dependencies = [
+ "js-sys",
  "rune",
  "serde",
  "serde_json",
  "tungstenite",
  "ureq",
+ "ureq-web",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -3357,6 +3365,54 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencode-web"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "browser-pane",
+ "crc32fast",
+ "flate2",
+ "getrandom 0.3.4",
+ "hex-client",
+ "icu_normalizer",
+ "icu_properties",
+ "image",
+ "js-sys",
+ "memchr",
+ "mlua",
+ "notify",
+ "opencode-i18n",
+ "opencode-kit",
+ "opencode-plugin-spec",
+ "opencode-storage",
+ "otlp-lite",
+ "procwatch",
+ "project-icon",
+ "qrcode",
+ "rune",
+ "rune-kit",
+ "rune-knobs",
+ "rune-luau",
+ "rune-mac",
+ "rune-notify",
+ "rune-parts",
+ "rune-perf",
+ "rune-register",
+ "rune-theme-opencode",
+ "serde",
+ "serde_json",
+ "session-view",
+ "sha2",
+ "terminal",
+ "toml_edit",
+ "ureq-web",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "win-install",
 ]
 
 [[package]]
@@ -3417,6 +3473,7 @@ dependencies = [
 name = "otlp-lite"
 version = "0.0.1"
 dependencies = [
+ "rune",
  "serde_json",
 ]
 
@@ -5441,6 +5498,15 @@ dependencies = [
  "http",
  "httparse",
  "log",
+]
+
+[[package]]
+name = "ureq-web"
+version = "0.0.1"
+dependencies = [
+ "http",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

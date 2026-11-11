@@ -1,0 +1,59 @@
+name: OpenCode (Rune) Web Build
+
+# Builds the browser build (apps/web: the desktop app as wasm with WebGPU) on every push to
+# main and uploads the static folder as an artifact. It deploys nothing: serve the folder
+# locally (`pwsh scripts/web.ps1 -NoBuild`, or any static server) and open it in Chrome or Edge.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-rune-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      WASI_SDK_VERSION: "34"
+      # wasi-sdk-34.0-x86_64-linux.tar.gz, as its release lists it.
+      WASI_SDK_SHA256: b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rust-toolchain.toml picks the toolchain.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: web-wasm32
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Luau's C++ builds for the web with WASI SDK's clang.
+      - name: WASI SDK
+        run: |
+          file="wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$file" "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/$file"
+          echo "$WASI_SDK_SHA256  $RUNNER_TEMP/$file" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$file" -C "$RUNNER_TEMP"
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: wasm-bindgen at the lockfile's version
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build
+        shell: pwsh
+        run: scripts/web.ps1 -NoServe -Out "$env:RUNNER_TEMP/web"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: opencode-rune-web-${{ github.sha }}
+          path: ${{ runner.temp }}/web
+          retention-days: 14

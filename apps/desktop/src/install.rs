@@ -114,7 +114,7 @@ fn uninstall(a: &Args) -> i32 {
         }
         return 1;
     }
-    let started = std::time::Instant::now();
+    let started = rune::time::Instant::now();
     for line in win_install::unregister(&p, &root) {
         a.log(&line);
     }

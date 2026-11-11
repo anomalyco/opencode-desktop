@@ -402,7 +402,7 @@ pub fn settle_identity() {
 #[cfg(target_os = "windows")]
 fn settle_once() {
     let spawned = std::thread::Builder::new().name("opencode-identity".into()).spawn(|| {
-        let started = std::time::Instant::now();
+        let started = rune::time::Instant::now();
         let product = crate::launch::product();
         let Some(root) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)) else { return };
         let found = win_install::settle_identity(&product, &root);

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "apps/desktop",
     "apps/installer",
+    "apps/web",
     "crates/browser-pane",
     "crates/hex-client",
     "crates/office-preview",
@@ -15,6 +16,7 @@ members = [
     "crates/rune-parts",
     "crates/session-view",
     "crates/terminal",
+    "crates/ureq-web",
     "crates/win-install",
 ]
 exclude = ["apps/browser-engine"]
@@ -74,6 +76,8 @@ unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 # shared-lints end
 unsafe_code = "warn"
+# apps/web compiles apps/desktop's crate; for a native target it turns the crate off with this.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(opencode_web_host)"] }
 
 [workspace.lints.clippy]
 # shared-lints begin

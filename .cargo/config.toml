@@ -1,3 +1,7 @@
 [net]
 # Fetch git dependencies with the git CLI's configured credentials.
 git-fetch-with-cli = true
+
+# getrandom's browser backend (crypto.getRandomValues), which it takes only through this cfg.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
