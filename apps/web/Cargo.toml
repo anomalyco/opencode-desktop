@@ -54,7 +54,8 @@ opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 project-icon = { path = "../../crates/project-icon" }
 qrcode = { version = "0.14", default-features = false }
-rune = { workspace = true, features = ["avif"] }
+# The web keeps Rune's bundled Inter and IBM Plex Mono (first faces, full faces after the first frame).
+rune = { workspace = true, features = ["avif", "embedded-fonts"] }
 rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
 rune-knobs.workspace = true
 rune-luau = { workspace = true, features = ["serde"] }

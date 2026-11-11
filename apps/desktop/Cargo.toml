@@ -73,6 +73,8 @@ win-install = { path = "../../crates/win-install" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
+# Ogg and Opus audio tracks in videos, which AVPlayer can't play (Rune decodes them).
+rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
