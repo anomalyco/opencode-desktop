@@ -45,7 +45,11 @@ pub struct RoutedCall {
     pub call: McpCall,
 }
 
+/// What one window serves on one server. A window holds one for each server it has tabs on: the
+/// one it shows routes calls, the others keep their folders' connections open (`update_window`).
 struct WindowEntry {
+    /// The server as the window's runtime names it (its tabs' `server`).
+    runtime: opencode_kit::servers::ServerKey,
     server: Option<Server>,
     folders: BTreeSet<String>,
     routed_exact: Option<String>,
@@ -57,7 +61,8 @@ struct WindowEntry {
 }
 
 struct HubInner {
-    windows: HashMap<u64, WindowEntry>,
+    /// Per window, per server it has tabs on.
+    windows: HashMap<(u64, ServerKey), WindowEntry>,
     connections: HashMap<FolderKey, ClientMcp>,
     routers: HashMap<ServerKey, Sender<McpCall>>,
     /// The plugin tools generation the open connections listed (`plugin_host::mcp_tools_generation`).
@@ -91,10 +96,21 @@ impl RuneMcpHub {
         })
     }
 
-    fn update_window(self: &Arc<Self>, window_id: u64, entry: WindowEntry) {
+    /// The window shows `entry`'s server now. Its entries for the other servers it still has tabs on
+    /// (`keep`) stay, routing nothing, so a tab switch between servers keeps every server's
+    /// connections open (Desktop's TUI holds its one connection until what it serves changes); an
+    /// entry for a server the window no longer has tabs on goes, and its connections with it.
+    fn update_window(self: &Arc<Self>, window_id: u64, entry: WindowEntry, keep: &HashSet<opencode_kit::servers::ServerKey>) {
         let to_drop = {
             let mut inner = lock(&self.inner);
-            inner.windows.insert(window_id, entry);
+            let Some(key) = entry.server.as_ref().map(Server::endpoint_key) else { return };
+            inner.windows.retain(|(w, _), win| *w != window_id || keep.contains(&win.runtime));
+            for win in inner.windows.iter_mut().filter_map(|((w, k), win)| (*w == window_id && *k != key).then_some(win)) {
+                win.routed_exact = None;
+                win.routed_root = None;
+                win.open_roots.clear();
+            }
+            inner.windows.insert((window_id, key), entry);
             Self::reconcile_locked(self, &mut inner)
         };
         close_later(to_drop);
@@ -103,7 +119,9 @@ impl RuneMcpHub {
     fn remove_window(self: &Arc<Self>, window_id: u64) {
         let to_drop = {
             let mut inner = lock(&self.inner);
-            if inner.windows.remove(&window_id).is_none() {
+            let before = inner.windows.len();
+            inner.windows.retain(|(w, _), _| *w != window_id);
+            if inner.windows.len() == before {
                 return;
             }
             Self::reconcile_locked(self, &mut inner)
@@ -250,7 +268,7 @@ fn match_window(
     let root = resolve_root(sid, &merged_parents);
     let mut best: Option<(u8, u64, Sender<RoutedCall>, Waker, String)> = None;
 
-    for (&wid, win) in &inner.windows {
+    for (&(wid, _), win) in &inner.windows {
         if !win.server.as_ref().is_some_and(|s| s.same_target(server)) {
             continue;
         }
@@ -519,7 +537,12 @@ fn sync_window(s: &mut App) {
     let known_parents: HashMap<String, Option<String>> =
         s.sessions.iter().map(|i| (i.id.clone(), i.parent.clone())).collect();
 
+    let active = crate::servers::runtime::active(s).clone();
+    // The servers the window has tabs on keep their entries (and connections) while it shows another.
+    let mut keep: HashSet<opencode_kit::servers::ServerKey> = s.tabs.iter().map(|t| t.server.clone()).collect();
+    keep.insert(active.clone());
     let entry = WindowEntry {
+        runtime: active,
         server: Some(server),
         folders,
         routed_exact,
@@ -529,7 +552,7 @@ fn sync_window(s: &mut App) {
         tx: s.rune_mcp.tx.clone(),
         waker: s.rune_mcp.waker.clone(),
     };
-    s.rune_mcp.hub.update_window(s.rune_mcp.window_id, entry);
+    s.rune_mcp.hub.update_window(s.rune_mcp.window_id, entry, &keep);
 }
 
 /// Closes connections a window no longer wants on a thread of their own: a close joins the
