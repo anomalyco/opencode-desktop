@@ -13,7 +13,7 @@ pub mod select;
 pub mod state;
 
 use office_preview::xlsx::{LAST_CELL, Range};
-use rune::{Color, Cursor, El, Family, ScrollPos, TextStyle, col, el, text};
+use rune::{Color, Cursor, El, Family, ScrollPos, TextStyle, col, el, memo, text};
 
 use super::registry::{self, Snapshot};
 use super::worker::SheetFrame;
@@ -73,7 +73,12 @@ pub fn view(id: u64, labels: Labels, focus: Color) -> El {
         let [x, y, w, h] = frame.viewport.map(|v| v as f32);
         content = content.child(el().key("office-sheet-cells").absolute(header_w + x, HEADER_H + y).size(w, h).fill(Color::WHITE).effect(registry::sheet_mark(id))).child(selection(frame, header_w, range, active)).children(links(frame, header_w, &labels.name));
     }
-    content = content.child(column_headers(&snap, header_w, content_w, range)).child(row_headers(&snap, header_w, content_h, range));
+    // A drag steps the selection every frame: the strips build again only when the frame or the
+    // tracks they light change, and each header only when its own place or lighting does.
+    let frame_key = snap.frame.as_ref().map_or(0, |f| std::sync::Arc::as_ptr(f) as usize);
+    content = content
+        .child(memo(format!("office-sheet-columns-{id}"), (frame_key, header_w.to_bits(), content_w.to_bits(), range[1], range[3]), || column_headers(&snap, header_w, content_w, range)))
+        .child(memo(format!("office-sheet-rows-{id}"), (frame_key, header_w.to_bits(), content_h.to_bits(), range[0], range[2]), || row_headers(&snap, header_w, content_h, range)));
     let key = scroll_key(id);
     let mut grid = col()
         .key(key.clone())
@@ -149,7 +154,9 @@ fn column_headers(snap: &Snapshot, header_w: f32, content_w: f32, range: Range) 
         let offsets = &frame.grid.col_offsets;
         for (position, pair) in offsets.windows(2).enumerate() {
             let index = track(frame.grid.start_col, frame.grid.col_indices.as_deref(), position);
-            strip = strip.child(header_cell(x0 + pair[0], 0.0, pair[1] - pair[0], HEADER_H, column_name(index), index >= range[1] && index <= range[3], true));
+            let selected = index >= range[1] && index <= range[3];
+            let (x, w) = (x0 + pair[0], pair[1] - pair[0]);
+            strip = strip.child(memo(format!("office-col-{index}"), (x.to_bits(), w.to_bits(), selected), || header_cell(x, 0.0, w, HEADER_H, column_name(index), selected, true)));
         }
     }
     strip.child(el().absolute(0.0, HEADER_H - 1.0).w(header_w + content_w.max(1.0)).h(2.0).fill(half(ink_edge()))).child(corner(header_w))
@@ -163,7 +170,9 @@ fn row_headers(snap: &Snapshot, header_w: f32, content_h: f32, range: Range) -> 
         let offsets = &frame.grid.row_offsets;
         for (position, pair) in offsets.windows(2).enumerate() {
             let index = track(frame.grid.start_row, frame.grid.row_indices.as_deref(), position);
-            strip = strip.child(header_cell(0.0, y0 + pair[0], header_w, pair[1] - pair[0], (index + 1).to_string(), index >= range[0] && index <= range[2], false));
+            let selected = index >= range[0] && index <= range[2];
+            let (y, h) = (y0 + pair[0], pair[1] - pair[0]);
+            strip = strip.child(memo(format!("office-row-{index}"), (y.to_bits(), h.to_bits(), header_w.to_bits(), selected), || header_cell(0.0, y, header_w, h, (index + 1).to_string(), selected, false)));
         }
     }
     strip.child(el().absolute(header_w - 1.0, 0.0).w(2.0).h(content_h.max(1.0)).fill(half(ink_edge())))
@@ -288,12 +297,18 @@ fn reader(snap: &Snapshot, range: Range) -> El {
     }
     let mut grid = el().key("office-sheet-reader").absolute(0.0, 0.0).size(1.0, 1.0).clip_rounded(0.0).child(head);
     for r in (top..=bottom.min(LAST_CELL[0])).filter(|r| !hidden_at(&layout.hidden_rows, *r)) {
-        let mut row = el().role("row").child(el().role("rowheader").label((r + 1).to_string()));
-        for c in &columns {
-            let text = read.texts.get((r - top) as usize).and_then(|t| t.get((*c - left) as usize)).cloned().unwrap_or_default();
-            row = row.child(el().key(cell_key([r, *c])).role("gridcell").label(text).focus_selected(contains(range, [r, *c])));
-        }
-        grid = grid.child(row);
+        // A row builds again only when the block or the selected part of it changes, so a drag
+        // down rebuilds the row it reaches, not the block.
+        let span = (r >= range[0] && r <= range[2]).then(|| (range[1].max(left), range[3].min(right)));
+        let key = (std::rc::Rc::as_ptr(read) as usize, std::sync::Arc::as_ptr(&layout) as usize, r, span);
+        grid = grid.child(memo(format!("office-reader-row-{r}"), key, || {
+            let mut row = el().role("row").child(el().role("rowheader").label((r + 1).to_string()));
+            for c in &columns {
+                let text = read.texts.get((r - top) as usize).and_then(|t| t.get((*c - left) as usize)).cloned().unwrap_or_default();
+                row = row.child(el().key(cell_key([r, *c])).role("gridcell").label(text).focus_selected(contains(range, [r, *c])));
+            }
+            row
+        }));
     }
     grid
 }
