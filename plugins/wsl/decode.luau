@@ -1,5 +1,5 @@
 --!strict
--- A small JSON decoder, for settings the native plugin saved as JSON text. Nil for text that
+-- A small JSON decoder, for settings earlier versions saved as JSON text. Nil for text that
 -- isn't JSON.
 
 local function decode(text: string): any

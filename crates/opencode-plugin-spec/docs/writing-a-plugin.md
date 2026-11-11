@@ -188,6 +188,22 @@ stylua --check --glob "**/*.luau" --glob "!**/*.d.luau" plugins
 
 The samples in [`samples/`](../samples) pass all three checks: `session-stats` (command, setting, panel, virtual list), `goal` (composer pill and popover, server events), `workbench` (every native node, MCP tool, link handler) and `wsl-lite` (app half, processes, server source, dialog).
 
+## 8. Run and install it
+
+A plugin is its folder and nothing else: `plugin.toml`, `*.luau`, `.luaurc`, `locales/*.json` and `icons/*.svg`. The app reads no other file in it, and never loads native code from it.
+
+| Where | How it runs |
+|---|---|
+| `opencode-desktop --plugin-dir <folder>` | A plugin folder, or a folder of them, for this launch. It runs without asking. |
+| `<data>/plugins/<id>/` | Installed for every launch. The first run asks. It can't take a built-in's id. |
+| `<config>/plugins-override/<id>/` | Replaces the built-in with the same id. The first run asks. |
+
+`<data>` and `<config>` are `%APPDATA%\rune-opencode` on Windows and `~/Library/Application Support/rune-opencode` on macOS; Linux follows XDG.
+
+- **Trust.** A plugin can read and change files, run programs and reach the network through its services. Before an installed or overriding plugin first runs, the app asks *Enable plugin "<name>"?*. The answer holds for the plugin's files as they are: the app remembers their SHA-256, and a changed file asks again. *Not now* asks again on the next launch.
+- **Reload.** Saving a file reloads the plugin in place in a development build, or in any build started with `--plugin-hot`. Settings › Extensions › Plugins also has Reload, and a switch that turns the plugin off.
+- **Inspect.** `opencode-desktop --plugin-index` prints every plugin, where it runs from, its state and what it contributed.
+
 ## Change the contract
 
 `contract.json` is the single source of truth. After you edit it, regenerate everything and check that nothing drifted:

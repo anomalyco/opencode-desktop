@@ -47,7 +47,7 @@ return plugin.defineApp(function(ctx)
     local packaged = App.Channel ~= "local"
 
     -- The saved distros (`servers`), read leniently: a record without a distro is skipped, one
-    -- without an id gets `wsl:<distro>`. The native plugin saved them as JSON text.
+    -- without an id gets `wsl:<distro>`. Earlier versions saved them as JSON text.
     local saved = Store:Value("servers", { servers = {} } :: any)
     local function readSaved(): { machine.ServerConfig }
         local value = saved:Get()

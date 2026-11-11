@@ -2,7 +2,7 @@
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
-Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-globals) · [Contexts](#contexts) · [Contributions](#contributions) · [Services](#services) · [UI nodes](#ui-nodes) · [Semantic tokens](#semantic-tokens) · [Enums](#enums) · [Types](#types) · [plugin.toml](#plugintoml) · [What 1.0 removed](#what-10-removed)
+Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-globals) · [Contexts](#contexts) · [Contributions](#contributions) · [Services](#services) · [UI nodes](#ui-nodes) · [Semantic tokens](#semantic-tokens) · [Enums](#enums) · [Types](#types) · [plugin.toml](#plugintoml)
 
 ## Versioning
 
@@ -3339,17 +3339,3 @@ plugin.toml: a plugin folder's manifest. Editors validate it with `plugins/plugi
 | `settings_search.title` | `string` | yes | The title in search results. |
 | `settings_search.description` | `string` | no | Its second line. |
 | `settings_search.keywords` | `string` | no | More words search matches. |
-
-## What 1.0 removed
-
-The native plugin ABI leaked Rune and Desktop internals. Contract 1.0 replaces each leak:
-
-| Leak | Replacement |
-|---|---|
-| `ElKind::Odometer`: a Rune rolling-digit widget as a core node. | `ui.metric({ value, text, tabular, animate })`. Rune rolls the digits; other hosts show the text. |
-| `ActionCx::instant()` and the `INSTANT_HOVER` flag: Rune's transaction flag. | Semantic motion: `transition = "none"` on layout calls and `hoverTransition = "instant"` on boxes. |
-| `HOVER_GROUP` and `group_color`: Rune's single-color hover group. | Declarative hover groups: `hoverGroup`, `hoverGroupColor` and `revealOnHover`. |
-| `ElSpec::anchored`: overlays drawn after a sibling key. | Host-managed overlays: `Popover:Open({ id, anchorKey, side, align, gap })`, `Menu:OpenAsync` and `ui.flyoutRow`. |
-| Positional `AbiPalette` (`layer1`…`layer4`, `switch_thumb`) and Desktop CSS variable names. | 32 versioned semantic tokens and `ui.hex` for literal colors. |
-| Strings packed with `\n`, `\t` and NUL (`id\nanchor`, toast fields, process args and env). | Typed Luau records: `ToastSpec`, `ProcessSpec`, `PopoverOpenSpec`, `ServerEntry` and the rest. |
-| No virtual list: long lists built every row on every commit. | `ui.virtualList({ count, estimatedRowHeight, version, renderRow })`. |

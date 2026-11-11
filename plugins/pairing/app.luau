@@ -18,7 +18,7 @@ return plugin.defineApp(function(ctx)
     local Console = ctx:GetService("Console")
     local Power = ctx:GetService("Power")
 
-    -- Whether the display is kept awake, remembered across launches. The native plugin saved it
+    -- Whether the display is kept awake, remembered across launches. Earlier versions saved it
     -- as JSON text.
     local stored = Store:Value("keepScreenActive", false :: any)
     local lock: PowerLock? = nil

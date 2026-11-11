@@ -44,7 +44,7 @@ return plugin.defineApp(function(ctx)
     local program = if App.Platform == "windows" then "ssh.exe" else "ssh"
     local development = App.Channel == "local"
 
-    -- The saved hosts (`servers`); the native plugin saved them as JSON text.
+    -- The saved hosts (`servers`); earlier versions saved them as JSON text.
     local saved = Store:Value("servers", {} :: any)
     local function readSaved(): { machine.Config }
         local value = saved:Get()

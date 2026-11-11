@@ -5,7 +5,7 @@
 //! ```text
 //! %LOCALAPPDATA%\Programs\OpenCode Rune\            the install root: Start menu shortcut,
 //!   opencode-desktop.exe                            taskbar pin, toast activator and
-//!   plugins\<id>\plugin.toml, <library>.dll         uninstall entry all point in here
+//!                                                   uninstall entry all point in here
 //! %LOCALAPPDATA%\Programs\.OpenCode Rune.staged\    the next version, verified, beside it
 //! %LOCALAPPDATA%\Programs\.OpenCode Rune.old-<pid>\ the previous one while the swap runs
 //! %LOCALAPPDATA%\rune-opencode\Cache\Updates\       downloads, the helper's copy and its log

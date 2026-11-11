@@ -10,7 +10,7 @@ pub fn api(c: &Contract) -> String {
     o.blank();
     o.line(&format!("> {GENERATED} For a walkthrough, read [Writing a plugin](writing-a-plugin.md)."));
     o.blank();
-    o.line("Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-globals) · [Contexts](#contexts) · [Contributions](#contributions) · [Services](#services) · [UI nodes](#ui-nodes) · [Semantic tokens](#semantic-tokens) · [Enums](#enums) · [Types](#types) · [plugin.toml](#plugintoml) · [What 1.0 removed](#what-10-removed)");
+    o.line("Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-globals) · [Contexts](#contexts) · [Contributions](#contributions) · [Services](#services) · [UI nodes](#ui-nodes) · [Semantic tokens](#semantic-tokens) · [Enums](#enums) · [Types](#types) · [plugin.toml](#plugintoml)");
     o.blank();
 
     o.line("## Versioning");
@@ -163,16 +163,6 @@ pub fn api(c: &Contract) -> String {
         }
     }
     o.blank();
-
-    o.line("## What 1.0 removed");
-    o.blank();
-    o.line("The native plugin ABI leaked Rune and Desktop internals. Contract 1.0 replaces each leak:");
-    o.blank();
-    o.line("| Leak | Replacement |");
-    o.line("|---|---|");
-    for l in &c.leaks {
-        o.line(&format!("| {} | {} |", cell(&l.old), cell(&l.replacement)));
-    }
     o.finish()
 }
 

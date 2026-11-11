@@ -288,7 +288,7 @@ const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
 
 /// Token `name` of the active theme in this appearance (a Desktop CSS variable without its
 /// `--`: `text-strong`, `background-bg-layer-04`), for what draws by name rather than through
-/// [`Pal`] (native plugins). Each theme is read once.
+/// [`Pal`]. Each theme is read once.
 pub fn token(dark: bool, name: &str) -> Option<Color> {
     thread_local! {
         static THEMES: std::cell::RefCell<HashMap<(usize, u64, bool, bool), Theme>> = std::cell::RefCell::new(HashMap::new());

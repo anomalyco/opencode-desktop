@@ -23,7 +23,6 @@ pub struct Contract {
     pub plugin_module: Vec<Member>,
     pub globals: Vec<Global>,
     pub manifest: Manifest,
-    pub leaks: Vec<Leak>,
 }
 
 #[derive(Deserialize)]
@@ -247,13 +246,6 @@ pub struct ManifestField {
     pub enum_name: Option<String>,
     #[serde(default)]
     pub fields: Vec<ManifestField>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Leak {
-    pub old: String,
-    pub replacement: String,
 }
 
 impl Contract {
