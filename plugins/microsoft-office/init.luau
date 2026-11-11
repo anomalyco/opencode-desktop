@@ -14,8 +14,6 @@ return plugin.defineWindow(function(ctx)
     local Office = ctx:GetService("Office")
     local changed = ctx:CreateSignal()
     local state = machine.new()
-    -- The sheet each workbook shows, by path.
-    local sheets: { [string]: number } = {}
     local services: view.Services = { I18n = I18n, Office = Office, redraw = function()
         changed:Fire()
     end }
@@ -55,11 +53,11 @@ return plugin.defineWindow(function(ctx)
                 machine.touch(state, props.path)
                 local status = file.status
                 local version = if status.kind == "open" then Office:Version(status.document) else 0
-                local active = sheets[props.path] or 1
+                -- The host's sheet: the tab picked, or the sheet a link in it went to.
+                local active = if status.kind == "open" then Office:Sheet(status.document) else 1
                 return v:Memo(`office-{props.path}`, `{status.kind}:{version}:{active}:{changed:Version()}:{I18n:Locale().id}`, function()
                     return view.stage(services, v, props.path, file, active, function(index)
                         if status.kind == "open" then
-                            sheets[props.path] = index
                             Office:SetSheet(status.document, index)
                             changed:Fire()
                         end

@@ -264,7 +264,7 @@ impl ServiceName {
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
             Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "Changed", "Picked"],
             Self::Composer => &["InsertPill"],
-            Self::Office => &["OpenAsync", "Version", "SetSheet", "Close"],
+            Self::Office => &["OpenAsync", "Version", "SetSheet", "Sheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],
             Self::Diagnostics => &["Memory", "Metrics", "Plugins", "Get", "Set", "HeapSnapshotAsync"],
             Self::Power => &["KeepAwake"],

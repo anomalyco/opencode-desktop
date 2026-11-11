@@ -32,6 +32,11 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::ask(&plugin, cx::Request::Redraw);
         Ok(())
     })?;
+    method(lua, t, "Sheet", |_, doc: Table| {
+        let id = document_id(&doc)?;
+        cx::read(Dep::Office(id));
+        Ok(registry::sheet(id) as i64 + 1)
+    })?;
     method(lua, t, "Close", |_, doc: Table| {
         registry::close(document_id(&doc)?);
         Ok(())

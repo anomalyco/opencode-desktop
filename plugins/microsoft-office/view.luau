@@ -91,7 +91,8 @@ function view.workbook(services: Services, v: View, document: OfficeDocument, ac
             )
         end
     end
-    return ui.col({ key = "office-workbook", w = "full", grow = 1, minH = 0 }, {
+    -- On the file view's layer-01, as Desktop's workbook sits (its rules and tabs are drawn over it).
+    return ui.col({ key = "office-workbook", w = "full", grow = 1, minH = 0, fill = "surface-1" }, {
         -- The grid's `border-t border-v2-border-border-muted`.
         ui.divider(),
         ui.officeSheet({

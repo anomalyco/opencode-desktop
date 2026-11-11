@@ -436,6 +436,7 @@ Office documents laid out and drawn by the host, each on a thread of its own. Ha
 | `:OpenAsync` | `(path: string, directory: string, kind: OfficeKind) -> OfficeFile` | Reads a file of the session's folder `directory` through the server and, when its bytes are a zip archive, opens and lays it out as `kind`. Yields. |
 | `:Version` | `(document: OfficeDocument) -> number` | Grows with every change its views draw: pages laid out, zoom, a sheet's frame. Read in a render, it redraws as it grows. |
 | `:SetSheet` | `(document: OfficeDocument, index: number) -> ()` | Shows a workbook's sheet `index`, from 1. |
+| `:Sheet` | `(document: OfficeDocument) -> number` | The workbook's sheet on show, from 1: the one `Office:SetSheet` chose, or the one a link in the sheet went to. Reading it redraws the caller when it changes. |
 | `:Close` | `(document: OfficeDocument) -> ()` | Releases it and ends its thread. |
 
 ### Updater

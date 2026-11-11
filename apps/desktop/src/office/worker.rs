@@ -35,7 +35,9 @@ pub enum Reply {
     Scene { page: usize, scene: Result<Arc<Scene>, String> },
     Layout { sheet: usize, layout: Result<SheetLayout, String> },
     Frame { sheet: usize, ticket: u64, frame: Result<Arc<SheetFrame>, String> },
-    Cells { sheet: usize, range: Range, ticket: u64, purpose: Purpose, cells: Result<Vec<Vec<CellText>>, String> },
+    Cells { sheet: usize, range: Range, ticket: u64, cells: Result<Vec<Vec<CellText>>, String> },
+    /// A copy's cells as tab-separated text and an HTML table, written here off the UI thread.
+    Copied { sheet: usize, ticket: u64, copy: Result<(String, String), String> },
     Position { sheet: usize, ticket: u64, rect: Result<[f64; 4], String> },
 }
 
@@ -52,10 +54,11 @@ pub struct Scene {
     pub height: f64,
 }
 
-/// One viewport of a sheet: its scene and the grid its headers follow.
+/// One viewport of a sheet: its scene, the grid its headers follow and the links in it.
 pub struct SheetFrame {
     pub scene: Scene,
     pub grid: office_preview::xlsx::GridMeta,
+    pub links: Vec<office_preview::xlsx::HyperlinkRegion>,
     pub viewport: [f64; 4],
 }
 
@@ -85,9 +88,15 @@ fn run(kind: Kind, bytes: &[u8], packs: FontPacks, jobs: &Receiver<Job>, replies
                 Job::Frame { ticket, .. } if Some(ticket) != newest => true,
                 Job::Frame { sheet, viewport, ratio, ticket } => {
                     let frame = excel(&mut document).and_then(|x| x.frame(sheet, viewport[0], viewport[1], viewport[2], viewport[3], ratio).map_err(|e| e.to_string()));
-                    send(Reply::Frame { sheet, ticket, frame: frame.map(|f| Arc::new(SheetFrame { scene: Scene { scene: f.page.scene, width: f.page.width, height: f.page.height }, grid: f.grid, viewport })) })
+                    send(Reply::Frame { sheet, ticket, frame: frame.map(|f| Arc::new(SheetFrame { scene: Scene { scene: f.page.scene, width: f.page.width, height: f.page.height }, grid: f.grid, links: f.links, viewport })) })
                 }
-                Job::Cells { sheet, range, ticket, purpose } => send(Reply::Cells { sheet, range, ticket, purpose, cells: excel(&mut document).and_then(|x| x.cells(sheet, range).map_err(|e| e.to_string())) }),
+                Job::Cells { sheet, range, ticket, purpose } => {
+                    let cells = excel(&mut document).and_then(|x| x.cells(sheet, range).map_err(|e| e.to_string()));
+                    send(match purpose {
+                        Purpose::Read => Reply::Cells { sheet, range, ticket, cells },
+                        Purpose::Copy => Reply::Copied { sheet, ticket, copy: cells.map(|c| (super::sheet::copy::tsv(&c), super::sheet::copy::html(&c))) },
+                    })
+                }
                 Job::Position { sheet, cell, ticket } => send(Reply::Position { sheet, ticket, rect: excel(&mut document).and_then(|x| x.position(sheet, cell[0], cell[1]).map_err(|e| e.to_string())) }),
                 Job::Reopen(packs) => match open(kind, bytes, &packs, &send) {
                     Some(reopened) => {

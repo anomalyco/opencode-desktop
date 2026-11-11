@@ -13,7 +13,7 @@ use office_preview::{Kind, PageInfo};
 use rune_luau::{Completer, Data};
 
 use super::sheet::pointer::PointerEvent;
-use super::sheet::select::Selection;
+use super::sheet::select::{self, Cell, Selection};
 use super::sheet::state::{Ask, Grid, Read, UiEffect};
 use super::worker::{self, Job, Reply, Scene, SheetFrame};
 
@@ -70,6 +70,8 @@ struct Open {
     pages: Vec<PageInfo>,
     scenes: HashMap<usize, Slot>,
     sheet: Sheet,
+    /// A workbook's sheet names, which its links name.
+    sheets: Vec<String>,
 }
 
 /// A page's scene: asked for, drawn, or failed.
@@ -83,7 +85,7 @@ enum Slot {
 #[derive(Default)]
 struct Sheet {
     index: usize,
-    layout: Option<SheetLayout>,
+    layout: Option<Arc<SheetLayout>>,
     frame: Option<Arc<SheetFrame>>,
     asked: Option<[f64; 4]>,
     /// The device pixels per CSS px the sheet last drew at, which frames snap their lines to.
@@ -92,6 +94,8 @@ struct Sheet {
     /// Its selection, pointer gesture, screen readers' cells, copy and scroll into view; each
     /// sheet's grid starts fresh, as Desktop gives each sheet its own.
     grid: Grid,
+    /// The cell a link on another sheet goes to, selected once this sheet's layout arrives.
+    target: Option<Cell>,
 }
 
 /// What the compositor draws for a mark: a page's scene or a sheet's frame, and a version that
@@ -123,11 +127,11 @@ pub struct Snapshot {
     pub failed_pages: Vec<usize>,
     pub zoom: f32,
     pub width: f32,
-    pub layout: Option<SheetLayout>,
+    pub layout: Option<Arc<SheetLayout>>,
     pub frame: Option<Arc<SheetFrame>>,
     pub selection: Selection,
     /// The cells screen readers browse around the active cell.
-    pub read: Option<Read>,
+    pub read: Option<std::rc::Rc<Read>>,
     /// Where the grid's scroll view is, and the farthest point a reveal scrolled to.
     pub view: super::sheet::state::View,
     pub reach: [f32; 2],
@@ -193,7 +197,7 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
             if doc.kind == Kind::Spreadsheet && !opened.sheets.is_empty() {
                 doc.jobs.send(Job::Layout { sheet: 0 }).ok();
             }
-            doc.state = State::Open(Box::new(Open { pages: opened.pages, scenes: HashMap::new(), sheet: Sheet::default() }));
+            doc.state = State::Open(Box::new(Open { pages: opened.pages, scenes: HashMap::new(), sheet: Sheet::default(), sheets: opened.sheets }));
         }
         (State::Opening { waiters }, Reply::Failed(reason)) => {
             eprintln!("office: {reason}");
@@ -205,6 +209,7 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
         // Opened again with the CJK faces: the pages lay out anew.
         (State::Open(open), Reply::Opened(opened)) => {
             open.pages = opened.pages;
+            open.sheets = opened.sheets;
             open.scenes.clear();
             open.sheet.frame = None;
             open.sheet.asked = None;
@@ -213,13 +218,17 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
             open.scenes.insert(page, scene.map_or(Slot::Failed, Slot::Ready));
         }
         (State::Open(open), Reply::Layout { sheet, layout }) if sheet == open.sheet.index => {
-            open.sheet.layout = layout.ok();
-            // The screen readers' first block, around A1.
-            let asks: Vec<Ask> = open.sheet.grid.select(Selection::default()).into_iter().collect();
+            open.sheet.layout = layout.ok().map(Arc::new);
+            // The screen readers' first block, around A1, or the cell a link went to.
+            let asks: Vec<Ask> = match (open.sheet.target.take(), &open.sheet.layout) {
+                (Some(cell), Some(layout)) => open.sheet.grid.go_to(cell, layout),
+                _ => open.sheet.grid.select(Selection::default()).into_iter().collect(),
+            };
             send_asks(&doc.jobs, sheet, asks);
         }
-        (State::Open(open), Reply::Cells { sheet, range, ticket, purpose, cells }) if sheet == open.sheet.index => {
-            UI.with_borrow_mut(|ui| ui.extend(open.sheet.grid.cells_read(ticket, purpose, range, cells)));
+        (State::Open(open), Reply::Cells { sheet, range, ticket, cells }) if sheet == open.sheet.index => open.sheet.grid.cells_read(ticket, range, cells),
+        (State::Open(open), Reply::Copied { sheet, ticket, copy }) if sheet == open.sheet.index => {
+            UI.with_borrow_mut(|ui| ui.extend(open.sheet.grid.copied(ticket, copy)));
         }
         (State::Open(open), Reply::Position { sheet, ticket, rect }) if sheet == open.sheet.index => {
             let Some(layout) = &open.sheet.layout else { return };
@@ -486,14 +495,63 @@ pub fn scrolled(id: u64, scroll: [f32; 2], size: [f32; 2], header_w: f32, frozen
     show_sheet(id, [f64::from(scroll[0]), f64::from(scroll[1]), f64::from(w), f64::from(h)]);
 }
 
-/// A pointer step on file `id`'s grid; true when its selection changed.
-pub fn pointer(id: u64, event: PointerEvent) -> bool {
-    with_grid(id, |grid, layout| {
+/// A pointer step on file `id`'s grid: true when what it draws changed, and what the window
+/// does for a link a click followed.
+pub fn pointer(id: u64, event: PointerEvent) -> (bool, Option<UiEffect>) {
+    let (follow, mut changed) = with_grid(id, |grid, layout| {
         let before = grid.selection;
-        let asks = grid.pointer(event, layout);
-        (grid.selection != before, asks)
+        let (asks, follow) = grid.pointer(event, layout);
+        ((follow, grid.selection != before), asks)
     })
-    .unwrap_or(false)
+    .unwrap_or((None, false));
+    let effect = follow.and_then(|cell| follow_link(id, cell, &mut changed));
+    (changed, effect)
+}
+
+/// Follows the link on `cell` of file `id`'s sheet, if it has one it can follow (`follow`):
+/// its web or mail address opens outside the app; a cell of this sheet is selected and scrolled to
+/// the start; another sheet opens at its cell. A link to a missing sheet goes nowhere, as in Excel.
+fn follow_link(id: u64, cell: Cell, changed: &mut bool) -> Option<UiEffect> {
+    REGISTRY.with_borrow_mut(|r| {
+        let doc = r.docs.get_mut(&id)?;
+        let State::Open(open) = &mut doc.state else { return None };
+        let layout = open.sheet.layout.clone()?;
+        let name = open.sheets.get(open.sheet.index).cloned().unwrap_or_default();
+        let frame = open.sheet.frame.clone()?;
+        let link = link_at(&frame, &layout, &name, cell)?;
+        if let Some(url) = office_preview::xlsx::link_url(link) {
+            return Some(UiEffect::Open(url));
+        }
+        let (sheet, target) = office_preview::xlsx::link_location(link.location.as_deref()?, &name)?;
+        let index = open.sheets.iter().position(|s| s.to_lowercase() == sheet.to_lowercase())?;
+        *changed = true;
+        doc.version += 1;
+        if index == open.sheet.index {
+            let asks = open.sheet.grid.go_to(target, &layout);
+            send_asks(&doc.jobs, index, asks);
+            return None;
+        }
+        open.sheet = Sheet { index, ticket: open.sheet.ticket, ratio: open.sheet.ratio, target: Some(target), ..Sheet::default() };
+        doc.jobs.send(Job::Layout { sheet: index }).ok();
+        None
+    })
+}
+
+/// The link a press on `cell` follows, on the frame on show (`linkAt`): a merged cell's sits on
+/// its first cell, and one with neither an address the host opens nor a cell it names is none.
+pub fn link_at<'a>(frame: &'a SheetFrame, layout: &SheetLayout, sheet: &str, cell: Cell) -> Option<&'a office_preview::xlsx::HyperlinkRegion> {
+    let [row, col] = select::at_cell(cell, &layout.merges).anchor;
+    let link = frame.links.iter().find(|l| row >= l.top && row <= l.bottom && col >= l.left && col <= l.right)?;
+    let follows = office_preview::xlsx::link_url(link).is_some() || link.location.as_deref().is_some_and(|l| office_preview::xlsx::link_location(l, sheet).is_some());
+    follows.then_some(link)
+}
+
+/// File `id`'s sheet on show, from 0: the one `set_sheet` chose, or one a link went to.
+pub fn sheet(id: u64) -> usize {
+    REGISTRY.with_borrow(|r| match r.docs.get(&id).map(|d| &d.state) {
+        Some(State::Open(open)) => open.sheet.index,
+        _ => 0,
+    })
 }
 
 /// What file `id`'s grid's drag under way moves along.
@@ -504,13 +562,28 @@ pub fn drag_axis(id: u64) -> Option<super::sheet::pointer::Axis> {
     })
 }
 
-/// A key on file `id`'s grid; false when the grid doesn't take it.
-pub fn key(id: u64, key: &rune::Key, mods: rune::Mods) -> bool {
-    with_grid(id, |grid, layout| match grid.key(key, mods, layout) {
+/// A key on file `id`'s grid: false when the grid doesn't take it, and what the window does for
+/// a link Enter followed. Enter follows a link on the active cell, as a click does; on any other
+/// cell it moves down, as in Excel.
+pub fn key(id: u64, key: &rune::Key, mods: rune::Mods) -> (bool, Option<UiEffect>) {
+    if matches!(key, rune::Key::Enter) && !mods.shift && !mods.alt && !mods.cmd && !mods.ctrl {
+        let anchor = REGISTRY.with_borrow(|r| {
+            let State::Open(open) = &r.docs.get(&id)?.state else { return None };
+            let anchor = open.sheet.grid.selection.anchor;
+            let name = open.sheets.get(open.sheet.index).map_or("", String::as_str);
+            link_at(open.sheet.frame.as_deref()?, open.sheet.layout.as_ref()?, name, anchor).map(|_| anchor)
+        });
+        if let Some(cell) = anchor {
+            let mut changed = false;
+            return (true, follow_link(id, cell, &mut changed));
+        }
+    }
+    let taken = with_grid(id, |grid, layout| match grid.key(key, mods, layout) {
         Some(asks) => (true, asks),
         None => (false, Vec::new()),
     })
-    .unwrap_or(false)
+    .unwrap_or(false);
+    (taken, None)
 }
 
 /// Copies file `id`'s selection; a toast to show now when it is too large.

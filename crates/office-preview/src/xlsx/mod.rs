@@ -2,6 +2,7 @@
 //! sheet is a frame, a display list of the cells in that viewport with the grid that places them,
 //! drawn as a scene.
 
+mod links;
 mod scene;
 mod text;
 
@@ -12,6 +13,7 @@ use betteroffice_xlsx::{RangeAddress, RangeTarget, ReadRequest, XlsxAnchor, Xlsx
 use crate::shared::PageScene;
 
 pub use betteroffice_xlsx::GridMeta;
+pub use links::{HyperlinkRegion, link_location, link_url};
 
 pub struct Xlsx {
     workbook: Workbook,
@@ -46,10 +48,11 @@ pub struct CellText {
     pub literal: bool,
 }
 
-/// One viewport of a sheet: its cells as a scene, and the grid its headers follow.
+/// One viewport of a sheet: its cells as a scene, the grid its headers follow, and its links.
 pub struct SheetFrame {
     pub page: PageScene,
     pub grid: GridMeta,
+    pub links: Vec<HyperlinkRegion>,
 }
 
 impl Xlsx {
@@ -118,7 +121,7 @@ impl Xlsx {
     pub fn frame(&self, sheet: usize, x: f64, y: f64, width: f64, height: f64, ratio: f64) -> Result<SheetFrame> {
         let viewport = Viewport { x: x.max(0.0) as f32, y: y.max(0.0) as f32, width: width.max(1.0) as f32, height: height.max(1.0) as f32 };
         let list = self.workbook.display_list_for(SheetId(u32::try_from(sheet).context("sheet index")?), &viewport)?;
-        Ok(SheetFrame { page: scene::translate_sheet(&list, ratio as f32)?, grid: list.grid })
+        Ok(SheetFrame { page: scene::translate_sheet(&list, ratio as f32)?, grid: list.grid, links: list.hyperlinks })
     }
 }
 

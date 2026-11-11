@@ -5084,6 +5084,8 @@ export type OfficeService = {
     Version: (self: OfficeService, document: OfficeDocument) -> number,
     --- Shows a workbook's sheet `index`, from 1.
     SetSheet: (self: OfficeService, document: OfficeDocument, index: number) -> (),
+    --- The workbook's sheet on show, from 1: the one `Office:SetSheet` chose, or the one a link in the sheet went to. Reading it redraws the caller when it changes.
+    Sheet: (self: OfficeService, document: OfficeDocument) -> number,
     --- Releases it and ends its thread.
     Close: (self: OfficeService, document: OfficeDocument) -> (),
 }

@@ -3,6 +3,8 @@
 //! being scrolled into view. Each of the last three is a machine of its own; the workbook's
 //! thread answers them by ticket, and an answer to a superseded ask changes nothing.
 
+use std::rc::Rc;
+
 use office_preview::xlsx::{LAST_CELL, Range, SheetLayout};
 
 use super::pointer::{Hit, Pointer, PointerEffect, PointerEvent};
@@ -29,6 +31,8 @@ pub enum Purpose {
 /// What the window does for a grid once an answer arrives.
 pub enum UiEffect {
     Copy { text: String, html: String },
+    /// A link's web or mail address, opened outside the app.
+    Open(String),
     Toast(String),
     Scroll { key: String, x: f32, y: f32 },
 }
@@ -46,8 +50,8 @@ pub struct Read {
 enum Reader {
     #[default]
     Empty,
-    Asking { ticket: u64, range: Range, shown: Option<Read> },
-    Shown(Read),
+    Asking { ticket: u64, range: Range, shown: Option<Rc<Read>> },
+    Shown(Rc<Read>),
 }
 
 /// A copy: idle, or reading its cells (a newer copy supersedes it).
@@ -103,7 +107,7 @@ impl Grid {
     }
 
     /// The block screen readers have, the last one read.
-    pub fn read(&self) -> Option<&Read> {
+    pub fn read(&self) -> Option<&Rc<Read>> {
         match &self.reader {
             Reader::Empty => None,
             Reader::Asking { shown, .. } => shown.as_ref(),
@@ -120,7 +124,8 @@ impl Grid {
         let range = [top, left, (top + READER_BLOCK[0] * 3 - 1).min(LAST_CELL[0]), (left + READER_BLOCK[1] * 3 - 1).min(LAST_CELL[1])];
         let current = match &self.reader {
             Reader::Empty => None,
-            Reader::Asking { range, .. } | Reader::Shown(Read { range, .. }) => Some(*range),
+            Reader::Asking { range, .. } => Some(*range),
+            Reader::Shown(read) => Some(read.range),
         };
         if current.is_some_and(|r| r[0] == range[0] && r[1] == range[1]) {
             return None;
@@ -135,12 +140,14 @@ impl Grid {
         Some(Ask::Cells { range, ticket, purpose: Purpose::Read })
     }
 
-    /// A pointer step; the asks it makes. A whole row or column keeps its far end as the anchor,
-    /// so the arrow keys move on from its first cell (`runPointer`).
-    pub fn pointer(&mut self, event: PointerEvent, layout: &SheetLayout) -> Vec<Ask> {
+    /// A pointer step; the asks it makes, and the cell whose link a click follows. A whole row or
+    /// column keeps its far end as the anchor, so the arrow keys move on from its first cell
+    /// (`runPointer`).
+    pub fn pointer(&mut self, event: PointerEvent, layout: &SheetLayout) -> (Vec<Ask>, Option<Cell>) {
         let (next, effects) = self.pointer.step(event);
         self.pointer = next;
         let mut asks = Vec::new();
+        let mut follow = None;
         for effect in effects {
             let anchor = self.selection.anchor;
             let selection = match effect {
@@ -150,11 +157,21 @@ impl Grid {
                 PointerEffect::SelectCell { cell, extend: true } => self.selection.extend_to(cell, None),
                 PointerEffect::SelectCell { cell, extend: false } => select::at_cell(cell, &layout.merges),
                 PointerEffect::Extend(focus) => Selection { anchor, focus },
-                // The sheet's links aren't followed yet: its frames carry no link regions.
-                PointerEffect::FollowLink(_) => continue,
+                PointerEffect::FollowLink(cell) => {
+                    follow = Some(cell);
+                    continue;
+                }
             };
             asks.extend(self.select(selection));
         }
+        (asks, follow)
+    }
+
+    /// Selects `cell` and scrolls it to the start of the view: where a link on this sheet goes
+    /// (`follow`), or a link from another sheet opened this one at.
+    pub fn go_to(&mut self, cell: Cell, layout: &SheetLayout) -> Vec<Ask> {
+        let mut asks: Vec<Ask> = self.select(select::at_cell(cell, &layout.merges)).into_iter().collect();
+        asks.extend(self.reveal(cell, Align::Start));
         asks
     }
 
@@ -248,30 +265,28 @@ impl Grid {
         Ok(Ask::Cells { range: clipped, ticket, purpose: Purpose::Copy })
     }
 
-    /// The thread read cells for `purpose`; what the window does with them.
-    pub fn cells_read(&mut self, ticket: u64, purpose: Purpose, range: Range, cells: Result<Vec<Vec<office_preview::xlsx::CellText>>, String>) -> Option<UiEffect> {
-        match purpose {
-            Purpose::Read => {
-                let Reader::Asking { ticket: asked, .. } = &self.reader else { return None };
-                if *asked != ticket {
-                    return None;
-                }
-                let texts = cells.unwrap_or_default().into_iter().map(|row| row.into_iter().map(|c| c.text).collect()).collect();
-                self.reader = Reader::Shown(Read { range, texts });
-                None
-            }
-            Purpose::Copy => {
-                let Copying::Reading { ticket: asked, failed } = std::mem::take(&mut self.copying) else { return None };
-                if asked != ticket {
-                    self.copying = Copying::Reading { ticket: asked, failed };
-                    return None;
-                }
-                Some(match cells {
-                    Ok(cells) => UiEffect::Copy { text: super::copy::tsv(&cells), html: super::copy::html(&cells) },
-                    Err(_) => UiEffect::Toast(failed),
-                })
-            }
+    /// The thread read the screen readers' block.
+    pub fn cells_read(&mut self, ticket: u64, range: Range, cells: Result<Vec<Vec<office_preview::xlsx::CellText>>, String>) {
+        let Reader::Asking { ticket: asked, .. } = &self.reader else { return };
+        if *asked != ticket {
+            return;
         }
+        let texts = cells.unwrap_or_default().into_iter().map(|row| row.into_iter().map(|c| c.text).collect()).collect();
+        self.reader = Reader::Shown(Rc::new(Read { range, texts }));
+    }
+
+    /// The thread read a copy's cells and wrote them out as text and a table; what the window
+    /// does with them.
+    pub fn copied(&mut self, ticket: u64, copy: Result<(String, String), String>) -> Option<UiEffect> {
+        let Copying::Reading { ticket: asked, failed } = std::mem::take(&mut self.copying) else { return None };
+        if asked != ticket {
+            self.copying = Copying::Reading { ticket: asked, failed };
+            return None;
+        }
+        Some(match copy {
+            Ok((text, html)) => UiEffect::Copy { text, html },
+            Err(_) => UiEffect::Toast(failed),
+        })
     }
 }
 

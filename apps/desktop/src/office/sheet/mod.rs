@@ -13,7 +13,7 @@ pub mod select;
 pub mod state;
 
 use office_preview::xlsx::{LAST_CELL, Range};
-use rune::{Color, Cursor, El, ScrollPos, TextStyle, col, el, text};
+use rune::{Color, Cursor, El, Family, ScrollPos, TextStyle, col, el, text};
 
 use super::registry::{self, Snapshot};
 use super::worker::SheetFrame;
@@ -31,9 +31,14 @@ fn ink_accent() -> Color { rune::color::hex("#217346").unwrap_or(Color::BLACK) }
 /// `rgba(33, 115, 70, 0.12)`: the selected cells' tint.
 fn ink_selection() -> Color { Color { a: 0.12, ..ink_accent() } }
 
+/// `line`'s one-pixel stroke, centred on a whole-pixel edge as the canvas draws it: half its colour
+/// on each of the two pixels it straddles.
+fn half(c: Color) -> Color { Color { a: c.a * 0.5, ..c } }
+
 /// The column headers' height (`headerHeight`).
 pub const HEADER_H: f32 = 20.0;
-const LABEL_STYLE: TextStyle = TextStyle::new(11.0, 440.0).lh(13.0);
+/// `11px ui-sans-serif, system-ui, sans-serif`: Segoe UI on Windows, SF on macOS.
+const LABEL_STYLE: TextStyle = TextStyle::new(11.0, 400.0).lh(13.0).family(Family::Named("Segoe UI, SF Pro Text"));
 
 /// The words the grid says, in the plugin's language.
 #[derive(Clone, Default)]
@@ -66,7 +71,7 @@ pub fn view(id: u64, labels: Labels, focus: Color) -> El {
     let mut content = el().key("office-sheet-content").size(header_w + content_w.max(1.0), HEADER_H + content_h.max(1.0));
     if let Some(frame) = &snap.frame {
         let [x, y, w, h] = frame.viewport.map(|v| v as f32);
-        content = content.child(el().key("office-sheet-cells").absolute(header_w + x, HEADER_H + y).size(w, h).fill(Color::WHITE).effect(registry::sheet_mark(id))).child(selection(frame, header_w, range, active));
+        content = content.child(el().key("office-sheet-cells").absolute(header_w + x, HEADER_H + y).size(w, h).fill(Color::WHITE).effect(registry::sheet_mark(id))).child(selection(frame, header_w, range, active)).children(links(frame, header_w, &labels.name));
     }
     content = content.child(column_headers(&snap, header_w, content_w, range)).child(row_headers(&snap, header_w, content_h, range));
     let key = scroll_key(id);
@@ -76,20 +81,25 @@ pub fn view(id: u64, labels: Labels, focus: Color) -> El {
         .label(labels.name.clone())
         .read_only(true)
         .focusable(true)
-        // The cells would cover the scroller's own outline, so the keyboard's ring is laid inside
-        // both (`peer-focus-visible:shadow-[inset_0_0_0_2px_var(--v2-border-border-focus)]`).
-        .focus_ring(2.0, -2.0, focus)
         .w_full()
         .grow(1.0)
         .min_h(0.0)
         .fill(Color::WHITE)
-        .cursor(Cursor::Crosshair)
+        .cursor(Cursor::Cell)
         .scroll_xy()
         .on_scroll_offset(move |at: ScrollPos| registry::scrolled(id, at.offset, at.viewport, header_w, frozen));
     if let Some(cell) = active_cell(&snap) {
         grid = grid.active_descendant(cell);
     }
-    input::keys(input::pointer(grid, id, &key), id, labels).child(content).child(reader(&snap, range))
+    input::keys(input::pointer(grid, id, &key), id, labels).child(content).child(reader(&snap, range)).child(ring(v.size, header_w + content_w.max(1.0), focus))
+}
+
+/// The keyboard's ring, over the cells and headers as Desktop's overlay lies over its canvas
+/// (`peer-focus-visible:shadow-[inset_0_0_0_2px_var(--v2-border-border-focus)]`): 2 wide just
+/// inside the view, held there as the sheet scrolls. The pointer passes through it.
+fn ring(size: [f32; 2], content_w: f32, focus: Color) -> El {
+    let frame = el().key("office-sheet-ring").absolute(0.0, 0.0).size(size[0], size[1]).sticky_left(0.0).focus_ring(2.0, -2.0, focus);
+    el().key("office-sheet-ring-strip").absolute(0.0, 0.0).w(content_w).h(size[1]).sticky_top(0.0).paint_order(1).inert().child(frame)
 }
 
 /// The row headers fit the longest row number on show (`rowHeaderWidth`): at least 28.
@@ -142,7 +152,7 @@ fn column_headers(snap: &Snapshot, header_w: f32, content_w: f32, range: Range) 
             strip = strip.child(header_cell(x0 + pair[0], 0.0, pair[1] - pair[0], HEADER_H, column_name(index), index >= range[1] && index <= range[3], true));
         }
     }
-    strip.child(el().absolute(0.0, HEADER_H - 1.0).w(header_w + content_w.max(1.0)).h(1.0).fill(ink_edge())).child(corner(header_w))
+    strip.child(el().absolute(0.0, HEADER_H - 1.0).w(header_w + content_w.max(1.0)).h(2.0).fill(half(ink_edge()))).child(corner(header_w))
 }
 
 /// The strip of row numbers, held at the left as the sheet scrolls across; the selected rows lit.
@@ -156,13 +166,13 @@ fn row_headers(snap: &Snapshot, header_w: f32, content_h: f32, range: Range) -> 
             strip = strip.child(header_cell(0.0, y0 + pair[0], header_w, pair[1] - pair[0], (index + 1).to_string(), index >= range[0] && index <= range[2], false));
         }
     }
-    strip.child(el().absolute(header_w - 1.0, 0.0).w(1.0).h(content_h.max(1.0)).fill(ink_edge()))
+    strip.child(el().absolute(header_w - 1.0, 0.0).w(2.0).h(content_h.max(1.0)).fill(half(ink_edge())))
 }
 
 /// The select-all corner over both strips, with Excel's small triangle pointing at the cells.
 fn corner(header_w: f32) -> El {
     let triangle = rune::Shape::new().fill(vec![[header_w - 4.0, HEADER_H - 12.0], [header_w - 4.0, HEADER_H - 4.0], [header_w - 12.0, HEADER_H - 4.0]], rune::color::hex("#c8c8c8").unwrap_or(Color::BLACK));
-    el().key("office-sheet-corner").absolute(0.0, 0.0).size(header_w, HEADER_H).fill(ink_header()).sticky_left(0.0).child(rune::canvas(triangle).absolute(0.0, 0.0).size(header_w, HEADER_H)).child(el().absolute(0.0, HEADER_H - 1.0).w(header_w).h(1.0).fill(ink_edge())).child(el().absolute(header_w - 1.0, 0.0).w(1.0).h(HEADER_H).fill(ink_edge()))
+    el().key("office-sheet-corner").absolute(0.0, 0.0).size(header_w, HEADER_H).fill(ink_header()).sticky_left(0.0).child(rune::canvas(triangle).absolute(0.0, 0.0).size(header_w, HEADER_H)).child(el().absolute(0.0, HEADER_H - 1.0).w(header_w).h(2.0).fill(half(ink_edge()))).child(el().absolute(header_w - 1.0, 0.0).w(2.0).h(HEADER_H).fill(half(ink_edge())))
 }
 
 /// One header: its label centred, tinted with a bar toward the cells when selected, and the line
@@ -171,7 +181,11 @@ fn header_cell(x: f32, y: f32, w: f32, h: f32, label: String, selected: bool, co
     if w <= 0.0 || h <= 0.0 {
         return el();
     }
-    let mut cell = el().absolute(x, y).size(w, h).center().fill(if selected { ink_selected_header() } else { ink_header() });
+    // Only a selected header paints over the strip's fill, so the line before it shows whole.
+    let mut cell = el().absolute(x, y).size(w, h).center();
+    if selected {
+        cell = cell.fill(ink_selected_header());
+    }
     // A track too small for its label shows none.
     let fits = if columns { label.len() as f32 * 6.2 + 2.0 <= w } else { h >= 9.0 };
     if fits {
@@ -180,7 +194,7 @@ fn header_cell(x: f32, y: f32, w: f32, h: f32, label: String, selected: bool, co
     if selected {
         cell = cell.child(if columns { el().absolute(0.0, h - 2.0).w(w).h(2.0).fill(ink_accent()) } else { el().absolute(w - 2.0, 0.0).w(2.0).h(h).fill(ink_accent()) });
     }
-    let rule = if columns { el().absolute(w - 1.0, 0.0).w(1.0).h(h).fill(ink_line()) } else { el().absolute(0.0, h - 1.0).w(w).h(1.0).fill(ink_line()) };
+    let rule = if columns { el().absolute(w - 1.0, 0.0).w(2.0).h(h).fill(half(ink_line())) } else { el().absolute(0.0, h - 1.0).w(w).h(2.0).fill(half(ink_line())) };
     cell.child(rule)
 }
 
@@ -230,6 +244,23 @@ fn selection(frame: &SheetFrame, header_w: f32, range: Range, active: Range) -> 
         }
     }
     layer.child(el().absolute(0.0, 0.0).size(w + 2.0, h + 2.0).border(2.0, ink_accent()))
+}
+
+/// The links on show that a click follows, each over its cells: the pointer's hand there, and a
+/// tooltip of where it goes under any text of its own (`linkTitle`).
+fn links<'a>(frame: &'a SheetFrame, header_w: f32, sheet: &'a str) -> impl Iterator<Item = El> + 'a {
+    let (ox, oy) = (header_w + frame.viewport[0] as f32, HEADER_H + frame.viewport[1] as f32);
+    frame.links.iter().enumerate().filter_map(move |(i, link)| {
+        let url = office_preview::xlsx::link_url(link);
+        let location = link.location.as_deref().filter(|l| office_preview::xlsx::link_location(l, sheet).is_some());
+        let target = url.or_else(|| location.map(str::to_owned))?;
+        let [x, y, w, h] = range_rect(frame, [link.top, link.left, link.bottom, link.right])?;
+        let title = match link.tooltip.as_deref() {
+            Some(tip) if tip != target => format!("{tip}\n{target}"),
+            _ => target,
+        };
+        Some(el().key(format!("office-sheet-link-{i}")).absolute(ox + x, oy + y).size(w, h).cursor(Cursor::Pointer).help(title))
+    })
 }
 
 /// The key of the screen readers' cell `cell`.

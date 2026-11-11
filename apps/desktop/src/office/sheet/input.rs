@@ -16,11 +16,12 @@ use crate::office::registry;
 /// keyboard.
 pub fn pointer(grid: El, id: u64, key: &str) -> El {
     let key = key.to_owned();
-    grid.on_drag(move |_: &mut App, d: &mut Drag, tx: &mut Tx| {
-        let changed = match d.phase {
+    grid.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
+        let (changed, effect) = match d.phase {
             Phase::Down => {
                 tx.focus(key.clone(), false);
                 let hit = locate(id, d.x, d.y, false).map(|(cell, spot)| hit(cell, spot));
+                // Ctrl or Cmd changes nothing: a click follows a link either way (`press`).
                 registry::pointer(id, PointerEvent::Down { shift: tx.mods().shift, hit })
             }
             Phase::Move => {
@@ -33,6 +34,9 @@ pub fn pointer(grid: El, id: u64, key: &str) -> El {
         };
         if changed {
             tx.instant();
+        }
+        if let Some(effect) = effect {
+            run(s, effect, tx);
         }
     })
 }
@@ -47,11 +51,17 @@ pub fn keys(grid: El, id: u64, labels: Labels) -> El {
             tx.focus(super::scroll_key(id), true);
             return true;
         }
-        let taken = registry::key(id, &k.key, k.mods);
-        if taken {
-            // A key on the grid shows its keyboard ring, as Chromium's `:focus-visible` turns on
-            // once a key is pressed in an element the pointer focused.
+        let (taken, effect) = registry::key(id, &k.key, k.mods);
+        if let Some(effect) = effect {
+            run(s, effect, tx);
+        }
+        // Any key on the grid, Shift held for a Shift-click too, shows its keyboard ring, as
+        // Chromium's `:focus-visible` turns on once a key is pressed in an element the pointer
+        // focused. Tab leaves the grid, so it doesn't.
+        if !matches!(k.key, rune::Key::Tab) {
             tx.focus(super::scroll_key(id), true);
+        }
+        if taken {
             tx.instant();
         }
         taken
@@ -62,6 +72,11 @@ pub fn keys(grid: El, id: u64, labels: Labels) -> El {
 pub fn run(app: &mut App, effect: UiEffect, tx: &mut Tx) {
     match effect {
         UiEffect::Copy { text, html } => tx.copy_rich(rune::ClipboardContent::new(text).with_html(html)),
+        UiEffect::Open(url) => {
+            if app.live() {
+                tx.open_url(&url).ok();
+            }
+        }
         UiEffect::Toast(title) => crate::status_toast::say(app, title, ""),
         UiEffect::Scroll { key, x, y } => tx.scroll_to_instant(key, x, y),
     }
