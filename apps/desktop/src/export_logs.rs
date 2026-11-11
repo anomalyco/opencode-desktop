@@ -20,7 +20,7 @@ impl App {
     /// Writes the archive off the app's thread and reveals it.
     pub(crate) fn export_logs(&self) {
         let now = self.now_ms;
-        let logs = crate::dirs::motion_log().and_then(|f| f.parent().map(Path::to_path_buf));
+        let logs = crate::dirs::logs();
         let Some(downloads) = crate::dirs::downloads() else { return };
         let server_logs = server_log_roots();
         let _ = std::thread::Builder::new().name("export-logs".into()).spawn(move || {

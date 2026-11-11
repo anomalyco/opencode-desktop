@@ -320,12 +320,22 @@ pub struct Worker {
     events: Events,
     watch: Watch,
     path: PathBuf,
+    file: LogFile,
     minute: (f64, usize),
+}
+
+/// The log file: opened at the first glitch and kept open, its size counted here, so a line costs
+/// one append (no folder, size or open call each time).
+enum LogFile {
+    Closed,
+    Open { file: std::io::BufWriter<std::fs::File>, len: u64 },
+    /// It couldn't be opened: nothing more is tried this run.
+    Failed,
 }
 
 impl Worker {
     fn new(path: PathBuf) -> Worker {
-        Worker { seq: 0, paths: HashMap::new(), events: Events::default(), watch: Watch::default(), path, minute: (0.0, 0) }
+        Worker { seq: 0, paths: HashMap::new(), events: Events::default(), watch: Watch::default(), path, file: LogFile::Closed, minute: (0.0, 0) }
     }
 
     /// Takes one frame and returns the lines it shows. A frame dropped on the way empties the
@@ -382,12 +392,21 @@ impl Worker {
         if ms - self.minute.0 > 60_000.0 { self.minute = (ms, 0); }
         if self.minute.1 >= PER_MINUTE { return; }
         self.minute.1 += 1;
-        if let Some(dir) = self.path.parent() { let _ = std::fs::create_dir_all(dir); }
-        if std::fs::metadata(&self.path).is_ok_and(|m| m.len() > ROTATE_AT) {
+        if matches!(self.file, LogFile::Open { len, .. } if len > ROTATE_AT) {
+            self.file = LogFile::Closed;
             let _ = std::fs::rename(&self.path, self.path.with_extension("1.jsonl"));
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
-            let _ = writeln!(f, "{line}");
+        if matches!(self.file, LogFile::Closed) {
+            if let Some(dir) = self.path.parent() { let _ = std::fs::create_dir_all(dir); }
+            self.file = match std::fs::OpenOptions::new().create(true).append(true).open(&self.path) {
+                Ok(f) => LogFile::Open { len: f.metadata().map_or(0, |m| m.len()), file: std::io::BufWriter::new(f) },
+                Err(_) => LogFile::Failed,
+            };
+        }
+        if let LogFile::Open { file, len } = &mut self.file {
+            let text = format!("{line}\n");
+            // Each line lands whole as it's found: a crash after it keeps it.
+            if file.write_all(text.as_bytes()).and_then(|()| file.flush()).is_ok() { *len += text.len() as u64; }
         }
     }
 }

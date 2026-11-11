@@ -2,9 +2,9 @@
 //!
 //! | What | macOS | Windows |
 //! | --- | --- | --- |
-//! | The app's database (`opencode.sqlite`: settings, windows, tabs, drafts, prompt history), perf | `~/Library/Application Support/rune-opencode` | `%APPDATA%\rune-opencode` |
-//! | Session page cache | `~/Library/Caches/rune-opencode` | `%LOCALAPPDATA%\rune-opencode\Cache` |
-//! | Motion log | `~/Library/Logs/opencode-rune` | `%LOCALAPPDATA%\rune-opencode\Logs` |
+//! | The app's database (`opencode.sqlite`: settings, windows, tabs, drafts, prompt history) | `~/Library/Application Support/rune-opencode` | `%APPDATA%\rune-opencode` |
+//! | Caches (Office fonts, updates) | `~/Library/Caches/rune-opencode` | `%LOCALAPPDATA%\rune-opencode\Cache` |
+//! | Motion log, frame diagnostics (`perf/`) | `~/Library/Logs/opencode-rune` | `%LOCALAPPDATA%\rune-opencode\Logs` |
 //! | Update downloads and records | `~/Library/Caches/<team bundle id>/Updates` | `%LOCALAPPDATA%\rune-opencode\Cache\Updates` |
 //!
 //! Linux follows XDG. The folder names differ from OpenCode Desktop's (`ai.opencode.desktop*`),
@@ -41,7 +41,7 @@ pub fn rooted() -> bool {
     app().is_some_and(AppDirs::is_rooted)
 }
 
-/// Settings, tabs, the open session and drafts, prompt history, model prefs and perf records.
+/// The app's database (`opencode.sqlite`) and the files it imported from, retired beside it.
 pub fn data() -> Option<PathBuf> {
     Some(app()?.data().to_owned())
 }
@@ -51,16 +51,21 @@ pub fn config() -> Option<PathBuf> {
     Some(app()?.config().to_owned())
 }
 
-/// Session pages kept between launches; safe to delete.
+/// Rebuildable caches; safe to delete.
 pub fn cache() -> Option<PathBuf> {
     Some(app()?.cache().to_owned())
 }
 
-/// The motion log (`motion.jsonl`). macOS keeps the folder it always had.
-pub fn motion_log() -> Option<PathBuf> {
+/// The log folder: the motion log and frame diagnostics (`perf/`), what Export logs packs.
+/// macOS keeps the folder it always had.
+pub fn logs() -> Option<PathBuf> {
     let app = app()?;
-    let logs = if cfg!(target_os = "macos") { app.sibling("opencode-rune").logs().to_owned() } else { app.logs().to_owned() };
-    Some(logs.join("motion.jsonl"))
+    Some(if cfg!(target_os = "macos") { app.sibling("opencode-rune").logs().to_owned() } else { app.logs().to_owned() })
+}
+
+/// The motion log (`motion.jsonl`).
+pub fn motion_log() -> Option<PathBuf> {
+    Some(logs()?.join("motion.jsonl"))
 }
 
 /// Where the updater downloads a release and keeps its records: the team bundle's caches on
