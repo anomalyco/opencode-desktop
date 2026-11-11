@@ -8,6 +8,7 @@ use rune::{
     Anim, Color, Cursor, Drag, El, GrowthSpec, Icon, Phase, ScrollSpec, Span, Tx, col, el, icon,
     memo, rich, row, text,
 };
+use rune_kit::ScrollBar;
 use rune_kit::diff::{
     DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side,
 };
@@ -123,7 +124,8 @@ impl<S: 'static> DiffViewer<S> {
         let look = CodeLook::new(p);
         let wrap = st.wraps();
         let root_key = self.key.clone();
-        if !wrap && let Some(r) = rune::memo::layout(&format!("{root_key}/scroll")) {
+        let scroll_path = format!("{root_key}/scroll-scroll-area/scroll");
+        if !wrap && let Some(r) = rune::memo::layout(&scroll_path) {
             st.set_viewport(r);
         }
         let sticky_on = self.sticky_headers;
@@ -132,9 +134,14 @@ impl<S: 'static> DiffViewer<S> {
         let count = st.rows.len();
         let list = col().key("rows").w_full().selection_group(true).role("list").label(opencode_i18n::t!("rune.diff.label"));
         if whole {
-            return col().key(root_key).w_full().fill(p.bg_base).child(list.children((0..count).map(|i| inner.row(s, i))));
+            let root = col().key(root_key).w_full().fill(p.bg_base).child(list.children((0..count).map(|i| inner.row(s, i))));
+            return match inner.d.notes.clone() {
+                Some(notes) => root.on_pointer_move_local(move |s: &mut S, _, tx: &mut Tx| notes.pointer_moved(s, tx)),
+                None => root,
+            };
         }
-        let mut list = list.growth(GrowthSpec::default());
+        let bar = super::scroll_bar(p);
+        let mut list = list.growth(GrowthSpec::default()).pr(super::scroll_gutter(&bar, &scroll_path, &format!("{scroll_path}/rows")));
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
@@ -160,7 +167,7 @@ impl<S: 'static> DiffViewer<S> {
             .grow(1.0)
             .min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false });
-        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list);
+        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list).scroll_bar_styled(bar);
 
         let mut root = col()
             .key(root_key)
@@ -169,6 +176,9 @@ impl<S: 'static> DiffViewer<S> {
             .min_h(0.0)
             .fill(p.bg_base)
             .child(scroll);
+        if let Some(notes) = inner.d.notes.clone() {
+            root = root.on_pointer_move_local(move |s: &mut S, _, tx: &mut Tx| notes.pointer_moved(s, tx));
+        }
         if sticky_on && let Some(f) = st.sticky() {
             root = root.child(
                 inner
@@ -233,8 +243,8 @@ impl<S: 'static> Inner<S> {
 
     /// Only an unchanged, unselected row lights under the pointer: Pierre mixes a changed one's
     /// fill toward itself, and session-ui sets a selected one's outright (`index.ts:210-216`).
-    fn hover(&self, row: El, kind: LineKind, selected: bool) -> El {
-        if selected || kind != LineKind::Context {
+    fn hover(&self, row: El, kind: LineKind, selected: bool, quiet: bool) -> El {
+        if selected || quiet || kind != LineKind::Context {
             return row;
         }
         row.hover(self.look.hover).hover_motion(INSTANT, INSTANT)
@@ -288,9 +298,10 @@ impl<S: 'static> Inner<S> {
                     notes,
                 );
                 let commented = notes.map_or([false; 2], |(_, c)| c);
+                let quiet = self.d.notes.as_ref().is_some_and(|n| n.plus_quiet(s));
                 let get_mut = self.d.get_mut.clone();
                 let row = memo(key, version, || {
-                    let line = self.line_row(st, i, commented);
+                    let line = self.line_row(st, i, commented, quiet);
                     self.with_annotations(s, st, i, line)
                 });
                 let key = key.to_owned();
@@ -360,7 +371,7 @@ impl<S: 'static> Inner<S> {
         }
     }
 
-    fn line_row(&self, st: &DiffDocState, i: usize, commented: [bool; 2]) -> El {
+    fn line_row(&self, st: &DiffDocState, i: usize, commented: [bool; 2], quiet: bool) -> El {
         let r = st.rows[i];
         let f = r.file();
         let (a, b) = self.cells(st, r);
@@ -369,7 +380,7 @@ impl<S: 'static> Inner<S> {
         // (markCommentedDiffLines, session-ui pierre/commented-lines.ts).
         let selected = st.row_selected(i) || commented.contains(&true);
         match st.mode() {
-            DiffMode::Unified => self.unified_line(st, i, f, a, selected),
+            DiffMode::Unified => self.unified_line(st, i, f, a, selected, quiet),
             DiffMode::Split => {
                 let (old, new) = match (b, a.kind) {
                     (Some(b), _) => (Some(a), Some(b)),
@@ -377,14 +388,14 @@ impl<S: 'static> Inner<S> {
                     (None, LineKind::Added) => (None, Some(a)),
                     (None, LineKind::Context) => (Some(a), Some(a)),
                 };
-                self.split_line(st, i, f, old, new, selected)
+                self.split_line(st, i, f, old, new, selected, quiet)
             }
         }
     }
 
     /// A unified row: Pierre's one number column, a removed line's old number and any other's
     /// new one, then the code.
-    fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>, selected: bool) -> El {
+    fn unified_line(&self, st: &DiffDocState, i: usize, f: usize, c: CellData<'_>, selected: bool, quiet: bool) -> El {
         let digits = st.digits(f);
         let copy = match c.kind {
             LineKind::Context => true,
@@ -409,8 +420,8 @@ impl<S: 'static> Inner<S> {
             .role("listitem")
             .child(gutter)
             .child(self.code_cell(st, f, &c, copy, side, n.map(|n| LineRef::new(side, n))).key("code"));
-        let line = self.plus(st, f, n, side, line);
-        self.hover(line, c.kind, selected)
+        let line = self.plus(st, f, n, side, quiet, line);
+        self.hover(line, c.kind, selected, quiet)
     }
 
     fn split_line<'a>(
@@ -421,6 +432,7 @@ impl<S: 'static> Inner<S> {
         old: Option<CellData<'a>>,
         new: Option<CellData<'a>>,
         selected: bool,
+        quiet: bool,
     ) -> El {
         let digits = st.digits(f);
         let single = st.single_column(f);
@@ -451,8 +463,8 @@ impl<S: 'static> Inner<S> {
                 .role("listitem")
                 .child(self.number_cell(st, i, f, n, side, kind, selected, digits).key("n"))
                 .child(self.code_cell(st, f, &cell, copy, side, n.map(|n| LineRef::new(side, n))).key("code"));
-            let h = self.plus(st, f, n, side, h);
-            self.hover(h, kind, selected)
+            let h = self.plus(st, f, n, side, quiet, h);
+            self.hover(h, kind, selected, quiet)
         };
         // Two halves side by side, nothing between: session-ui takes away the 1 px of diff
         // background Pierre puts between them (`index.ts:167-173`). Desktop's review draws an
@@ -556,8 +568,8 @@ impl<S: 'static> Inner<S> {
     }
 
     /// The gutter's `+` for line `n` on `side` of file `f`, on a row (or half) under the pointer.
-    fn plus(&self, st: &DiffDocState, f: usize, n: Option<u32>, side: Side, row: El) -> El {
-        let (Some(notes), Some(n)) = (self.d.notes.clone(), n) else { return row };
+    fn plus(&self, st: &DiffDocState, f: usize, n: Option<u32>, side: Side, quiet: bool, row: El) -> El {
+        let (Some(notes), Some(n), false) = (self.d.notes.clone(), n, quiet) else { return row };
         let path = st.files()[f].path().to_owned();
         let cell_w = self.gutter_w(st, f);
         row.hover_group().child(super::notes::plus_button(&self.pal, cell_w, opencode_i18n::t!("ui.lineComment.submit"), move |s: &mut S, tx: &mut Tx| {

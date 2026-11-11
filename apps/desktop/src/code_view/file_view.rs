@@ -8,6 +8,7 @@ use rune::{
     Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
 };
 
+use rune_kit::ScrollBar;
 use rune_kit::diff::Side;
 
 use super::file_state::{CodeDocState, FileLineSelection};
@@ -100,10 +101,12 @@ impl<S: 'static> CodeViewer<S> {
         // Pierre's file starts at its first line (`--diffs-gap-block: 0`, session-ui
         // `pierre/index.ts:329`), and Desktop's file tab leaves 160 px of the panel under the last
         // (`gui-plugins/src/file/view.tsx:480`, `pb-40`).
+        let bar = super::scroll_bar(p);
         let mut list = col()
             .key("rows")
             .w_full()
             .pb(160.0)
+            .pr(super::scroll_gutter(&bar, &scroll_key, &format!("{scroll_key}/rows")))
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
@@ -127,16 +130,14 @@ impl<S: 'static> CodeViewer<S> {
             .grow(1.0)
             .min_h(0.0)
             .scroll(ScrollSpec { stick_bottom: false });
-        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list);
+        let scroll = if wrap { scroll } else { scroll.scroll_xy().scroll_edge_fade(EDGE_FADE) }.child(list).scroll_bar_styled(bar);
 
         // The rows on `background-stronger`, the panel's own background under them.
-        col()
-            .key(root_key)
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .fill(p.bg_base)
-            .child(scroll)
+        let root = col().key(root_key).w_full().grow(1.0).min_h(0.0).fill(p.bg_base).child(scroll);
+        match inner.v.notes.clone() {
+            Some(notes) => root.on_pointer_move_local(move |s: &mut S, _, tx: &mut Tx| notes.pointer_moved(s, tx)),
+            None => root,
+        }
     }
 }
 
@@ -167,7 +168,8 @@ impl<S: 'static> Inner<S> {
             key.as_str(),
             (self.look.version, st.rev, selected, has_matches, notes_version),
             || {
-                let line = self.line_row(st, n, selected);
+                let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
+                let line = self.line_row(st, n, selected, quiet);
                 let Some(notes) = &self.v.notes else { return line };
                 let items = notes.annotations(s, &self.pal, st.path(), Side::New, n);
                 if items.is_empty() {
@@ -179,7 +181,7 @@ impl<S: 'static> Inner<S> {
         super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
     }
 
-    fn line_row(&self, st: &CodeDocState, n: u32, selected: bool) -> El {
+    fn line_row(&self, st: &CodeDocState, n: u32, selected: bool, quiet: bool) -> El {
         let l = &self.look;
         let fill = if selected { l.selected } else { l.bg };
         let num_color = if selected { l.selected_number } else { l.faint };
@@ -282,15 +284,16 @@ impl<S: 'static> Inner<S> {
                     }
                 }
             }));
-        if let Some(notes) = &self.v.notes {
+        if let Some(notes) = self.v.notes.as_ref().filter(|_| !quiet) {
             let notes = notes.clone();
             let path = st.path().to_owned();
             line = line.hover_group().child(super::notes::plus_button(&self.pal, l.number_w(st.digits()), opencode_i18n::t!("ui.lineComment.submit"), move |s: &mut S, tx: &mut Tx| {
                 notes.plus(s, &path, None, n, tx);
             }));
         }
-        // A selected line keeps its fill under the pointer, as session-ui sets it outright.
-        if selected {
+        // A selected line keeps its fill under the pointer, as session-ui sets it outright; and
+        // a line redrawn under a still pointer has lost its hover until it moves.
+        if selected || quiet {
             return line;
         }
         line.hover(l.hover).hover_motion(INSTANT, INSTANT)

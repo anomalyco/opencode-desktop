@@ -88,13 +88,43 @@ impl Range {
 pub struct Draft {
     pub text: TextEdit,
     pub field: Field,
+    /// The narrow field's height once its grip has been dragged (`resize: vertical`).
+    pub height: Option<f32>,
+    pub grip: Grip,
+}
+
+/// The narrow field's resize grip: Chromium's textarea resizer, which follows the pointer from
+/// the height the field had at the press.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Grip {
+    #[default]
+    Idle,
+    Dragging { from: f32 },
+}
+
+/// A step of the grip's drag: the press (with the field's height then), the pointer `dy` from
+/// it, the release.
+pub enum GripEvent {
+    Down { height: f32 },
+    Move { dy: f32 },
+    Up,
 }
 
 impl Draft {
     fn new(text: &str) -> Draft {
         let mut text = TextEdit::new(text);
         text.focused = true;
-        Draft { text, field: Field::default() }
+        Draft { text, field: Field::default(), height: None, grip: Grip::Idle }
+    }
+
+    /// Steps the grip; a move while dragging sets the field's height, never under `min`.
+    pub fn grip(&mut self, event: GripEvent, min: f32) {
+        match (self.grip, event) {
+            (_, GripEvent::Down { height }) => self.grip = Grip::Dragging { from: height },
+            (Grip::Dragging { from }, GripEvent::Move { dy }) => self.height = Some((from + dy).max(min)),
+            (_, GripEvent::Up) => self.grip = Grip::Idle,
+            (Grip::Idle, GripEvent::Move { .. }) => {}
+        }
     }
 
     fn holds_text(&self) -> bool {

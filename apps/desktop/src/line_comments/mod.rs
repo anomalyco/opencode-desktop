@@ -35,6 +35,8 @@ pub struct LineComment {
     pub file: String,
     pub selection: Range,
     pub comment: String,
+    /// When it was written, in ms since the epoch.
+    pub time: i64,
 }
 
 /// The view a mode belongs to: the Files tab, the wide Changes preview, or the narrow Changes
@@ -94,6 +96,9 @@ pub struct LineComments {
     pub(crate) spare: TextEdit,
     /// The composer card the user opened last (`activeContextID`), lit until clicked again.
     pub active_card: Option<u64>,
+    /// A box opened or closed under a pointer that hasn't moved since: the gutter's `+` hides
+    /// until it does (`LineNotes::plus_quiet`).
+    pub plus_quiet: bool,
 }
 
 impl LineComments {
@@ -129,6 +134,11 @@ impl LineComments {
         self.sessions.get_mut(&spot.session)?.modes.get_mut(&spot.surface)?.get_mut(&spot.path)
     }
 
+    /// The editor open at `spot`.
+    pub fn draft_mut(&mut self, spot: &Spot) -> Option<&mut machine::Draft> {
+        self.mode_mut(spot).and_then(Mode::draft_mut)
+    }
+
     /// The text field of the editor open at `spot`, or the spare one.
     pub fn draft_text_mut(&mut self, spot: &Spot) -> &mut TextEdit {
         let has = self.mode_mut(spot).is_some_and(|m| m.draft().is_some());
@@ -143,6 +153,7 @@ impl App {
     /// Steps the mode at `spot` and carries out its effects.
     pub fn line_comment(&mut self, spot: &Spot, event: machine::Event, tx: &mut Tx) {
         tx.instant();
+        let before = self.line_comments.version(&spot.session);
         let modes = self.line_comments.sessions.entry(spot.session.clone()).or_default().modes.entry(spot.surface).or_default();
         let effects = if spot.surface == Surface::Narrow {
             machine::step_files(modes, &spot.path, event)
@@ -165,6 +176,9 @@ impl App {
                 machine::Effect::SubmitEdit { id, comment, selection } => self.update_line_comment(spot, &id, selection, comment),
                 machine::Effect::Delete { id } => self.remove_line_comment(&spot.session, &id),
             }
+        }
+        if self.line_comments.version(&spot.session) != before {
+            self.line_comments.plus_quiet = true;
         }
     }
 
@@ -234,10 +248,11 @@ impl App {
     /// composer as a card, and the view that wrote it reveals it (`focus.set`).
     fn add_line_comment(&mut self, spot: &Spot, selection: Range, comment: String, tx: &mut Tx) {
         self.line_comments.next += 1;
-        let id = format!("lc{}", self.line_comments.next);
+        // Unique across launches, for the store that will keep comments across them.
+        let (time, id) = (self.now_ms, format!("lc-{}-{}", self.now_ms, self.line_comments.next));
         let preview = self.line_preview(spot, selection);
         let session = self.line_comments.sessions.entry(spot.session.clone()).or_default();
-        session.list.push(LineComment { id: id.clone(), file: spot.path.clone(), selection, comment: comment.clone() });
+        session.list.push(LineComment { id: id.clone(), file: spot.path.clone(), selection, comment: comment.clone(), time });
         let target = focus::Target { file: spot.path.clone(), id: id.clone() };
         for effect in focus::step(&mut self.line_comments.focus_seq, &mut session.focus, focus::Event::Set(Some(target), tx.clock())) {
             let focus::Effect::WakeAt(due) = effect;

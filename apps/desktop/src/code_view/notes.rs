@@ -37,6 +37,11 @@ pub trait LineNotes<S> {
     fn handoff(&self, s: &mut S, path: &str, h: Handoff, tx: &mut Tx);
     /// The gutter's `+` on line `line` (`draft.opened`).
     fn plus(&self, s: &mut S, path: &str, side: Option<Side>, line: u32, tx: &mut Tx);
+    /// Whether the `+` stays hidden under a pointer that hasn't moved since a box opened or
+    /// closed: Pierre redraws the lines then, and they lose `[data-hovered]` until the next move.
+    fn plus_quiet(&self, s: &S) -> bool;
+    /// The pointer moved over the view.
+    fn pointer_moved(&self, s: &mut S, tx: &mut Tx);
 }
 
 /// `--diffs-comment-bg`: `background-bg-accent` at 6% over the code's background, laid as CSS
@@ -73,7 +78,7 @@ static PLUS: Icon = Icon { name: "line-comment-plus", view: 12.0, body: r#"<path
 /// the cell's right one, on `--icon-interactive-base` with `--shadow-xs`, shown while the cell's
 /// row is under the pointer.
 pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    el()
+    let button = el()
         .key("comment-plus")
         .role("button")
         .label(label.to_owned())
@@ -81,8 +86,11 @@ pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&m
         .size(20.0, 20.0)
         .radius(6.0)
         .center()
-        .fill(interactive(p))
-        .shadow(1.0, 2.0, p.shadow)
+        .fill(p.interactive);
+    shadow_xs(p.dark)
+        .into_iter()
+        .rev()
+        .fold(button, El::box_shadow)
         .group_opacity(0.0, 1.0)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
@@ -91,10 +99,13 @@ pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&m
         .child(icon(&PLUS, 12.0).color(rune::Color::WHITE))
 }
 
-/// `--icon-interactive-base` as Desktop's default theme resolves it.
-fn interactive(_p: &Pal) -> rune::Color {
-    rune::color::hex("#054dfd").unwrap_or(rune::Color::BLACK)
+/// `--shadow-xs` (`light-dark` alphas), in CSS order.
+fn shadow_xs(dark: bool) -> [rune::Shadow; 3] {
+    let s = |y: f32, blur: f32, spread: f32, a: f32| rune::Shadow { y, blur, spread, color: rune::Color::BLACK.alpha(a), ..rune::Shadow::default() };
+    let (a, b, c) = if dark { (0x0f_u8, 0x14_u8, 0x1a_u8) } else { (0x0a, 0x06, 0x0d) };
+    [s(1.0, 2.0, -0.5, f32::from(a) / 255.0), s(0.5, 1.5, 0.0, f32::from(b) / 255.0), s(1.0, 3.0, 0.0, f32::from(c) / 255.0)]
 }
+
 /// A diff's selected lines as a comment's: each end's line and side, the end's only when it
 /// differs.
 pub(crate) fn diff_range(sel: LineRange) -> Range {

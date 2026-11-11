@@ -4,6 +4,7 @@
 //! file as one accordion. A file's row opens to its `+N -M` and Open file over its unified diff.
 
 use rune::{Color, El, Icon, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
+use rune_kit::ScrollBar;
 use rune_kit::diff::FileDiff;
 use rune_theme_opencode::icons as ic;
 
@@ -190,7 +191,10 @@ fn list(s: &App, p: &Pal, id: &str, sr: &SessionReview) -> El {
         let item = if open { item.child(summary(p, m)).child(diff(s, p, id, &m.path, i + 1 == n)) } else { item };
         list.child(item)
     });
-    col().key(format!("narrow-review-scroll-{id}")).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(items)
+    let key = format!("narrow-review-scroll-{id}");
+    let bar = crate::code_view::scroll_bar(p);
+    let items = items.pr(crate::code_view::scroll_gutter(&bar, &key, &format!("{key}/narrow-review-list")));
+    col().key(key).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(items).scroll_bar_styled(bar)
 }
 
 /// An accordion trigger: 32 tall, `8 12` in, the file's icon, its folder in `text-base` (v1)

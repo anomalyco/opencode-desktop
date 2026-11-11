@@ -46,6 +46,25 @@ const NUMBER_INSET: f32 = 2.0;
 pub const EDGE_FADE: f32 = 24.0;
 pub const CHUNK_LINES: u32 = 128;
 
+/// Desktop's code views (and the narrow Changes list) scroll in a plain `overflow-y: auto` box
+/// (`[data-scrollable]`), so `scrollbar.css` styles their bar: while the rows overflow it takes an 8 px gutter from their
+/// width (`::-webkit-scrollbar { width: 8px }`), and its 4 px pill shows only while the pointer
+/// is over the box (`:hover::-webkit-scrollbar-thumb`). The end padding the rows leave for it,
+/// from the viewport's and the rows' last laid-out heights.
+pub(crate) fn scroll_gutter(bar: &rune_kit::ScrollBarStyle, viewport: &str, rows: &str) -> f32 {
+    let view = rune::memo::layout_with(viewport, |r| r[3]);
+    let content = rune::memo::layout_with(rows, |r| r[3]);
+    match (view, content) {
+        (Some(view), Some(content)) if content > view + 0.5 => bar.strip(),
+        _ => 0.0,
+    }
+}
+
+/// The bar [`scroll_gutter`] leaves room for, drawn over the viewport's end edge.
+pub(crate) fn scroll_bar(p: &Pal) -> rune_kit::ScrollBarStyle {
+    rune_kit::ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside()
+}
+
 /// A changed line's colours (`session-ui/src/pierre/index.ts:39-65,119-157`).
 #[derive(Clone, Copy)]
 pub struct DiffTints {

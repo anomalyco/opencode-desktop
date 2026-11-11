@@ -255,7 +255,8 @@ fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
     let subtitle = row()
         .key("subtitle")
         .w_full()
-        .h(14.0)
+        // `attachment-card-subtitle` is 16 tall: its 14 px line with the 12 px icon inline.
+        .h(16.0)
         .gap(4.0)
         .center_y()
         .min_w(0.0)

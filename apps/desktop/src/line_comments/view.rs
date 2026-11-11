@@ -16,9 +16,9 @@
 
 use std::rc::Rc;
 
-use rune::{Color, El, Icon, TextStyle, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cursor, Drag, El, Icon, Phase, TextStyle, Tx, col, el, icon, row, text, text_input};
 
-use super::machine::{Draft, Event};
+use super::machine::{Draft, Event, GripEvent};
 use super::{LineComment, Spot, Surface};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
@@ -33,6 +33,29 @@ const V1_TEXT: TextStyle = TextStyle::new(14.0, 440.0).lh(25.2);
 const V1_LABEL: TextStyle = TextStyle::new(13.0, 530.0).lh(19.5);
 const V1_FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(19.5);
 const V1_ACTION: TextStyle = TextStyle::new(13.0, 530.0).lh(24.0);
+/// The v1 field's height: three 19.5 lines, 8 in and a 1 border each way (`rows={3}`).
+const V1_FIELD_H: f32 = 3.0 * 19.5 + 2.0 * (8.0 + 1.0);
+
+/// Chromium's textarea resizer corner (`ScrollableAreaPainter::DrawPlatformResizerImage`), inside
+/// the border.
+const GRIP: f32 = 15.0;
+/// The shortest a dragged field gets: its padding, border and the corner.
+const GRIP_MIN: f32 = 2.0 * (8.0 + 1.0) + GRIP;
+/// The resizer's two diagonals as Chromium draws them, by offset from the inner bottom-right
+/// pixel: its 60% black pixels, then its 60% white ones over them. Sampled from official's light
+/// and dark narrow editors, whose aliased lines fall on different pixels.
+const GRIP_LIGHT_B: &[(i8, i8)] = &[
+    (-1, -7), (-2, -6), (-1, -6), (-3, -5), (-2, -5), (-4, -4), (-3, -4), (-5, -3), (-4, -3), (-1, -3),
+    (-6, -2), (-5, -2), (-2, -2), (-1, -2), (-7, -1), (-6, -1), (-3, -1), (-2, -1), (-7, 0), (-3, 0),
+];
+const GRIP_LIGHT_W: &[(i8, i8)] = &[
+    (-2, -5), (-1, -5), (-3, -4), (-2, -4), (-4, -3), (-3, -3), (-5, -2), (-4, -2), (-6, -1), (-5, -1), (-2, -1), (-1, -1),
+];
+const GRIP_DARK_B: &[(i8, i8)] = &[
+    (-2, -6), (-1, -6), (-3, -5), (-2, -5), (-4, -4), (-3, -4), (-5, -3), (-4, -3), (-6, -2), (-5, -2),
+    (-7, -1), (-6, -1), (-7, 0), (-2, -2), (-1, -2), (-3, -1), (-2, -1), (-3, 0),
+];
+const GRIP_DARK_W: &[(i8, i8)] = &[(-1, -5), (-2, -4), (-3, -3), (-4, -2), (-5, -1), (-6, 0), (-1, -1), (-2, 0)];
 
 /// `LineCommentOverflowIcon`.
 static OVERFLOW: Icon = Icon {
@@ -227,7 +250,7 @@ fn menu_button(p: &Pal, spot: &Spot, c: &LineComment, v1: bool) -> El {
 /// `--surface-raised-stronger-non-alpha` and `--border-weak-base`, the inline boxes' face and
 /// their 0.5 ring (`--shadow-xxs-border`).
 fn v1_face(p: &Pal) -> (Color, Color) {
-    if p.dark { (hex("#1c1c1c"), hex("#2e2e2e")) } else { (Color::WHITE, hex("#dbdbdb")) }
+    if p.dark { (hex("#191919"), hex("#282828")) } else { (Color::WHITE, hex("#dbdbdb")) }
 }
 
 /// The inline `LineComment`: the comment, its menu, and "Comment on line N"; a click opens it
@@ -271,21 +294,22 @@ fn card_v1(p: &Pal, spot: &Spot, c: &LineComment) -> El {
 fn editor_v1(s: &App, p: &Pal, spot: &Spot, draft: &Draft, lines: String, submit: &str, editing: Option<&str>) -> El {
     let (face, ring) = v1_face(p);
     let focused = draft.text.focused;
-    let field_bg = if p.dark { Color::WHITE.alpha(0.031) } else { Color::BLACK.alpha(0.031) };
+    // `--surface-base` under a 1 px `--v2-border-border-base`.
+    let field_bg = if p.dark { hex("#1c1c1c") } else { hex("#f8f8f8") };
     let border = if p.dark { Color::WHITE.alpha(0.1) } else { Color::BLACK.alpha(0.1) };
+    let height = draft.height.unwrap_or(V1_FIELD_H);
     let mut input = col()
         .key("field-box")
         .w_full()
-        .h(75.83)
+        .h(height)
         .padding(8.0)
         .radius(6.0)
         .fill(field_bg)
-        .box_shadow(Pal::ring_in(border))
-        .child(field_input(s, p, spot, draft, V1_FIELD, opencode_i18n::t!("ui.lineComment.placeholder")).h_full());
+        .box_shadow(rune::Shadow { spread: 1.0, color: border, inset: true, ..rune::Shadow::default() })
+        .child(field_input(s, p, spot, draft, V1_FIELD, opencode_i18n::t!("ui.lineComment.placeholder")).h_full())
+        .child(grip(p, spot, height));
     if focused {
-        // `--shadow-xs-border-select`: a 1 px focus ring in a 3 px wash.
-        let ring = |spread: f32, color: Color| rune::Shadow { spread, color, ..rune::Shadow::default() };
-        input = input.elevate([ring(1.0, hex("#054dfd").alpha(0.99)), ring(3.0, hex("#d2e1fd").alpha(0.5)), rune::Shadow::default(), rune::Shadow::default()]);
+        input = focus_select(p).into_iter().rev().fold(input, El::box_shadow);
     }
     let can = !draft.text.text.trim().is_empty();
     let (cancel, send) = (spot.clone(), spot.clone());
@@ -329,6 +353,40 @@ fn editor_v1(s: &App, p: &Pal, spot: &Spot, draft: &Draft, lines: String, submit
                         }))),
                 ),
         )
+}
+
+/// The v1 field's `resize: vertical` grip in its bottom-right corner: a drag there sets the
+/// field's height.
+fn grip(p: &Pal, spot: &Spot, height: f32) -> El {
+    let spot = spot.clone();
+    let (black, white) = if p.dark { (GRIP_DARK_B, GRIP_DARK_W) } else { (GRIP_LIGHT_B, GRIP_LIGHT_W) };
+    let px = |&(dx, dy): &(i8, i8), c: Color| el().absolute(GRIP - 1.0 + f32::from(dx), GRIP - 1.0 + f32::from(dy)).size(1.0, 1.0).fill(c);
+    el().key("grip")
+        .pin(None, None, Some(1.0), Some(1.0))
+        .size(GRIP, GRIP)
+        .cursor(Cursor::ResizeRow)
+        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
+            tx.instant();
+            let event = match d.phase {
+                Phase::Down => GripEvent::Down { height },
+                Phase::Move => GripEvent::Move { dy: d.dy / s.zoom },
+                Phase::Up => GripEvent::Up,
+            };
+            if let Some(draft) = s.line_comments.draft_mut(&spot) {
+                draft.grip(event, GRIP_MIN);
+            }
+        })
+        .children(black.iter().map(|o| px(o, Color::BLACK.alpha(0.6))))
+        .children(white.iter().map(|o| px(o, Color::WHITE.alpha(0.6))))
+}
+
+/// `--shadow-xs-border-select`, in CSS order (the first on top): a 3 px wash over a 1 px ring,
+/// over three soft drops.
+fn focus_select(p: &Pal) -> [rune::Shadow; 5] {
+    let s = |y: f32, blur: f32, spread: f32, color: Color| rune::Shadow { y, blur, spread, color, ..rune::Shadow::default() };
+    let (wash, ring) = if p.dark { (hex("#021858").alpha(0.6), hex("#1456f7").alpha(0.9)) } else { (hex("#d2e1fd").alpha(0.5), hex("#054dfd").alpha(0.99)) };
+    let ink = |a: f32| hex("#131010").alpha(a);
+    [s(0.0, 0.0, 3.0, wash), s(0.0, 0.0, 1.0, ring), s(1.0, 2.0, -1.0, ink(0.25)), s(1.0, 2.0, 0.0, ink(0.08)), s(1.0, 3.0, 0.0, ink(0.12))]
 }
 
 fn hex(s: &str) -> Color {

@@ -57,6 +57,8 @@ pub struct Pal {
     pub danger: Color,
     pub warning: Color,
     pub bg_accent: Color,
+    /// `--icon-interactive-base`: the code views' gutter `+`.
+    pub interactive: Color,
     pub search_bg: Color,
     pub inline_code_bg: Color,
     pub selection: Color,
@@ -443,6 +445,7 @@ fn build(theme: usize, dark: bool) -> Pal {
         danger,
         warning: c("state-fg-warning"),
         bg_accent: c("background-bg-accent"),
+        interactive: c("icon-interactive-base"),
         search_bg: t.alpha(layer2, 0.6),
         // color-mix(in oklch, text-base 8%, transparent)
         inline_code_bg: t.alpha(text, 0.08),
@@ -558,11 +561,13 @@ fn diff_ink(t: &Theme, themed: bool, dark: bool, add: Color, del: Color, text: C
     }
 }
 
-/// `c` at opacity `a` laid over the opaque `bg` as CSS composites it, in sRGB: opaque, so it
+/// `c` at opacity `a` laid over the opaque `bg` as Chromium paints it, in sRGB: Skia
+/// premultiplies the colour into 8 bits, adds the backdrop's share and rounds, so 6% accent
+/// over `#151515` comes out `#181a23` where exact arithmetic gives `#171922`. Opaque, so it
 /// paints alike in either blend mode.
 pub fn over(bg: Color, c: Color, a: f32) -> Color {
     use rune::color::{srgb_decode, srgb_encode};
-    let m = |b: f32, f: f32| srgb_decode(a * srgb_encode(f) + (1.0 - a) * srgb_encode(b));
+    let m = |b: f32, f: f32| srgb_decode(((a * srgb_encode(f) * 255.0).round() + (1.0 - a) * srgb_encode(b) * 255.0).round() / 255.0);
     Color { r: m(bg.r, c.r), g: m(bg.g, c.g), b: m(bg.b, c.b), a: 1.0 }
 }
 

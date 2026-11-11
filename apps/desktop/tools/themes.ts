@@ -88,6 +88,7 @@ const V1 = [
   "surface-raised-stronger-non-alpha",
   "surface-raised-base-hover",
   "icon-base",
+  "icon-interactive-base",
   "syntax-comment",
   "syntax-string",
   "syntax-keyword",

@@ -265,8 +265,9 @@ local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, ord
             panel.setStyle(env, (event.value or "split") :: DiffStyle)
         end),
     }))
+    -- 48 tall with its rule (`session-review-v2-toolbar`: `h-12`, border-box).
     return ui.col({ w = "full" }, {
-        ui.row({ key = "review-toolbar", w = "full", h = 48, pl = if opened then 8 else 46, pr = 12, gap = 8, align = "center", fill = "bg-base" }, {
+        ui.row({ key = "review-toolbar", w = "full", h = 47, pl = if opened then 8 else 46, pr = 12, gap = 8, align = "center", fill = "bg-base" }, {
             ui.row({ key = "review-toolbar-start", align = "center", shrink = true, minW = 0 }, start),
             ui.spacer(),
             ui.row({ key = "review-toolbar-segments", gap = 12, align = "center" }, segments),

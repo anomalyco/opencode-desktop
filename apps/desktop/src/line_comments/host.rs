@@ -39,7 +39,7 @@ impl LineNotes<App> for Notes {
             }
             hash_mode(session.mode(self.surface, path), &mut h);
         }
-        s.settings.spellcheck.hash(&mut h);
+        (s.settings.spellcheck, s.line_comments.plus_quiet).hash(&mut h);
         h.finish()
     }
 
@@ -78,13 +78,25 @@ impl LineNotes<App> for Notes {
         let range = current.filter(|r| r.contains(line, side)).unwrap_or(Range::line(line, side));
         s.line_comment(&spot, Event::DraftOpened(range), tx);
     }
+
+    fn plus_quiet(&self, s: &App) -> bool {
+        s.line_comments.plus_quiet
+    }
+
+    fn pointer_moved(&self, s: &mut App, tx: &mut Tx) {
+        if !s.line_comments.plus_quiet {
+            tx.live_only();
+            return;
+        }
+        s.line_comments.plus_quiet = false;
+    }
 }
 
 pub(super) fn hash_mode(mode: &Mode, h: &mut impl Hasher) {
     std::mem::discriminant(mode).hash(h);
     mode.selected().hash(h);
     if let Some(d) = mode.draft() {
-        (&d.text.text, d.text.range(), d.text.focused).hash(h);
+        (&d.text.text, d.text.range(), d.text.focused, d.height.map(f32::to_bits)).hash(h);
         (d.field.mention.items(), d.field.mention.active()).hash(h);
     }
     if let Mode::Viewing { id, .. } | Mode::Editing { id, .. } = mode {
