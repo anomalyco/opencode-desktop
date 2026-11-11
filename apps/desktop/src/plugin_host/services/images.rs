@@ -43,6 +43,11 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         })
     })?;
     let plugin = vmx.half.id.clone();
+    method(lua, t, "VideoFailed", move |_, src: String| {
+        cx::read(Dep::Video(plugin.clone(), src.clone()));
+        Ok(app_now("Images:VideoFailed")?.plugins.shared.images.borrow().video_failed(&plugin, &src))
+    })?;
+    let plugin = vmx.half.id.clone();
     method(lua, t, "FromEncoded", move |_, data: Value| {
         let bytes = bytes_of(&data).ok_or_else(|| mlua::Error::runtime("Images:FromEncoded takes a buffer or a string"))?;
         Ok(handed(app_now("Images:FromEncoded")?.plugins.shared.images.borrow_mut().add(&plugin, &bytes, 0, 0)))

@@ -5142,6 +5142,8 @@ export type ImagesService = {
     Load: (self: ImagesService, src: string) -> ImageId,
     --- Where the image stands. Read in a render, it redraws as the image lands or fails.
     State: (self: ImagesService, image: ImageId) -> ImageState,
+    --- Whether the `ui.video` playing `src` can't play: its box then shows what's behind it. Read in a render, it redraws when the clip fails; a render memoized with `view:Memo` should put it in the memo's version, as with `Images:State`.
+    VideoFailed: (self: ImagesService, src: string) -> boolean,
     --- A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused.
     FromEncoded: (self: ImagesService, data: buffer | string) -> ImageId?,
     --- An SVG image.

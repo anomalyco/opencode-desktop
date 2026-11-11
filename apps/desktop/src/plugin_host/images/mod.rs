@@ -28,6 +28,8 @@ pub struct Images {
     fetched: Arc<Mutex<Vec<Fetched>>>,
     /// The videos plugins show (`ui.video`), by plugin and URL: one player each.
     players: HashMap<(String, String), rune::Player>,
+    /// Players seen failed: a new failure redraws the surfaces that show it (`video_failed`).
+    failed: std::collections::HashSet<(String, String)>,
 }
 
 /// An image's id and what a reader read for it: its picture, decoding, and its bytes.
@@ -128,6 +130,12 @@ impl Images {
         for id in settled {
             changed |= self.step(id, LoadEvent::Decoded);
         }
+        for (key, player) in &self.players {
+            if matches!(player.state(), rune::PlayerState::Failed(_)) && !self.failed.contains(key) {
+                self.failed.insert(key.clone());
+                changed = true;
+            }
+        }
         changed
     }
 
@@ -155,6 +163,7 @@ impl Images {
         self.map.retain(|_, e| e.plugin != plugin);
         self.by_source.retain(|(p, _), _| p != plugin);
         self.players.retain(|(p, _), _| p != plugin);
+        self.failed.retain(|(p, _)| p != plugin);
     }
 
     /// Plugin `plugin`'s player of video `url`, made playing muted on a loop (`autoplay loop
@@ -164,6 +173,11 @@ impl Images {
             .entry((plugin.to_owned(), url.to_owned()))
             .or_insert_with(|| {
                 let player = rune::Player::url(url);
+                // Its state changes wake the window, so a clip that fails is redrawn as one
+                // (`video_failed`: the box shows what's behind it, not Rune's placeholder).
+                if let Some(waker) = &self.waker {
+                    player.set_waker(waker.clone());
+                }
                 player.set_muted(true);
                 player.set_looping(true);
                 player.play();

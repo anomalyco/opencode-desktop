@@ -270,7 +270,7 @@ impl ServiceName {
             Self::Power => &["KeepAwake"],
             Self::Qr => &["Encode"],
             Self::Askpass => &["Listen"],
-            Self::Images => &["Load", "State", "FromEncoded", "FromSvg", "FromRgba", "Release"],
+            Self::Images => &["Load", "State", "VideoFailed", "FromEncoded", "FromSvg", "FromRgba", "Release"],
             Self::I18n => &["T", "Has", "Locale", "Direction", "Plural", "Number", "Date", "RelativeTime", "RelativeDay", "List", "Changed"],
         }
     }

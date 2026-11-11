@@ -495,6 +495,7 @@ Images for `ui.image`: loaded from a source or handed over, decoded off the UI t
 |---|---|---|
 | `:Load` | `(src: string) -> ImageId` | The image at `src`, loading off the UI thread: an `https:` or `http:` URL, fetched as a browser loads an image (no credentials, 15 s, at most 8 MB); a path from `/`, read from the window's server with its sign-in (`/api/...`); a `data:` URL; or a file of the plugin's own folder by its relative path (`icons/logo.svg`). The same source is the same image, and its state is shared: one that failed fails again at once. `Images:State` says where it stands. |
 | `:State` | `(image: ImageId) -> ImageState` | Where the image stands. Read in a render, it redraws as the image lands or fails. |
+| `:VideoFailed` | `(src: string) -> boolean` | Whether the `ui.video` playing `src` can't play: its box then shows what's behind it. Read in a render, it redraws when the clip fails; a render memoized with `view:Memo` should put it in the memo's version, as with `Images:State`. |
 | `:FromEncoded` | `(data: buffer \| string) -> ImageId?` | A PNG, JPEG, GIF or WebP image, decoded off the UI thread. Nil when refused. |
 | `:FromSvg` | `(svg: string) -> ImageId?` | An SVG image. |
 | `:FromRgba` | `(pixels: buffer, width: number, height: number) -> ImageId?` | Straight-alpha RGBA8 pixels. |

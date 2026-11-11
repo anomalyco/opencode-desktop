@@ -246,10 +246,12 @@ return plugin.defineWindow(function(ctx)
         size = "large",
         render = function(v, props)
             local data = (props.data or {}) :: any
-            -- The shown feature's picture landing or failing rebuilds the dialog.
+            -- The shown feature's picture landing or failing, or its video failing, rebuilds the dialog.
             local feature = (data.highlights or {})[highlightIndex]
             local media = feature and feature.media
-            local picture = if media and media.type == "image" then Images:State(Images:Load(media.src)).status else ""
+            local picture = if media and media.type == "image" then Images:State(Images:Load(media.src)).status
+                elseif media and media.type == "video" and Images:VideoFailed(media.src) then "failed"
+                else ""
             local dark = Theme:IsDark()
             return v:Memo("release-dialog", `{highlightIndex}:{picture}:{dark}:{I18n:Locale().id}`, function()
                 return view.highlights(I18n, v, {
