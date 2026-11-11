@@ -104,18 +104,50 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
 
 /// What `where` finds for `app` on the `PATH`, in order: each folder of `PATH` with each
 /// `PATHEXT` extension (and the name as given, when it has one), as `where.exe` searches, without
-/// starting it (a process each: 7,600-26,500 µs on blade, five at every launch).
+/// starting it (a process each: 7,600-26,500 µs on blade, five at every launch). Each folder is
+/// asked once for the names starting `app.` rather than once per extension (14 apps x the
+/// `PATH`'s folders x 11 extensions opened 6,309 files, 184 ms off the UI thread).
 fn where_is(app: &str) -> Vec<PathBuf> {
-    let exts: Vec<String> = std::env::var_os("PATHEXT").map(|v| v.to_string_lossy().split(';').filter(|e| !e.is_empty()).map(str::to_owned).collect()).unwrap_or_else(|| [".COM", ".EXE", ".BAT", ".CMD"].map(String::from).to_vec());
+    let exts: Vec<String> = std::env::var_os("PATHEXT").map(|v| v.to_string_lossy().split(';').filter(|e| !e.is_empty()).map(str::to_lowercase).collect()).unwrap_or_else(|| [".com", ".exe", ".bat", ".cmd"].map(String::from).to_vec());
     let Some(path) = std::env::var_os("PATH") else { return vec![] };
     let named = Path::new(app).extension().is_some();
+    let lower = app.to_lowercase();
     std::env::split_paths(&path)
         .flat_map(|dir| {
-            let exact = named.then(|| dir.join(app));
-            exact.into_iter().chain(exts.iter().map(move |e| dir.join(format!("{app}{e}"))))
+            let names = files_like(&dir, app);
+            let wanted = named.then(|| lower.clone()).into_iter().chain(exts.iter().map(|e| format!("{lower}{e}")));
+            wanted.filter_map(|w| names.iter().find(|n| n.to_lowercase() == w).map(|n| dir.join(n))).collect::<Vec<_>>()
         })
-        .filter(|p| p.is_file())
         .collect()
+}
+
+/// The files (not folders) in `dir` named `app` or `app.*`: one directory query.
+#[allow(unsafe_code)]
+fn files_like(dir: &Path, app: &str) -> Vec<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FIND_FIRST_EX_LARGE_FETCH, FindClose, FindExInfoBasic, FindExSearchNameMatch, FindFirstFileExW, FindNextFileW, WIN32_FIND_DATAW};
+    let pattern: Vec<u16> = dir.join(format!("{app}*")).as_os_str().encode_wide().chain([0]).collect();
+    let mut out = Vec::new();
+    // SAFETY: a NUL-terminated pattern, a WIN32_FIND_DATAW this frame owns, and the find handle
+    // closed after the last name.
+    unsafe {
+        let mut data: WIN32_FIND_DATAW = std::mem::zeroed();
+        let find = FindFirstFileExW(pattern.as_ptr(), FindExInfoBasic, (&raw mut data).cast(), FindExSearchNameMatch, std::ptr::null(), FIND_FIRST_EX_LARGE_FETCH);
+        if find == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            return out;
+        }
+        loop {
+            if data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
+                let len = data.cFileName.iter().position(|&c| c == 0).unwrap_or(data.cFileName.len());
+                out.push(String::from_utf16_lossy(&data.cFileName[..len]));
+            }
+            if FindNextFileW(find, &mut data) == 0 {
+                break;
+            }
+        }
+        FindClose(find);
+    }
+    out
 }
 
 /// The `.exe` a `.cmd` or `.bat` shim starts: a quoted path, relative to the shim's folder when it
