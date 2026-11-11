@@ -291,6 +291,8 @@ pub fn setup(app: &mut App, waker: Waker) {
         }
     }
     (host.disabled, host.trusted) = trust::load_state();
+    // The built-ins start from the bytecode compiled with the binary, not by compiling their source.
+    rune_luau::precompiled(sources::precompiled());
     // Plugins start processes and compare against the app's own server's version.
     process::warm();
     servers::read_own_version(app);

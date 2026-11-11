@@ -56,11 +56,18 @@ fn main() {
 }
 
 /// The built-in plugins (every `plugins/<id>/` with a `plugin.toml`), embedded file by file as
-/// `luau_builtins.rs`: the fallback when no folder on disk has them.
+/// `luau_builtins.rs`: the fallback when no folder on disk has them. Each `.luau` file's bytecode
+/// comes with it (`PRECOMPILED`, for `rune_luau::precompiled`), compiled here with Rune's settings,
+/// so a launch doesn't compile them: compiling was most of each plugin's start (about 120,000 µs of
+/// the 175,000 µs plugins took before the first frame on blade).
 fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     use std::fmt::Write as _;
     let root = manifest_dir.join("../../plugins");
     println!("cargo:rerun-if-changed={}", root.display());
+    let compiler = mlua::chunk::Compiler::new().set_optimization_level(2).set_type_info_level(1).set_debug_level(1);
+    let bytecode = out.join("luau-bytecode");
+    std::fs::create_dir_all(&bytecode).ok();
+    let (mut consts, mut precompiled) = (String::new(), String::from("pub static PRECOMPILED: &[(&str, &[u8])] = &[\n"));
     let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)])] = &[\n");
     let mut dirs: Vec<_> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).collect();
     dirs.sort();
@@ -76,11 +83,22 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         writeln!(code, "    ({id:?}, &[").ok();
         for (rel, path) in files {
             println!("cargo:rerun-if-changed={}", path.display());
-            writeln!(code, "        ({rel:?}, include_str!({:?})),", path.display().to_string()).ok();
+            let name = format!("FILE_{}", consts.lines().count());
+            writeln!(consts, "const {name}: &str = include_str!({:?});", path.display().to_string()).ok();
+            writeln!(code, "        ({rel:?}, {name}),").ok();
+            // A file that doesn't compile is left to the launch, which reports the error.
+            let compiled = (rel.ends_with(".luau") && !rel.ends_with(".config.luau")).then(|| std::fs::read(&path).ok()).flatten().and_then(|src| compiler.compile(src).ok());
+            if let Some(luauc) = compiled {
+                let file = bytecode.join(format!("{name}.luauc"));
+                std::fs::write(&file, luauc).ok();
+                writeln!(precompiled, "    ({name}, include_bytes!({:?})),", file.display().to_string()).ok();
+            }
         }
         code.push_str("    ]),\n");
     }
     code.push_str("];\n");
+    precompiled.push_str("];\n");
+    code = consts + &code + &precompiled;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();

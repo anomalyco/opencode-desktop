@@ -114,6 +114,11 @@ pub fn folders() -> Vec<Found> {
     }
     found
 }
+/// The built-ins' Luau bytecode, by source text, compiled at build time (`build.rs`).
+pub fn precompiled() -> impl Iterator<Item = (&'static str, &'static [u8])> {
+    embedded::PRECOMPILED.iter().copied()
+}
+
 /// The ids of the built-ins this binary carries.
 pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
     embedded::BUILTINS.iter().map(|(id, _)| *id)
