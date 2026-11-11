@@ -264,9 +264,13 @@ fn controls(v: &FileVideo, w: f32, h: f32, shown: bool) -> El {
         .child(text(clock(time)).font(TIME).color(Color::WHITE))
         .child(text(format!("/ {}", clock(duration))).font(TIME).color(Color::WHITE).ml(4.0))
         .child(el().grow(1.0))
-        .child(button("media-mute", if player.muted() { &MUTED } else { &SOUND }, if player.muted() { "Unmute" } else { "Mute" }, |v| {
-            v.player.set_muted(!v.player.muted());
-        }))
+        // A clip with no sound track greys its mute button, as Chromium disables it.
+        .child(match player.has_sound() {
+            Some(false) => disabled_button("media-mute", &SOUND, "Mute"),
+            _ => button("media-mute", if player.muted() { &MUTED } else { &SOUND }, if player.muted() { "Unmute" } else { "Mute" }, |v| {
+                v.player.set_muted(!v.player.muted());
+            }),
+        })
         // Chromium's fullscreen button keeps its place, hidden; Desktop's expand button lies over it.
         .child(el().w(BUTTON).h(BUTTON))
         .child(button("media-more", &MORE, "Show more media controls", |_| {}));
@@ -329,6 +333,18 @@ fn button(key: &'static str, glyph: &'static Icon, label: &'static str, press: f
             }
         })
         .child(el().size(HOVER_DISC, HOVER_DISC).radius(HOVER_DISC / 2.0).hover(hover()).hover_motion(Anim::new(Curve::tween(0.25, Easing::EASE)), Anim::new(Curve::tween(0.25, Easing::EASE))).center().child(icon(glyph, 20.0).color(Color::WHITE)))
+}
+
+/// A control Chromium disables (`:disabled`): its glyph at 40 % opacity, no hover disc, no press.
+/// Rune composites a light glyph on dark brighter than Chromium's opacity does, so 0.32 here lands
+/// on Chromium's pixels (158 against 161 on the scrim at 1.5x).
+fn disabled_button(key: &'static str, glyph: &'static Icon, label: &'static str) -> El {
+    el().key(key)
+        .size(BUTTON, BUTTON)
+        .center()
+        .role("button")
+        .label(label)
+        .child(icon(glyph, 20.0).color(Color::WHITE).opacity(0.32))
 }
 
 /// The timeline: the track 16 pt in from each side along the top of the bottom 24 pt, white

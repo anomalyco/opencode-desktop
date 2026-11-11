@@ -139,7 +139,7 @@ pub fn version(app: &App, session: &str) -> u64 {
         videos.sort_by(|a, b| a.0.cmp(b.0));
         for (path, v) in videos {
             let p = &v.player;
-            (path, format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
+            (path, format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.has_sound(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
         }
         app.files.stage_size.get().map(f32::to_bits).hash(&mut h);
     }
