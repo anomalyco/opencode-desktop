@@ -182,7 +182,12 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
                 super::focused(&s.window.id);
             }
         })
-        .on_quit(|s, _| s.save_on_quit())
+        // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
+        // closing the last window does; the second call of the two does nothing.
+        .on_quit(|s, _| {
+            s.updater.closing();
+            s.save_on_quit();
+        })
         .on_close(|s, _| {
             s.updater.closing();
             s.save_on_close();
