@@ -1,11 +1,7 @@
 //! The one-time prompt before a plugin from outside the app first runs (one from
 //! `plugins-override/` or `<data>/plugins/`). Its OK is for the plugin's files as they are: their
 //! SHA-256 is remembered, and a changed plugin asks again. Built-ins and `--plugin-dir` don't ask.
-//! What the user chose (the plugins turned off, the hashes trusted) is kept in
-//! `<data>/plugins-state.json`.
-
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+//! What the user chose is the plugin's record in the app's database (`super::save_record`).
 
 use rune::{El, TextStyle, Tx, col, el, row, spacer, text};
 
@@ -65,31 +61,5 @@ fn answer(app: &mut App, id: &str, event: TrustEvent, tx: &mut Tx) {
     tx.instant();
     if let Some(i) = app.plugins.find(id) {
         super::step_trust(app, i, event);
-    }
-}
-
-fn state_file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("plugins-state.json"))
-}
-
-/// The plugins turned off, and the plugins from outside the app trusted.
-pub(super) fn load_state() -> (BTreeSet<String>, BTreeMap<String, String>) {
-    let Some(text) = state_file().and_then(|f| std::fs::read_to_string(f).ok()) else { return Default::default() };
-    let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    let disabled = v["disabled"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
-    let trusted = v["trusted"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect();
-    (disabled, trusted)
-}
-
-pub fn save_state(app: &App) {
-    if !app.persists() {
-        return;
-    }
-    if let Some(file) = state_file() {
-        let v = serde_json::json!({ "disabled": app.plugins.disabled, "trusted": app.plugins.trusted });
-        if let Some(dir) = file.parent() {
-            std::fs::create_dir_all(dir).ok();
-        }
-        std::fs::write(file, v.to_string()).ok();
     }
 }

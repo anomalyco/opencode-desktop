@@ -160,7 +160,7 @@ impl Backend {
 
 fn offline(cmd: Cmd) {
     match cmd {
-        Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } => done(Ok(())),
+        Cmd::PluginRecord { done: Some(done), .. } => done(Ok(())),
         Cmd::Outbox { op, done } => crate::outbox::offline(op, done),
         Cmd::LoadState { done: Some(done), .. } | Cmd::LoadDocs { done: Some(done), .. } | Cmd::LoadOutbox { done: Some(done) } => done(),
         Cmd::GetBlob { done, .. } => done(None),
@@ -201,14 +201,8 @@ fn handle(web: &Rc<RefCell<Web>>, cmd: Cmd) {
         Cmd::Window { id, frame } => {
             ls_set(web, &format!("{FRAMES}:{id}"), frame.map(|f| f.to_json().to_string()).as_deref()).ok();
         }
-        Cmd::Plugin { id, enabled, done } => {
-            let r = ls_set(web, &format!("{PLUGINS}:{id}"), enabled.map(|on| if on { "1" } else { "0" }));
-            if let Some(done) = done {
-                done(r.map_err(crate::StorageError));
-            }
-        }
-        Cmd::Trust { id, sha256, done } => {
-            let r = ls_set(web, &format!("{TRUST}:{id}"), sha256.as_deref());
+        Cmd::PluginRecord { id, record, done } => {
+            let r = ls_set(web, &format!("{PLUGINS}:{id}"), record.enabled.map(|on| if on { "1" } else { "0" })).and_then(|()| ls_set(web, &format!("{TRUST}:{id}"), record.trusted.as_deref()));
             if let Some(done) = done {
                 done(r.map_err(crate::StorageError));
             }

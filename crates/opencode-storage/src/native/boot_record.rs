@@ -85,6 +85,10 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     for (id, sha) in &trust {
         w.push(Kind::Trust, id, "", sha.as_bytes());
     }
+    let shown: Vec<&str> = recent.iter().filter_map(|(_, tab)| Some(session_of(tab)?.1)).collect();
+    let covered = super::schema::user_version(tx)? & super::schema::FLAG_PLUGINS != 0;
+    let rows = crate::plugins::native::slice_rows(tx, &shown)?;
+    crate::plugins::boot_slice(&mut w, covered, &shown, rows.iter().map(|(n, k, v)| (n.as_str(), k.as_str(), v.as_str())));
     let generation = tx.query_row("PRAGMA application_id", [], |r| r.get::<_, i64>(0)).map(|g| (g as u32).wrapping_add(1))?;
     let bytes = w.finish(generation);
     tx.prepare_cached("INSERT INTO boot (id, data) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET data = excluded.data")?.execute([&bytes])?;

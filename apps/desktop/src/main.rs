@@ -76,7 +76,6 @@ mod demo_script;
 mod diagnostics;
 mod dictation;
 mod dirs;
-mod disk;
 mod dock_fade_stories;
 mod dropzone;
 mod escape;
@@ -1422,7 +1421,6 @@ fn main() {
             rune::marks::mark("windows.launch");
             // Every window saved at the last quit, each with its own tabs (`windows`).
             let opened = windows::launch(diagnostics.clone());
-            disk::flush();
             // Landed and closed: the file's lock goes before the update helper takes over.
             storage::close();
             rune::marks::mark("storage.flushed");
@@ -1463,7 +1461,6 @@ fn main() {
                 s.save_on_close();
             })
             .run();
-        disk::flush();
         storage::close();
         diagnostics.shutdown();
         // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the

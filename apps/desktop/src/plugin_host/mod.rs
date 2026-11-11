@@ -54,6 +54,7 @@ pub mod servers;
 pub mod services;
 mod shared;
 pub mod sources;
+pub mod stores;
 pub mod surfaces;
 pub(crate) mod tasks;
 pub mod trust;
@@ -79,7 +80,7 @@ pub use reveal::reveal;
 pub use servers::{ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed, connect as connect_server, cover as server_cover, row as server_row, stage as servers_stage};
 pub use sources::{Origin, Tier};
 pub use surfaces::{dialog_view, file_viewer, pill_views, popover_view, settings_page, settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with, titlebar_items};
-pub use trust::{dialog as trust_dialog, save_state};
+pub use trust::dialog as trust_dialog;
 pub use view::settings_section;
 
 use crate::App;
@@ -276,8 +277,6 @@ impl PluginHost {
 
 /// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
-    let persists = app.persists();
-    let keep_screen = app.settings.keep_screen_active;
     let host = &mut app.plugins;
     host.shared.images.borrow_mut().start(waker.clone());
     host.waker = Some(waker);
@@ -285,15 +284,10 @@ pub fn setup(app: &mut App, waker: Waker) {
         return;
     }
     host.started = true;
-    host.shared.stores.persist = persists;
-    // Keep screen active was the app's own setting before the Pairing plugin took the page: it
-    // moves into the plugin's store once.
-    if keep_screen && persists {
-        if host.shared.stores.text("pairing", "keepScreenActive", "").is_none() {
-            host.shared.stores.set("pairing", "keepScreenActive", "", "true");
-        }
-    }
-    (host.disabled, host.trusted) = trust::load_state();
+    stores::begin();
+    // What the user turned off and trusted: in memory, or in the boot record. A launch whose
+    // plugin files weren't imported yet knows them only from stage B, so nothing starts before it.
+    let known = refresh_records(app) || (crate::storage::need() && refresh_records(app));
     // The built-ins start from the bytecode compiled with the binary, not by compiling their source.
     rune_luau::precompiled(sources::precompiled());
     // Plugins start processes and compare against the app's own server's version.
@@ -305,19 +299,73 @@ pub fn setup(app: &mut App, waker: Waker) {
     // (`first_screen`); a headless run and a hot build (no first-frame hook) start them all.
     let first = (!crate::headless() && !cfg!(feature = "hot")).then(|| first_screen::plugins(app));
     let (now, later): (Vec<_>, Vec<_>) = sources::builtins().into_iter().partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
-    adopt(app, now);
+    let start_now = known && stores::answers();
     app.plugins.later = later;
+    if start_now {
+        adopt(app, now);
+    } else {
+        app.plugins.later.splice(0..0, now);
+    }
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
     // reads them on a worker after its first frame ([`first_frame`]).
     if crate::headless() {
         let found = sources::folders();
-        adopt(app, found);
+        if start_now {
+            adopt(app, found);
+        } else {
+            app.plugins.later.extend(found);
+        }
         folders_read(app);
         app.plugins.folders = Folders::Read;
     } else if cfg!(feature = "hot") {
         // A hot build has no first-frame hook.
         read_folders(app);
+        start_later(app);
     }
+}
+
+/// Takes the plugins' enabled overrides and trust from the storage (memory or the boot record);
+/// false when neither knows them yet.
+fn refresh_records(app: &mut App) -> bool {
+    let Some((overrides, trusted)) = crate::storage::plugin_records() else { return false };
+    app.plugins.disabled = overrides.into_iter().filter(|(_, on)| !on).map(|(id, _)| id).collect();
+    app.plugins.trusted = trusted;
+    true
+}
+
+/// Writes plugin `id`'s record (its off switch and the files it's trusted for) as the window holds
+/// it, in one durable commit; `then` gets how it went, on this window's thread.
+fn save_record(app: &App, id: &str, then: Option<Box<dyn FnOnce(&mut App, &mut Tx, Result<(), String>) + Send>>) {
+    let record = opencode_storage::PluginRecord { enabled: app.plugins.disabled.contains(id).then_some(false), trusted: app.plugins.trusted.get(id).cloned() };
+    let (deliver, who) = (app.deliverer(), id.to_owned());
+    let line = format!("{} enabled={} trusted={}", who, record.enabled.is_none(), record.trusted.as_deref().map_or("none", |h| &h[..h.len().min(12)]));
+    eprintln!("plugins: record saving: {line}");
+    crate::storage::plugin_record(
+        id,
+        record,
+        Box::new(move |result| {
+            let result = result.map_err(|e| e.0);
+            // Proof runs kill the app around this line: it says the record is on disk.
+            match &result {
+                Ok(()) => eprintln!("plugins: record saved: {line}"),
+                Err(e) => eprintln!("plugins: record not saved: {line}: {e}"),
+            }
+            if let Some(then) = then {
+                deliver(Box::new(move |app: &mut App, tx: &mut Tx| then(app, tx, result)));
+            }
+        }),
+    );
+}
+
+/// Starts the plugins waiting for their values: one read for all of them on the storage thread,
+/// then one per turn ([`start_one_later`]).
+fn start_later(app: &mut App) {
+    let ids: Vec<String> = app.plugins.list.iter().map(|p| p.manifest.id.clone()).chain(app.plugins.later.iter().map(|f| f.manifest.id.clone())).collect();
+    stores::load(app, ids, true, |app, tx| {
+        // Stage B is in: what the record couldn't say about overrides and trust, it does now.
+        refresh_records(app);
+        start_one_later(app, tx);
+    });
 }
 
 /// The plugin folders (`--plugin-dir`, overrides, installed plugins) of a window: not read yet,
@@ -335,8 +383,8 @@ enum Folders {
 /// the app's thread. True when some start (the window redraws for them).
 pub fn first_frame(app: &mut App) -> bool {
     let later = !app.plugins.later.is_empty();
-    if later {
-        app.later(Box::new(start_one_later));
+    if app.plugins.started {
+        start_later(app);
     }
     if app.plugins.started && app.plugins.folders == Folders::Unread {
         read_folders(app);
@@ -455,6 +503,27 @@ pub fn drive(app: &mut App, i: usize, event: LifeEvent) {
 /// [`LifeEffect::Start`]: plugin `i`'s stores, catalogs, app half and window half; then
 /// `Started` or `StartFailed`.
 fn start(app: &mut App, i: usize) {
+    // Its first read has its saved value: its values come into memory first.
+    if !stores::answers_for(&app.plugins.list[i].manifest.id) {
+        let id = app.plugins.list[i].manifest.id.clone();
+        stores::load(app, vec![id.clone()], false, move |app, tx| {
+            if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Loading)) {
+                start_loaded(app, i);
+                tx.instant();
+            }
+        });
+        return;
+    }
+    start_loaded(app, i);
+}
+
+/// [`start`] once plugin `i`'s values are in memory.
+fn start_loaded(app: &mut App, i: usize) {
+    // Keep screen active was the app's own setting before the Pairing plugin took the page: it
+    // moves into the plugin's store once.
+    if app.plugins.list[i].manifest.id == "pairing" && app.settings.keep_screen_active && stores::text("pairing", "plugin.pairing", "keepScreenActive").is_none() {
+        stores::set("plugin.pairing", "keepScreenActive", "true".to_owned());
+    }
     let files = app.plugins.list[i].origin.files();
     let p = &app.plugins.list[i];
     let (id, manifest) = (p.manifest.id.clone(), p.manifest.clone());
@@ -508,21 +577,50 @@ fn stop(app: &mut App, i: usize, script: Script) {
 /// hot state. A failed compile or setup keeps the running VM; a failed plugin starts again.
 pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
     let p = &app.plugins.list[i];
-    if matches!(p.life, Life::Errored { .. }) {
-        return drive(app, i, LifeEvent::Reload);
-    }
-    if !p.running() {
+    if !p.running() && !matches!(p.life, Life::Errored { .. }) {
         return;
     }
     let prepared = match prepared {
         Some(prep) => prep,
+        // A folder is read again on a worker, never on the app's thread.
+        None if p.origin.dir().is_some() => {
+            let (origin, manifest, id, deliver) = (p.origin.clone(), p.manifest.clone(), p.manifest.id.clone(), app.deliverer());
+            tasks::run(move || {
+                let prepared = hot::prepare(&origin, &manifest);
+                deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
+                    let Some(i) = app.plugins.find(&id) else { return };
+                    match prepared {
+                        Ok(prep) => reload(app, i, Some(prep)),
+                        Err(e) => console::push(&id, rune_luau::LogLevel::Error, &e),
+                    }
+                    tx.instant();
+                }));
+            });
+            return;
+        }
         None => match hot::prepare(&p.origin, &p.manifest) {
             Ok(prep) => prep,
             Err(e) => return console::push(&p.manifest.id, rune_luau::LogLevel::Error, &e),
         },
     };
+    // A folder plugin runs from what was read now; one from outside the app runs it only under an
+    // OK for those bytes.
+    if let Origin::Dir { dir, .. } = &p.origin {
+        app.plugins.list[i].origin = Origin::Dir { dir: dir.clone(), files: prepared.files.clone().into() };
+    }
+    if app.plugins.list[i].tier.needs_trust() {
+        step_trust(app, i, TrustEvent::FilesChanged(prepared.hash.clone()));
+        if !app.plugins.list[i].trust.allows() {
+            app_half::stop(&app.plugins.list[i].manifest.id.clone());
+            return drive(app, i, LifeEvent::NeedTrust);
+        }
+    }
+    let p = &app.plugins.list[i];
+    if matches!(p.life, Life::Errored { .. }) {
+        return drive(app, i, LifeEvent::Reload);
+    }
     *p.half.catalogs.borrow_mut() = prepared.catalogs;
-    sources::intern_icons(&p.manifest.id, &p.origin.files());
+    sources::intern_icons(&p.manifest.id, &prepared.files);
     drive(app, i, LifeEvent::Reload);
     let p = &app.plugins.list[i];
     let Some(script) = p.script() else { return };
@@ -696,6 +794,8 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
             app_half::stop(id);
             server_sources::forget(id);
             app.plugins.disabled.insert(id.to_owned());
+            // A plugin from outside the app: the OK goes with the switch, so on again asks again.
+            step_trust(app, i, TrustEvent::Revoke);
         }
         Life::Disabled => {
             app.plugins.disabled.remove(id);
@@ -708,7 +808,7 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
         }
         Life::Discovered | Life::Loading | Life::Refused(_) => return,
     }
-    crate::plugin_host::save_state(app);
+    save_record(app, id, None);
 }
 
 /// Steps plugin `i`'s trust with `event` and carries out what the step asks for.
@@ -716,15 +816,30 @@ pub fn step_trust(app: &mut App, i: usize, event: TrustEvent) {
     let trust = std::mem::replace(&mut app.plugins.list[i].trust, Trust::NotNeeded);
     let (trust, effects) = trust.step(event);
     app.plugins.list[i].trust = trust;
+    let id = app.plugins.list[i].manifest.id.clone();
     for effect in effects {
         match effect {
-            TrustEffect::Remember(hash) => {
-                let id = app.plugins.list[i].manifest.id.clone();
+            TrustEffect::Save(hash) => {
                 app.plugins.disabled.remove(&id);
-                app.plugins.trusted.insert(id, hash);
-                crate::plugin_host::save_state(app);
+                app.plugins.trusted.insert(id.clone(), hash);
+                let who = id.clone();
+                save_record(
+                    app,
+                    &id,
+                    Some(Box::new(move |app: &mut App, tx: &mut Tx, result| {
+                        if let Some(i) = app.plugins.find(&who) {
+                            step_trust(app, i, TrustEvent::Saved(result));
+                        }
+                        tx.instant();
+                    })),
+                );
+            }
+            // The caller writes the record (with the switch it changed).
+            TrustEffect::Forget => {
+                app.plugins.trusted.remove(&id);
             }
             TrustEffect::Load => drive(app, i, LifeEvent::Load),
+            TrustEffect::Report(e) => console::push(&id, rune_luau::LogLevel::Error, &e),
         }
     }
 }

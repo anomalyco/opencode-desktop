@@ -197,6 +197,7 @@ pub fn finish(windows: usize) {
         "marks_ns": marks,
         "metrics": metrics,
         "notes": notes,
+        "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| serde_json::json!({ "bytes": all, "plugin_bytes": plugins })),
     });
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {

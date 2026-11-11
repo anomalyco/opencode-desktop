@@ -64,7 +64,7 @@ impl Batch {
     /// Whether it changes what the boot record holds.
     fn touches_boot(&self) -> bool {
         match self {
-            Batch::State(_, m) => m.keys().any(|(name, _)| crate::is_boot_namespace(name)),
+            Batch::State(_, m) => m.keys().any(|(name, key)| crate::in_boot_record(name, key)),
             Batch::Docs(_, m) => m.keys().any(|k| k.contains(":draft:")),
             Batch::Windows(..) | Batch::Previews(..) => true,
             Batch::Caches(..) => false,
@@ -309,7 +309,7 @@ impl Writer {
             Cmd::ClearState { name } => {
                 let n = name.clone();
                 self.state_event(WriteBehindEvent::Drop(Box::new(move |k: &StateKey, _: &Value| k.0 == n)));
-                let boot = crate::is_boot_namespace(&name);
+                let boot = crate::in_boot_record(&name, "");
                 let done = (|| -> rusqlite::Result<()> {
                     let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
                     tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
@@ -332,12 +332,8 @@ impl Writer {
                     self.gc_effects(effects);
                 }
             }
-            Cmd::Plugin { id, enabled, done } => {
-                let r = self.durable(true, |c, _| sql::put_plugin(c, &id, enabled));
-                answer(done, r);
-            }
-            Cmd::Trust { id, sha256, done } => {
-                let r = self.durable(true, |c, now| sql::put_trust(c, &id, sha256.as_deref(), now));
+            Cmd::PluginRecord { id, record, done } => {
+                let r = self.durable(true, |c, now| crate::plugins::native::write(c, &id, &record, now));
                 answer(done, r);
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {

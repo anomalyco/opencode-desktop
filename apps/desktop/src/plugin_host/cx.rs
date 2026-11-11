@@ -112,7 +112,7 @@ pub enum Dep {
     Sessions,
     Model(String, String),
     Resource(Rc<str>, String),
-    Store(Rc<str>, String),
+    Store(Rc<str>, Rc<str>),
     Editor(Rc<str>, usize),
     Popover(Rc<str>, String),
     /// Which row's list the plugin's open popover shows beside it.

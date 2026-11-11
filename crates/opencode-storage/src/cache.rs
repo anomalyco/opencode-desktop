@@ -137,6 +137,15 @@ impl Cache {
         self.state.insert(name.to_owned(), Namespace::Loaded { rows, revision });
     }
 
+    /// Whether every row of `name` is in memory.
+    pub fn is_loaded(&self, name: &str) -> bool {
+        match self.state.get(name) {
+            Some(Namespace::Loaded { .. }) => true,
+            Some(Namespace::Unloaded { .. }) => false,
+            None => self.complete || crate::is_boot_namespace(name),
+        }
+    }
+
     pub fn items(&self, name: &str) -> Option<Vec<(String, Arc<str>)>> {
         match self.state.get(name) {
             Some(Namespace::Loaded { rows, .. }) => Some(rows.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),

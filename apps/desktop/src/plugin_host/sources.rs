@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use opencode_plugin_spec::{Compat, ContractVersion, Manifest};
 use sha2::{Digest, Sha256};
@@ -50,7 +51,8 @@ mod embedded {
 /// A plugin's files: a folder, or the copy built into the binary.
 #[derive(Clone, Debug)]
 pub enum Origin {
-    Dir(PathBuf),
+    /// A folder, with its files as they were read: what runs, and what a trust OK was for.
+    Dir { dir: PathBuf, files: Arc<[(String, String)]> },
     Embedded(&'static [(&'static str, &'static str)]),
 }
 
@@ -149,9 +151,10 @@ fn scan(tier: Tier, dir: &Path) -> Vec<Found> {
 }
 
 fn read(tier: Tier, dir: &Path) -> Option<Found> {
-    let src = std::fs::read_to_string(dir.join("plugin.toml")).ok()?;
+    let files = read_files(dir);
+    let src = files.iter().find(|(p, _)| p == "plugin.toml").map(|(_, t)| t.clone())?;
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let origin = Origin::Dir(dir.to_owned());
+    let origin = Origin::Dir { dir: dir.to_owned(), files: files.into() };
     Some(match parse(&src) {
         Ok(manifest) => Found { manifest, origin, tier, error: None, hash: None },
         Err(e) => Found { manifest: placeholder(&folder), origin, tier, error: Some(format!("plugin.toml: {e}")), hash: None },
@@ -169,22 +172,18 @@ fn unreachable_manifest() -> Manifest {
 }
 
 impl Origin {
-    /// Every file, by its path relative to the plugin folder.
+    /// Every file, by its path relative to the plugin folder: a folder's as they were read, never
+    /// read again.
     pub fn files(&self) -> Vec<(String, String)> {
         match self {
             Origin::Embedded(files) => files.iter().map(|(p, s)| ((*p).to_owned(), (*s).to_owned())).collect(),
-            Origin::Dir(dir) => {
-                let mut out = Vec::new();
-                walk(dir, dir, &mut out);
-                out.sort();
-                out
-            }
+            Origin::Dir { files, .. } => files.to_vec(),
         }
     }
 
     pub fn dir(&self) -> Option<&Path> {
         match self {
-            Origin::Dir(d) => Some(d),
+            Origin::Dir { dir, .. } => Some(dir),
             Origin::Embedded(_) => None,
         }
     }
@@ -193,6 +192,15 @@ impl Origin {
     pub fn describe(&self) -> String {
         self.dir().map_or_else(|| "Built into the app".to_owned(), |d| d.display().to_string())
     }
+}
+
+/// Plugin folder dir's files, by their path relative to it, sorted. Reads the disk: never on the
+/// app's thread.
+pub fn read_files(dir: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {

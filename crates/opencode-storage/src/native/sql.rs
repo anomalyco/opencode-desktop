@@ -101,23 +101,6 @@ pub fn put_window(conn: &Connection, id: &str, frame: Option<&WindowFrame>, now_
     .map(drop)
 }
 
-pub fn put_plugin(conn: &Connection, id: &str, enabled: Option<bool>) -> rusqlite::Result<()> {
-    match enabled {
-        Some(on) => conn.prepare_cached("INSERT INTO plugin (id, enabled) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET enabled = excluded.enabled")?.execute(params![id, on]).map(drop),
-        None => conn.prepare_cached("DELETE FROM plugin WHERE id = ?1")?.execute([id]).map(drop),
-    }
-}
-
-pub fn put_trust(conn: &Connection, id: &str, sha256: Option<&str>, now_ms: i64) -> rusqlite::Result<()> {
-    match sha256 {
-        Some(sha) => conn
-            .prepare_cached("INSERT INTO plugin_trust (id, sha256, trusted_at) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE SET sha256 = excluded.sha256, trusted_at = excluded.trusted_at")?
-            .execute(params![id, sha, now_ms])
-            .map(drop),
-        None => conn.prepare_cached("DELETE FROM plugin_trust WHERE id = ?1")?.execute([id]).map(drop),
-    }
-}
-
 const OUTBOX_COLUMNS: &str = "server, id, seq, session, state, operation_json, draft_json, prompt_json, attachment_blobs_json, paths_json, inbox, why, after_check, restored, durable, legacy_json";
 
 /// `upsert`: replace an existing row (a state change); otherwise keep it (the importer).

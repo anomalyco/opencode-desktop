@@ -33,6 +33,8 @@ pub struct BootReport {
     pub stage_a_ns: u64,
     pub boot_source: BootSource,
     pub boot_bytes: usize,
+    /// Of which the plugin values (`plugins::boot_slice`).
+    pub plugin_bytes: usize,
     pub raw_read_ns: u64,
     pub decode_ns: u64,
     /// Why the raw read didn't serve (when it didn't).
@@ -154,6 +156,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootRe
                 Some(mut p) => {
                     report.decode_ns = ns(t);
                     report.boot_source = BootSource::Raw;
+                    report.plugin_bytes = p.plugin_bytes();
                     p.source = BootSource::Raw;
                     p.read_ns = report.raw_read_ns;
                     p.decode_ns = report.decode_ns;
@@ -270,6 +273,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
         });
         report.boot_source = packet.as_ref().map_or(BootSource::Empty, |p| p.source);
         report.boot_bytes = packet.as_ref().map_or(0, BootPacket::len);
+        report.plugin_bytes = packet.as_ref().map_or(0, BootPacket::plugin_bytes);
         report.decode_ns = ns(t);
         report.stage_a_ns = ns(t0);
         send(packet.unwrap_or_default());

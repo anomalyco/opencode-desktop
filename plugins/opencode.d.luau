@@ -3498,7 +3498,7 @@ export type ProcessHandle = {
 export type StoreValue<T> = {
     --- The value, or the default.
     Get: (self: StoreValue<T>) -> T,
-    --- Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them.
+    --- Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them. Setting the value it already holds writes nothing.
     Set: (self: StoreValue<T>, value: T) -> (),
     --- Changes with every `Set`: put it in a memo's version.
     Version: (self: StoreValue<T>) -> number,
@@ -3506,13 +3506,13 @@ export type StoreValue<T> = {
     Changed: Signal<T>,
 }
 
---- A value the host saves for this plugin per session.
+--- A value the host saves for this plugin per session. Each keeps the 50 sessions used last (read or set): a 51st session's value replaces the one used longest ago.
 export type SessionStoreValue<T> = {
     --- The session's value, or the default.
     Get: (self: SessionStoreValue<T>, sessionId: string) -> T,
-    --- Saves a new value for the session. It must be plain data.
+    --- Saves a new value for the session. It must be plain data. Setting the value it already holds writes nothing.
     Set: (self: SessionStoreValue<T>, sessionId: string, value: T) -> (),
-    --- Changes with every `Set`: put it in a memo's version.
+    --- Changes with every `Set` for any session: put it in a memo's version.
     Version: (self: SessionStoreValue<T>) -> number,
     --- Fires with the session id and its new value.
     Changed: Signal<string, T>,
@@ -4810,7 +4810,7 @@ export type ProcessService = {
     RunAsync: (self: ProcessService, spec: ProcessSpec) -> ProcessOutput,
 }
 
---- Values the host saves for this plugin. Both halves and every window share one copy. Both halves: `ctx:GetService("Store")`.
+--- Values the host saves for this plugin in the app's database. Both halves and every window share one copy. Every value is in memory before the plugin's setup runs, so a read never waits and has the saved value. A `Set` changes the value at once; it reaches the disk within 250 ms, and always when a window hides or closes and when the app quits. Names starting `rune.` are the host's own. Both halves: `ctx:GetService("Store")`.
 export type StoreService = {
     --- A global value.
     Value: <T>(self: StoreService, name: string, default: T) -> StoreValue<T>,

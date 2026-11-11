@@ -41,7 +41,7 @@ pub struct Manifest {
     /// An SPDX license expression.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
-    /// Stores to load before setup, so their first read has the saved value.
+    /// The stores it uses, by name and scope. Every store of a plugin is in memory before its setup runs, declared or not; the list documents them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stores: Vec<ManifestStore>,
     /// Settings search entries found without loading the plugin.
@@ -53,7 +53,7 @@ fn default_manifest_entry() -> String {
     "init.luau".to_owned()
 }
 
-/// Stores to load before setup, so their first read has the saved value.
+/// The stores it uses, by name and scope. Every store of a plugin is in memory before its setup runs, declared or not; the list documents them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ManifestStore {

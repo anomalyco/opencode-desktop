@@ -23,6 +23,9 @@ pub struct Prepared {
     pub compile: Duration,
     /// Its message catalogs, read off the UI thread too.
     pub catalogs: super::sources::Catalogs,
+    /// The files it was compiled from, and their SHA-256 (what a trust OK is for).
+    pub files: Vec<(String, String)>,
+    pub hash: String,
 }
 
 /// What the watcher's thread saw, in order: a save, then what compiling it gave.
@@ -77,7 +80,7 @@ impl Watcher {
 /// renames), so it waits until the folder is quiet for a moment, rereads the files those events
 /// named, and compiles once, unless the files read as they did at the last compile.
 fn compile_saves(folders: &[(usize, PathBuf)], saved: &Receiver<(usize, PathBuf)>, slot: &Ready, waker: Option<&rune::Waker>) {
-    let mut files: HashMap<usize, BTreeMap<String, String>> = folders.iter().map(|(i, dir)| (*i, Origin::Dir(dir.clone()).files().into_iter().collect())).collect();
+    let mut files: HashMap<usize, BTreeMap<String, String>> = folders.iter().map(|(i, dir)| (*i, sources::read_files(dir).into_iter().collect())).collect();
     // What each folder compiled to last, so a save recompiles only the modules it changed. The
     // first compile happens here, before any save.
     let mut last: HashMap<usize, (String, Compiled)> = folders
@@ -135,7 +138,7 @@ fn compile_folder(dir: &std::path::Path, files: &[(String, String)], previous: O
         None => script.compile(),
     }
     .map_err(|e| e.message)?;
-    Ok(Prepared { sources: script, compiled, compile: start.elapsed(), catalogs: sources::catalogs(files) })
+    Ok(Prepared { sources: script, compiled, compile: start.elapsed(), catalogs: sources::catalogs(files), files: files.to_vec(), hash: sources::content_hash(files) })
 }
 
 /// Brings plugin folder `dir`'s `files` up to date with what happened to `paths`: a file read
@@ -143,7 +146,7 @@ fn compile_folder(dir: &std::path::Path, files: &[(String, String)], previous: O
 fn reread(dir: &std::path::Path, files: &mut BTreeMap<String, String>, paths: &[&PathBuf]) {
     for path in paths {
         if path.is_dir() || *path == dir {
-            *files = Origin::Dir(dir.to_owned()).files().into_iter().collect();
+            *files = sources::read_files(dir).into_iter().collect();
             return;
         }
         let Some(rel) = sources::relative(dir, path).filter(|r| sources::kept(r)) else { continue };
@@ -154,12 +157,13 @@ fn reread(dir: &std::path::Path, files: &mut BTreeMap<String, String>, paths: &[
     }
 }
 
-/// Reads plugin `m`'s files from `origin` and compiles its window half.
+/// Reads plugin `m`'s files again (a folder's from the disk: call it off the app's thread) and
+/// compiles its window half.
 pub fn prepare(origin: &Origin, m: &opencode_plugin_spec::Manifest) -> Result<Prepared, String> {
     let start = Instant::now();
-    let files = origin.files();
+    let files = origin.dir().map_or_else(|| origin.files(), sources::read_files);
     let folder = origin.dir().and_then(|d| d.file_name()).map_or_else(|| m.id.clone(), |n| n.to_string_lossy().into_owned());
     let sources = sources::script_sources(&files, &folder, &m.entry);
     let compiled = sources.compile().map_err(|e| e.message)?;
-    Ok(Prepared { sources, compiled, compile: start.elapsed(), catalogs: sources::catalogs(&files) })
+    Ok(Prepared { sources, compiled, compile: start.elapsed(), catalogs: sources::catalogs(&files), hash: sources::content_hash(&files), files })
 }

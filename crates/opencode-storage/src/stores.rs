@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::cache::{Doc, Lookup};
-use crate::{Cmd, Done, Loaded, Storage, WindowFrame};
+use crate::{Cmd, Loaded, Storage, WindowFrame};
 
 /// Namespaced key-value state (`state(name, key, value)`), as Desktop's `platform.storage(name)`.
 /// Values are JSON text.
@@ -77,7 +77,7 @@ impl StateStore<'_> {
 
     /// Whether `name` is in memory in full.
     pub fn is_loaded(&self, name: &str) -> bool {
-        self.storage.cache().items(name).is_some()
+        self.storage.cache().is_loaded(name)
     }
 
     /// Loads lazy namespaces on the storage thread; `done` runs there once they're in memory.
@@ -214,56 +214,6 @@ impl WindowStore<'_> {
         for key in drafts {
             self.storage.documents().set(&key, None);
         }
-    }
-}
-
-/// GUI plugin enable overrides (`plugin`) and third-party library trust (`plugin_trust`), both
-/// Tier 0; each plugin's own values live in `state` under [`crate::plugin_namespace`].
-pub struct PluginStore<'a> {
-    pub(crate) storage: &'a Storage,
-}
-
-impl PluginStore<'_> {
-    /// The override for plugin `id`; none when it never changed (built-ins are on).
-    pub fn enabled(&self, id: &str) -> Option<bool> {
-        self.storage.cache().plugins.get(id).copied()
-    }
-
-    pub fn disabled(&self) -> Vec<String> {
-        self.storage.cache().plugins.iter().filter(|(_, on)| !**on).map(|(id, _)| id.clone()).collect()
-    }
-
-    /// Sets (`Some`) or clears the override; `done` runs once it's durable.
-    pub fn set_enabled(&self, id: &str, enabled: Option<bool>, done: Option<Done>) {
-        {
-            let mut cache = self.storage.cache();
-            match enabled {
-                Some(on) => cache.plugins.insert(id.to_owned(), on),
-                None => cache.plugins.remove(id),
-            };
-        }
-        self.storage.send(Cmd::Plugin { id: id.to_owned(), enabled, done });
-    }
-
-    /// The SHA-256 the user trusted for plugin `id`'s library.
-    pub fn trusted(&self, id: &str) -> Option<String> {
-        self.storage.cache().trust.get(id).cloned()
-    }
-
-    pub fn trusted_all(&self) -> Vec<(String, String)> {
-        self.storage.cache().trust.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-    }
-
-    /// Trusts (`Some(sha256)`) or forgets plugin `id`'s library; `done` runs once it's durable.
-    pub fn set_trusted(&self, id: &str, sha256: Option<String>, done: Option<Done>) {
-        {
-            let mut cache = self.storage.cache();
-            match &sha256 {
-                Some(sha) => cache.trust.insert(id.to_owned(), sha.clone()),
-                None => cache.trust.remove(id),
-            };
-        }
-        self.storage.send(Cmd::Trust { id: id.to_owned(), sha256, done });
     }
 }
 

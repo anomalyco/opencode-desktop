@@ -112,7 +112,7 @@
           }
         }
       },
-      "description": "Stores to load before setup, so their first read has the saved value."
+      "description": "The stores it uses, by name and scope. Every store of a plugin is in memory before its setup runs, declared or not; the list documents them."
     },
     "settings_search": {
       "type": "array",

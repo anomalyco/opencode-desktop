@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
-use opencode_storage::{AppStorage, BootPacket, FlushReason, ImportGroup, Lookup, Opening, Storage, StorageConfig, WindowFrame};
+use opencode_storage::{AppStorage, BootPacket, FlushReason, ImportGroup, Lookup, Opening, PluginRecord, Storage, StorageConfig, WindowFrame};
 use rune::Waker;
 use serde_json::Value;
 
@@ -28,6 +28,10 @@ enum Phase {
     Booted { boot: Arc<BootPacket>, opening: Opening, queued: Queued },
     /// The first window presented: a helper thread waits for stage B.
     Joining { boot: Arc<BootPacket>, queued: Queued },
+    /// Stage B was done when a read the boot packet couldn't answer needed it, before the first
+    /// frame: everything reads from it, and what waits for the first frame (the import's file
+    /// moves, the seed) still waits.
+    Early(Storage),
     Ready(Storage),
 }
 
@@ -37,9 +41,18 @@ enum Effect {
     Join(Opening),
     /// Wait for stage B here (the app quits before it was joined).
     JoinNow(Opening),
-    /// Hand the writes made while booting to the storage, tell it the first frame is up, wake
-    /// every window; with why the database didn't open, when it didn't.
-    Adopt(Storage, Queued, Option<String>),
+    /// Hand the writes made while booting to the storage; with why the database didn't open, when
+    /// it didn't. Once the first frame is up ([`Frame::Presented`]), tell the storage and wake every
+    /// window.
+    Adopt(Storage, Queued, Option<String>, Frame),
+    /// The first frame is up after an early adoption: tell the storage, wake every window.
+    Presented(Storage),
+}
+
+/// Whether the first frame was presented when the storage was adopted.
+enum Frame {
+    Presented,
+    Pending,
 }
 
 enum Event {
@@ -50,6 +63,8 @@ enum Event {
     Joined(Storage, Option<String>),
     /// The app quits: stage B is needed now.
     Quit,
+    /// A read the boot packet can't answer: adopt stage B if it's done (never wait for it here).
+    Need,
 }
 
 /// The developer tools' own namespace (the storybook's folds and widths), in the boot packet.
@@ -61,6 +76,8 @@ static READY: Condvar = Condvar::new();
 static DEGRADED: Mutex<Option<String>> = Mutex::new(None);
 /// Each window's waker, woken once the storage is ready.
 static WAKERS: Mutex<Vec<Waker>> = Mutex::new(Vec::new());
+/// The boot packet's size and, of it, the plugin values', for the launch trace.
+static BOOT_BYTES: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
 
 fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
     match (phase, event) {
@@ -68,11 +85,16 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
         (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default() }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
-            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, report.error))),
+            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Presented))),
             None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
         },
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
-        (Phase::Joining { queued, .. }, Event::Joined(storage, error)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, error))),
+        (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
+            Some((storage, report)) => (Phase::Early(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Pending))),
+            None => (Phase::Booted { boot, opening, queued }, None),
+        },
+        (Phase::Joining { queued, .. }, Event::Joined(storage, error)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, error, Frame::Presented))),
+        (Phase::Early(storage), Event::Presented) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
         (phase, _) => (phase, None),
     }
 }
@@ -134,8 +156,11 @@ fn send(event: Event) {
         let Some(phase) = guard.take() else { return };
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
-        if let Some(Effect::Adopt(_, _, error)) = &mut effect {
+        if let Some(Effect::Adopt(_, _, error, _)) = &mut effect {
             *DEGRADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error.take();
+        }
+        if let Phase::Booted { boot, .. } = &next {
+            BOOT_BYTES.get_or_init(|| (boot.len(), boot.plugin_bytes()));
         }
         *guard = Some(next);
         effect
@@ -148,10 +173,16 @@ fn send(event: Event) {
             }
         }
         Some(Effect::JoinNow(opening)) => joined(opening),
-        Some(Effect::Adopt(storage, queued, _)) => {
+        Some(Effect::Adopt(storage, queued, _, frame)) => {
             queued.apply(&storage);
-            storage.first_frame_presented(Some(Box::new(wake_all)));
             READY.notify_all();
+            if matches!(frame, Frame::Presented) {
+                storage.first_frame_presented(Some(Box::new(wake_all)));
+                wake_all();
+            }
+        }
+        Some(Effect::Presented(storage)) => {
+            storage.first_frame_presented(Some(Box::new(wake_all)));
             wake_all();
         }
         None => {}
@@ -192,9 +223,8 @@ fn config() -> Option<StorageConfig> {
     }
     let mut sidecar = vec![opencode_kit::client::DEFAULT_SERVER.to_owned()];
     sidecar.extend(crate::arg("--server"));
-    // The groups whose files the app has cut over (the crate's staged import): the plugin host still
-    // reads its own until its package moves them.
-    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser], clock: crate::wall_ms }).map(crate::glyph_masks::early)
+    // Every group of legacy files is cut over: the app reads and writes none of them.
+    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: ImportGroup::ALL.to_vec(), clock: crate::wall_ms }).map(crate::glyph_masks::early)
 }
 
 /// The first window presented its first frame: stage B is joined off the UI thread.
@@ -219,7 +249,7 @@ pub fn on_disk() -> bool {
 
 /// Whether every stored value is in memory (stage B joined, or a run in memory).
 pub fn is_ready() -> bool {
-    matches!(&*lock(), Some(Phase::Ready(_) | Phase::Memory(_)) | None)
+    matches!(&*lock(), Some(Phase::Ready(_) | Phase::Early(_) | Phase::Memory(_)) | None)
 }
 
 /// Runs `f` with the storage when it's ready; otherwise with the boot packet and the queue.
@@ -231,7 +261,7 @@ fn with<R>(ready: impl FnOnce(&Storage) -> R, booting: impl FnOnce(&BootPacket, 
         guard = lock();
     }
     match &mut *guard {
-        Some(Phase::Ready(s) | Phase::Memory(s)) => {
+        Some(Phase::Ready(s) | Phase::Early(s) | Phase::Memory(s)) => {
             let s = s.clone();
             drop(guard);
             ready(&s)
@@ -376,6 +406,76 @@ pub fn items(name: &str) -> Option<Vec<(String, Arc<str>)>> {
     with(|s| s.state().items(name), |_, _| None)
 }
 
+/// Whether this run keeps its state in memory by design (headless, fixtures): everything is there.
+pub fn in_memory() -> bool {
+    matches!(&*lock(), Some(Phase::Memory(_)) | None)
+}
+
+/// Whether every row of namespace `name` is in memory (never before stage B).
+pub fn is_loaded(name: &str) -> bool {
+    with(|s| s.state().is_loaded(name), |_, _| false)
+}
+
+/// A plugin's value (a `plugin.<id>` row): from memory, or before stage B from the boot packet;
+/// `Pending` when neither has it yet (a namespace not loaded, a value too large for the record).
+pub fn plugin_value(name: &str, key: &str) -> Lookup {
+    with(
+        |s| s.state().get(name, key),
+        |boot, queued| match queued.state(name, key) {
+            Some(v) => Lookup::Ready(v),
+            None => boot.plugin_value(name, key),
+        },
+    )
+}
+
+/// A read the boot packet can't answer wants stage B: adopted now if the open has finished,
+/// never waited for. Whether the storage is in memory now.
+pub fn need() -> bool {
+    if !is_ready() {
+        send(Event::TakeBoot);
+        send(Event::Need);
+    }
+    is_ready()
+}
+
+/// The boot packet, while the first frames are built from it.
+pub fn boot_packet() -> Option<Arc<BootPacket>> {
+    match &*lock() {
+        Some(Phase::Booted { boot, .. } | Phase::Joining { boot, .. }) => Some(boot.clone()),
+        _ => None,
+    }
+}
+
+/// The boot packet's bytes and, of them, the plugin values'.
+pub fn boot_bytes() -> Option<(usize, usize)> {
+    BOOT_BYTES.get().copied()
+}
+
+/// Every plugin's enabled override and trusted files: from memory, or the boot packet when it
+/// knows them; none until stage B when it doesn't (the plugin files weren't imported yet).
+pub fn plugin_records() -> Option<(BTreeMap<String, bool>, BTreeMap<String, String>)> {
+    with(
+        |s| Some((s.plugins().overrides().into_iter().collect(), s.plugins().trusted_all().into_iter().collect())),
+        |boot, _| boot.plugins_covered().then(|| (boot.plugins().map(|(id, on)| (id.to_owned(), on)).collect(), boot.trusted().map(|(id, sha)| (id.to_owned(), sha.to_owned())).collect())),
+    )
+}
+
+/// Writes plugin `id`'s enabled override and trust in one durable commit; `done` runs on the
+/// storage thread once it is (or with why not).
+pub fn plugin_record(id: &str, record: PluginRecord, done: opencode_storage::Done) {
+    let id = id.to_owned();
+    with_storage(move |s| s.plugins().record(&id, record, Some(done)));
+}
+
+/// Loads `names` (lazy namespaces: plugin stores) into memory on the storage thread; `done` runs
+/// there once they're in (at once when they are).
+pub fn load_state(names: Vec<String>, done: Box<dyn FnOnce() + Send>) {
+    with_storage(move |s| {
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        s.state().load(&names, Some(done));
+    });
+}
+
 /// Runs `f` with the storage: now when it's ready, else once it is, after the writes made
 /// meanwhile and in the order asked. For the stores that live only in the database (the
 /// outbox's rows), never read before the first frame.
@@ -439,7 +539,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
         }
     }
     let storage = match &*lock() {
-        Some(Phase::Ready(s)) => s.clone(),
+        Some(Phase::Ready(s) | Phase::Early(s)) => s.clone(),
         _ => return,
     };
     let deadline = if wait { Duration::from_secs(2) } else { Duration::ZERO };
@@ -452,7 +552,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 pub fn close() {
     flush(FlushReason::Quit, true);
     let storage = match &*lock() {
-        Some(Phase::Ready(s)) => s.clone(),
+        Some(Phase::Ready(s) | Phase::Early(s)) => s.clone(),
         _ => return,
     };
     storage.close();

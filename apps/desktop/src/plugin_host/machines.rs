@@ -23,7 +23,11 @@ use super::hot::Prepared;
 ///             └─ Load ─────────────────────────────┴▶ Loading ─ Started ──▶ Running ⇄ Reloading
 ///                                                       └─ StartFailed ▶ Errored ─ Load ▶ Loading
 /// Running / Reloading / Errored ─ Disable ▶ Disabled
+/// Running / Reloading / Errored ─ NeedTrust ▶ AwaitingTrust (its files changed)
 /// ```
+///
+/// `Loading` also covers the wait for the plugin's stored values: its scripts start once they're
+/// in memory.
 pub enum Life {
     Discovered,
     /// Its manifest, platform or id keeps it from loading.
@@ -68,6 +72,8 @@ impl Life {
         match (self, event) {
             (L::Discovered, E::Refuse(why)) => (L::Refused(why), vec![]),
             (L::Discovered | L::Disabled, E::NeedTrust) => (L::AwaitingTrust, vec![]),
+            // Its files changed under it: it stops until the user OKs the new ones.
+            (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::NeedTrust) => (L::AwaitingTrust, vec![F::Stop(s)]),
             (L::Discovered | L::AwaitingTrust, E::Disable) => (L::Disabled, vec![]),
             (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::Disable) => (L::Disabled, vec![F::Stop(s)]),
             (L::Discovered | L::AwaitingTrust | L::Disabled, E::Load) => (L::Loading, vec![F::Start]),
@@ -120,12 +126,17 @@ impl Life {
 
 // ---- Trust -----------------------------------------------------------------------------------
 
-/// What the user said about a plugin's files, as their SHA-256 (`hash`) names them. Built-ins
-/// and `--plugin-dir` plugins never ask; a third-party plugin asks once, and again when its files
-/// change.
+/// What the user said about a plugin's files, as their SHA-256 (`hash`) names them, and whether
+/// that answer is durable. Built-ins and `--plugin-dir` plugins never ask; a third-party plugin
+/// asks once, and again when its files change. The OK is a Tier 0 record (`plugin_trust`): the
+/// plugin runs only once it's on disk, so a crash can't lose an answer the plugin ran under, and
+/// it's for those bytes only (a reload that reads other bytes asks again).
 ///
 /// ```text
-/// Unknown ─ Accept ▶ Granted        Unknown ─ Later ▶ Deferred ─ Ask ▶ Unknown
+/// Unknown ─ Accept ▶ Granting ─ Saved(Ok) ▶ Granted
+///                             └ Saved(Err) ▶ GrantedThisRun     Unknown ─ Later ▶ Deferred ─ Ask ▶ Unknown
+/// Granting / Granted / GrantedThisRun ─ Revoke ▶ Unknown (forgotten: turned off)
+/// any but NotNeeded ─ FilesChanged(h) ▶ Unknown(h)
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trust {
@@ -134,7 +145,12 @@ pub enum Trust {
     Unknown { hash: String },
     /// "Not now": no prompt again this launch unless the user turns it on.
     Deferred { hash: String },
+    /// The user said yes; the record is being made durable and the plugin waits for it.
+    Granting { hash: String },
+    /// The user said yes, and the record is on disk.
     Granted { hash: String },
+    /// The user said yes but the record couldn't be saved: it runs this launch and asks again next.
+    GrantedThisRun { hash: String },
 }
 
 pub enum TrustEvent {
@@ -142,13 +158,23 @@ pub enum TrustEvent {
     Later,
     /// The user turned it on again: ask once more.
     Ask,
+    /// The grant's record landed (or couldn't).
+    Saved(Result<(), String>),
+    /// The user turned it off: the OK is forgotten with it.
+    Revoke,
+    /// Its files were read again and hash to this: an OK for other bytes doesn't hold.
+    FilesChanged(String),
 }
 
 pub enum TrustEffect {
-    /// Save `hash` as trusted for the plugin.
-    Remember(String),
+    /// Write `hash` as trusted for the plugin (and it on) in one durable record; answer `Saved`.
+    Save(String),
+    /// Write the plugin's record without its trust.
+    Forget,
     /// Load the plugin ([`LifeEvent::Load`]).
     Load,
+    /// Write a line to the console.
+    Report(String),
 }
 
 impl Trust {
@@ -162,17 +188,27 @@ impl Trust {
     }
 
     pub fn step(self, event: TrustEvent) -> (Trust, Vec<TrustEffect>) {
+        use Trust as T;
+        use TrustEffect as F;
+        use TrustEvent as E;
         match (self, event) {
-            (Trust::Unknown { hash } | Trust::Deferred { hash }, TrustEvent::Accept) => (Trust::Granted { hash: hash.clone() }, vec![TrustEffect::Remember(hash), TrustEffect::Load]),
-            (Trust::Unknown { hash }, TrustEvent::Later) => (Trust::Deferred { hash }, vec![]),
-            (Trust::Deferred { hash }, TrustEvent::Ask) => (Trust::Unknown { hash }, vec![]),
+            (T::Unknown { hash } | T::Deferred { hash }, E::Accept) => (T::Granting { hash: hash.clone() }, vec![F::Save(hash)]),
+            (T::Granting { hash }, E::Saved(Ok(()))) => (T::Granted { hash }, vec![F::Load]),
+            (T::Granting { hash }, E::Saved(Err(e))) => (T::GrantedThisRun { hash }, vec![F::Load, F::Report(format!("Couldn't save that you enabled this plugin ({e}); it runs now and asks again next launch"))]),
+            (T::Unknown { hash }, E::Later) => (T::Deferred { hash }, vec![]),
+            (T::Deferred { hash }, E::Ask) => (T::Unknown { hash }, vec![]),
+            (T::Granting { hash } | T::Granted { hash } | T::GrantedThisRun { hash }, E::Revoke) => (T::Unknown { hash }, vec![F::Forget]),
+            (T::NotNeeded, E::FilesChanged(_)) => (T::NotNeeded, vec![]),
+            (T::Granted { hash: old }, E::FilesChanged(hash)) if old == hash => (T::Granted { hash }, vec![]),
+            (T::GrantedThisRun { hash: old }, E::FilesChanged(hash)) if old == hash => (T::GrantedThisRun { hash }, vec![]),
+            (_, E::FilesChanged(hash)) => (T::Unknown { hash }, vec![]),
             (state, _) => (state, vec![]),
         }
     }
 
     /// Whether the plugin may run.
     pub fn allows(&self) -> bool {
-        matches!(self, Trust::NotNeeded | Trust::Granted { .. })
+        matches!(self, Trust::NotNeeded | Trust::Granted { .. } | Trust::GrantedThisRun { .. })
     }
 }
 

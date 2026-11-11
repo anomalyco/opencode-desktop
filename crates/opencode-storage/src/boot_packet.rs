@@ -26,14 +26,22 @@ pub enum Kind {
     Plugin = 4,
     Trust = 5,
     Preview = 6,
+    /// A plugin value the first frame may read (`plugins::boot_slice`).
+    PluginValue = 7,
+    /// A plugin value too large for the record: only the database has it.
+    Omitted = 8,
+    /// The record answers for the plugins (their files were imported).
+    Covered = 9,
+    /// A session a window shows: its plugin values are in the record.
+    Shown = 10,
 }
 
 #[derive(Clone, Debug)]
-struct Entry {
+pub(crate) struct Entry {
     kind: u8,
-    a: Range<usize>,
-    b: Range<usize>,
-    value: Range<usize>,
+    pub(crate) a: Range<usize>,
+    pub(crate) b: Range<usize>,
+    pub(crate) value: Range<usize>,
 }
 
 /// What stage A hands the UI thread: the record's bytes and an index into them. Lookups borrow;
@@ -91,11 +99,11 @@ impl BootPacket {
         self.entries.is_empty()
     }
 
-    fn str_of(&self, r: &Range<usize>) -> &str {
+    pub(crate) fn str_of(&self, r: &Range<usize>) -> &str {
         std::str::from_utf8(&self.bytes[r.clone()]).unwrap_or_default()
     }
 
-    fn of(&self, kind: Kind) -> impl Iterator<Item = &Entry> {
+    pub(crate) fn of(&self, kind: Kind) -> impl Iterator<Item = &Entry> {
         self.entries.iter().filter(move |e| e.kind == kind as u8)
     }
 
@@ -165,6 +173,11 @@ impl BootPacket {
         }
         for (id, sha) in self.trusted() {
             cache.trust.entry(id.to_owned()).or_insert_with(|| sha.to_owned());
+        }
+        for (name, key, value) in self.plugin_values() {
+            if matches!(cache.get(name, key), crate::Lookup::Ready(None)) {
+                cache.set(name, key.to_owned(), Some(value.into()));
+            }
         }
     }
     pub fn len(&self) -> usize {
@@ -237,6 +250,7 @@ impl Writer {
 /// what the user had.
 pub(crate) fn from_cache(cache: &crate::cache::Cache) -> BootPacket {
     let mut w = Writer { buf: vec![0u8; HEAD], count: 0 };
+    let mut shown: Vec<String> = Vec::new();
     for (name, ns) in &cache.state {
         let crate::cache::Namespace::Loaded { rows, .. } = ns else { continue };
         if !crate::is_boot_namespace(name) {
@@ -247,8 +261,13 @@ pub(crate) fn from_cache(cache: &crate::cache::Cache) -> BootPacket {
                 continue;
             }
             w.push(Kind::State, name, key, value.as_bytes());
-            if key == "tabs.recent"
-                && let Some(tab) = serde_json::from_str::<serde_json::Value>(value).ok().and_then(|v| v["key"].as_str().map(str::to_owned))
+            let tab = (key == "tabs.recent").then(|| serde_json::from_str::<serde_json::Value>(value).ok().and_then(|v| v["key"].as_str().map(str::to_owned))).flatten();
+            if let Some(tab) = &tab
+                && let Some((_, session)) = session_of(tab)
+            {
+                shown.push(session.to_owned());
+            }
+            if let Some(tab) = tab
                 && let Some(crate::cache::Doc::Present(text)) = cache.docs.get(&format!("{name}:draft:{tab}"))
                 && text.len() <= DOC_CAP
             {
@@ -256,6 +275,14 @@ pub(crate) fn from_cache(cache: &crate::cache::Cache) -> BootPacket {
             }
         }
     }
+    // Memory holds every namespace it knows whole: the plugin values it has are all there are.
+    let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
+    let rows = cache.state.iter().filter_map(|(name, ns)| match ns {
+        crate::cache::Namespace::Loaded { rows, .. } => Some(rows.iter().map(move |(k, v)| (name.as_str(), k.as_str(), &**v))),
+        crate::cache::Namespace::Unloaded { .. } => None,
+    });
+    let rows: Vec<(&str, &str, &str)> = rows.flatten().filter(|(n, k, _)| crate::plugins::wanted(n, k, &shown)).collect();
+    crate::plugins::boot_slice(&mut w, cache.complete, &shown, rows.into_iter());
     for (id, f) in &cache.windows {
         w.push(Kind::Window, id, "", &encode_frame(f));
     }

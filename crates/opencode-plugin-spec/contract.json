@@ -952,14 +952,14 @@
     ] },
     { "name": "StoreValue", "kind": "object", "generics": "T", "doc": "A value the host saves for this plugin with the app's state.", "members": [
       { "name": "Get", "kind": "method", "sig": "() -> T", "doc": "The value, or the default." },
-      { "name": "Set", "kind": "method", "sig": "(value: T) -> ()", "doc": "Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them." },
+      { "name": "Set", "kind": "method", "sig": "(value: T) -> ()", "doc": "Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them. Setting the value it already holds writes nothing." },
       { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes with every `Set`: put it in a memo's version." },
       { "name": "Changed", "kind": "signal", "payload": "T", "doc": "Fires with the new value, also when another window sets it." }
     ] },
-    { "name": "SessionStoreValue", "kind": "object", "generics": "T", "doc": "A value the host saves for this plugin per session.", "members": [
+    { "name": "SessionStoreValue", "kind": "object", "generics": "T", "doc": "A value the host saves for this plugin per session. Each keeps the 50 sessions used last (read or set): a 51st session's value replaces the one used longest ago.", "members": [
       { "name": "Get", "kind": "method", "sig": "(sessionId: string) -> T", "doc": "The session's value, or the default." },
-      { "name": "Set", "kind": "method", "sig": "(sessionId: string, value: T) -> ()", "doc": "Saves a new value for the session. It must be plain data." },
-      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes with every `Set`: put it in a memo's version." },
+      { "name": "Set", "kind": "method", "sig": "(sessionId: string, value: T) -> ()", "doc": "Saves a new value for the session. It must be plain data. Setting the value it already holds writes nothing." },
+      { "name": "Version", "kind": "method", "sig": "() -> number", "doc": "Changes with every `Set` for any session: put it in a memo's version." },
       { "name": "Changed", "kind": "signal", "payload": "string, T", "doc": "Fires with the session id and its new value." }
     ] },
     { "name": "ToastAction", "kind": "record", "rust": true, "doc": "A button on a toast.", "fields": [
@@ -1641,7 +1641,7 @@
       { "name": "Spawn", "kind": "method", "sig": "(spec: ProcessSpec) -> ProcessHandle", "doc": "Starts a process. A program that cannot start still returns a handle, whose `Exited` fires with the error." },
       { "name": "RunAsync", "kind": "method", "sig": "(spec: ProcessSpec) -> ProcessOutput", "yields": true, "doc": "Starts a process and yields until it exits, with all its output." }
     ] },
-    { "name": "Store", "halves": ["window", "app"], "doc": "Values the host saves for this plugin. Both halves and every window share one copy.", "members": [
+    { "name": "Store", "halves": ["window", "app"], "doc": "Values the host saves for this plugin in the app's database. Both halves and every window share one copy. Every value is in memory before the plugin's setup runs, so a read never waits and has the saved value. A `Set` changes the value at once; it reaches the disk within 250 ms, and always when a window hides or closes and when the app quits. Names starting `rune.` are the host's own.", "members": [
       { "name": "Value", "kind": "method", "generics": "T", "sig": "(name: string, default: T) -> StoreValue<T>", "doc": "A global value." },
       { "name": "SessionValue", "kind": "method", "generics": "T", "sig": "(name: string, default: T) -> SessionStoreValue<T>", "doc": "A value per session, kept apart for each server." }
     ] },
@@ -1906,7 +1906,7 @@
       { "name": "authors", "type": "string[]", "doc": "Its authors." },
       { "name": "homepage", "type": "string", "format": "uri", "doc": "Its homepage." },
       { "name": "license", "type": "string", "doc": "An SPDX license expression." },
-      { "name": "stores", "type": "table[]", "doc": "Stores to load before setup, so their first read has the saved value.", "fields": [
+      { "name": "stores", "type": "table[]", "doc": "The stores it uses, by name and scope. Every store of a plugin is in memory before its setup runs, declared or not; the list documents them.", "fields": [
         { "name": "name", "type": "string", "required": true, "doc": "The name passed to `Store:Value` or `Store:SessionValue`." },
         { "name": "scope", "type": "enum", "enum": "StoreScope", "default": "global", "doc": "One value for the app, or one per session." }
       ] },

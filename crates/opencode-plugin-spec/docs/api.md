@@ -201,7 +201,7 @@ Child processes the host supervises. Halves: window, app.
 
 ### Store
 
-Values the host saves for this plugin. Both halves and every window share one copy. Halves: window, app.
+Values the host saves for this plugin in the app's database. Both halves and every window share one copy. Every value is in memory before the plugin's setup runs, so a read never waits and has the saved value. A `Set` changes the value at once; it reaches the disk within 250 ms, and always when a window hides or closes and when the app quits. Names starting `rune.` are the host's own. Halves: window, app.
 
 | Member | Type | Description |
 |---|---|---|
@@ -2272,19 +2272,19 @@ A value the host saves for this plugin with the app's state. Written `StoreValue
 | Member | Type | Description |
 |---|---|---|
 | `:Get` | `() -> T` | The value, or the default. |
-| `:Set` | `(value: T) -> ()` | Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them. |
+| `:Set` | `(value: T) -> ()` | Saves a new value. It must be plain data: nil, booleans, numbers, strings and tables of them. Setting the value it already holds writes nothing. |
 | `:Version` | `() -> number` | Changes with every `Set`: put it in a memo's version. |
 | `.Changed` | `Signal<T>` | Fires with the new value, also when another window sets it. |
 
 ### SessionStoreValue
 
-A value the host saves for this plugin per session. Written `SessionStoreValue<T>`.
+A value the host saves for this plugin per session. Each keeps the 50 sessions used last (read or set): a 51st session's value replaces the one used longest ago. Written `SessionStoreValue<T>`.
 
 | Member | Type | Description |
 |---|---|---|
 | `:Get` | `(sessionId: string) -> T` | The session's value, or the default. |
-| `:Set` | `(sessionId: string, value: T) -> ()` | Saves a new value for the session. It must be plain data. |
-| `:Version` | `() -> number` | Changes with every `Set`: put it in a memo's version. |
+| `:Set` | `(sessionId: string, value: T) -> ()` | Saves a new value for the session. It must be plain data. Setting the value it already holds writes nothing. |
+| `:Version` | `() -> number` | Changes with every `Set` for any session: put it in a memo's version. |
 | `.Changed` | `Signal<string, T>` | Fires with the session id and its new value. |
 
 ### ToastAction
@@ -3344,7 +3344,7 @@ plugin.toml: a plugin folder's manifest. Editors validate it with `plugins/plugi
 | `authors` | `string[]` | no | Its authors. |
 | `homepage` | `string` | no | Its homepage. |
 | `license` | `string` | no | An SPDX license expression. |
-| `stores` | `table[]` | no | Stores to load before setup, so their first read has the saved value. |
+| `stores` | `table[]` | no | The stores it uses, by name and scope. Every store of a plugin is in memory before its setup runs, declared or not; the list documents them. |
 | `stores.name` | `string` | yes | The name passed to `Store:Value` or `Store:SessionValue`. |
 | `stores.scope` | [`StoreScope`](#storescope) | no | One value for the app, or one per session. Defaults to `"global"`. |
 | `settings_search` | `table[]` | no | Settings search entries found without loading the plugin. |

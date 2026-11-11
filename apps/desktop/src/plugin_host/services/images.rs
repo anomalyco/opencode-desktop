@@ -115,7 +115,7 @@ fn plugin_file(origin: Origin, path: &str) -> Option<Source> {
         return None;
     }
     match origin {
-        Origin::Dir(dir) => Some(Source::File(dir.join(path))),
+        Origin::Dir { dir, .. } => Some(Source::File(dir.join(path))),
         Origin::Embedded(files) => files.iter().find(|(name, _)| name.replace('\\', "/") == path).map(|(_, text)| Source::Embedded(text)),
     }
 }

@@ -139,7 +139,7 @@ string_enum! {
         Http = "Http",
         /// Child processes the host supervises.
         Process = "Process",
-        /// Values the host saves for this plugin. Both halves and every window share one copy.
+        /// Values the host saves for this plugin in the app's database. Both halves and every window share one copy. Every value is in memory before the plugin's setup runs, so a read never waits and has the saved value. A `Set` changes the value at once; it reaches the disk within 250 ms, and always when a window hides or closes and when the app quits. Names starting `rune.` are the host's own.
         Store = "Store",
         /// Typed values plugins share. A plugin may provide only ids under its own id.
         Contracts = "Contracts",

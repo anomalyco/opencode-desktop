@@ -14,8 +14,9 @@ use crate::plugin_host::plugin::Kind;
 use crate::plugin_host::{console, vm::Vmx};
 
 thread_local! {
-    /// Each store value's version, by `(plugin, key)`: what memos and `Changed` follow.
-    static VERSIONS: RefCell<HashMap<(String, String), u64>> = RefCell::default();
+    /// Each store value's version, by plugin then key: what memos and `Changed` follow. A session
+    /// value's write also moves its store's (the bare name's), which `Version` and `Changed` read.
+    static VERSIONS: RefCell<HashMap<String, HashMap<String, u64>>> = RefCell::default();
     static CONTRACTS: RefCell<HashMap<String, Provided>> = RefCell::default();
 }
 
@@ -78,12 +79,27 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
 
 /// The version of store `key` of `plugin`.
 pub fn store_version(plugin: &str, key: &str) -> u64 {
-    VERSIONS.with_borrow(|v| v.get(&(plugin.to_owned(), key.to_owned())).copied().unwrap_or(0))
+    VERSIONS.with_borrow(|v| v.get(plugin).and_then(|keys| keys.get(key)).copied().unwrap_or(0))
 }
 
-/// Notes that store `key` of `plugin` changed.
+/// Notes that store `key` of `plugin` changed (for a session's value, its store too).
 pub fn store_changed(plugin: &str, key: &str) {
-    VERSIONS.with_borrow_mut(|v| *v.entry((plugin.to_owned(), key.to_owned())).or_default() += 1);
+    VERSIONS.with_borrow_mut(|v| {
+        if !v.contains_key(plugin) {
+            v.insert(plugin.to_owned(), HashMap::new());
+        }
+        let Some(keys) = v.get_mut(plugin) else { return };
+        let mut up = |k: &str| match keys.get_mut(k) {
+            Some(n) => *n += 1,
+            None => {
+                keys.insert(k.to_owned(), 1);
+            }
+        };
+        up(key);
+        if let Some((name, _)) = key.split_once('@') {
+            up(name);
+        }
+    });
     crate::plugin_host::bump();
 }
 
@@ -96,17 +112,18 @@ fn store(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 }
 
 fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bool) -> mlua::Result<Table> {
+    use crate::plugin_host::stores;
     let plugin = vmx.half.id.clone();
     let default = Data::from_lua(default, lua)?;
     let o = lua.create_table()?;
+    let name: Rc<str> = name.into();
+    let ns: Rc<str> = opencode_storage::plugin_namespace(&plugin).into();
     let read = {
-        let (plugin, name, default) = (plugin.clone(), name.clone(), default.clone());
+        let (plugin, ns, name, default) = (plugin.clone(), ns.clone(), name.clone(), default.clone());
         // Each key's value as last parsed, by its version: a render reads it every time it runs.
-        let parsed: Rc<std::cell::RefCell<std::collections::HashMap<String, (u64, Data)>>> = Rc::default();
+        let parsed: Rc<std::cell::RefCell<HashMap<Rc<str>, (u64, Data)>>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
-            let app = app_now("Store")?;
-            let scoped = scope_session(app, session);
-            let key = crate::plugin_host::shared::key(&name, &scoped);
+            let key: Rc<str> = if per_session { stores::key(&name, &scope_session(app_now("Store")?, session)).into() } else { name.clone() };
             cx::read(Dep::Store(plugin.clone(), key.clone()));
             let version = store_version(&plugin, &key);
             if let Some((v, data)) = parsed.borrow().get(&key)
@@ -115,21 +132,25 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
                 return data.clone().into_lua(lua);
             }
             // A value saved before values were kept per server is under the bare session id.
-            let stores = &app.plugins.shared.stores;
-            let text = stores.text(&plugin, &name, &scoped).or_else(|| (scoped != session).then(|| stores.text(&plugin, &name, session)).flatten());
+            let text = stores::text(&plugin, &ns, &key).or_else(|| (per_session && *key != *stores::key(&name, session)).then(|| stores::text(&plugin, &ns, &stores::key(&name, session))).flatten());
+            if per_session && text.is_some() {
+                stores::touch(&plugin, &ns, &name, &key);
+            }
             let data = text.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).map_or_else(|| default.clone(), |j| super::json_to_data(&j));
             parsed.borrow_mut().insert(key, (version, data.clone()));
             data.into_lua(lua)
         }
     };
     let write = {
-        let (plugin, name) = (plugin.clone(), name.clone());
+        let (plugin, ns, name) = (plugin.clone(), ns.clone(), name.clone());
         move |lua: &Lua, session: &str, value: Value| -> mlua::Result<()> {
             let json = Data::from_lua(value, lua)?.to_json().to_string();
-            let app = app_now("Store")?;
-            let scoped = scope_session(app, session);
-            app.plugins.shared.stores.set(&plugin, &name, &scoped, &json);
-            store_changed(&plugin, &crate::plugin_host::shared::key(&name, &scoped));
+            let key = if per_session { stores::key(&name, &scope_session(app_now("Store")?, session)) } else { name.to_string() };
+            stores::set(&ns, &key, json);
+            if per_session {
+                stores::touch(&plugin, &ns, &name, &key);
+            }
+            store_changed(&plugin, &key);
             Ok(())
         }
     };

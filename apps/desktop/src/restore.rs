@@ -293,7 +293,6 @@ impl App {
         }
         self.window_closed();
         crate::servers::runtime::leave_all(self);
-        crate::disk::flush();
         crate::storage::flush(opencode_storage::FlushReason::Close, false);
     }
 
@@ -308,7 +307,6 @@ impl App {
             crate::terminal::persist::flush();
         }
         self.window_quitting();
-        crate::disk::flush();
         crate::windows::quit_saved(&self.window.id);
     }
     /// Swaps the composer's draft when the route moves to another: its words, pills, attachments,

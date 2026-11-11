@@ -17,6 +17,7 @@ pub mod chunk;
 pub mod machine;
 pub mod model;
 mod outbox;
+mod plugins;
 mod stores;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,7 +31,8 @@ pub use boot_packet::{BootPacket, BootSource};
 pub use cache::Lookup;
 pub use model::{FlushReason, FlushReport, ImportGroup, OutboxAttachment, OutboxRow, WindowFrame};
 pub use outbox::{OutboxBuild, OutboxEntry, OutboxPut, OutboxRead, OutboxStore, OutboxUpdate};
-pub use stores::{CacheStore, DocumentStore, PluginStore, PreviewStore, StateStore, WindowStore};
+pub use plugins::{HOST_KEY_PREFIX, PluginRecord, PluginStore};
+pub use stores::{CacheStore, DocumentStore, PreviewStore, StateStore, WindowStore};
 
 // The same names on both targets: what differs is behind the backend.
 #[cfg(not(target_arch = "wasm32"))]
@@ -88,6 +90,13 @@ pub fn is_boot_namespace(name: &str) -> bool {
     BOOT_NAMESPACES.contains(&name) || name.starts_with("opencode.window.")
 }
 
+/// Whether a change to `name`/`key` can change the boot record: a boot namespace's row, or a
+/// plugin value its plugin slice may carry (any session's: which sessions show changes too).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn in_boot_record(name: &str, key: &str) -> bool {
+    is_boot_namespace(name) || (name.starts_with("plugin.") && !key.starts_with(HOST_KEY_PREFIX))
+}
+
 /// Every boot namespace's rows, as SQL (the boot record's rebuild and stage B's read).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn boot_state_query() -> &'static str {
@@ -126,8 +135,7 @@ pub(crate) enum Cmd {
     Doc { key: String, value: Option<Arc<str>> },
     Blob { id: String, data: Arc<[u8]> },
     Window { id: String, frame: Option<WindowFrame> },
-    Plugin { id: String, enabled: Option<bool>, done: Option<Done> },
-    Trust { id: String, sha256: Option<String>, done: Option<Done> },
+    PluginRecord { id: String, record: PluginRecord, done: Option<Done> },
     Outbox { op: OutboxOp, done: Option<Done> },
     LoadState { names: Vec<String>, done: Option<Loaded> },
     LoadDocs { keys: Vec<String>, done: Option<Loaded> },
