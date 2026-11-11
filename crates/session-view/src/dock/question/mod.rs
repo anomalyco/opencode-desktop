@@ -68,8 +68,6 @@ pub struct Dock {
     pub minimized: bool,
     /// The Classic dock's last input was a key, so the highlighted answer shows its focus ring.
     keyboard: bool,
-    /// The Classic dock's answer under the pointer.
-    hover: Option<usize>,
 }
 
 impl Dock {
@@ -250,7 +248,7 @@ fn dock<'a, S: DockHost>(s: &'a mut S, f: &Form) -> &'a mut Dock {
         let focus = pick_focus(s, f, 0);
         let d = s.dock_mut();
         (d.form, d.tab, d.focus, d.step) = (f.id.clone(), 0, focus, 0);
-        (d.minimized, d.keyboard, d.hover) = (false, false, None);
+        (d.minimized, d.keyboard) = (false, false);
     }
     s.dock_mut()
 }

@@ -4,7 +4,7 @@
 //! and Seer both draw it from here; the host says what's pending and sends the replies.
 
 use opencode_kit::model::Pending;
-use rune::{Anim, Color, El, KeyEvent, SpringPair, TextStyle, Transition, Tx, row, text};
+use rune::{Anim, Color, El, KeyEvent, Shadow, SpringPair, TextStyle, Transition, Tx, row, text};
 
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -147,7 +147,14 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         .children(hint.map(|h| text(h.to_owned()).key("hint").font(BUTTON).color(fg).opacity(0.6)));
     // Disabled, as `button-v2` dims it: 0.4 for Submit and Contrast (`submit.css`), else 0.5.
     let dim = if matches!(variant, Variant::Submit | Variant::Contrast) { 0.4 } else { 0.5 };
-    b = if live { b.hover(p.hover).press(p.pressed) } else { b.opacity(dim) };
+    // Submit and Contrast lay the contrast overlays over their dark fill (`submit.css`: dark's
+    // Submit `--submit-hover` is `alpha-dark-8`; button.css's `contrast`); the rest the simple ones.
+    let (hover, pressed) = match variant {
+        Variant::Submit if p.dark => (Color::BLACK.alpha(0x14 as f32 / 255.0), p.v2.contrast_pressed),
+        Variant::Submit | Variant::Contrast => (p.v2.contrast_hover, p.v2.contrast_pressed),
+        Variant::Ghost | Variant::GhostMuted | Variant::Neutral => (p.hover, p.pressed),
+    };
+    b = if live { b.hover(hover).press(pressed) } else { b.opacity(dim) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),
@@ -156,7 +163,15 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         Variant::Submit | Variant::Contrast => {
             let lit = if variant == Variant::Submit && p.dark { 0.6 } else { 0.2 };
             let (y, blur, drop) = if p.dark { (1.0, 2.0, 0.4) } else { (1.0, 1.5, 0.2) };
-            b = b.gradient(Color::WHITE.alpha(lit), Color::WHITE.alpha(0.0)).box_shadow(Pal::ring_out(p.q.submit_ring)).shadow(y, blur, Color::BLACK.alpha(drop))
+            b = b.gradient(Color::WHITE.alpha(lit), Color::WHITE.alpha(0.0)).box_shadow(Pal::ring_out(p.q.submit_ring)).shadow(y, blur, Color::BLACK.alpha(drop));
+            // The rest of the elevation (`theme.css`): light's inner lit top and shaded bottom
+            // (`alpha-light-14`, `alpha-dark-6`), dark's lit top edge 0.5 pt up (`alpha-light-30`).
+            let inset = |y: f32, color: Color| Shadow { y, blur: 2.0, color, inset: true, ..Shadow::default() };
+            b = if p.dark {
+                b.box_shadow(Shadow { y: -0.5, color: Color::WHITE.alpha(0x4d as f32 / 255.0), ..Shadow::default() })
+            } else {
+                b.box_shadow(inset(1.0, Color::WHITE.alpha(0x24 as f32 / 255.0))).box_shadow(inset(-1.0, Color::BLACK.alpha(0x0f as f32 / 255.0)))
+            };
         }
     }
     b

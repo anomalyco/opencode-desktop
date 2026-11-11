@@ -309,7 +309,7 @@ const TUCK: f32 = 12.0;
 
 /// The queue: Desktop's tray above the composer (`queue-panel.tsx:88-158`). The tray is the
 /// page's own colour (`bg-v2-background-bg-base`) inside a 0.5 pt `border-border-base` ring with
-/// 12 pt corners, 6 pt in on the sides and top; its bottom runs 12 pt under the composer, which
+/// 10 pt corners (`rounded-xl`: the app's `--radius-xl` is 0.625rem), 6 pt in on the sides and top; its bottom runs 12 pt under the composer, which
 /// stays its own rounded card on top (`relative z-10`), so 6 pt of tray show under the last row
 /// (`pb-[18px]`), or none past four rows, where the list scrolls (`pb-3`). Empty, it closes to
 /// nothing on its height spring, clipped as it goes (`Grow`), and the composer comes down to
@@ -347,7 +347,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let mut tray = col()
         .key("queue-tray")
         .w_full()
-        .radius(12.0)
+        .radius(10.0)
         .fill(p.bg_base)
         .box_shadow(Pal::ring_in(p.border))
         .px(6.0)
@@ -452,7 +452,8 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
         .self_start()
         .shrink()
         .min_w(0.0)
-        .radius(2.0)
+        // `rounded-sm`: the app's `--radius-sm` is 0.25rem.
+        .radius(4.0)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.edit_queued(&se, &ie);
@@ -593,7 +594,9 @@ pub fn alternate_hint(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
         .child(text(word).font(UI_MED).color(p.faint))
-        .children((!labels.is_empty()).then(|| crate::keymap::view::chips(p, labels)));
+        // The keys sit in a block `span` (`hidden sm:block`) whose line box sets the inline-flex
+        // `Keybind` on its baseline, 2 pt below the button's centre (measured at a true 1x).
+        .children((!labels.is_empty()).then(|| crate::keymap::view::chips(p, labels).offset(0.0, 2.0)));
     // Only the steer has a tooltip (`inactive={delivery !== "steer"}`).
     Some(if steer { hint.help(opencode_i18n::t!("ui.promptInput.steerHint")) } else { hint })
 }

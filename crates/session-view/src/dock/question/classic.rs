@@ -9,7 +9,7 @@
 
 use std::f32::consts::PI;
 
-use rune::{Color, El, Key, KeyEvent, ScrollSpec, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Anim, Color, Curve, Easing, El, Key, KeyEvent, ScrollSpec, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
 use rune_theme_opencode::icons as ic;
 
 use super::*;
@@ -30,7 +30,7 @@ const KEY: TextStyle = TextStyle::new(10.0, 400.0).lh(11.0).tracking(0.05).featu
 fn custom_label() -> &'static str {
     opencode_i18n::t!("ui.question.custom.answerPlaceholder")
 }
-/// The footer tray's height: 0.5 pt borders, 16 pt over and 8 pt under the 32 pt buttons.
+/// The footer tray's height: 16 pt over and 8 pt under the 32 pt buttons, inside its borders.
 const TRAY_H: f32 = 57.0;
 /// How far the tray tucks up under the body (`margin-block-start: -9px`).
 const TUCK: f32 = 9.0;
@@ -93,13 +93,12 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(6.0).role(if multi { "group" } else { "radiogroup" });
         for (i, (value, label, desc)) in list.iter().enumerate() {
             let picked = picks.contains(value);
-            let card = card(p, picked, d.hover == Some(i), ring && focus == i)
+            let card = card(p, picked, ring && focus == i, d.keyboard)
                 .key(format!("q-opt-{i}"))
                 .role(if multi { "checkbox" } else { "radio" })
                 .label(label.clone())
                 .items_start()
                 .padding(10.0)
-                .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| hover(s, i, inside, tx))
                 .on_press_tx(move |s: &mut S, _: &mut Tx| {
                     let Some(f) = asking(s) else { return };
                     let (tab, _) = place(s, &f);
@@ -107,7 +106,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     let d = dock(s, &f);
                     (d.focus, d.keyboard) = (i, false);
                 })
-                .child(mark(p, multi, picked))
+                .child(mark(p, multi, picked, d.keyboard))
                 .child(
                     col()
                         .key("main")
@@ -117,7 +116,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         .child(text(label.clone()).key("label").font(LABEL).color(p.text).wrap_anywhere())
                         .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
                 )
-                .children((i < 9).then(|| shortcut(p, i + 1, picked)));
+                .children((i < 9).then(|| shortcut(p, i + 1, picked, d.keyboard)));
             answers = answers.child(card);
         }
         if has_custom(field) {
@@ -153,9 +152,18 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .key("question-footer")
         .w_full()
         .mt(-TUCK)
-        .pt(16.5)
-        .pb(8.5)
-        .px(8.5)
+        .pt(16.0)
+        .pb(8.0)
+        .px(8.0)
+        // The tray (`question-footer`): `layer-01` with `border: 0.5px`, which Chromium draws on
+        // whole device pixels and lays out as such (`border_layout`: 1 pt each side at 1x, 0.667
+        // at 1.5x). It sits under the body's bottom edge (`paint_order`), so the body's shadow
+        // falls on it.
+        .corners([0.0, 0.0, 10.0, 10.0])
+        .fill(p.layer1)
+        .border_sides([0.5, 0.5, 0.5, 0.5], p.border)
+        .border_layout()
+        .paint_order(-1)
         .center_y()
         .transition(fade())
         .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
@@ -188,31 +196,28 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         })
                 }),
         );
-    // The tray sits under the body's bottom edge, so the body's shadow falls on it.
-    let tray = el()
-        .key("question-tray")
-        .pin(Some(0.0), None, Some(0.0), Some(0.0))
-        .h(TRAY_H)
-        .corners([0.0, 0.0, 10.0, 10.0])
-        .fill(p.layer1)
-        // A 0.5 px CSS border lands on a 1x screen as about three quarters of a pixel, darker
-        // than the cards' 0.5 px box-shadow rings.
-        .box_shadow(Shadow { spread: 0.75, color: p.border, inset: true, ..Shadow::default() })
-        .transition(fade());
-    Some(vec![tray, body, footer])
+    Some(vec![body, footer])
+}
+
+/// How the cards' feedback eases (`question-prompt.css`: `--question-feedback-duration: 120ms`,
+/// `ease`), and at once while keys drive the dock (`[data-keyboard="true"]` sets it to 0s).
+fn feedback(keyboard: bool) -> Anim {
+    if keyboard { Anim::INSTANT } else { Anim::new(Curve::tween(0.12, Easing::EASE)) }
 }
 
 /// An answer's card (`question-option`): `layer-01` under a hairline; picked, the focus colour's
-/// wash and no hairline; under the pointer, `layer-02`; moved to by key, the focus ring.
-fn card(p: &Pal, picked: bool, hovered: bool, ring: bool) -> El {
-    let c = row().w_full().gap(8.0).radius(6.0).fill(if hovered && !picked { p.layer2 } else { p.layer1 });
-    let c = if picked {
-        let wash = p.q.focus.alpha(0.15);
-        c.gradient(wash, wash)
-    } else {
-        c.box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
-    };
-    if ring { c.box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c }
+/// wash and no hairline; under the pointer, `layer-02`; moved to by key, the focus ring. The
+/// hover's `background-color` and the wash's opacity (its `::before`) both ease on `feedback`;
+/// the hairline goes at once (`box-shadow` isn't transitioned). The hover is the pointer's own
+/// track, so moving over the answers commits nothing.
+fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
+    let ease = feedback(keyboard);
+    let wash = p.q.focus.alpha(0.15);
+    // Its hairline and ring change at once (`Spring::NONE`): only the hover and the wash ease.
+    let c = row().w_full().gap(8.0).radius(6.0).fill(p.layer1).motion(Spring::NONE).hover_motion(ease, ease);
+    let c = if picked { c } else { c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() }) };
+    let c = if ring { c.box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
+    c.child(el().key("wash").absolute(0.0, 0.0).w_full().h_full().radius(6.0).fill(wash).opacity(if picked { 1.0 } else { 0.0 }).opacity_motion(ease))
 }
 
 /// The header's progress: a bar per question, accent once answered, muted on the current one.
@@ -262,8 +267,9 @@ fn chevron<S: DockHost>(p: &Pal, minimized: bool) -> El {
 
 /// An answer's mark (`question-option-check`): a circle for one answer, a square for many,
 /// accent with a dot or a tick once picked.
-fn mark(p: &Pal, multi: bool, picked: bool) -> El {
-    let b = el().key("box").size(16.0, 16.0).center().radius(if multi { 4.0 } else { 8.0 });
+fn mark(p: &Pal, multi: bool, picked: bool, keyboard: bool) -> El {
+    // The box's fill isn't transitioned: it turns accent at once (`Spring::NONE`).
+    let b = el().key("box").size(16.0, 16.0).center().radius(if multi { 4.0 } else { 8.0 }).motion(Spring::NONE);
     let b = if picked {
         b.fill(p.bg_accent).gradient(Color::WHITE.alpha(0.2), Color::WHITE.alpha(0.0))
     } else {
@@ -271,19 +277,25 @@ fn mark(p: &Pal, multi: bool, picked: bool) -> El {
     };
     // A picked circle drops its hairline; a picked square keeps it.
     let b = if picked && !multi { b } else { b.box_shadow(Shadow { spread: 0.5, color: p.q.border_strong, inset: true, ..Shadow::default() }) };
-    // The dot and the tick are always there, shown once picked, as Desktop fades them.
+    // The dot and the tick are always there, shown once picked, as Desktop fades them (`opacity`
+    // on `feedback`); the box's own fill changes at once.
     let inner = if multi {
         icon(&ic::CHECK, 16.0).key("check").color(p.icon_contrast)
     } else {
         el().key("dot").size(6.0, 6.0).radius(3.0).fill(p.q.dot).box_shadow(Shadow { y: 0.5, blur: 0.5, color: Color::BLACK.alpha(0.4), ..Shadow::default() })
     };
-    el().key("mark").size(16.0, 20.0).center().child(b.child(inner.opacity(if picked { 1.0 } else { 0.0 })))
+    el().key("mark").size(16.0, 20.0).center().child(b.child(inner.opacity(if picked { 1.0 } else { 0.0 }).opacity_motion(feedback(keyboard))))
 }
 
-/// An answer's number key (`keybind-v2`): filled, or outlined once picked.
-fn shortcut(p: &Pal, n: usize, picked: bool) -> El {
-    let cap = row().key("cap").h(14.0).min_w(14.0).px(4.0).center().radius(2.0);
-    let cap = if picked { cap.box_shadow(Shadow { spread: 1.0, color: p.q.border_strong, inset: true, ..Shadow::default() }) } else { cap.fill(p.layer3) };
+/// An answer's number key (`keybind-v2`): filled, or outlined once picked. Its `background-color`
+/// and `box-shadow` ease on `feedback` (`--keybind-transition-duration`, `keybind.css`): the fill
+/// and the outline are two layers that cross-fade.
+fn shortcut(p: &Pal, n: usize, picked: bool, keyboard: bool) -> El {
+    let ease = feedback(keyboard);
+    let layer = |key: &'static str, on: bool| el().key(key).absolute(0.0, 0.0).w_full().h_full().radius(2.0).opacity(if on { 1.0 } else { 0.0 }).opacity_motion(ease);
+    let fill = layer("fill", !picked).fill(p.layer3);
+    let ring = layer("ring", picked).box_shadow(Shadow { spread: 1.0, color: p.q.border_strong, inset: true, ..Shadow::default() });
+    let cap = row().key("cap").h(14.0).min_w(14.0).px(4.0).center().radius(2.0).child(fill).child(ring);
     row().key("shortcut").h(20.0).self_center().center_y().child(cap.child(text(n.to_string()).font(KEY).color(p.muted)))
 }
 
@@ -336,37 +348,26 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     } else {
         row().key("q-field").grow(1.0).min_w(0.0).h(28.0).center_y().child(input)
     };
-    card(p, on, s.dock().hover == Some(i), ring)
+    let keyboard = s.dock().keyboard;
+    card(p, on, ring, keyboard)
         .key("q-custom")
         .h(40.0)
         .px(10.0)
         .center_y()
-        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| hover(s, i, inside, tx))
         .on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             start_typing(s, &f, tab);
             dock(s, &f).keyboard = false;
         })
-        .child(mark(p, multi, on).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, _: &mut Tx| {
+        .child(mark(p, multi, on, keyboard).role(if multi { "checkbox" } else { "radio" }).label(custom_label()).on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             toggle_custom(s, &f, tab);
             dock(s, &f).keyboard = false;
         }))
         .child(input)
-        .children((i < 9).then(|| shortcut(p, i + 1, on)))
-}
-
-fn hover<S: DockHost>(s: &mut S, i: usize, inside: bool, tx: &mut Tx) {
-    let Some(f) = asking(s) else { return };
-    tx.instant();
-    let d = dock(s, &f);
-    if inside {
-        d.hover = Some(i);
-    } else if d.hover == Some(i) {
-        d.hover = None;
-    }
+        .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)))
 }
 
 /// Back: ⌘[ on a Mac, Alt+← elsewhere.
