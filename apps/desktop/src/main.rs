@@ -136,6 +136,7 @@ mod quote;
 mod quote_cards;
 #[path = "quote/stories.rs"]
 mod quote_stories;
+mod raster_probe_stories;
 mod recently_closed;
 mod restore;
 mod review;
