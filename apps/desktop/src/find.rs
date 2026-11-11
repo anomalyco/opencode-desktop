@@ -20,6 +20,9 @@ use crate::view::{INSTANT, UI};
 use crate::{App, Route};
 
 const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
+/// A match's height as Desktop centres it: its range's box, about 18 for the timeline's 14 and
+/// 16 px Inter.
+const MATCH_H: f32 = 18.0;
 
 /// Find's state: Desktop's `TimelineSearchState` (`session/timeline/search-machine.ts:30-33`).
 /// Its query is the bar's field (`input`), its matches the index [`Find`] keeps; `seeking` has no
@@ -301,7 +304,7 @@ impl App {
                     self.find.input.focused = false;
                     self.find.input.cancel_composition();
                 }
-                Effect::Reveal => self.seek_active(true, tx),
+                Effect::Reveal => self.seek_active(tx),
             }
         }
     }
@@ -390,7 +393,7 @@ impl App {
         true
     }
 
-    fn seek_active(&mut self, glide: bool, tx: &mut Tx) {
+    fn seek_active(&mut self, tx: &mut Tx) {
         let Route::Session { id: sid, .. } = self.route.clone() else { return };
         let idx = self.find.active_index();
         let Some(hit) = self.find.matches.get(idx).cloned() else { return };
@@ -398,12 +401,15 @@ impl App {
             tx.instant();
         }
         let scroll_key = format!("scroll-{sid}");
-        if glide {
-            tx.scroll_center_in(&scroll_key, &hit.row_key);
-            tx.scroll_center_in(&scroll_key, ACTIVE_KEY);
-        } else {
-            tx.scroll_center_in_instant(&scroll_key, &hit.row_key);
-            tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
+        // Mount the match's row, then land the match where Desktop's `probeSeek` puts it
+        // (`search-controller.ts:293-298`, scrolled with `behavior: "auto"`): centred in the
+        // scroll view, which runs under the composer to the page's bottom, less the sticky
+        // header's 64 (its 48 and the 16 its fade takes, `[data-session-title]`'s height).
+        tx.scroll_center_in_instant(&scroll_key, &hit.row_key);
+        tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
+        if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (self.message_nav.view, self.message_nav.page) {
+            let header = if self.narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
+            tx.scroll_key_to(ACTIVE_KEY, header + (page_y + page_h - top - MATCH_H) / 2.0);
         }
     }
 
@@ -563,7 +569,7 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
         tx.instant();
         return;
     }
-    s.seek_active(false, tx);
+    s.seek_active(tx);
 }
 
 pub fn poll(s: &mut App) -> bool {

@@ -167,7 +167,10 @@ pub fn face(p: &Pal, radius: f32) -> El {
 /// top edge, under the pills (p248); at its end its last row stands clear over them (t1129), and
 /// they ride up as the docks under it grow. At the right (the ⌘⇧K Composer default) the button
 /// ends where the composer ends, on the capsule's row; centred, it's Desktop's.
-pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El>) -> El {
+///
+/// `top`: the height of the session header stuck over the timeline's top, which the
+/// older-history ring sits under.
+pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El>, top: f32) -> El {
     let shown = s.ends().far(id);
     // Timeline knobs: 0.15 s in, 0.11 s out, rising 4 pt as it shows (`translate-y-1`).
     let curve = crate::knobs::jump(s.knobs(), shown);
@@ -217,7 +220,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
-        .children(s.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(12.0), Some(0.0), None).center()
+        .children(s.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(top + 12.0), Some(0.0), None).center()
             .child(activity_ring(p))))
         // The thumb follows the hover of the whole area, Jump to latest included, as Desktop's
         // `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1157-1161`).

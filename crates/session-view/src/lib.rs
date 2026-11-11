@@ -260,6 +260,12 @@ pub trait TimelineHost: Sized + 'static {
     fn can_open_subagent(&self) -> bool {
         false
     }
+    /// The subagent call whose row the pointer is over (`subagent_card`), whose chevron slides in
+    /// as Desktop's `task-tool-action` does; `None` without one, or in a host that doesn't track it.
+    fn subagent_hover(&self) -> Option<&str> {
+        None
+    }
+    fn set_subagent_hover(&mut self, _call: Option<String>) {}
     fn resolve_subagent<'a>(&'a self, _parent: &str, session: Option<&'a str>, _title: &str) -> Option<&'a str> {
         session
     }
@@ -380,17 +386,19 @@ pub trait TimelineHost: Sized + 'static {
 }
 
 /// Full timeline region: virtualized message stack, linear bottom fade, live overlay scroll bar,
-/// and floating `pills` + "Jump to latest" button.
-pub fn timeline_area<S: TimelineHost>(s: &S, p: &palette::Pal, id: &str, t: Option<&Transcript>, pills: Vec<El>) -> El {
+/// and floating `pills` + "Jump to latest" button. A session `header` sticks over the
+/// timeline's top as rows scroll under it (`timeline::timeline`).
+pub fn timeline_area<S: TimelineHost>(s: &S, p: &palette::Pal, id: &str, t: Option<&Transcript>, pills: Vec<El>, header: Option<El>) -> El {
     style::set_content_w(s.content_width());
     let lane = jump::lane(!pills.is_empty());
-    jump::over(s, p, id, timeline::timeline(s, p, id, t, lane), pills)
+    let top = if header.is_some() { style::HEADER_H } else { 0.0 };
+    jump::over(s, p, id, timeline::timeline(s, p, id, t, lane, header), pills, top)
 }
 
 /// Read-only session timeline region (`timeline_area` with no composer activity pills).
 pub fn read_only<S: TimelineHost>(s: &S, p: &palette::Pal, id: &str, t: Option<&Transcript>) -> El {
     diagram::prepare(s);
-    timeline_area(s, p, id, t, Vec::new())
+    timeline_area(s, p, id, t, Vec::new(), None)
 }
 
 /// Modal overlays opened from timeline rows (full-size image viewer, Mermaid diagram lightbox and

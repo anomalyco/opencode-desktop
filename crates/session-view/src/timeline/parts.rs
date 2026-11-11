@@ -13,8 +13,9 @@ pub struct Place {
     pub tight: bool,
     pub above: bool,
     pub below: bool,
-    /// A reply's work sits right above it: it stands a turn's room under it (`rhythm::TURN`).
-    pub reply: bool,
+    /// A reply's work sits right above it: the room it stands under it (`rhythm::TURN`, less a
+    /// footer's room), else 0.
+    pub reply: f32,
     pub fold: Fold,
 }
 
@@ -208,7 +209,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     }
     let c = col()
         .w_full()
-        .pt(if above { 4.0 } else if tight { 8.0 } else if reply { super::rhythm::TURN } else { 16.0 })
+        .pt(if above { 4.0 } else if tight { 8.0 } else if reply > 0.0 { reply } else { 16.0 })
         .child(row().w_full().justify_end().child(row().w_frac(0.82).justify_end().child(face)));
     match status {
         Some(status) => c.child(row().key("actions").w_full().h(20.0).mt(8.0).justify_end().child(status)),
@@ -246,6 +247,57 @@ pub fn footer_text(t: &Transcript, message: usize, part: usize) -> bool {
     let last = t.messages.iter().rposition(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)));
     last == Some(message)
         && matches!(&t.messages[message], Message::Assistant(a) if a.parts.iter().rposition(text) == Some(part))
+}
+
+/// Whether part `part` of message `message` ends a turn a later prompt follows: the last text of
+/// the turn's last reply with any (`session-timeline-row.tsx:310-323`'s `copyContentID`), whose
+/// footer sits under it in its own row ([`turn_footer`]). The turn the timeline ends on keeps its
+/// footer in the actions row ([`turn_actions`]).
+pub fn turn_footer_text(t: &Transcript, message: usize, part: usize) -> bool {
+    let text = |p: &Part| matches!(p, Part::Text { text } if !text.trim().is_empty());
+    let Some(Message::Assistant(a)) = t.messages.get(message) else { return false };
+    if a.parts.iter().rposition(text) != Some(part) {
+        return false;
+    }
+    let Some(next) = t.messages[message + 1..].iter().position(|m| matches!(m, Message::User { .. })) else { return false };
+    !t.messages[message + 1..message + 1 + next].iter().any(|m| matches!(m, Message::Assistant(a) if a.parts.iter().any(text)))
+}
+
+/// A finished turn's footer under its reply's last text (`text-part-copy-wrapper`): 8 under the
+/// text, 20 tall, Copy (the part's text) then "Model · 1s", shown while the text part is hovered
+/// or the keyboard is in it (`message-part.css:577-606, 661-665`); a stopped turn's runs to the
+/// reply's end and ends in Interrupted (`[data-interrupted]`).
+pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usize, part: usize) -> El {
+    use crate::working::{COPY, COPY_AT, COPY_GLYPH};
+    let Message::Assistant(a) = &t.messages[message] else { return el() };
+    let body = match a.parts.get(part) {
+        Some(Part::Text { text }) => text.clone(),
+        _ => String::new(),
+    };
+    let copy_key = format!("copy-{}-{part}", a.id);
+    let key = copy_key.clone();
+    let button = row().key("copy").role("button").label(opencode_i18n::t!("ui.message.copyResponse"))
+        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.copy(body.clone());
+            crate::copied::mark_copied(s, key.clone(), tx);
+        })
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
+    let interrupted = a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind));
+    let mut items = reply_meta(s, t, message);
+    if interrupted {
+        items.push((opencode_i18n::t!("ui.message.interrupted").to_owned(), false));
+    }
+    let mut meta = row().key("meta").h(COPY).gap(4.0).center_y().a11y_hidden();
+    for (k, (label, variant)) in items.into_iter().enumerate() {
+        if k > 0 && !variant {
+            meta = meta.child(text("\u{00b7}").key(format!("sep{k}")).font(META).color(p.faint));
+        }
+        meta = meta.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
+    }
+    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y().group_opacity(0.0, 1.0);
+    let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
+    wrapper.child(button.ml(COPY_AT.0)).child(meta)
 }
 
 /// The footer's items after Copy (`text-part-meta`): the model's name (and a variant other

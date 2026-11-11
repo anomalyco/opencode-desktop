@@ -76,7 +76,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
         let metadata = serde_json::json!({ "files": shown });
         let call_id = format!("turn-diff-{id}");
         let call = crate::tools::Call { id: &call_id, name: "patch", status: &opencode_kit::model::ToolStatus::Completed, input: &Value::Null, metadata: &metadata };
-        let cx = crate::tools::Ctx { session, live: false, sticky: 0.0 };
+        let cx = crate::tools::Ctx { session, live: false, sticky: crate::style::sticky_top() };
         c = c.child(crate::tools::shut_group(s, p, cx, &[call]));
     }
     c

@@ -27,11 +27,11 @@ pub struct RowSpec {
 }
 
 pub enum RowContent {
-    /// `reply`: set by `rhythm`.
-    User { message: usize, tight: bool, above: bool, below: bool, reply: bool, fold: Fold },
+    /// `reply`: the room over it under a reply (0 for none), set by `rhythm`.
+    User { message: usize, tight: bool, above: bool, below: bool, reply: f32, fold: Fold },
     /// An undelivered steer: the bubble it becomes once delivered, muted and marked Pending,
     /// under the same row key so delivery keeps it in place.
-    Pending { id: String, tight: bool, above: bool, below: bool, reply: bool, fold: Fold },
+    Pending { id: String, tight: bool, above: bool, below: bool, reply: f32, fold: Fold },
     /// A switched agent or model, a move, updated instructions (`turn_errors`), and what sits
     /// beside it should it draw as a divider, and the room over it as a line (`rhythm`).
     Notice(usize, Run, f32),
@@ -101,14 +101,20 @@ impl RowSpec {
         }
     }
 
-    /// A reply's text part, its words held back for Grow, then show (`line_reveal`). The text
-    /// the footer copies (`footer`) shares the footer's hover.
+    /// A reply's text part (part `part` of message `mi`), its words held back for Grow, then
+    /// show (`line_reveal`). The text the timeline's last footer copies (`footer`) shares the
+    /// footer's hover; the text that ends an earlier turn holds its own footer (`turn_footer`).
     #[allow(clippy::too_many_arguments)]
-    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, message: &str, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
+    fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
+        let message = t.messages[mi].id();
         let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message));
         // A burst paces in a slice at a time (`line_reveal::Paced`).
         let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
+        if !live && turn_footer_text(t, mi, part) {
+            let words = words.child(turn_footer(s, p, t, mi, part));
+            return self.wrap_paced(s, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
+        }
         let row = self.wrap_paced(s, words, body.contains("```"));
         if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
     }
@@ -139,12 +145,15 @@ impl RowSpec {
                             let directory = s.active_session_id().and_then(|id| s.session_directory(id));
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory, favicons)
                         });
+                        // An earlier turn's own footer: its Copy's tick, and its "Model · 1s",
+                        // which leaves out the model in a narrow window.
+                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow()));
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips));
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips, own));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                            self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer)
+                            self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer)
                         });
                     }
                 }
@@ -156,7 +165,7 @@ impl RowSpec {
                     // at all once the turn ends.
                     let tick = if *live { thinking_tick(s, t, *start, *end, *block) } else { None };
                     let detail = s.timeline_detail();
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail, s.shell_output_version()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -178,7 +187,7 @@ impl RowSpec {
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, *reply, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], fold.viewport.to_bits(), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
@@ -250,7 +259,7 @@ impl RowSpec {
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
-                    Part::Text { text: body } => return self.text_row(s, p, &a.id, *part, body, fade, *live, *pt, footer_text(t, *message, *part)),
+                    Part::Text { text: body } => return self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer_text(t, *message, *part)),
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
@@ -261,10 +270,14 @@ impl RowSpec {
                 let busy = *live && *block + 1 == blocks.len();
                 match blocks.get(*block) {
                     Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
-                    Some(Block::Text { key, body, live, .. }) => {
+                    Some(Block::Text { key, body, live, msg, part }) => {
                         // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
-                        col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message))
+                        let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message));
+                        if !*live && turn_footer_text(t, start + msg, *part) {
+                            return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
+                        }
+                        text
                     }
                     Some(Block::Agent { .. }) => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
@@ -346,8 +359,14 @@ pub fn timeline_row_builds() -> usize {
 const TAIL: f32 = 92.0;
 
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
-/// its last row stands over the lane, clear of the fade into the composer.
-pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32) -> El {
+/// its last row stands over the lane, clear of the fade into the composer. A session `header`
+/// scrolls with it and sticks over its top, as Desktop's (`virtualizer.tsx:1157-1177`, the
+/// scroll view, then the header, then the rows): rows scroll under it and fade out over the
+/// 16 points below it (`session-identity-header.tsx:50-66`), and the rows' own headers stick
+/// under it.
+pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32, header: Option<El>) -> El {
+    let sticky = if header.is_some() { crate::style::HEADER_H } else { 0.0 };
+    crate::style::set_sticky_top(sticky);
     // Held room's streaming text draws past its row's edge into the room over Working.
     let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
@@ -396,7 +415,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
             n,
             80.0,
             move |_: &S, i| keys[i].key.clone().into(),
-            move |s: &S, i| marks.row(&specs[i].key, s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col)),
+            move |s: &S, i| {
+                // Rows build after this returns, maybe beside another timeline's.
+                crate::style::set_sticky_top(sticky);
+                marks.row(&specs[i].key, s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col))
+            },
         );
     }
     if t.is_none() {
@@ -412,20 +435,30 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
         );
     }
+    // Its edges fade only while rows are under them, and never over a stuck group header. Under
+    // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
+    // the page's colour under the header's bottom edge, whole as soon as rows go under it.
+    let fade = match header {
+        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(16.0)),
+        None => rune::ScrollFade::strength(16.0),
+    };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))
         .grow(1.0)
         .shrink()
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
-        // Its edges fade only while rows are under them, and never over a stuck group header.
-        .scroll_edge_fade(16.0)
+        .scroll_fade(fade)
         // A Tab stop that pages with the keys, as Desktop's `ScrollView` (`tabIndex={0}`,
-        // `scroll-view.tsx:546-548`), drawing no ring.
+        // `scroll-view.tsx:546-548`), drawing no ring. The header's controls follow it.
         .focusable(true)
         .role("region")
         .label(opencode_i18n::t!("ui.scrollView.ariaLabel"))
         .no_focus_ring()
+        // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
+        // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
+        // the panel's corners and ring show as they do without it.
+        .children(header.map(|h| h.sticky_top(0.0)))
         .child(stack);
     // Near its top, older messages load above what's on screen.
     if let Some(top) = s.watch_scroll_top(id) {
@@ -525,7 +558,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
                 };
                 let tight = prompt_images(&mut out, id, older);
                 if !body.trim().is_empty() || !model::user_comments(id).is_empty() {
-                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, reply: false, fold: fold(id) }, streaming: false });
+                    out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: mi, tight, above, below, reply: 0.0, fold: fold(id) }, streaming: false });
                 }
             }
             // A shell command run from the composer is a turn of its own: its shell call, on its
@@ -601,7 +634,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
         let above = prev.is_some_and(|x| prompts_join(x, item));
         let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n)) && notices.peek().is_none_or(|n| n.id > pending[k + 1].id);
         let tight = prompt_images(&mut out, &item.id, older);
-        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, reply: false, fold: fold(&item.id) }, streaming: false });
+        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, reply: 0.0, fold: fold(&item.id) }, streaming: false });
         prev = Some(&item.text);
     }
     for n in notices {

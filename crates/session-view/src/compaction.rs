@@ -360,7 +360,7 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
         // from anywhere in it; the summary softens into its fill as a tool group's steps do.
         // Shutting from there, the summary slides away under it, never over it.
         let soft = rune::Shadow { y: 10.0, blur: 20.0, color: p.bg_base, ..Default::default() };
-        bar = bar.fill(p.bg_base).sticky_top(0.0).stuck_shadow(soft);
+        bar = bar.fill(p.bg_base).sticky_top(crate::style::sticky_top()).stuck_shadow(soft);
     }
     let mut out = col().w_full().child(bar);
     if open || shutting {

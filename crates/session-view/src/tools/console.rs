@@ -67,7 +67,9 @@ const RING: f32 = 0.5;
 /// as much as Desktop's does: its sections stand at most [`MAX_H`] together (`bash-scroll`'s
 /// `max-height`, which takes the command and the output in one region), the output giving way.
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>, out: &str) -> El {
-    let mut card = col().key("console").w_full().max_h(MAX_H + 2.0 * RING).radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group();
+    let mut card = col().key("console").w_full().max_h(MAX_H + 2.0 * RING).radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group()
+        // Its Copy fades in and out over 0.15 s ease (`message-part.css:796-800`'s `bash-copy`).
+        .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE);
     let inner = RADIUS - RING;
     let result = !out.is_empty();
     if let Some(cmd) = command {

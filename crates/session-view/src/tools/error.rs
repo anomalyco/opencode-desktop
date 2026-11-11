@@ -62,7 +62,8 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
     if let Some(action) = s.tool_row_action(p, session, c) {
         line = line.child(row().key("actions").child(action));
     }
-    let card = col().key("error-card").w_full().hover_group().child(line);
+    // Its Copy fades in and out over 0.15 s ease (`tool-error-card.css:132-140`).
+    let card = col().key("error-card").w_full().hover_group().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).child(line);
     if !open {
         return card;
     }

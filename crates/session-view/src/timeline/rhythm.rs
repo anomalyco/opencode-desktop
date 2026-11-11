@@ -15,7 +15,9 @@
 //! room between a prompt and its own reply, so a prompt reads with the work under it.
 //!
 //! Dividers, Changed files, a reply's footer and a tool's pictures keep their own room; a row
-//! under one of them keeps the room it was built with.
+//! under one of them keeps the room it was built with. A finished turn a later prompt follows
+//! holds its footer under its words (`parts::turn_footer`, shown under the pointer): its 28 count
+//! toward the room under them, so what a reader sees keeps the same gaps.
 
 use opencode_kit::model::{Message, Part, Transcript};
 
@@ -44,21 +46,25 @@ enum Kind {
 }
 
 /// A row's kind at its top and bottom edges, and how far inside its box what shows starts and
-/// ends: a 28 high trigger's line sits 4 in, a 20 high notice's 2.
+/// ends: a 28 high trigger's line sits 4 in, a 20 high notice's 2. `footer`: the room at its
+/// foot a finished turn's footer holds, which shows only under the pointer (`parts::turn_footer`).
 #[derive(Clone, Copy)]
 struct Edges {
     top: (Kind, f32),
     bottom: (Kind, f32),
+    footer: f32,
 }
 
 const fn both(kind: Kind, inset: f32) -> Edges {
-    Edges { top: (kind, inset), bottom: (kind, inset) }
+    Edges { top: (kind, inset), bottom: (kind, inset), footer: 0.0 }
 }
 
-/// Words, or a card at an edge where the words open or close with a fenced block.
-fn prose(body: &str) -> Edges {
+/// Words, or a card at an edge where the words open or close with a fenced block; `footer`,
+/// they end a turn a later prompt follows, under its footer.
+fn prose(body: &str, footer: bool) -> Edges {
     let edge = |fenced: bool| if fenced { (Kind::Card, 0.0) } else { (Kind::Prose, 0.0) };
-    Edges { top: edge(body.trim_start().starts_with("```")), bottom: edge(body.trim_end().ends_with("```")) }
+    let footer = if footer { crate::working::COPY_AT.1 + crate::working::COPY } else { 0.0 };
+    Edges { top: edge(body.trim_start().starts_with("```")), bottom: edge(body.trim_end().ends_with("```")), footer }
 }
 
 fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Edges {
@@ -70,9 +76,9 @@ fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Ed
         },
         RowContent::PendingNotice(..) => both(Kind::Quiet, 2.0),
         RowContent::Error { .. } | RowContent::Retry { .. } => both(Kind::Card, 0.0),
-        RowContent::TurnText { message, part, .. } => match &t.messages[*message] {
+        RowContent::TurnText { message, part, live, .. } => match &t.messages[*message] {
             Message::Assistant(a) => match a.parts.get(*part) {
-                Some(Part::Text { text }) => prose(text),
+                Some(Part::Text { text }) => prose(text, !live && super::turn_footer_text(t, *message, *part)),
                 _ => both(Kind::Prose, 0.0),
             },
             _ => both(Kind::Prose, 0.0),
@@ -80,7 +86,7 @@ fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Ed
         RowContent::Turn { start, end, block, live, .. } => {
             let blocks = turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail);
             match blocks.get(*block) {
-                Some(Block::Text { body, .. }) => prose(body),
+                Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => both(Kind::Quiet, 4.0),
                 Some(Block::Agent { .. }) => both(Kind::Quiet, 0.0),
                 Some(Block::Question { .. }) => both(Kind::Card, 0.0),
@@ -108,9 +114,10 @@ pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [R
         }
         let here = edges(t, detail, &row.content);
         if let Some(prev) = above.filter(|p| p.bottom.0 != Kind::Other) {
-            let room = (gap(prev.bottom.0, here.top.0) - prev.bottom.1 - here.top.1).max(0.0);
+            // A footer's room counts toward the gap under the words it closes.
+            let room = (gap(prev.bottom.0, here.top.0) - prev.bottom.1 - prev.footer - here.top.1).max(0.0);
             match &mut row.content {
-                RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = prev.bottom.0 != Kind::Prompt,
+                RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.bottom.0 != Kind::Prompt { (TURN - prev.footer).max(0.0) } else { 0.0 },
                 RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) if here.top.0 != Kind::Other => *pt = room,
                 RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } => *pt = room,
                 _ => {}

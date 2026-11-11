@@ -226,8 +226,8 @@ pub fn view(s: &Host, cx: &mut Cx<Host>) -> El {
     crate::themes::set_active(&s.theme);
     let p: &Pal = pal(is_dark(cx));
     let body = if s.show_composer {
-        s.with_transcript(SESSION_ID, |t| crate::timeline_area(s, p, SESSION_ID, Some(t), Vec::new()))
-            .unwrap_or_else(|| crate::timeline_area(s, p, SESSION_ID, None, Vec::new()))
+        s.with_transcript(SESSION_ID, |t| crate::timeline_area(s, p, SESSION_ID, Some(t), Vec::new(), None))
+            .unwrap_or_else(|| crate::timeline_area(s, p, SESSION_ID, None, Vec::new(), None))
     } else {
         s.with_transcript(SESSION_ID, |t| crate::read_only(s, p, SESSION_ID, Some(t)))
             .unwrap_or_else(|| crate::read_only(s, p, SESSION_ID, None))

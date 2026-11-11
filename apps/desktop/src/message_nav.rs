@@ -25,6 +25,9 @@ const LINE: f32 = 100.0;
 pub struct MessageNav {
     /// The timeline region's rect in window points, from its last layout.
     pub view: Option<[f32; 4]>,
+    /// The session page's rect, from its last layout: Desktop's timeline scroll view runs under
+    /// the composer to the page's bottom, and Find centres a match in that (`find::seek_active`).
+    pub page: Option<[f32; 4]>,
     pub cursor: Cursor,
     /// The open timeline's scroll offset, as its viewport last reported it.
     offset: Rc<Cell<f32>>,
@@ -212,12 +215,15 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     let placing = matches!(seek, Seek::Revealing | Seek::Placing);
     let offset = s.message_nav.offset.get();
+    // Under the header stuck over the timeline (`virtualizer.tsx:394-396`'s `scrollPaddingStart`,
+    // which Rune's prompt row reaches with the 16 of turn gap it starts with).
+    let top = if s.narrow() { 0.0 } else { session_view::style::HEADER_H };
     let mut changed = false;
     for effect in step(&mut s.message_nav.cursor, Event::Frame { offset }) {
         let Effect::Place(row) = effect;
         // The row's own key: its content can carry the same key (a memo), so a path through
         // the timeline wouldn't name it.
-        tx.scroll_key_to(row, 0.0);
+        tx.scroll_key_to(row, top);
         changed = true;
     }
     if placing {

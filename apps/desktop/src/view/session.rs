@@ -21,17 +21,17 @@ pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
     }
     // A narrow window hides the header under its view switcher (`screen.tsx`'s `hideHeader`).
     if s.narrow() {
-        return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0)));
+        return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0), None));
     }
     let shown = s.displayed_session(id).unwrap_or(id);
     let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
+    // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
     let head = header(s, p, s.session(shown), t);
-    let page = col().key("session").grow(1.0).w_full().child(if s.opening.is_some() { head.inert() } else { head });
-    session_body(s, p, id, page)
+    session_body(s, p, id, col().key("session").grow(1.0).w_full(), Some(head))
 }
 
-/// The session page under its header: the timeline, and what sits under it.
-pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
+/// The session page: the timeline with its `header` stuck over it, and what sits under it.
+pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, header: Option<El>) -> El {
     let info = s.session(id);
     let shown = s.displayed_session(id);
     let t = shown.and_then(|shown| s.transcripts.get(shown)).filter(|_| !s.loading_session(id));
@@ -39,13 +39,17 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El) -> El {
     let pills = if child { Vec::new() } else { pills(s, p, id) };
     let timeline = match shown {
         // Previous and Next message read the prompt in view from where it lies (`message_nav`).
-        Some(shown) => session_view::timeline_area(s, p, shown, t, pills).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+        Some(shown) => session_view::timeline_area(s, p, shown, t, pills, header).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
             s.message_nav.view = Some(r);
             tx.live_only();
         }),
-        None => col().key("timeline-area").grow(1.0).w_full(),
+        None => col().key("timeline-area").grow(1.0).w_full().children(header),
     };
     let mut page = page
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+            s.message_nav.page = Some(r);
+            tx.live_only();
+        })
         .child(if s.opening.is_some() { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
@@ -74,7 +78,7 @@ const PILL_WAIT: f32 = 0.3;
 /// its header, and its composer with the subagent capsule over it.
 pub(crate) fn story_session(s: &App, p: &Pal) -> El {
     let Route::Session { id, .. } = &s.route else { return el() };
-    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0))
+    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0), None)
 }
 
 pub(crate) fn story_header(s: &App, p: &Pal) -> El {

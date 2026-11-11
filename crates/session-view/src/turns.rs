@@ -454,7 +454,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     // `--sticky-accordion-top`, `message-part.css:1330-1332`).
     let files = steps.iter().any(file_tool);
     if open || shutting {
-        trigger = trigger.fill(p.bg_base).sticky_top(0.0);
+        trigger = trigger.fill(p.bg_base).sticky_top(crate::style::sticky_top());
         trigger = if files {
             // Desktop's solid 8 pt under the label (`padding-bottom: var(--tool-content-gap)`
             // on the stuck trigger), which a stuck file header meets; the soft edge would wash
@@ -491,7 +491,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     let mut c = col().w_full().child(trigger);
     if open || shutting {
         // A file header in the steps sticks under the label and its 8 pt.
-        let cx = crate::tools::Ctx { session, live, sticky: 28.0 + GROUP_GAP };
+        let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() + 28.0 + GROUP_GAP };
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
         // 8 under the label (inside the steps, so a shut box is no taller than nothing), then the
         // rail 6 in from the steps' top and bottom.
@@ -561,7 +561,7 @@ pub fn thought<S: TimelineHost>(s: &S, p: &Pal, st: &Step, live: bool, fade: f32
 /// `SessionFileToolGroup`), drawn as they draw in a group: one call, plain reads sharing a line,
 /// or edits sharing a file card.
 pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps: &[Step], live: bool) -> El {
-    let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
+    let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() };
     let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
     let Some(first) = calls.first() else { return col() };
     match kind {

@@ -98,15 +98,36 @@ pub fn narrow() -> bool {
     NARROW.get()
 }
 
+/// The session header's height (`.session-header-layout`'s `block-size: 48px`).
+pub const HEADER_H: f32 = 48.0;
+
+thread_local! {
+    /// Where the timeline's stuck headers hold: under the session header stuck over it, else at
+    /// the top (`virtualizer.tsx:1173`'s `--sticky-accordion-top`).
+    static STICKY_TOP: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+}
+
+/// Sets where the rows built next stick their headers; `timeline` sets it before building rows.
+pub fn set_sticky_top(top: f32) {
+    STICKY_TOP.set(top);
+}
+
+/// Where a timeline row's header sticks: under the session header while one shows over the
+/// timeline (`--sticky-accordion-top: var(--session-header-height, 48px)`), else at the top.
+pub fn sticky_top() -> f32 {
+    STICKY_TOP.get()
+}
+
 /// The timeline's two side paddings together: `px-6`, `px-4` in a narrow window.
 pub fn sides() -> f32 {
     if NARROW.get() { 32.0 } else { 48.0 }
 }
 
-/// Room above the timeline's first row: 8 under the header, and a narrow window's `h-4` where
-/// the header hides (`virtualizer.tsx:1175`).
+/// Room above the timeline's first row, which starts with 8 of its own over the first prompt:
+/// the header's 16 under its bar (`pb-4`, `virtualizer.tsx:147`'s 64), or the narrow window's
+/// `h-4` where the header hides (`virtualizer.tsx:1175`), less those 8.
 pub fn timeline_top() -> f32 {
-    if NARROW.get() { 16.0 } else { 8.0 }
+    8.0
 }
 
 /// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
@@ -361,9 +382,11 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
     } else {
         row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).children(actions).child(button)
     };
+    // It also shows while the keyboard is on it or a plugin's action beside it
+    // (`markdown.css:379-382`'s `:focus-within`).
     col()
         .w_full()
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
         .child(buttons.group_opacity(0.0, 1.0))
@@ -377,7 +400,7 @@ fn quote_card<S: TimelineHost>(p: &Pal, quote: El, q: &rune_kit::QuoteFrame<'_>,
     let button = copy_button::<S>(p, q.text, key, opencode_i18n::t!("rune.message.copyQuote"), copied);
     col()
         .w_full()
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(quote.pr(QUOTE_BUTTON_ROOM))
         .child(button.pin(None, Some(-1.0), Some(0.0), None).group_opacity(0.0, 1.0))

@@ -397,6 +397,8 @@ pub struct App {
     pub glows: session_view::arrivals::Arrivals,
     /// Where each session's timeline stands against its end (`jump.rs`).
     pub ends: jump::Ends,
+    /// The subagent call whose row is under the pointer, its chevron slid in (`subagent_card`).
+    pub agent_hover: Option<String>,
     /// When each run started, for the Working label's rhythm (`working.rs`).
     pub working: working::Working,
     /// Background compaction by directory and how each compaction enters (`compaction.rs`).
@@ -665,6 +667,12 @@ impl session_view::TimelineHost for App {
     }
     fn prefetch_subagent(&self, child: &str) {
         self.prefetch_session(child);
+    }
+    fn subagent_hover(&self) -> Option<&str> {
+        self.agent_hover.as_deref()
+    }
+    fn set_subagent_hover(&mut self, call: Option<String>) {
+        self.agent_hover = call;
     }
     fn open_subagent(&mut self, parent: &str, child: &str, title: &str, agent: &str, tx: &mut Tx) {
         self.open_child(parent, child, title, agent, tx);

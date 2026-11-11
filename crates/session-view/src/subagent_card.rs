@@ -4,14 +4,13 @@
 //! after them on hover when there's a session to open; "Delegating agent…" while the call is
 //! still being written. A press opens the child session.
 
-use rune::{Color, El, TextStyle, Tx, el, icon, row, text};
+use rune::{Color, El, Icon, TextStyle, Tx, el, icon, row, text};
 
 use opencode_kit::model::{self, ToolStatus};
-use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{INSTANT, activity_ring_sized};
+use crate::style::{HOVER_FADE, INSTANT, activity_ring_sized};
 use crate::turns::Block;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,6 +87,14 @@ const GAP: f32 = 8.0;
 /// Desktop's activity spinner (`SessionProgressIndicatorV2`), and the chevron (`task-tool-action`).
 const MARK: f32 = 16.0;
 
+/// `chevron-right` at `size="normal"`: Desktop's new `chevron-up` turned a quarter right
+/// (`new-icons.ts:31, 100`), round caps and joins on its 16 pt grid.
+static CHEVRON: Icon = Icon {
+    name: "oc-chevron-right-v2",
+    view: 16.0,
+    body: r#"<path d="M6.5 4.5L9.5 8L6.5 11.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
+};
+
 /// The row for `blocks[i]`, a subagent call.
 pub fn row_for<'a, S: TimelineHost>(s: &'a S, p: &Pal, parent: &str, blocks: &'a [Block<'a>], i: usize) -> El {
     let Block::Agent { id, agent, title, status, session, metadata } = &blocks[i] else { return row() };
@@ -111,18 +118,27 @@ pub fn row_for<'a, S: TimelineHost>(s: &'a S, p: &Pal, parent: &str, blocks: &'a
         .child(text(model::capitalize(agent)).key("title").font(TITLE).color(p.text))
         .children((!task.is_empty()).then(|| text(task.clone()).key("task").font(TASK).color(p.text).shrink().min_w(0.0).truncate_fade()));
     // The chevron's slot keeps its 8 pt gap at rest with no width, and takes 2 + 16 on hover
-    // (`task-tool-action`): the chip's fill reaches 18 pt further right under the pointer, with
-    // the chevron 2 pt past the gap.
+    // (`task-tool-action`, `basic-tool.css:286-303, 336-347`): the chip's fill reaches 18 pt
+    // further right under the pointer, and the chevron comes in from 4 pt short of its place,
+    // out of the slot growing under it, fading in; all of it over 0.15 s ease, both ways.
+    let hovered = s.subagent_hover() == Some(*id);
     let chevron = opens.then(|| {
         let reach = 2.0 + MARK;
-        let fill = el().key("open-fill").pin(None, Some(0.0), Some(-reach), Some(0.0)).w(reach + RADIUS).corners([0.0, RADIUS, RADIUS, 0.0]).fill(p.layer2);
-        let glyph = el().key("open").pin(None, Some(PAD_Y + 2.0), Some(PAD_X - reach), None).size(MARK, MARK).child(icon(&ic::CHEVRON_RIGHT, MARK).mirror_in_rtl().color(p.faint));
-        [fill.group_opacity(0.0, 1.0), glyph.group_opacity(0.0, 1.0)]
+        // The slot growing: the fill slides out from under the chip's own end, whose colour
+        // and corners it has, so only the part past the end shows.
+        let shift = |rest: f32| if hovered { 0.0 } else { rest };
+        let fill = el().key("open-fill").pin(None, Some(0.0), Some(-reach), Some(0.0)).w(reach + RADIUS).corners([0.0, RADIUS, RADIUS, 0.0]).fill(p.layer2)
+            .offset(shift(-reach), 0.0).offset_motion(fade(s));
+        // Centred in the growing slot, 4 pt back from its place (`translateX(-4px)`): 14 pt short
+        // at rest, where the chip's end hides it under its fade.
+        let glyph = el().key("open").pin(None, Some(PAD_Y + 2.0), Some(PAD_X - reach), None).size(MARK, MARK).child(icon(&CHEVRON, MARK).mirror_in_rtl().color(p.faint))
+            .offset(shift(4.0 - reach), 0.0).offset_motion(fade(s));
+        [fill, glyph.group_opacity(0.0, 1.0)]
     });
     let surface = if opens { surface.pr(PAD_X + GAP) } else { surface };
     let chip = surface.children(chevron.into_iter().flatten()).child(words);
     let chip = match (opens, child) {
-        (true, Some(child)) => clickable::<S>(parent, child, title, agent, &task, chip),
+        (true, Some(child)) => clickable::<S>(parent, id, child, title, agent, &task, chip.hover_motion(fade(s), fade(s))),
         _ => chip,
     };
     row().key(format!("member-{id}")).w_full().child(chip)
@@ -135,23 +151,32 @@ fn spinner(p: &Pal, starting: bool) -> El {
     el().key("mark").size(MARK, MARK).center().child(mark)
 }
 
-/// Makes `chip` open the call's session.
-fn clickable<S: TimelineHost>(parent: &str, child: &str, title: &str, agent: &str, task: &str, chip: El) -> El {
+/// The chip's hover: 0.15 s ease both ways (`basic-tool.css:297-302`), at once under reduced
+/// motion (`:root[data-motion="reduce"]`, `:315-317`).
+fn fade<S: TimelineHost>(s: &S) -> rune::Anim {
+    if s.reduced_motion() { INSTANT } else { HOVER_FADE }
+}
+
+/// Makes `chip`, call `call`'s, open the call's session.
+fn clickable<S: TimelineHost>(parent: &str, call: &str, child: &str, title: &str, agent: &str, task: &str, chip: El) -> El {
     let (parent, child, title, agent) = (parent.to_owned(), child.to_owned(), title.to_owned(), agent.to_owned());
-    let (visible, hover) = (child.clone(), child.clone());
+    let (visible, hover, call) = (child.clone(), child.clone(), call.to_owned());
     chip.role("link")
         .label(format!("{} {task}", model::capitalize(&agent)))
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
         // Virtual rows mount around the viewport. Read the child while its row is being
         // read, rather than starting a tunnel round trip only after the press.
         .on_layout_tx(move |s: &mut S, _, tx| {
             tx.live_only();
             s.prefetch_subagent(&visible);
         })
-        .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
-            tx.live_only();
-            if inside { s.prefetch_subagent(&hover); }
+        .on_hover_change(move |s: &mut S, inside, _: &mut Tx| {
+            if inside {
+                s.prefetch_subagent(&hover);
+                s.set_subagent_hover(Some(call.clone()));
+            } else if s.subagent_hover() == Some(call.as_str()) {
+                s.set_subagent_hover(None);
+            }
         })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
