@@ -1302,24 +1302,46 @@ fn setup(s: &mut App, waker: Waker) {
     launch::setup(s);
 }
 
+/// The app's fonts. Desktop sets every IBM Plex Mono weight below 600 in its Text cut and the rest
+/// in its Bold cut (`index.css`), which a Markdown heading in a diff takes. JetBrains Mono is
+/// desktop's terminal face (`terminalDefault`), Nerd Font glyphs included for prompts.
+#[cfg(not(target_arch = "wasm32"))]
+const FONTS: &[&[u8]] = &[
+    include_bytes!("../assets/fonts/InterVariable.ttf"),
+    include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
+    include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
+    include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
+    include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
+    include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
+    include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
+    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
+    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
+];
+/// In a browser, only the fonts the default appearance draws in: the page fetches Commit Mono and
+/// JetBrains Mono (6 MB) once its first frame is up (`LATE_FONTS`).
+#[cfg(target_arch = "wasm32")]
+const FONTS: &[&[u8]] = &[
+    include_bytes!("../assets/fonts/InterVariable.ttf"),
+    include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
+    include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
+];
+/// The fonts a browser fetches after its first frame, which the web build serves from `fonts/`
+/// beside the page (`scripts/web.ps1`).
+#[cfg(target_arch = "wasm32")]
+pub(crate) const LATE_FONTS: &[&str] = &[
+    "fonts/CommitMono-400-Regular.otf",
+    "fonts/CommitMono-700-Regular.otf",
+    "fonts/CommitMono-400-Italic.otf",
+    "fonts/CommitMono-700-Italic.otf",
+    "fonts/JetBrainsMonoNerdFontMono-Regular.ttf",
+    "fonts/JetBrainsMonoNerdFontMono-Bold.ttf",
+];
+
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     AppSpec {
         scenes: stories::scenes(),
-        fonts: &[
-            include_bytes!("../assets/fonts/InterVariable.ttf"),
-            // Desktop sets every IBM Plex Mono weight below 600 in its Text cut and the rest in its
-            // Bold cut (`index.css`), which a Markdown heading in a diff takes.
-            include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
-            include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
-            include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
-            include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
-            include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
-            include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
-            // Desktop's terminal face (	erminalDefault), Nerd Font glyphs included for prompts.
-            include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
-            include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
-        ],
+        fonts: FONTS,
         families: (appearance::UI_FONTS[0].family, appearance::CODE_FONTS[0].family),
         setup: Some(setup),
         poll: Some(poll),

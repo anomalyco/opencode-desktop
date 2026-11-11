@@ -10,6 +10,7 @@ const types: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".wasm": "application/wasm",
   ".ttf": "font/ttf",
+  ".otf": "font/otf",
 }
 
 Bun.serve({

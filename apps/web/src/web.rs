@@ -26,7 +26,7 @@ pub fn start(password: Option<String>) {
     storage::start();
     // Reads wait for the first frame, as a window's do.
     launch::defer();
-    let app = rune_app(rune::AppSpec { families: appearance::launch_families(), ..spec(App::new) }).args(args);
+    let app = crate::LATE_FONTS.iter().fold(rune_app(rune::AppSpec { families: appearance::launch_families(), ..spec(App::new) }).args(args), |app, url| app.font_url_later(url));
     let handle = app.handle();
     app.on_ready(move |_| {
         storage::presented();

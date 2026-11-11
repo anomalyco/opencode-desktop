@@ -99,11 +99,9 @@ if (-not $NoBuild) {
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
   Copy-Item (Join-Path $root 'apps/web/index.html') $next
-  # Rune draws the first frame with Inter cut to Latin, Greek and Cyrillic and then fetches the
-  # full faces from beside app.js: copy those of the Rune this build compiled.
-  $full = & cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown --manifest-path (Join-Path $root 'Cargo.toml') | ConvertFrom-Json
-  $rune = $full.packages | Where-Object { $_.name -eq 'rune' } | Select-Object -First 1
-  if ($rune) { Copy-Item (Join-Path (Split-Path $rune.manifest_path) 'assets/web/Inter-*.ttf') $next }
+  # The fonts the page fetches after its first frame (main.rs's LATE_FONTS).
+  New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
+  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out
   $size = (Get-Item (Join-Path $Out 'app_bg.wasm')).Length
