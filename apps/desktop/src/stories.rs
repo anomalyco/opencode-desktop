@@ -340,6 +340,7 @@ fn fresh(real: &App) -> App {
     w.settings.scheme = real.settings.scheme;
     w.settings.theme = real.settings.theme.clone();
     (w.settings.ui_font, w.settings.code_font) = (real.settings.ui_font, real.settings.code_font);
+    w.settings.text_renderer = real.settings.text_renderer;
     w.clock = real.clock;
     // Relative times read as the fixture has them, however long the app has run.
     w.base_ms -= (real.clock * 1000.0) as i64;
