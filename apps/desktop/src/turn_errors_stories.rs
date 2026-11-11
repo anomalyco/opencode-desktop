@@ -109,8 +109,10 @@ fn notice_open(s: &mut App, tx: &mut Play<App>) {
     });
 }
 
+const HEREDOC: &str = "\n  python3 - <<'PY'\nimport subprocess\nfor t,h,r,why in [('b5925','a63fc96ca','ses_e342da27','Re-reviewed moved tests'),\n                   ('b6600','9c1d2e0f','ses_77ab01c3','Handoff repaired')]:\n    print(t, h, r, why)\nPY";
+
 /// Background work coming back: a shell that finished, one that failed, one with a command too
-/// long for the line, and a subagent.
+/// long for the line, a subagent, and two heredocs.
 fn background(s: &mut App, tx: &mut Tx) {
     let shell = |state: &str, command: &str, extra: Value| {
         let mut metadata = json!({ "source": "shell", "state": state, "shellID": "sh_story" });
@@ -125,7 +127,22 @@ fn background(s: &mut App, tx: &mut Tx) {
         shell("completed", "cargo test -p session-view", json!({ "exit": 101 })),
         shell("completed", long, json!({ "exit": 0 })),
         json!({ "text": "", "description": "Find where notices are drawn", "metadata": { "source": "subagent", "state": "completed", "agent": "explore" } }),
+        // A heredoc, and one whose shell call says what it does.
+        shell("completed", HEREDOC, json!({ "exit": 0, "shellID": "sh_heredoc" })),
+        shell("completed", HEREDOC, json!({ "exit": 0, "shellID": "sh_named" })),
     ];
+    let call = json!({ "type": "tool", "id": "prt_story_named", "name": "shell", "state": {
+        "status": "completed", "title": "Check which overnight tasks landed",
+        "input": { "command": HEREDOC, "description": "Check which overnight tasks landed", "background": true },
+        "metadata": { "shellID": "sh_named" },
+    } });
+    let step = opencode_kit::model::parse_messages(&json!({ "data": [
+        { "id": "msg_story_named", "type": "assistant", "time": { "completed": 2 }, "content": [call] },
+    ] }));
+    let id = sid(s);
+    if let Some(t) = s.transcripts.get_mut(&id) {
+        t.messages.extend(step);
+    }
     for (n, data) in all.into_iter().enumerate() {
         notice(s, 10 + n, "session.synthetic", data, tx);
     }
