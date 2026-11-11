@@ -302,36 +302,24 @@ fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, side: f32,
         .child(icon(glyph, size).color(p.icon_muted))
 }
 
-/// How far the queue tucks under the composer's top edge. Its shadow, like the composer's,
-/// shows through the composer's translucent ring; 8 pt is where the queue's shadow fading out
-/// meets the composer's, so the sides keep one tone across the divider.
-const TUCK: f32 = 8.0;
-/// How far below the composer's top edge the closed queue's face rests.
-const SINK: f32 = 6.0;
+/// How far the tray runs under the composer card (`-mb-3`, `queue-panel.tsx:93`).
+const TUCK: f32 = 12.0;
 
-/// The queue: one shape with the composer, its square bottom tucked under the composer's top
-/// edge. Empty, it is a line along that edge, so it opens and closes as its height springs and
-/// every queued prompt comes and goes through the composer.
-///
-/// The composer's ring is translucent and shows what's behind it, so the queue's own ring
-/// stops at the composer's top edge (`queue-clip` cuts its sides and drops its bottom edge)
-/// and only its fill tucks under, inset clear of the composer's ring. It casts the composer's
-/// shadow too, so both rings sit over the same backdrop. The two read as one outline, with the
-/// composer's top edge as the one divider.
+/// The queue: Desktop's tray above the composer (`queue-panel.tsx:88-158`). The tray is the
+/// page's own colour (`bg-v2-background-bg-base`) inside a 0.5 pt `border-border-base` ring with
+/// 12 pt corners, 6 pt in on the sides and top; its bottom runs 12 pt under the composer, which
+/// stays its own rounded card on top (`relative z-10`), so 6 pt of tray show under the last row
+/// (`pb-[18px]`), or none past four rows, where the list scrolls (`pb-3`). Empty, it closes to
+/// nothing on its height spring, clipped as it goes (`Grow`), and the composer comes down to
+/// where it was.
 ///
 /// A question or permission in the composer's place closes it, as Desktop hides its queue while
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let rows = shown_rows(s, session);
-    let shadow = if rows.is_empty() { p.shadow.alpha(0.0) } else { p.shadow };
-    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).corners([12.0, 12.0, 0.0, 0.0]).shadow(1.0, 2.0, shadow);
-    let face = col().key("queue-face").w_full().mb(-1.0).corners([12.0, 12.0, 0.0, 0.0]).fill(crate::view::composer_fill(p)).box_shadow(Pal::ring_in(p.ring));
-    let clip = col().key("queue-clip").w_full().clip_soft(0.0);
-    let tuck = el().key("queue-tuck").mx(0.5).fill(crate::view::composer_fill(p));
+    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0);
     if rows.is_empty() {
-        // Closed, the face rests below the composer's top edge, so closing it passes behind
-        // that edge rather than creeping up to it as a second line.
-        return shell.h(0.0).child(clip.h(0.0).child(face.mt(SINK).h(1.0))).child(tuck.h(0.0));
+        return shell.h(0.0);
     }
     let n = rows.len();
     let ops = s.queue_ops.get(session);
@@ -354,24 +342,25 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
         list = list.child(queue_row(p, session, r, &ids, st));
     }
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
-    // 1 pt of the face hangs below the clip, so its padding is 1 pt more than what shows.
-    let mut face = face.px(6.0).pt(6.0).pb(if n > 4 { 1.0 } else { 7.0 });
+    let mut tray = col()
+        .key("queue-tray")
+        .w_full()
+        .radius(12.0)
+        .fill(p.bg_base)
+        .box_shadow(Pal::ring_in(p.border))
+        .px(6.0)
+        .pt(6.0)
+        .pb(if n > 4 { TUCK } else { TUCK + 6.0 });
     if n > 3 {
-        face = face.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), opencode_i18n::plural!("session.queue.count", n).to_uppercase(), n as f64, LABEL, p.muted)));
+        tray = tray.child(row().key("queue-count").px(6.0).pt(4.0).pb(1.0).child(odometer(format!("queue-count-{session}"), opencode_i18n::plural!("session.queue.count", n).to_uppercase(), n as f64, LABEL, p.muted)));
     }
     let list = if n > 4 {
         col().key("queue-scroll").w_full().h(list_h).scroll(rune::ScrollSpec { stick_bottom: false }).clip_fade_linear(0.0, 8.0, 0.0, 12.0).child(list)
     } else {
         list
     };
-    shell.role("list").label(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(clip.child(face.child(list))).child(tuck.h(TUCK))
+    shell.role("list").label(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(tray.child(list))
 }
-
-/// Whether the open session has prompts in the queue, which squares the composer's top corners.
-pub fn docked(s: &App) -> bool {
-    matches!(&s.route, crate::Route::Session { id, .. } if !shown_rows(s, id).is_empty())
-}
-
 /// The queue's rows (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
 fn shown_rows(s: &App, session: &str) -> Vec<QueueRow> {
     if s.dock_shown() {
@@ -575,10 +564,11 @@ fn handle(p: &Pal, session: &str, id: &str, ids: &[String], index: usize, disabl
 /// narrow window it can't push the mic and Send aside.
 pub fn alternate_hint(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
     let word = if steer { opencode_i18n::t!("ui.promptInput.steer") } else { opencode_i18n::t!("ui.promptInput.queue") };
-    // Its padding and right margin, the word, and the two keycaps 6 after it and 6 apart.
+    // Its padding and right margin, the word, and the keycaps 6 after it (`gap-1.5`), each
+    // Desktop's neutral `Keybind` chip 2 apart (`keymap::view::chips`).
     let labels: Vec<String> = crate::keymap::Bind::SubmitAlternate.keycaps().iter().map(|k| k.to_uppercase()).collect();
-    let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], UI, None).0 + 6.0).max(16.0)).sum();
-    let keys = caps + 6.0 * labels.len() as f32;
+    let caps: f32 = labels.iter().map(|k| (rune::text::measure(k, &[], crate::keymap::view::LABEL, None).0 + 8.0).max(14.0)).sum();
+    let keys = caps + 6.0 + 2.0 * labels.len().saturating_sub(1) as f32;
     let width = rune::text::measure(word, &[], UI_MED, None).0 + 12.0 + 10.0;
     if room < width {
         return None;
@@ -601,13 +591,9 @@ pub fn alternate_hint(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
         .transition(rune::Transition::opacity())
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.submit(true, tx))
         .child(text(word).font(UI_MED).color(p.faint))
-        .children(labels.iter().map(|k| keycap(p, k)));
+        .children((!labels.is_empty()).then(|| crate::keymap::view::chips(p, labels)));
     // Only the steer has a tooltip (`inactive={delivery !== "steer"}`).
     Some(if steer { hint.help(opencode_i18n::t!("ui.promptInput.steerHint")) } else { hint })
-}
-
-pub(crate) fn keycap(p: &Pal, key: &str) -> El {
-    row().h(16.0).min_w(16.0).px(3.0).center().radius(3.0).fill(p.layer2).child(text(key.to_owned()).font(UI).color(p.faint))
 }
 
 /// The `queue*` scenes: the open session busy with `n` prompts queued, over the question dock

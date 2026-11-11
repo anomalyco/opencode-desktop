@@ -6,7 +6,7 @@ use super::Bind;
 use crate::palette::Pal;
 
 /// `keybind-v2-label`: 11px, 530, line-height 1, 0.05px tracking, tabular figures (`keybind.css:55-75`).
-const LABEL: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
+pub(crate) const LABEL: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
 
 /// A command's chord as keycap chips (Desktop's `Keybind`, whose labels are uppercase: CTRL
 /// SHIFT T off macOS, ⇧ ⌘ T on it). Empty when the command has no chord here.

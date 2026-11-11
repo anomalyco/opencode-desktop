@@ -257,7 +257,9 @@ pub trait ComposerHost: TimelineHost {
     fn composer_dictating(&self) -> bool {
         false
     }
-    fn composer_docked_top(&self) -> bool {
+    /// The composer sits on docks above it (`data-dock-border-underlay`, a session's): a 0.5 pt
+    /// ring of the page's colour under its elevation masks the tray edges it overlaps.
+    fn composer_border_underlay(&self) -> bool {
         false
     }
     /// A queued prompt is open in the composer for an edit: Return confirms it, never stops.
@@ -402,7 +404,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .w_full()
         .max_w(crate::style::dock_w())
         .min_h(88.0)
-        .corners(if s.composer_docked_top() { [0.0, 0.0, 12.0, 12.0] } else { [12.0; 4] })
+        .corners([12.0; 4])
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
@@ -411,7 +413,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     let box_el = if face.is_some() && s.composer_face_bare() {
         box_el
     } else {
-        box_el.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
+        let underlay = if s.composer_border_underlay() { box_el.box_shadow(Pal::ring_out(p.bg_base)) } else { box_el };
+        underlay.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
     };
     let held = s.composer_held_height();
     let box_el = match held {

@@ -170,8 +170,10 @@ impl ComposerHost for App {
     fn composer_dictating(&self) -> bool {
         self.dictation.active()
     }
-    fn composer_docked_top(&self) -> bool {
-        crate::queue::docked(self)
+    /// A session's composer sits on its docks (`region.tsx` passes `borderUnderlay`); the
+    /// new-session page's doesn't.
+    fn composer_border_underlay(&self) -> bool {
+        matches!(self.route, Route::Session { .. })
     }
     fn composer_editing(&self) -> bool {
         self.queue_editing().is_some()
