@@ -7,7 +7,7 @@
 use crate::pickers::PickerHost as _;
 use std::collections::BTreeMap;
 
-use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, row, text};
+use rune::{El, Key, KeyEvent, TextStyle, Tx, col, row, rule, text};
 use rune_kit::Switch;
 use serde_json::{Value, json};
 
@@ -397,11 +397,11 @@ pub(crate) fn settings_card<'a, K: AsRef<str>, D: AsRef<str>>(p: &Pal, key: &str
 }
 
 /// `[data-component="settings-list"]`: a `layer-01` card with 8 pt corners, 20 pt in from each
-/// side and a 0.5 pt `border-muted` ring inside; its rows split by 0.5 pt `border-base` rules.
+/// side and a 0.5 pt `border-muted` ring inside; its rows split by `settings-row`'s 0.5 px`n/// `border-base` bottom border, which takes a device pixel.
 pub(crate) fn list(p: &Pal, key: &str, rows: Vec<El>) -> El {
     let n = rows.len();
     rows.into_iter().enumerate().fold(col().key(key.to_owned()).w_full().px(20.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)), |l, (i, r)| {
-        l.child(r).children((i + 1 < n).then(|| el().w_full().h(0.5).fill(p.border)))
+        l.child(r).children((i + 1 < n).then(|| rule(0.5, p.border)))
     })
 }
 

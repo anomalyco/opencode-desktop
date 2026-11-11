@@ -18,7 +18,7 @@ pub mod shortcuts;
 pub mod timeline;
 pub mod worktrees;
 
-use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
 
@@ -298,7 +298,7 @@ pub fn catalog(p: &Pal, key: &str, rows: Vec<El>) -> El {
     for (at, r) in rows.into_iter().enumerate() {
         list = list.child(r);
         if at + 1 < n {
-            list = list.child(el().w_full().h(0.5).fill(p.border));
+            list = list.child(rule(0.5, p.border));
         }
     }
     list

@@ -15,7 +15,7 @@ pub mod unavailable;
 use std::collections::HashMap;
 
 use opencode_kit::servers::ServerKey;
-use rune::{Align, El, Tx, col, el, icon, row, text};
+use rune::{Align, El, Tx, col, el, icon, row, rule, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
@@ -208,7 +208,7 @@ fn select_for(s: &App, p: &Pal, key: &str, label: &str, options: Vec<(String, St
 fn card(p: &Pal, rows: Vec<El>) -> El {
     let n = rows.len();
     rows.into_iter().enumerate().fold(col().key("settings-server-list").w_full().px(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)), |l, (at, r)| {
-        if at + 1 < n { l.child(r.pb(16.0)).child(el().w_full().h(0.5).fill(p.border)).child(el().h(16.0)) } else { l.child(r) }
+        if at + 1 < n { l.child(r.pb(16.0)).child(rule(0.5, p.border)).child(el().h(16.0)) } else { l.child(r) }
     })
 }
 

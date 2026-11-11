@@ -299,6 +299,7 @@ fn summary(p: &Pal, m: &super::data::ReviewFileMeta) -> El {
         .center_y()
         .fill(p.bg_base)
         .border_sides([0.0, 0.0, 0.5, 0.0], p.border)
+        .border_layout()
         .child(lead)
         .child(el().grow(1.0))
         .child(open)

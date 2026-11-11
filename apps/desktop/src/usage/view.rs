@@ -289,7 +289,7 @@ fn section(p: &Pal, label: &str, badge: Option<&str>, dimmed: bool, body: El) ->
 
 /// `Panel`: 8 pt corners, a 0.5 `border-base` edge on `bg-base`, 16 above and below.
 fn panel(p: &Pal, gap: f32) -> El {
-    col().w_full().py(16.0).gap(gap).radius(8.0).fill(p.bg_base).border(0.5, p.border)
+    col().w_full().py(16.0).gap(gap).radius(8.0).fill(p.bg_base).border(0.5, p.border).border_layout()
 }
 
 fn item() -> El {

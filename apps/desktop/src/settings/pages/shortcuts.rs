@@ -6,7 +6,7 @@
 //! changes are saved (`keybinds`) and every key handler takes them at once (`keymap::overrides`).
 //! Typing anywhere on the page searches it.
 
-use rune::{Chord, ChordKey, ChordMod, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, el, row, text};
+use rune::{Chord, ChordKey, ChordMod, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, row, text};
 
 use super::{filter_field, ghost_button, header_beside, no_results};
 use crate::App;
@@ -98,12 +98,14 @@ pub fn view(s: &App, p: &Pal) -> El {
         let mut card = col().key(format!("settings-shortcuts-{}", section.title())).w_full().padding(20.0).radius(6.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
         for (i, e) in rows.into_iter().enumerate() {
             let target = format!("shortcut-{}", e.id);
-            // 16 below, then the rule in the row's box as Desktop's `border-b` is (`py-3` the
-            // settings list sets to 16 below), then 16 to the next.
-            let r = row().key(format!("setting-{target}")).w_full().gap(16.0).center_y().pb(if i + 1 < n { 16.5 } else { 0.0 }).mb(if i + 1 < n { 16.0 } else { 0.0 })
+            // 16 below, then Desktop's `border-b` (`py-3` the settings list sets to 16 below),
+            // taking its device pixel of the row, then 16 to the next.
+            let ruled = i + 1 < n;
+            let r = row().key(format!("setting-{target}")).w_full().gap(16.0).center_y().pb(if ruled { 16.0 } else { 0.0 }).mb(if ruled { 16.0 } else { 0.0 })
+                .border_sides([0.0, 0.0, if ruled { 0.5 } else { 0.0 }, 0.0], p.border)
+                .border_layout()
                 .child(text(e.title.clone()).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
-                .child(controls(s, p, e))
-                .children((i + 1 < n).then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)));
+                .child(controls(s, p, e));
             card = card.child(super::revealable(s, p, &target, 20.0, r));
         }
         body = body.child(super::section(p, &format!("settings-shortcuts-section-{}", section.title()), Some(section.title()), card));

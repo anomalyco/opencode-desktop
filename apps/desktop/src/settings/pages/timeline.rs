@@ -153,7 +153,7 @@ fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
         .child(row().w(88.0).pl(8.0).center().child(text(t!("settings.timeline.collapse")).font(LINE).color(p.muted)));
     let n = Category::ALL.len();
     let list = Category::ALL.iter().enumerate().fold(
-        col().key("timeline-detail-list").w_full().mt(8.0).radius(8.0).fill(p.layer2).border(0.5, p.border),
+        col().key("timeline-detail-list").w_full().mt(8.0).radius(8.0).fill(p.layer2).border(0.5, p.border).border_layout(),
         |l, (i, c)| l.child(category(p, d, *c, i + 1 == n)),
     );
     c = c.child(columns).child(list);
@@ -207,5 +207,5 @@ fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
         .child(activity)
         .child(row().w(72.0).center().child(grouped))
         .child(row().w(88.0).pl(8.0).center().children(collapse));
-    if last { r } else { r.border_sides([0.0, 0.0, 0.5, 0.0], p.border) }
+    if last { r } else { r.border_sides([0.0, 0.0, 0.5, 0.0], p.border).border_layout() }
 }

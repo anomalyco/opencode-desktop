@@ -6,7 +6,7 @@
 //! starts where the last ended (`patchFileGroups`), else their diffs one after another. Files
 //! start shut. With no file known yet, the first tool's title alone.
 
-use rune::{El, col, el, icon, row, text};
+use rune::{El, col, icon, row, rule, text};
 use rune_kit::diff::{FileDiff, parse};
 use serde_json::Value;
 
@@ -278,13 +278,12 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
             col()
                 .key("content")
                 .w_full()
-                .px(1.0)
-                .pb(1.0)
                 .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
+                .border_layout()
                 .fill(p.layer1)
                 .corners([0.0, 0.0, corner, corner])
                 .clip_corners([0.0, 0.0, corner, corner])
-                .child(el().key("hairline").w_full().h(0.5).fill(p.border_muted))
+                .child(rule(0.5, p.border_muted).key("hairline"))
                 .child(readable(p, views)),
         );
     }
@@ -299,9 +298,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .key("errors")
                 .w_full()
                 .mt(-1.0)
-                .px(1.0)
-                .pb(1.0)
                 .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
+                .border_layout()
                 .fill(p.bg_base)
                 .corners([0.0, 0.0, corner, corner])
                 .clip_corners([0.0, 0.0, corner, corner])
@@ -345,7 +343,8 @@ fn diagnostics(p: &Pal, metadata: &Value, file: &str) -> Option<El> {
         .px(12.0)
         .py(8.0)
         .fill(p.danger_bg)
-        .border_sides([0.5, 0.0, 0.0, 0.0], p.danger_border);
+        .border_sides([0.5, 0.0, 0.0, 0.0], p.danger_border)
+        .border_layout();
     for d in list {
         let start = &d["range"]["start"];
         let at = format!("[{}:{}]", start["line"].as_u64().unwrap_or(0) + 1, start["character"].as_u64().unwrap_or(0) + 1);

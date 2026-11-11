@@ -238,6 +238,7 @@ pub fn file_header(p: &Pal, path: &str, status: rune_kit::diff::FileStatus, adds
         .center_y()
         .fill(p.bg_base)
         .border_sides([0.0, 0.0, 1.0, 0.0], p.border)
+        .border_layout()
         .child(title)
         .child(counts)
 }

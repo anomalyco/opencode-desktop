@@ -5,7 +5,7 @@
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
 use rune_kit::ScrollBar as _;
-use rune::{Color, El, Tx, col, el, icon, row, text};
+use rune::{Color, El, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::pages::{self, Page};
@@ -180,8 +180,9 @@ fn narrow_bar(s: &App, p: &Pal, inset: f32) -> El {
         })
         .child(text(current).font(TAB).color(p.text))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
-    row().key("settings-mobile-nav").w_full().px(inset).py(8.0).pb(8.5).center_y().justify_between().fill(p.bg_base)
+    row().key("settings-mobile-nav").w_full().px(inset).py(8.0).center_y().justify_between().fill(p.bg_base)
+        .border_sides([0.0, 0.0, 0.5, 0.0], p.border_muted)
+        .border_layout()
         .child(back_button(p, matches!(s.settings_pages.page, Page::Project(..))))
         .child(trigger)
-        .child(el().key("rule").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border_muted))
 }

@@ -308,11 +308,12 @@ fn sessions(s: &App, p: &Pal, linked: &[&SessionInfo]) -> El {
     let rows = linked.iter().enumerate().map(|(i, x)| {
         let time = (n > 1 && x.updated > 0).then(|| text(crate::switcher::relative_time(s.now_ms, x.updated)).font(BODY).color(p.faint));
         row().key(format!("settings-worktree-session-{}", x.id)).w_full().py(10.0).pl(12.0).pr(16.0).gap(12.0).center_y()
+            .border_sides([0.0, 0.0, if i + 1 < n { 0.5 } else { 0.0 }, 0.0], p.border)
+            .border_layout()
             .child(text(crate::view::title_of(x)).font(BODY).color(p.text).truncate().grow(1.0).shrink().min_w(0.0))
             .children(time)
-            .children((i + 1 < n).then(|| el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(0.5).fill(p.border)))
     });
-    col().key("settings-worktree-sessions").w_full().radius(6.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border)).clip_soft(0.0).children(rows)
+    col().key("settings-worktree-sessions").w_full().radius(6.0).fill(p.bg_base).border(0.5, p.border).border_layout().clip_soft(0.0).children(rows)
 }
 
 /// Tells the deletes' machine `event` and runs what it asks for.

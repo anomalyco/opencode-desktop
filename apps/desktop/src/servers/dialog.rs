@@ -224,7 +224,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let mut body = col().key("dialog-server-form").w_full().min_w(0.0).gap(24.0);
     if v.signed_out {
         body = body.child(
-            row().key("dialog-server-notice").role("status").w_full().gap(8.0).items_start().px(12.0).py(10.0).radius(6.0).border(1.0, p.border).fill(p.layer1)
+            row().key("dialog-server-notice").role("status").w_full().gap(8.0).items_start().px(12.0).py(10.0).radius(6.0).border(1.0, p.border).border_layout().fill(p.layer1)
                 .child(el().my(2.0).child(icon(crate::plugin_host::icons::resolve("", "lock"), 12.0).color(p.icon_muted)))
                 .child(text(t!("dialog.server.signedOut")).font(rune::TextStyle::new(13.0, 440.0).lh(20.0)).color(p.text).wrap().grow(1.0).shrink().min_w(0.0)),
         );

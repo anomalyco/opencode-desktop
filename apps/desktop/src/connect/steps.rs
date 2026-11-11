@@ -191,13 +191,13 @@ fn confirmation_code(c: &Conn) -> Option<String> {
 }
 
 /// The older `TextField` read-only and copyable, in code type (`components/text-field.css` with
-/// `font-mono`): an `input-base` box with a hairline, the value 12 pt in, Copy at its end; its
-/// label above (unless hidden) and a description below.
+/// `font-mono`): an `input-base` box in a 1 px `border-base` border that takes its room, the
+/// value 12 pt in, Copy at its end; its label above (unless hidden) and a description below.
 fn copy_field(p: &Pal, key: &str, label: Option<&str>, description: Option<&str>, value: String) -> El {
     let weak = p.v1_text_weak;
     let fill = if p.theme == 0 { rune::color::hex(if p.dark { "#151515" } else { "#f8f8f8" }).unwrap_or(p.layer1) } else { p.layer1 };
     let copy = value.clone();
-    let wrapper = row().key(key.to_owned()).role("textbox").label(label.unwrap_or_default().to_owned()).w_full().pr(4.0).radius(6.0).fill(fill).border(0.5, p.border)
+    let wrapper = row().key(key.to_owned()).role("textbox").label(label.unwrap_or_default().to_owned()).w_full().pr(4.0).radius(6.0).fill(fill).border(1.0, p.border).border_layout()
         // A value wider than the box runs past its end, clipped, as an input's does.
         .child(row().h(32.0).px(12.0).py(2.0).grow(1.0).shrink().min_w(0.0).center_y().clip_soft(0.0)
             .child(text(value).font(FIELD).color(p.standard.text).selectable(true)))
@@ -403,7 +403,7 @@ fn remote_notice(s: &App, p: &Pal) -> El {
         crate::Source::Live { server, .. } => server.base.split("://").nth(1).unwrap_or(&server.base).to_owned(),
         crate::Source::Fixture => String::new(),
     };
-    col().role("note").w_full().padding(12.0).radius(6.0).fill(p.layer2).border(1.0, p.border)
+    col().role("note").w_full().padding(12.0).radius(6.0).fill(p.layer2).border(1.0, p.border).border_layout()
         .child(text(opencode_i18n::t!("provider.connect.remote.title", server = name)).font(BODY_MED).color(p.text))
         .child(text(opencode_i18n::t!("provider.connect.remote.description")).font(BODY).color(p.muted).wrap())
 }
