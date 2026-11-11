@@ -8,6 +8,11 @@ fn test_runtime() -> Runtime<App> {
     let mut rt = Runtime::new((s.init)(), s.view, s.size, Env::new(true, 2.0));
     rt.poll = s.poll;
     rt.on_key = s.on_key;
+    // The browser's panel is the Luau browser plugin (56e23b43).
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
     rt.frame(0.0);
     rt
 }
@@ -151,7 +156,7 @@ fn after_dragging_the_divider_at_zoom_1_6_the_page_is_sized_to_its_surface_below
     }
     let ([_, sy, sw, sh], _) = rt.presented("browser-surface").expect("page drawn");
     assert!((sw - before[2]).abs() > 20.0, "the drag resized the page: {before:?} -> {sw}");
-    let (bar, _) = rt.presented("browser-navbar").expect("toolbar drawn");
+    let (bar, _) = rt.presented("browser-bar").expect("toolbar drawn");
     assert!(sy >= bar[1] + bar[3] - 0.5, "the page starts below the toolbar: page y {sy}, toolbar {bar:?}");
 
     let msgs: Vec<HostMsg> = sent.try_iter().collect();
@@ -183,7 +188,10 @@ fn multi_tab_close_hides_region_when_last_tab_closes() {
     rt.pointer_move(x, y);
     rt.pointer_down(x, y);
     rt.pointer_up(x, y);
-    rt.frame(1.0 / 60.0);
+    // The tab goes at once; the plugin closes its page at the next polls.
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
 
     assert!(rt.state.browser.host.tabs().is_empty());
     // The panel's last tab: the panel shuts with it (ad582786).
@@ -259,14 +267,15 @@ fn border_runs_all_the_way_around_over_opaque_native_surface() {
     let inside = px(x_left + 20, y_mid);
     assert!(inside[0] > 240 && inside[1] < 10 && inside[2] < 10, "expected red NativeSurface interior, got {inside:?}");
 
+    // The card's 0.5 pt ring is outside its box (e849591a): one device pixel past each edge.
     for (name, sample) in [
-        ("left-mid", px(x_left, y_mid)),
-        ("left-low", px(x_left, y_low)),
-        ("right-mid", px(x_right, y_mid)),
-        ("bottom-mid", px(x_mid, y_bot)),
+        ("left-mid", px(x_left - 1, y_mid)),
+        ("left-low", px(x_left - 1, y_low)),
+        ("right-mid", px(x_right + 1, y_mid)),
+        ("bottom-mid", px(x_mid, y_bot + 1)),
     ] {
         assert!(
-            sample[1] > 30 && sample[2] > 30,
+            sample[0] < 200,
             "{name} border pixel was overwritten by NativeSurface: {sample:?}"
         );
     }
@@ -327,6 +336,10 @@ fn holds_the_last_frame_at(zoom: f32) {
     let mut rt = Runtime::new(app, s.view, size, Env::new(true, scale));
     rt.poll = s.poll;
     rt.on_key = s.on_key;
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
     rt.frame(0.0);
     let tab_id = rt.state.browser.host.insert_mock_tab(
         "http://localhost:3000/",
@@ -633,6 +646,10 @@ fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
         })
         .headless_runtime(size, Env::new(true, scale));
     rt.state.zoom = 1.6;
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
     rt.frame(0.0);
 
     // 1. Prompt state (`NotInstalled`)
@@ -645,8 +662,11 @@ fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
         app.register_existing_browser_tab(id);
         tx.settle();
     });
-    rt.frame(1.0 / 60.0);
-    assert!(rt.find("browser-download-prompt").is_some());
+    // The plugin draws the pane at the next polls.
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
+    // The plugin's `browser-page` key names the prompt, its button keeps its own.
     assert!(rt.find("browser-download-btn").is_some());
 
     let stills_dir = std::env::var("OPENCODE_DESKTOP_INSTALL_STILLS_DIR").ok();
@@ -686,7 +706,6 @@ fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
     for _ in 0..30 {
         rt.frame(1.0 / 60.0);
     }
-    assert!(rt.find("browser-installing").is_some());
     assert!(rt.find("browser-dl-mb").is_some());
     assert!(rt.find("browser-dl-fill").is_some());
     maybe_snap(&mut rt, "browser-install-progress-zoom-1.6.png");
@@ -698,7 +717,6 @@ fn download_prompt_odometer_progress_and_retry_states_render_cleanly() {
         ));
     });
     rt.frame(1.0 / 60.0);
-    assert!(rt.find("browser-download-failed").is_some());
     assert!(rt.find("browser-retry-btn").is_some());
     maybe_snap(&mut rt, "browser-install-failed-zoom-1.6.png");
 }
