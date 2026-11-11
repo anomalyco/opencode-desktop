@@ -1,0 +1,261 @@
+{
+  "now": 1792659400000,
+  "home": "/Users/demo",
+  "projects": [
+    {
+      "id": "6c756d656e000000",
+      "canonical": "/Users/demo/code/lumen",
+      "vcs": "git",
+      "time": {
+        "created": 1790067400000,
+        "updated": 1792659280000,
+        "active": 1792659280000
+      },
+      "sandboxes": [
+        "/Users/demo/code/worktrees/lumen/reconnect-fix"
+      ]
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+      "projectID": "6c756d656e000000",
+      "agent": "build",
+      "model": {
+        "id": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "variant": "high"
+      },
+      "cost": 1.84,
+      "tokens": {
+        "input": 6140,
+        "output": 5116,
+        "reasoning": 900,
+        "cache": {
+          "read": 61400,
+          "write": 2400
+        }
+      },
+      "time": {
+        "created": 1792658140000,
+        "updated": 1792659340000,
+        "idle": 1792659340000,
+        "viewed": 1792659340000
+      },
+      "title": "Illustration options",
+      "location": {
+        "directory": "/Users/demo/code/lumen"
+      }
+    }
+  ],
+  "open": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+  "tabs": [
+    "ses_fx0001aaaaaaaaaaaaaaaaaa"
+  ],
+  "running": [
+    "ses_fx0001aaaaaaaaaaaaaaaaaa"
+  ],
+  "messages": {
+    "ses_fx0001aaaaaaaaaaaaaaaaaa": [
+      {
+        "id": "msg_demo_00",
+        "type": "user",
+        "time": {
+          "created": 1792659399000
+        },
+        "text": "Can you generate six illustration options?"
+      },
+      {
+        "id": "msg_demo_01",
+        "type": "assistant",
+        "time": {
+          "created": 1792659399001
+        },
+        "content": [
+          {
+            "type": "tool",
+            "id": "call_0",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_0"
+              }
+            }
+          },
+          {
+            "type": "tool",
+            "id": "call_1",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_1"
+              }
+            }
+          },
+          {
+            "type": "tool",
+            "id": "call_2",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_2"
+              }
+            }
+          },
+          {
+            "type": "tool",
+            "id": "call_3",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_3"
+              }
+            }
+          },
+          {
+            "type": "tool",
+            "id": "call_4",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_4"
+              }
+            }
+          },
+          {
+            "type": "tool",
+            "id": "call_5",
+            "name": "experimental_image_generate",
+            "state": {
+              "status": "completed",
+              "input": {},
+              "metadata": {
+                "jobID": "image_demo_5"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "msg_demo_02",
+        "type": "user",
+        "time": {
+          "created": 1792659399002
+        },
+        "text": "How can we represent this?"
+      },
+      {
+        "id": "msg_demo_03",
+        "type": "synthetic",
+        "time": {
+          "created": 1792659399003
+        },
+        "description": "Image generation",
+        "metadata": {
+          "source": "experimental_image_generate",
+          "jobID": "image_demo_0",
+          "state": "error"
+        }
+      },
+      {
+        "id": "msg_demo_04",
+        "type": "user",
+        "time": {
+          "created": 1792659399004
+        },
+        "text": "Give each feature a little icon."
+      },
+      {
+        "id": "msg_demo_05",
+        "type": "synthetic",
+        "time": {
+          "created": 1792659399005
+        },
+        "description": "Image generation",
+        "metadata": {
+          "source": "experimental_image_generate",
+          "jobID": "image_demo_1",
+          "state": "error"
+        }
+      },
+      {
+        "id": "msg_demo_06",
+        "type": "user",
+        "time": {
+          "created": 1792659399006
+        },
+        "text": "With the 3D look."
+      },
+      {
+        "id": "msg_demo_07",
+        "type": "synthetic",
+        "time": {
+          "created": 1792659399007
+        },
+        "description": "Image generation",
+        "metadata": {
+          "source": "experimental_image_generate",
+          "jobID": "image_demo_2",
+          "state": "error"
+        }
+      },
+      {
+        "id": "msg_demo_08",
+        "type": "user",
+        "time": {
+          "created": 1792659399008
+        },
+        "text": "Use the same palette."
+      },
+      {
+        "id": "msg_demo_09",
+        "type": "synthetic",
+        "time": {
+          "created": 1792659399009
+        },
+        "description": "Image generation",
+        "metadata": {
+          "source": "experimental_image_generate",
+          "jobID": "image_demo_3",
+          "state": "error"
+        }
+      },
+      {
+        "id": "msg_demo_10",
+        "type": "synthetic",
+        "time": {
+          "created": 1792659399010
+        },
+        "description": "Image generation",
+        "metadata": {
+          "source": "experimental_image_generate",
+          "jobID": "image_demo_4",
+          "state": "error"
+        }
+      },
+      {
+        "id": "msg_demo_11",
+        "type": "assistant",
+        "time": {
+          "created": 1792659399011
+        },
+        "content": [
+          {
+            "type": "reasoning",
+            "text": "Trying another image model."
+          }
+        ]
+      }
+    ]
+  }
+}

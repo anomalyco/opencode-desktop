@@ -68,6 +68,8 @@ pub enum NoticeKind {
     Restart,
     /// A background shell or subagent came back (`Shell finished`, `Explore failed`).
     Finished(Finished),
+    /// A background tool report, linked to the initiating call by its job ID.
+    Job { id: String, description: String },
     Text(String),
     /// The run ended (an `idle` message): never shown, it closes the turn whose changed files
     /// Changed files lists.
@@ -177,6 +179,9 @@ fn kind(ty: &str, m: &Value) -> Option<NoticeKind> {
             }
             if matches!(m["metadata"]["source"].as_str(), Some("subagent" | "shell")) {
                 return finished(m, description);
+            }
+            if let Some(id) = m["metadata"]["jobID"].as_str().filter(|id| !id.is_empty()) {
+                return Some(NoticeKind::Job { id: id.to_owned(), description: description?.to_owned() });
             }
             NoticeKind::Text(description?.to_owned())
         }

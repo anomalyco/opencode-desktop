@@ -325,7 +325,7 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
         NoticeKind::Restart => line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.restart").into())]),
         NoticeKind::Finished(f) => finished(s, p, f),
         NoticeKind::Idle => col(),
-        NoticeKind::Text(t) => line(vec![faint_med("label", t.clone())]),
+        NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
                 .child(text(opencode_i18n::t!("ui.sessionTimeline.notice.movedTo")).key("label").font(UI).color(p.faint))

@@ -473,6 +473,7 @@ fn notice(w: &mut W, n: &Notice) {
             w.s(t);
         }
         NoticeKind::Idle => w.0.push(7),
+        NoticeKind::Job { id, description } => { w.0.push(8); w.s(id); w.s(description); }
     }
 }
 
@@ -499,6 +500,7 @@ fn read_notice(r: &mut R<'_>) -> Option<Notice> {
         }),
         6 => NoticeKind::Text(r.s()?),
         7 => NoticeKind::Idle,
+        8 => NoticeKind::Job { id: r.s()?, description: r.s()? },
         _ => return None,
     };
     Some(Notice { id, kind })
