@@ -502,7 +502,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
             let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
             let (n, item) = match &steps[i] {
                 st @ Step::Thought { .. } => (1, thought(s, p, st, live, fade)),
-                Step::Notice(n) => (1, col().key(format!("notice-{}", n.id)).w_full().child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default()))),
+                // 28 high like the steps around it (`py-1`).
+                Step::Notice(n) => (1, col().key(format!("notice-{}", n.id)).w_full().py(4.0).child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default()))),
                 Step::Text { body } => (1, col().key(format!("text-{i}")).w_full().child(crate::timeline::markdown_view::<S>(p, body, fade, false))),
                 st @ Step::Tool { .. } if grouped_read(st) => {
                     let calls: Vec<crate::tools::Call> = steps[i..i + run(grouped_read)].iter().filter_map(call).collect();

@@ -278,8 +278,8 @@ fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) 
         Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = actor), p.cancelled, Some(&rune_theme_opencode::icons::CIRCLE_BAN_SIGN)),
     };
     let child = f.child.clone().filter(|_| f.subagent && s.can_open_session());
-    // One line (`block w-full truncate pt-3 pb-1`): 16 high under 12, 4 below.
-    let mut line = row().key("notice").w_full().center_y().min_h(20.0).pt(12.0).pb(4.0);
+    // One 20 high line; the timeline sets the room around it (`timeline::rhythm`).
+    let mut line = row().key("notice").w_full().center_y().min_h(20.0);
     if let Some(m) = mark {
         line = line.child(icon(m, 16.0).key("mark").color(ink).mr(6.0));
     }
@@ -306,7 +306,7 @@ pub fn is_divider(n: &Notice) -> bool {
 pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compaction::Run) -> El {
     let faint_med = |key: &'static str, words: String| text(words).key(key).font(UI_MED).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let faint = |key: &'static str, words: String| text(words).key(key).font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
-    let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).pt(12.0).pb(4.0).children(kids);
+    let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).children(kids);
     match &n.kind {
         NoticeKind::Agent { agent, previous } => {
             let data = match previous {
