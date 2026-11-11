@@ -142,7 +142,10 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
         key: Key::Command('w'),
         mods: Mods { cmd: true, logo: true, ..Default::default() },
     });
-    rt.frame(1.0 / 60.0);
+    // The browser's plugin closes its page at the next polls, and the region shuts with it.
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
     assert!(!rt.state.side_open());
 
     // An extra immediate ⌘W is swallowed by `emptied_guard` instead of closing the session tab!
@@ -167,7 +170,10 @@ fn instant_tab_switch_close_emptied_guard_and_reopen_closed() {
         key: Key::Command('t'),
         mods: Mods { cmd: true, shift: true, logo: true, ..Default::default() },
     });
-    rt.frame(1.0 / 60.0);
+    // The plugin reopens its page at the next polls.
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
     let restored_url = rt
         .state
         .active_browser_tab_id()

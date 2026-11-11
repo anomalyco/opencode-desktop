@@ -11,6 +11,11 @@ fn with_tab(url: &str) -> (Runtime<App>, u64) {
     let mut rt = Runtime::new((s.init)(), s.view, s.size, Env::new(true, 2.0));
     rt.poll = s.poll;
     rt.on_key = s.on_key;
+    // The browser's panel is the Luau browser plugin (56e23b43).
+    rt.update(|s, _| {
+        crate::plugin_host::setup(s, std::sync::Arc::new(|| {}));
+        crate::plugin_host::contrib_sync_luau(s);
+    });
     rt.frame(0.0);
     let id = rt.state.open_new_browser_tab(url);
     if !rt.state.side_open() {
@@ -42,15 +47,25 @@ fn only_web_pages_open_outside() {
 
 #[test]
 fn the_address_bar_button_opens_the_page_in_the_default_browser() {
-    let (mut rt, _) = with_tab("http://localhost:4792/");
-    tap(&mut rt, "browser-open-out");
-    assert_eq!(rt.take_url_requests(), ["http://localhost:4792/"]);
+    let (mut rt, _) = with_tab("https://example.com/docs");
+    let (x, y) = rt.find("browser-address").expect("the address bar");
+    rt.pointer_move(x, y);
+    for _ in 0..30 {
+        rt.frame(DT);
+    }
+    // A plugin opens links only in a live window.
+    rt.state.source = crate::Source::Live { server: opencode_kit::client::Server::new("http://127.0.0.1:1"), requests: None, writes: None, allow_send: false };
+    tap(&mut rt, "browser-open-external");
+    for _ in 0..3 {
+        rt.frame(DT);
+    }
+    assert_eq!(rt.take_url_requests(), ["https://example.com/docs"]);
 }
 
 #[test]
 fn a_blank_tab_has_nothing_to_open() {
     let (mut rt, _) = with_tab("about:blank");
-    tap(&mut rt, "browser-open-out");
+    assert!(rt.find("browser-open-external").is_none(), "a blank tab offers no page to open");
     assert!(rt.take_url_requests().is_empty());
 }
 
