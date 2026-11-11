@@ -176,11 +176,17 @@ pub struct OpenIn {
     launcher: Arc<dyn Launcher>,
     found: Latest<Vec<&'static str>>,
     done: Latest<Result<(), String>>,
-    /// Which apps are installed: unknown until the check (`detect`, after the first frame) answers.
+    /// Which apps are installed: unknown until the check answers, which starts the first time the
+    /// list is asked for (`options`: the menu opening, a plugin asking), not at launch.
     installed: Installed,
+    /// The list was asked for while unknown: the next `poll` starts the check.
+    wanted: std::cell::Cell<bool>,
     chosen: Option<String>,
     busy: bool,
 }
+
+/// What the first check in this process found, for every window after it.
+static FOUND: std::sync::Mutex<Option<Vec<&'static str>>> = std::sync::Mutex::new(None);
 
 impl Default for OpenIn {
     fn default() -> Self {
@@ -190,7 +196,7 @@ impl Default for OpenIn {
 
 impl OpenIn {
     pub fn with(launcher: Arc<dyn Launcher>) -> Self {
-        Self { launcher, found: Latest::default(), done: Latest::default(), installed: Installed::Unknown, chosen: None, busy: false }
+        Self { launcher, found: Latest::default(), done: Latest::default(), installed: Installed::Unknown, wanted: std::cell::Cell::new(false), chosen: None, busy: false }
     }
 
     pub fn set_waker(&mut self, waker: Waker) {
@@ -198,9 +204,13 @@ impl OpenIn {
         self.done.set_waker(waker);
     }
 
-    /// Looks for installed apps in the background: from `launch::ready`, after the first frame,
-    /// which shows the remembered choice until the check answers.
+    /// Looks for installed apps in the background, once per process (a later window takes the first
+    /// answer); until it answers the remembered choice stands.
     pub fn detect(&mut self) {
+        if let Some(found) = FOUND.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            self.installed = Installed::Known(APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect());
+            return;
+        }
         let launcher = self.launcher.clone();
         self.found.request((), move |()| {
             let apps: Vec<&'static str> = APPS.iter().map(|a| a.open_with).collect();
@@ -211,7 +221,12 @@ impl OpenIn {
     /// Takes in finished work; the error of a launch that failed.
     pub fn poll(&mut self) -> (bool, Option<String>) {
         let mut changed = false;
+        if self.wanted.take() && matches!(self.installed, Installed::Unknown) {
+            self.detect();
+            changed |= matches!(self.installed, Installed::Known(_));
+        }
         if let Some(found) = self.found.take() {
+            *FOUND.lock().unwrap_or_else(|e| e.into_inner()) = Some(found.clone());
             self.installed = Installed::Known(APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect());
             changed = true;
         }
@@ -224,8 +239,16 @@ impl OpenIn {
         (changed, err)
     }
 
-    /// The file manager first, then what's installed.
+    /// The file manager first, then what's installed: asking starts the check the first time.
     pub fn options(&self) -> Vec<(&'static str, &'static str)> {
+        if matches!(self.installed, Installed::Unknown) {
+            self.wanted.set(true);
+        }
+        self.listed()
+    }
+
+    /// `options` without starting the check, for what only shows the current choice.
+    fn listed(&self) -> Vec<(&'static str, &'static str)> {
         let ids: Vec<&str> = match &self.installed {
             Installed::Known(ids) => ids.clone(),
             // Before the check answers, the remembered choice stands: it was installed when chosen.
@@ -235,7 +258,7 @@ impl OpenIn {
     }
 
     pub fn current(&self) -> &str {
-        self.chosen.as_deref().filter(|c| self.options().iter().any(|(id, _)| id == c)).unwrap_or(FINDER)
+        self.chosen.as_deref().filter(|c| self.listed().iter().any(|(id, _)| id == c)).unwrap_or(FINDER)
     }
 
     pub fn current_label(&self) -> &'static str {
@@ -353,7 +376,7 @@ pub fn apps_menu(s: &App) -> Menu {
 
 /// The file manager's name (the first app), for Reveal in.
 pub fn finder_label(s: &App) -> &'static str {
-    s.open_in.options().first().map_or("", |o| o.1)
+    s.open_in.listed().first().map_or("", |o| o.1)
 }
 
 fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {

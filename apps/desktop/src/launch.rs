@@ -464,8 +464,6 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     unidle_gpu_threads();
-    // Which Open in apps are installed: the first frame showed the remembered choice.
-    s.open_in.detect();
     crate::updater::start_if_packaged(s);
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
