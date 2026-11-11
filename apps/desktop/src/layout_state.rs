@@ -104,24 +104,6 @@ impl LayoutMotionState {
     }
 }
 
-/// What starts a peek: resting at the window's start edge, or on the collapsed toggle.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PeekTrigger {
-    Edge,
-    Toggle,
-}
-
-impl PeekTrigger {
-    /// How long the pointer rests before the sidebar peeks (`SIDEBAR_PEEK_DWELL_MS`): the edge
-    /// is quick, the toggle waits, as the header row is crossed far more often.
-    pub fn dwell(self) -> f64 {
-        match self {
-            Self::Edge => 0.04,
-            Self::Toggle => 0.5,
-        }
-    }
-}
-
 /// How long the pointer may stray past the sidebar and toggle before the peek closes.
 pub const PEEK_GRACE: f64 = 0.1;
 /// The slide out's fallback, when its spring never reports landing.
@@ -129,13 +111,18 @@ pub const PEEK_LEAVE_TIMEOUT: f64 = 0.8;
 /// A dock from a peek's fallback, when the docked sidebar's flight never reports landing.
 pub const PEEK_HANDOFF_TIMEOUT: f64 = 1.0;
 
-/// The collapsed side-tabs or inbox sidebar's hover peek. Each timed phase holds its deadline
-/// on `App::clock`, so a late timer from an earlier phase finds nothing to do.
+/// The collapsed side-tabs or inbox sidebar's hover peek (`sidebar-peek-machine.ts`). Only
+/// resting at the window's start edge brings it: the toggle docks the sidebar and never peeks
+/// it. Each timed phase holds its deadline on `App::clock`, so a late timer from an earlier
+/// phase finds nothing to do.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum SidebarPeekState {
     #[default]
     Idle,
-    Dwelling { from: PeekTrigger, due_at: f64 },
+    /// The docked sidebar closed with the pointer at the edge: no peek until it leaves the edge,
+    /// or closing it there would bring it straight back.
+    Suppressed,
+    Dwelling { due_at: f64 },
     Peeking,
     Grace { due_at: f64 },
     Leaving { restore_focus: bool, due_at: f64 },
@@ -145,13 +132,15 @@ pub enum SidebarPeekState {
 /// What the peek hears from the shell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeekEvent {
-    /// A pointer move, scroll or window exit. `can_start_edge`: it rests in the start edge's
-    /// zone and a peek may start. `keep_open`: it's within the toggle-to-sidebar corridor, or
-    /// the peek is held (typing, a menu, a drag).
+    /// The pointer entered or left the start edge's zone. `can_peek`: the sidebar is closed and
+    /// nothing holds the pointer elsewhere. `held`: a menu or a rename holds an open peek.
+    Edge { inside: bool, can_peek: bool, held: bool },
+    /// The pointer entered or left the corridor over the sidebar and its toggle.
+    Corridor { inside: bool, held: bool },
+    /// What the machine hears of the pointer, which `Shell::peek_event` makes from the two zones:
+    /// `can_start_edge`, it rests at the edge and a peek may start; `keep_open`, it's within
+    /// the corridor, or the peek is held.
     Pointer { can_start_edge: bool, keep_open: bool },
-    /// The pointer entered the collapsed toggle; `can_peek` when nothing blocks a peek.
-    ToggleEnter { can_peek: bool },
-    ToggleLeave,
     /// A press, drag or resize: cancels a dwell, leaves an open peek alone.
     Interrupt,
     Escape,
@@ -168,10 +157,52 @@ pub enum PeekEvent {
     Disabled,
 }
 
+/// Where the pointer last was, by the peek's two zones.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PeekPointer {
+    at_edge: bool,
+    can_peek: bool,
+    in_corridor: bool,
+    held: bool,
+}
+
+impl PeekPointer {
+    fn heard(&mut self, event: PeekEvent) -> PeekEvent {
+        match event {
+            PeekEvent::Edge { inside, can_peek, held } => (self.at_edge, self.can_peek, self.held) = (inside, can_peek, held),
+            PeekEvent::Corridor { inside, held } => (self.in_corridor, self.held) = (inside, held),
+            _ => return event,
+        }
+        PeekEvent::Pointer { can_start_edge: self.can_start_edge(), keep_open: self.keep_open() }
+    }
+
+    fn can_start_edge(self) -> bool {
+        self.at_edge && self.can_peek
+    }
+
+    fn keep_open(self) -> bool {
+        self.in_corridor || self.held
+    }
+}
+
+/// What a transition reads beside its event: the edge's dwell (`sidebar::PEEK_DELAY`), and
+/// whether the pointer rests at the edge.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PeekCx {
+    pub dwell: f64,
+    pub at_edge: bool,
+}
+
 impl SidebarPeekState {
-    /// Whether the sidebar shows as a peek: sliding in, open, or sliding out.
+    /// Whether the sidebar shows as a peek: sliding in, open, sliding out, or handing off to
+    /// the dock.
     pub fn shown(self) -> bool {
         matches!(self, Self::Peeking | Self::Grace { .. } | Self::Leaving { .. } | Self::HandingOff { .. })
+    }
+
+    /// Whether the peek is out over the panel, not sliding away or docking.
+    pub fn open(self) -> bool {
+        matches!(self, Self::Peeking | Self::Grace { .. })
     }
 
     pub fn handed_off(self) -> bool {
@@ -181,35 +212,31 @@ impl SidebarPeekState {
     /// The next deadline, for a wake.
     pub fn due(self) -> Option<f64> {
         match self {
-            Self::Dwelling { due_at, .. } | Self::Grace { due_at } | Self::Leaving { due_at, .. } | Self::HandingOff { due_at } => {
-                Some(due_at)
-            }
-            Self::Idle | Self::Peeking => None,
+            Self::Dwelling { due_at } | Self::Grace { due_at } | Self::Leaving { due_at, .. } | Self::HandingOff { due_at } => Some(due_at),
+            Self::Idle | Self::Suppressed | Self::Peeking => None,
         }
     }
 
-    /// Applies `event` at `now`: Desktop's `transitionSidebarPeek`.
-    pub fn on(&mut self, event: PeekEvent, now: f64) {
+    /// Applies `event` at `now`: Desktop's `transitionSidebarPeek`, without its toggle trigger.
+    pub fn on(&mut self, event: PeekEvent, now: f64, cx: PeekCx) {
         use PeekEvent as E;
         let leaving = |restore_focus| Self::Leaving { restore_focus, due_at: now + PEEK_LEAVE_TIMEOUT };
         let handing_off = Self::HandingOff { due_at: now + PEEK_HANDOFF_TIMEOUT };
-        let dwelling = |from: PeekTrigger| Self::Dwelling { from, due_at: now + from.dwell() };
         let next = match (*self, event) {
             (_, E::Disabled) => Self::Idle,
-            (Self::Idle, E::Pointer { can_start_edge: true, .. }) => dwelling(PeekTrigger::Edge),
-            (Self::Idle, E::ToggleEnter { can_peek: true }) => dwelling(PeekTrigger::Toggle),
-            (Self::Dwelling { from, .. }, E::Pointer { can_start_edge, .. }) if from == PeekTrigger::Edge && !can_start_edge => Self::Idle,
-            (Self::Dwelling { .. }, E::ToggleEnter { can_peek: false }) => Self::Idle,
-            (Self::Dwelling { from: PeekTrigger::Edge, .. }, E::ToggleEnter { can_peek: true }) => dwelling(PeekTrigger::Toggle),
-            (Self::Dwelling { from: PeekTrigger::Toggle, .. }, E::ToggleLeave) => Self::Idle,
+            (Self::Idle | Self::Dwelling { .. }, E::DockClosed) if cx.at_edge => Self::Suppressed,
+            (Self::Idle, E::Pointer { can_start_edge: true, .. }) => Self::Dwelling { due_at: now + cx.dwell },
+            (Self::Suppressed, E::Pointer { .. }) if !cx.at_edge => Self::Idle,
+            (Self::Suppressed, E::DockOpened) => Self::Idle,
+            (Self::Dwelling { .. }, E::Pointer { can_start_edge: false, .. }) => Self::Idle,
             (Self::Dwelling { .. }, E::Interrupt | E::Escape | E::Blur | E::DockOpened | E::DockClosed) => Self::Idle,
             (Self::Peeking, E::Pointer { keep_open: false, .. }) => Self::Grace { due_at: now + PEEK_GRACE },
-            (Self::Grace { .. }, E::Pointer { keep_open: true, .. } | E::ToggleEnter { can_peek: true }) => Self::Peeking,
+            (Self::Grace { .. }, E::Pointer { keep_open: true, .. }) => Self::Peeking,
             (Self::Peeking | Self::Grace { .. }, E::Escape) => leaving(true),
             (Self::Peeking | Self::Grace { .. }, E::Blur | E::FocusLeft | E::DockClosed) => leaving(false),
             (Self::Peeking | Self::Grace { .. }, E::DockOpened) => handing_off,
-            // Back at the edge or on the toggle while it slides out: it turns around at once.
-            (Self::Leaving { .. }, E::Pointer { can_start_edge: true, .. } | E::ToggleEnter { can_peek: true }) => Self::Peeking,
+            // Back at the edge while it slides out: it turns around at once.
+            (Self::Leaving { .. }, E::Pointer { can_start_edge: true, .. }) => Self::Peeking,
             (Self::Leaving { .. }, E::DockOpened) => handing_off,
             (Self::Leaving { .. }, E::LeaveSettled) => Self::Idle,
             (Self::HandingOff { .. }, E::DockClosed) => leaving(false),
@@ -219,9 +246,9 @@ impl SidebarPeekState {
         *self = next;
     }
 
-    /// Runs out a deadline that has passed. `ready`: the pointer still rests where its dwell
-    /// began; `keep_open`: it's back within the corridor when the grace ends. True on a change.
-    pub fn tick(&mut self, now: f64, ready: bool, keep_open: bool) -> bool {
+    /// Runs out a deadline that has passed. `ready`: the pointer still rests at the edge;
+    /// `keep_open`: it's back within the corridor when the grace ends. True on a change.
+    fn tick(&mut self, now: f64, ready: bool, keep_open: bool) -> bool {
         if self.due().is_none_or(|at| now + 1e-9 < at) {
             return false;
         }
@@ -240,8 +267,10 @@ impl SidebarPeekState {
 pub struct Shell {
     pub motion: LayoutMotionState,
     pub peek: SidebarPeekState,
-    /// The pointer's last sample, for deadlines that ask whether it still qualifies.
-    pointer: (bool, bool),
+    /// The pointer's last sample, for transitions and deadlines that ask where it is.
+    pointer: PeekPointer,
+    /// The edge's dwell, read from its knob on each poll.
+    dwell: f64,
     /// Events heard between polls, applied on the next one at its clock.
     queued: Vec<PeekEvent>,
     /// The narrow window's layout, views and drawers (`narrow`).
@@ -253,12 +282,12 @@ impl Shell {
         Shell { motion: LayoutMotionState::AtRest(layout), ..Shell::default() }
     }
 
-    /// The peek hears `event` at `now`, keeping a pointer sample for its deadlines.
+    /// The peek hears `event` at `now`; the edge and the corridor update the pointer's sample
+    /// and reach the machine as a `Pointer`.
     pub fn peek_event(&mut self, event: PeekEvent, now: f64) {
-        if let PeekEvent::Pointer { can_start_edge, keep_open } = event {
-            self.pointer = (can_start_edge, keep_open);
-        }
-        self.peek.on(event, now);
+        let event = self.pointer.heard(event);
+        let cx = PeekCx { dwell: self.dwell, at_edge: self.pointer.at_edge };
+        self.peek.on(event, now, cx);
     }
 }
 
@@ -317,17 +346,15 @@ impl App {
 
 /// Runs out the machines' deadlines on the poll clock, and wakes for the next one.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    let dwell = f64::from(s.knobs.get(&crate::view::PEEK_DELAY));
     let shell = &mut s.layout;
+    shell.dwell = dwell;
     let was = shell.peek;
     for event in std::mem::take(&mut shell.queued) {
         shell.peek_event(event, now);
     }
     let heard = shell.peek != was;
-    let (edge, keep_open) = shell.pointer;
-    let ready = match shell.peek {
-        SidebarPeekState::Dwelling { from: PeekTrigger::Edge, .. } => edge,
-        _ => true,
-    };
+    let (ready, keep_open) = (shell.pointer.can_start_edge(), shell.pointer.keep_open());
     let changed = heard | shell.motion.tick(now) | shell.peek.tick(now, ready, keep_open);
     if let Some(at) = [shell.motion.due(), shell.peek.due()].into_iter().flatten().reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64((at - now).max(0.0)));

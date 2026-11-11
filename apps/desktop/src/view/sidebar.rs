@@ -1,4 +1,6 @@
+use rune::Shadow;
 use rune_kit::shell::TabOrientation;
+use rune_knobs::{Group, Knob};
 
 use super::*;
 use crate::layout_state::{PeekEvent, SidebarPeekState};
@@ -17,17 +19,29 @@ pub(super) const INSET_START: f32 = 11.0;
 pub(super) const INSET_END: f32 = 3.0;
 /// The sidebars' shared spring, "smooth" (`panel-motion.ts`).
 pub(super) const SIDEBAR_SPRING: Spring = Spring::new(0.3, 0.0);
-/// A peek slides in and out on this (`sidebar-peek.ts`'s 0.18 s, no bounce).
-const PEEK_SPRING: Spring = Spring::new(0.18, 0.0);
 /// Under Reduce Motion a peek fades in place (`0.15s`).
 const PEEK_FADE: Spring = Spring::new(0.15, 0.0);
 /// How far a closed panel's contents dim at the end of the flight.
 pub(super) const FADE_FLOOR: f32 = 0.5;
-/// The peek's edge zone (`sidebar-peek.ts`): 24pt in from the window's start, from 56pt below
-/// the sidebar's top, and the corridor around the toggle and the peek that holds it open.
-const EDGE_W: f32 = 24.0;
+/// The peek's edge zone starts this far below the sidebar's top, clear of the traffic lights
+/// and the toggle (`sidebar-peek.ts`); the corridor reaches this far past the sidebar.
 const EDGE_TOP: f32 = 56.0;
 const CORRIDOR: f32 = 15.0;
+
+/// How far in from the window's start the pointer must be for the sidebar to peek. Desktop's
+/// 24 (its 8pt gutter and 16 more) caught passes to the panel's first column.
+pub const PEEK_EDGE: Knob = Knob::new("Peek edge", 2.0, 24.0, 6.0).step(1.0).about("How close to the edge it opens");
+/// How long the pointer rests there first (Desktop's 40 ms).
+pub const PEEK_DELAY: Knob = Knob::new("Peek delay", 0.0, 0.4, 0.08).step(0.01).about("Rest at the edge before it opens");
+/// The slide in's and the slide out's springs, with no bounce (Desktop's 0.18 s both ways).
+pub const PEEK_IN: Knob = Knob::new("Peek in", 0.08, 0.4, 0.18).step(0.01).about("Slide-in spring duration");
+pub const PEEK_OUT: Knob = Knob::new("Peek out", 0.06, 0.4, 0.13).step(0.01).about("Slide-out spring duration");
+/// The shadow along the peek's end edge: its strength, and the soft layer's blur.
+pub const PEEK_SHADOW: Knob = Knob::new("Peek shadow", 0.0, 3.0, 1.8).step(0.05).about("Strength of the edge shadow");
+pub const PEEK_SHADOW_BLUR: Knob = Knob::new("Peek shadow blur", 0.0, 64.0, 28.0).step(1.0).about("How far the soft shadow spreads");
+pub const PEEK_KNOBS: Group = Group::new("Sidebar peek", "window", &[PEEK_EDGE, PEEK_DELAY, PEEK_IN, PEEK_OUT, PEEK_SHADOW, PEEK_SHADOW_BLUR]);
+
+rune_register::register!(crate::knobs::GROUP_LIST: Group = [PEEK_KNOBS]);
 
 /// Home, Search sessions and New session (`data-titlebar-tab-action`): 28pt rows, `px-2 gap-2`,
 /// faint until hovered or pressed, their keys showing on hover.
@@ -60,24 +74,59 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
 
 /// The docked sidebar: its aside's width moves the panel's edge while its contents keep their
 /// width, pinned to that edge. Top tabs keep the aside at no width, empty.
+///
+/// The hover peek is the same contents, slid out over the panel while the aside stays shut
+/// (`sidebar-peek.css`): one layer that mounts nothing, so no row flies on its own, and docking
+/// from a peek only widens the aside under it.
 pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let switching = s.switching_layout();
-    let aside = el().key("sidebar").role("navigation").h_full().clip_soft(0.0).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
+    let aside = el().key("sidebar").role("navigation").h_full().motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.shows_sidebar() {
-        return aside.w(0.0);
+        return aside.w(0.0).clip_soft(0.0);
     }
-    let w = s.sidebar_w;
-    let open = s.sidebar_open;
-    // A peek shows the contents over the panel instead; the aside keeps none meanwhile.
-    if !open && s.layout.peek.shown() {
-        return aside.w(0.0);
-    }
-    let inner = contents(s, p, chrome().top())
+    let (w, open, peek, k) = (s.sidebar_w, s.sidebar_open, s.layout.peek, &s.knobs);
+    let reduced = s.reduced_motion;
+    // Past the window's start: closed, or a peek sliding away. Under Reduce Motion a peek fades
+    // where it is instead.
+    let away = !open && !peek.open();
+    let x = if away && !(reduced && peek.shown()) { -w } else { 0.0 };
+    let slide = match peek {
+        SidebarPeekState::Leaving { .. } => Spring::new(k.get(&PEEK_OUT), 0.0),
+        _ if peek.shown() => Spring::new(k.get(&PEEK_IN), 0.0),
+        _ => SIDEBAR_SPRING,
+    };
+    // A peek is solid from its first frame: it turns opaque while still out of sight.
+    let (opacity, fade): (f32, rune::Anim) = match () {
+        _ if peek.shown() && reduced => (if away { 0.0 } else { 1.0 }, PEEK_FADE.into()),
+        _ if peek.shown() => (1.0, INSTANT),
+        _ if open => (1.0, SIDEBAR_SPRING.into()),
+        _ => (if reduced { 0.0 } else { FADE_FLOOR }, SIDEBAR_SPRING.into()),
+    };
+    let row_h = chrome().row_h;
+    let mut inner = contents(s, p, chrome().top() - row_h)
         .key("sidebar-inner")
-        .absolute(if open { 0.0 } else { -w }, 0.0)
-        .opacity(if open { 1.0 } else { FADE_FLOOR })
-        .opacity_motion(SIDEBAR_SPRING);
-    aside.w(if open { w } else { 0.0 }).child(inner)
+        .pin(Some(0.0), Some(row_h), None, Some(0.0))
+        .fill(p.bg_deep)
+        .offset(x, 0.0)
+        .offset_motion(slide)
+        .opacity(opacity)
+        .opacity_motion(fade);
+    // Lifted off the panel along its end edge while it's out; the shadow fades as it slides
+    // away or docks, so none lingers along the window's edge.
+    let lift = if peek.open() { k.get(&PEEK_SHADOW) } else { 0.0 };
+    let tint = |c: Color| c.alpha((c.a * lift).min(1.0));
+    let blur = k.get(&PEEK_SHADOW_BLUR);
+    inner = inner
+        .box_shadow(Shadow { x: blur / 3.0, blur, color: tint(p.shadow), ..Shadow::default() })
+        .box_shadow(Shadow { x: 1.0, blur: 4.0, color: tint(p.shadow), ..Shadow::default() })
+        .box_shadow(Shadow { color: tint(p.floating[2].color), ..p.floating[2] });
+    let aside = aside.w(if open { w } else { 0.0 });
+    if peek.shown() {
+        // Over the panel, which comes after it; the aside's clip would hide it.
+        aside.child(inner.raise())
+    } else {
+        aside.clip_soft(0.0).child(inner)
+    }
 }
 
 /// What the sidebar holds, `w` wide from `top` down: the header line where the traffic lights
@@ -87,7 +136,6 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
     let home = s.route == Route::Home && !s.settings.open;
     col()
         .w(s.sidebar_w)
-        .h_full()
         .pt(top)
         .pl(INSET_START)
         .pr(INSET_END)
@@ -154,61 +202,38 @@ fn list(s: &App, p: &Pal) -> El {
     }
 }
 
-/// The collapsed sidebar's hover peek (`sidebar-peek.ts`): the sidebar slides over the panel
-/// from the window's start, lifted on the deep background, without moving the panel. The
-/// pointer resting at the start edge or on the toggle brings it; straying past the corridor
-/// around it and the toggle sends it back. None while the sidebar is docked or has no peek.
-pub(crate) fn peek(s: &App, p: &Pal) -> Vec<El> {
-    if !s.shows_sidebar() || s.sidebar_open && !s.layout.peek.handed_off() {
+/// The hover peek's two zones (`sidebar-peek.ts`): resting at the window's start edge slides
+/// the closed sidebar out over the panel (see `sidebar`), and straying past the corridor over
+/// it and the toggle sends it back. They only read where the pointer is, never taking a press,
+/// and stay mounted with the sidebar, open or closed, so neither misses an enter or a leave.
+pub(crate) fn peek(s: &App) -> Vec<El> {
+    if !s.shows_sidebar() {
         return vec![];
     }
     let chrome = chrome();
-    let below = chrome.row_h;
     let edge = el()
         .key("peek-edge")
         .pin(Some(0.0), Some(chrome.top() + EDGE_TOP), None, Some(0.0))
-        .w(EDGE_W)
+        .w(s.knobs.get(&PEEK_EDGE))
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
-            let keep_open = s.popup.is_open();
-            let can_start_edge = inside && can_peek(s);
-            s.queue_peek(PeekEvent::Pointer { can_start_edge, keep_open }, tx);
+            let can_peek = !s.sidebar_open && can_peek(s);
+            s.queue_peek(PeekEvent::Edge { inside, can_peek, held: held(s) }, tx);
         });
-    let state = s.layout.peek;
-    if !state.shown() {
-        return vec![edge];
-    }
-    let w = s.sidebar_w;
-    let reduced = s.reduced_motion;
-    let leaving = matches!(state, SidebarPeekState::Leaving { .. });
-    let (x, opacity) = match (leaving, reduced) {
-        (true, false) => (-w, 1.0),
-        (true, true) => (0.0, 0.0),
-        _ => (0.0, 1.0),
-    };
-    let mut surface = contents(s, p, chrome.top() - below)
-        .key("peek-surface")
-        .fill(p.bg_deep)
-        .offset(x, 0.0)
-        .offset_motion(PEEK_SPRING)
-        .opacity(opacity)
-        .opacity_motion(if reduced { PEEK_FADE } else { PEEK_SPRING })
-        .transition(if reduced { rune::Transition::opacity() } else { rune::Transition::offset(-w, 0.0) });
-    if !state.handed_off() {
-        surface = surface.shadow(12.0, 16.0, p.shadow).shadow(1.0, 2.0, p.shadow);
-    }
-    // The corridor: the peek and the room around it hold it open.
     let corridor = el()
         .key("peek-corridor")
-        .pin(Some(0.0), Some(below), None, Some(0.0))
-        .w(w + CORRIDOR)
+        .pin(Some(0.0), Some(chrome.row_h), None, Some(0.0))
+        .w(s.sidebar_w + CORRIDOR)
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
-            let keep_open = inside || s.popup.is_open() || s.menus.renaming().is_some();
-            s.queue_peek(PeekEvent::Pointer { can_start_edge: false, keep_open }, tx);
-        })
-        .child(surface);
-    vec![corridor]
+            s.queue_peek(PeekEvent::Corridor { inside, held: held(s) }, tx);
+        });
+    vec![edge, corridor]
+}
+
+/// A menu or a rename holds an open peek.
+fn held(s: &App) -> bool {
+    s.popup.is_open() || s.menus.renaming().is_some()
 }
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
@@ -255,8 +280,8 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
 }
 
 /// The sidebar toggle (`SidebarToggle`, ghost-muted large): the open glyph or the closed one,
-/// with the unread badge while the closed sidebar hides an unread tab. Resting on it while the
-/// sidebar is closed peeks it; a press docks it.
+/// with the unread badge while the closed sidebar hides an unread tab. A press docks or closes
+/// the sidebar; resting on it never peeks.
 pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
     let current = s.current_tab();
     let unread = !open && s.tabs.iter().any(|t| Some(t.uid()) != current && matches!(s.tab_status_of(t), Some(TabStatus::Unread | TabStatus::Failed)));
@@ -274,11 +299,6 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.toggle_sidebar(tx);
         })
-        .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
-            tx.live_only();
-            let event = if inside { PeekEvent::ToggleEnter { can_peek: !s.sidebar_open && can_peek(s) } } else { PeekEvent::ToggleLeave };
-            s.queue_peek(event, tx);
-        })
         .child(icon(&ic::LAYOUT_LEFT_FULL, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
         .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING));
     if unread {
@@ -293,7 +313,9 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
 /// to the collapsed spot past the traffic lights while its glyph turns (`sidebar-toggle.tsx`).
 pub(super) fn sidebar_toggle(s: &App, p: &Pal, open: bool, w: f32) -> El {
     let (x, y) = chrome().toggle_at(open, w);
-    toggle_button(s, p, open).absolute(x, y).motion(SIDEBAR_SPRING)
+    let toggle = toggle_button(s, p, open).absolute(x, y).motion(SIDEBAR_SPRING);
+    // Above a peek, which is raised over the panel.
+    if s.layout.peek.shown() { toggle.raise() } else { toggle }
 }
 
 /// Room the session header keeps for the collapsed toggle.
