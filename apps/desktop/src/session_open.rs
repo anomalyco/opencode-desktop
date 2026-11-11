@@ -14,6 +14,7 @@ impl App {
             self.opening = None;
             self.open_now(id, tx);
             self.open_page(id, tx);
+            self.ends.land(id, tx);
         }
     }
 
@@ -40,8 +41,8 @@ impl App {
         crate::subagents::shells::set_open(self, false);
         self.todo_open = false;
         if self.route != Route::here(id.to_owned()) {
-            // Its timeline mounts afresh on its end, so "Jump to latest" from the last visit is stale.
-            self.ends.forget(id);
+            // Read scrolled up, it comes back where it was read; otherwise on its end.
+            self.ends.reopen(id);
         }
         self.route = Route::here(id.to_owned());
         crate::session_state::opened(self, id, tx);

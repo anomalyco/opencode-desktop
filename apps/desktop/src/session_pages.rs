@@ -413,8 +413,10 @@ impl super::App {
         let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
         if ready {
             self.opening = None;
-            // Mount the finished transcript at its end without resetting input or focus.
+            // Mount the finished transcript at its end, or where it was read, without
+            // resetting input or focus.
             tx.settle();
+            self.ends.land(&id, tx);
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
