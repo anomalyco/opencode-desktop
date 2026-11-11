@@ -118,8 +118,10 @@ impl App {
                 let id = method.id.clone().unwrap_or_default();
                 let kind = method.kind;
                 let failed = move |e: String| Answer::StartFailed { attempt, error: if console && kind == MethodKind::Oauth { opencode_i18n::t!("provider.connect.console.startFailed").into() } else { e } };
-                // The Console names the desktop app, and its return link focuses the window that
-                // started the sign-in (`opencode://console/authorized?window=`).
+                // The Console names the desktop app, and its return link would focus the window
+                // that started the sign-in. That link is on OpenCode Desktop's scheme
+                // (`opencode://console/authorized?window=`), which Rune doesn't take, so it opens
+                // OpenCode Desktop if installed; the sign-in itself completes either way.
                 let window = self.window.id.clone();
                 self.write_then(
                     move |srv| match kind {

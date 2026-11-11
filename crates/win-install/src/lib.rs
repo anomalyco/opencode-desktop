@@ -8,7 +8,8 @@
 //! Start menu\Programs\OpenCode (Rune).lnk              AppUserModelID set, so a pin and the
 //! Desktop\OpenCode (Rune).lnk (optional)               window share one taskbar button
 //! HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<app id>    Apps & features
-//! HKCU\Software\Classes\opencode, \<app scheme>        opencode://open?project=… links and toast clicks
+//! HKCU\Software\Classes\<app scheme>                   the app's links and toast clicks (never `opencode`)
+//! HKCU\Software\Classes\AppUserModelId\<app id>       the toasts' name and icon
 //! ```
 //!
 //! Nothing needs an administrator: every file is under the user's profile and every key under
@@ -24,4 +25,4 @@ mod win;
 
 pub use product::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product};
 #[cfg(target_os = "windows")]
-pub use win::{close_running, default_root, installed_root, other_installs, refresh, register, remove_dir, running_under, unregister};
+pub use win::{Identity, close_running, default_root, installed_root, other_installs, refresh, register, remove_dir, running_under, settle_identity, unregister};

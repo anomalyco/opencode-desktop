@@ -92,6 +92,7 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
     if PAYLOAD.is_empty() {
         return Err("This setup was built without the app, so there's nothing to install.".into());
     }
+    let started = std::time::Instant::now();
     log(&format!("installing {} {} into {}", p.name(), p.version(), root.display()));
     if !win_install::close_running(root, CLOSE_GRACE) {
         return Err(format!("{} is still running. Close it and try again.", p.name()));
@@ -104,8 +105,11 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
     result?;
     // A version the updater staged for the install it replaced would go back in on the next restart.
     win_install::remove_dir(&beside(root, "staged"));
-    win_install::register(p, root, desktop_shortcut)?;
-    log(&format!("registered {} (Start menu{}, Apps & features, {}:// and {}://)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.schemes()[0], p.schemes()[1]));
+    let unpacked = started.elapsed();
+    let changed = win_install::register(p, root, desktop_shortcut)?;
+    log(&format!("registered {} (Start menu{}, Apps & features, {}://, notification identity)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.scheme()));
+    changed.iter().for_each(|line| log(line));
+    log(&format!("installed in {} µs ({} µs to put the files in place, {} µs to register)", started.elapsed().as_micros(), unpacked.as_micros(), (started.elapsed() - unpacked).as_micros()));
     Ok(())
 }
 

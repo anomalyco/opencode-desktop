@@ -29,8 +29,10 @@ pub fn installed_root(p: &Product) -> Option<PathBuf> {
 }
 
 /// Registers the install at `root`: the Start menu shortcut (and, when asked, the desktop
-/// shortcut), the uninstall entry, and the URL schemes.
-pub fn register(p: &Product, root: &Path, desktop_shortcut: bool) -> Result<(), String> {
+/// shortcut), the uninstall entry, the app's URL scheme and its notification identity. Only the
+/// setup and the updater write registration; the app never does at launch. Returns what it
+/// changed besides, for the log: `opencode://` handed back when an earlier build had taken it.
+pub fn register(p: &Product, root: &Path, desktop_shortcut: bool) -> Result<Vec<String>, String> {
     let exe = root.join(EXE);
     if !exe.is_file() {
         return Err(format!("{} has no {EXE}", root.display()));
@@ -43,25 +45,53 @@ pub fn register(p: &Product, root: &Path, desktop_shortcut: bool) -> Result<(), 
         shortcut::create(&desktop, &exe, p.id(), p.name(), &workdir)?;
     }
     registry::write_entry(p, root, size_kb(root))?;
-    for scheme in p.schemes() {
-        registry::write_scheme(scheme, p.name(), &exe)?;
-    }
+    registry::write_scheme(p.scheme(), p.name(), &exe)?;
+    registry::write_identity(p, root)?;
+    let done = registry::hand_back_opencode().into_iter().collect();
     folders::associations_changed();
-    Ok(())
+    Ok(done)
 }
 
-/// After an update put a new version in `root`: its version and size in Apps & features. Does
-/// nothing when `root` isn't `p`'s registered install (a portable copy, a development build).
-pub fn refresh(p: &Product, root: &Path) -> Result<(), String> {
+/// After an update put a new version in `root`: its version and size in Apps & features, its
+/// notification identity, and `opencode://` handed back if an earlier build took it. Does nothing
+/// when `root` isn't `p`'s registered install (a portable copy, a development build).
+pub fn refresh(p: &Product, root: &Path) -> Result<Vec<String>, String> {
     if !registry::entry_root(p).is_some_and(|r| same_path(&r, root)) {
-        return Ok(());
+        return Ok(Vec::new());
     }
-    registry::write_entry(p, root, size_kb(root))
+    registry::write_entry(p, root, size_kb(root))?;
+    registry::write_identity(p, root)?;
+    let done: Vec<String> = registry::hand_back_opencode().into_iter().collect();
+    if !done.is_empty() {
+        folders::associations_changed();
+    }
+    Ok(done)
 }
 
-/// Takes away everything `register` and the running app wrote outside `root`: the shortcuts
-/// (and a taskbar pin to the app), the uninstall entry, the schemes still pointing into `root`,
-/// and the app's notification identity and toasts. Returns what it removed, for the log.
+/// Where a running copy stands: the registered install (`root` is its folder), which the setup
+/// already named for toasts, or another copy (a zip, a build folder, a harness run), which names
+/// its toasts only if nothing has yet (`AppUserModelId\<id>` absent), so it never repoints the
+/// install's. Reads the registry; call it off the UI thread, after the first frame.
+pub fn settle_identity(p: &Product, root: &Path) -> Identity {
+    if registry::entry_root(p).is_some_and(|r| same_path(&r, root)) {
+        return Identity::Installed;
+    }
+    Identity::Copy { wrote: registry::write_identity_if_absent(p) }
+}
+
+/// What `settle_identity` found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Identity {
+    /// The registered install: its scheme and toast identity are the setup's.
+    Installed,
+    /// Another copy; `wrote` when it named the toasts because nothing had.
+    Copy { wrote: bool },
+}
+
+/// Takes away everything `register` wrote outside `root`: the shortcuts (and a taskbar pin to the
+/// app), the uninstall entry, the app's scheme while it still points into `root`, `opencode://`
+/// when an earlier build had taken it, and the notification identity and toasts. Returns what it
+/// changed, for the log.
 pub fn unregister(p: &Product, root: &Path) -> Vec<String> {
     let mut done = Vec::new();
     let exe = root.join(EXE);
@@ -73,9 +103,8 @@ pub fn unregister(p: &Product, root: &Path) -> Vec<String> {
         }
     }
     done.extend(registry::remove_entry(p));
-    for scheme in p.schemes() {
-        done.extend(registry::remove_scheme_if_ours(scheme, root));
-    }
+    done.extend(registry::remove_scheme_if_ours(p.scheme(), root));
+    done.extend(registry::hand_back_opencode());
     done.extend(registry::remove_identity(p));
     if clear_notifications(p) {
         done.push(format!("cleared {}'s notifications from the notification center", p.id()));

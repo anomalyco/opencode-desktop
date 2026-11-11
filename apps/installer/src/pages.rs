@@ -13,7 +13,7 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
     TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDCBF_CLOSE_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER,
     TDF_SHOW_MARQUEE_PROGRESS_BAR, TDF_VERIFICATION_FLAG_CHECKED, TDM_ENABLE_BUTTON, TDM_NAVIGATE_PAGE, TDM_SET_PROGRESS_BAR_MARQUEE,
-    TDN_BUTTON_CLICKED, TDN_NAVIGATED, TDN_TIMER, TDN_VERIFICATION_CLICKED, TD_ERROR_ICON, TaskDialogIndirect,
+    TDN_BUTTON_CLICKED, TDN_CREATED, TDN_NAVIGATED, TDN_TIMER, TDN_VERIFICATION_CLICKED, TD_ERROR_ICON, TaskDialogIndirect,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{IDCANCEL, SendMessageW};
 use windows_sys::core::{BOOL, HRESULT, PCWSTR};
@@ -135,6 +135,7 @@ unsafe extern "system" fn callback(hwnd: HWND, msg: u32, wparam: WPARAM, _: LPAR
     // SAFETY: `data` is the `Wizard` `run` passed, alive while its modal dialog runs.
     let w = unsafe { &mut *(data as *mut Wizard) };
     match msg as i32 {
+        TDN_CREATED => w.args.log(&format!("window created {} µs after the process started", since_start_us())),
         TDN_VERIFICATION_CLICKED => match w.stage {
             Stage::Welcome => w.desktop = wparam != 0,
             Stage::Done => w.launch = wparam != 0,
@@ -256,3 +257,18 @@ pub fn run(p: &Product, root: &Path, args: &Args) -> i32 {
     }
 }
 
+
+/// Microseconds since this process was created (`GetProcessTimes`), for the log.
+fn since_start_us() -> u64 {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::SystemInformation::GetSystemTimePreciseAsFileTime;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let ticks = |f: FILETIME| (u64::from(f.dwHighDateTime) << 32) | u64::from(f.dwLowDateTime);
+    let (mut created, mut exited, mut kernel, mut user, mut now) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    // SAFETY: the pseudo handle needs no closing; every out-pointer is ours.
+    unsafe {
+        GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user);
+        GetSystemTimePreciseAsFileTime(&mut now);
+    }
+    ticks(now).saturating_sub(ticks(created)) / 10
+}

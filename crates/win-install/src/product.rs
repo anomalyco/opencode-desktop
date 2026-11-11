@@ -71,8 +71,4 @@ impl Product {
         self.name.replace(['(', ')'], "").split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
-    /// Every scheme the install points at the app: OpenCode's and the app's own.
-    pub fn schemes(&self) -> [&str; 2] {
-        [OPENCODE_SCHEME, &self.scheme]
-    }
 }

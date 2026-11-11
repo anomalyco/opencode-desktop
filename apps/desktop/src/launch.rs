@@ -411,9 +411,9 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     crate::menubar::refresh();
     // Which Open in apps are installed: the first frame showed the remembered choice.
     s.open_in.detect();
-    // The toasts' registry key and icon file, which no frame needs.
-    crate::notifications::register();
     crate::updater::start_if_packaged(s);
+    // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
+    crate::notifications::settle_identity();
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
     start(s, tx);

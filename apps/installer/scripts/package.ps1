@@ -65,11 +65,13 @@ if ($Payload) {
         if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
     }
 
-    # The install folder: the app alone. The browser engine downloads in the background.
+    # The install folder: the app and its toasts' icon, which the setup registers from there
+    # (`win_install::register`). The browser engine downloads in the background.
     $stage = Join-Path $Out 'stage'
     Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $stage | Out-Null
     Copy-Item $exe $stage
+    Copy-Item (Join-Path $root 'apps/desktop/assets/icon/art-512.png') (Join-Path $stage 'notification-icon.png')
     $zip = Join-Path $Out "$stem.zip"
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip

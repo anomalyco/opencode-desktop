@@ -1,5 +1,6 @@
-//! Links opened with the app (`App::on_open_url`), on OpenCode Desktop's scheme (`opencode://`)
-//! or the app's own (`opencode-rune://`, see `launch::product`):
+//! Links opened with the app (`App::on_open_url`), on the app's own scheme (`opencode-rune://`,
+//! see `launch::product`). OpenCode Desktop's `opencode://` stays OpenCode Desktop's: Rune never
+//! registers it, so such a link opens OpenCode Desktop, or nothing when only Rune is installed.
 //!
 //! - `open?project=<folder>` opens the folder as a project with a new session, as Open project
 //!   does: OpenCode Desktop's link (`packages/desktop/src/main/deep-links`).
@@ -11,8 +12,8 @@
 //! The window comes forward for each, as Desktop's `focusWindow` does. A link that arrives
 //! before the server connects (one that started the app) waits for it.
 //!
-//! Windows registers both schemes at install (`win_install`) and hands each link to the running
-//! app through `rune::single_instance`; macOS gets them from the bundle's `CFBundleURLTypes`.
+//! Windows registers the scheme at install (`win_install`) and hands each link to the running app
+//! through `rune::single_instance`; macOS gets it from the bundle's `CFBundleURLTypes`.
 
 use rune::Tx;
 use rune::machine::Effects;
@@ -142,10 +143,10 @@ fn ready_servers(s: &mut App) -> Vec<ServerId> {
     s.checkout.keys().into_iter().filter(|k| crate::servers::runtime::with_server(s, k, can_write).unwrap_or(false)).map(|k| k.as_str().to_owned()).collect()
 }
 
-/// The folder an `open?project=<folder>` link on `opencode` or `own` names.
+/// The folder an `open?project=<folder>` link on the app's scheme `own` names.
 fn project(url: &str, own: &str) -> Option<String> {
     let (scheme, rest) = url.trim().split_once("://")?;
-    if !scheme.eq_ignore_ascii_case(win_install::OPENCODE_SCHEME) && !scheme.eq_ignore_ascii_case(own) {
+    if !scheme.eq_ignore_ascii_case(own) {
         return None;
     }
     let (host, query) = rest.split_once('?')?;
@@ -156,10 +157,10 @@ fn project(url: &str, own: &str) -> Option<String> {
     (!dir.trim().is_empty() && !dir.chars().any(char::is_control)).then_some(dir)
 }
 
-/// The window an `opencode://console/authorized?window=<id>` link names.
+/// The window a `<own>://console/authorized?window=<id>` link names.
 fn console_return(url: &str, own: &str) -> Option<String> {
     let (scheme, rest) = url.trim().split_once("://")?;
-    if !scheme.eq_ignore_ascii_case(win_install::OPENCODE_SCHEME) && !scheme.eq_ignore_ascii_case(own) {
+    if !scheme.eq_ignore_ascii_case(own) {
         return None;
     }
     let (path, query) = rest.split_once('?')?;

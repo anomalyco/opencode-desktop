@@ -115,8 +115,9 @@ fn run() -> i32 {
     }
     log(&format!("{} is in place", a.version));
     // This is the new version's executable: its version goes in Apps & features.
-    if let Err(e) = win_install::refresh(&crate::launch::product(), &a.root) {
-        log(&format!("couldn't update the uninstall entry: {e}"));
+    match win_install::refresh(&crate::launch::product(), &a.root) {
+        Ok(changed) => changed.iter().for_each(|line| log(line)),
+        Err(e) => log(&format!("couldn't update the uninstall entry: {e}")),
     }
     start(&a, &log);
     for _ in 0..20 {

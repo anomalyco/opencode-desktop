@@ -367,65 +367,57 @@ pub fn clicked(app: &mut App, click: &rune_notify::Click) {
     Notifier::click(&app.notify.clicks, session, server);
 }
 
-/// Gives a windowed run the app's identity before its window opens. On Windows that is the
-/// `AppUserModelID` its toasts carry and its taskbar button groups under (the Start menu
-/// shortcut carries it too), named as the window is, with the app icon (kept in the data folder
-/// for the notification center to read), and the app's URL scheme, which a click on a toast
-/// opens, so a toast left in the notification center starts the app again. macOS takes it from
-/// the bundle.
-///
-/// Only the in-process part runs here (`rune_notify::adopt`: the `AppUserModelID`, which the
-/// taskbar button needs before the window shows); the registry key and the icon file the
-/// notification center reads are written after the first frame, off the UI thread (`register`).
+/// Gives a windowed run the app's identity before its window opens, writing nothing: on Windows
+/// the `AppUserModelID` its taskbar button groups under (the Start menu shortcut carries it too)
+/// and its toasts carry. The setup registered the toasts' name and icon and the app's URL scheme
+/// for the install (`win_install::register`); `settle_identity` finds out after the first frame
+/// whether this is that install. macOS takes all of it from the bundle.
 #[cfg(target_os = "windows")]
 pub fn identify() {
     if crate::headless() {
         return;
     }
-    if let Err(e) = rune_notify::adopt(&identity(None)) {
+    let product = crate::launch::product();
+    if let Err(e) = rune_notify::adopt(&rune_notify::Identity::new(product.id(), product.name())) {
         eprintln!("notifications: {e}");
     }
-}
-
-#[cfg(target_os = "windows")]
-fn identity(icon: Option<std::path::PathBuf>) -> rune_notify::Identity {
-    let product = crate::launch::product();
-    let identity = rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme());
-    match icon {
-        Some(icon) => identity.icon(icon),
-        None => identity,
-    }
-}
-
-/// After the first frame, once per process, on a thread of its own: the toasts' registration
-/// (`AppUserModelId` key, activation scheme) and the icon file it names, written only when missing
-/// or changed. A toast posted before it lands still carries the process's identity.
-#[cfg(target_os = "windows")]
-pub fn register() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    if crate::headless() {
-        return;
-    }
-    ONCE.call_once(|| {
-        let _ = std::thread::Builder::new().name("opencode-identity".into()).spawn(|| {
-            let icon = crate::dirs::data().map(|d| d.join("notification-icon.png"));
-            if let Some(icon) = &icon {
-                let png = crate::launch::WINDOWS_ICON;
-                if std::fs::metadata(icon).map(|m| m.len()).ok() != Some(png.len() as u64) {
-                    let _ = std::fs::create_dir_all(icon.parent().unwrap_or(icon));
-                    let _ = std::fs::write(icon, png);
-                }
-            }
-            if let Err(e) = rune_notify::register(&identity(icon)) {
-                eprintln!("notifications: {e}");
-            }
-        });
-    });
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn identify() {}
 
+/// After the first frame, off the UI thread: the registered install's toasts open the app's
+/// scheme, so a toast left in the notification center starts it again; another copy (a zip, a
+/// build folder, a harness run) names its toasts only when nothing has yet, and its clicks reach
+/// it while it runs. It never writes the install's registration.
+#[cfg(target_os = "windows")]
+pub fn settle_identity() {
+    static SETTLED: std::sync::Once = std::sync::Once::new();
+    if crate::headless() {
+        return;
+    }
+    SETTLED.call_once(settle_once);
+}
+
+#[cfg(target_os = "windows")]
+fn settle_once() {
+    let spawned = std::thread::Builder::new().name("opencode-identity".into()).spawn(|| {
+        let started = std::time::Instant::now();
+        let product = crate::launch::product();
+        let Some(root) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)) else { return };
+        let found = win_install::settle_identity(&product, &root);
+        if found == win_install::Identity::Installed
+            && let Err(e) = rune_notify::adopt(&rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme()))
+        {
+            eprintln!("notifications: {e}");
+        }
+        eprintln!("notifications: {} ({found:?}), settled in {} µs off the UI thread", product.id(), started.elapsed().as_micros());
+    });
+    if let Err(e) = spawned {
+        eprintln!("notifications: {e}");
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
-pub fn register() {}
+pub fn settle_identity() {}
 

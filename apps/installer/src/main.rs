@@ -6,8 +6,9 @@
 //! 3. The embedded release zip (the archive the updater downloads) unpacks beside the install
 //!    folder and takes its place with a rename, the way the updater swaps versions, so a failed
 //!    install leaves the previous version as it was.
-//! 4. The Start menu shortcut (and the desktop one), the Apps & features entry and the URL
-//!    schemes are registered (`win_install::register`).
+//! 4. The Start menu shortcut (and the desktop one), the Apps & features entry, the app's URL
+//!    scheme (`opencode-rune://`, never `opencode://`) and the toasts' name and icon are
+//!    registered (`win_install::register`).
 //! 5. "Launch OpenCode (Rune)" on the last page starts it.
 //!
 //! The browser engine isn't in the setup: the app downloads it in the background once it's idle
