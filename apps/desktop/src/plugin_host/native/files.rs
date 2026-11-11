@@ -134,6 +134,13 @@ pub fn version(app: &App, session: &str) -> u64 {
         for (path, img) in images {
             (path, img.image.is_ready(), img.image.size(), img.shows(), format!("{:?}", img.zoom)).hash(&mut h);
         }
+        // A video's state and controls, and its time at Chromium's `timeupdate` step (0.25 s).
+        let mut videos: Vec<_> = w.videos.iter().collect();
+        videos.sort_by(|a, b| a.0.cmp(b.0));
+        for (path, v) in videos {
+            let p = &v.player;
+            (path, format!("{:?} {:?} {:?}", p.state(), v.overlay, v.scrub), p.is_playing(), p.muted(), p.natural_size(), p.duration().map(f64::to_bits), (p.time() * 4.0) as u64).hash(&mut h);
+        }
         app.files.stage_size.get().map(f32::to_bits).hash(&mut h);
     }
     h.finish()
