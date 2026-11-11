@@ -1,0 +1,10 @@
+{
+  "events": [
+    {"t": 0.3, "type": "move", "x": 500, "y": 420},
+    {"t": 0.6, "type": "move", "x": 2, "y": 420},
+    {"t": 1.4, "type": "move", "x": 120, "y": 420},
+    {"t": 2.2, "type": "move", "x": 700, "y": 420},
+    {"t": 2.8, "type": "move", "key": "sidebar-toggle"},
+    {"t": 4.0, "type": "mark", "name": "end"}
+  ]
+}

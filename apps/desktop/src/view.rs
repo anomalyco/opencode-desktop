@@ -27,6 +27,7 @@ pub(crate) mod move_recovery;
 mod inbox;
 mod narrow;
 mod narrow_story;
+mod peek_story;
 mod session;
 pub(crate) mod server_unavailable;
 mod sidebar;
@@ -295,7 +296,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(handle) = crate::panels::view::resize_handle(s, p, win_w) {
         root = root.child(handle);
     }
-    root = root.children(sidebar::peek(s, p));
+    root = root.children(sidebar::peek(s));
     // Without a titlebar row, the toggle rides the sidebar header's line (`sidebar-toggle.tsx`).
     if side_tabs && chrome().sidebar_header() {
         root = root.child(sidebar_toggle(s, p, s.sidebar_open, w));
