@@ -471,7 +471,9 @@ pub(crate) fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: 
         return col().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0).child(copy.w_full()).child(row().key("control").w_full().justify_end().child(control));
     }
     let r = row().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0);
-    let r = if centred { r.center_y() } else { r };
+    // `data-align="start"` is `align-items: flex-start` (`settings.css:819`): the control keeps
+    // its own height beside a taller description rather than stretching to it.
+    let r = if centred { r.center_y() } else { r.items_start() };
     r.child(copy).child(row().key("control").justify_end().child(control))
 }
 

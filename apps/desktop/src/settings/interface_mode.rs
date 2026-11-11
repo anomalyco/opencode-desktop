@@ -9,8 +9,8 @@ use crate::layout_state::TabLayout;
 use crate::palette::Pal;
 use opencode_i18n::t;
 
-/// The card's name (`interface-mode-name`): 12pt, medium, the compact line height.
-const NAME: rune::TextStyle = rune::TextStyle::new(12.0, 500.0).lh(16.0);
+/// The card's name (`interface-mode-name`): 12pt, medium (530), the compact line height.
+const NAME: rune::TextStyle = rune::TextStyle::new(12.0, 530.0).lh(16.0);
 
 /// The inbox sketch's rows: a session that needs you, finished work, then two still running.
 #[derive(Clone, Copy)]
@@ -38,89 +38,119 @@ fn key(layout: TabLayout) -> &'static str {
     }
 }
 
+/// `interface-mode-option`: a 120pt `layer-02` card with 8pt corners and a 1pt border that
+/// takes its room, as CSS's does. `checked` is the one source of the picked look: the border
+/// turns `border-focus` on `border-color`'s 120ms ease, and the `::after` ring inside it
+/// shows at once (it has no transition).
 fn card(p: &Pal, layout: TabLayout, checked: bool) -> El {
-    let k = crate::palette::kit(p);
-    let c = &k.c;
-    let hairline = crate::view::chrome().hairline.max(0.5);
-    let card = col()
-        .key(key(layout))
-        .role("radio")
-        .label(layout.label())
-        .focusable(true)
-        .focus_selected(checked)
-        .w(120.0)
-        .radius(8.0)
-        .fill(c.layer_02)
-        .border(1.0, if checked { c.border_focus } else { c.border_base })
+    let c = &crate::palette::kit(p).c;
+    let ease = rune::Curve::tween(0.12, rune::Easing::cubic(0.25, 0.1, 0.25, 1.0));
+    // The `::after` ring: `inset: 0` in the padding box (inside the border), 7pt corners, an
+    // inset 1pt `border-focus` shadow, which Chromium draws unsnapped. Last, so it draws over
+    // the opaque name row.
+    let after = checked.then(|| el().key("ring").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(7.0).box_shadow(rune::Shadow { spread: 1.0, color: c.border_focus, inset: true, ..rune::Shadow::default() }));
+    let body = col()
+        .key("body")
+        .w_full()
+        .border(1.0, Color::TRANSPARENT)
+        .border_layout()
+        // overflow: hidden, here rather than on the card, which would clip its own focus ring.
         .clip_rounded(8.0)
-        .hover_group()
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.set_tab_layout(layout, tx))
-        .child(sketch(p, layout, checked, hairline))
-        .child(el().key("rule").w_full().h(hairline.min(0.5)).fill(c.border_base))
+        .child(sketch(p, layout, checked))
         .child(
             row()
                 .key("name")
                 .w_full()
                 .px(10.0)
                 .py(6.0)
+                .border_sides([0.5, 0.0, 0.0, 0.0], c.border_base)
+                .border_layout()
                 .fill(c.bg_base)
-                .child(text(layout.label()).font(NAME).color(if checked { c.text_base } else { c.text_muted }).group_color(c.text_base).truncate_fade()),
-        );
-    // The border darkens under the pointer (`border-strong`) and the picked card's inner ring
-    // shows over the opaque name row (`::after`), both on `border-color`'s 120ms ease.
-    let ease = rune::Curve::tween(0.12, rune::Easing::cubic(0.25, 0.1, 0.25, 1.0));
-    card.child(el().key("hover-ring").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(8.0).border(1.0, c.border_strong).group_opacity(0.0, if checked { 0.0 } else { 1.0 }))
-        .child(el().key("ring").pin(Some(1.0), Some(1.0), Some(1.0), Some(1.0)).radius(7.0).border(1.0, c.border_focus).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
+                .child(text(layout.label()).font(NAME).color(if checked { c.text_base } else { c.text_muted }).group_color(c.text_base).truncate()),
+        )
+        .children(after);
+    // The border itself, over the body at the border box: `border-base`, `border-strong` under
+    // the pointer, `border-focus` once picked. Each is a whole ring, so a translucent colour
+    // draws as itself rather than over another.
+    let ring = |key: &'static str, color: Color| el().key(key).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(8.0).border(1.0, color);
+    el().key(key(layout))
+        .role("radio")
+        .label(layout.label())
+        .focusable(true)
+        .focus_selected(checked)
+        // `:has(input:focus-visible)`: a 2pt `border-focus` outline 2pt out.
+        .focus_ring(2.0, 2.0, c.border_focus)
+        .w(120.0)
+        .radius(8.0)
+        .fill(c.layer_02)
+        .hover_group()
+        .hover_motion(ease, ease)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.set_tab_layout(layout, tx))
+        .child(body)
+        .child(ring("border", c.border_base).group_opacity(1.0, 0.0))
+        .child(ring("hover-border", c.border_strong).group_opacity(0.0, 1.0))
+        .child(ring("checked-border", c.border_focus).opacity(if checked { 1.0 } else { 0.0 }).opacity_motion(ease))
 }
 
-/// `interface-mode-sketch`: a 52pt window in miniature with its tabs inked.
-fn sketch(p: &Pal, layout: TabLayout, checked: bool, hairline: f32) -> El {
+/// `interface-mode-sketch`: a 52pt window in miniature, 10pt in from the card's top and sides,
+/// with a 0.5pt border on its top and sides and its tabs inked. The ink turns accent at once
+/// when the card is picked (`--preview-ink-strong` has no transition).
+fn sketch(p: &Pal, layout: TabLayout, checked: bool) -> El {
     let c = &crate::palette::kit(p).c;
     let strong = if checked { c.bg_accent.alpha(0.7 * c.bg_accent.a) } else { c.layer_04 };
     let dim = strong.alpha(0.45 * strong.a);
-    let rule = hairline.min(0.5);
-    let frame = el()
-        .key("sketch")
-        .h(52.0)
-        .mx(10.0)
-        .mt(10.0)
-        .corners([4.0, 4.0, 0.0, 0.0])
-        .clip_corners([4.0, 4.0, 0.0, 0.0])
-        .fill(c.bg_base)
-        .child(el().key("edge").pin(Some(0.0), Some(0.0), Some(0.0), Some(-4.0)).corners([4.0, 4.0, 0.0, 0.0]).border(rule, c.border_base));
-    let page = page(p);
+    let tab = |ink: Color| el().h(5.0).radius(2.0).fill(ink).motion(rune::Spring::NONE);
+    let frame = |inner: El| {
+        inner
+            .key("sketch")
+            .h(52.0)
+            .mx(10.0)
+            .mt(10.0)
+            .border_sides([0.5, 0.5, 0.0, 0.5], c.border_base)
+            .border_layout()
+            .corners([4.0, 4.0, 0.0, 0.0])
+            .clip_corners([4.0, 4.0, 0.0, 0.0])
+            .fill(c.bg_base)
+    };
     match layout {
         TabLayout::Horizontal => {
-            let strip = (0..3).fold(row().key("strip").gap(3.0).px(5.0).py(4.0).fill(c.pressed), |r, i| {
-                r.child(el().size(18.0, 5.0).radius(2.0).fill(if i == 0 { strong } else { dim }))
-            });
-            frame.child(col().w_full().h_full().child(strip).child(el().w_full().h(rule).fill(c.border_base)).child(page))
+            let strip = (0..3).fold(
+                row().key("strip").gap(3.0).px(5.0).py(4.0).border_sides([0.0, 0.0, 0.5, 0.0], c.border_base).border_layout().fill(c.pressed),
+                |r, i| r.child(tab(if i == 0 { strong } else { dim }).w(18.0)),
+            );
+            frame(col()).child(strip).child(page(p))
         }
         TabLayout::Vertical => {
-            let rail = (0..4).fold(rail(c.pressed), |r, i| r.child(el().h(5.0).w_full().radius(2.0).fill(if i == 0 { strong } else { dim })));
-            frame.child(row().w_full().h_full().child(rail).child(el().w(rule).h_full().fill(c.border_base)).child(page))
+            let rail = (0..4).fold(rail(c.pressed, c.border_base), |r, i| r.child(tab(if i == 0 { strong } else { dim }).w_full()));
+            frame(row()).child(rail).child(page(p))
         }
         TabLayout::Inbox => {
-            let rail = INBOX_ROWS.into_iter().enumerate().fold(rail(c.pressed), |r, (i, dot)| {
+            let rail = INBOX_ROWS.into_iter().enumerate().fold(rail(c.pressed, c.border_base), |r, (i, dot)| {
                 let ink = match dot {
                     Dot::Approval => c.warning.fg,
                     Dot::Done => c.success.fg,
                     Dot::Working => c.info.fg,
                 };
-                let bar = el().h(3.0).grow(1.0).radius(1.5).fill(if i == 0 { strong } else { dim });
+                let bar = el().h(3.0).grow(1.0).radius(1.5).fill(if i == 0 { strong } else { dim }).motion(rune::Spring::NONE);
                 r.child(row().h(5.0).w_full().gap(2.0).center_y().child(el().size(4.0, 4.0).radius(2.0).fill(ink)).child(bar))
             });
-            frame.child(row().w_full().h_full().child(rail).child(el().w(rule).h_full().fill(c.border_base)).child(page))
+            frame(row()).child(rail).child(page(p))
         }
     }
 }
 
-/// The sketches' side rail (`preview-rail`): 28pt, its rows 4pt apart.
-fn rail(fill: Color) -> El {
-    col().key("rail").w(28.0).h_full().px(5.0).py(6.0).gap(4.0).fill(fill)
+/// The sketches' side rail (`preview-rail`): 28pt with its 0.5pt inline-end border, its rows 4pt
+/// apart.
+fn rail(fill: Color, border: Color) -> El {
+    let end = match crate::view::ui_direction() {
+        rune::Direction::Rtl => [0.0, 0.0, 0.0, 0.5],
+        _ => [0.0, 0.5, 0.0, 0.0],
+    };
+    col().key("rail").w(28.0).h_full().px(5.0).py(6.0).gap(4.0).border_sides(end, border).border_layout().fill(fill)
 }
 
-/// The miniature page beside the tabs (`preview-page`): two lines and a composer.
+/// The miniature page beside the tabs (`preview-page`): two lines and a composer, whose 0.5pt
+/// ring is an inset shadow Chromium draws at its exact width.
 fn page(p: &Pal) -> El {
     let c = &crate::palette::kit(p).c;
     let line = |f: f32| el().w_frac(f).h(3.0).radius(1.5).fill(c.layer_03);
@@ -129,10 +159,11 @@ fn page(p: &Pal) -> El {
         .grow(1.0)
         .shrink()
         .min_w(0.0)
+        .min_h(0.0)
         .padding(6.0)
         .gap(4.0)
         .child(line(0.8))
         .child(line(0.56))
         .child(rune::spacer())
-        .child(el().w_full().h(8.0).radius(3.0).fill(c.layer_02).border(0.5, c.border_base))
+        .child(el().w_full().h(8.0).radius(3.0).fill(c.layer_02).box_shadow(Pal::ring_in(c.border_base)))
 }
