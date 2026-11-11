@@ -29,6 +29,8 @@ pub const SIDE_FLIGHT: f64 = 0.6;
 pub const SIDE_REST: f64 = 1.0;
 const INSTANT: Anim = Anim::INSTANT;
 const FADE_FLOOR: f32 = 0.5;
+/// How far the open side card's elevation shows past the side region's start edge.
+const SIDE_BLEED: f32 = 4.0;
 
 /// The review toggle's own glyph (`session-header-actions.tsx`), mirrored so its pane sits on
 /// the right, as Desktop draws it at 16 px.
@@ -66,13 +68,18 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
     let col_open = on_session && s.side_open();
     let slot_w = if col_open { w + 8.0 } else { 0.0 };
 
-    let mut outer = el()
+    let outer = el()
         .key("side-region")
         .role("complementary")
         .w(slot_w)
         .h_full()
-        .clip_soft(0.0)
         .motion(SIDE_SPRING);
+    // The slot clips what slides out of it, but lets the card's raised ring and shadow
+    // ("--v2-elevation-raised", outside its box) show past its start edge while it is open or
+    // still sliding shut, as Desktop's aside does; a slot at rest shut shows none.
+    let shown = col_open || cx.layout_size("side-region").is_some_and(|[w, _]| w > 0.5);
+    let bleed = if shown { SIDE_BLEED } else { 0.0 };
+    let mut clip = el().key("side-region-clip").pin(Some(-bleed), Some(0.0), Some(0.0), Some(0.0)).clip_soft(0.0);
 
     if let Some(reg) = reg.as_ref() {
         let env_scale = cx.env().scale;
@@ -90,7 +97,7 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
             .min_h(0.0);
         let mut column = col()
             .key("side-column")
-            .pin(Some(0.0), Some(crate::view::chrome().top()), None, Some(col_bottom))
+            .pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom))
             .w(w)
             .opacity(if col_open { 1.0 } else { FADE_FLOOR })
             .opacity_motion(SIDE_SPRING);
@@ -98,9 +105,9 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
             card = card.inert();
             column = column.inert();
         }
-        outer = outer.child(column.child(card));
+        clip = clip.child(column.child(card));
     }
-    outer
+    outer.child(clip)
 }
 
 /// Standalone card for storybook stages (`side_stories.rs`).
