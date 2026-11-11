@@ -20,7 +20,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     if !s.menus.renames(target) {
         return None;
     }
-    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().truncate_fade().h(style.line_px());
+    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).truncate_fade().h(style.line_px());
     let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
     Some(
         input

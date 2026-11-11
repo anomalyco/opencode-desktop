@@ -313,6 +313,8 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .spellcheck(s.composer_spellcheck())
         .label(custom_label())
         .single_line()
+        // `dir="auto"` (`session-question-dock-classic.tsx:673`).
+        .dir(rune::Direction::Auto)
         .grow(1.0)
         .min_w(0.0)
         .color(p.text)

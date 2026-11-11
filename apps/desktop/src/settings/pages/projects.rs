@@ -121,7 +121,7 @@ fn card(s: &App, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
         .hover(p.layer2);
     let st = &s.settings_pages.project;
     if st.renaming.as_deref() == Some(x.directory.as_str()) {
-        let field = rune::text_input(&st.rename, NAME).key("settings-project-rename").spellcheck(s.settings.spellcheck).single_line().grow(1.0).shrink().min_w(0.0)
+        let field = rune::text_input(&st.rename, NAME).key("settings-project-rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).grow(1.0).shrink().min_w(0.0)
             .color(p.text).caret(p.text, p.selection).selection_style(p.field_selection).label(t!("common.rename"))
             .on_edit(|s: &mut App| &mut s.settings_pages.project.rename)
             .on_submit(|s: &mut App, tx: &mut Tx| s.commit_project_rename(tx))

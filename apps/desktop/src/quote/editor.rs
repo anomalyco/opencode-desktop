@@ -298,7 +298,9 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .caret(p.text, p.selection)
         .selection_style(p.field_selection)
         .spellcheck(s.settings.spellcheck)
+        // `dir="auto"` and `unicode-bidi: plaintext` (`line-comment.tsx`): each line in its own direction.
         .dir(rune::Direction::Auto)
+        .dir_by_paragraph()
         .on_edit(|s: &mut App| {
             // Read-only while its send settles.
             if s.quote.comment.sending() {

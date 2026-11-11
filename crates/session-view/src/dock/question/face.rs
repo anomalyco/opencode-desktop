@@ -144,6 +144,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             .key("q-input")
             .spellcheck(s.composer_spellcheck())
             .label(custom_label())
+            // `dir="auto"` (`session-question-dock-experimental.tsx:1321`).
+            .dir(rune::Direction::Auto)
             .grow(1.0)
             .min_w(0.0)
             .color(p.text)

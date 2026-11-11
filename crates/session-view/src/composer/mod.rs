@@ -361,6 +361,15 @@ pub fn submit_button(p: &Pal, live: bool) -> El {
 }
 
 /// Renders the shared composer (`key("composer")`).
+/// The room a scroll bar takes from layout where a scroll box reserves it (`scrollbar.css`).
+const SCROLLBAR: f32 = 8.0;
+
+/// `editor.tsx:313, 324`: the prompt takes the direction of its text (`dir="auto"`) and each of
+/// its lines its own (`unicode-bidi: plaintext`); a shell command runs left to right.
+fn prompt_dir(field: El, shell: bool) -> El {
+    if shell { field.dir(rune::Direction::Ltr) } else { field.dir(rune::Direction::Auto).dir_by_paragraph() }
+}
+
 pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
     composer_in(s, p, "")
 }
@@ -447,19 +456,26 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                             .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
                             .scroll_margin(16.0)
                             .child(
-                                // `ps-4 pt-4`, and 12 at the end (`editor.css:29-34`).
-                                col().key("editor-pad").w_full().pl(16.0).pr(12.0).pt(16.0).child(
-                                    text_input(
-                                        s.composer_edit(),
-                                        if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
+                                // The scroll box keeps its 8 pt scroll bar's room at its end
+                                // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
+                                col().key("editor-pad").w_full().pr(SCROLLBAR).child(
+                                    prompt_dir(
+                                        text_input(
+                                            s.composer_edit(),
+                                            if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
+                                        ),
+                                        s.composer_shell_mode(),
                                     )
                                     .key("prompt")
-                                    // `editor.tsx:313`: the prompt's own direction, a shell
-                                    // command's left to right.
-                                    .dir(if s.composer_shell_mode() { rune::Direction::Ltr } else { rune::Direction::Auto })
+                                    // `ps-4 pt-4`, and 12 less the gutter at the end
+                                    // (`editor.css:29-34`), on the editor itself, so they follow
+                                    // its own direction as Desktop's `#editor` padding does.
+                                    .pl(16.0)
+                                    .pr(12.0 - SCROLLBAR)
+                                    .pt(16.0)
                                     .color(p.text)
                                     .w_full()
-                                    .min_h(20.0)
+                                    .min_h(20.0 + 16.0)
                                     .animate_edit_layout()
                                     .placeholder(s.composer_placeholder(), p.faint)
                                     .caret(p.text, p.selection).selection_style(p.field_selection)
