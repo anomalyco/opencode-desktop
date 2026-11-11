@@ -1,10 +1,11 @@
-//! Per-workspace terminal persistence (`<data dir>/rune-opencode/terminals.json`), matching
-//! OpenCode Desktop's `packages/gui-extensions/src/terminal/state.ts` & `model.ts`:
+//! Per-workspace terminal persistence, one row per workspace in the app's database (`plugin.terminal`),
+//! matching OpenCode Desktop's `packages/gui-extensions/src/terminal/state.ts` & `model.ts`:
 //! `active`, `all` tabs (`id`, `title`, `titleNumber`, `customTitle`, `cols`, `rows`, `scrollY`,
-//! `cursor`, and 2,000-row serialized VT `buffer`), lazy workspace hydration, and background saves.
+//! `cursor`, and 2,000-row serialized VT `buffer`), lazy workspace hydration, and saves captured and
+//! written on a thread of their own, a second after the first change. The UI thread reads and writes
+//! nothing.
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::collections::HashSet;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -142,15 +143,20 @@ pub fn number_from_title(title: &str) -> Option<usize> {
     (1..=MAX_TERMINAL_WORKSPACES).contains(&n).then_some(n)
 }
 
-fn file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("terminals.json"))
+/// The storage namespace the workspaces live in (Desktop's terminal plugin's), one row each.
+const NAMESPACE: &str = "plugin.terminal";
+
+/// A workspace's row, `workspace:<server>:<base64url(directory)>`, as the importer keyed the
+/// old `terminals.json`'s.
+fn row_key(server_base: &str, dir: &str) -> String {
+    use base64::Engine;
+    format!("workspace:{server_base}:{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(dir))
 }
 
-fn read_disk() -> Value {
-    file()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| json!({}))
+fn row_dir(key: &str, server_base: &str) -> Option<String> {
+    use base64::Engine;
+    let encoded = key.strip_prefix("workspace:")?.strip_prefix(server_base)?.strip_prefix(':')?;
+    String::from_utf8(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()
 }
 
 #[derive(Clone)]
@@ -197,139 +203,204 @@ fn capture_workspace(ws: &PendingWorkspaceCapture, timeout: Duration) -> StoredW
     StoredWorkspace { active, all }
 }
 
+/// One server's workspaces as a save found them: the ones not opened this run as they were
+/// read, the open ones to capture from their terminals, and the folders whose last tab closed.
+struct Snapshot {
+    server: String,
+    unhydrated: Vec<(String, StoredWorkspace)>,
+    live: Vec<PendingWorkspaceCapture>,
+    empty: Vec<String>,
+}
+
+impl Snapshot {
+    /// Captures the open terminals and writes each workspace's row; a row of this server no
+    /// workspace holds any more goes. An unchanged row writes nothing (the storage compares).
+    fn write(self) {
+        let mut rows: Vec<(String, Option<String>)> = self.unhydrated.into_iter().map(|(dir, sw)| (row_key(&self.server, &dir), Some(sw.to_json().to_string()))).collect();
+        for pending in &self.live {
+            let sw = capture_workspace(pending, Duration::from_millis(100));
+            let key = row_key(&self.server, &pending.directory);
+            rows.retain(|(k, _)| *k != key);
+            rows.push((key, (!sw.all.is_empty()).then(|| sw.to_json().to_string())));
+        }
+        for dir in self.empty {
+            let key = row_key(&self.server, &dir);
+            rows.retain(|(k, _)| *k != key);
+            rows.push((key, None));
+        }
+        let prefix = format!("workspace:{}:", self.server);
+        crate::storage::with_storage(move |s| {
+            // Evicted workspaces (past the 20 kept) leave with the save that dropped them.
+            for (key, _) in s.state().items(NAMESPACE).unwrap_or_default() {
+                if key.starts_with(&prefix) && !rows.iter().any(|(k, _)| *k == key) {
+                    s.state().delete(NAMESPACE, &key);
+                }
+            }
+            for (key, value) in rows {
+                match value {
+                    Some(v) => s.state().set(NAMESPACE, &key, v),
+                    None => s.state().delete(NAMESPACE, &key),
+                };
+            }
+        });
+    }
+}
+
+/// The saver's thread, started by the first save: it waits a second from the first change
+/// (the storage design's terminal tier) and captures once for all that came meanwhile.
+enum Msg {
+    Save(Snapshot),
+    /// Capture and write what waits now (a window closes, the app quits); answer when done.
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+/// The saver's state.
+enum Saver {
+    Idle,
+    /// Changes wait until `due`: the newest snapshot of each server.
+    Waiting { due: rune::time::Instant, pending: Vec<Snapshot> },
+}
+
+const SAVE_DELAY: Duration = Duration::from_millis(1000);
+
+static SAVER: std::sync::Mutex<Option<std::sync::mpsc::Sender<Msg>>> = std::sync::Mutex::new(None);
+
+fn saver() -> Option<std::sync::mpsc::Sender<Msg>> {
+    let mut slot = SAVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if slot.is_none() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("terminal-saves".into()).spawn(move || run_saver(rx)).ok()?;
+        *slot = Some(tx);
+    }
+    slot.clone()
+}
+
+fn run_saver(rx: std::sync::mpsc::Receiver<Msg>) {
+    let mut state = Saver::Idle;
+    loop {
+        let msg = match &state {
+            Saver::Idle => rx.recv().map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
+            Saver::Waiting { due, .. } => rx.recv_timeout(due.saturating_duration_since(rune::time::Instant::now())),
+        };
+        state = match (std::mem::replace(&mut state, Saver::Idle), msg) {
+            (Saver::Idle, Ok(Msg::Save(s))) => Saver::Waiting { due: rune::time::Instant::now() + SAVE_DELAY, pending: vec![s] },
+            (Saver::Waiting { due, mut pending }, Ok(Msg::Save(s))) => {
+                pending.retain(|p| p.server != s.server);
+                pending.push(s);
+                Saver::Waiting { due, pending }
+            }
+            (waiting, Ok(Msg::Flush(done))) => {
+                if let Saver::Waiting { pending, .. } = waiting {
+                    pending.into_iter().for_each(Snapshot::write);
+                }
+                let _ = done.send(());
+                Saver::Idle
+            }
+            (Saver::Waiting { pending, .. }, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => {
+                pending.into_iter().for_each(Snapshot::write);
+                Saver::Idle
+            }
+            (waiting, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)) => {
+                if let Saver::Waiting { pending, .. } = waiting {
+                    pending.into_iter().for_each(Snapshot::write);
+                }
+                return;
+            }
+            (Saver::Idle, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => Saver::Idle,
+        };
+    }
+}
+
+/// A window closes or the app quits: the saves waiting land in the storage now (up to a second
+/// for the terminals' captures), before the storage's own flush. Nothing waiting: returns at once.
+pub fn flush() {
+    let Some(tx) = SAVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() else { return };
+    let (done, wait) = std::sync::mpsc::sync_channel(1);
+    if tx.send(Msg::Flush(done)).is_ok() {
+        let _ = wait.recv_timeout(Duration::from_secs(1));
+    }
+}
+
+/// Whether the stored workspaces have been taken in (`plugin.terminal` loads after the first frame).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Saved {
+    /// A run that keeps nothing.
+    #[default]
+    Off,
+    /// Server `server`'s rows are wanted; they come in when the dock first needs a workspace.
+    Waiting { server: String },
+    Taken,
+}
+
 impl App {
-    /// Loads saved terminal workspaces for `server_base` from `<data dir>/rune-opencode/terminals.json`
-    /// without spawning worker threads until a workspace's dock is actually shown.
+    /// Asks for the saved terminal workspaces of `server_base`: their rows load on the storage
+    /// thread after the first frame, and come in when a dock first needs one. Nothing is read here.
     pub fn load_persisted_terminals(&mut self, server_base: &str) {
-        let root = read_disk();
-        self.restore_terminals_from_json(server_base, &root[server_base]);
-    }
-
-    /// Populates lazy `stored` workspace entries for `server_base` from a serialized JSON map
-    /// (`{ directory: { active, all } }`).
-    pub fn restore_terminals_from_json(&mut self, server_base: &str, v: &Value) {
-        let Some(obj) = v.as_object() else { return };
-        for (dir, ws_val) in obj {
-            let sw = StoredWorkspace::from_json(ws_val);
-            if sw.all.is_empty() {
-                continue;
-            }
-            let key = workspace_key(server_base, dir);
-            self.terminal.touch_lru(&key);
-            self.terminal.stored.insert(key, sw);
-        }
-    }
-
-    /// Captures all workspaces for `server_base` (`{ directory: { active, all } }`), including
-    /// 2,000-row serialized VT buffers from active worker threads.
-    pub fn terminals_to_json(&self, server_base: &str) -> Value {
-        let prefix = format!("{server_base}\0");
-        let mut out = serde_json::Map::new();
-
-        for (key, sw) in &self.terminal.stored {
-            if let Some(dir) = key.strip_prefix(&prefix)
-                && !sw.all.is_empty()
-            {
-                out.insert(dir.to_owned(), sw.to_json());
-            }
-        }
-
-        for (key, ws) in &self.terminal.workspaces {
-            let Some(dir) = key.strip_prefix(&prefix) else {
-                continue;
-            };
-            if ws.tabs.is_empty() {
-                out.remove(dir);
-                continue;
-            }
-            let pending = PendingWorkspaceCapture {
-                directory: dir.to_owned(),
-                active: ws.active.clone(),
-                tabs: ws
-                    .tabs
-                    .iter()
-                    .map(|t| PendingTabCapture {
-                        id: t.id.clone(),
-                        title: t.title.clone(),
-                        title_number: t.title_number,
-                        custom_title: t.custom_title,
-                        handle: t.session.persist_handle(),
-                    })
-                    .collect(),
-            };
-            let captured = capture_workspace(&pending, Duration::from_millis(120));
-            out.insert(dir.to_owned(), captured.to_json());
-        }
-
-        Value::Object(out)
-    }
-
-    /// Schedules an off-main-thread snapshot + atomic replace of `terminals.json` on `opencode-saves`.
-    pub fn queue_terminal_save(&self) {
         if !self.persists() {
             return;
         }
+        self.terminal.saved = Saved::Waiting { server: server_base.to_owned() };
+        crate::storage::with_storage(|s| s.state().load(&[NAMESPACE], None));
+    }
+
+    /// The stored workspaces, once their rows are in memory.
+    fn take_stored_terminals(&mut self) {
+        let Saved::Waiting { server } = &self.terminal.saved else { return };
+        let Some(rows) = crate::storage::items(NAMESPACE) else { return };
+        let server = server.clone();
+        self.terminal.saved = Saved::Taken;
+        for (key, value) in rows {
+            let Some(dir) = row_dir(&key, &server) else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(&value) else { continue };
+            let sw = StoredWorkspace::from_json(&v);
+            if sw.all.is_empty() {
+                continue;
+            }
+            let key = workspace_key(&server, &dir);
+            if self.terminal.workspaces.contains_key(&key) {
+                continue;
+            }
+            self.terminal.touch_lru(&key);
+            self.terminal.stored.entry(key).or_insert(sw);
+        }
+    }
+
+    /// Hands what the window's terminals hold for its server to the saver thread, which captures
+    /// the open ones (their 2,000-row buffers) and writes their rows a second later.
+    pub fn queue_terminal_save(&mut self) {
+        if !self.persists() {
+            return;
+        }
+        self.take_stored_terminals();
         let Source::Live { server, .. } = &self.source else {
             return;
         };
-        let Some(path) = file() else { return };
         let server_base = server.base.clone();
         let prefix = format!("{server_base}\0");
-
-        let mut unhydrated: HashMap<String, StoredWorkspace> = HashMap::new();
-        for (k, sw) in &self.terminal.stored {
-            if let Some(dir) = k.strip_prefix(&prefix)
-                && !sw.all.is_empty()
-            {
-                unhydrated.insert(dir.to_owned(), sw.clone());
-            }
-        }
-
-        let mut live_captures: Vec<PendingWorkspaceCapture> = Vec::new();
-        let mut empty_dirs: Vec<String> = Vec::new();
+        let unhydrated = self.terminal.stored.iter().filter_map(|(k, sw)| Some((k.strip_prefix(&prefix)?.to_owned(), sw.clone())).filter(|(_, sw)| !sw.all.is_empty())).collect();
+        let mut live = Vec::new();
+        let mut empty = Vec::new();
         for (k, ws) in &self.terminal.workspaces {
             let Some(dir) = k.strip_prefix(&prefix) else {
                 continue;
             };
             if ws.tabs.is_empty() {
-                empty_dirs.push(dir.to_owned());
+                empty.push(dir.to_owned());
                 continue;
             }
-            live_captures.push(PendingWorkspaceCapture {
+            live.push(PendingWorkspaceCapture {
                 directory: dir.to_owned(),
                 active: ws.active.clone(),
                 tabs: ws
                     .tabs
                     .iter()
-                    .map(|t| PendingTabCapture {
-                        id: t.id.clone(),
-                        title: t.title.clone(),
-                        title_number: t.title_number,
-                        custom_title: t.custom_title,
-                        handle: t.session.persist_handle(),
-                    })
+                    .map(|t| PendingTabCapture { id: t.id.clone(), title: t.title.clone(), title_number: t.title_number, custom_title: t.custom_title, handle: t.session.persist_handle() })
                     .collect(),
             });
         }
-
-        crate::disk::later("terminals", move || {
-            let mut server_map = serde_json::Map::new();
-            for (dir, sw) in unhydrated {
-                server_map.insert(dir, sw.to_json());
-            }
-            for pending in &live_captures {
-                let sw = capture_workspace(pending, Duration::from_millis(100));
-                if !sw.all.is_empty() {
-                    server_map.insert(pending.directory.clone(), sw.to_json());
-                }
-            }
-            for empty in empty_dirs {
-                server_map.remove(&empty);
-            }
-            let mut root = read_disk();
-            root[server_base] = Value::Object(server_map);
-            crate::disk::replace(&path, root.to_string().as_bytes());
-        });
+        if let Some(tx) = saver() {
+            let _ = tx.send(Msg::Save(Snapshot { server: server_base, unhydrated, live, empty }));
+        }
     }
 
     /// Loads a workspace on first dock access: on a live server, the session's running
@@ -339,6 +410,7 @@ impl App {
         if self.terminal.workspaces.contains_key(ws_key) {
             return false;
         }
+        self.take_stored_terminals();
         if let Some((srv, _)) = self.live_terminals() {
             return self.hydrate_from_server(ws_key, &srv);
         }

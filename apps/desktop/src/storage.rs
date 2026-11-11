@@ -175,8 +175,8 @@ fn config() -> Option<StorageConfig> {
     let mut sidecar = vec![opencode_kit::client::DEFAULT_SERVER.to_owned()];
     sidecar.extend(crate::arg("--server"));
     // The groups whose files the app has cut over (the crate's staged import): the plugin host,
-    // terminal, updater and browser still read theirs until their packages move them.
-    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox], clock: crate::wall_ms })
+    // updater and browser still read theirs until their packages move them.
+    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox, ImportGroup::Terminal], clock: crate::wall_ms })
 }
 /// The first window presented its first frame: stage B is joined off the UI thread.
 pub fn presented() {

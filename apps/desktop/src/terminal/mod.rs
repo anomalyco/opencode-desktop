@@ -132,6 +132,8 @@ impl TerminalWorkspace {
 pub struct TerminalPane {
     pub workspaces: HashMap<String, TerminalWorkspace>,
     pub stored: HashMap<String, StoredWorkspace>,
+    /// Whether the saved workspaces were taken in.
+    pub saved: persist::Saved,
     pub lru_order: Vec<String>,
     pub blink_epoch: f64,
     pub bell_until: f64,
@@ -155,6 +157,7 @@ impl Default for TerminalPane {
         Self {
             workspaces: HashMap::new(),
             stored: HashMap::new(),
+            saved: persist::Saved::default(),
             lru_order: Vec::new(),
             blink_epoch: 0.0,
             bell_until: 0.0,

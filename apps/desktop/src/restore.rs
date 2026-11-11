@@ -283,6 +283,7 @@ impl App {
             self.poll_restore();
             self.poll_preview(true);
             self.queue_terminal_save();
+            crate::terminal::persist::flush();
         }
         self.window_closed();
         crate::servers::runtime::leave_all(self);
@@ -298,6 +299,7 @@ impl App {
             self.poll_restore();
             self.poll_preview(true);
             self.queue_terminal_save();
+            crate::terminal::persist::flush();
         }
         self.window_quitting();
         crate::disk::flush();
