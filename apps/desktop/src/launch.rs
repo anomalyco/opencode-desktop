@@ -77,14 +77,16 @@ pub fn instance_id() -> String {
     format!("{}-{tag}", product().id())
 }
 
-/// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow).
+/// The app icon full bleed, as Windows draws an app's icon (no macOS grid or shadow), for the
+/// notification center's icon file.
 #[cfg(target_os = "windows")]
 pub const WINDOWS_ICON: &[u8] = include_bytes!("../assets/icon/art-512.png");
 
-/// Windows: the windows' title bar, taskbar and Alt+Tab icon.
+/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
+/// (`build.rs`), so nothing is decoded or resized at launch.
 #[cfg(target_os = "windows")]
 pub fn apply_app_icon() {
-    let _ = rune::set_app_icon(WINDOWS_ICON);
+    rune::set_app_icon_resource(1);
 }
 
 /// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
@@ -407,6 +409,10 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() { s.launch.network_change = s.waker.clone().and_then(network::subscribe); }
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
+    // Which Open in apps are installed: the first frame showed the remembered choice.
+    s.open_in.detect();
+    // The toasts' registry key and icon file, which no frame needs.
+    crate::notifications::register();
     crate::updater::start_if_packaged(s);
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;

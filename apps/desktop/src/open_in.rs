@@ -166,12 +166,18 @@ impl Launcher for Fixed {
     }
 }
 
+/// Which Open in apps are installed.
+enum Installed {
+    Unknown,
+    Known(Vec<&'static str>),
+}
+
 pub struct OpenIn {
     launcher: Arc<dyn Launcher>,
     found: Latest<Vec<&'static str>>,
     done: Latest<Result<(), String>>,
-    /// Installed app IDs, in `APPS` order; none until the check answers.
-    installed: Vec<&'static str>,
+    /// Which apps are installed: unknown until the check (`detect`, after the first frame) answers.
+    installed: Installed,
     chosen: Option<String>,
     busy: bool,
 }
@@ -184,16 +190,16 @@ impl Default for OpenIn {
 
 impl OpenIn {
     pub fn with(launcher: Arc<dyn Launcher>) -> Self {
-        Self { launcher, found: Latest::default(), done: Latest::default(), installed: vec![], chosen: None, busy: false }
+        Self { launcher, found: Latest::default(), done: Latest::default(), installed: Installed::Unknown, chosen: None, busy: false }
     }
 
     pub fn set_waker(&mut self, waker: Waker) {
         self.found.set_waker(waker.clone());
         self.done.set_waker(waker);
-        self.detect();
     }
 
-    /// Looks for installed apps in the background.
+    /// Looks for installed apps in the background: from `launch::ready`, after the first frame,
+    /// which shows the remembered choice until the check answers.
     pub fn detect(&mut self) {
         let launcher = self.launcher.clone();
         self.found.request((), move |()| {
@@ -206,7 +212,7 @@ impl OpenIn {
     pub fn poll(&mut self) -> (bool, Option<String>) {
         let mut changed = false;
         if let Some(found) = self.found.take() {
-            self.installed = APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect();
+            self.installed = Installed::Known(APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect());
             changed = true;
         }
         let mut err = None;
@@ -220,7 +226,12 @@ impl OpenIn {
 
     /// The file manager first, then what's installed.
     pub fn options(&self) -> Vec<(&'static str, &'static str)> {
-        std::iter::once((FINDER, opencode_i18n::I18N.text(FILE_MANAGER.0))).chain(self.installed.iter().map(|id| (*id, label_of(id)))).collect()
+        let ids: Vec<&str> = match &self.installed {
+            Installed::Known(ids) => ids.clone(),
+            // Before the check answers, the remembered choice stands: it was installed when chosen.
+            Installed::Unknown => self.chosen.as_deref().and_then(|c| APPS.iter().find(|a| a.id == c)).map(|a| a.id).into_iter().collect(),
+        };
+        std::iter::once((FINDER, opencode_i18n::I18N.text(FILE_MANAGER.0))).chain(ids.into_iter().map(|id| (id, label_of(id)))).collect()
     }
 
     pub fn current(&self) -> &str {

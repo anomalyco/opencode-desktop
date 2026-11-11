@@ -102,15 +102,20 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
     installed_at(app, var).or_else(|| found.into_iter().next())
 }
 
-/// What `where` finds for `app` on the `PATH`, in order.
+/// What `where` finds for `app` on the `PATH`, in order: each folder of `PATH` with each
+/// `PATHEXT` extension (and the name as given, when it has one), as `where.exe` searches, without
+/// starting it (a process each: 7,600-26,500 µs on blade, five at every launch).
 fn where_is(app: &str) -> Vec<PathBuf> {
-    let Ok(out) = Command::new("where.exe").arg(app).creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null()).stderr(Stdio::null()).output() else {
-        return vec![];
-    };
-    if !out.status.success() {
-        return vec![];
-    }
-    String::from_utf8_lossy(&out.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).collect()
+    let exts: Vec<String> = std::env::var_os("PATHEXT").map(|v| v.to_string_lossy().split(';').filter(|e| !e.is_empty()).map(str::to_owned).collect()).unwrap_or_else(|| [".COM", ".EXE", ".BAT", ".CMD"].map(String::from).to_vec());
+    let Some(path) = std::env::var_os("PATH") else { return vec![] };
+    let named = Path::new(app).extension().is_some();
+    std::env::split_paths(&path)
+        .flat_map(|dir| {
+            let exact = named.then(|| dir.join(app));
+            exact.into_iter().chain(exts.iter().map(move |e| dir.join(format!("{app}{e}"))))
+        })
+        .filter(|p| p.is_file())
+        .collect()
 }
 
 /// The `.exe` a `.cmd` or `.bat` shim starts: a quoted path, relative to the shim's folder when it

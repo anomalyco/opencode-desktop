@@ -373,26 +373,59 @@ pub fn clicked(app: &mut App, click: &rune_notify::Click) {
 /// for the notification center to read), and the app's URL scheme, which a click on a toast
 /// opens, so a toast left in the notification center starts the app again. macOS takes it from
 /// the bundle.
+///
+/// Only the in-process part runs here (`rune_notify::adopt`: the `AppUserModelID`, which the
+/// taskbar button needs before the window shows); the registry key and the icon file the
+/// notification center reads are written after the first frame, off the UI thread (`register`).
 #[cfg(target_os = "windows")]
 pub fn identify() {
     if crate::headless() {
         return;
     }
-    let product = crate::launch::product();
-    let mut identity = rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme());
-    if let Some(icon) = crate::dirs::data().map(|d| d.join("notification-icon.png")) {
-        let png = crate::launch::WINDOWS_ICON;
-        if std::fs::metadata(&icon).map(|m| m.len()).ok() != Some(png.len() as u64) {
-            let _ = std::fs::create_dir_all(icon.parent().unwrap_or(&icon));
-            let _ = std::fs::write(&icon, png);
-        }
-        identity = identity.icon(icon);
-    }
-    if let Err(e) = rune_notify::register(&identity) {
+    if let Err(e) = rune_notify::adopt(&identity(None)) {
         eprintln!("notifications: {e}");
     }
 }
 
+#[cfg(target_os = "windows")]
+fn identity(icon: Option<std::path::PathBuf>) -> rune_notify::Identity {
+    let product = crate::launch::product();
+    let identity = rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme());
+    match icon {
+        Some(icon) => identity.icon(icon),
+        None => identity,
+    }
+}
+
+/// After the first frame, once per process, on a thread of its own: the toasts' registration
+/// (`AppUserModelId` key, activation scheme) and the icon file it names, written only when missing
+/// or changed. A toast posted before it lands still carries the process's identity.
+#[cfg(target_os = "windows")]
+pub fn register() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    if crate::headless() {
+        return;
+    }
+    ONCE.call_once(|| {
+        let _ = std::thread::Builder::new().name("opencode-identity".into()).spawn(|| {
+            let icon = crate::dirs::data().map(|d| d.join("notification-icon.png"));
+            if let Some(icon) = &icon {
+                let png = crate::launch::WINDOWS_ICON;
+                if std::fs::metadata(icon).map(|m| m.len()).ok() != Some(png.len() as u64) {
+                    let _ = std::fs::create_dir_all(icon.parent().unwrap_or(icon));
+                    let _ = std::fs::write(icon, png);
+                }
+            }
+            if let Err(e) = rune_notify::register(&identity(icon)) {
+                eprintln!("notifications: {e}");
+            }
+        });
+    });
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn identify() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn register() {}
 
