@@ -148,6 +148,7 @@ impl Platform for Windows {
             self.verify(&app)?;
             std::fs::remove_dir_all(&staged_dir).ok();
             std::fs::rename(&app, &staged_dir).map_err(|e| format!("could not stage the update: {e}"))?;
+            super::engine::record_staged(&found.version, &found.target.sha256);
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir.clone() })
         })();
         std::fs::remove_dir_all(&download).ok();

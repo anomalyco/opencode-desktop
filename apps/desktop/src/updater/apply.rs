@@ -110,9 +110,6 @@ fn run() -> i32 {
         start(&a, &log);
         return 1;
     }
-    if !a.sha256.is_empty() {
-        std::fs::write(a.updates.join("installed-release"), format!("{} {}\n", a.version, a.sha256)).ok();
-    }
     log(&format!("{} is in place", a.version));
     // This is the new version's executable: its version goes in Apps & features.
     match win_install::refresh(&crate::launch::product(), &a.root) {

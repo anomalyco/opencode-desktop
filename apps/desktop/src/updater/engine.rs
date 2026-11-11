@@ -21,7 +21,7 @@ pub struct Facts {
     pub channel: String,
     /// The feed's base URL.
     pub service: String,
-    /// The folder downloads, the rollout bucket and the installed release's hash live in.
+    /// The folder downloads and the staged release live in.
     pub updates: PathBuf,
 }
 
@@ -43,7 +43,7 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3600);
 
 impl Engine {
     pub fn new(facts: Facts) -> Self {
-        let rollout_bucket = load_or_create_rollout_bucket(&facts.updates);
+        let rollout_bucket = load_or_create_rollout_bucket();
         Engine { facts, rollout_bucket, found: Mutex::new(None) }
     }
 
@@ -74,7 +74,7 @@ impl Engine {
         }
         let text = resp.body_mut().read_to_string().map_err(|e| format!("Could not read manifest: {e}"))?;
         let manifest = protocol::parse_manifest(&text, &url, feed::target_name())?;
-        let installed = read_installed_sha(&self.facts.updates, &self.facts.version);
+        let installed = read_installed_sha(&self.facts.version);
         let decision = protocol::decide(&manifest, &self.facts.channel, &self.facts.version, installed.as_deref(), self.rollout_bucket)?;
         let found = match decision {
             Decision::Install { version, target } => Some(Found { version, target }),
@@ -139,13 +139,15 @@ impl Engine {
     }
 }
 
+/// The updater's records, in the app's state (Desktop's updater plugin namespace): `ready` (the
+/// staged version), `rune.rolloutBucket` (this install's 0-99 rollout seed) and
+/// `rune.installedRelease` (`<version> <sha256>` of the release last staged). Read and written in
+/// memory; the storage lands them behind.
+pub const NAMESPACE: &str = "plugin.updater";
+
 #[allow(clippy::disallowed_methods)]
-fn load_or_create_rollout_bucket(root: &Path) -> u8 {
-    let seed_file = root.join("rollout-bucket");
-    if let Ok(text) = std::fs::read_to_string(&seed_file)
-        && let Ok(bucket) = text.trim().parse::<u8>()
-        && bucket < 100
-    {
+fn load_or_create_rollout_bucket() -> u8 {
+    if let Some(bucket) = crate::storage::json(NAMESPACE, "rune.rolloutBucket").and_then(|v| v.as_u64()).and_then(|b| u8::try_from(b).ok()).filter(|b| *b < 100) {
         return bucket;
     }
     let nanos = rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
@@ -153,20 +155,19 @@ fn load_or_create_rollout_bucket(root: &Path) -> u8 {
     hasher.update(nanos.to_le_bytes());
     hasher.update(std::process::id().to_le_bytes());
     let bucket = hasher.finalize()[0] % 100;
-    std::fs::create_dir_all(root).ok();
-    std::fs::write(&seed_file, format!("{bucket}\n")).ok();
+    crate::storage::set_json(NAMESPACE, "rune.rolloutBucket", &serde_json::json!(bucket));
     bucket
 }
 
-/// The SHA-256 of the archive the running build was installed from, when an update installed it.
-pub fn read_installed_sha(root: &Path, running_version: &str) -> Option<String> {
-    let raw = std::fs::read_to_string(root.join("installed-release")).ok()?;
-    let (ver, sha) = raw.trim().split_once(' ')?;
+/// The SHA-256 of the archive the running build was installed from, when an update installed it:
+/// the release last staged, if that's the version running now.
+pub fn read_installed_sha(running_version: &str) -> Option<String> {
+    let raw = crate::storage::json(NAMESPACE, "rune.installedRelease")?;
+    let (ver, sha) = raw.as_str()?.split_once(' ')?;
     (ver == running_version && sha.len() == 64).then(|| sha.to_owned())
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub fn write_installed_sha(root: &Path, version: &str, sha256: &str) {
-    std::fs::create_dir_all(root).ok();
-    std::fs::write(root.join("installed-release"), format!("{version} {sha256}\n")).ok();
+/// Records the staged release: once it's installed, the next run is that version and reads it.
+pub fn record_staged(version: &str, sha256: &str) {
+    crate::storage::set_json(NAMESPACE, "rune.installedRelease", &serde_json::json!(format!("{version} {sha256}")));
 }

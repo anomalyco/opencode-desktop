@@ -170,10 +170,10 @@ pub fn start_if_packaged(s: &mut App) {
     s.updater.service = Some(service);
 }
 
-/// This build's platform updater and its records folder, on the updater's worker thread.
-fn make_platform() -> Option<(std::sync::Arc<dyn platform::Platform>, std::path::PathBuf)> {
+/// This build's platform updater, on the updater's worker thread.
+fn make_platform() -> Option<std::sync::Arc<dyn platform::Platform>> {
     let (exe, updates) = (std::env::current_exe().ok()?, crate::dirs::updates()?);
-    platform::make(&exe, build_version(), build_channel(), updates.clone()).map(|p| (p, updates))
+    platform::make(&exe, build_version(), build_channel(), updates)
 }
 
 /// Feeds the service's results to this window on the app's thread, and answers the plugins'

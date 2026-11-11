@@ -22,7 +22,6 @@
 
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -38,9 +37,8 @@ use super::platform::Platform;
 /// A caller's check or install, answered by [`UpdaterService::take_answer`].
 pub type Ticket = u64;
 
-/// Makes the platform updater on the worker thread, with the folder it keeps its records in;
-/// `None` when this build has no updater.
-pub type MakePlatform = Box<dyn FnOnce() -> Option<(Arc<dyn Platform>, PathBuf)> + Send>;
+/// Makes the platform updater on the worker thread; `None` when this build has no updater.
+pub type MakePlatform = Box<dyn FnOnce() -> Option<Arc<dyn Platform>> + Send>;
 
 /// The download under way: bytes so far of `total`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,8 +72,6 @@ enum Job {
     Check(Attempt),
     Stage(Attempt),
     Install(Attempt),
-    /// Records the staged release's version (`ready`), or forgets it.
-    Persist(Option<String>),
 }
 
 enum Message {
@@ -252,8 +248,9 @@ impl UpdaterService {
             Effect::Restart(a) => self.send(Job::Install(a)),
             // A blocking platform call can't be stopped; its stale result is fenced by its attempt.
             Effect::Cancel(_) => {}
-            Effect::PersistSet(version) => self.send(Job::Persist(Some(version))),
-            Effect::PersistClear => self.send(Job::Persist(None)),
+            // The staged version (`ready`), in the app's state: memory now, the storage behind.
+            Effect::PersistSet(version) => crate::storage::set_json(super::engine::NAMESPACE, "ready", &serde_json::json!(version)),
+            Effect::PersistClear => crate::storage::delete(super::engine::NAMESPACE, "ready"),
             Effect::ResolveChecks(tickets, view) => self.answer(tickets, |_| Answer::Checked(view.clone())),
             Effect::ResolveInstalls(tickets) => {
                 self.answer(tickets, |_| Answer::Installed(Ok(())));
@@ -296,12 +293,12 @@ struct Worker {
 impl Worker {
     fn run(self, make: MakePlatform, jobs: Receiver<Job>) {
         let started = Instant::now();
-        let Some((platform, updates)) = make() else {
+        let Some(platform) = make() else {
             eprintln!("updater: none in this build (found in {} µs, off the UI thread)", started.elapsed().as_micros());
             self.send(Message::Event(Event::Unavailable));
             return;
         };
-        let persisted = std::fs::read_to_string(updates.join("ready")).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        let persisted = crate::storage::json(super::engine::NAMESPACE, "ready").and_then(|v| v.as_str().map(str::to_owned)).filter(|v| !v.is_empty());
         eprintln!("updater: up in {} µs, off the UI thread", started.elapsed().as_micros());
         self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted }));
         let mut next_check = Instant::now() + feed::initial_delay();
@@ -332,13 +329,6 @@ impl Worker {
                         Err(e) => Event::RestartFailed(a, e),
                     };
                     self.send(Message::Event(event));
-                }
-                Ok(Job::Persist(Some(version))) => {
-                    std::fs::create_dir_all(&updates).ok();
-                    std::fs::write(updates.join("ready"), format!("{version}\n")).ok();
-                }
-                Ok(Job::Persist(None)) => {
-                    std::fs::remove_file(updates.join("ready")).ok();
                 }
             }
         }
