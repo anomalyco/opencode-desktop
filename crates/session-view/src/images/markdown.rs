@@ -100,10 +100,10 @@ fn step(state: Fetcher, event: FetcherEvent) -> (Fetcher, Option<Spawn>) {
 #[derive(Default)]
 pub struct MdStore {
     fetcher: RefCell<Fetcher>,
-    cache: RefCell<Option<ImageCache>>,
+    cache: RefCell<Option<Arc<ImageCache>>>,
     slots: RefCell<HashMap<Source, Slot>>,
-    /// Bytes (or a failure) the worker fetched, waiting for the view to decode them.
-    fetched: Arc<Mutex<Vec<(Source, Result<Vec<u8>, String>)>>>,
+    /// What the readers fetched, already decoding (or a failure), waiting for the view.
+    fetched: Arc<Mutex<Vec<(Source, Result<(Image, Arc<[u8]>), String>)>>>,
     /// A fetch or decode finished since the host last polled: the view must run again.
     landed: Arc<AtomicBool>,
     /// Counts fetches and decodes that finished, for the rows that draw pictures to rebuild.
@@ -207,56 +207,61 @@ impl MdStore {
         None
     }
 
-    /// Hands the worker's fetched bytes to the image cache.
+    /// Takes what the readers fetched: each picture already decoding.
     fn land(&self) {
         let fetched = std::mem::take(&mut *self.fetched.lock().unwrap_or_else(|e| e.into_inner()));
-        for (source, bytes) in fetched {
-            let slot = match bytes {
-                Ok(bytes) => match self.cache() {
-                    Some(cache) => {
-                        let bytes: Arc<[u8]> = bytes.into();
-                        Slot::Decoding(cache.load(bytes.clone()), bytes)
-                    }
-                    None => Slot::Failed,
-                },
+        for (source, read) in fetched {
+            let slot = match read {
+                Ok((image, bytes)) => Slot::Decoding(image, bytes),
                 Err(_) => Slot::Failed,
             };
             self.slots.borrow_mut().insert(source, slot);
         }
     }
 
-    fn cache(&self) -> Option<std::cell::Ref<'_, ImageCache>> {
+    fn cache(&self) -> Option<Arc<ImageCache>> {
         if self.cache.borrow().is_none() {
             let waker = match &*self.fetcher.borrow() {
                 Fetcher::Unset { waker, .. } => waker.clone()?,
                 Fetcher::Ready { waker, .. } | Fetcher::Running { waker, .. } => waker.clone(),
             };
             let (landed, version) = (self.landed.clone(), self.version.clone());
-            *self.cache.borrow_mut() = Some(ImageCache::new(Arc::new(move || {
+            *self.cache.borrow_mut() = Some(Arc::new(ImageCache::new(Arc::new(move || {
                 version.fetch_add(1, Ordering::AcqRel);
                 landed.store(true, Ordering::Release);
                 waker();
-            })));
+            }))));
         }
-        std::cell::Ref::filter_map(self.cache.borrow(), Option::as_ref).ok()
+        self.cache.borrow().clone()
     }
 
     /// The worker's queue, started on first use; `None` until the host gives a waker and fetches.
     fn jobs(&self) -> Option<Sender<Source>> {
-        if let Some(spawn) = self.send(FetcherEvent::Start) {
+        if let Some(spawn) = self.send(FetcherEvent::Start)
+            && let Some(cache) = self.cache()
+        {
             let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
-            // A worker that can't start drops its queue, so what's sent to it fails.
+            // Each source reads on a task of its own, side by side as a browser fetches a page's
+            // pictures, and hands what it read to the image cache at once, so it decodes without
+            // waiting for a frame. A dispatcher that can't start drops its queue, so what's sent
+            // to it fails.
             let _ = rune::task::serve("markdown-media", spawn.receive, move |source| {
-                {
+                let (fetch, waker, cache) = (spawn.fetch.clone(), spawn.waker.clone(), cache.clone());
+                let (fetched, landed, version) = (fetched.clone(), landed.clone(), version.clone());
+                let _ = rune::task::spawn("markdown-media-read", move || {
                     let bytes = match &source {
-                        Source::File { directory, path } => (spawn.fetch.files)(directory, path),
-                        Source::Web(url) => (spawn.fetch.web)(url),
+                        Source::File { directory, path } => (fetch.files)(directory, path),
+                        Source::Web(url) => (fetch.web)(url),
                     };
-                    fetched.lock().unwrap_or_else(|e| e.into_inner()).push((source, bytes));
+                    let read = bytes.map(|bytes| {
+                        let bytes: Arc<[u8]> = bytes.into();
+                        (cache.load(bytes.clone()), bytes)
+                    });
+                    fetched.lock().unwrap_or_else(|e| e.into_inner()).push((source, read));
                     version.fetch_add(1, Ordering::AcqRel);
                     landed.store(true, Ordering::Release);
-                    (spawn.waker)();
-                }
+                    waker();
+                });
                 std::ops::ControlFlow::Continue(())
             });
         }

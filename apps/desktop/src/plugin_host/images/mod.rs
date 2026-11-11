@@ -15,23 +15,23 @@ use load::{Load, LoadEffect, LoadEvent, Source};
 
 #[derive(Default)]
 pub struct Images {
-    cache: Option<ImageCache>,
+    cache: Option<Arc<ImageCache>>,
     waker: Option<rune::Waker>,
     /// Id  the plugin it belongs to and where it stands.
     map: HashMap<u32, Entry>,
     /// A plugin's loads by source key, so the same source is the same image.
     by_source: HashMap<(String, String), u32>,
     next: u32,
-    /// The worker's queue, started with the first load.
+    /// The readers' queue, started with the first load.
     jobs: Option<Sender<(u32, Source)>>,
-    /// What the worker read, waiting for the poll.
+    /// What the readers read, already decoding, waiting for the poll.
     fetched: Arc<Mutex<Vec<Fetched>>>,
     /// The videos plugins show (`ui.video`), by plugin and URL: one player each.
     players: HashMap<(String, String), rune::Player>,
 }
 
-/// An image's id and what the worker read for it.
-type Fetched = (u32, Result<Vec<u8>, String>);
+/// An image's id and what a reader read for it: its picture, decoding, and its bytes.
+type Fetched = (u32, Result<(Image, Arc<[u8]>), String>);
 
 struct Entry {
     plugin: String,
@@ -41,7 +41,7 @@ struct Entry {
 impl Images {
     /// Starts the cache once the window's waker exists; a decoded image wakes it.
     pub fn start(&mut self, waker: rune::Waker) {
-        self.cache.get_or_insert_with(|| ImageCache::new(waker.clone()));
+        self.cache.get_or_insert_with(|| Arc::new(ImageCache::new(waker.clone())));
         self.waker.get_or_insert(waker);
     }
 
@@ -89,21 +89,28 @@ impl Images {
         self.next
     }
 
-    /// The worker that reads sources, started on first use; `None` before the window's waker.
+    /// The readers of sources, started on first use; `None` before the window's waker. Each source
+    /// reads on a task of its own, side by side as a browser fetches a page's pictures, and hands
+    /// what it read to the image cache at once, so it decodes without waiting for a frame.
     fn jobs(&mut self) -> Option<Sender<(u32, Source)>> {
         if let Some(jobs) = &self.jobs {
             return Some(jobs.clone());
         }
-        let waker = self.waker.clone()?;
+        let (waker, cache) = (self.waker.clone()?, self.cache.clone()?);
         let (jobs, receive) = channel::<(u32, Source)>();
         let fetched = self.fetched.clone();
-        // A worker that can't start drops its queue, so what's sent to it fails.
-        let _worker = std::thread::Builder::new().name("plugin-images".into()).spawn(move || {
-            while let Ok((id, source)) = receive.recv() {
-                let read = source.read();
+        // A dispatcher that can't start drops its queue, so what's sent to it fails.
+        let _ = rune::task::serve("plugin-images", receive, move |(id, source): (u32, Source)| {
+            let (fetched, waker, cache) = (fetched.clone(), waker.clone(), cache.clone());
+            let _ = rune::task::spawn("plugin-images-read", move || {
+                let read = source.read().map(|bytes| {
+                    let bytes: Arc<[u8]> = bytes.into();
+                    (cache.load(bytes.clone()), bytes)
+                });
                 fetched.lock().unwrap_or_else(|e| e.into_inner()).push((id, read));
                 waker();
-            }
+            });
+            std::ops::ControlFlow::Continue(())
         });
         self.jobs = Some(jobs.clone());
         Some(jobs)
@@ -115,15 +122,7 @@ impl Images {
         let fetched = std::mem::take(&mut *self.fetched.lock().unwrap_or_else(|e| e.into_inner()));
         let mut changed = false;
         for (id, read) in fetched {
-            let event = LoadEvent::Fetched(match (read, &self.cache) {
-                (Ok(bytes), Some(cache)) => {
-                    let bytes: Arc<[u8]> = bytes.into();
-                    Ok((cache.load(bytes.clone()), bytes))
-                }
-                (Ok(_), None) => Err("this window decodes no images".into()),
-                (Err(e), _) => Err(e),
-            });
-            changed |= self.step(id, event);
+            changed |= self.step(id, LoadEvent::Fetched(read));
         }
         let settled: Vec<u32> = self.map.iter().filter(|(_, e)| matches!(&e.load, Load::Decoding { image, .. } if image.is_ready())).map(|(id, _)| *id).collect();
         for id in settled {
