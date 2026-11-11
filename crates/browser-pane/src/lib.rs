@@ -46,3 +46,4 @@ pub use installer::{
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::PickedElement;
+pub use site_zoom::ZoomStore;

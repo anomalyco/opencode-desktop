@@ -78,10 +78,13 @@ impl App {
     pub fn setup_browser(&mut self, waker: Waker) {
         self.browser.host.set_waker(waker);
         self.browser.host.set_shell_shortcut(claims_app_shortcut);
-        if self.persists()
-            && let Some(dir) = crate::dirs::data()
-        {
-            self.browser.host.remember_site_zoom(dir.join("browser-zoom.json"));
+        // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
+        // in memory once the storage is up; a change goes behind like any other.
+        if self.persists() {
+            self.browser.host.remember_site_zoom(browser_pane::ZoomStore {
+                read: Box::new(|| crate::storage::text("plugin.browser", "rune.siteZoom").map(|t| t.to_string())),
+                write: Box::new(|levels| crate::storage::set("plugin.browser", "rune.siteZoom", levels)),
+            });
         }
     }
 

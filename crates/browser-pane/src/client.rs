@@ -115,9 +115,9 @@ impl BrowserHost {
         }
     }
 
-    /// Remembers each site's page zoom in `file` (JSON) and opens its pages at it again.
-    pub fn remember_site_zoom(&mut self, file: PathBuf) {
-        self.site_zoom = SiteZoom::remember(file);
+    /// Remembers each site's page zoom in `store` (the app's, as JSON text) and opens its pages at it again.
+    pub fn remember_site_zoom(&mut self, store: crate::ZoomStore) {
+        self.site_zoom = SiteZoom::remember(store);
     }
 
     /// Leaves the engine running when the last tab closes, so the next page skips its start and
