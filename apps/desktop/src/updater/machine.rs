@@ -5,6 +5,10 @@
 //!
 //! Desktop's external-download mode (Beta moving to Stable) has no counterpart here: every
 //! update installs on restart.
+//!
+//! The machine starts in `Starting` while the worker thread finds out whether this build updates
+//! at all (Desktop knows that at build time; here it reads the install and its signature, which
+//! stays off the UI thread). Checks asked meanwhile run once it's up.
 
 pub type Waiter = u64;
 pub type Attempt = u64;
@@ -12,7 +16,10 @@ pub type Attempt = u64;
 /// What windows see (`UpdaterState`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum View {
-    /// No updater runs in this build (a development build, or no release feed yet).
+    /// The worker is still finding out whether this build updates.
+    Starting,
+    /// No updater runs in this build (a development build, a build the release's publisher
+    /// didn't sign).
     Disabled,
     Idle,
     Checking,
@@ -50,6 +57,7 @@ pub enum Plan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
+    Starting { waiters: Vec<Waiter> },
     Disabled,
     Idle(Meta),
     Checking { meta: Meta, attempt: Attempt, waiters: Vec<Waiter> },
@@ -63,6 +71,11 @@ pub enum State {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
+    /// The worker made the platform updater: the running build's version, and the release an
+    /// earlier run staged (`ready`), if any.
+    Started { current: String, persisted: Option<String> },
+    /// This build has no updater.
+    Unavailable,
     CheckRequested(Waiter),
     InstallRequested(Waiter),
     WaiterCancelled(Waiter),
@@ -92,19 +105,14 @@ pub enum Effect {
 
 pub type Transition = (State, Vec<Effect>);
 
-/// The starting state: disabled without a platform; a persisted release the running build is
-/// was installed, so it's forgotten.
-pub fn init(current: &str, enabled: bool, persisted: Option<&str>) -> Transition {
-    if !enabled {
-        return (State::Disabled, Vec::new());
-    }
-    let installed = persisted == Some(current);
-    let meta = Meta { current: current.to_owned(), issued: 0 };
-    (State::Idle(meta), if installed { vec![Effect::PersistClear] } else { Vec::new() })
+/// The starting state, until the worker says whether this build updates.
+pub fn init() -> State {
+    State::Starting { waiters: Vec::new() }
 }
 
 pub fn view(state: &State) -> View {
     match state {
+        State::Starting { .. } => View::Starting,
         State::Disabled => View::Disabled,
         State::Idle(_) => View::Idle,
         State::Checking { .. } => View::Checking,
@@ -123,6 +131,9 @@ pub fn transition(state: &State, event: Event) -> Transition {
     }
     if event == Event::Disposed {
         return dispose(state);
+    }
+    if let State::Starting { waiters } = state {
+        return starting(waiters, event);
     }
     if *state == State::Disabled {
         return match event {
@@ -146,6 +157,28 @@ pub fn transition(state: &State, event: Event) -> Transition {
 
 const NOT_READY: &str = "Update is not ready to install";
 const STOPPED: &str = "Updater stopped";
+
+// A persisted release the running build is was installed, so it's forgotten. Checks asked while
+// starting run now.
+fn starting(waiters: &[Waiter], event: Event) -> Transition {
+    match event {
+        Event::Started { current, persisted } => {
+            let mut effects = if persisted.as_deref() == Some(current.as_str()) { vec![Effect::PersistClear] } else { Vec::new() };
+            let idle = State::Idle(Meta { current, issued: 0 });
+            if waiters.is_empty() {
+                return (idle, effects);
+            }
+            let (meta, attempt) = issue(&idle);
+            effects.push(Effect::Check(attempt));
+            (State::Checking { meta, attempt, waiters: waiters.to_vec() }, effects)
+        }
+        Event::Unavailable => with_checks(State::Disabled, waiters.to_vec(), Vec::new()),
+        Event::CheckRequested(w) => (State::Starting { waiters: plus(waiters, w) }, Vec::new()),
+        Event::InstallRequested(w) => (State::Starting { waiters: waiters.to_vec() }, vec![Effect::RejectInstalls(vec![w], NOT_READY.into())]),
+        Event::WaiterCancelled(w) => (State::Starting { waiters: waiters.iter().copied().filter(|x| *x != w).collect() }, Vec::new()),
+        _ => (State::Starting { waiters: waiters.to_vec() }, Vec::new()),
+    }
+}
 
 fn after_dispose(state: &State, event: Event) -> Transition {
     match event {
@@ -177,7 +210,7 @@ fn meta(state: &State) -> Meta {
     match state {
         State::Idle(m) | State::UpToDate(m) => m.clone(),
         State::Checking { meta, .. } | State::Downloading { meta, .. } | State::Ready { meta, .. } | State::Installing { meta, .. } | State::Error { meta, .. } => meta.clone(),
-        State::Disabled | State::Disposed(_) => Meta { current: String::new(), issued: 0 },
+        State::Starting { .. } | State::Disabled | State::Disposed(_) => Meta { current: String::new(), issued: 0 },
     }
 }
 
@@ -365,7 +398,7 @@ fn active_attempt(state: &State) -> Option<Attempt> {
 
 fn check_waiters(state: &State) -> Vec<Waiter> {
     match state {
-        State::Checking { waiters, .. } | State::Downloading { waiters, .. } => waiters.clone(),
+        State::Starting { waiters } | State::Checking { waiters, .. } | State::Downloading { waiters, .. } => waiters.clone(),
         State::Ready { refresh: Some(Refresh::Checking { waiters, .. } | Refresh::Staging { waiters, .. }), .. } => waiters.clone(),
         State::Installing { plan: Plan::Checking { waiters, .. } | Plan::Staging { waiters, .. }, .. } => waiters.clone(),
         _ => Vec::new(),

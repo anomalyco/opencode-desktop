@@ -78,7 +78,8 @@ pub struct Windows {
 }
 
 /// The updater for the install `exe` runs from: on with the release feed in a build that
-/// [`EXPECTED_PUBLISHER`] signed, or with `OPENCODE_RUNE_UPDATE_FEED` in a debug build.
+/// [`EXPECTED_PUBLISHER`] signed, or with `OPENCODE_RUNE_UPDATE_FEED` in a debug build. Runs on
+/// the updater's worker thread: it reads the exe's signature and sweeps the install's siblings.
 pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Windows> {
     let (service, trust) = match feed::debug_feed() {
         Some(url) if feed::loopback(&url) => (url, Trust::Anything),
@@ -107,7 +108,7 @@ fn release_signed(exe: &Path, build_channel: &str) -> bool {
         return true;
     }
     let found = signer.map_or_else(|| "no trusted signature".to_owned(), |s| format!("signed by {s}"));
-    log(&format!("updater: off: this build isn't signed by {EXPECTED_PUBLISHER} ({found}, read in {:?})", started.elapsed()));
+    log(&format!("updater: off: this build isn't signed by {EXPECTED_PUBLISHER} ({found}, read in {} µs)", started.elapsed().as_micros()));
     false
 }
 

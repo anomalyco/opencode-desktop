@@ -14,10 +14,13 @@
 //!   machine and costs nothing at rest; [`UpdaterService::take_quit`] says the app must quit into
 //!   the update; [`UpdaterService::quitting`] installs a ready update as the app quits.
 //!
-//! One worker thread runs the platform's blocking work (feed reads, downloads, verification,
-//! the handoff) and the schedule: the first check [`feed::initial_delay`] after launch, then every
+//! One worker thread runs the platform's blocking work and the schedule. It first makes the
+//! platform updater (it reads the install, and on Windows the running exe's signature, so none
+//! of that is on the UI thread), then runs feed reads, downloads, verification, the `ready`
+//! record and the handoff, with the first check [`feed::initial_delay`] after it's up, then every
 //! [`feed::INTERVAL`].
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +36,10 @@ use super::platform::Platform;
 
 /// A caller's check or install, answered by [`UpdaterService::take_answer`].
 pub type Ticket = u64;
+
+/// Makes the platform updater on the worker thread, with the folder it keeps its records in;
+/// `None` when this build has no updater.
+pub type MakePlatform = Box<dyn FnOnce() -> Option<(Arc<dyn Platform>, PathBuf)> + Send>;
 
 /// The download under way: bytes so far of `total`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -66,9 +73,13 @@ enum Job {
     Check(Attempt),
     Stage(Attempt),
     Install(Attempt),
+    /// Records the staged release's version (`ready`), or forgets it.
+    Persist(Option<String>),
 }
 
 enum Message {
+    /// The worker made the platform updater; the event is `Event::Started`.
+    Started(Arc<dyn Platform>, Event),
     /// The schedule's check is due.
     Tick,
     Event(Event),
@@ -78,8 +89,8 @@ pub struct UpdaterService {
     state: State,
     snapshot: Snapshot,
     revision: u64,
-    platform: Arc<dyn Platform>,
-    updates: PathBuf,
+    /// Set once, by `Message::Started`: the machine is past `Starting` and this build updates.
+    platform: OnceCell<Arc<dyn Platform>>,
     jobs: Sender<Job>,
     messages: Receiver<Message>,
     /// Bytes downloaded and the total, written by the worker.
@@ -93,23 +104,18 @@ pub struct UpdaterService {
 }
 
 impl UpdaterService {
-    /// The service for `platform`, its worker started; `updates` keeps the staged release's
-    /// version across launches.
-    pub fn start(platform: Arc<dyn Platform>, channel: String, updates: PathBuf) -> Self {
-        let persisted = std::fs::read_to_string(updates.join("ready")).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-        let (state, effects) = machine::init(platform.version(), true, persisted.as_deref());
+    /// The service, starting: its worker makes the platform updater with `make` off the UI
+    /// thread, and `waker` hears when it's up. `version` is this build's until then.
+    pub fn start(make: MakePlatform, version: &str, channel: String, waker: Option<Waker>) -> Self {
+        let state = machine::init();
         let (jobs, job_rx) = std::sync::mpsc::channel();
         let (msg_tx, messages) = std::sync::mpsc::channel();
         let progress = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
-        let wakers = Arc::new(Mutex::new(Vec::new()));
-        let worker = Worker { platform: platform.clone(), messages: msg_tx, wakers: wakers.clone(), progress: progress.clone(), last_wake: Mutex::new(Instant::now()) };
-        std::thread::Builder::new().name("opencode-updater".into()).spawn(move || worker.run(job_rx)).ok();
-        let snapshot = Snapshot { state: machine::view(&state), progress: None, version: platform.version().to_owned(), channel };
-        let mut service = UpdaterService { state, snapshot, revision: 0, platform, updates, jobs, messages, progress, wakers, next: 0, own: HashSet::new(), answers: HashMap::new(), quit: false };
-        for effect in effects {
-            service.run(effect);
-        }
-        service
+        let wakers = Arc::new(Mutex::new(waker.into_iter().collect()));
+        let worker = Worker { messages: msg_tx, wakers: wakers.clone(), progress: progress.clone(), last_wake: Mutex::new(Instant::now()) };
+        std::thread::Builder::new().name("opencode-updater".into()).spawn(move || worker.run(make, job_rx)).ok();
+        let snapshot = Snapshot { state: machine::view(&state), progress: None, version: version.to_owned(), channel };
+        UpdaterService { state, snapshot, revision: 0, platform: OnceCell::new(), jobs, messages, progress, wakers, next: 0, own: HashSet::new(), answers: HashMap::new(), quit: false }
     }
 
     /// Wakes waker's event loop whenever the worker has news (each window's).
@@ -165,7 +171,7 @@ impl UpdaterService {
 
     /// Whether that quit starts the app again ([`Platform::relaunches`]).
     pub fn relaunches(&self) -> bool {
-        self.platform.relaunches()
+        self.platform.get().is_some_and(|p| p.relaunches())
     }
 
     /// Feeds the worker's results to the machine; true when the snapshot changed. At rest: one
@@ -174,6 +180,12 @@ impl UpdaterService {
         let before = self.revision;
         loop {
             match self.messages.try_recv() {
+                Ok(Message::Started(platform, event)) => {
+                    self.snapshot.version = platform.version().to_owned();
+                    self.platform.set(platform).ok();
+                    self.revision += 1;
+                    self.dispatch(event);
+                }
                 Ok(Message::Tick) => {
                     let t = self.ticket();
                     self.own.insert(t);
@@ -188,7 +200,7 @@ impl UpdaterService {
             self.snapshot.progress = progress;
             self.revision += 1;
         }
-        if self.platform.auto_install() && matches!(self.snapshot.state, View::Ready(_)) {
+        if self.platform.get().is_some_and(|p| p.auto_install()) && matches!(self.snapshot.state, View::Ready(_)) {
             let t = self.ticket();
             self.own.insert(t);
             self.dispatch(Event::InstallRequested(t));
@@ -198,8 +210,10 @@ impl UpdaterService {
 
     /// The app quits: a ready update not already installing goes in on the way out.
     pub fn quitting(&mut self) {
-        if matches!(self.state, State::Ready { refresh: None, .. }) {
-            self.platform.install_on_quit();
+        if matches!(self.state, State::Ready { refresh: None, .. })
+            && let Some(platform) = self.platform.get()
+        {
+            platform.install_on_quit();
         }
         self.dispatch(Event::Disposed);
     }
@@ -234,13 +248,8 @@ impl UpdaterService {
             Effect::Restart(a) => self.send(Job::Install(a)),
             // A blocking platform call can't be stopped; its stale result is fenced by its attempt.
             Effect::Cancel(_) => {}
-            Effect::PersistSet(version) => {
-                std::fs::create_dir_all(&self.updates).ok();
-                std::fs::write(self.updates.join("ready"), format!("{version}\n")).ok();
-            }
-            Effect::PersistClear => {
-                std::fs::remove_file(self.updates.join("ready")).ok();
-            }
+            Effect::PersistSet(version) => self.send(Job::Persist(Some(version))),
+            Effect::PersistClear => self.send(Job::Persist(None)),
             Effect::ResolveChecks(tickets, view) => self.answer(tickets, |_| Answer::Checked(view.clone())),
             Effect::ResolveInstalls(tickets) => {
                 self.answer(tickets, |_| Answer::Installed(Ok(())));
@@ -271,9 +280,9 @@ impl UpdaterService {
     }
 }
 
-/// The worker thread: the platform's blocking calls and the check schedule.
+/// The worker thread: makes the platform updater, then runs its blocking calls and the check
+/// schedule.
 struct Worker {
-    platform: Arc<dyn Platform>,
     messages: Sender<Message>,
     wakers: Arc<Mutex<Vec<Waker>>>,
     progress: Arc<[AtomicU64; 2]>,
@@ -281,7 +290,16 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(self, jobs: Receiver<Job>) {
+    fn run(self, make: MakePlatform, jobs: Receiver<Job>) {
+        let started = Instant::now();
+        let Some((platform, updates)) = make() else {
+            eprintln!("updater: none in this build (found in {} µs, off the UI thread)", started.elapsed().as_micros());
+            self.send(Message::Event(Event::Unavailable));
+            return;
+        };
+        let persisted = std::fs::read_to_string(updates.join("ready")).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        eprintln!("updater: up in {} µs, off the UI thread", started.elapsed().as_micros());
+        self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted }));
         let mut next_check = Instant::now() + feed::initial_delay();
         loop {
             match jobs.recv_timeout(next_check.saturating_duration_since(Instant::now())) {
@@ -291,30 +309,36 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Disconnected) => return,
                 Ok(Job::Check(a)) => {
-                    let event = match self.platform.check() {
+                    let event = match platform.check() {
                         Ok(target) => Event::CheckSucceeded(a, target),
                         Err(e) => Event::CheckFailed(a, e),
                     };
                     self.send(Message::Event(event));
                 }
                 Ok(Job::Stage(a)) => {
-                    let event = match self.platform.stage(&|done, total| self.downloaded(done, total)) {
+                    let event = match platform.stage(&|done, total| self.downloaded(done, total)) {
                         Ok(()) => Event::StageSucceeded(a),
                         Err(e) => Event::StageFailed(a, e),
                     };
                     self.send(Message::Event(event));
                 }
                 Ok(Job::Install(a)) => {
-                    let event = match self.platform.install() {
+                    let event = match platform.install() {
                         Ok(()) => Event::RestartSucceeded(a),
                         Err(e) => Event::RestartFailed(a, e),
                     };
                     self.send(Message::Event(event));
                 }
+                Ok(Job::Persist(Some(version))) => {
+                    std::fs::create_dir_all(&updates).ok();
+                    std::fs::write(updates.join("ready"), format!("{version}\n")).ok();
+                }
+                Ok(Job::Persist(None)) => {
+                    std::fs::remove_file(updates.join("ready")).ok();
+                }
             }
         }
     }
-
     /// Records the download's progress, waking the app at most ten times a second.
     fn downloaded(&self, done: u64, total: u64) {
         self.progress[0].store(done, Ordering::Relaxed);

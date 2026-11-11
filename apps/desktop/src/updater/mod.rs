@@ -120,34 +120,41 @@ pub fn beta_notes() -> Option<&'static str> {
     Some(include_str!(concat!(env!("OUT_DIR"), "/beta_notes.json"))).filter(|n| !n.is_empty())
 }
 
-/// Starts the update service when this build has an updater (`platform::make`), or joins this
-/// window to the one the first window started.
+/// Starts the update service, or joins this window to the one the first window started. Called
+/// after the first frame; the service's worker finds out whether this build updates
+/// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.
 pub fn start_if_packaged(s: &mut App) {
     if crate::headless() || s.updater.service.is_some() {
         return;
     }
-    let service = SHARED.with(|shared| {
-        if let Some(service) = shared.borrow().as_ref() {
-            return Some(service.clone());
+    let shared = SHARED.with(|shared| shared.borrow().clone());
+    let service = match shared {
+        Some(service) => {
+            if let Some(waker) = s.waker.clone() {
+                service.borrow().add_waker(waker);
+            }
+            service
         }
-        let (exe, updates) = (std::env::current_exe().ok()?, crate::dirs::updates()?);
-        let platform = platform::make(&exe, build_version(), build_channel(), updates.clone())?;
-        let service = Rc::new(RefCell::new(UpdaterService::start(platform, feed::feed_channel(build_channel()), updates)));
-        *shared.borrow_mut() = Some(service.clone());
-        Some(service)
-    });
-    let Some(service) = service else { return };
+        None => {
+            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(build_channel()), s.waker.clone())));
+            SHARED.with(|shared| *shared.borrow_mut() = Some(service.clone()));
+            service
+        }
+    };
     WINDOWS.set(WINDOWS.get() + 1);
     {
         let service = service.borrow();
-        if let Some(waker) = s.waker.clone() {
-            service.add_waker(waker);
-        }
         s.updater.version = service.snapshot().version.clone();
         s.updater.channel = service.snapshot().channel.clone();
         s.updater.seen = service.revision();
     }
     s.updater.service = Some(service);
+}
+
+/// This build's platform updater and its records folder, on the updater's worker thread.
+fn make_platform() -> Option<(std::sync::Arc<dyn platform::Platform>, std::path::PathBuf)> {
+    let (exe, updates) = (std::env::current_exe().ok()?, crate::dirs::updates()?);
+    platform::make(&exe, build_version(), build_channel(), updates.clone()).map(|p| (p, updates))
 }
 
 /// Feeds the service's results to this window on the app's thread, and answers the plugins'
@@ -163,6 +170,8 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         if service.revision() == s.updater.seen && !service.quit_pending() {
             return false;
         }
+        // The worker names the running version once it's up (the bundle's, on macOS).
+        s.updater.version.clone_from(&service.snapshot().version);
         (service.take_quit(), service.relaunches(), service.revision())
     };
     s.updater.seen = revision;
@@ -197,41 +206,43 @@ fn answer_waiting(service: &Rc<RefCell<UpdaterService>>) {
     });
 }
 
-/// Where the updater stands, as the `UpdaterState` record; nil when no updater runs.
+const NO_UPDATER: &str = "No updater runs in this build";
+
+/// Where the updater stands, as the `UpdaterState` record; nil when no updater runs, or while
+/// the service is still finding out.
 pub fn state_data(s: &App) -> Data {
-    match &s.updater.service {
-        Some(service) => {
-            let service = service.borrow();
-            view_data(&service.snapshot().state, service.snapshot())
-        }
-        None => Data::Nil,
+    let Some(service) = &s.updater.service else { return Data::Nil };
+    let service = service.borrow();
+    match service.snapshot().state {
+        View::Starting | View::Disabled => Data::Nil,
+        ref view => view_data(view, service.snapshot()),
     }
 }
 
 fn view_data(view: &View, snapshot: &Snapshot) -> Data {
     let (phase, version, error) = match view {
-        View::Disabled => ("disabled", None, None),
+        View::Starting | View::Disabled => ("error", None, Some(NO_UPDATER)),
         View::Idle => ("idle", None, None),
         View::Checking => ("checking", None, None),
         View::Downloading(v) => ("downloading", Some(v), None),
         View::UpToDate => ("up-to-date", None, None),
         View::Ready(v) => ("ready", Some(v), None),
         View::Installing(v) => ("installing", Some(v), None),
-        View::Error(e) => ("error", None, Some(e)),
+        View::Error(e) => ("error", None, Some(e.as_str())),
     };
     let progress = snapshot.progress.filter(|p| p.total > 0).map(|p| p.downloaded as f64 / p.total as f64);
     crate::plugin_host::luau::services::map([
         ("phase", Data::String(phase.into())),
         ("version", version.map_or(Data::Nil, |v| Data::String(v.clone()))),
         ("progress", progress.map_or(Data::Nil, Data::Number)),
-        ("error", error.map_or(Data::Nil, |e| Data::String(e.clone()))),
+        ("error", error.map_or(Data::Nil, |e| Data::String(e.to_owned()))),
     ])
 }
 
 /// `Updater:CheckAsync()`: checks now and answers with what the check found.
 pub fn check_async(s: &App, done: Completer) {
     let Some(service) = &s.updater.service else {
-        done.complete(crate::plugin_host::luau::services::map([("phase", Data::String("error".into())), ("error", Data::String("No updater runs in this build".into()))]));
+        done.complete(crate::plugin_host::luau::services::map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
         return;
     };
     let ticket = service.borrow_mut().check();
@@ -241,8 +252,8 @@ pub fn check_async(s: &App, done: Completer) {
 
 /// `Updater:InstallAsync()`: restarts into the ready version; answers nil once it handed off.
 pub fn install_async(s: &App, done: Completer) {
-    let Some(service) = &s.updater.service else {
-        done.complete(Data::String("No updater runs in this build".into()));
+    let Some(service) = s.updater.service.as_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
+        done.complete(Data::String(NO_UPDATER.into()));
         return;
     };
     let ticket = service.borrow_mut().install();

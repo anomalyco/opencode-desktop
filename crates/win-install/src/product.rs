@@ -2,9 +2,10 @@
 
 /// The app's executable in the install root.
 pub const EXE: &str = "opencode-desktop.exe";
-// TODO(IMPORTANT before release): the owner picks the Authenticode signing identity (the certificate's subject); set PUBLISHER to it, so Apps & features, the exe's version resource and the signature name the same publisher.
-/// Who Apps & features and the exe's version resource say made the app.
-pub const PUBLISHER: &str = "Anomaly";
+/// Who Apps & features and the exe's version resource (CompanyName) say made the app: `OpenCode`,
+/// as OpenCode Desktop shows in both. A display name only; the signature the updater trusts is
+/// the certificate's (`updater::windows::EXPECTED_PUBLISHER` in the app).
+pub const PUBLISHER: &str = "OpenCode";
 pub const HOMEPAGE: &str = "https://opencode.ai";
 /// The scheme OpenCode Desktop registers. The install takes it too, so `opencode://open?project=…`
 /// opens the project here; OpenCode Desktop takes it back each time it starts.
