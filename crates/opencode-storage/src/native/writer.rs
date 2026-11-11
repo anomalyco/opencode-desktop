@@ -121,24 +121,31 @@ fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut Writ
 }
 
 impl Writer {
-    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred) -> Writer {
+    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool) -> Writer {
+        let mut seq = Seq::default();
+        let wal = if wal_dirty { WalState::Dirty { attempt: seq.next(), boot_stale: false } } else { WalState::Clean };
         Writer {
             conn,
             cache,
             clock,
-            seq: Seq::default(),
+            seq,
             state: WriteBehindState::Idle,
             docs: WriteBehindState::Idle,
             windows: WriteBehindState::Idle,
             previews: WriteBehindState::Idle,
             caches: WriteBehindState::Idle,
             gc: DraftGcState::Closed,
-            wal: WalState::Clean,
+            wal,
             timers: HashMap::new(),
             deferred,
             touched: HashMap::new(),
             written: 0,
         }
+    }
+
+    /// The WAL holds frames to checkpoint (quit has work even with nothing queued).
+    pub(crate) fn wal_dirty(&self) -> bool {
+        self.wal != WalState::Clean
     }
 
     pub(crate) fn has_deferred(&self) -> bool {
@@ -233,9 +240,6 @@ impl Writer {
             for b in &batches {
                 apply(&tx, b, now, &self.touched, &mut fresh)?;
             }
-            if boot {
-                boot_record::rebuild(&tx)?;
-            }
             tx.commit()
         })();
         let ok = result.is_ok();
@@ -259,7 +263,7 @@ impl Writer {
         for id in fresh {
             self.touched.insert(id, now);
         }
-        self.wal_event(WalEvent::Committed);
+        self.wal_event(WalEvent::Committed { boot });
         if docs {
             let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::DocumentsWritten { at_ms: now });
             self.gc_effects(effects);
@@ -276,13 +280,10 @@ impl Writer {
                 let done = (|| -> rusqlite::Result<()> {
                     let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
                     tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
-                    if boot {
-                        boot_record::rebuild(&tx)?;
-                    }
                     tx.commit()
                 })();
                 if done.is_ok() {
-                    self.wal_event(WalEvent::Committed);
+                    self.wal_event(WalEvent::Committed { boot });
                 }
             }
             Cmd::Doc { key, value } => self.docs_event(WriteBehindEvent::Set { key, value }),
@@ -293,7 +294,7 @@ impl Writer {
                 let now = (self.clock)();
                 if sql::insert_blob(&self.conn, &id, &data, now).is_ok() {
                     self.touched.insert(id, now);
-                    self.wal_event(WalEvent::Committed);
+                    self.wal_event(WalEvent::Committed { boot: false });
                     let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::BlobUploaded { at_ms: now });
                     self.gc_effects(effects);
                 }
@@ -373,15 +374,12 @@ impl Writer {
             self.conn.execute_batch("PRAGMA synchronous = FULL")?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             f(&tx, now)?;
-            if boot {
-                boot_record::rebuild(&tx)?;
-            }
             tx.commit()
         })();
         self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
         match result {
             Ok(()) => {
-                self.wal_event(WalEvent::Committed);
+                self.wal_event(WalEvent::Committed { boot });
                 Ok(())
             }
             Err(e) => Err(StorageError(e.to_string())),
@@ -430,7 +428,7 @@ impl Writer {
                 }
             }
         }
-        self.wal_event(WalEvent::Committed);
+        self.wal_event(WalEvent::Committed { boot: false });
         ran(done);
     }
 
@@ -469,8 +467,17 @@ impl Writer {
                 WalEffect::CancelTimer => {
                     self.timers.insert("wal", None);
                 }
-                WalEffect::Checkpoint => {
-                    let busy = self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1);
+                WalEffect::Checkpoint { rebuild_boot } => {
+                    // The record goes current in the transaction right before the checkpoint, so
+                    // whenever the WAL is empty the record on page 2 is the truth.
+                    let rebuilt = !rebuild_boot
+                        || (|| -> rusqlite::Result<()> {
+                            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+                            boot_record::rebuild(&tx)?;
+                            tx.commit()
+                        })()
+                        .is_ok();
+                    let busy = if rebuilt { self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1) } else { 1 };
                     let event = if busy == 0 { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
                     queue.extend(checkpoint::step(&mut self.seq, &mut self.wal, event));
                 }

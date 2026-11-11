@@ -149,7 +149,8 @@ fn run(config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport
     match result {
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred);
+            // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {
@@ -208,16 +209,12 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
     report.import_ns = lap(&mut at);
     if let Some(send) = send {
         let t = Instant::now();
-        let stored = match boot_record::from_sqlite(&conn)? {
-            Some(bytes) => Some(bytes),
-            // A file from before the record (or a new one): build it once.
-            None => {
-                let tx = rusqlite::Transaction::new_unchecked(&conn, rusqlite::TransactionBehavior::Immediate)?;
-                boot_record::rebuild(&tx)?;
-                tx.commit()?;
-                boot_record::from_sqlite(&conn)?
-            }
-        };
+        // The raw read refused (the WAL holds frames after a crash, a new file, a torn record):
+        // the record on file may be stale, so it's rebuilt from the tables first.
+        let tx = rusqlite::Transaction::new_unchecked(&conn, rusqlite::TransactionBehavior::Immediate)?;
+        boot_record::rebuild(&tx)?;
+        tx.commit()?;
+        let stored = boot_record::from_sqlite(&conn)?;
         let packet = stored.and_then(BootPacket::parse).map(|mut p| {
             p.source = BootSource::Sqlite;
             p

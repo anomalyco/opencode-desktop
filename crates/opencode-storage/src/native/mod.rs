@@ -135,11 +135,18 @@ impl Backend {
 
     pub(crate) fn flush(&self, reason: FlushReason, deadline: Duration) -> FlushReport {
         let started = Instant::now();
-        // Nothing was ever written: nothing to land, check or sync.
-        let tx = match &*self.lock() {
-            Writer::Running { tx, .. } => tx.clone(),
-            Writer::Parked(_) | Writer::Off => return FlushReport { clean: true, ..FlushReport::default() },
+        // Nothing was ever written (and the WAL holds nothing to checkpoint): nothing to land,
+        // check or sync, and no thread is started for it.
+        let quit = matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart);
+        let parked_work = match &*self.lock() {
+            Writer::Running { .. } => true,
+            Writer::Parked(w) => quit && w.wal_dirty(),
+            Writer::Off => false,
         };
+        if !parked_work {
+            return FlushReport { clean: true, ..FlushReport::default() };
+        }
+        let Some(tx) = self.sender() else { return FlushReport { clean: true, ..FlushReport::default() } };
         let (reply, answer) = mpsc::sync_channel(1);
         if tx.send(writer::Msg::Flush { reason, started, reply }).is_err() {
             return FlushReport { clean: true, ..FlushReport::default() };

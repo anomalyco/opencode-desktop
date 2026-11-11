@@ -71,6 +71,16 @@ pub(crate) struct Cache {
     pub cache_sums: HashMap<String, (i64, u64)>,
     /// Every namespace is in memory: an in-memory store, or a fresh database.
     pub complete: bool,
+    /// Whether every stored document's key is known (the web backend learns them once its
+    /// database opens): until then an unknown key may still be stored.
+    pub docs_index: DocsIndex,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum DocsIndex {
+    #[default]
+    Ready,
+    Loading,
 }
 
 impl Cache {

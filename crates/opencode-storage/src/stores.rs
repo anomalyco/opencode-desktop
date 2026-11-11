@@ -102,9 +102,11 @@ pub struct DocumentStore<'a> {
 impl DocumentStore<'_> {
     /// The document's JSON text, its chunks put back.
     pub fn get(&self, key: &str) -> Lookup {
-        match self.storage.cache().docs.get(key) {
+        let cache = self.storage.cache();
+        match cache.docs.get(key) {
             Some(Doc::Present(v)) => Lookup::Ready(Some(v.clone())),
             Some(Doc::Stored) => Lookup::Pending,
+            None if cache.docs_index == crate::cache::DocsIndex::Loading => Lookup::Pending,
             None => Lookup::Ready(None),
         }
     }
