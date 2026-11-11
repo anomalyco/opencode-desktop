@@ -449,7 +449,7 @@ impl Branches {
             let Some(Branch::Queued { failures }) = self.by_dir.get(&dir).cloned() else { continue };
             self.by_dir.insert(dir.clone(), Branch::Loading { failures });
             let (server, landed, wake) = (server.clone(), Arc::clone(&self.landed), waker.cloned());
-            let spawned = std::thread::Builder::new().name("inbox-branch".into()).spawn(move || {
+            let spawned = rune::task::spawn("inbox-branch", move || {
                 let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
                 // A folder the server hasn't loaded yet (a worktree just picked, say) answers before
                 // its VCS provider has, with neither provider nor branch: that read is retried, as
@@ -587,7 +587,7 @@ fn load_archived(s: &mut App) -> bool {
         return false;
     }
     let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), s.waker.clone());
-    let _ = std::thread::Builder::new().name("inbox-archived".into()).spawn(move || {
+    let _ = rune::task::spawn("inbox-archived", move || {
         let Ok(v) = server.get("/api/session?parentID=null&archived=true&limit=50") else { return };
         *landed.lock().unwrap_or_else(|e| e.into_inner()) = Some(opencode_kit::model::parse_sessions(&v));
         if let Some(w) = wake {

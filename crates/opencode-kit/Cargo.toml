@@ -9,8 +9,19 @@ license.workspace = true
 rune.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive", "rc"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 ureq.workspace = true
+
+# In a browser the connection is the page's own: XMLHttpRequest for requests (ureq-web), a
+# streamed fetch for the event stream.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+ureq-web = { path = "../ureq-web" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "Headers", "ReadableStream", "ReadableStreamDefaultReader", "Request", "RequestInit", "Response", "Window"] }
 
 [lints]
 workspace = true

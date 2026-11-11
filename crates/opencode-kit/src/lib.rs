@@ -1,6 +1,10 @@
 //! A Rune-side OpenCode client: the server connection and event stream (`client`), and the
 //! sessions and transcripts they describe (`model`).
 
+// A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
+#[cfg(target_arch = "wasm32")]
+extern crate ureq_web as ureq;
+
 pub mod client;
 pub mod client_mcp;
 pub mod integration;

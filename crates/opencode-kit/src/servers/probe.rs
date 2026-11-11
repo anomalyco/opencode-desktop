@@ -2,8 +2,9 @@
 //! `runtime/server/health.ts:97-143`). Blocking, so off the app's thread only: the caller runs it
 //! for each [`super::health::Effect::Probe`] and steps the answer back as `ProbeSettled`.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use rune::time::Instant;
 use serde_json::Value;
 
 use super::health::ProbeResult;
@@ -79,6 +80,7 @@ pub fn probe_with(http: &HttpBase, timeout: Duration, retries: u32, delay: Durat
                 if Instant::now() + wait >= deadline {
                     return ProbeResult::Unreachable;
                 }
+                #[cfg(not(target_arch = "wasm32"))]
                 std::thread::sleep(wait);
             }
             Err(_) => return ProbeResult::Unreachable,

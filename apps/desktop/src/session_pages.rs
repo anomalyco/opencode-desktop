@@ -4,7 +4,8 @@ use crate::pickers::PickerHost as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, mpsc::{Receiver, Sender, channel}};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use opencode_kit::{client::Server, model::{self, Message}};
 use rune::Waker;
@@ -139,6 +140,10 @@ pub struct Pages {
     wake: Option<Waker>,
     /// The server it reads (its base URL; empty for a fixture's or a test's).
     server: String,
+    /// What the web's lanes read with: a page has no threads to wait on the queue, so each
+    /// request starts a task that reads what's queued.
+    #[cfg(target_arch = "wasm32")]
+    lanes: Option<(Fetch, Option<PathBuf>, Sender<Result<Arc<Page>, (Key, String)>>, Waker)>,
 }
 
 impl Drop for Pages {
@@ -154,7 +159,7 @@ impl Pages {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
-        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None, server: String::new() }, send)
+        (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
     }
     pub fn live(server: Server, wake: Waker) -> Self {
         let (dir, base) = (disk_dir(&server.base), server.base.clone());
@@ -169,12 +174,17 @@ impl Pages {
     pub fn new(fetch: Fetch, dir: Option<PathBuf>, wake: Waker) -> Self {
         let shared = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
         let (out, results) = channel();
-        for foreground in [true, false] {
-            let (q, fetch, dir, out, wake) = (shared.clone(), fetch.clone(), dir.clone(), out.clone(), wake.clone());
-            std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
-                .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
+        #[cfg(target_arch = "wasm32")]
+        return Self { shared, results, wake: Some(wake.clone()), server: String::new(), lanes: Some((fetch, dir, out, wake)) };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for foreground in [true, false] {
+                let (q, fetch, dir, out, wake) = (shared.clone(), fetch.clone(), dir.clone(), out.clone(), wake.clone());
+                std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
+                    .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
+            }
+            Self { shared, results, wake: Some(wake), server: String::new() }
         }
-        Self { shared, results, wake: Some(wake), server: String::new() }
     }
 
     /// How long the open lane has gone without an answer from the server, if it has.
@@ -222,6 +232,19 @@ impl Pages {
             q.jobs.push_back(job);
         }
         self.shared.1.notify_all();
+        #[cfg(target_arch = "wasm32")]
+        if let Some((fetch, dir, out, wake)) = self.lanes.clone() {
+            drop(q);
+            let shared = self.shared.clone();
+            let _ = rune::task::spawn("session-pages", move || {
+                let images = rune::ImageCache::new(wake.clone());
+                for foreground in [true, false] {
+                    while let Some(job) = take_now(&shared, foreground) {
+                        if !read(&shared, &fetch, &dir, &out, &wake, &images, foreground, job) { return; }
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -230,6 +253,7 @@ fn now() -> Instant {
     Instant::now()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
     let images = rune::ImageCache::new(wake.clone());
     loop {
@@ -246,11 +270,31 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
                 state = q.1.wait(state).unwrap();
             }
         };
+        if !read(&q, &fetch, &dir, &out, &wake, &images, foreground, job) { return; }
+    }
+}
+
+/// The next job for the lane, if one waits: the web's lanes take what's queued and stop.
+#[cfg(target_arch = "wasm32")]
+fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
+    let mut state = q.0.lock().unwrap();
+    if state.stopped { return None; }
+    let i = state.jobs.iter().rposition(|j| j.foreground == foreground)?;
+    let job = state.jobs.remove(i)?;
+    state.active.insert((job.key.clone(), job.cursor.clone()));
+    Some(job)
+}
+
+/// Reads `job` (the disk's copy first, then the server's) and hands each page to `out`; false
+/// when the pool stopped meanwhile.
+#[allow(clippy::too_many_arguments)]
+fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Arc<Page>, (Key, String)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
+    {
         let publish = |value: &Value, cached, mut read: crate::telemetry::Read| {
             let parsing = Instant::now();
             let messages = model::parse_messages(value);
             let preparing = Instant::now();
-            let prepared = if job.cursor.is_none() { super::attachments::prepare_images(&messages, &images) } else { vec![] };
+            let prepared = if job.cursor.is_none() { super::attachments::prepare_images(&messages, images) } else { vec![] };
             let done = Instant::now();
             (read.parse, read.images, read.messages) = (Some((parsing, preparing)), Some((preparing, done)), messages.len());
             (read.inline_images, read.inline_image_bytes) = super::attachments::inline_images(&messages);
@@ -292,11 +336,12 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
         // session stays as it is; the app speaks up only if the silence lasts (`State::stalled`).
         for attempt in 0.. {
             let Err(error) = &answer else { break };
-            if !foreground || !opencode_kit::plain_error::is_transient(error) { break; }
+            // A page can't wait out a backoff; the open's failure shows, and opening it again asks again.
+            if !foreground || !opencode_kit::plain_error::is_transient(error) || cfg!(target_arch = "wasm32") { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
             q.0.lock().unwrap().stalled.get_or_insert_with(now);
             wake();
-            if !pause(&q, backoff(attempt)) { return; }
+            if !pause(q, backoff(attempt)) { return false; }
             start = Instant::now();
             crate::telemetry::take_read();
             answer = fetch(&path);
@@ -320,6 +365,7 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
         }
         q.0.lock().unwrap().active.remove(&(job.key, job.cursor));
     }
+    true
 }
 
 /// 2 s, 4 s, then 8 s between reads (tens of milliseconds under test).

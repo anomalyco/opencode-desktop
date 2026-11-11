@@ -26,7 +26,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+use rune::time::Instant;
 
 use rune::{Color, El, Image, ImageCache, SurfaceFit, TextStyle, Waker, el, text};
 
@@ -189,10 +190,8 @@ impl Icons {
             let found: Arc<Mutex<HashMap<String, Found>>> = Default::default();
             let (jobs, rx) = channel::<Job>();
             let (c, fd) = (cache.clone(), found.clone());
-            std::thread::Builder::new()
-                .name("project-icons".into())
-                .spawn(move || {
-                    for job in rx {
+            rune::task::serve("project-icons", rx, move |job| {
+                    {
                         let had = fd.lock().unwrap().get(&job.entry).is_some_and(|f| f.icon.is_some());
                         let done = run(&c, &job);
                         let wake_now = matches!(&done, Some((_, Some(Shown::Vector(..))))) || (done.is_none() && had);
@@ -201,6 +200,7 @@ impl Icons {
                             wake();
                         }
                     }
+                    std::ops::ControlFlow::Continue(())
                 })
                 .expect("project icon worker");
             Inner { cache, jobs, found }

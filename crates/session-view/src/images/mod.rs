@@ -159,6 +159,24 @@ impl Media {
         let Some(fetch) = self.fetch.clone() else { return Fetched::Failed("no server".into()) };
         state.insert(hash.to_owned(), Fetched::Loading);
         drop(state);
+        // A page has no thread to wait on the queue: each ref is a task of its own.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (state, landed, hash) = (self.state.clone(), self.landed.clone(), hash.to_owned());
+            let wake = waker.cloned().unwrap_or_else(|| Arc::new(|| {}));
+            let _ = rune::task::spawn("opencode-media", move || {
+                let result = match fetch(&hash) {
+                    Ok(bytes) => Fetched::Ready(bytes.into()),
+                    Err(e) => Fetched::Failed(e),
+                };
+                state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash, result);
+                landed.store(true, Ordering::Release);
+                wake();
+            });
+            Fetched::Loading
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
         let mut queue = self.queue.borrow_mut();
         let q = queue.get_or_insert_with(|| {
             let q = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
@@ -169,9 +187,11 @@ impl Media {
         q.0.lock().unwrap_or_else(|e| e.into_inner()).push(hash.to_owned());
         q.1.notify_one();
         Fetched::Loading
+        }
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn spawn_fetcher(queue: Weak<(Mutex<Vec<String>>, Condvar)>, state: Arc<Mutex<HashMap<String, Fetched>>>, landed: Arc<AtomicBool>, fetch: Fetch, wake: Waker) {
     if let Err(e) = std::thread::Builder::new()
         .name("opencode-media".into())

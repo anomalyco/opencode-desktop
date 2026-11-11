@@ -37,6 +37,10 @@ fn main() {
 
     let target = std::env::var("TARGET").expect("TARGET");
     let host = std::env::var("HOST").expect("HOST");
+    // A browser build links no engine (`ffi_web.rs` answers for it).
+    if target.starts_with("wasm32") {
+        return;
+    }
 
     if let Some(raw) = std::env::var_os("GHOSTTY_VT_LIB").filter(|s| !s.is_empty()) {
         let lib = resolve_lib_override(Path::new(&raw)).unwrap_or_else(|e| fail_one_line(&e));

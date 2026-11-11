@@ -246,8 +246,8 @@ impl MdStore {
         if let Some(spawn) = self.send(FetcherEvent::Start) {
             let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
             // A worker that can't start drops its queue, so what's sent to it fails.
-            let _ = std::thread::Builder::new().name("markdown-media".into()).spawn(move || {
-                while let Ok(source) = spawn.receive.recv() {
+            let _ = rune::task::serve("markdown-media", spawn.receive, move |source| {
+                {
                     let bytes = match &source {
                         Source::File { directory, path } => (spawn.fetch.files)(directory, path),
                         Source::Web(url) => (spawn.fetch.web)(url),
@@ -257,6 +257,7 @@ impl MdStore {
                     landed.store(true, Ordering::Release);
                     (spawn.waker)();
                 }
+                std::ops::ControlFlow::Continue(())
             });
         }
         match &*self.fetcher.borrow() {

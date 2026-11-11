@@ -4,9 +4,10 @@
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rune::Waker;
+use rune::time::Instant;
 
 use super::worker::{read_events, spawn_workers};
 use super::{Incoming, Request, Server, Write};
@@ -32,16 +33,26 @@ impl EventHub {
         let fan = Arc::new(Mutex::new(Fan::Open(Vec::new())));
         let (events, inbox) = channel();
         let to = fan.clone();
-        std::thread::Builder::new()
-            .name("opencode-events-fan".into())
-            .spawn(move || fan_out(&inbox, &to))
-            .expect("spawn event fan-out thread");
         let base = server.base.clone();
         let wake: Waker = Arc::new(|| {});
-        std::thread::Builder::new()
-            .name("opencode-events".into())
-            .spawn(move || read_events(&server, idle, &events, &wake))
-            .expect("spawn event thread");
+        // The page has no threads: the stream is a task on its event loop, and Rune drains what
+        // it heard to the subscribers.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = rune::task::serve("opencode-events-fan", inbox, move |m| fan_one(m, &to));
+            read_events(&server, idle, &events, &wake);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::thread::Builder::new()
+                .name("opencode-events-fan".into())
+                .spawn(move || fan_out(&inbox, &to))
+                .expect("spawn event fan-out thread");
+            std::thread::Builder::new()
+                .name("opencode-events".into())
+                .spawn(move || read_events(&server, idle, &events, &wake))
+                .expect("spawn event thread");
+        }
         EventHub { base, fan }
     }
 
@@ -80,6 +91,7 @@ pub fn heard_at(data: &serde_json::Value) -> Option<Instant> {
 
 /// Every stream message to every subscriber still listening, each woken once per batch, until
 /// the hub closes; then the stream thread's next send fails and it ends too.
+#[cfg(not(target_arch = "wasm32"))]
 fn fan_out(inbox: &Receiver<Incoming>, fan: &Mutex<Fan>) {
     let epoch = *EPOCH.get_or_init(Instant::now);
     while let Ok(first) = inbox.recv() {
@@ -101,6 +113,26 @@ fn fan_out(inbox: &Receiver<Incoming>, fan: &Mutex<Fan>) {
             alive
         });
     }
+}
+
+/// [`fan_out`] for one message, on the web, where Rune drains the stream's channel.
+#[cfg(target_arch = "wasm32")]
+fn fan_one(mut m: Incoming, fan: &Mutex<Fan>) -> std::ops::ControlFlow<()> {
+    let epoch = *EPOCH.get_or_init(Instant::now);
+    if let Incoming::Event { data, .. } = &mut m
+        && let Some(map) = data.as_object_mut()
+    {
+        map.insert(HUB_AT.into(), (epoch.elapsed().as_micros() as u64).into());
+    }
+    let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return std::ops::ControlFlow::Break(()) };
+    subs.retain(|(tx, wake)| {
+        let alive = tx.send(m.clone()).is_ok();
+        if alive {
+            wake();
+        }
+        alive
+    });
+    std::ops::ControlFlow::Continue(())
 }
 
 /// [`super::connect_with_idle`] for one window of several: its own fetch and write threads,

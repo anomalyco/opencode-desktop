@@ -1,6 +1,7 @@
 //! The connection's threads: the fetch worker answering `Request`s, the writer running
 //! `Write`s and the event stream, each waking the window when something lands.
 
+use std::ops::ControlFlow;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -15,7 +16,11 @@ use crate::model;
 /// no resync, and sessions that finished meanwhile stay running.
 const EVENTS_IDLE: Duration = Duration::from_secs(45);
 
+#[cfg(not(target_arch = "wasm32"))]
 static RETRY: (std::sync::Mutex<u64>, std::sync::Condvar) = (std::sync::Mutex::new(0),std::sync::Condvar::new());
+#[cfg(target_arch = "wasm32")]
+pub(super) use super::web::{read_events, wake_reconnects};
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn wake_reconnects() {
     *RETRY.0.lock().unwrap() += 1;
     RETRY.1.notify_all();
@@ -33,18 +38,23 @@ pub fn connect(server: Server, wake: Waker) -> (Sender<Request>, Sender<Write>, 
 pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {
     let (inbox_tx, inbox) = channel();
     let (req_tx, write_tx) = spawn_workers(&server, &inbox_tx, &wake);
+    #[cfg(not(target_arch = "wasm32"))]
     std::thread::Builder::new()
         .name("opencode-events".into())
         .spawn(move || read_events(&server, idle, &inbox_tx, &wake))
         .expect("spawn event thread");
+    #[cfg(target_arch = "wasm32")]
+    read_events(&server, idle, &inbox_tx, &wake);
     (req_tx, write_tx, inbox)
 }
 
 /// The event stream, reopened with backoff after each drop, until `inbox` closes.
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Incoming>, wake: &Waker) {
     retry_events(server,idle,inbox_tx,wake,250);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Waker, mut backoff:u64) {
     let mut resumed = false;
     loop {
@@ -74,10 +84,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
         let server = server.clone();
         let inbox_tx = inbox_tx.clone();
         let wake = wake.clone();
-        std::thread::Builder::new()
-            .name("opencode-write".into())
-            .spawn(move || {
-                for w in write_rx {
+        rune::task::serve("opencode-write", write_rx, move |w| {
                     let (ticket, w) = match w {
                         Write::Tracked { ticket, write } => (Some(ticket), *write),
                         w => (None, w),
@@ -185,10 +192,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     };
                     if let Some(ticket) = ticket {
                         if inbox_tx.send(Incoming::Settled { ticket, result: result.map(|()| forked) }).is_err() {
-                            return;
+                            return ControlFlow::Break(());
                         }
                         wake();
-                        continue;
+                        return ControlFlow::Continue(());
                     }
                     if result.is_ok() && let Some(id) = &request_id {
                         let _ = inbox_tx.send(Incoming::Event { ty: "client.request.replied".into(), data: serde_json::json!({ "requestID": id }) });
@@ -202,10 +209,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             data["error"] = serde_json::json!(e);
                         }
                         if inbox_tx.send(Incoming::Event { ty: "client.session.write".into(), data }).is_err() {
-                            return;
+                            return ControlFlow::Break(());
                         }
                         wake();
-                        continue;
+                        return ControlFlow::Continue(());
                     }
                     if let Err(e) = result {
                         let told = match prompt_id {
@@ -213,11 +220,11 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             None => inbox_tx.send(Incoming::Status(e)),
                         };
                         if told.is_err() {
-                            return;
+                            return ControlFlow::Break(());
                         }
                     }
                     wake();
-                }
+                    ControlFlow::Continue(())
             })
             .expect("spawn write thread");
     }
@@ -226,16 +233,13 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
         let server = server.clone();
         let inbox_tx = inbox_tx.clone();
         let wake = wake.clone();
-        std::thread::Builder::new()
-            .name("opencode-fetch".into())
-            .spawn(move || {
-                let send = |m: Incoming| {
-                    let ok = inbox_tx.send(m).is_ok();
-                    wake();
-                    ok
-                };
-                let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
-                for r in req_rx {
+        let send = move |m: Incoming| {
+            let ok = inbox_tx.send(m).is_ok();
+            wake();
+            ok
+        };
+        let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
+        rune::task::serve("opencode-fetch", req_rx, move |r| {
                     let ok = match r {
                         Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
                             Ok(v) => send(Incoming::Messages { session: id, messages: model::parse_messages(&v) }),
@@ -306,11 +310,11 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         },
                     };
                     if !ok {
-                        return;
+                        return ControlFlow::Break(());
                     }
                     // The channel blocks when idle. User-requested reads should drain without
                     // a timer between them: opening a session queues several reads together.
-                }
+                    ControlFlow::Continue(())
             })
             .expect("spawn fetch thread");
     }

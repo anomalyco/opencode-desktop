@@ -5,7 +5,8 @@
 
 use std::borrow::Cow;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 type Job = Box<dyn FnOnce() + Send>;
 
@@ -48,7 +49,9 @@ fn run(q: &Shared) {
 /// Runs `job` off the UI thread, replacing `slot`'s write if one is still waiting. A run nobody
 /// attends (a snapshot, a tree, a script without `--harness-writes`) writes nothing.
 pub fn later(slot: impl Into<Cow<'static, str>>, job: impl FnOnce() + Send + 'static) {
-    if !crate::attended() {
+    // A browser has no files to write either: its state lives in memory until the storage
+    // crate's browser backend takes these.
+    if !crate::attended() || cfg!(target_arch = "wasm32") {
         return;
     }
     let slot = slot.into();

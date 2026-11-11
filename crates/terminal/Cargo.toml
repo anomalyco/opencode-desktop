@@ -13,6 +13,10 @@ parking_lot = "0.12"
 rune.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+
+# wss:// natively; a browser build has no TLS of its own here.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 
 [build-dependencies]

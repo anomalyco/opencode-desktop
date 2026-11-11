@@ -6,20 +6,30 @@
 //! client. Reconnects with exponential backoff (`500 ms`..`10 s`, reset on
 //! `notifications/initialized`) and backs off quietly when the server lacks the experimental route.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::ErrorKind;
-use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream};
+#[cfg(not(target_arch = "wasm32"))]
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rune::Waker;
+use rune::time::Instant;
 use serde_json::{Value, json};
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::client::IntoClientRequest;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::http::HeaderValue;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::protocol::CloseFrame;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::protocol::frame::coding::CloseCode;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::stream::MaybeTlsStream;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::{Message, WebSocket};
 
 use crate::client::{Server, encode_component};
@@ -336,11 +346,21 @@ impl Server {
         });
         let worker_shared = shared.clone();
         let server = self.clone();
+        // TODO(web): a WebSocket from the page. Until then the page says the route is missing.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (worker_shared, server, calls, waker);
+            lock(&shared.state).conn = Conn::Waiting { unsupported: true };
+            return ClientMcp { shared, handle: None };
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         let thread_name = format!("opencode-mcp-{}", options.name);
+        #[cfg(not(target_arch = "wasm32"))]
         let handle = std::thread::Builder::new()
             .name(thread_name)
             .spawn(move || run_worker(server, options, calls, waker, worker_shared))
             .ok();
+        #[cfg(not(target_arch = "wasm32"))]
         ClientMcp { shared, handle }
     }
 
@@ -417,12 +437,14 @@ fn wait_backoff(shared: &Shared, delay: Duration, unsupported: bool, waker: &Wak
     !st.conn.closed()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum ConnectOutcome {
     Connected(Box<WebSocket<MaybeTlsStream<TcpStream>>>),
     Unsupported,
     Failed,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn dial(server: &Server, url: &str) -> ConnectOutcome {
     let Ok(mut req) = url.into_client_request() else { return ConnectOutcome::Failed };
     if let Some(auth) = &server.auth
@@ -446,6 +468,7 @@ fn dial(server: &Server, url: &str) -> ConnectOutcome {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn resolve_ws_addr(url: &str) -> Option<SocketAddr> {
     let (scheme, rest) = url.split_once("://")?;
     let authority = rest.split(['/', '?']).next()?;
@@ -463,6 +486,7 @@ fn resolve_ws_addr(url: &str) -> Option<SocketAddr> {
     host_port.to_socket_addrs().ok()?.next()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn tcp_ref(ws: &WebSocket<MaybeTlsStream<TcpStream>>) -> &TcpStream {
     match ws.get_ref() {
         MaybeTlsStream::Plain(s) => s,
@@ -472,6 +496,7 @@ fn tcp_ref(ws: &WebSocket<MaybeTlsStream<TcpStream>>) -> &TcpStream {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>, waker: Waker, shared: Arc<Shared>) {
     let url = server.client_mcp_url(&options.directory, &options.name);
     let mut delay = options.reconnect_min;
@@ -528,12 +553,14 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum LoopExit {
     SocketClosed,
     ReceiverDropped,
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(target_arch = "wasm32"))]
 fn serve_socket(
     ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
     options: &ClientMcpOptions,
@@ -586,6 +613,7 @@ fn serve_socket(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn drain_outbound(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, out_rx: &Receiver<Outbound>, in_flight: &mut usize) -> bool {
     let mut wrote = false;
     loop {
@@ -606,6 +634,7 @@ fn drain_outbound(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, out_rx: &Receiv
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(target_arch = "wasm32"))]
 fn handle_frame(
     ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
     raw: &str,
@@ -688,6 +717,7 @@ fn handle_frame(
     true
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn display_param_name(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -696,6 +726,7 @@ fn display_param_name(v: &Value) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn tool_descriptor_json(tool: &McpTool) -> Value {
     let mut schema = match &tool.input_schema {
         Value::Object(map) => map.clone(),
@@ -709,10 +740,12 @@ fn tool_descriptor_json(tool: &McpTool) -> Value {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn send_json(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, msg: &Value) -> bool {
     ws.send(Message::Text(msg.to_string().into())).is_ok()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn send_normal_close(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
     tcp_ref(ws).set_write_timeout(Some(Duration::from_millis(250))).ok();
     ws.close(Some(CloseFrame { code: CloseCode::Normal, reason: "".into() })).ok();

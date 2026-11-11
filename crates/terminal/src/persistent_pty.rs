@@ -13,7 +13,8 @@ use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use opencode_kit::client::Server;
 use opencode_kit::persistent_pty::attachment_id;
@@ -311,6 +312,7 @@ fn set_read_timeout(ws: &WebSocket<MaybeTlsStream<TcpStream>>, dur: Duration) {
         MaybeTlsStream::Plain(tcp) => {
             let _ = tcp.set_read_timeout(Some(dur));
         }
+        #[cfg(not(target_arch = "wasm32"))]
         MaybeTlsStream::Rustls(tls) => {
             let _ = tls.get_ref().set_read_timeout(Some(dur));
         }

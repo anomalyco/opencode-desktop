@@ -48,6 +48,10 @@ impl Server {
     /// `Promise.all` does.
     fn existing(&self, directory: &str, mentions: &[String]) -> HashSet<String> {
         let unique: HashSet<&String> = mentions.iter().collect();
+        // A page has no threads: one listing after another.
+        #[cfg(target_arch = "wasm32")]
+        return unique.into_iter().filter(|m| self.mention_exists(directory, m)).cloned().collect();
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::scope(|scope| {
             let checks: Vec<_> = unique.into_iter().map(|m| (m, scope.spawn(move || self.mention_exists(directory, m)))).collect();
             checks.into_iter().filter_map(|(m, check)| check.join().unwrap_or(false).then(|| m.clone())).collect()

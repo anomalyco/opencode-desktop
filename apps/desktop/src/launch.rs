@@ -6,7 +6,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use opencode_kit::client::{Request, Server};
 use opencode_kit::model::Transcript;
@@ -143,19 +144,22 @@ pub struct First {
 impl First {
     pub fn fetch(server: &Server) -> Result<First, String> {
         let get = |path: &'static str| {
-            let start = std::time::Instant::now();
+            let start = rune::time::Instant::now();
             let r = server.get(path);
             crate::telemetry::launch_read(path, start);
             r
         };
         let projects = get("/api/project")?;
+        let paths = ["/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
+        // A page has no threads: one read after another.
+        #[cfg(target_arch = "wasm32")]
+        let [sessions, models, agents, providers, active, config] = paths.map(|path| get(path).ok());
         // Once the project probe succeeds these reads are independent. A slow catalog
         // mustn't add its whole round trip to each successive startup read.
-        Ok(std::thread::scope(|scope| {
-            let [sessions, models, agents, providers, active, config] = ["/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"]
-                .map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().unwrap());
-            First { projects, sessions, models: models.map(|m| (m,agents.unwrap_or_default())), providers, active, config }
-        }))
+        #[cfg(not(target_arch = "wasm32"))]
+        let [sessions, models, agents, providers, active, config] =
+            std::thread::scope(|scope| paths.map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().unwrap()));
+        Ok(First { projects, sessions, models: models.map(|m| (m, agents.unwrap_or_default())), providers, active, config })
     }
 }
 
@@ -482,28 +486,26 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     let own = crate::servers::runtime::active(s).is_sidecar();
     let fallback = s.launch.fallback_fixture && own;
     let discover_local = own && crate::arg("--server").is_none();
-    std::thread::Builder::new()
-        .name("opencode-first".into())
-        .spawn(move || {
-            let (actual, reached) = probe(&server, discover_local, grace);
-            let ready = if !reached {
-                if fallback {
-                    Ready { server: None, beta_tabs: None, first: None }
-                } else {
-                    let msg = format!("No OpenCode server responded at {}", actual.base);
-                    Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)) }
-                }
+    rune::task::spawn("opencode-first", move || {
+        let (actual, reached) = probe(&server, discover_local, grace);
+        let ready = if !reached {
+            if fallback {
+                Ready { server: None, beta_tabs: None, first: None }
             } else {
-                let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-                let first = First::fetch(&actual);
-                Ready { server: Some(actual), beta_tabs, first: Some(first) }
-            };
-            let _ = out.send(ready);
-            if let Some(w) = wake {
-                w();
+                let msg = format!("No OpenCode server responded at {}", actual.base);
+                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)) }
             }
-        })
-        .expect("spawn first reads");
+        } else {
+            let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+            let first = First::fetch(&actual);
+            Ready { server: Some(actual), beta_tabs, first: Some(first) }
+        };
+        let _ = out.send(ready);
+        if let Some(w) = wake {
+            w();
+        }
+    })
+    .expect("spawn first reads");
     rx
 }
 

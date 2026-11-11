@@ -432,6 +432,11 @@ impl Killer {
         {
             Killer { pid: child.id() as i32 }
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = child;
+            Killer {}
+        }
     }
 
     fn kill(&self) {
@@ -446,6 +451,13 @@ impl Killer {
             libc::kill(self.pid, libc::SIGTERM);
         }
     }
+}
+
+/// A browser starts no processes: `Command::spawn` fails there, and nothing gets this far.
+#[cfg(target_arch = "wasm32")]
+mod platform {
+    pub fn hide(_: &mut std::process::Command) {}
+    pub fn adopt(_: &std::process::Child) {}
 }
 
 #[cfg(windows)]

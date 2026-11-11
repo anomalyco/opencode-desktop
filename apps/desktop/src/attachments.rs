@@ -171,7 +171,7 @@ impl App {
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         a.runs.insert(attempt, (stop.clone(), draft));
         let (out, wake, directory, path) = (a.uploads_tx.clone(), a.waker.clone(), self.composer_directory(), path.to_owned());
-        std::thread::spawn(move || {
+        let _ = rune::task::spawn("attachment-upload", move || {
             let woke = || {
                 if let Some(w) = &wake {
                     w();
@@ -179,10 +179,10 @@ impl App {
             };
             // The body's progress reaches the window about as often as an XHR's does (every 50 ms
             // while it moves), and once all of it has gone.
-            let mut last: Option<std::time::Instant> = None;
+            let mut last: Option<rune::time::Instant> = None;
             let mut sent = |n: u64| {
                 if last.is_none_or(|t| t.elapsed() >= PROGRESS_EVERY) || n >= size {
-                    last = Some(std::time::Instant::now());
+                    last = Some(rune::time::Instant::now());
                     let _ = out.send(Copied::Progress(attempt, n));
                     woke();
                 }

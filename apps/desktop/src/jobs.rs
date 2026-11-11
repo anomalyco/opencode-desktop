@@ -42,8 +42,7 @@ impl App {
             return;
         }
         let (server, out, wake) = (server.clone(), self.jobs.tx.clone(), self.waker.clone());
-        std::thread::spawn(move || {
-            std::thread::sleep(delay);
+        let _ = rune::task::spawn_after("opencode-job", delay, move || {
             let _ = out.send(work(&server));
             if let Some(w) = wake {
                 w();

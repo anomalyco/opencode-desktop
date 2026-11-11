@@ -11,6 +11,9 @@
 //! `dictate` (`session/`) runs a whole dictation on whichever of the two the running Hex offers,
 //! and `install.rs` finds, starts, and offers to download Hex.
 
+#[cfg(target_arch = "wasm32")]
+extern crate ureq_web as ureq;
+
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;

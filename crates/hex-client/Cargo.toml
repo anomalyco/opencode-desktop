@@ -7,7 +7,14 @@ license.workspace = true
 
 [dependencies]
 serde_json.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq.workspace = true
+
+# A browser asks through the page (ureq-web); Hex itself isn't reachable from one, so its discovery
+# file is never found there.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ureq-web = { path = "../ureq-web" }
 
 # A Windows Hex without the capture API needs the app to record the microphone (WASAPI) for its streams.
 [target.'cfg(windows)'.dependencies]

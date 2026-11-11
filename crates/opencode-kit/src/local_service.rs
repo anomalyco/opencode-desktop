@@ -94,9 +94,33 @@ fn local_port(base: &str) -> Option<u16> {
 
 /// Returns the `service.json` password when `base` targets the same local port.
 pub fn password_for_base(base: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(password) = page_password(base) {
+        return Some(password);
+    }
     let port = local_port(base)?;
     let svc = read_local_service()?;
     (svc.port == port).then_some(svc.password).flatten()
+}
+
+/// The passwords a page was handed for its servers (`?password=` in its address), by base: a
+/// browser has no `service.json` to read them from.
+#[cfg(target_arch = "wasm32")]
+static PAGE_PASSWORDS: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// Remembers `password` for the server at `base`, for every [`Server::new`] of it from now on.
+#[cfg(target_arch = "wasm32")]
+pub fn remember_page_password(base: &str, password: &str) {
+    let base = base.trim_end_matches('/').to_owned();
+    let mut all = PAGE_PASSWORDS.lock().unwrap_or_else(|e| e.into_inner());
+    all.retain(|(b, _)| *b != base);
+    all.push((base, password.to_owned()));
+}
+
+#[cfg(target_arch = "wasm32")]
+fn page_password(base: &str) -> Option<String> {
+    let base = base.trim_end_matches('/');
+    PAGE_PASSWORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(b, _)| b == base).map(|(_, p)| p.clone())
 }
 
 fn probe_usable(server: &Server) -> bool {

@@ -5,6 +5,8 @@ mod connection;
 pub mod core;
 pub mod ffi;
 mod ffi_fns;
+#[cfg(target_arch = "wasm32")]
+mod ffi_web;
 mod input;
 pub mod persistent_pty;
 pub mod pty;

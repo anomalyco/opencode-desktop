@@ -5,10 +5,15 @@
 //! or a connect link (`Server::with_password`, pairing.rs), and only ever goes into the
 //! Authorization header.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{BufRead, BufReader};
+#[cfg(not(target_arch = "wasm32"))]
 use std::net::{SocketAddr, TcpStream};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use rune::time::Instant;
 
 use rune::Waker;
 use serde_json::Value;
@@ -21,6 +26,8 @@ mod ids;
 mod mentions;
 pub mod rewrite;
 mod upload;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 mod wire;
 mod worker;
 
@@ -149,6 +156,7 @@ impl Server {
         self.get_with(path, self.media_refs.then_some(MEDIA_CAPABILITY))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn addr(&self) -> Option<SocketAddr> {
         let (scheme, rest) = self.base.split_once("://")?;
         let host = rest.split('/').next()?.replace("localhost", "127.0.0.1");
@@ -162,6 +170,7 @@ impl Server {
     }
 
     /// A quick TCP check, so a missing server falls back to the fixture without waiting.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn reachable(&self) -> bool {
         self.addr().is_some_and(|a| TcpStream::connect_timeout(&a, Duration::from_millis(250)).is_ok())
     }
@@ -191,7 +200,7 @@ impl Server {
         let mut wait = Duration::from_millis(250);
         for _ in 0..5 {
             match self.get(path) {
-                Err(e) if e.ends_with("http status: 503") => std::thread::sleep(wait),
+                Err(e) if e.ends_with("http status: 503") => rest(wait),
                 done => return done,
             }
             wait *= 2;
@@ -209,7 +218,7 @@ impl Server {
         let mut wait = Duration::from_millis(250);
         for _ in 0..5 {
             match self.get_text(path) {
-                Err(e) if e.ends_with("http status: 503") => std::thread::sleep(wait),
+                Err(e) if e.ends_with("http status: 503") => rest(wait),
                 done => return done,
             }
             wait *= 2;
@@ -599,6 +608,7 @@ impl Server {
 
     /// Reads the event stream until it ends or goes silent for `idle`; `opened` says whether it
     /// got as far as the server's reply.
+    #[cfg(not(target_arch = "wasm32"))]
     fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), String> {
         let agent: ureq::Agent = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(true).build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
@@ -616,27 +626,8 @@ impl Server {
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
             let line = line.map_err(|e| format!("events: {e}"))?;
-            let Some(data) = line.strip_prefix("data:") else { continue };
-            let Ok(v) = serde_json::from_str::<Value>(data.trim()) else { continue };
-            let ty = v["type"].as_str().unwrap_or("").to_owned();
-            if ty.is_empty() || ty == "server.heartbeat" {
-                continue;
-            }
-            let mut data = v["data"].clone();
-            // A compaction message, and a notice's, takes its id from the event that started it.
-            if (ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty))
-                && let Some(id) = v["id"].as_str()
-            {
-                data["eventID"] = id.into();
-            }
-            // When a request was asked, for the inbox's waiting age; and a branch change's folder.
-            if matches!(ty.as_str(), "permission.asked" | "form.created") {
-                data["eventCreated"] = v["created"].clone();
-            }
-            if ty == "vcs.branch.updated" {
-                data["eventLocation"] = v["location"].clone();
-            }
-            if inbox.send(Incoming::Event { ty, data }).is_err() {
+            let Some(event) = event_line(&line) else { continue };
+            if inbox.send(event).is_err() {
                 return Ok(());
             }
             wake();
@@ -645,3 +636,37 @@ impl Server {
     }
 }
 
+/// One line of the event stream as the app hears it: a `data:` line's event, or nothing for a
+/// heartbeat, a comment or a line it can't read.
+fn event_line(line: &str) -> Option<Incoming> {
+    let data = line.strip_prefix("data:")?;
+    let v = serde_json::from_str::<Value>(data.trim()).ok()?;
+    let ty = v["type"].as_str().unwrap_or("").to_owned();
+    if ty.is_empty() || ty == "server.heartbeat" {
+        return None;
+    }
+    let mut data = v["data"].clone();
+    // A compaction message, and a notice's, takes its id from the event that started it.
+    if (ty.starts_with("session.compaction.") || crate::model::is_notice_event(&ty))
+        && let Some(id) = v["id"].as_str()
+    {
+        data["eventID"] = id.into();
+    }
+    // When a request was asked, for the inbox's waiting age; and a branch change's folder.
+    if matches!(ty.as_str(), "permission.asked" | "form.created") {
+        data["eventCreated"] = v["created"].clone();
+    }
+    if ty == "vcs.branch.updated" {
+        data["eventLocation"] = v["location"].clone();
+    }
+    Some(Incoming::Event { ty, data })
+}
+
+/// The pause before asking a starting server again: a sleep off the app's thread natively; the
+/// web can't sleep, so it asks again at once.
+fn rest(wait: Duration) {
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::sleep(wait);
+    #[cfg(target_arch = "wasm32")]
+    let _ = wait;
+}

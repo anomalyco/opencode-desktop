@@ -36,6 +36,10 @@ pub struct Watcher {
 impl Watcher {
     /// Watches `dirs` (plugin index, folder).
     pub fn spawn(dirs: Vec<(usize, PathBuf)>, waker: Option<rune::Waker>) -> Option<Watcher> {
+        // A browser has no plugin folders on disk to watch.
+        if cfg!(target_arch = "wasm32") {
+            return None;
+        }
         if dirs.is_empty() {
             return None;
         }
