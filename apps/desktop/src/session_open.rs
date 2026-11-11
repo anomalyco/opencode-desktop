@@ -77,6 +77,7 @@ impl App {
             Source::Live { requests: Some(r), .. } => {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Inbox(id.to_owned()));
+                self.list_children(id);
                 self.read_open_requests(id);
                 if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
                     crate::subagents::shells::list(self, &dir);
@@ -117,6 +118,7 @@ impl App {
         let Source::Live { requests: Some(r), .. } = &self.source else { return };
         if let Route::Session { id, .. } = self.route.clone() {
             let _ = r.send(Request::Inbox(id.clone()));
+            self.list_children(&id);
             self.read_open_requests(&id);
             self.reload_session(&id);
         }

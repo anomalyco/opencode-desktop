@@ -10,6 +10,8 @@ use crate::model::{self, Delivery, Message, Pending, SessionInfo};
 pub enum Incoming {
     Sessions(Vec<SessionInfo>),
     Info(SessionInfo),
+    /// Every direct subagent session of `parent` (the reply to `Request::Children`).
+    Children { parent: String, sessions: Vec<SessionInfo> },
     Messages { session: String, messages: Vec<Message> },
     Event { ty: String, data: Value },
     Status(String),
@@ -88,6 +90,9 @@ pub enum Request {
     /// reply is `Incoming::Event` with type `vcs.branch.listed` and data
     /// `{directory, search, branches}`, or with `failed: true`.
     Branches { directory: String, search: String },
+    /// Every direct subagent session of a session, page after page (`GET /api/session?parentID=`,
+    /// as Desktop's `listChildren`), replied as `Incoming::Children`: a root's cost counts them.
+    Children(String),
 }
 
 pub enum Write {

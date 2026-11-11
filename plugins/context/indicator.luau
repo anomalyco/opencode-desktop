@@ -209,7 +209,7 @@ function indicator.menu(env: Env, view: View, _props: PopoverProps): ui.Node?
     end
     table.insert(
         rows,
-        line(env.I18n:T("usage.usage"), env.I18n:Number((usage.percent or 0) / 100, { style = "percent" }))
+        line(env.I18n:T("usage.usage"), `{usage.percent or 0}%`)
     )
     table.insert(rows, ui.box({ w = "full", py = 2 }, { ui.box({ w = "full", h = 1, fill = "border-weak" }) }))
     table.insert(

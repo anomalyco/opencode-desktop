@@ -299,6 +299,11 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             }),
                             Err(e) => send(Incoming::Status(e)),
                         },
+                        // As Desktop's family sync, a failed read leaves the family as it was.
+                        Request::Children(id) => match server.children(&id) {
+                            Ok(sessions) => send(Incoming::Children { parent: id, sessions }),
+                            Err(_) => true,
+                        },
                     };
                     if !ok {
                         return;

@@ -339,25 +339,24 @@ pub fn number(value: f64, format: &spec::NumberFormat) -> String {
 }
 
 /// `Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 0 })`, lowercased:
-/// `950`, `1k`, `2k`, `1m` (999,999 rounds up to 1m).
+/// `999`, `1k` (from 999.5), `833k`, `999k`, `1m` (from 999,500), `2500t`. The unit is the
+/// value's own thousands, moving up one when the rounding reaches 1,000 of it, as ICU does.
 fn compact(v: f64) -> String {
-    const UNITS: [(f64, &str); 4] = [(1e12, "t"), (1e9, "b"), (1e6, "m"), (1e3, "k")];
+    const UNITS: [&str; 5] = ["", "k", "m", "b", "t"];
     let sign = if v < 0.0 { "-" } else { "" };
     let v = v.abs();
-    for (k, (scale, unit)) in UNITS.iter().enumerate() {
-        let r = (v / scale).round();
-        if r >= 1.0 {
-            if r >= 1000.0 && k > 0 {
-                let (up, upper) = UNITS[k - 1];
-                return format!("{sign}{}{upper}", opencode_i18n::integer((v / up).round() as i64));
-            }
-            return format!("{sign}{}{unit}", opencode_i18n::integer(r as i64));
-        }
+    let mut k = (1..UNITS.len()).take_while(|&k| v >= 1000f64.powi(k as i32)).last().unwrap_or(0);
+    let mut r = scaled(v, -3 * k as i32);
+    if r >= 1000 && k + 1 < UNITS.len() {
+        k += 1;
+        r = scaled(v, -3 * k as i32);
     }
-    format!("{sign}{}", opencode_i18n::integer(v.round() as i64))
+    // Compact notation groups only from five digits on (CLDR's minimum grouping digits of 2).
+    let digits = if r >= 10_000 { opencode_i18n::integer(r as i64) } else { r.to_string() };
+    format!("{sign}{digits}{}", UNITS[k])
 }
 
-/// `$1,234.50`, with the language's separators.
+/// `$1,234.50`, with the language's separators: `$0.01` from 0.005, `$10.00` from 9.995.
 fn currency(v: f64, code: &str, fraction: u8) -> String {
     let symbol = match code {
         "USD" => "$",
@@ -366,17 +365,35 @@ fn currency(v: f64, code: &str, fraction: u8) -> String {
         "JPY" => "¥",
         other => other,
     };
-    let scale = 10f64.powi(i32::from(fraction));
-    let cents = (v.abs() * scale).round();
-    let sign = if v < 0.0 && cents > 0.0 { "-" } else { "" };
-    let whole = (cents / scale).trunc();
-    let digits = opencode_i18n::integer(whole as i64);
+    let sign = if v < 0.0 { "-" } else { "" };
+    let scale = 10u128.pow(u32::from(fraction));
+    let units = scaled(v.abs(), i32::from(fraction));
+    let digits = opencode_i18n::integer((units / scale) as i64);
     if fraction == 0 {
         return format!("{sign}{symbol}{digits}");
     }
-    let frac = (cents - whole * scale) as u64;
     let point = opencode_i18n::decimal(0.5, 1).chars().nth(1).unwrap_or('.');
-    format!("{sign}{symbol}{digits}{point}{frac:0width$}", width = usize::from(fraction))
+    format!("{sign}{symbol}{digits}{point}{:0width$}", units % scale, width = usize::from(fraction))
+}
+
+/// `v` (not negative) in units of 10^-`fraction`, rounded half away from zero on its shortest
+/// decimal form, as `Intl.NumberFormat` rounds a double: 9.995 at 2 is 1000, 999,500 at -3 is
+/// 1000.
+fn scaled(v: f64, fraction: i32) -> u128 {
+    if !v.is_finite() {
+        return 0;
+    }
+    // Rust prints a double's shortest round-trip digits, never in exponent form.
+    let text = format!("{v}");
+    let (int, frac) = text.split_once('.').unwrap_or((&text, ""));
+    let digits: Vec<u8> = int.bytes().chain(frac.bytes()).map(|b| b - b'0').collect();
+    let keep = int.len() as i32 + fraction;
+    if keep < 0 {
+        return 0;
+    }
+    let keep = keep as usize;
+    let kept = (0..keep).fold(0u128, |n, i| n.saturating_mul(10).saturating_add(u128::from(digits.get(i).copied().unwrap_or(0))));
+    kept.saturating_add(u128::from(digits.get(keep).is_some_and(|d| *d >= 5)))
 }
 
 fn date(ms: i64, style: spec::DateStyle) -> String {

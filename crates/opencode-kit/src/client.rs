@@ -516,6 +516,24 @@ impl Server {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
 
+    /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
+    /// `listChildren`).
+    pub fn children(&self, session: &str) -> Result<Vec<model::SessionInfo>, String> {
+        const PAGE: usize = 200;
+        let mut out = Vec::new();
+        let mut path = format!("/api/session?parentID={}&order=desc&limit={PAGE}", encode_component(session));
+        loop {
+            let page = self.get(&path)?;
+            let sessions = model::parse_sessions(&page);
+            let full = sessions.len() >= PAGE;
+            out.extend(sessions);
+            match page["cursor"]["next"].as_str() {
+                Some(next) if full => path = format!("/api/session?cursor={}&limit={PAGE}", encode_component(next)),
+                _ => return Ok(out),
+            }
+        }
+    }
+
     /// Registers `directory` as a project on the server and returns its resolved location and the
     /// refreshed project list.
     pub fn open_project(&self, directory: &str) -> Result<(model::LocationInfo, Vec<model::Project>), String> {
@@ -541,10 +559,11 @@ impl Server {
         let mut messages = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let mut path = format!("/api/session/{session}/message?limit=200&order=asc");
-            if let Some(c) = &cursor {
-                path.push_str(&format!("&cursor={}", encode_component(c)));
-            }
+            // A cursor carries its order; the server refuses both together.
+            let path = match &cursor {
+                Some(c) => format!("/api/session/{session}/message?limit=200&cursor={}", encode_component(c)),
+                None => format!("/api/session/{session}/message?limit=200&order=asc"),
+            };
             let page = self.get(&path)?;
             messages.extend(page["data"].as_array().cloned().unwrap_or_default());
             cursor = page["cursor"]["next"].as_str().map(str::to_owned);

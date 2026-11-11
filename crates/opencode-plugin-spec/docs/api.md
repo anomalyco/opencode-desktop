@@ -2026,6 +2026,7 @@ A session as the app holds it.
 | `usage` | `SessionUsage?` | Token counts at the last step with tokens. |
 | `usageProviderId` | `string?` | The provider of the step `usage` came from. |
 | `usageModelId` | `string?` | The model of the step `usage` came from. |
+| `usageMessageId` | `string?` | The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert. |
 | `providerId` | `string?` | The provider of the model the session runs with. |
 | `modelId` | `string?` | The model the session runs with. |
 | `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |

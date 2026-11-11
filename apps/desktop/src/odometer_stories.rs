@@ -108,11 +108,11 @@ fn ticking(s: &mut App, tx: &mut Play<App>) {
                 i.cost += add;
             }
             let last = s.transcripts.get_mut(&id).and_then(|t| t.messages.iter_mut().rev().find_map(|m| match m {
-                Message::Assistant(a) if a.tokens.context() > 0 => Some(a),
+                Message::Assistant(a) => a.tokens.as_mut().filter(|t| t.context() > 0),
                 _ => None,
             }));
-            if let Some(a) = last {
-                a.tokens.input += 2_300;
+            if let Some(t) = last {
+                t.input += 2_300;
             }
         });
     }

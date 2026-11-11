@@ -154,6 +154,7 @@ mod session_menu;
 mod session_menu_stories;
 mod session_menu_view;
 mod send_failed;
+mod session_cost;
 mod session_open;
 mod session_pages;
 mod session_state;

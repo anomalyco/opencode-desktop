@@ -247,7 +247,9 @@ pub struct Assistant {
     pub completed: Option<i64>,
     pub parts: Vec<Part>,
     pub cost: f64,
-    pub tokens: Tokens,
+    /// What the step reported as it finished (`tokens`); none while it streams, or when it
+    /// ended without them.
+    pub tokens: Option<Tokens>,
     pub error: Option<String>,
     /// The error's details, beside its message in `error`.
     pub failure: Option<StepError>,
@@ -394,7 +396,7 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             completed: m["time"]["completed"].as_i64(),
             parts: m["content"].as_array().into_iter().flatten().filter_map(parse_part).collect(),
             cost: m["cost"].as_f64().unwrap_or(0.0),
-            tokens: Tokens::parse(&m["tokens"]),
+            tokens: m["tokens"].is_object().then(|| Tokens::parse(&m["tokens"])),
             error: m["error"]["message"].as_str().map(str::to_owned),
             failure: StepError::parse(&m["error"]),
             retry: Retry::parse(&m["retry"]),
@@ -668,7 +670,7 @@ impl Transcript {
                 a.completed = Some(now);
                 a.cost = d["cost"].as_f64().unwrap_or(a.cost);
                 if d["tokens"].is_object() {
-                    a.tokens = Tokens::parse(&d["tokens"]);
+                    a.tokens = Some(Tokens::parse(&d["tokens"]));
                 }
                 a.retry = None;
                 if d["files"].is_array() {

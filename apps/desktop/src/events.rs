@@ -113,6 +113,9 @@ impl App {
             (done.revert, done.reverted) = self.apply_revert(ty, data, &sid);
         }
         done.info = self.apply_selected(ty, data, &sid) | self.apply_archive(ty, data, &sid);
+        if ty == "session.usage.updated" {
+            done.info |= self.usage_updated(&sid, data["cost"].as_f64());
+        }
         if let Some(t) = self.transcripts.get_mut(&sid) {
             done.transcript = t.apply(ty, data, now);
         }

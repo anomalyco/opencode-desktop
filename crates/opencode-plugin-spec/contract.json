@@ -808,6 +808,7 @@
       { "name": "usage", "type": "SessionUsage?", "doc": "Token counts at the last step with tokens." },
       { "name": "usageProviderId", "type": "string?", "doc": "The provider of the step `usage` came from." },
       { "name": "usageModelId", "type": "string?", "doc": "The model of the step `usage` came from." },
+      { "name": "usageMessageId", "type": "string?", "doc": "The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert." },
       { "name": "providerId", "type": "string?", "doc": "The provider of the model the session runs with." },
       { "name": "modelId", "type": "string?", "doc": "The model the session runs with." },
       { "name": "created", "type": "number?", "doc": "When it was created, in milliseconds since the Unix epoch." },

@@ -170,6 +170,8 @@ pub struct Session {
     pub usage_provider_id: Option<String>,
     /// The model of the step `usage` came from.
     pub usage_model_id: Option<String>,
+    /// The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
+    pub usage_message_id: Option<String>,
     /// The provider of the model the session runs with.
     pub provider_id: Option<String>,
     /// The model the session runs with.
@@ -181,7 +183,7 @@ pub struct Session {
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "providerId", "modelId", "created", "updated", "messages"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

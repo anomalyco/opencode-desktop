@@ -3157,6 +3157,8 @@ export type Session = {
     usageProviderId: string?,
     --- The model of the step `usage` came from.
     usageModelId: string?,
+    --- The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
+    usageMessageId: string?,
     --- The provider of the model the session runs with.
     providerId: string?,
     --- The model the session runs with.

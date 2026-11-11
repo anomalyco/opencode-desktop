@@ -119,6 +119,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.fetch_info(&missing);
             }
         }
+        Incoming::Children { sessions, .. } => s.children_listed(sessions),
         Incoming::Messages { session, messages } => {
             s.judge_sends_by_page(&session, &messages);
             s.check_sends();

@@ -135,6 +135,6 @@ pub fn session_data(app: &App, id: &str) -> Data {
         ("title", Data::String(info.title.clone())),
         ("busy", Data::Bool(app.subtree_running(&info.id))),
         ("version", Data::Integer((session_version(app, id) >> 11) as i64)),
-        ("cost", Data::Number(info.cost)),
+        ("cost", Data::Number(app.session_cost(id))),
     ])
 }

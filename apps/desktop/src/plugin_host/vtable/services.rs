@@ -143,14 +143,13 @@ pub(super) unsafe extern "C" fn session(ctx: *mut c_void, id: AbiStr, out: *mut 
     let Some(info) = app.session(text(id)) else { return 0 };
     let t = app.transcripts.get(&info.id);
     let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
-    // The session's own total includes its subagents; the transcript's sum when it's ahead.
-    let cost = info.cost.max(t.map_or(0.0, session_view::usage::spent));
+    let cost = app.session_cost(&info.id);
     let busy = app.subtree_running(&info.id);
     let messages = t.map_or(0, |t| t.messages.len()) as u32;
-    let usage = last.map(|a| TokensAbi { input: a.tokens.input, output: a.tokens.output, reasoning: a.tokens.reasoning, cache_read: a.tokens.cache_read, cache_write: a.tokens.cache_write });
-    let model = last.and_then(|a| a.model.as_ref());
+    let usage = last.map(|(_, k)| TokensAbi { input: k.input, output: k.output, reasoning: k.reasoning, cache_read: k.cache_read, cache_write: k.cache_write });
+    let model = last.and_then(|(a, _)| a.model.as_ref());
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, busy, usage, last.map(|a| (&a.id, a.completed))).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, busy, usage, last.map(|(a, _)| (&a.id, a.completed))).hash(&mut h);
     let flags = if usage.is_some() { SESSION_HAS_USAGE } else { 0 } | if busy { SESSION_BUSY } else { 0 } | if t.is_some() { SESSION_LOADED } else { 0 };
     *out = SessionAbi {
         id: view(&info.id),

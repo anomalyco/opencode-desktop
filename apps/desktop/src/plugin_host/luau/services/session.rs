@@ -65,11 +65,11 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
     let t = app.transcripts.get(&info.id);
     let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
-    let cost = info.cost.max(t.map_or(0.0, session_view::usage::spent));
+    let cost = app.session_cost(id);
     let messages = t.map(|t| t.messages.len());
-    let usage = last.map(|a| (a.tokens.input, a.tokens.output, a.tokens.reasoning, a.tokens.cache_read, a.tokens.cache_write));
+    let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|a| (&a.id, a.completed)), &info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), &info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project).hash(&mut h);
     h.finish()
 }
 
@@ -113,8 +113,8 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
     let busy = app.subtree_running(&info.id);
     let version = (session_version(app, id) >> 11) as f64;
-    let cost = info.cost.max(t.map_or(0.0, session_view::usage::spent));
-    let s = record(lua, 20, |s| {
+    let cost = app.session_cost(id);
+    let s = record(lua, 21, |s| {
         s.str(c"id", &info.id);
         s.str(c"serverId", &server_id(crate::servers::runtime::active(app)));
         s.str(c"directory", &info.directory);
@@ -126,14 +126,15 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         s.bool(c"busy", busy);
         s.num(c"version", version);
         s.num(c"cost", cost);
-        if let Some(a) = last {
+        if let Some((a, k)) = last {
             s.record(c"usage", 5, |u| {
-                u.num(c"input", a.tokens.input as f64);
-                u.num(c"output", a.tokens.output as f64);
-                u.num(c"reasoning", a.tokens.reasoning as f64);
-                u.num(c"cacheRead", a.tokens.cache_read as f64);
-                u.num(c"cacheWrite", a.tokens.cache_write as f64);
+                u.num(c"input", k.input as f64);
+                u.num(c"output", k.output as f64);
+                u.num(c"reasoning", k.reasoning as f64);
+                u.num(c"cacheRead", k.cache_read as f64);
+                u.num(c"cacheWrite", k.cache_write as f64);
             });
+            s.str(c"usageMessageId", &a.id);
             if let Some(m) = a.model.as_ref() {
                 s.str(c"usageProviderId", &m.provider);
                 s.str(c"usageModelId", &m.id);

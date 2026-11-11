@@ -1,7 +1,7 @@
 --!strict
 -- The Context tab (tab.tsx): the session's figures in a two-column grid (one column under 32rem),
 -- its system prompt, and its raw messages, each opening to its JSON, with Export session. The
--- messages are the server's own (`GET /api/session/:id/message`), read again whenever the
+-- messages are the server's newest 200 (`GET /api/session/:id/message`), read again whenever the
 -- session changes.
 
 local ui = require("@opencode/ui")
@@ -40,23 +40,9 @@ local function messagesPath(session: string): string
     return `/api/session/{session}/message?limit=200&order=asc`
 end
 
--- The last step with tokens, after the last finished compaction (`lastAssistantWithUsage`).
-local function lastWithUsage(raws: { Raw }): Raw?
-    local after = 1
-    for i = #raws, 1, -1 do
-        local v = raws[i].value
-        if v.type == "compaction" and v.status == "completed" then
-            after = i + 1
-            break
-        end
-    end
-    for i = #raws, after, -1 do
-        local v = raws[i].value
-        if v.type == "assistant" and v.tokens ~= nil then
-            return raws[i]
-        end
-    end
-    return nil
+-- The tab's list: the session's latest messages, as Desktop's store holds its newest pages.
+local function latestPath(session: string): string
+    return `/api/session/{session}/message?limit=200&order=desc`
 end
 
 -- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
@@ -72,7 +58,6 @@ local STAT_VALUE = table.freeze({
 } :: UiTextProps)
 local STAT_LINE = table.freeze({ w = "full", gap = 16 } :: UiBoxProps)
 local STATS = table.freeze({ key = "context-stats", w = "full", gap = 16 } :: UiBoxProps)
-local PERCENT = table.freeze({ style = "percent" } :: NumberFormat)
 local CURRENCY = table.freeze({ style = "currency" } :: NumberFormat)
 local HEADING = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19.5, color = "text-weak" } :: UiTextProps)
 local SYSTEM = table.freeze({ key = "context-system", w = "full", gap = 8 } :: UiBoxProps)
@@ -192,31 +177,22 @@ local RAW_JSON = table.freeze({
 
 local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wide: boolean): ui.Node
     local I18n = env.I18n
-    local last = lastWithUsage(raws)
-    -- The step's tokens and model: off the server's messages, or, before they're read (a run
-    -- without a server), as the app holds the session.
+    -- The step whose tokens fill the context window, as the header reads it (`lastAssistantWithUsage`
+    -- on the messages the app holds, after the last finished compaction and before a staged revert).
     local tokens: { input: number, output: number, reasoning: number, read: number, write: number }? = nil
     local provider: string?, model: string? = nil, nil
-    if last then
-        local t = last.value.tokens
-        local n = function(v: any): number
-            return if type(v) == "number" then v else 0
-        end
-        local cache = t.cache or {}
-        tokens = {
-            input = n(t.input),
-            output = n(t.output),
-            reasoning = n(t.reasoning),
-            read = n(cache.read),
-            write = n(cache.write),
-        }
-        local m = last.value.model or {}
-        provider, model = tostring(m.providerID or ""), tostring(m.id or "")
-    elseif #raws == 0 and session and session.usage then
+    local last: Raw? = nil
+    if session and session.usage then
         local u = session.usage
         tokens =
             { input = u.input, output = u.output, reasoning = u.reasoning, read = u.cacheRead, write = u.cacheWrite }
         provider, model = session.usageProviderId, session.usageModelId
+        for i = #raws, 1, -1 do
+            if raws[i].id == session.usageMessageId then
+                last = raws[i]
+                break
+            end
+        end
     end
     local catalog = if provider and model then env.Models:Get(provider, model) else nil
     local total = if tokens then tokens.input + tokens.output + tokens.reasoning + tokens.read + tokens.write else nil
@@ -251,7 +227,7 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
         stat("stats.model", modelName),
         stat("stats.limit", num(limit)),
         stat("stats.totalTokens", num(total)),
-        stat("stats.usage", if usage then I18n:Number(usage / 100, PERCENT) else "-"),
+        stat("stats.usage", if usage then `{I18n:Number(usage)}%` else "-"),
         stat("stats.inputTokens", num(tokens and tokens.input)),
         stat("stats.outputTokens", num(tokens and tokens.output)),
         stat("stats.reasoningTokens", num(tokens and tokens.reasoning)),
@@ -332,10 +308,10 @@ local function startExport(env: Env, sid: string)
         local messages: { string } = {}
         local cursor: string? = nil
         repeat
-            local path = messagesPath(sid)
-            if cursor then
-                path ..= `&cursor={env.Server:EncodeUri(cursor)}`
-            end
+            -- A cursor carries its order; the server refuses both together.
+            local path = if cursor
+                then `/api/session/{sid}/message?limit=200&cursor={env.Server:EncodeUri(cursor)}`
+                else messagesPath(sid)
             local page = env.Server:RequestAsync("GET", path)
             if not page.ok then
                 return failed(page.error)
@@ -443,7 +419,7 @@ end
 function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
     local sid = props.sessionId
     local session = env.Sessions:Get(sid)
-    local res = env.Server:Resource(messagesPath(sid), if session then session.version else 0)
+    local res = env.Server:Resource(latestPath(sid), if session then session.version else 0)
     local body = if res.status == "error" then "" else res.text or ""
     local wide = props.width >= 512
     local export = env.state.export
@@ -460,10 +436,11 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
         else
             local texts = json.items(json.member(body, "data") or "[]")
             local values = if type(res.json) == "table" and type(res.json.data) == "table" then res.json.data else {}
-            raws = {}
-            for i, text in texts do
+            -- Newest first from the server; oldest first on screen.
+            raws = table.create(#texts)
+            for i = #texts, 1, -1 do
                 local value = values[i] or {}
-                table.insert(raws, { text = text, value = value, id = tostring(value.id or ""), kind = tostring(value.type or "") })
+                table.insert(raws, { text = texts[i], value = value, id = tostring(value.id or ""), kind = tostring(value.type or "") })
             end
             env.state.parsed[sid] = { generation = res.generation, raws = raws }
         end
