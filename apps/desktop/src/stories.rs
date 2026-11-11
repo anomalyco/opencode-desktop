@@ -280,7 +280,8 @@ pub fn playground() -> Playground<App> {
                     || s.fork.search.focused
                     || s.find_focused())
         })
-        .folds(load_folds, save_folds);
+        .folds(load_folds, save_folds)
+        .widths(load_widths, save_widths);
     for st in stories() {
         for t in st.keys {
             pg = pg.trigger(st.path, t.key, t.label, t.run);
@@ -296,14 +297,28 @@ pub fn playground() -> Playground<App> {
     pg
 }
 
-/// The groups folded in the list, kept in the app's database (`rune.dev` `storybook`, read
-/// after the first frame). Headless runs and tests neither read nor write them, so a capture's
+/// The groups folded in the list, kept in the app's database (`rune.dev` `storybook`, in the
+/// boot packet). Headless runs and tests neither read nor write them, so a capture's
 /// list never depends on what was folded at the desk.
 fn load_folds() -> Vec<String> {
     if crate::headless() {
         return Vec::new();
     }
     crate::storage::json(crate::storage::DEV, "storybook").and_then(|mut v| serde_json::from_value(v["folded"].take()).ok()).unwrap_or_default()
+}
+
+/// The story list's and side column's widths, beside the folds (Rune keeps them in a file of its
+/// own unless the app does). Zero leaves Rune's defaults.
+fn load_widths() -> (f32, f32) {
+    let v = if crate::headless() { None } else { crate::storage::json(crate::storage::DEV, "storybook.widths") };
+    let w = |k: &str| v.as_ref().and_then(|v| v[k].as_f64()).map_or(0.0, |w| w as f32);
+    (w("list"), w("side"))
+}
+
+fn save_widths(list: f32, side: f32) {
+    if !crate::headless() {
+        crate::storage::set_json(crate::storage::DEV, "storybook.widths", &json!({ "list": list, "side": side }));
+    }
 }
 
 fn save_folds(folded: &[String]) {

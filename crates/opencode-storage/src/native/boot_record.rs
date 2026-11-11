@@ -34,8 +34,7 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     let mut recent: Vec<(String, String)> = Vec::new();
     {
         let mut stmt = tx.prepare_cached(
-            "SELECT name, key, value FROM state WHERE name IN ('opencode.settings', 'opencode.global.dat', 'plugin.file', 'plugin.browser', 'plugin.updater') \
-             OR (name >= 'opencode.window.' AND name < 'opencode.window/')",
+            crate::boot_state_query(),
         )?;
         let mut q = stmt.query([])?;
         while let Some(r) = q.next()? {

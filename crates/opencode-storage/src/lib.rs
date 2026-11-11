@@ -72,13 +72,28 @@ pub type PreviewRead = Box<dyn FnOnce(Option<(i64, Vec<u8>)>) + Send>;
 /// Runs on the storage thread once a load put its rows in memory: wake the UI with it.
 pub type Loaded = Box<dyn FnOnce() + Send>;
 
-/// The `state` namespaces the first frame draws, hydrated at open: the window list and app
-/// settings (`opencode.settings`), the app-wide keys (`opencode.global.dat`), every window's
-/// tabs, page and panes (`opencode.window.<id>.dat`), and the small plugin namespaces read before
-/// the first frame (`plugin.file`, `plugin.browser`, `plugin.updater`). The rest (Luau plugin
+/// The `state` namespaces the first frame draws, carried whole in the boot record and hydrated
+/// at open: the window list and app settings (`opencode.settings`), the app-wide keys
+/// (`opencode.global.dat`), the small plugin namespaces read before the first frame
+/// (`plugin.file`, `plugin.browser`, `plugin.updater`), the developer tools' (`rune.dev`), and
+/// every window's tabs, page and panes (`opencode.window.<id>.dat`). The rest (Luau plugin
 /// stores, terminal workspaces, the legacy archive) load on the storage thread when asked.
+/// Everything here is read before the first frame on every launch: keep it to what that frame
+/// draws, and large values out (a record past 64 KiB costs a positioned read per page).
+pub const BOOT_NAMESPACES: [&str; 6] = ["opencode.settings", "opencode.global.dat", "plugin.file", "plugin.browser", "plugin.updater", "rune.dev"];
+
 pub fn is_boot_namespace(name: &str) -> bool {
-    matches!(name, "opencode.settings" | "opencode.global.dat" | "plugin.file" | "plugin.browser" | "plugin.updater") || name.starts_with("opencode.window.")
+    BOOT_NAMESPACES.contains(&name) || name.starts_with("opencode.window.")
+}
+
+/// Every boot namespace's rows, as SQL (the boot record's rebuild and stage B's read).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn boot_state_query() -> &'static str {
+    static SQL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SQL.get_or_init(|| {
+        let names: Vec<String> = BOOT_NAMESPACES.iter().map(|n| format!("'{n}'")).collect();
+        format!("SELECT name, key, value FROM state WHERE name IN ({}) OR (name >= 'opencode.window.' AND name < 'opencode.window/')", names.join(", "))
+    })
 }
 
 /// A window's `state` namespace (Desktop's `windowStorage`, `persistence/storage.ts:366-370`).

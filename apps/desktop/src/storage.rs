@@ -51,7 +51,7 @@ enum Event {
     Quit,
 }
 
-/// The developer tools' own namespace (the storybook's folds), read once the first frame is up.
+/// The developer tools' own namespace (the storybook's folds and widths), in the boot packet.
 pub const DEV: &str = "rune.dev";
 
 static PHASE: Mutex<Option<Phase>> = Mutex::new(None);
@@ -138,7 +138,6 @@ fn send(event: Event) {
         Some(Effect::JoinNow(opening)) => send(Event::Joined(opening.storage().0)),
         Some(Effect::Adopt(storage, queued)) => {
             queued.apply(&storage);
-            storage.state().load(&[DEV], None);
             storage.first_frame_presented(Some(Box::new(wake_all)));
             READY.notify_all();
             wake_all();
