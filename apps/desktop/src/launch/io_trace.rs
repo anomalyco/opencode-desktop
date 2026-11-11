@@ -30,6 +30,8 @@ pub struct Call {
 }
 
 static CALLS: Mutex<Vec<Call>> = Mutex::new(Vec::new());
+/// The thread that started the trace (`main`'s, the UI thread).
+static UI_TID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 thread_local! {
     /// Inside a wrapper: calls the recorder itself makes go straight through.
@@ -41,6 +43,8 @@ pub fn start() {
     if !crate::flag("--launch-trace-io") {
         return;
     }
+    // SAFETY: no arguments; it reads the calling thread's id.
+    UI_TID.store(unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() }, std::sync::atomic::Ordering::Relaxed);
     // SAFETY: patches this module's own import table before any other thread runs.
     unsafe {
         hook_imports();
@@ -81,9 +85,12 @@ fn sites(trace: &std::backtrace::Backtrace) -> Vec<String> {
 
 fn record(op: &'static str, path: String, started: Instant, ok: bool) {
     let took_ns = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-    let trace = Some(std::backtrace::Backtrace::force_capture());
     // SAFETY: no arguments; it reads the calling thread's id.
     let tid = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+    // Call sites for the UI thread's calls only: a backtrace takes dbghelp's lock, which then waits
+    // for the loader lock, so one taken on another thread while the UI thread loads a DLL (the GPU
+    // thread's driver loads, since `rune::warm_gpu`) could stop both (a debug build hung so).
+    let trace = (tid == UI_TID.load(std::sync::atomic::Ordering::Relaxed)).then(std::backtrace::Backtrace::force_capture);
     CALLS.lock().unwrap_or_else(|e| e.into_inner()).push(Call { at: started, took_ns, tid, op, path, ok, trace });
 }
 
