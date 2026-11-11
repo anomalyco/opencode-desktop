@@ -30,10 +30,11 @@ pub use open::{launch, new_window};
 #[derive(Default)]
 pub struct Window {
     /// Its persistent id (`opencode.window.<id>.dat`); empty for headless runs and tests, which
-    /// read the files from before windows had their own and write none.
+    /// keep nothing.
     pub id: String,
-    /// The profile's first window: it reads `tabs.json` and `ui.json` until it writes its own.
-    pub legacy: bool,
+    /// The one window of a profile that never saved a window list: Desktop's tabs come into it
+    /// (`crate::seed`).
+    pub fresh: bool,
     /// Its frame while neither maximized nor full screen, what restoring it returns to.
     normal: Option<WindowPlacement>,
     /// When `normal` was last read (`App::clock`).
@@ -53,30 +54,28 @@ pub struct Window {
 }
 
 impl Window {
-    /// A window with its own files.
-    pub fn new(id: String, legacy: bool) -> Window {
-        Window { id, legacy, ..Window::default() }
+    /// A window with its own rows.
+    pub fn new(id: String, fresh: bool) -> Window {
+        Window { id, fresh, ..Window::default() }
     }
 
-    /// A window without its own files: headless runs and tests.
+    /// A window that keeps nothing: headless runs and tests.
     pub fn unsaved() -> Window {
-        Window { legacy: true, ..Window::default() }
+        Window::default()
     }
 }
 
 /// A hot build's window: the profile's first saved window (a new one when none was saved), so
-/// it reads and writes the file the app's first window keeps (`opencode.window.<id>.dat`), and a
-/// profile that never saved one migrates `tabs.json` and `ui.json` into it, as `open::launch`'s
-/// first window does.
+/// it reads and writes the rows the app's first window keeps (`opencode.window.<id>.dat`).
 #[cfg(feature = "hot")]
 pub fn hot() -> Window {
-    let saved = store::has_ids();
-    let mut ids = store::ids();
+    let saved = store::saved_ids();
+    let mut ids = saved.clone().unwrap_or_default();
     if ids.is_empty() {
         ids.push(store::new_id());
-        store::save_ids(ids.clone());
+        store::save_ids(&ids);
     }
-    Window::new(ids.swap_remove(0), !saved)
+    Window::new(ids.swap_remove(0), saved.is_none())
 }
 
 /// An open window: its handles, where its strip is, and its life.
@@ -95,6 +94,59 @@ thread_local! {
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
     /// Counts windows coming to the front.
     static FOCUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static QUIT: RefCell<QuitSave> = const { RefCell::new(QuitSave::Idle) };
+}
+
+/// The quit's save: Rune runs `on_quit` in every open window, one after another; each queues
+/// what it keeps, and the last lands all of it in one transaction (a Windows session may end
+/// the process once the hooks returned).
+#[derive(Debug, Default, PartialEq, Eq)]
+enum QuitSave {
+    #[default]
+    Idle,
+    /// The windows whose `on_quit` hasn't run yet.
+    Saving { left: Vec<String> },
+}
+
+enum QuitEvent {
+    /// Window `id`'s `on_quit` queued its rows; `open` are the windows open now.
+    Saved { id: String, open: Vec<String> },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum QuitEffect {
+    None,
+    /// Every window queued: land it all.
+    Flush,
+}
+
+impl QuitSave {
+    fn step(self, event: QuitEvent) -> (QuitSave, QuitEffect) {
+        let QuitEvent::Saved { id, open } = event;
+        let left: Vec<String> = match self {
+            QuitSave::Idle => open.into_iter().filter(|w| *w != id).collect(),
+            QuitSave::Saving { left } => left.into_iter().filter(|w| *w != id && open.contains(w)).collect(),
+        };
+        if left.is_empty() {
+            return (QuitSave::Idle, QuitEffect::Flush);
+        }
+        (QuitSave::Saving { left }, QuitEffect::None)
+    }
+}
+
+/// Window `id` queued what it keeps for the quit; the last window to do so lands every window's
+/// rows in one transaction and waits for it.
+pub fn quit_saved(id: &str) {
+    let open = OPEN.with(|o| o.borrow().iter().map(|w| w.id.clone()).collect());
+    let effect = QUIT.with(|q| {
+        let state = std::mem::take(&mut *q.borrow_mut());
+        let (next, effect) = state.step(QuitEvent::Saved { id: id.to_owned(), open });
+        *q.borrow_mut() = next;
+        effect
+    });
+    if effect == QuitEffect::Flush {
+        crate::storage::flush(opencode_storage::FlushReason::Quit, true);
+    }
 }
 
 /// Window `id` is on screen: other windows can reach it from now on.
@@ -128,9 +180,9 @@ pub fn life(id: &str, event: life::LifeEvent) -> life::LifeEffect {
         Some(effect)
     }).unwrap_or(life::LifeEffect::None);
     match effect {
-        life::LifeEffect::SaveIds => store::save_ids(saved_ids()),
+        life::LifeEffect::SaveIds => store::save_ids(&saved_ids()),
         life::LifeEffect::Forget => {
-            store::save_ids(saved_ids());
+            store::save_ids(&saved_ids());
             store::forget(id);
         }
         life::LifeEffect::None | life::LifeEffect::Keep => {}
@@ -154,10 +206,6 @@ pub fn connect(server: &opencode_kit::client::Server, wake: rune::Waker) -> (Sen
     opencode_kit::client::connect_workers(server.clone(), wake)
 }
 
-/// The disk slot for window `id`'s writes of `what`.
-fn slot(id: &str, what: &str) -> String {
-    format!("window-{what}-{id}")
-}
 
 impl App {
     /// Notes the strip's rect for drops from other windows: laid out in the view's points, kept
@@ -169,8 +217,8 @@ impl App {
         OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = Some(rect)));
     }
 
-    /// `poll`: twice a second at most, reads where the window is and saves it when it moved,
-    /// so a restart, an update or a crash reopens it there too.
+    /// `poll`: twice a second at most, reads where the window is and saves it when it moved
+    /// (written behind, coalesced), so a restart, an update or a crash reopens it there too.
     pub(crate) fn poll_window(&mut self) {
         self.poll_tear();
         if self.window.strip.is_some() && self.tab_layout() == crate::layout_state::TabLayout::Inbox {
@@ -186,7 +234,7 @@ impl App {
         let Some(frame) = self.window_frame() else { return };
         if self.window.saved != Some(frame) {
             self.window.saved = Some(frame);
-            store::save_frame_later(&self.window.id, frame);
+            store::save_frame(&self.window.id, frame);
         }
     }
 
@@ -201,8 +249,8 @@ impl App {
         }
         let normal = self.window.normal.unwrap_or(p);
         Some(store::Frame {
-            x: normal.position.0,
-            y: normal.position.1,
+            x: Some(normal.position.0),
+            y: Some(normal.position.1),
             width: normal.content_size.0,
             height: normal.content_size.1,
             maximized: p.maximized,
@@ -231,7 +279,7 @@ impl App {
             return;
         }
         if let Some(frame) = frame {
-            store::save_frame_later(&id, frame);
+            store::save_frame(&id, frame);
         }
     }
 
@@ -242,10 +290,10 @@ impl App {
         if self.window.id.is_empty() || !self.persists() {
             return;
         }
-        store::save_ids(saved_ids());
+        store::save_ids(&saved_ids());
         if let Some(frame) = self.window_frame() {
             self.window.saved = Some(frame);
-            store::save_frame_later(&self.window.id, frame);
+            store::save_frame(&self.window.id, frame);
         }
     }
 }

@@ -1,5 +1,5 @@
 //! The servers you add by address (Desktop's `ServerConnection.Http` list, `runtime/server/
-//! registry.tsx`): each one's address, optional password and name, saved in `servers.json`, and
+//! registry.tsx`): each one's address, optional password and name, saved in the app's database (Desktop's global `server.list`), and
 //! its health (`/api/info`, as Desktop's health check reads it). They join the app's registry of
 //! servers beside the plugins' sources (`plugin_host::servers::all`), keyed by address as Desktop
 //! keys them, one list every window shares: a server is added to the app, not switched to by a
@@ -15,7 +15,6 @@ pub mod runtime;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use rune::Tx;
@@ -95,13 +94,9 @@ pub fn health(url: &str) -> Option<Health> {
     with(|r| r.health.get(url).copied())
 }
 
-fn file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("servers.json"))
-}
-
-/// The saved list. Desktop's own stores each as `{type: "http", http: {url, password}, displayName}`.
+/// The saved list: Desktop's global `server.list`, each `{type: "http", http: {url, password}, displayName}`.
 fn load() -> Vec<Server> {
-    let Some(v) = file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { return Vec::new() };
+    let Some(v) = crate::storage::json("opencode.global.dat", "server") else { return Vec::new() };
     v["list"]
         .as_array()
         .into_iter()
@@ -115,7 +110,6 @@ fn load() -> Vec<Server> {
 }
 
 fn save(list: &[Server]) {
-    let Some(path) = file() else { return };
     let list: Vec<Value> = list
         .iter()
         .map(|s| {
@@ -130,9 +124,8 @@ fn save(list: &[Server]) {
             v
         })
         .collect();
-    let body = json!({ "list": list }).to_string();
-    crate::disk::later("servers", move || {
-        crate::disk::replace(&path, body.as_bytes());
+    crate::storage::update("opencode.global.dat", "server", |m| {
+        m.insert("list".into(), Value::Array(list));
     });
 }
 

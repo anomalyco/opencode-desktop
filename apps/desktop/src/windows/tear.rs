@@ -189,7 +189,7 @@ impl App {
         let inset = (p.content_position.0 - p.position.0, p.content_position.1 - p.position.1);
         let x = ((strip[0] + grab[0] * self.zoom) * scale).round() as i32 + inset.0;
         let y = ((strip[1] + grab[1] * self.zoom) * scale).round() as i32 + inset.1;
-        let frame = Frame { x: point.0 - x, y: point.1 - y, width: p.content_size.0, height: p.content_size.1, ..Frame::default() };
+        let frame = Frame { x: Some(point.0 - x), y: Some(point.1 - y), width: p.content_size.0, height: p.content_size.1, ..Frame::default() };
         Some((frame, (x, y)))
     }
 

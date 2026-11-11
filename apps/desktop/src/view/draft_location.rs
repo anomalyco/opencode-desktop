@@ -14,7 +14,8 @@ use opencode_i18n::t;
 
 /// The worktree onboarding's flag (Desktop's `workspace-onboarding`): once a worktree is
 /// picked, the dot after `Local` goes for good.
-const ONBOARDING: &str = "workspace-onboarding.json";
+/// Desktop's global `workspace-onboarding` key.
+const ONBOARDING: &str = "workspace-onboarding";
 
 thread_local! {
     static USED: Cell<Option<bool>> = const { Cell::new(None) };
@@ -154,13 +155,10 @@ fn fit_path(value: &str, width: f32) -> (String, f32) {
     (shown, w(&minimum))
 }
 
-/// Whether a worktree has been picked once, read from its file the first time it's asked.
+/// Whether a worktree has been picked once, read the first time it's asked.
 fn used() -> bool {
     USED.get().unwrap_or_else(|| {
-        let used = crate::dirs::data()
-            .and_then(|d| std::fs::read_to_string(d.join(ONBOARDING)).ok())
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-            .is_some_and(|v| v["used"].as_bool() == Some(true));
+        let used = crate::storage::json("opencode.global.dat", ONBOARDING).is_some_and(|v| v["used"].as_bool() == Some(true));
         USED.set(Some(used));
         used
     })
@@ -182,9 +180,7 @@ pub(crate) fn mark_used(s: &App) {
         return;
     }
     USED.set(Some(true));
-    if let (true, Some(file)) = (s.persists(), crate::dirs::data().map(|d| d.join(ONBOARDING))) {
-        crate::disk::later("workspace-onboarding", move || {
-            crate::disk::replace(&file, br#"{"used":true}"#);
-        });
+    if s.persists() {
+        crate::storage::set("opencode.global.dat", ONBOARDING, r#"{"used":true}"#.into());
     }
 }

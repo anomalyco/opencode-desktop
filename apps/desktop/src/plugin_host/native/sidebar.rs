@@ -50,17 +50,10 @@ impl Default for PanelSidebar {
 }
 
 impl PanelSidebar {
-    fn file() -> Option<std::path::PathBuf> {
-        crate::dirs::data().map(|d| d.join("review-panel-v2.json"))
-    }
-
     /// The preference kept across launches (Desktop's `Persist.global("review-panel-v2")`:
     /// `sidebarOpened`, and `sidebarWidth` within its bounds).
     pub fn load() -> Self {
-        let v = Self::file()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .unwrap_or_default();
+        let v = crate::storage::json("opencode.global.dat", "review-panel-v2").unwrap_or_default();
         Self {
             opened: v["sidebarOpened"].as_bool().unwrap_or(true),
             width: v["sidebarWidth"].as_f64().map(|w| (w as f32).clamp(MIN_W, MAX_W)),
@@ -69,14 +62,9 @@ impl PanelSidebar {
     }
 
     fn save(&self) {
-        let Some(f) = Self::file() else { return };
-        if crate::headless() {
-            return;
+        if !crate::headless() {
+            crate::storage::set_json("opencode.global.dat", "review-panel-v2", &serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W) }));
         }
-        let body = serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W) }).to_string();
-        crate::disk::later("review-panel-v2", move || {
-            crate::disk::replace(&f, body.as_bytes());
-        });
     }
 
     pub fn toggle(&mut self) {

@@ -3279,6 +3279,7 @@ dependencies = [
  "opencode-i18n",
  "opencode-kit",
  "opencode-plugin-spec",
+ "opencode-storage",
  "otlp-lite",
  "procwatch",
  "project-icon",

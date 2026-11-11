@@ -296,27 +296,19 @@ pub fn playground() -> Playground<App> {
     pg
 }
 
-/// `<data dir>/rune-opencode/storybook.json`: the groups folded in the list.
-fn folds_file() -> Option<std::path::PathBuf> {
-    crate::dirs::data().map(|d| d.join("storybook.json"))
-}
-
-/// Headless runs and tests neither read nor write them, so a capture's list never depends on
-/// what was folded at the desk.
+/// The groups folded in the list, kept in the app's database (`rune.dev` `storybook`, read
+/// after the first frame). Headless runs and tests neither read nor write them, so a capture's
+/// list never depends on what was folded at the desk.
 fn load_folds() -> Vec<String> {
     if crate::headless() {
         return Vec::new();
     }
-    folds_file().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|mut v| serde_json::from_value(v["folded"].take()).ok()).unwrap_or_default()
+    crate::storage::json(crate::storage::DEV, "storybook").and_then(|mut v| serde_json::from_value(v["folded"].take()).ok()).unwrap_or_default()
 }
 
 fn save_folds(folded: &[String]) {
-    if crate::headless() {
-        return;
-    }
-    if let Some(f) = folds_file() {
-        let bytes = json!({ "folded": folded }).to_string();
-        crate::disk::later("storybook", move || { crate::disk::replace(&f, bytes.as_bytes()); });
+    if !crate::headless() {
+        crate::storage::set_json(crate::storage::DEV, "storybook", &json!({ "folded": folded }));
     }
 }
 

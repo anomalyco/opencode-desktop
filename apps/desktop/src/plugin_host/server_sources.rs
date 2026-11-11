@@ -243,15 +243,11 @@ fn known<R>(f: impl FnOnce(&mut BTreeMap<String, Inventory>) -> R) -> R {
     KNOWN.with_borrow_mut(|k| f(k.get_or_insert_with(load)))
 }
 
-fn file() -> Option<std::path::PathBuf> {
-    crate::dirs::data().map(|d| d.join("opencode.global.dat"))
-}
-
+/// Desktop's global `plugin.servers` (`plugin/servers.tsx`).
 fn load() -> BTreeMap<String, Inventory> {
-    let Some(v) = file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { return BTreeMap::new() };
+    let Some(v) = crate::storage::json("opencode.global.dat", "plugin.servers") else { return BTreeMap::new() };
     let text = |v: &Value| v.as_str().map(str::to_owned);
-    v["plugin.servers"]
-        .as_object()
+    v.as_object()
         .into_iter()
         .flatten()
         .map(|(plugin, inv)| {
@@ -278,9 +274,8 @@ fn load() -> BTreeMap<String, Inventory> {
         .collect()
 }
 
-/// Writes `plugin.servers` into `opencode.global.dat`, keeping its other keys.
+/// Writes `plugin.servers` (behind; an unchanged list writes nothing).
 fn save() {
-    let Some(path) = file() else { return };
     let value: serde_json::Map<String, Value> = known(|k| {
         k.iter()
             .map(|(plugin, inv)| {
@@ -302,9 +297,5 @@ fn save() {
             })
             .collect()
     });
-    crate::disk::later("global.dat:plugin.servers", move || {
-        let mut doc = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
-        doc["plugin.servers"] = Value::Object(value);
-        crate::disk::replace(&path, doc.to_string().as_bytes());
-    });
+    crate::storage::set_json("opencode.global.dat", "plugin.servers", &Value::Object(value));
 }

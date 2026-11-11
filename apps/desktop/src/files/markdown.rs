@@ -83,24 +83,15 @@ impl WrapPrefs {
         d
     }
 
-    fn file() -> Option<std::path::PathBuf> {
-        crate::dirs::data().map(|d| d.join("file-wrap.json"))
-    }
-
+    /// The File plugin's wrap choices, under Rune's own key of its store (`plugin.file`
+    /// `rune.wrap`).
     pub fn load() -> Self {
-        let v = Self::file()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .unwrap_or_default();
+        let v = crate::storage::json("plugin.file", "rune.wrap").unwrap_or_default();
         Self { prose: v["prose"].as_bool(), code: v["code"].as_bool() }
     }
 
     fn save(&self) {
-        let Some(f) = Self::file() else { return };
-        let body = serde_json::json!({ "prose": self.prose, "code": self.code }).to_string();
-        crate::disk::later("file-wrap", move || {
-            crate::disk::replace(&f, body.as_bytes());
-        });
+        crate::storage::set_json("plugin.file", "rune.wrap", &serde_json::json!({ "prose": self.prose, "code": self.code }));
     }
 }
 

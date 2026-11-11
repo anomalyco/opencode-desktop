@@ -1,18 +1,15 @@
 //! Pinned tabs, from every server the app keeps live, in one list per window, as OpenCode
 //! Desktop keeps them (`shell/tabs/schema.ts`): each tab carries its server, so a window mixes
 //! sessions of the app's own server, servers added by address and plugins' servers. The list,
-//! the saved titles and the closed tabs live in the window's own file (`windows::store`,
+//! the saved titles and the closed tabs live in the window's own rows (`windows::store`,
 //! `opencode.window.<id>.dat`'s `tabs`, `tabs.info` and `tabs.closed`), never on a server.
 //!
-//! A profile's first window with nothing saved reads Desktop Beta's list (read-only, through the
-//! `sqlite3` CLI) so the two show the same tabs; without Beta it starts with none.
-
-use std::path::PathBuf;
-use std::process::Command;
+//! A fresh profile's first window reads Desktop's list after its first frame (read-only, in
+//! process) so the two show the same tabs; without Desktop it starts with none.
 
 use opencode_kit::servers::tabs as doc;
 use opencode_kit::servers::{ServerKey, TabKey};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::Route;
 
@@ -223,76 +220,52 @@ impl Closed {
     }
 }
 
-fn file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("tabs.json"))
-}
+/// The app-wide keys (Desktop's `opencode.global.dat`).
+const GLOBAL: &str = "opencode.global.dat";
 
-/// Sets `key` in the tabs file, off the UI thread. The zoom and the projects used share the
-/// file, so each read and write happens on the saves thread, in order.
-fn update(slot: &'static str, key: String, value: Value) {
-    let Some(path) = file() else { return };
-    crate::disk::later(slot, move || {
-        let mut v: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
-        v[key] = value;
-        crate::disk::replace(&path, v.to_string().as_bytes());
-    });
-}
-
-/// `tabs.json` and `ui.json`, the files every window read before windows had their own.
-pub fn legacy_files() -> (Option<Value>, Option<Value>) {
-    let read = |name: &str| crate::dirs::data().and_then(|d| std::fs::read_to_string(d.join(name)).ok()).and_then(|s| serde_json::from_str(&s).ok());
-    (read("tabs.json"), read("ui.json"))
-}
-
-/// The saved UI zoom (1.0 is 100%), kept in the same file under its own key.
+/// The saved UI zoom (1.0 is 100%), Desktop's global `zoom`.
 pub fn load_zoom() -> Option<f32> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
-    v["zoom"].as_f64().map(|z| z as f32)
+    crate::storage::json(GLOBAL, "zoom")?.as_f64().map(|z| z as f32)
 }
 
 pub fn save_zoom(zoom: f32) {
-    update("zoom", "zoom".into(), json!(f64::from((zoom * 100.0).round()) / 100.0));
+    crate::storage::set_json(GLOBAL, "zoom", &serde_json::json!(f64::from((zoom * 100.0).round()) / 100.0));
 }
 
-/// Project IDs this client has used on `server`, most recent first.
+/// Project IDs this client has used on `server` (an address), most recent first: Desktop's
+/// `server.usedProjectIDs`, by the server's scope.
 pub fn load_projects(server: &str) -> Option<Vec<String>> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(file()?).ok()?).ok()?;
-    let list = v.get(format!("projects:{server}"))?.as_array()?;
+    let v = crate::storage::json(GLOBAL, "server")?;
+    let list = v["usedProjectIDs"].get(scope(server))?.as_array()?;
     Some(list.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
 }
 
 pub fn save_projects(server: &str, ids: &[String]) {
-    update("projects", format!("projects:{server}"), json!(ids));
+    let scope = scope(server);
+    crate::storage::update(GLOBAL, "server", |m| {
+        let used = m.entry("usedProjectIDs").or_insert_with(|| Value::Object(Default::default()));
+        if let Some(used) = used.as_object_mut() {
+            used.insert(scope, serde_json::json!(ids));
+        }
+    });
 }
 
-/// Desktop Beta's tabs for its own sidecar server (the local `:4096` service), most recently
-/// written window first. Read-only: `mode=ro` and `-readonly`.
+/// The scope Desktop keys a server's projects by (`ServerKey::scope`): the app's own server's
+/// is `local`.
+fn scope(server: &str) -> String {
+    let key = if crate::servers::runtime::own_server().is_some_and(|s| s.base == server) || server == opencode_kit::client::DEFAULT_SERVER { ServerKey::sidecar() } else { ServerKey::new(server) };
+    key.scope().to_string()
+}
+
+/// Desktop's tabs for its own sidecar server (the local `:4096` service) from the window it
+/// wrote last, read once into a fresh profile's first window after the first frame. Read-only
+/// and in process (`opencode_storage::native::seed`): the newest of Desktop's databases (its
+/// production, Beta and Dev builds).
 pub fn from_beta() -> Option<Vec<Tab>> {
-    from_beta_db(&crate::dirs::beta_drafts()?)
-}
-
-pub(crate) fn from_beta_db(db: &std::path::Path) -> Option<Vec<Tab>> {
-    if !db.exists() {
-        return None;
-    }
-    let uri = format!("file:{}?mode=ro", db.display());
-    let sql = "select key, value from state where name = (select name from state where key = 'tabs' \
-               and name like 'opencode.window.%' order by updated_at desc limit 1) and key in ('tabs', 'tabs.info')";
-    let out = Command::new("sqlite3").args(["-readonly", "-json", &uri, sql]).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let rows: Value = serde_json::from_slice(&out.stdout).ok()?;
-    let get = |k: &str| -> Value {
-        rows.as_array()
-            .into_iter()
-            .flatten()
-            .find(|r| r["key"] == k)
-            .and_then(|r| serde_json::from_str(r["value"].as_str()?).ok())
-            .unwrap_or(Value::Null)
-    };
-    // Beta's rows are already in the mixed-server shape; its own sidecar's tabs are this app's.
-    let beta = opencode_kit::servers::migration::window::from_beta(&get("tabs"), &get("tabs.info"));
+    let (dir, _) = opencode_storage::native::seed::pick(&crate::dirs::official())?;
+    let (tabs, info) = opencode_storage::native::seed::recent_tabs(&dir.join("drafts.sqlite"))?;
+    // Desktop's rows are already in the mixed-server shape; its own sidecar's tabs are this app's.
+    let beta = opencode_kit::servers::migration::window::from_beta(&tabs, &info);
     let list = beta.tabs.iter().flatten().filter(|t| matches!(t, doc::Tab::Session(s) if s.server.is_sidecar())).map(|t| Tab::from_doc(t, beta.info(&t.key()))).collect();
     Some(list)
 }

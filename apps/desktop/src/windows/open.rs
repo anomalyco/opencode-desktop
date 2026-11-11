@@ -87,25 +87,32 @@ impl App {
     }
 }
 
-/// Opens every window saved at the last quit, or one for a new profile, each where it was.
+/// Opens every window saved at the last quit, or one for a new profile, each where it was. The
+/// list and the frames come from the boot packet, taken once the event loop is up (so the
+/// storage's read runs under it); a list that didn't change isn't written again.
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) -> usize {
-    let saved = store::has_ids();
-    let mut ids = store::ids();
-    if ids.is_empty() {
-        ids.push(store::new_id());
-    }
-    store::save_ids(ids.clone());
-    let opened = ids.len();
+    let opened = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = opened.clone();
     rune::run_windows(move |displays: &[Display]| {
+        let saved = store::saved_ids();
+        let mut ids = saved.clone().unwrap_or_default();
+        if ids.is_empty() {
+            ids.push(store::new_id());
+        }
+        if saved.as_ref() != Some(&ids) {
+            store::save_ids(&ids);
+        }
+        count.set(ids.len());
+        let fresh = saved.is_none();
         ids.iter()
             .enumerate()
             .map(|(i, id)| {
                 let frame = store::load_frame(id).and_then(|f| fit(f, displays));
-                window(Window::new(id.clone(), i == 0 && !saved), frame, &diagnostics).boxed()
+                window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
             })
             .collect::<Vec<_>>()
     });
-    opened
+    opened.get()
 }
 
 /// New Window: another window of this app, on the same server, showing Home (Desktop's
@@ -124,7 +131,7 @@ pub(super) fn open(s: &App, w: Window, frame: Option<Frame>, inactive: bool) -> 
     if w.life.saved() {
         let mut ids = super::saved_ids();
         ids.push(w.id.clone());
-        store::save_ids(ids);
+        store::save_ids(&ids);
     }
     let spec = window(w, frame, &s.diagnostics);
     Some(rune::open_window(if inactive { spec.inactive() } else { spec }))
@@ -146,6 +153,8 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
     let app = app
         .on_ready(move |_| {
+            // The first frame is up: the storage's second stage is taken off the UI thread.
+            crate::storage::presented();
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
             ready.update_if(move |s, tx| {
@@ -180,7 +189,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
         });
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
     if let Some(f) = frame {
-        spec.options.position = Some((f.x, f.y));
+        spec.options.position = f.x.zip(f.y);
         spec.options.physical_size = Some((f.width, f.height));
         spec = spec.maximized(f.maximized || f.full_screen);
     }
@@ -192,7 +201,9 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
 fn fit(f: Frame, displays: &[Display]) -> Option<Frame> {
     let within = |d: &Display| {
         let (x, y, w, h) = (d.position.0, d.position.1, d.size.0 as i32, d.size.1 as i32);
-        f.x >= x - 16 && f.y >= y - 16 && f.x + f.width as i32 <= x + w + 16 && f.y + f.height as i32 <= y + h + 16
+        // A frame saved without a place (Electron's is optional) opens where the system puts it.
+        let (Some(fx), Some(fy)) = (f.x, f.y) else { return true };
+        fx >= x - 16 && fy >= y - 16 && fx + f.width as i32 <= x + w + 16 && fy + f.height as i32 <= y + h + 16
     };
     if displays.iter().any(within) {
         return Some(f);
@@ -202,5 +213,5 @@ fn fit(f: Frame, displays: &[Display]) -> Option<Frame> {
     let (w, h) = ((DEFAULT_SIZE.0 as f64 * scale) as u32, (DEFAULT_SIZE.1 as f64 * scale) as u32);
     let x = primary.position.0 + (primary.size.0 as i32 - w as i32).max(0) / 2;
     let y = primary.position.1 + (primary.size.1 as i32 - h as i32).max(0) / 2;
-    Some(Frame { x, y, width: w, height: h, ..f })
+    Some(Frame { x: Some(x), y: Some(y), width: w, height: h, ..f })
 }

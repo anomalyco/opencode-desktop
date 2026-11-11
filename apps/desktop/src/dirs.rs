@@ -2,7 +2,7 @@
 //!
 //! | What | macOS | Windows |
 //! | --- | --- | --- |
-//! | Settings, tabs, drafts, prompt history, model prefs, perf | `~/Library/Application Support/rune-opencode` | `%APPDATA%\rune-opencode` |
+//! | The app's database (`opencode.sqlite`: settings, windows, tabs, drafts, prompt history), perf | `~/Library/Application Support/rune-opencode` | `%APPDATA%\rune-opencode` |
 //! | Session page cache | `~/Library/Caches/rune-opencode` | `%LOCALAPPDATA%\rune-opencode\Cache` |
 //! | Motion log | `~/Library/Logs/opencode-rune` | `%LOCALAPPDATA%\rune-opencode\Logs` |
 //! | Update downloads and records | `~/Library/Caches/<team bundle id>/Updates` | `%LOCALAPPDATA%\rune-opencode\Cache\Updates` |
@@ -60,9 +60,11 @@ pub fn updates() -> Option<PathBuf> {
     Some(cache.join("Updates"))
 }
 
-/// OpenCode Desktop Beta's drafts database (in its Electron `userData`), read to import its tabs.
-pub fn beta_drafts() -> Option<PathBuf> {
-    Some(app()?.sibling("ai.opencode.desktop.beta").config().join("drafts.sqlite"))
+/// OpenCode Desktop's Electron `userData` folders (production, Beta, Dev), whose `drafts.sqlite`
+/// seeds a fresh profile, read-only, after the first frame.
+pub fn official() -> Vec<PathBuf> {
+    let Some(app) = app() else { return Vec::new() };
+    ["ai.opencode.desktop", "ai.opencode.desktop.beta", "ai.opencode.desktop.dev"].iter().map(|n| app.sibling(n).config().to_owned()).collect()
 }
 
 /// The folder the Hex dictation app writes its endpoint file to.

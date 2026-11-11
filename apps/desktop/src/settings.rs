@@ -1,12 +1,11 @@
 //! Settings (⌘, or the palette's Open settings): Desktop's routed two-pane screen
 //! (`settings/shell.tsx`, `navigation.tsx`, `settings.css`): a 328 pt rail of grouped pages
 //! beside a 720 pt column with the open page, the whole screen scrolling under each page's
-//! sticky header. The preferences live in `<data dir>/rune-opencode/settings.json`, next to
-//! `ui.json`, in the shape of Desktop's `settings.v3` where they share a name.
+//! sticky header. The preferences live in the app's database (`crate::storage`), in the shape
+//! of Desktop's `settings.v3` where they share a name.
 
 use crate::pickers::PickerHost as _;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, row, text};
 use rune_kit::Switch;
@@ -275,25 +274,14 @@ fn theme_id(id: &str) -> String {
     crate::themes::all()[crate::themes::index(id)].id.clone()
 }
 
-fn file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("settings.json"))
-}
-
+/// The preferences, from memory (the boot packet before the first frame).
 pub fn load() -> Settings {
-    file().map_or_else(Settings::default, |p| read(&p))
+    crate::storage::json("opencode.global.dat", "rune.settings").map_or_else(Settings::default, |v| Settings::from_json(&v))
 }
 
-fn read(path: &std::path::Path) -> Settings {
-    std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).map_or_else(Settings::default, |v| Settings::from_json(&v))
-}
-
+/// Written behind; an unchanged set writes nothing.
 fn save(settings: &Settings) {
-    if let Some(path) = file() {
-        let json = settings.to_json().to_string();
-        crate::disk::later("settings", move || {
-            crate::disk::replace(&path, json.as_bytes());
-        });
-    }
+    crate::storage::set_json("opencode.global.dat", "rune.settings", &settings.to_json());
 }
 
 impl App {

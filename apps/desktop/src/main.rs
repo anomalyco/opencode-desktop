@@ -173,6 +173,7 @@ mod status_toast;
 mod stop;
 mod stop_stories;
 mod stories;
+mod storage;
 #[path = "stream/pace.rs"]
 mod stream_pace;
 #[path = "stream/line_grow_story.rs"]
@@ -932,10 +933,10 @@ impl App {
         };
         // The window starts on the app's own server; its tabs' other servers join as they're listed.
         let server = servers::runtime::bind(self, server);
-        let doc = telemetry::startup("launch.window_doc", || restore::read_window(self, &server));
+        let doc = telemetry::startup("launch.window_doc", || restore::read_window(self));
         let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
-        // Desktop Beta's tabs come into the profile's first window only.
-        let beta = self.window.legacy && server.base == DEFAULT_SERVER;
+        // Desktop's tabs come into a fresh profile's first window only.
+        let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
             Some(tabs) => self.tabs = tabs,
             None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta }),
@@ -959,7 +960,7 @@ impl App {
             self.files.wrap = files::markdown::WrapPrefs::load();
             self.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
-        self.prompts = prompt_history::PromptHistory::load();
+        self.prompts = prompt_history::PromptHistory::load(attended());
         self.pickers.prefs = model_prefs::load();
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         self.base_ms = wall_ms();
@@ -1231,6 +1232,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.show_draft();
     if s.persists() {
         s.poll_restore();
+        s.prompts.hydrate(s.waker.clone());
         s.poll_window();
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
         // name can't tell windows apart; a hot build's one window isn't among them.
@@ -1251,6 +1253,7 @@ fn desktop_icons() -> project_icon::Icons {
 
 fn setup(s: &mut App, waker: Waker) {
     s.waker = Some(waker.clone());
+    storage::on_ready(waker.clone());
     windows::peer::set_waker(s, waker.clone());
     s.attach.set_waker(waker.clone());
     s.icons.set_waker(waker.clone());
@@ -1323,7 +1326,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // The page's server's copy of the session data moves into the window whose turn it is.
             .turn_scope(servers::runtime::enter, servers::runtime::leave)
             .on_modifiers(view::home_modifiers)
-            .on_visibility(status_toast::visibility)
+            .on_visibility(visibility)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
@@ -1331,6 +1334,16 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
                 drag_regions: true,
             }),
     )
+}
+
+/// A window shown or hidden: hidden, what it changed lands at once, without waiting for it
+/// (Desktop flushes its stores on `visibilitychange` to hidden, `renderer/platform/storage.ts`).
+fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
+    status_toast::visibility(s, shown, tx);
+    if !shown && s.persists() {
+        s.poll_restore();
+        storage::flush(opencode_storage::FlushReason::Hide, false);
+    }
 }
 
 fn main() {
@@ -1349,6 +1362,9 @@ fn main() {
     if genui::skill::maybe_cli() {
         return;
     }
+    // The app's state: one database, read on its own thread while the windows are made.
+    storage::start();
+    rune::marks::mark("storage.started");
     // A launch while the app runs hands its links (`deep_links`) to it and ends here.
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return;
@@ -1378,6 +1394,7 @@ fn main() {
             // Every window saved at the last quit, each with its own tabs (`windows`).
             let opened = windows::launch(diagnostics.clone());
             disk::flush();
+            storage::flush(opencode_storage::FlushReason::Quit, true);
             rune::marks::mark("storage.flushed");
             diagnostics.shutdown();
             rune::marks::mark("diagnostics.stopped");
@@ -1394,6 +1411,7 @@ fn main() {
         let mut motion_log = motion_log::Log::default();
         let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
         app.on_ready(move |_| {
+            storage::presented();
             let wake = launch::inbox_waker(handle.clone());
             handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
         })
@@ -1412,6 +1430,7 @@ fn main() {
             })
             .run();
         disk::flush();
+        storage::flush(opencode_storage::FlushReason::Quit, true);
         diagnostics.shutdown();
     }
 }

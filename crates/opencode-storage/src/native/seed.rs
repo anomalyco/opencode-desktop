@@ -56,27 +56,21 @@ pub fn pick(dirs: &[PathBuf]) -> Option<(PathBuf, Connection)> {
 pub fn run(conn: &Connection, dirs: &[PathBuf], now_ms: i64) -> (Vec<(String, String, String)>, Vec<String>) {
     let Some((dir, official)) = pick(dirs) else { return (Vec::new(), vec!["no Desktop database to seed from".into()]) };
     let settings: Value = std::fs::read_to_string(dir.join("opencode.settings")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
-    let ids: Vec<String> = settings["windowIds"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+    // Desktop's windows aren't copied: the profile's first window is open by the time the seed
+    // runs, and takes the tabs of Desktop's newest window itself (`recent_tabs`); Desktop's
+    // window rows would only sit unused in the boot record.
     let mut names: Vec<String> = vec!["opencode.global.dat".into()];
     names.extend(PLUGIN_STORES.iter().map(|s| (*s).to_owned()));
-    names.extend(ids.iter().map(|id| crate::window_namespace(id)));
     let mut rows: Vec<(String, String, String)> = Vec::new();
     for name in &names {
         let Ok(mut stmt) = official.prepare("SELECT key, value FROM state WHERE name = ?1") else { continue };
         let Ok(found) = stmt.query_map([name], |r| Ok((name.clone(), r.get::<_, String>(0)?, r.get::<_, String>(1)?))) else { continue };
         rows.extend(found.flatten());
     }
-    for (k, v) in settings.as_object().into_iter().flatten() {
+    for (k, v) in settings.as_object().into_iter().flatten().filter(|(k, _)| *k != "windowIds") {
         rows.push(("opencode.settings".into(), k.clone(), v.to_string()));
     }
     let plugins: Vec<(String, bool)> = official.prepare("SELECT id, enabled FROM plugin").and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()).unwrap_or_default();
-    let frames: Vec<(String, crate::WindowFrame)> = ids
-        .iter()
-        .filter_map(|id| {
-            let v: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("window-state-{id}.json"))).ok()?).ok()?;
-            Some((id.clone(), crate::WindowFrame::from_json(&v)?))
-        })
-        .collect();
     drop(official);
     let result = (|| -> rusqlite::Result<Vec<(String, String, String)>> {
         let tx = conn.unchecked_transaction()?;
@@ -88,11 +82,6 @@ pub fn run(conn: &Connection, dirs: &[PathBuf], now_ms: i64) -> (Vec<(String, St
         }
         for (id, enabled) in plugins {
             tx.execute("INSERT INTO plugin (id, enabled) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (id, enabled))?;
-        }
-        for (id, frame) in frames {
-            if tx.query_row("SELECT 1 FROM window_state WHERE id = ?1", [&id], |_| Ok(())).optional()?.is_none() {
-                super::sql::put_window(&tx, &id, Some(&frame), now_ms)?;
-            }
         }
         super::boot_record::rebuild(&tx)?;
         tx.commit()?;

@@ -5,7 +5,7 @@
 //!   works against the selected server while Home shows (`servers::runtime::desired`).
 //! - **Servers:** each listed server's name, badge, health and used projects, read once a poll
 //!   ([`Home::servers`]) for the projects column, and each one's collapse state and whether it's
-//!   hidden from Home, kept for every window in `home.json` (Desktop's `home.servers` and
+//!   hidden from Home, kept for every window in the app's database (Desktop's global `home.servers` and
 //!   `server.hidden`), as is the selection (`layout.home.selection`).
 //! - **Session list:** the focused server's list phase, run by the [`home_load`] machine: its
 //!   placeholder rows while the server connects, its Unreachable, Signed out and Incompatible
@@ -97,7 +97,7 @@ pub struct Home {
     seen: u64,
 }
 
-/// What every window shares, saved in `home.json`.
+/// What every window shares, saved in Desktop's global keys.
 #[derive(Default)]
 struct Store {
     selection: Selection,
@@ -110,30 +110,39 @@ thread_local! {
     static STORE: RefCell<Store> = RefCell::new(load());
 }
 
-fn file() -> Option<std::path::PathBuf> {
-    crate::dirs::data().map(|d| d.join("home.json"))
-}
+/// Desktop's global keys: `layout.home.selection`, `home.servers.collapsed` and `server.hidden`.
+const GLOBAL: &str = "opencode.global.dat";
 
 fn load() -> Store {
-    let Some(v) = file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return Store::default() };
+    let json = |key: &str| crate::storage::json(GLOBAL, key).unwrap_or(Value::Null);
+    let (layout, servers, server) = (json("layout"), json("home.servers"), json("server"));
     let key = |v: &Value| v.as_str().filter(|k| !k.is_empty()).map(ServerKey::new);
-    let selection = Selection::new(key(&v["selection"]["server"]), v["selection"]["directory"].as_str().map(str::to_owned));
-    let collapsed = v["collapsed"].as_object().into_iter().flatten().filter_map(|(k, b)| Some((ServerKey::new(k), b.as_bool()?))).collect();
-    let hidden = v["hidden"].as_object().into_iter().flatten().filter(|(_, b)| b.as_bool() == Some(true)).map(|(k, _)| ServerKey::new(k)).collect();
+    let sel = &layout["home"]["selection"];
+    let selection = Selection::new(key(&sel["server"]), sel["directory"].as_str().map(str::to_owned));
+    let collapsed = servers["collapsed"].as_object().into_iter().flatten().filter_map(|(k, b)| Some((ServerKey::new(k), b.as_bool()?))).collect();
+    let hidden = server["hidden"].as_object().into_iter().flatten().filter(|(_, b)| b.as_bool() == Some(true)).map(|(k, _)| ServerKey::new(k)).collect();
     Store { selection, collapsed, hidden, version: 0 }
 }
 
+/// Each part goes to its own key; a part that didn't change writes nothing.
 fn save(store: &Store) {
     if !crate::attended() {
         return;
     }
-    let Some(path) = file() else { return };
     let selection = json!({ "server": store.selection.server.as_ref().map(ServerKey::as_str), "directory": store.selection.directory });
     let collapsed: serde_json::Map<String, Value> = store.collapsed.iter().map(|(k, b)| (k.as_str().to_owned(), json!(b))).collect();
     let hidden: serde_json::Map<String, Value> = store.hidden.iter().map(|k| (k.as_str().to_owned(), json!(true))).collect();
-    let body = json!({ "selection": selection, "collapsed": collapsed, "hidden": hidden }).to_string();
-    crate::disk::later("home", move || {
-        crate::disk::replace(&path, body.as_bytes());
+    crate::storage::update(GLOBAL, "layout", |m| {
+        let home = m.entry("home").or_insert_with(|| json!({}));
+        if let Some(home) = home.as_object_mut() {
+            home.insert("selection".into(), selection);
+        }
+    });
+    crate::storage::update(GLOBAL, "home.servers", |m| {
+        m.insert("collapsed".into(), Value::Object(collapsed));
+    });
+    crate::storage::update(GLOBAL, "server", |m| {
+        m.insert("hidden".into(), Value::Object(hidden));
     });
 }
 

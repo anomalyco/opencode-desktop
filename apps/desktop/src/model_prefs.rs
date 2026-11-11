@@ -1,21 +1,15 @@
-//! The model list's Favorites and Recent (`session_view::pickers::prefs`), kept in the app's
-//! `model-prefs.json`. A run with no person at it (headless, tests) reads them but never writes
-//! them back, as it never writes tabs, drafts or settings.
-
-use std::path::PathBuf;
+//! The model list's Favorites and Recent (`session_view::pickers::prefs`), kept in Desktop's
+//! global `model` key (`providers/models.tsx` `ModelState`). A run with no person at it
+//! (headless, tests) reads them but never writes them back, as it never writes tabs, drafts or
+//! settings.
 
 pub use session_view::pickers::ModelPrefs;
 
 pub fn load() -> ModelPrefs {
-    let write: fn(PathBuf, String) = if crate::headless() { keep } else { write };
-    ModelPrefs::load(crate::dirs::data().map(|d| d.join("model-prefs.json")), write)
+    let v = crate::storage::json("opencode.global.dat", "model").unwrap_or_default();
+    ModelPrefs::from_json(&v, (!crate::headless()).then_some(write as fn(String)))
 }
 
-fn write(path: PathBuf, body: String) {
-    crate::disk::later("model-prefs", move || {
-        crate::disk::replace(&path, body.as_bytes());
-    });
+fn write(body: String) {
+    crate::storage::set("opencode.global.dat", "model", body);
 }
-
-/// Picks and stars in a headless run stay in its memory.
-fn keep(_: PathBuf, _: String) {}

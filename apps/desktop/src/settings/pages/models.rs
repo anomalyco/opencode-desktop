@@ -5,7 +5,6 @@
 
 use std::cell::OnceCell;
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 use rune::{El, Tx, col, el, icon, row, text};
 use serde_json::{Value, json};
@@ -19,9 +18,9 @@ use crate::pickers::Model;
 use crate::widgets;
 use opencode_i18n::t;
 
-/// The providers folded shut, kept per server as Desktop's `settings-v2.models.providers`
-/// (`collapsed`, by provider) is: read from `settings-models.json` in the app's data folder
-/// the first time Models draws, written on each fold.
+/// The providers folded shut, kept per server under Desktop's global
+/// `settings-v2.models.providers` (`collapsed`, by provider): read the first time Models
+/// draws, written on each fold.
 #[derive(Default)]
 pub struct Folds(OnceCell<HashSet<String>>);
 
@@ -37,24 +36,21 @@ impl Folds {
         if !shut.remove(provider) {
             shut.insert(provider.to_owned());
         }
-        if let (Some(server), Some(path)) = (server(s), file()) {
+        if let Some(server) = server(s) {
             let collapsed: serde_json::Map<String, Value> = shut.iter().map(|p| (p.clone(), Value::Bool(true))).collect();
-            crate::disk::later("settings-models", move || {
-                let mut all = read();
-                all[server] = json!({ "collapsed": collapsed });
-                crate::disk::replace(&path, all.to_string().as_bytes());
+            crate::storage::update(GLOBAL, KEY, |all| {
+                all.insert(server, json!({ "collapsed": collapsed }));
             });
         }
         s.settings_pages.collapsed = Folds(OnceCell::from(shut));
     }
 }
 
-fn file() -> Option<PathBuf> {
-    crate::dirs::data().map(|d| d.join("settings-models.json"))
-}
+const GLOBAL: &str = "opencode.global.dat";
+const KEY: &str = "settings-v2.models.providers";
 
 fn read() -> Value {
-    file().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}))
+    crate::storage::json(GLOBAL, KEY).unwrap_or(json!({}))
 }
 
 /// The server the folds are kept for; none while nothing persists (headless, a fixture).

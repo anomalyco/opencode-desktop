@@ -20,8 +20,8 @@ impl App {
                 list.push(tab.to_json());
                 (list, info)
             });
-            crate::windows::store::save(&self.window, "tabs", Value::Array(list));
-            crate::windows::store::save(&self.window, "tabs.info", Value::Object(info));
+            crate::windows::store::save(&self.window, "tabs", &Value::Array(list));
+            crate::windows::store::save(&self.window, "tabs.info", &Value::Object(info));
         }
     }
 

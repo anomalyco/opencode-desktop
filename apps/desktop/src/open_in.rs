@@ -270,9 +270,6 @@ impl OpenIn {
     }
 }
 
-fn file() -> Option<std::path::PathBuf> {
-    crate::dirs::data().map(|d| d.join("open-in.json"))
-}
 
 impl App {
     /// Opening only works where the server shares this machine's files.
@@ -284,11 +281,9 @@ impl App {
             }
     }
 
+    /// The app last picked (Desktop's `plugin.file` `openInApp`).
     pub fn load_open_in(&mut self) {
-        let saved = file()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| v["app"].as_str().map(str::to_owned));
+        let saved = crate::storage::json("plugin.file", "openInApp").and_then(|v| v.as_str().map(str::to_owned));
         self.open_in.set_chosen(saved);
     }
 
@@ -309,13 +304,8 @@ impl App {
         let Some(path) = self.open_in_path(rel) else { return };
         if remember {
             self.open_in.set_chosen(Some(app.to_owned()));
-            if self.persists()
-                && let Some(f) = file()
-            {
-                let body = serde_json::json!({ "app": app }).to_string();
-                crate::disk::later("open-in", move || {
-                    crate::disk::replace(&f, body.as_bytes());
-                });
+            if self.persists() {
+                crate::storage::set_json("plugin.file", "openInApp", &serde_json::json!(app));
             }
         }
         // Desktop's toolbar opens its panel's folder in the file manager; a file, as these
