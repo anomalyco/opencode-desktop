@@ -160,7 +160,7 @@ jobs:
   build-macos:
     needs: plan
     if: ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.macos == 'true' }}
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 120
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
@@ -482,7 +482,7 @@ jobs:
   verify-macos:
     needs: [plan, sign-macos]
     if: ${{ !cancelled() && needs.sign-macos.result == 'success' }}
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 30
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
