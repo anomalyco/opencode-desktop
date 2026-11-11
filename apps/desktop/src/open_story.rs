@@ -34,7 +34,7 @@ pub fn setup(s: &mut App, at: usize) {
         {"id":"story_image", "type":"user", "text":"Here's the revised dashboard. Does the chart have enough room?", "files":[{"mime":"image/png", "name":"dashboard.png", "uri":format!("media:{MEDIA}")}]},
         {"id":"story_answer", "type":"assistant", "time":{"created":100,"completed":101}, "tokens":{"input":42000}, "content":[{"type":"text","text":"Yes. The chart now fills the available width, and the controls stay aligned with the header.\n\nThe final image size and scroll position should be ready on the first frame."}]}
     ]})));
-    let page = Arc::new(Page { key:Key { id:TARGET.into(), updated:0 }, messages, cursor:None, stubs:vec![], asked:0, cached:false, history:false, images:vec![], bytes:0, read:Default::default() });
+    let page = Arc::new(Page { key:Key { id:TARGET.into(), updated:0 }, messages, cursor:None, stubs:vec![], asked:0, history:false, images:vec![], bytes:0, read:Default::default() });
     let (pages, send) = Pages::fixture(prefetched.then(|| page.clone()));
     s.pages.set(pages);
     s.transcripts.remove(TARGET);

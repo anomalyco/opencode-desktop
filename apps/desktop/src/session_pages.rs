@@ -1,22 +1,20 @@
-//! Latest-page prefetch and a bounded, server-scoped disk cache. Two read lanes keep a
-//! foreground click independent of speculative reads. Neither lane can write to the server.
+//! Latest-page prefetch into a bounded in-memory cache (as Desktop keeps none on disk; a restored
+//! tab's first screen comes from the storage's session preview). Two read lanes keep a foreground
+//! click independent of speculative reads. Neither lane writes to the server or to a file.
 use crate::pickers::PickerHost as _;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, mpsc::{Receiver, Sender, channel}};
 use std::time::Duration;
 use rune::time::Instant;
 
 use opencode_kit::{client::Server, model::{self, Message}};
 use rune::Waker;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 const STILL_TRYING: &str = "OpenCode isn't answering. Still trying.";
 pub const LATEST: usize = 12;
 const ENTRIES: usize = 12;
-const DISK_BYTES: u64 = 32 << 20;
 const MEMORY_BYTES: usize = 64 << 20;
-const PAGE_BYTES: usize = 4 << 20;
 pub const WARM: usize = 6;
 /// Older pages as you scroll up: Desktop's `messagePageLimit`, asked for once the timeline
 /// stands within its 200 px of the top (`history-machine.ts` `HISTORY_SCROLL_THRESHOLD`).
@@ -109,7 +107,6 @@ pub struct Page {
     pub stubs: Vec<crate::context_window::Stub>,
     /// How many messages the read asked for: a page with fewer is the session's first.
     pub asked: usize,
-    pub cached: bool,
     pub history: bool,
     pub images: Vec<super::attachments::PreparedImage>,
     pub(crate) bytes: usize,
@@ -143,7 +140,7 @@ pub struct Pages {
     /// What the web's lanes read with: a page has no threads to wait on the queue, so each
     /// request starts a task that reads what's queued.
     #[cfg(target_arch = "wasm32")]
-    lanes: Option<(Fetch, Option<PathBuf>, Sender<Result<Arc<Page>, (Key, String)>>, Waker)>,
+    lanes: Option<(Fetch, Sender<Result<Arc<Page>, (Key, String)>>, Waker)>,
 }
 
 impl Drop for Pages {
@@ -162,26 +159,26 @@ impl Pages {
         (Self { shared: Arc::new((Mutex::new(q), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
     }
     pub fn live(server: Server, wake: Waker) -> Self {
-        let (dir, base) = (disk_dir(&server.base), server.base.clone());
+        let base = server.base.clone();
         let mut pages = Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
             crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
             value
-        })), dir, wake);
+        })), wake);
         pages.server = base;
         pages
     }
 
-    pub fn new(fetch: Fetch, dir: Option<PathBuf>, wake: Waker) -> Self {
+    pub fn new(fetch: Fetch, wake: Waker) -> Self {
         let shared = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
         let (out, results) = channel();
         #[cfg(target_arch = "wasm32")]
-        return Self { shared, results, wake: Some(wake.clone()), server: String::new(), lanes: Some((fetch, dir, out, wake)) };
+        return Self { shared, results, wake: Some(wake.clone()), server: String::new(), lanes: Some((fetch, out, wake)) };
         #[cfg(not(target_arch = "wasm32"))]
         {
             for foreground in [true, false] {
-                let (q, fetch, dir, out, wake) = (shared.clone(), fetch.clone(), dir.clone(), out.clone(), wake.clone());
+                let (q, fetch, out, wake) = (shared.clone(), fetch.clone(), out.clone(), wake.clone());
                 std::thread::Builder::new().name(format!("session-{}", if foreground { "open" } else { "prefetch" }))
-                    .spawn(move || worker(q, fetch, dir, out, wake, foreground)).expect("session reader");
+                    .spawn(move || worker(q, fetch, out, wake, foreground)).expect("session reader");
             }
             Self { shared, results, wake: Some(wake), server: String::new() }
         }
@@ -233,14 +230,14 @@ impl Pages {
         }
         self.shared.1.notify_all();
         #[cfg(target_arch = "wasm32")]
-        if let Some((fetch, dir, out, wake)) = self.lanes.clone() {
+        if let Some((fetch, out, wake)) = self.lanes.clone() {
             drop(q);
             let shared = self.shared.clone();
             let _ = rune::task::spawn("session-pages", move || {
                 let images = rune::ImageCache::new(wake.clone());
                 for foreground in [true, false] {
                     while let Some(job) = take_now(&shared, foreground) {
-                        if !read(&shared, &fetch, &dir, &out, &wake, &images, foreground, job) { return; }
+                        if !read(&shared, &fetch, &out, &wake, &images, foreground, job) { return; }
                     }
                 }
             });
@@ -254,7 +251,7 @@ fn now() -> Instant {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
+fn worker(q: Shared, fetch: Fetch, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
     let images = rune::ImageCache::new(wake.clone());
     loop {
         let job = {
@@ -270,7 +267,7 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
                 state = q.1.wait(state).unwrap();
             }
         };
-        if !read(&q, &fetch, &dir, &out, &wake, &images, foreground, job) { return; }
+        if !read(&q, &fetch, &out, &wake, &images, foreground, job) { return; }
     }
 }
 
@@ -285,12 +282,12 @@ fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
     Some(job)
 }
 
-/// Reads `job` (the disk's copy first, then the server's) and hands each page to `out`; false
+/// Reads `job` from the server and hands each page to `out`; false
 /// when the pool stopped meanwhile.
 #[allow(clippy::too_many_arguments)]
-fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Arc<Page>, (Key, String)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
+fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, String)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
     {
-        let publish = |value: &Value, cached, mut read: crate::telemetry::Read| {
+        let publish = |value: &Value, mut read: crate::telemetry::Read| {
             let parsing = Instant::now();
             let messages = model::parse_messages(value);
             let preparing = Instant::now();
@@ -302,7 +299,7 @@ fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Ar
             read.thread = std::thread::current().name().unwrap_or("").to_owned();
             let page = Arc::new(Page {
                 key: job.key.clone(), messages, stubs: crate::context_window::stubs(value), asked: job.limit,
-                cursor: value["cursor"]["next"].as_str().map(str::to_owned), cached, history: job.cursor.is_some(),
+                cursor: value["cursor"]["next"].as_str().map(str::to_owned), history: job.cursor.is_some(),
                 bytes: serde_json::to_vec(value).map_or(0, |v| v.len()) + prepared.iter().map(|p| p.weight()).sum::<usize>(),
                 images: prepared,
                 read,
@@ -319,12 +316,6 @@ fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Ar
             }
             if out.send(Ok(page)).is_ok() { wake(); }
         };
-        if job.cursor.is_none() && let Some(dir) = &dir {
-            let start = Instant::now();
-            if let Some(value) = disk_read(dir, &job.key) {
-                publish(&value, true, crate::telemetry::Read { source: "disk", fetch: Some((start, Instant::now())), ..Default::default() });
-            }
-        }
         let path = match &job.cursor {
             Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, super::switcher::encode(cursor)),
             None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
@@ -354,8 +345,7 @@ fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Ar
                     (read.first_byte, read.bytes, read.json) = (Some(first_byte), bytes, Some((parsing, end)));
                     read.fetch = Some((start, parsing));
                 }
-                publish(&value, false, read);
-                if job.cursor.is_none() && let Some(dir) = &dir { disk_write(dir, &job.key, &value); }
+                publish(&value, read);
             }
             Err(error) => {
                 q.0.lock().unwrap().failed.insert(job.key.clone(), Instant::now() + Duration::from_secs(30));
@@ -381,46 +371,6 @@ fn pause(q: &Shared, total: Duration) -> bool {
         rune::task::sleep(Duration::from_millis(10).min(until - Instant::now()));
     }
     !q.0.lock().unwrap().stopped
-}
-
-fn disk_dir(server: &str) -> Option<PathBuf> {
-    // Stable server namespace, including port; session IDs alone do not identify a server.
-    let namespace = server.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
-    Some(crate::dirs::cache()?.join("pages-v1").join(format!("{namespace:016x}")))
-}
-
-fn file(dir: &std::path::Path, key: &Key) -> Option<PathBuf> {
-    if !key.id.starts_with("ses_") || !key.id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') { return None; }
-    Some(dir.join(format!("{}-{}.json", key.id, key.updated)))
-}
-
-fn disk_read(dir: &std::path::Path, key: &Key) -> Option<Value> {
-    let path = file(dir, key)?;
-    if std::fs::metadata(&path).ok()?.len() > PAGE_BYTES as u64 { return None; }
-    let mut v: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (v["id"] == key.id && v["updated"] == key.updated && v["page"]["data"].is_array()).then(|| v["page"].take())
-}
-
-fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
-    let Some(path) = file(dir, key) else { return };
-    let Ok(bytes) = serde_json::to_vec(&json!({"id": key.id, "updated": key.updated, "page": value})) else { return };
-    if bytes.len() > PAGE_BYTES || std::fs::create_dir_all(dir).is_err() { return; }
-    #[cfg(unix)] {
-        use std::os::unix::fs::PermissionsExt;
-        if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() { return; }
-    }
-    if !crate::disk::replace(&path, &bytes) { return; }
-    // Count and byte bounds include obsolete updated-time versions. All work is off-thread.
-    let mut files: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| {
-        let m = e.metadata().ok()?;
-        (e.path().extension()?.to_str()? == "json").then_some((m.modified().ok()?, m.len(), e.path()))
-    }).collect();
-    files.sort_by_key(|f| std::cmp::Reverse(f.0));
-    let mut bytes = 0;
-    for (i, (_, size, path)) in files.into_iter().enumerate() {
-        bytes += size;
-        if i >= ENTRIES || bytes > DISK_BYTES { let _ = std::fs::remove_file(path); }
-    }
 }
 
 impl super::App {
@@ -555,8 +505,8 @@ impl super::App {
         let first = !self.transcripts.contains_key(id);
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| model::Transcript { session: id.clone(), messages: vec![] });
         let mut messages = page.messages.clone();
-        // Disk, memory and older history must never rewind a live delta or local echo.
-        if page.cached || page.history || stale { messages.retain(|m| !t.messages.iter().any(|old| old.id() == m.id())); }
+        // Memory and older history must never rewind a live delta or local echo.
+        if page.history || stale { messages.retain(|m| !t.messages.iter().any(|old| old.id() == m.id())); }
         super::attachments::reconcile(&mut self.attach.echoes, t, &messages);
         let delivered: Vec<_> = messages.iter().map(|m| m.id().to_owned()).collect();
         if page.history {
@@ -565,7 +515,7 @@ impl super::App {
             t.messages = messages;
         } else { t.merge(messages); }
         self.settle_inbox(id, &delivered);
-        let cold = !page.cached && self.launch.cold_transcript.as_deref() == Some(id.as_str());
+        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
         if first || cold { tx.settle(); }
         if page.history {
@@ -583,7 +533,7 @@ impl super::App {
 
     fn schedule_history(&mut self, page: &Page, tx: &mut rune::Tx) {
         let id = &page.key.id;
-        if self.route == super::Route::here(id.clone()) && !page.history && !page.cached && let Some(cursor) = &page.cursor {
+        if self.route == super::Route::here(id.clone()) && !page.history && let Some(cursor) = &page.cursor {
             // Give the latest page its first frame before expanding history.
             let id = id.clone();
             self.step_history(&id, HistoryEvent::Latest { key: page.key.clone(), cursor, now: Instant::now() }, tx);
@@ -613,7 +563,7 @@ impl super::App {
         let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
         let mut changed = false;
         for result in results {
-            if let Ok(page) = &result && !page.cached {
+            if let Ok(page) = &result {
                 self.judge_sends_by_page(&page.key.id, &page.messages);
                 self.check_sends();
                 changed = true;
