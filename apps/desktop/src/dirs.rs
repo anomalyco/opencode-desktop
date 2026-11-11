@@ -81,8 +81,13 @@ pub fn home() -> String {
 }
 
 impl App {
-    /// `dir` with the home folder (the fixture's, in a fixture run) shown as `~`.
-    pub(crate) fn tilde(&self, dir: &str) -> String {
-        opencode_kit::path::tilde(dir, &self.home)
+    /// `dir` on `server` with that server's home folder shown as `~`: this machine's (the
+    /// fixture's, in a fixture run) for the app's own server, another's as it reported it
+    /// (`servers::health::home`), else the folder as it is (`previewPath`, `tab-nav.tsx:146-155`).
+    pub(crate) fn tilde(&self, server: &opencode_kit::servers::ServerKey, dir: &str) -> String {
+        if server.is_sidecar() {
+            return opencode_kit::path::tilde(dir, &self.home);
+        }
+        crate::servers::health::home(server).map_or_else(|| dir.to_owned(), |home| opencode_kit::path::tilde(dir, &home))
     }
 }

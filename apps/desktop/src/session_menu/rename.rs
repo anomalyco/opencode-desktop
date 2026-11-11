@@ -7,6 +7,8 @@
 
 use rune::machine::{Attempt, Effects, Seq};
 
+use opencode_kit::servers::ServerKey;
+
 use super::{Spot, Target};
 
 /// `TAB_RENAME_SAVE_TIMEOUT_MS`.
@@ -26,7 +28,7 @@ pub(crate) enum Edit {
 pub(crate) enum Save {
     #[default]
     Idle,
-    Saving { attempt: Attempt, session: String, optimistic: String, confirmed: String, due: f64 },
+    Saving { attempt: Attempt, session: String, server: ServerKey, optimistic: String, confirmed: String, due: f64 },
 }
 
 pub(crate) enum Event<'a> {
@@ -40,8 +42,8 @@ pub(crate) enum Event<'a> {
     Submit { draft: &'a str, now: f64 },
     /// Escape (`edit.cancel`).
     Cancel,
-    /// The server answered a save of `session` to `title`.
-    Replied { session: &'a str, title: &'a str, ok: bool, current: Option<&'a str> },
+    /// `server` answered a save of `session` to `title`.
+    Replied { session: &'a str, server: &'a ServerKey, title: &'a str, ok: bool, current: Option<&'a str> },
     Tick { now: f64, current: Option<&'a str> },
 }
 
@@ -51,10 +53,10 @@ pub(crate) enum Effect {
     Arm(String),
     /// The field goes.
     Disarm,
-    /// Show `title` for `session` now (`session.remember`).
-    Remember { session: String, title: String },
-    /// Send the save (`save.start`).
-    Save { session: String, title: String },
+    /// Show `title` for `session` on `server` now (`session.remember`).
+    Remember { session: String, server: ServerKey, title: String },
+    /// Send the save to `server` (`save.start`).
+    Save { session: String, server: ServerKey, title: String },
     WakeAt(f64),
     Failed,
 }
@@ -82,8 +84,8 @@ pub(crate) fn step(seq: &mut Seq, edit: &mut Edit, save: &mut Save, event: Event
             _ => Effects::none(),
         },
         Event::Submit { draft, now } => commit(seq, edit, save, draft, now),
-        Event::Replied { session, title, ok, current } => match save {
-            Save::Saving { session: s, optimistic, .. } if s == session && optimistic == title => {
+        Event::Replied { session, server, title, ok, current } => match save {
+            Save::Saving { session: s, server: k, optimistic, .. } if s == session && k == server && optimistic == title => {
                 let restore = failed(save, ok, current);
                 *save = Save::Idle;
                 restore
@@ -118,15 +120,15 @@ fn commit(seq: &mut Seq, edit: &mut Edit, save: &mut Save, draft: &str, now: f64
     }
     // An overlapping save keeps the last title the server accepted, never the previous optimistic one.
     let confirmed = match save {
-        Save::Saving { session, confirmed, .. } if *session == target.id => confirmed.clone(),
+        Save::Saving { session, server, confirmed, .. } if *session == target.id && *server == target.server => confirmed.clone(),
         _ => initial,
     };
     let due = now + SAVE_TIMEOUT;
-    *save = Save::Saving { attempt: seq.next(), session: target.id.clone(), optimistic: next.to_owned(), confirmed, due };
+    *save = Save::Saving { attempt: seq.next(), session: target.id.clone(), server: target.server.clone(), optimistic: next.to_owned(), confirmed, due };
     Effects::Many(vec![
         Effect::Disarm,
-        Effect::Remember { session: target.id.clone(), title: next.to_owned() },
-        Effect::Save { session: target.id, title: next.to_owned() },
+        Effect::Remember { session: target.id.clone(), server: target.server.clone(), title: next.to_owned() },
+        Effect::Save { session: target.id, server: target.server, title: next.to_owned() },
         Effect::WakeAt(due),
     ])
 }
@@ -134,11 +136,11 @@ fn commit(seq: &mut Seq, edit: &mut Edit, save: &mut Save, draft: &str, now: f64
 /// A failed or timed-out latest save puts back the accepted title, unless the server pushed
 /// another meanwhile.
 fn failed(save: &Save, ok: bool, current: Option<&str>) -> Effects<Effect> {
-    let Save::Saving { session, optimistic, confirmed, .. } = save else { return Effects::none() };
+    let Save::Saving { session, server, optimistic, confirmed, .. } = save else { return Effects::none() };
     if ok {
         return Effects::none();
     }
-    let restore = (current == Some(optimistic.as_str())).then(|| Effect::Remember { session: session.clone(), title: confirmed.clone() });
+    let restore = (current == Some(optimistic.as_str())).then(|| Effect::Remember { session: session.clone(), server: server.clone(), title: confirmed.clone() });
     match restore {
         Some(r) => Effects::two(r, Effect::Failed),
         None => Effects::one(Effect::Failed),

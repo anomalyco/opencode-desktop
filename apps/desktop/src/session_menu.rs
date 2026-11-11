@@ -17,6 +17,7 @@ use rune::machine::Seq;
 use rune::{Key, KeyEvent, PopupAnchor, TextEdit, Tx};
 
 use opencode_kit::client::Write;
+use opencode_kit::servers::ServerKey;
 
 use crate::popup::{self, Menu};
 use crate::{App, Route};
@@ -32,16 +33,29 @@ pub enum Spot {
     Header,
 }
 
-/// What a menu is about.
+/// What a menu is about: a session (a draft, for a draft's tab) on its server. Its actions run
+/// on that server whichever one the window works against, as Desktop's run on the tab's or
+/// row's own server context (`tab-nav.tsx:103-104`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Target {
     pub id: String,
+    pub server: ServerKey,
     pub spot: Spot,
 }
 
 impl Target {
+    /// `id` on the server the running turn works against.
     pub fn new(id: &str, spot: Spot) -> Target {
-        Target { id: id.to_owned(), spot }
+        Target::on(&crate::servers::runtime::current(), id, spot)
+    }
+
+    pub fn on(server: &ServerKey, id: &str, spot: Spot) -> Target {
+        Target { id: id.to_owned(), server: server.clone(), spot }
+    }
+
+    /// The tab a tab's target names.
+    pub fn tab<'a>(&self, s: &'a App) -> Option<&'a crate::tabs::Tab> {
+        s.tabs.iter().find(|x| x.id == self.id && (x.is_draft() || x.server == self.server))
     }
 }
 
@@ -76,8 +90,13 @@ impl Menus {
 
     /// The session Delete's confirmation is for, while it shows.
     pub fn confirming(&self) -> Option<String> {
+        self.asked().map(|a| a.session.clone())
+    }
+
+    /// What Delete's confirmation asks about, while it shows: the session, its server, its title.
+    pub(crate) fn asked(&self) -> Option<&delete::Asked> {
         match &self.delete {
-            delete::Delete::Confirming { session } | delete::Delete::Deleting { session, .. } => Some(session.clone()),
+            delete::Delete::Confirming { asked } | delete::Delete::Deleting { asked, .. } => Some(asked),
             delete::Delete::Closed => None,
         }
     }
@@ -116,20 +135,21 @@ fn asks(word: &str) -> String {
 /// load, and its Close other tabs and Close tabs to the right for tabs to close; a subagent's
 /// header has no menu.
 pub fn lines(s: &App, t: &Target) -> Vec<Line> {
-    // A tab is named by its `Tab::uid`; its session is known once its server, checked out, has it.
-    let tab = (t.spot == Spot::Tab).then(|| s.tab(&t.id)).flatten();
-    let known = match tab {
-        Some(tab) if tab.server != *crate::servers::runtime::active(s) => None,
-        Some(tab) => s.session(&tab.id),
-        None => s.session(&t.id),
-    };
+    // The session is known once its own server has it: live on the server the window works
+    // against, as of its last checkout on another (`props.session` from the tab's server).
+    let tab = (t.spot == Spot::Tab).then(|| t.tab(s)).flatten();
+    let here = t.server == *crate::servers::runtime::active(s);
+    let known = here.then(|| s.session(&t.id)).flatten();
+    let known_elsewhere = !here && s.checkout.known(&t.server, &t.id);
     let draft = tab.is_some_and(crate::tabs::Tab::is_draft);
     match t.spot {
         Spot::Tab => {
-            let at = s.tab_at(&t.id);
+            let uid = tab.map(crate::tabs::Tab::uid).unwrap_or_default();
+            let at = s.tab_at(&uid);
+            let known = known.is_some() || known_elsewhere;
             let close = [
                 item("close", opencode_i18n::t!("common.closeTab"), true),
-                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), s.tabs.iter().any(|x| x.uid() != t.id)),
+                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), s.tabs.iter().any(|x| x.uid() != uid)),
                 // Side tabs run down the sidebar (`TabCloseMenuItems`).
                 item("close-right", if s.tab_layout().has_sidebar() { opencode_i18n::t!("common.closeTabsBelow") } else { opencode_i18n::t!("common.closeTabsToRight") }, at.is_some_and(|i| i + 1 < s.tabs.len())),
             ];
@@ -137,9 +157,9 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
             if draft {
                 return close.into();
             }
-            std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known.is_some()))
+            std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known))
                 .chain(close)
-                .chain([Line::Sep, Line::Item(Item { id: "delete", title: asks(opencode_i18n::t!("session.delete.title")), enabled: known.is_some(), danger: true })])
+                .chain([Line::Sep, Line::Item(Item { id: "delete", title: asks(opencode_i18n::t!("session.delete.title")), enabled: known, danger: true })])
                 .collect()
         }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
@@ -186,9 +206,13 @@ pub fn on(e: rune::El, t: Target) -> rune::El {
 pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
     match id {
         "rename" => s.begin_rename(t),
-        "close" => s.close_tab(&t.id, tx),
+        "close" => {
+            if let Some(uid) = t.tab(s).map(crate::tabs::Tab::uid) {
+                s.close_tab(&uid, tx);
+            }
+        }
         "close-others" | "close-right" => {
-            let at = s.tab_at(&t.id).unwrap_or(0);
+            let at = t.tab(s).and_then(|x| s.tab_at(&x.uid())).unwrap_or(0);
             let keep = s.tabs.get(at).map(crate::tabs::Tab::uid);
             let gone: Vec<String> = s.tabs.iter().enumerate()
                 .filter(|(i, x)| Some(x.uid()) != keep && (id == "close-others" || *i > at))
@@ -199,9 +223,9 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
             }
         }
         "export" => {
-            s.write(Write::Export(t.id.clone()));
+            crate::servers::runtime::with_server(s, &t.server, |s| s.write(Write::Export(t.id.clone())));
         }
-        "delete" => s.ask_delete(&t.id),
+        "delete" => s.ask_delete_on(&t.server, &t.id),
         _ => {}
     }
 }
@@ -209,7 +233,7 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
 impl App {
     /// Starts editing `t`'s title in place, all of it selected; one open elsewhere ends first.
     pub fn begin_rename(&mut self, t: &Target) {
-        let Some(title) = self.session(&t.id).map(|i| i.title.clone()) else { return };
+        let Some(title) = crate::servers::runtime::with_server(self, &t.server, |s| s.session(&t.id).map(|i| i.title.clone())).flatten() else { return };
         self.finish_rename(true);
         self.rename_event(rename::Event::Start { target: t.clone(), title }, "");
     }
@@ -237,19 +261,24 @@ impl App {
                     self.search.focused = false;
                 }
                 rename::Effect::Disarm => self.menus.edit.focused = false,
-                rename::Effect::Remember { session, title } => {
-                    if let Some(info) = self.sessions.iter_mut().find(|s| s.id == session) {
-                        info.title = title;
-                        self.save_tabs();
-                    }
+                rename::Effect::Remember { session, server, title } => {
+                    crate::servers::runtime::with_server(self, &server, |s| {
+                        if let Some(info) = s.sessions.iter_mut().find(|s| s.id == session) {
+                            info.title = title;
+                            s.save_tabs();
+                        }
+                    });
                 }
-                rename::Effect::Save { session, title } => {
+                rename::Effect::Save { session, server, title } => {
                     // A story's write goes nowhere and a build that can't write sends none: each
                     // answers at once.
-                    let sent = self.write(Write::Rename { session: session.clone(), title: title.clone() });
+                    let (sent, current) = crate::servers::runtime::with_server(self, &server, |s| {
+                        let sent = s.write(Write::Rename { session: session.clone(), title: title.clone() });
+                        (sent, s.session(&session).map(|i| i.title.clone()))
+                    })
+                    .unwrap_or((false, None));
                     if self.stage.is_some() || !sent {
-                        let current = self.session(&session).map(|i| i.title.clone());
-                        return self.rename_event(rename::Event::Replied { session: &session, title: &title, ok: sent, current: current.as_deref() }, why);
+                        return self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() }, why);
                     }
                 }
                 // `poll_rename` keeps the save's deadline.
@@ -288,10 +317,10 @@ impl App {
             let draft = self.menus.edit.text.clone();
             self.rename_event(rename::Event::Blurred { draft: &draft, now }, "");
         }
-        let current = |s: &App, id: &str| s.session(id).map(|i| i.title.clone());
-        if let rename::Save::Saving { session, due, .. } = &self.menus.save {
-            let (session, due) = (session.clone(), *due);
-            let title = current(self, &session);
+        if let rename::Save::Saving { session, server, due, .. } = &self.menus.save {
+            let (session, server, due) = (session.clone(), server.clone(), *due);
+            // Only the deadline needs the title: another server is checked out just for it.
+            let title = if now + 1e-9 >= due { crate::servers::runtime::with_server(self, &server, |s| s.session(&session).map(|i| i.title.clone())).flatten() } else { None };
             self.rename_event(rename::Event::Tick { now, current: title.as_deref() }, "");
             if matches!(self.menus.save, rename::Save::Saving { .. }) {
                 tx.wake_at(due);
@@ -309,15 +338,20 @@ impl App {
         match data["kind"].as_str() {
             Some("rename") => {
                 let title = data["title"].as_str().unwrap_or_default().to_owned();
+                // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
+                let server = crate::servers::runtime::active(self).clone();
                 let current = self.session(&session).map(|i| i.title.clone());
-                let ours = matches!(&self.menus.save, rename::Save::Saving { session: s, optimistic, .. } if *s == session && *optimistic == title);
+                let ours = matches!(&self.menus.save, rename::Save::Saving { session: s, server: k, optimistic, .. } if *s == session && *k == server && *optimistic == title);
                 // A rename this edit didn't send (the rename dialog's) says so as any write does.
                 if !ours && !ok {
                     crate::status_toast::from_server(self, why.to_owned());
                 }
-                self.rename_event(rename::Event::Replied { session: &session, title: &title, ok, current: current.as_deref() }, why);
+                self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() }, why);
             }
-            Some("delete") => self.delete_event(delete::Event::Replied { session, ok }, why, tx),
+            Some("delete") => {
+                let server = crate::servers::runtime::active(self).clone();
+                self.delete_event(delete::Event::Replied { session, server, ok }, why, tx);
+            }
             Some("unarchive") => self.switcher_restore_replied(session, ok, why, tx),
             _ => {}
         }
@@ -326,9 +360,17 @@ impl App {
         }
     }
 
-    /// Asks before deleting `id`.
+    /// Asks before deleting `id` on the server the window works against.
     pub fn ask_delete(&mut self, id: &str) {
-        self.delete_event(delete::Event::Ask(id.to_owned()), "", &mut Tx::default());
+        let server = crate::servers::runtime::active(self).clone();
+        self.ask_delete_on(&server, id);
+    }
+
+    /// Asks before deleting `id` on `server`, named by its title there.
+    pub fn ask_delete_on(&mut self, server: &ServerKey, id: &str) {
+        let title = crate::servers::runtime::with_server(self, server, |s| s.session(id).map(crate::view::title_of)).flatten().unwrap_or_else(|| opencode_i18n::t!("command.session.new").to_owned());
+        let asked = delete::Asked { session: id.to_owned(), server: server.clone(), title };
+        self.delete_event(delete::Event::Ask(asked), "", &mut Tx::default());
     }
 
     /// Cancel, Escape or a press outside Delete's confirmation; nothing while the delete runs.
@@ -336,16 +378,21 @@ impl App {
         self.delete_event(delete::Event::Cancel, "", tx);
     }
 
-    /// Delete: the session and its subagents leave the list, and the server's answer decides.
-    pub fn delete_session(&mut self, id: &str, tx: &mut Tx) {
-        let mut gone = vec![id.to_owned()];
-        let mut at = 0;
-        while at < gone.len() {
-            let parent = gone[at].clone();
-            gone.extend(self.sessions.iter().filter(|s| s.parent.as_deref() == Some(&parent)).map(|s| s.id.clone()));
-            at += 1;
-        }
-        let tree = gone.iter().filter_map(|g| self.session(g).cloned()).collect();
+    /// Delete: the session the confirmation asks about and its subagents leave its server's
+    /// list, and the server's answer decides.
+    pub fn delete_session(&mut self, tx: &mut Tx) {
+        let Some(asked) = self.menus.asked().cloned() else { return };
+        let tree = crate::servers::runtime::with_server(self, &asked.server, |s| {
+            let mut gone = vec![asked.session.clone()];
+            let mut at = 0;
+            while at < gone.len() {
+                let parent = gone[at].clone();
+                gone.extend(s.sessions.iter().filter(|s| s.parent.as_deref() == Some(&parent)).map(|s| s.id.clone()));
+                at += 1;
+            }
+            gone.iter().filter_map(|g| s.session(g).cloned()).collect()
+        })
+        .unwrap_or_default();
         self.delete_event(delete::Event::Confirm { tree, now: tx.clock() }, "", tx);
     }
 
@@ -364,36 +411,43 @@ impl App {
         for effect in delete::step(&mut self.menus.delete, event) {
             tx.instant();
             match effect {
-                delete::Effect::Hide(ids) => self.sessions.retain(|s| !ids.contains(&s.id)),
-                delete::Effect::Run(id) => {
+                delete::Effect::Hide(server, ids) => {
+                    crate::servers::runtime::with_server(self, &server, |s| s.sessions.retain(|s| !ids.contains(&s.id)));
+                }
+                delete::Effect::Run(server, id) => {
                     // A story's write goes nowhere and a build that can't write sends none: each
                     // answers at once.
-                    let sent = self.write(Write::Delete(id.clone()));
+                    let sent = crate::servers::runtime::with_server(self, &server, |s| s.write(Write::Delete(id.clone()))).unwrap_or(false);
                     if self.stage.is_some() || !sent {
-                        return self.delete_event(delete::Event::Replied { session: id, ok: sent }, why, tx);
+                        return self.delete_event(delete::Event::Replied { session: id, server, ok: sent }, why, tx);
                     }
                 }
                 delete::Effect::WakeAt(due) => tx.wake_at(due),
-                delete::Effect::Restore(hidden) => {
-                    for s in hidden {
-                        if self.session(&s.id).is_none() {
-                            self.sessions.push(s);
+                delete::Effect::Restore(server, hidden) => {
+                    crate::servers::runtime::with_server(self, &server, |s| {
+                        for h in hidden {
+                            if s.session(&h.id).is_none() {
+                                s.sessions.push(h);
+                            }
                         }
-                    }
+                    });
                 }
-                delete::Effect::Removed(gone) => self.session_removed(&gone),
+                delete::Effect::Removed(server, gone) => {
+                    crate::servers::runtime::with_server(self, &server, |s| s.session_removed(&gone));
+                }
                 delete::Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("session.delete.failed.title"), why),
             }
         }
     }
 
-    /// The server deleted these sessions: their tabs and history go, and the open page goes
-    /// Home if it was theirs (`notifySessionTabsRemoved`).
+    /// The server the window works against deleted these sessions: their tabs and history go,
+    /// and the open page goes Home if it was theirs (`notifySessionTabsRemoved`).
     fn session_removed(&mut self, gone: &[String]) {
+        let server = crate::servers::runtime::active(self).clone();
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
-        let open_gone = matches!(&self.route, Route::Session { id: open, .. } if gone.contains(open));
+        let open_gone = matches!(&self.route, Route::Session { id: open, server: on } if *on == server && gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
-        self.tabs.retain(|t| !gone.contains(&t.id));
+        self.tabs.retain(|t| t.is_draft() || t.server != server || !gone.contains(&t.id));
         self.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
             self.route = Route::Home;

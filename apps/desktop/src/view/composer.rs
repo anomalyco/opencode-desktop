@@ -360,7 +360,7 @@ pub(super) fn picker_trigger(s: &App, p: &Pal, kind: Kind, label: &str, color: C
 }
 
 pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
-    let dir = info.map_or(String::new(), |i| s.tilde(&i.directory));
+    let dir = info.map_or(String::new(), |i| s.tilde(crate::servers::runtime::active(s), &i.directory));
     let live = s.live();
     row()
         .key("status")

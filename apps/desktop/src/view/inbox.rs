@@ -240,15 +240,15 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .clip_soft(0.0)
         .child(text(name.clone()).font(LINE).color(p.muted).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto));
     if e.worktree {
-        place = place.child(icon(&ic::OUTLINE_WORKTREE, 16.0).key("worktree").color(p.icon_muted).help(info.directory.clone()));
+        place = place.child(icon(&ic::OUTLINE_WORKTREE, 16.0).key("worktree").color(p.icon_muted).help(info.directory.clone()).help_side(rune::Side::Right));
     }
     if let Some(branch) = e.branch {
-        place = place.child(icon(&ic::BRANCH, 16.0).key("branch").color(p.icon_muted).help(branch.to_owned()));
+        place = place.child(icon(&ic::BRANCH, 16.0).key("branch").color(p.icon_muted).help(branch.to_owned()).help_side(rune::Side::Right));
     }
     // The session's server, where tabs of several servers mix (`servers.tag`): a 16 pt server
     // glyph at the line's start, under the avatar, naming it on hover (`inbox.tsx:617-623`).
     let server = crate::servers::runtime::tag(e.server).map(|name| {
-        el().key("server").absolute(0.0, 0.0).size(16.0, 16.0).center().label(name.clone()).help(name).child(icon(&SERVER, 16.0).color(p.icon_muted))
+        el().key("server").absolute(0.0, 0.0).size(16.0, 16.0).center().label(name.clone()).help(name).help_side(rune::Side::Right).child(icon(&SERVER, 16.0).color(p.icon_muted))
     });
     let mut end = row().key("end").gap(6.0).center_y();
     match e.status {
@@ -327,13 +327,8 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
             Some("delete") => {
-                // Delete's confirmation acts on the page's server, so another server's session
-                // opens first.
                 let (server, id) = s.inbox_target(&key);
-                if server != *crate::servers::runtime::active(s) {
-                    s.open_inbox_session(&key, tx);
-                }
-                s.ask_delete(&id);
+                s.ask_delete_on(&server, &id);
             }
             _ => {}
         }

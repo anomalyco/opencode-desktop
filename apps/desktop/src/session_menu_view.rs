@@ -39,10 +39,9 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
 /// its scrim, the title group in its header and a ghost Cancel beside the danger button in its
 /// footer.
 pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
-    let Some(id) = s.menus.confirming() else { return vec![] };
+    let Some(asked) = s.menus.asked() else { return vec![] };
     let busy = s.menus.deleting();
-    let name = s.session(&id).map_or_else(|| t!("command.session.new").to_owned(), crate::view::title_of);
-    let id = id.clone();
+    let name = asked.title.clone();
     let kit = crate::palette::kit(p);
     let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Ghost)
         .disabled(busy)
@@ -56,7 +55,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     // drop would show through a translucent fill.
     let delete = crate::widgets::button(t!("session.delete.button"), ButtonVariant::Danger)
         .disabled(busy)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.delete_session(&id, tx))
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.delete_session(tx))
         .build(kit)
         .key("delete-confirm");
     let delete = if p.dark && p.theme == 0 { delete.fill(session_view::dock::flat(Color::WHITE.alpha(0.06), p.layer1)) } else { delete };

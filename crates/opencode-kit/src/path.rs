@@ -70,6 +70,21 @@ pub fn tilde(path: &str, home: &str) -> String {
     if same(head, home) && (rest.is_empty() || rest.starts_with(SEPARATORS)) { format!("~{rest}") } else { path.to_owned() }
 }
 
+/// The home folder `dir` sits in, as Desktop infers a server's (`inferHomeDirectory`,
+/// `global-sync/bootstrap.ts:76-83`): `/Users/<you>`, `/home/<you>`, `/root` or
+/// `C:\Users\<you>`, in `dir`'s own separators; empty when it's in none.
+pub fn infer_home(dir: &str) -> String {
+    let path = dir.replace('\\', "/");
+    let parts: Vec<&str> = path.split('/').collect();
+    let home = match parts.as_slice() {
+        ["", "root", ..] => "/root".to_owned(),
+        ["", top @ ("Users" | "home"), you, ..] if !you.is_empty() => format!("/{top}/{you}"),
+        [drive, "Users", you, ..] if drive.len() == 2 && drive.ends_with(':') && drive.as_bytes()[0].is_ascii_alphabetic() && !you.is_empty() => format!("{drive}/Users/{you}"),
+        _ => return String::new(),
+    };
+    if dir.contains('\\') { home.replace('/', "\\") } else { home }
+}
+
 /// Whether `path` starts at a root: `/`, `C:` or a UNC share.
 pub fn is_absolute(path: &str) -> bool {
     root_len(path) > 0

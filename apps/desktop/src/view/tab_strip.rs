@@ -118,11 +118,10 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: u
     })
 }
 
-/// What a tab's menu and rename act on: its session (or draft) on the server the window works
-/// against, else the tab by its `Tab::uid`, whose session isn't at hand to rename or delete.
-pub(crate) fn target(s: &App, t: &crate::tabs::Tab) -> Target {
-    let here = t.is_draft() || t.server == *crate::servers::runtime::active(s);
-    Target::new(&if here { t.id.clone() } else { t.uid() }, Spot::Tab)
+/// What a tab's menu and rename act on: its session (or draft) on its own server, whichever one
+/// the window works against (`tab-nav.tsx:103-104`).
+pub(crate) fn target(_: &App, t: &crate::tabs::Tab) -> Target {
+    Target::on(&t.server, &t.id, Spot::Tab)
 }
 
 /// What a tab shows of its session, read on the tab's own server: live on the server the window

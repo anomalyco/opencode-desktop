@@ -33,6 +33,8 @@ struct Answer {
     key: ServerKey,
     attempt: Attempt,
     result: ProbeResult,
+    /// Its home folder, asked for once it answers (`sync.data.path.home`).
+    home: Option<String>,
 }
 
 struct Runtime {
@@ -43,6 +45,8 @@ struct Runtime {
     conns: HashMap<ServerKey, ServerConn>,
     /// What each server's `/api/info` last called its machine (`store.hostnames`).
     hostnames: HashMap<ServerKey, String>,
+    /// Each server's home folder, inferred from where it runs (`loadPathQuery`), for `~`.
+    homes: HashMap<ServerKey, String>,
     answers: (Sender<Answer>, Receiver<Answer>),
     waiters: u64,
     /// `retry` callers whose every probe answered, until they ask ([`resolved`]).
@@ -52,7 +56,7 @@ struct Runtime {
 
 impl Default for Runtime {
     fn default() -> Self {
-        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), answers: channel(), waiters: 0, resolved: HashSet::new(), version: 0 }
+        Runtime { state: health::State::default(), timer: Timer::Stopped, inputs: Vec::new(), conns: HashMap::new(), hostnames: HashMap::new(), homes: HashMap::new(), answers: channel(), waiters: 0, resolved: HashSet::new(), version: 0 }
     }
 }
 
@@ -73,6 +77,13 @@ pub fn indicator(key: &ServerKey) -> Indicator {
 /// The hostname server `key` last reported.
 pub fn hostname(key: &ServerKey) -> Option<String> {
     HEALTH.with_borrow(|h| h.hostnames.get(key).cloned())
+}
+
+/// Server `key`'s home folder, as Desktop infers it from where the server runs
+/// (`inferHomeDirectory(location.directory) || inferHomeDirectory(location.project.directory)`);
+/// None until it has answered, or when it runs outside a home.
+pub fn home(key: &ServerKey) -> Option<String> {
+    HEALTH.with_borrow(|h| h.homes.get(key).cloned()).filter(|h| !h.is_empty())
 }
 
 /// Changes whenever any server's health does.
@@ -121,6 +132,9 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
     }
     let answers: Vec<Answer> = HEALTH.with_borrow(|h| h.answers.1.try_iter().collect());
     for a in answers {
+        if let Some(home) = a.home {
+            HEALTH.with_borrow_mut(|h| h.homes.insert(a.key.clone(), home));
+        }
         let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::ProbeSettled { key: a.key, attempt: a.attempt, result: a.result }));
         run(s, fx, tx);
     }
@@ -177,9 +191,11 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
 }
 
 /// `checkServerHealth` on a worker: healthy with the version and hostname `/api/info` reports,
-/// unauthorized on 401, unreachable otherwise.
+/// unauthorized on 401, unreachable otherwise. A server that answers for the first time is asked
+/// where it runs too (`/api/location`, `loadPathQuery`), for its home.
 fn probe(s: &App, key: ServerKey, attempt: Attempt) {
     let Some(server) = HEALTH.with_borrow(|h| h.conns.get(&key).cloned()).and_then(|c| super::registry::server_for(&c)) else { return };
+    let ask_home = HEALTH.with_borrow(|h| !h.homes.contains_key(&key));
     let send = HEALTH.with_borrow(|h| h.answers.0.clone());
     let wake = s.waker.clone();
     crate::plugin_host::tasks::run(move || {
@@ -191,7 +207,11 @@ fn probe(s: &App, key: ServerKey, attempt: Attempt) {
             Err(e) if e.ends_with("http status: 401") => ProbeResult::Unauthorized,
             Err(_) => ProbeResult::Unreachable,
         };
-        let _ = send.send(Answer { key, attempt, result });
+        let home = (ask_home && matches!(result, ProbeResult::Healthy { .. })).then(|| server.get("/api/location").ok()).flatten().map(|v| {
+            let dir = |v: &serde_json::Value| v["directory"].as_str().unwrap_or_default().to_owned();
+            Some(opencode_kit::path::infer_home(&dir(&v))).filter(|h| !h.is_empty()).unwrap_or_else(|| opencode_kit::path::infer_home(&dir(&v["project"])))
+        });
+        let _ = send.send(Answer { key, attempt, result, home });
         if let Some(w) = wake {
             w();
         }

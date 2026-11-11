@@ -338,7 +338,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     let id = ses.id.clone();
     let hover_id = id.clone();
     let nav = nav_ids.clone();
-    let target = Target::new(&ses.id, Spot::Row);
+    let target = Target::on(crate::servers::runtime::active(s), &ses.id, Spot::Row);
     let marked = s.menus.on.as_ref() == Some(&target);
     let stacked = tier == Tier::Narrow && show_project;
     let parts = Parts::of(s, p, ses, labels_w, show_project, stacked);

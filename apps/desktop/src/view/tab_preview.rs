@@ -167,14 +167,13 @@ impl App {
     /// rename, its menu.
     fn preview_blocked(&self, id: &str) -> bool {
         self.tab_drag.phase() != rune_kit::shell::TabDragPhase::Idle
-            || self.menus.renaming().is_some_and(|t| self.names(&t.id, id))
-            || self.menus.on.as_ref().is_some_and(|t| self.names(&t.id, id))
+            || self.menus.renaming().is_some_and(|t| self.names(&t, id))
+            || self.menus.on.as_ref().is_some_and(|t| self.names(t, id))
     }
 
-    /// Whether a menu or rename target `key` is tab `id` (`Tab::uid`): a tab's target is its
-    /// session's id on the server the window works against (`tab_strip::target`).
-    fn names(&self, key: &str, id: &str) -> bool {
-        self.tab(key).is_some_and(|t| t.uid() == id)
+    /// Whether a menu or rename target is tab `id` (`Tab::uid`).
+    fn names(&self, target: &crate::session_menu::Target, id: &str) -> bool {
+        target.tab(self).is_some_and(|t| t.uid() == id)
     }
 
     /// Whether tab `id`'s card shows once it has it (`open() && !previewBlocked()`): a narrow
@@ -212,7 +211,7 @@ impl App {
         }
         // Its menu opening closes the tab's card (`if (open) setPopoverOpen(false)`).
         if let Card::Asked { tab } = &self.tab_preview.card
-            && self.menus.on.as_ref().is_some_and(|t| self.names(&t.id, tab))
+            && self.menus.on.as_ref().is_some_and(|t| self.names(t, tab))
         {
             self.tab_preview.card = Card::Resting { tab: tab.clone() };
         }
@@ -256,7 +255,7 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     let side = if vertical { Side::Right } else { Side::Bottom };
     let (project, title) = (project_or_dir(face.project, dir), if title.is_empty() { opencode_i18n::t!("rune.session.untitled").to_owned() } else { title.to_owned() });
     // Paths break after their separators, not inside a folder's name (`<wbr>`).
-    let detail = breakable(&s.tilde(dir));
+    let detail = breakable(&s.tilde(&tab.server, dir));
     // The server, only while several are listed and it isn't the app's own (`serverLabel`).
     let server = crate::servers::runtime::tag(&tab.server);
     let card_h = vertical.then(|| card_height(&project, &title, &detail, server.as_deref()));
