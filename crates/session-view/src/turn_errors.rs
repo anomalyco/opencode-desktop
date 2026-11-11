@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, capitalize};
+use opencode_kit::model::{Assistant, Message, Notice, NoticeKind, Part, Retry, StepError, capitalize};
 use rune::{El, Link, LinkPaint, LocalTime, Span, Tx, col, icon, row, text};
 
 use crate::TimelineHost;
@@ -260,11 +260,12 @@ pub fn poll<S: TimelineHost>(s: &S, tx: &mut Tx) -> bool {
 }
 
 /// A background shell or subagent that came back (`notice()` for `source` shell or subagent): a
-/// quiet line like the other notices, `Background shell finished · <command>` or
-/// `Explore finished · <task>` in faint, the command fading at the edge. A failure or cancel
-/// keeps its ink and mark, as it needs a look. Desktop draws a success in link blue and jumps to
-/// the shell's call when pressed, which read as a link to an old row; here a shell's does
-/// nothing, and a subagent's opens its session (its words take the base ink on hover).
+/// quiet line like the other notices, `Background shell finished · <what>` or
+/// `Explore finished · <task>` in faint, one line always, fading at the edge (`what`). A failure
+/// or cancel keeps its ink and mark, as it needs a look. Desktop draws a success in link blue and
+/// jumps to the shell's call when pressed, which read as a link to an old row; here a shell's
+/// has no pointer or hover and does nothing (its output is in its call's row above), and a
+/// subagent's opens its session (its words take the base ink on hover).
 fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) -> El {
     use opencode_kit::model::Outcome;
     let actor = match (&f.agent, f.subagent) {
@@ -283,18 +284,39 @@ fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) 
     if let Some(m) = mark {
         line = line.child(icon(m, 16.0).key("mark").color(ink).mr(6.0));
     }
-    let said = match &f.data {
+    let what = what(s, f);
+    let said = match &what {
         Some(d) => format!("{label} {d}"),
         None => label.clone(),
     };
     let label = text(label).key("label").font(UI_MED).color(ink);
     line = line.child(if child.is_some() && mark.is_none() { label.group_color(p.text) } else { label });
-    if let Some(d) = &f.data {
+    if let Some(d) = &what {
         let data = text(format!(" \u{b7} {d}")).key("data").font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
         line = line.child(if child.is_some() { data.group_color(p.text) } else { data });
     }
     let Some(child) = child else { return line };
     line.hover_group().role("link").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_session(&child, tx))
+}
+
+/// What came back, on one line: a shell's call's own description when it has one, else the
+/// first line of the command or task (a heredoc's `python3 - <<'PY'`), its spaces collapsed.
+fn what<S: TimelineHost>(s: &S, f: &opencode_kit::model::Finished) -> Option<String> {
+    let described = f.shell.as_deref().and_then(|shell| {
+        let session = s.active_session_id()?;
+        s.with_transcript(session, |t| {
+            t.messages.iter().rev().filter_map(|m| match m {
+                Message::Assistant(a) => Some(a),
+                Message::Note { step, .. } => Some(&**step),
+                _ => None,
+            }).flat_map(|a| a.parts.iter()).find_map(|part| match part {
+                Part::Tool { input, metadata, .. } if metadata["shellID"].as_str() == Some(shell) => input["description"].as_str().map(str::to_owned),
+                _ => None,
+            })
+        })?
+    });
+    let line = |d: &str| d.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "));
+    described.as_deref().and_then(line).or_else(|| f.data.as_deref().and_then(line))
 }
 
 /// Whether notice `n` draws as a divider.
