@@ -149,11 +149,13 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.request_reads.due.remove(id);
         s.read_requests(id);
     }
-    // The Inbox and Home's rows: a root that works, or whose run hasn't ended, may be waiting on
-    // a person, whose avatar then shows the unread dot. Settings, where the layout switches to
-    // the Inbox, reads them ahead, so the Inbox's first load has settled when it shows and the
-    // active tab flies into its card rather than the Inbox showing its loader.
-    if layout == TabLayout::Inbox || s.route == Route::Home || s.settings.open {
+    // The Inbox's rows: a root that works, or whose run hasn't ended, may be waiting on a person
+    // (`inbox-model.ts:234-275` syncs their permissions and forms). Home doesn't read them, as
+    // Desktop's doesn't: a working row whose requests nobody read shows its activity ring, and
+    // the unread dot once the Inbox, its tab or the stream brings them. Settings, where the
+    // layout switches to the Inbox, reads them ahead, so the Inbox's first load has settled when
+    // it shows and the active tab flies into its card rather than the Inbox showing its loader.
+    if layout == TabLayout::Inbox || s.settings.open {
         let working: Vec<String> = s
             .sessions
             .iter()

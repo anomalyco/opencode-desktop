@@ -145,7 +145,9 @@ pub fn parse_project(p: &Value) -> Option<Project> {
         id,
         name,
         directory: dir,
-        active: int_of(&p["time"]["active"]).max(int_of(&p["time"]["updated"])),
+        // `time.active`, the order the server lists projects in (`desc(time_active), asc(id)`); a
+        // server from before it had one has `time.updated`.
+        active: Some(int_of(&p["time"]["active"])).filter(|a| *a > 0).unwrap_or_else(|| int_of(&p["time"]["updated"])),
         icon: ProjectIcon::parse(&p["icon"]),
     })
 }

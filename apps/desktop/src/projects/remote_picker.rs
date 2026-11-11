@@ -111,9 +111,10 @@ pub fn pick(s: &mut App, server: &ServerKey, title: String, tx: &mut Tx, on_pick
     let Some(conn) = entry.as_ref().and_then(|e| crate::servers::registry::server_for(&e.conn)) else { return };
     let (recent, git) = crate::servers::runtime::with_server(s, server, |s| {
         let mut seen = BTreeSet::new();
-        // `[...projects.list(), ...sync.data.project]`: the server's projects, most recently active first.
+        // `[...projects.list(), ...sync.data.project]`: the server's projects in its own order, most
+        // recently active first, then by id (`desc(time_active), asc(id)`, `sync.tsx:136-138`).
         let mut all: Vec<&Project> = s.projects.iter().collect();
-        all.sort_by_key(|p| std::cmp::Reverse(p.active));
+        all.sort_by(|a, b| b.active.cmp(&a.active).then_with(|| a.id.cmp(&b.id)));
         let recent: Vec<Project> = all.into_iter().filter(|p| p.id != "global" && !p.directory.is_empty() && seen.insert(crate::projects::clean_dir(&p.directory))).take(5).cloned().collect();
         let git = s.projects.iter().filter(|p| opencode_kit::model::project_git(&p.id)).map(|p| canonical(&p.directory)).collect();
         (recent, git)
@@ -172,14 +173,7 @@ fn located(s: &mut App, attempt: Attempt, home: Option<String>, location: Option
 /// `inferHomeDirectory`: `/Users/<you>`, `/home/<you>`, `/root` or `C:/Users/<you>` that `dir`
 /// starts with.
 fn infer_home(dir: &str) -> String {
-    let path = canonical(dir);
-    let parts: Vec<&str> = path.split('/').collect();
-    match parts.as_slice() {
-        ["", "root", ..] => "/root".into(),
-        ["", top @ ("Users" | "home"), you, ..] if !you.is_empty() => format!("/{top}/{you}"),
-        [drive, "Users", you, ..] if drive.len() == 2 && drive.ends_with(':') && !you.is_empty() => format!("{drive}/Users/{you}"),
-        _ => String::new(),
-    }
+    canonical(&opencode_kit::path::infer_home(dir))
 }
 
 /// The tree opens on `root`, which is selected (`navigate`).
