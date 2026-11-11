@@ -57,6 +57,10 @@ static ARROW_DOWN: Icon = Icon {
 pub struct Ends {
     /// Each session's follow state; one not listed follows its end ([`Follow::Following`]).
     follow: HashMap<String, Follow>,
+    /// Where each timeline was last drawn, for its place when it shows again.
+    pub recall: crate::recall::Recall,
+    /// The session coming back to its place, and that place, until its timeline shows.
+    due: Option<(String, String, f32)>,
 }
 
 impl Ends {
@@ -73,6 +77,31 @@ impl Ends {
     /// A timeline that mounts afresh starts on its end.
     pub fn forget(&mut self, id: &str) {
         self.follow.remove(id);
+    }
+
+    /// Where session `id`'s timeline was read when it last showed, scrolled up: its first row
+    /// showing and how far below the top that row's top stood. `None` while it follows its end.
+    pub fn place(&self, id: &str) -> Option<(String, f32)> {
+        if self.at_end(id) { return None; }
+        self.recall.place(id)
+    }
+
+    /// Session `id` is opened again. Read scrolled up, it comes back to its place once its
+    /// timeline shows ([`Ends::land`]), with Jump to latest as it was; otherwise its timeline
+    /// mounts afresh on its end and follows it.
+    pub fn reopen(&mut self, id: &str) {
+        self.due = self.place(id).map(|(row, at)| (id.to_owned(), row, at));
+        if self.due.is_none() {
+            self.forget(id);
+        }
+    }
+
+    /// Session `id`'s timeline shows: put its place back in this commit, so its first frame
+    /// draws it there. A row out of the mounted window is mounted first.
+    pub fn land(&mut self, id: &str, tx: &mut Tx) {
+        let Some((_, row, at)) = self.due.take_if(|(due, ..)| due == id) else { return };
+        tx.scroll_into_view_in(format!("scroll-{id}"), row.clone());
+        tx.scroll_key_to(row, at);
     }
 
     /// Steps session `id`'s follow state (`follow::step`); `None` steps a timeline that belongs

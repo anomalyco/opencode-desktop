@@ -369,20 +369,30 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .hold_landing_width()
         .growth(GrowthSpec { spring: crate::knobs::growth(s.knobs()), edge: e });
     let eager = EAGER_ROWS.get();
+    // Where it's drawn, for its place when it shows again (`recall`).
+    let marks = s.ends().recall.marks(id);
+    if t.is_some() {
+        let (marks, keys) = (marks.clone(), specs.clone());
+        stack = stack.on_visible_rows(move |_: &mut S, shown| {
+            marks.shown(keys[shown.start.min(keys.len())..shown.end.min(keys.len())].iter().map(|r| r.key.clone()));
+            false
+        });
+    }
     // Eager construction is the benchmark and regression-test reference.
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children(specs.iter().map(|r| r.build(s, p, t, e.word_fade).key(r.key.clone())));
+            .children(specs.iter().map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
         let p = *p;
         let n = specs.len();
+        let marks = marks.clone();
         stack = stack.virtual_rows(
             n,
             80.0,
             move |_: &S, i| keys[i].key.clone().into(),
-            move |s: &S, i| s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col),
+            move |s: &S, i| marks.row(&specs[i].key, s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col)),
         );
     }
     if t.is_none() {
@@ -398,7 +408,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
         );
     }
-    let mut scroll = col()
+    let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))
         .grow(1.0)
         .shrink()

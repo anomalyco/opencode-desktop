@@ -30,6 +30,7 @@ pub mod palette;
 pub mod pickers;
 pub mod popover;
 pub mod question_row;
+pub mod recall;
 pub mod session_chips;
 pub mod sheet;
 pub mod sources_chip;
