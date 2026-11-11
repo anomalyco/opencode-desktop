@@ -20,6 +20,8 @@
   pwsh scripts/web.ps1 -NoServe             # build only (CI)
   pwsh scripts/web.ps1 -NoBuild             # serve the last build
   pwsh scripts/web.ps1 -SkipCargo           # package what cargo last built (a build run elsewhere)
+  pwsh scripts/web.ps1 -Check               # cargo check the app for the web, nothing else (before a push)
+  pwsh scripts/web.ps1 -Check -Cargo <wrapper.ps1>   # the same through a cargo wrapper script
 #>
 param(
   [int]$Port = 8790,
@@ -27,6 +29,8 @@ param(
   [switch]$NoBuild,
   [switch]$SkipCargo,
   [switch]$NoServe,
+  [switch]$Check,
+  [string]$Cargo = $env:CARGO,
   [string]$WasiSdk = $env:WASI_SDK_PATH,
   [string]$Out
 )
@@ -49,7 +53,13 @@ if (-not $NoBuild) {
   # Luau for the host, which must not get these. WebAssembly exception handling, as Rune's web build.
   $env:CXXFLAGS_wasm32_unknown_unknown = '--target=wasm32-wasip1 -fexceptions -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false'
   $env:WASI_SDK_PATH = $WasiSdk
-  $cargo = if ($env:CARGO) { $env:CARGO } else { 'cargo' }
+  # A wrapper script runs through pwsh; anything else is cargo itself.
+  $runCargo = if (-not $Cargo) { 'cargo' } elseif ($Cargo -like '*.ps1') { 'pwsh' } else { $Cargo }
+  $wrap = if ($Cargo -like '*.ps1') { @('-NoProfile', '-File', $Cargo) } else { @() }
+  if ($Check) {
+    Push-Location $root
+    try { & $runCargo @wrap check -p opencode-web --lib --target wasm32-unknown-unknown; exit $LASTEXITCODE } finally { Pop-Location }
+  }
   $cargoArgs = @('build', '-p', 'opencode-web', '--lib', '--target', 'wasm32-unknown-unknown')
   if (-not $Dev) {
     # Small rather than fast to build: one codegen unit, size-optimised, thin LTO, no symbols.
@@ -65,10 +75,10 @@ if (-not $NoBuild) {
   }
   if (-not $SkipCargo) {
     Push-Location $root
-    try { & $cargo @cargoArgs; if ($LASTEXITCODE) { throw "cargo build failed ($LASTEXITCODE)" } } finally { Pop-Location }
+    try { & $runCargo @wrap @cargoArgs; if ($LASTEXITCODE) { throw "cargo build failed ($LASTEXITCODE)" } } finally { Pop-Location }
   }
 
-  $meta = & $cargo metadata --format-version 1 --no-deps --manifest-path (Join-Path $root 'Cargo.toml') | ConvertFrom-Json
+  $meta = & cargo metadata --format-version 1 --no-deps --manifest-path (Join-Path $root 'Cargo.toml') | ConvertFrom-Json
   $wasm = Join-Path $meta.target_directory "wasm32-unknown-unknown/$buildProfile/opencode_web.wasm"
   $want = (Select-String (Join-Path $root 'Cargo.lock') -Pattern '^name = "wasm-bindgen"$' -Context 0, 1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
   $have = (& wasm-bindgen --version) -replace 'wasm-bindgen ', ''
@@ -85,7 +95,7 @@ if (-not $NoBuild) {
   Copy-Item (Join-Path $root 'apps/web/index.html') $next
   # Rune draws the first frame with Inter cut to Latin, Greek and Cyrillic and then fetches the
   # full faces from beside app.js: copy those of the Rune this build compiled.
-  $full = & $cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown --manifest-path (Join-Path $root 'Cargo.toml') | ConvertFrom-Json
+  $full = & cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown --manifest-path (Join-Path $root 'Cargo.toml') | ConvertFrom-Json
   $rune = $full.packages | Where-Object { $_.name -eq 'rune' } | Select-Object -First 1
   if ($rune) { Copy-Item (Join-Path (Split-Path $rune.manifest_path) 'assets/web/Inter-*.ttf') $next }
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
