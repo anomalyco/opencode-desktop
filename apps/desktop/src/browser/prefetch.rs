@@ -106,9 +106,9 @@ impl IdleGate {
 
 impl App {
     /// Starts the background download once the app has been idle for `IDLE`, if it is wanted:
-    /// a live window with the setting on and no engine on disk.
+    /// a live window with the setting on and no engine on disk (the download looks, off this thread).
     pub(crate) fn poll_browser_prefetch(&mut self, tx: &mut Tx) {
-        let wanted = self.persists() && !self.use_mock_browser() && self.settings.prefetch_browser && self.browser.host.status() == EngineStatus::NotInstalled;
+        let wanted = self.persists() && !self.use_mock_browser() && self.settings.prefetch_browser && matches!(self.browser.host.status(), EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled);
         if !wanted && self.browser.prefetch == IdleGate::Unarmed {
             return;
         }
@@ -138,7 +138,10 @@ impl App {
 pub fn describe(status: &EngineStatus) -> String {
     let mb = |b: u64| (b as f64 / 1_000_000.0).round();
     match status {
-        EngineStatus::Unsupported | EngineStatus::NotInstalled => t!("rune.browser.prefetch.idle", size = ENGINE_DOWNLOAD_MB),
+        // Until the look for an installed engine answers, the line reads as for none.
+        EngineStatus::Unsupported | EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled => {
+            t!("rune.browser.prefetch.idle", size = ENGINE_DOWNLOAD_MB)
+        }
         EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) } if *total > 0 => {
             t!("rune.browser.prefetch.downloadingOf", done = mb(*downloaded_bytes), total = mb(*total))
         }

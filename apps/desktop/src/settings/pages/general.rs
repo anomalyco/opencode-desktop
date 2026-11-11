@@ -51,7 +51,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     ]);
     if !s.browser_unsupported() {
         let control = switch(p, "prefetch-browser-switch", st.prefetch_browser).on_press(|s: &mut App| s.set_prefetch_browser(!s.settings.prefetch_browser));
-        rows.push(("prefetch-browser", setting(p, "prefetch-browser", t!("rune.settings.general.row.prefetchBrowser.title"), &crate::browser::prefetch::describe(&s.browser.host.status()), control)));
+        rows.push(("prefetch-browser", setting(p, "prefetch-browser", t!("rune.settings.general.row.prefetchBrowser.title"), &crate::browser::prefetch::describe(&s.browser.host.status_checked()), control)));
     }
     let rows = super::rows(s, p, 20.0, rows);
     let general = super::section(p, "settings-general-section", Some(t!("settings.general.section.general")), settings::list(p, "settings-list", rows));

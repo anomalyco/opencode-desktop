@@ -117,7 +117,7 @@ impl BrowserHost {
 
     /// Remembers each site's page zoom in `file` (JSON) and opens its pages at it again.
     pub fn remember_site_zoom(&mut self, file: PathBuf) {
-        self.site_zoom = SiteZoom::load(file);
+        self.site_zoom = SiteZoom::remember(file);
     }
 
     /// Leaves the engine running when the last tab closes, so the next page skips its start and
@@ -256,6 +256,7 @@ impl BrowserHost {
             surface.set_waker(w.clone());
         }
         self.surfaces.lock().unwrap().insert(id, surface.clone());
+        self.site_zoom.prepare();
         let ((width_pt, height_pt), scale) = self.last_viewport;
         let connected = self.is_connected();
         self.tabs.push(BrowserTab {
@@ -656,6 +657,10 @@ impl BrowserHost {
 impl BrowserHost {
     pub(crate) fn initial_status() -> EngineStatus {
         EngineStatus::Unsupported
+    }
+
+    pub fn status_checked(&self) -> EngineStatus {
+        self.status()
     }
 
     /// No engine runs on this platform yet: tabs stay mock-only and the status stays as it is.

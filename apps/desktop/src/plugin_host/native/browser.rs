@@ -189,7 +189,7 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
         EngineStatus::Verifying => ("verifying", None),
         EngineStatus::Paused(_) => ("paused", None),
         EngineStatus::Failed(f) => ("failed", Some(f.message)),
-        EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
+        EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
         EngineStatus::Ready => ("ready", None),
     }
 }

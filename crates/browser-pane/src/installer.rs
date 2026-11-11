@@ -99,6 +99,11 @@ pub enum EngineStatus {
     /// This build has no engine for its platform (it is built without the `engine` feature, or
     /// for a platform without a Unix-socket engine), so the pane never downloads or starts one.
     Unsupported,
+    /// Not looked for yet: a launch touches nothing of the engine (its files, its socket) until a
+    /// page opens or the background download starts, which then find out.
+    Unchecked,
+    /// Looking for an installed engine, off the UI thread (`BrowserHost::status_checked`).
+    Checking,
     NotInstalled,
     Downloading { downloaded_bytes: u64, total_bytes: Option<u64> },
     /// The archive is in; its SHA-256 is checked and it unpacks into place.

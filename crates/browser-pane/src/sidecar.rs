@@ -15,12 +15,35 @@ use crate::transport::{UnixStream, spawn_and_attach_bg, wire_stream};
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
 impl BrowserHost {
+    /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`).
     pub(crate) fn initial_status() -> EngineStatus {
-        if installer::resolve_installed_executable().is_some() {
-            EngineStatus::Installed
-        } else {
-            EngineStatus::NotInstalled
+        EngineStatus::Unchecked
+    }
+
+    /// The status for a view that shows it without a page (Settings): an unchecked engine is
+    /// looked for on a thread of its own, and the view hears the answer through the waker.
+    pub fn status_checked(&self) -> EngineStatus {
+        let mut status = self.status.lock().unwrap();
+        if *status != EngineStatus::Unchecked {
+            return status.clone();
         }
+        *status = EngineStatus::Checking;
+        let (shared, waker) = (self.status.clone(), self.waker.clone());
+        let spawned = std::thread::Builder::new().name("opencode-browser-check".into()).spawn(move || {
+            let found = if installer::resolve_installed_executable().is_some() { EngineStatus::Installed } else { EngineStatus::NotInstalled };
+            let mut status = shared.lock().unwrap();
+            if *status == EngineStatus::Checking {
+                *status = found;
+            }
+            drop(status);
+            if let Some(w) = waker {
+                w();
+            }
+        });
+        if spawned.is_err() {
+            *status = EngineStatus::Unchecked;
+        }
+        status.clone()
     }
 
     /// Starts (or retries) downloading and installing the browser engine off the main thread; a
@@ -43,6 +66,9 @@ impl BrowserHost {
             self.spawn_and_connect(bin, sock, mach_service);
             return;
         }
+        if matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Checking) {
+            *self.status.lock().unwrap() = EngineStatus::NotInstalled;
+        }
         self.prefetch.start(true, self.status.clone(), self.waker.clone());
     }
 
@@ -51,7 +77,8 @@ impl BrowserHost {
     /// connection or battery power, retrying with backoff. Nothing shows unless the pane opens,
     /// which then shows this download's progress. Does nothing without a download source.
     pub fn prefetch(&mut self) {
-        if self.status() != EngineStatus::NotInstalled {
+        // The job looks for an installed engine first, on its own thread.
+        if !matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled) {
             return;
         }
         self.prefetch.start(false, self.status.clone(), self.waker.clone());

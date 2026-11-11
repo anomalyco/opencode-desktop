@@ -74,7 +74,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .on_press(|s: &mut App| s.start_browser_install())
                     .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text)),
             ),
-        EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
+        EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             let tab = s.browser.host.tab(tab_id)?;
             // `embeds.View`: the page on the pane's base background, 10 pt corners where it meets
             // the pane's edge.
