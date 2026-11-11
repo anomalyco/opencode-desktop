@@ -172,6 +172,7 @@ fn server_of(s: &App) -> Option<ServerId> {
 }
 
 fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
+    let was = s.server_links.get(server).dropped();
     let mut changed = false;
     for effect in s.server_links.step(server, event) {
         match effect {
@@ -181,6 +182,10 @@ fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
                 changed = true;
             }
         }
+    }
+    // The stream dropping or reopening is the first word that the server went or came back.
+    if was != s.server_links.get(server).dropped() {
+        crate::servers::health::nudge(s, &opencode_kit::servers::ServerKey::new(server), tx);
     }
     changed
 }

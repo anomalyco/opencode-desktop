@@ -126,6 +126,9 @@ pub enum Event {
     ServersSynced(Vec<Input>),
     PollDue,
     RetryRequested(WaiterId),
+    /// Something other than a probe says server `key` went away or came back (its event stream
+    /// dropped or reopened): probe it now rather than at the next poll.
+    Nudged(ServerKey),
     ProbeSettled { key: ServerKey, attempt: Attempt, result: ProbeResult },
     Disposed,
 }
@@ -169,6 +172,7 @@ pub fn step(state: &mut State, event: Event) -> Effects<Effect> {
         Event::ServersSynced(inputs) => synced(state, inputs),
         Event::PollDue => polled(state),
         Event::RetryRequested(id) => retried(state, id),
+        Event::Nudged(key) => nudged(state, &key),
         Event::ProbeSettled { key, attempt, result } => answered(state, key, attempt, result),
         // Stop polling and release every `retry` caller.
         Event::Disposed => {
@@ -269,6 +273,23 @@ fn retried(state: &mut State, id: WaiterId) -> Effects<Effect> {
     }
     state.waiters.push(Waiter { id, targets });
     fx.push(Effect::TimerStart { interval_ms: SERVER_HEALTH_POLL_MS });
+    fx
+}
+
+/// A probe of server `key` now, superseding one in flight; no caller waits on it, and the poll
+/// keeps its time.
+fn nudged(state: &mut State, key: &ServerKey) -> Effects<Effect> {
+    let Some(slot) = state.entries.iter_mut().find_map(|(k, s)| (k == key).then_some(s)) else { return Effects::none() };
+    let next = match slot {
+        Slot::Staged { .. } => return Effects::none(),
+        Slot::Checking { endpoint, attempt } => Slot::Checking { endpoint: endpoint.clone(), attempt: Attempt(attempt.0 + 1) },
+        Slot::Settled { endpoint, result, attempt } | Slot::Refreshing { endpoint, result, attempt } => {
+            Slot::Refreshing { endpoint: endpoint.clone(), result: result.clone(), attempt: Attempt(attempt.0 + 1) }
+        }
+    };
+    let (Slot::Checking { endpoint, attempt } | Slot::Refreshing { endpoint, attempt, .. }) = &next else { return Effects::none() };
+    let fx = Effects::one(Effect::Probe { key: key.clone(), attempt: *attempt, http: endpoint.http.clone() });
+    *slot = next;
     fx
 }
 

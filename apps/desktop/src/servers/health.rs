@@ -105,6 +105,16 @@ pub fn retry(s: &App, tx: &mut Tx) -> Option<u64> {
     Some(id)
 }
 
+/// Probes server `key` now: its event stream dropped or came back, so Home's mark and the
+/// server's tabs follow at once rather than at the next 10 s poll.
+pub fn nudge(s: &App, key: &ServerKey, tx: &mut Tx) {
+    if !s.live() {
+        return;
+    }
+    let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::Nudged(key.clone())));
+    run(s, fx, tx);
+}
+
 /// Whether `retry` caller `id`'s probes have all answered (it's forgotten once asked).
 pub fn resolved(id: u64) -> bool {
     HEALTH.with_borrow_mut(|h| h.resolved.remove(&id))
