@@ -19,7 +19,8 @@
 //! Desktop holds. The header's step and the Context tab both read from there.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use serde_json::Value;
 

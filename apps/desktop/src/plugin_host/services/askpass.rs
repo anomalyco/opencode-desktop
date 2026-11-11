@@ -15,7 +15,8 @@ use std::net::TcpListener;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use mlua::{Function, Lua, Table, Value};
 use rune_luau::Data;

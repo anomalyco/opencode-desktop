@@ -6,7 +6,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use rune::Waker;
 

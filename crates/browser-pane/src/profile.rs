@@ -8,7 +8,8 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use crate::installer::exe_tag;
 

@@ -154,7 +154,7 @@ impl App {
         let Some(w) = self.waker.clone() else { return };
         let times: Vec<f64> = self.playback.iter().map(|e| e.0 - self.clock).collect();
         std::thread::spawn(move || {
-            let start = std::time::Instant::now();
+            let start = rune::time::Instant::now();
             for t in times {
                 let d = std::time::Duration::from_secs_f64(t.max(0.0));
                 if let Some(rest) = d.checked_sub(start.elapsed()) {

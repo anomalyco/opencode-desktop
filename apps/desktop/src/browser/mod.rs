@@ -7,7 +7,7 @@ pub mod prefetch;
 pub mod view;
 
 use std::collections::HashMap;
-use std::time::Instant;
+use rune::time::Instant;
 
 use browser_pane::{BrowserHost, EngineStatus, bare_url};
 use rune::{Key, KeyEvent, Tx, Waker};

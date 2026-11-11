@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# Its clock (`rune::time`), which a browser build needs: std's has none there.
+rune = { workspace = true, default-features = false }
 serde_json.workspace = true
 
 [lints]

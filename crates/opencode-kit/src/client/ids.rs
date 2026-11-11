@@ -14,7 +14,7 @@ pub fn session_id() -> String {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 pub(super) fn message_id_at(ms: u64) -> String {

@@ -10,7 +10,8 @@
 //!   keyed by (server, session).
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use rune::machine::{Attempt, Effects, Seq};
 

@@ -16,7 +16,7 @@ use std::cell::Cell;
 use std::ffi::c_void;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use rune::time::Instant;
 
 /// One call the app made.
 pub struct Call {

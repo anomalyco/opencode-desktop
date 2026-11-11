@@ -7,7 +7,8 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use mlua::{FromLua, IntoLua, Lua, MultiValue, Table, Value};
 use rune_luau::{Completer, Data, Host};

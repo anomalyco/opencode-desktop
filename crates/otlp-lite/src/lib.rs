@@ -9,7 +9,9 @@ use std::cell::RefCell;
 use std::hash::{BuildHasher, Hasher};
 use std::net::SocketAddr;
 use std::sync::{OnceLock, atomic::{AtomicU64, Ordering}, mpsc::{Sender, channel}};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use rune::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 

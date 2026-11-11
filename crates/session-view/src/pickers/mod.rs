@@ -177,7 +177,7 @@ fn grouped(mut items: Vec<Item>) -> Vec<Item> {
 }
 
 fn wall_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 impl Pickers {

@@ -148,7 +148,7 @@ fn load_or_create_rollout_bucket(root: &Path) -> u8 {
     {
         return bucket;
     }
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let nanos = rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let mut hasher = Sha256::new();
     hasher.update(nanos.to_le_bytes());
     hasher.update(std::process::id().to_le_bytes());

@@ -5,7 +5,8 @@
 //! the commands and the MCP tools.
 
 use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use browser_pane::EngineStatus;
 use mlua::{Function, Lua, MultiValue, Table, Value};

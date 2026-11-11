@@ -10,7 +10,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     sync::{Arc, Mutex},
 };
-use std::time::Instant;
+use rune::time::Instant;
 
 #[cfg(feature = "engine")]
 use rune::Waker;

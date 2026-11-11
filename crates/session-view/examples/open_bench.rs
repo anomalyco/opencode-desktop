@@ -3,7 +3,8 @@
 //! An optional second page after LIMIT alternates A/B on the same worker.
 //! OPEN_BENCH_RTT_MS / OPEN_BENCH_MBPS shape the local replay's response.
 //! Measures readiness for paint, not presentation; `read_only` + RUNE_FRAME_LOG times paint.
-use std::{cell::RefCell, time::{Instant, Duration}, io::{Read, Write}};
+use std::{cell::RefCell, time::Duration, io::{Read, Write}};
+use rune::time::Instant;
 use opencode_kit::client::Server;
 use opencode_kit::model::{Transcript, parse_messages};
 use rune::{Env, Runtime};

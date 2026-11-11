@@ -9,7 +9,8 @@
 //! (`history`) and image decodes (`images.decode`).
 use std::cell::RefCell;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use otlp_lite::{Ctx, Span, ms, record};
 use serde_json::Value;

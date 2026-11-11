@@ -19,7 +19,7 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use rune::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use rune::{ElementInfo, MotionElement, NodeId, Runtime};
 use serde_json::{Value, json};

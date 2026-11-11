@@ -4,7 +4,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use opencode_kit::client::Server;
 use parking_lot::Mutex;

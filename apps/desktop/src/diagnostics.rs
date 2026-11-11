@@ -7,8 +7,9 @@
 //! and the window keeps skipping unchanged timer frames. Input latency runs from the newest input
 //! the window dispatched since the last drawn frame (`rune::last_input`) to this frame's encode:
 //! a lower bound when several inputs land between frames.
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::{cell::RefCell, rc::Rc};
 
+use rune::time::Instant;
 use rune::{FrameEncoded, FrameOutcome, Runtime};
 use rune_perf::{Config, Frame, Outcome, Recorder};
 

@@ -102,7 +102,7 @@ fn release_signed(exe: &Path, build_channel: &str) -> bool {
     if build_channel == "local" {
         return false;
     }
-    let started = std::time::Instant::now();
+    let started = rune::time::Instant::now();
     let signer = authenticode::embedded_signer(exe);
     if signer.as_deref() == Some(EXPECTED_PUBLISHER) {
         return true;

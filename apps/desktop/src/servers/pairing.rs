@@ -157,10 +157,10 @@ pub fn redeem(link: &Link) -> Redeemed {
     let mut paired: Option<(usize, String)> = None;
     let mut expired = false;
     let mut first_answered: Option<bool> = None;
-    let mut deadline: Option<std::time::Instant> = None;
+    let mut deadline: Option<rune::time::Instant> = None;
     loop {
         let next = match deadline {
-            Some(at) => rx.recv_timeout(at.saturating_duration_since(std::time::Instant::now())).ok(),
+            Some(at) => rx.recv_timeout(at.saturating_duration_since(rune::time::Instant::now())).ok(),
             None => rx.recv().ok(),
         };
         let Some((i, result)) = next else { break };
@@ -173,7 +173,7 @@ pub fn redeem(link: &Link) -> Redeemed {
                 if i == 0 {
                     break;
                 }
-                deadline = Some(std::time::Instant::now() + Duration::from_secs(1));
+                deadline = Some(rune::time::Instant::now() + Duration::from_secs(1));
             }
             Err(true) => expired = true,
             _ => {}

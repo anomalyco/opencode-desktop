@@ -12,7 +12,8 @@
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use rune::Tx;
 use rune::marks::mark;

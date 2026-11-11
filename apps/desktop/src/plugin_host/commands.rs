@@ -109,7 +109,7 @@ thread_local! {
     /// The command that just ran returned `false` before its first yield.
     static DECLINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// MCP calls whose tool's task hasn't returned yet, by call id, with when they give up.
-    static CALLS: std::cell::RefCell<std::collections::HashMap<u64, (McpCall, std::time::Instant)>> = std::cell::RefCell::default();
+    static CALLS: std::cell::RefCell<std::collections::HashMap<u64, (McpCall, rune::time::Instant)>> = std::cell::RefCell::default();
     static NEXT_CALL: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
 
@@ -179,7 +179,7 @@ const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Answers the MCP calls whose tools ran past their time, and asks for a wake at the next
 /// deadline; true when one was answered.
 pub fn expire_calls(tx: &mut Tx) -> bool {
-    let now = std::time::Instant::now();
+    let now = rune::time::Instant::now();
     let late: Vec<McpCall> = CALLS.with_borrow_mut(|c| {
         let ids: Vec<u64> = c.iter().filter(|(_, (_, at))| *at <= now).map(|(id, _)| *id).collect();
         ids.into_iter().filter_map(|id| c.remove(&id)).map(|(call, _)| call).collect()
@@ -310,7 +310,7 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
     let input = super::services::json_to_data(&call.arguments);
     let context = map([("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
     let id = NEXT_CALL.replace(NEXT_CALL.get() + 1);
-    CALLS.with_borrow_mut(|c| c.insert(id, (call, std::time::Instant::now() + TOOL_TIMEOUT)));
+    CALLS.with_borrow_mut(|c| c.insert(id, (call, rune::time::Instant::now() + TOOL_TIMEOUT)));
     if let Err(e) = cx::with_app(app, || script.spawn_fn(&wrap, (f, id, input, context), Some(&mut *tx)))
         && let Some((call, _)) = CALLS.with_borrow_mut(|c| c.remove(&id))
     {

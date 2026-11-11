@@ -4,7 +4,8 @@
 //! the socket's messages, the pane's measurements and the user's input, and carries out what
 //! they return; an attachment never reconnects (the panel mounts a new one, `surface-machine.ts`).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use rune::machine::Effects;
 

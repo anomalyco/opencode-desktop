@@ -8,3 +8,6 @@ disallowed-methods = [
   { path = "std::time::SystemTime::now", reason = "use config::now() or an injected clock" },
 ]
 # shared-lints end
+disallowed-types = [
+  { path = "std::time::Instant", reason = "rune::time::Instant: std's has no clock in a browser and panics there" },
+]

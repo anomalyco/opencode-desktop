@@ -5,7 +5,8 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use rune::time::Instant;
 
 use sha2::{Digest, Sha256};
 
