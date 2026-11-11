@@ -13,7 +13,7 @@ pub const ERROR_VARIANTS: &[(&str, usize)] =
     &[("Error", 0), ("Provider JSON", 1), ("Free limit", 2), ("Go limit", 3), ("Budget", 4), ("Model budget", 5), ("No reset time", 6)];
 pub const RETRY_VARIANTS: &[(&str, usize)] = &[("Rate limited", 0), ("Gemini", 1), ("Retrying now", 2)];
 pub const NOTICE_VARIANTS: &[(&str, usize)] =
-    &[("All", 0), ("Agent", 1), ("Model", 2), ("Variant", 3), ("Moved", 4), ("Instructions", 5), ("Restart", 6)];
+    &[("All", 0), ("Agent", 1), ("Model", 2), ("Variant", 3), ("Moved", 4), ("Instructions", 5), ("Restart", 6), ("Background", 7)];
 
 const ERROR_KEYS: &[Trigger] = &[replay(error_open)];
 const RETRY_KEYS: &[Trigger] = &[
@@ -90,6 +90,9 @@ fn notice_open(s: &mut App, tx: &mut Play<App>) {
     tx.after(0.3, |s, tx| {
         let v = s.variant;
         let model = |id: &str, variant: &str| json!({ "id": id, "providerID": "anthropic", "variant": variant });
+        if v == 7 {
+            return background(s, tx);
+        }
         let all: [(&str, Value); 6] = [
             ("session.agent.selected", json!({ "agent": "plan", "previous": "build" })),
             ("session.model.selected", json!({ "model": model("claude-sonnet-4-5", "high"), "previous": model("claude-opus-4-5", "") })),
@@ -104,6 +107,28 @@ fn notice_open(s: &mut App, tx: &mut Play<App>) {
             }
         }
     });
+}
+
+/// Background work coming back: a shell that finished, one that failed, one with a command too
+/// long for the line, and a subagent.
+fn background(s: &mut App, tx: &mut Tx) {
+    let shell = |state: &str, command: &str, extra: Value| {
+        let mut metadata = json!({ "source": "shell", "state": state, "shellID": "sh_story" });
+        if let (Some(m), Some(e)) = (metadata.as_object_mut(), extra.as_object()) {
+            m.extend(e.clone());
+        }
+        json!({ "text": "", "description": command, "metadata": metadata })
+    };
+    let long = "bun guide/capture.ts --all-steps --write guide.json --check-against-compiler --verbose 2>&1 | tail -6";
+    let all = [
+        shell("completed", "bun guide/capture.ts 2>&1 | tail -6", json!({ "exit": 0 })),
+        shell("completed", "cargo test -p session-view", json!({ "exit": 101 })),
+        shell("completed", long, json!({ "exit": 0 })),
+        json!({ "text": "", "description": "Find where notices are drawn", "metadata": { "source": "subagent", "state": "completed", "agent": "explore" } }),
+    ];
+    for (n, data) in all.into_iter().enumerate() {
+        notice(s, 10 + n, "session.synthetic", data, tx);
+    }
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

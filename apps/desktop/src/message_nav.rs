@@ -13,7 +13,7 @@ use std::time::Duration;
 use rune::Tx;
 use session_view::timeline::{RowContent, rows};
 
-use opencode_kit::model::{Assistant, Message, Part};
+use opencode_kit::model::Message;
 
 use crate::{App, Route};
 
@@ -138,26 +138,6 @@ impl App {
             });
             jump(s, &sid, current, offset, tx);
         });
-    }
-}
-
-/// Scrolls the open session's timeline to the row with the call that ran shell `shell`, as
-/// Desktop's `revealPart` does when a finished shell's notice is pressed.
-pub fn reveal_shell(s: &mut App, shell: &str, tx: &mut Tx) {
-    let Route::Session { id, .. } = &s.route else { return };
-    let Some(sid) = s.displayed_session(id).map(str::to_owned) else { return };
-    let Some(t) = s.transcripts.get(&sid) else { return };
-    let ran = |a: &Assistant| a.parts.iter().any(|p| matches!(p, Part::Tool { metadata, .. } if metadata["shellID"] == shell));
-    let row = rows(s, t).into_iter().find(|r| match &r.content {
-        RowContent::Turn { start, end, .. } => t.messages[*start..*end].iter().any(|m| match m {
-            Message::Assistant(a) => ran(a),
-            Message::Note { step, .. } => ran(step),
-            _ => false,
-        }),
-        _ => false,
-    });
-    if let Some(row) = row {
-        tx.scroll_into_view_in(format!("scroll-{sid}"), row.key);
     }
 }
 

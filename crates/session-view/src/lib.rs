@@ -290,15 +290,6 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// A right-click on the chip of session `id` (`session_chips`): its menu at `press`.
     fn session_chip_menu(&mut self, _id: &str, _press: rune::PointerPress, _tx: &mut Tx) {}
-    /// Whether [`reveal_shell`] can take the timeline to a shell's call.
-    ///
-    /// [`reveal_shell`]: TimelineHost::reveal_shell
-    fn can_reveal_shell(&self) -> bool {
-        false
-    }
-    /// Scrolls the open session's timeline to the call that ran shell `shell` (its
-    /// `metadata.shellID`), as Desktop's `revealPart` does for a finished shell's notice.
-    fn reveal_shell(&mut self, _shell: &str, _tx: &mut Tx) {}
 
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None
