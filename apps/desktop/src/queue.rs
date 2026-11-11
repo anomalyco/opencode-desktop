@@ -297,10 +297,9 @@ fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, side: f32,
         .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            f(s);
-        })
+        // The row it takes away goes at once (rows enter and leave on `SpringPair::NONE`), and the
+        // tray closes over it on its height spring, as Desktop's `Grow` does.
+        .on_press(move |s: &mut App| f(s))
         .child(icon(glyph, size).color(p.icon_muted))
 }
 
@@ -437,10 +436,7 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
         .radius(4.0)
         .hover(p.hover)
         .press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.steer_queued(&ss, &is);
-        })
+        .on_press(move |s: &mut App| s.steer_queued(&ss, &is))
         .child(icon(&ic::ARROW_UP, 16.0).color(p.icon_muted))
         .child(text(if busy { opencode_i18n::t!("session.queue.steer") } else { opencode_i18n::t!("session.queue.send") }).font(UI_MED).color(p.faint));
     // Its tooltip shows only while the turn runs (`inactive={!working}`).
