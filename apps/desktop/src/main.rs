@@ -1398,6 +1398,9 @@ fn main() {
             rune::marks::mark("storage.flushed");
             diagnostics.shutdown();
             rune::marks::mark("diagnostics.stopped");
+            // An update installing on quit has started its helper before the process ends.
+            updater::finish_quit();
+            rune::marks::mark("quit.update_handed_off");
             launch::trace::finish(opened);
             return;
         }

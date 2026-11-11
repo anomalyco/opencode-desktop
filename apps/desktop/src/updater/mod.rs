@@ -93,6 +93,25 @@ impl Updater {
     }
 }
 
+/// The install-on-quit hand-off, started by the last window's quit (`UpdaterService::quitting`).
+static QUIT_INSTALL: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+
+fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) {
+    let handle = std::thread::Builder::new().name("opencode-update-handoff".into()).spawn(move || platform.install_on_quit());
+    if let Ok(handle) = handle {
+        *QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+    }
+}
+
+/// Waits for an install-on-quit hand-off to finish starting its helper, which must exist before
+/// this process exits (it waits for the exit, then swaps the folders). Call it last in `main`.
+pub fn finish_quit() {
+    let handle = QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(handle) = handle {
+        let _ = handle.join();
+    }
+}
+
 pub fn build_channel() -> &'static str {
     match option_env!("OPENCODE_RUNE_BUILD_CHANNEL") {
         Some(ch) if !ch.is_empty() => ch,
