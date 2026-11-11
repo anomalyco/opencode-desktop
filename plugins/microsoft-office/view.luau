@@ -92,6 +92,8 @@ function view.workbook(services: Services, v: View, document: OfficeDocument, ac
         end
     end
     return ui.col({ key = "office-workbook", w = "full", grow = 1, minH = 0 }, {
+        -- The grid's `border-t border-v2-border-border-muted`.
+        ui.divider(),
         ui.officeSheet({
             key = `office-sheet-{active}`,
             w = "full",
