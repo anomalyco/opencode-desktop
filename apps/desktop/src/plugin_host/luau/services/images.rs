@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
-use rune::{Curve, Easing, El, SurfaceFit, el};
+use rune::{El, Spring, SpringPair, SurfaceFit, Transition, el};
 use rune_luau::NodeArgs;
 
 use super::{app_now, method, record};
@@ -171,17 +171,26 @@ pub fn node(a: &mut NodeArgs) -> Result<El, String> {
     if let Some(c) = placeholder {
         out = out.fill(c);
     }
-    out = match state.and_then(Load::image) {
-        // Over a placeholder, or fading in: a layer of its own over the box.
-        Some(image) if placeholder.is_some() || fade => {
-            let mut pic = draw(el().key("image").w_full().h_full(), image.pixels());
-            if fade {
-                pic = pic.opacity(if loaded { 1.0 } else { 0.0 }).opacity_motion(Curve::tween(0.15, Easing::cubic(0.0, 0.0, 0.58, 1.0)));
+    let image = state.and_then(Load::image);
+    out = if fade || placeholder.is_some() {
+        // Over a placeholder, or fading in: a layer of its own over the box. Fading, it comes in
+        // as the picture lands, on a 150 ms critically damped spring (`transition: opacity
+        // 150ms ease-out`); an element at opacity 0 isn't painted, so it can't fade from there.
+        match image.filter(|_| loaded || !fade) {
+            Some(image) => {
+                let mut pic = draw(el().key("image").w_full().h_full(), image.pixels());
+                if fade {
+                    pic = pic.transition(Transition::opacity().springs(SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.15, 0.0))));
+                }
+                out.child(pic)
             }
-            out.child(pic)
+            None => out,
         }
-        Some(image) => draw(out, image.pixels()),
-        None => out,
+    } else {
+        match image {
+            Some(image) => draw(out, image.pixels()),
+            None => out,
+        }
     };
     if !a.flag("preview") {
         return Ok(out);

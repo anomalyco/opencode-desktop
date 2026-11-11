@@ -160,12 +160,14 @@ fn site_icon<S: TimelineHost>(s: &S, p: &Pal, site: &str, host: &str) -> El {
     };
     let token = |name: &str| crate::palette::token(p.dark, name);
     let ring = token("alpha-dark-12").unwrap_or(p.border);
-    let ease = rune::Curve::tween(0.15, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
-    let mut icon = el().key("favicon").size(16.0, 16.0).opacity(if pixels.is_some() { 1.0 } else { 0.0 }).opacity_motion(ease);
-    if let Some(pixels) = &pixels {
-        icon = icon.pixels_fit(pixels, rune::SurfaceFit::Fill);
+    // It comes in as it lands, on a 150 ms critically damped spring: an element at opacity 0
+    // isn't painted, so it can't fade from there.
+    let fade = rune::Transition::opacity().springs(rune::SpringPair::new(rune::Spring::new(0.15, 0.0), rune::Spring::new(0.15, 0.0)));
+    let tile = el().size(16.0, 16.0).radius(8.0).fill(p.layer2).box_shadow(Shadow { spread: 0.5, color: ring, inset: true, ..Shadow::default() }).clip_rounded(8.0);
+    match pixels {
+        Some(pixels) => tile.child(el().key("favicon").size(16.0, 16.0).pixels_fit(&pixels, rune::SurfaceFit::Fill).transition(fade)),
+        None => tile,
     }
-    el().size(16.0, 16.0).radius(8.0).fill(p.layer2).box_shadow(Shadow { spread: 0.5, color: ring, inset: true, ..Shadow::default() }).clip_rounded(8.0).child(icon)
 }
 
 /// A site's letter tile (`site-icon`, letters): 16 round on its avatar colour.
