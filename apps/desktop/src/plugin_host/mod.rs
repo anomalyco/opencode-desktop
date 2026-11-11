@@ -26,6 +26,7 @@
 //!   VM at the next poll, keeping hot state, editors and stores.
 
 pub mod app_half;
+mod catalogs;
 pub mod commands;
 pub mod console;
 mod contrib;
@@ -73,6 +74,7 @@ use rune_luau::{Data, Script};
 
 pub use commands::{commands, key, run_command, run_slash, slash_commands};
 pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menu_item, run_menubar, server_menu_items, settings_search};
+pub use catalogs::Catalogs;
 pub use flyout::{Flyout, FlyoutEvent};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
@@ -540,10 +542,11 @@ fn start_loaded(app: &mut App, i: usize) {
     let files = app.plugins.list[i].origin.files();
     let p = &app.plugins.list[i];
     let (id, manifest) = (p.manifest.id.clone(), p.manifest.clone());
-    *p.half.catalogs.borrow_mut() = sources::catalogs(&files);
+    let catalogs = p.origin.catalogs(&files);
+    *p.half.catalogs.borrow_mut() = catalogs.clone();
     sources::intern_icons(&id, &files);
     if let Some(entry) = &manifest.app {
-        app_half::ensure(app, &manifest, &files, entry);
+        app_half::ensure(app, &manifest, &files, catalogs, entry);
     }
     let folder = p.origin.dir().and_then(|d| d.file_name()).map_or_else(|| id.clone(), |n| n.to_string_lossy().into_owned());
     let sources = sources::script_sources(&files, &folder, &manifest.entry);

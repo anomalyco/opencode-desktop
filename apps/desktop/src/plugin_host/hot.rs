@@ -22,7 +22,7 @@ pub struct Prepared {
     pub compiled: Compiled,
     pub compile: Duration,
     /// Its message catalogs, read off the UI thread too.
-    pub catalogs: super::sources::Catalogs,
+    pub catalogs: super::Catalogs,
     /// The files it was compiled from, and their SHA-256 (what a trust OK is for).
     pub files: Vec<(String, String)>,
     pub hash: String,
@@ -138,7 +138,7 @@ fn compile_folder(dir: &std::path::Path, files: &[(String, String)], previous: O
         None => script.compile(),
     }
     .map_err(|e| e.message)?;
-    Ok(Prepared { sources: script, compiled, compile: start.elapsed(), catalogs: sources::catalogs(files), files: files.to_vec(), hash: sources::content_hash(files) })
+    Ok(Prepared { sources: script, compiled, compile: start.elapsed(), catalogs: super::Catalogs::folder(files), files: files.to_vec(), hash: sources::content_hash(files) })
 }
 
 /// Brings plugin folder `dir`'s `files` up to date with what happened to `paths`: a file read
@@ -165,5 +165,5 @@ pub fn prepare(origin: &Origin, m: &opencode_plugin_spec::Manifest) -> Result<Pr
     let folder = origin.dir().and_then(|d| d.file_name()).map_or_else(|| m.id.clone(), |n| n.to_string_lossy().into_owned());
     let sources = sources::script_sources(&files, &folder, &m.entry);
     let compiled = sources.compile().map_err(|e| e.message)?;
-    Ok(Prepared { sources, compiled, compile: start.elapsed(), catalogs: sources::catalogs(&files), hash: sources::content_hash(&files), files })
+    Ok(Prepared { sources, compiled, compile: start.elapsed(), catalogs: origin.catalogs(&files), hash: sources::content_hash(&files), files })
 }

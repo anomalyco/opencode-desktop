@@ -90,6 +90,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 win-install = { path = "../../crates/win-install", features = ["resources"] }
 # The built-in plugins' Luau compiled to bytecode at build time (`build.rs`), with rune-luau's mlua.
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
+# The built-in plugins' `locales/*.json`, read into one table each at build time.
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -68,7 +68,7 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     let bytecode = out.join("luau-bytecode");
     std::fs::create_dir_all(&bytecode).ok();
     let (mut consts, mut precompiled) = (String::new(), String::from("pub static PRECOMPILED: &[(&str, &[u8])] = &[\n"));
-    let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)])] = &[\n");
+    let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)], &[u8])] = &[\n");
     // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
     // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
     let mut contributions = String::from("pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[\n");
@@ -84,6 +84,15 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         walk(&dir, &dir, &mut files);
         files.sort();
         writeln!(code, "    ({id:?}, &[").ok();
+        // Its `locales/*.json` become one table (`plugin_host::catalogs`), read in place: a start parses
+        // no JSON, and only the interface language's and English's strings are ever touched.
+        let locales: Vec<(String, std::path::PathBuf)> = files.iter().filter_map(|(rel, path)| Some((rel.strip_prefix("locales/")?.strip_suffix(".json")?.to_owned(), path.clone()))).collect();
+        files.retain(|(rel, _)| !(rel.starts_with("locales/") && rel.ends_with(".json")));
+        let catalog = out.join(format!("catalog-{id}.bin"));
+        std::fs::write(&catalog, catalog_table(&locales)).ok();
+        for (_, path) in &locales {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
         let mut kinds: Vec<String> = files
             .iter()
             .filter(|(rel, _)| rel.ends_with(".luau"))
@@ -107,7 +116,7 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
                 writeln!(precompiled, "    ({name}, include_bytes!({:?})),", file.display().to_string()).ok();
             }
         }
-        code.push_str("    ]),\n");
+        writeln!(code, "    ], include_bytes!({:?})),", catalog.display().to_string()).ok();
     }
     code.push_str("];\n");
     precompiled.push_str("];\n");
@@ -135,6 +144,55 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
             }
         }
     }
+}
+
+/// A plugin's catalogs (`locales/<lang>.json` over `locales/fill/<lang>.json`, flat objects of strings) as one table of
+/// little-endian `u32`s and UTF-8, the layout `plugin_host::catalogs::Table` reads: `[langs, keys]`,
+/// then per language its name (offset, length) and the offset of its entries, then every key
+/// (offset, length) sorted, then per language one (offset, length) per key (`u32::MAX` length when
+/// it lacks the key), then the strings.
+fn catalog_table(locales: &[(String, std::path::PathBuf)]) -> Vec<u8> {
+    let read = |path: &std::path::Path| -> Option<std::collections::BTreeMap<String, String>> {
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        Some(json.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+    };
+    // `fill/<lang>` holds machine translations of the keys the plugin's own `<lang>` lacks; the
+    // plugin's own file is laid over it, so a translation the catalog gains wins.
+    let mut merged: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> = Default::default();
+    for (name, path) in locales.iter().filter(|(n, _)| n.starts_with("fill/")).chain(locales.iter().filter(|(n, _)| !n.starts_with("fill/"))) {
+        if let Some(strings) = read(path) {
+            merged.entry(name.strip_prefix("fill/").unwrap_or(name).to_owned()).or_default().extend(strings);
+        }
+    }
+    let catalogs: Vec<(String, std::collections::BTreeMap<String, String>)> = merged.into_iter().collect();
+    let keys: std::collections::BTreeSet<&String> = catalogs.iter().flat_map(|(_, c)| c.keys()).collect();
+    let (nl, nk) = (catalogs.len(), keys.len());
+    let head = 2 + nl * 3 + nk * 2 + nl * nk * 2;
+    let mut words: Vec<u32> = vec![nl as u32, nk as u32];
+    let mut strings: Vec<u8> = Vec::new();
+    let put = |s: &str, strings: &mut Vec<u8>| {
+        let at = (head * 4 + strings.len()) as u32;
+        strings.extend_from_slice(s.as_bytes());
+        [at, s.len() as u32]
+    };
+    let mut lang_words = Vec::new();
+    for (i, (lang, _)) in catalogs.iter().enumerate() {
+        lang_words.extend(put(lang, &mut strings));
+        lang_words.push(((2 + nl * 3 + nk * 2 + i * nk * 2) * 4) as u32);
+    }
+    words.extend(lang_words);
+    for key in &keys {
+        words.extend(put(key, &mut strings));
+    }
+    for (_, catalog) in &catalogs {
+        for key in &keys {
+            match catalog.get(*key) {
+                Some(text) => words.extend(put(text, &mut strings)),
+                None => words.extend([0, u32::MAX]),
+            }
+        }
+    }
+    words.iter().flat_map(|w| w.to_le_bytes()).chain(strings).collect()
 }
 
 /// The build's commit (`OPENCODE_RUNE_COMMIT`), and in local and beta builds the changes it

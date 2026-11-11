@@ -34,7 +34,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Has", move |_, key: String| {
         cx::read(Dep::Locale);
         let catalogs = half.catalogs.borrow();
-        Ok([opencode_i18n::locale().id(), "en"].iter().any(|l| catalogs.get(l).is_some_and(|c| c.contains_key(&key))))
+        Ok([opencode_i18n::locale().id(), "en"].iter().any(|l| catalogs.get(l, &key).is_some()))
     })?;
     method(lua, t, "Locale", |lua, ()| {
         cx::read(Dep::Locale);
@@ -289,15 +289,14 @@ fn category(count: f64) -> &'static str {
 /// Message `key` of the catalogs in the current language, else English, else the app's own
 /// messages (a plugin's `ctx.t` reaches the UI catalog, as Desktop's does), else the key, with
 /// `{{name}}`s filled from `args` and a `count` picking the plural form.
-fn translate(catalogs: &crate::plugin_host::sources::Catalogs, key: &str, args: Option<&Table>) -> String {
+fn translate(catalogs: &crate::plugin_host::Catalogs, key: &str, args: Option<&Table>) -> String {
     let lang = opencode_i18n::locale().id();
     let count = args.and_then(|a| a.raw_get::<Option<f64>>("count").ok().flatten());
-    let (own, en) = (catalogs.get(lang), catalogs.get("en"));
     // In a right-to-left language a message the plugin has only in English reads as an English unit,
     // its full stop and numbers in order, as the app's own untranslated messages do (rune-i18n).
     let rtl = direction() == spec::TextDirection::Rtl;
-    let english = |t: &String| if rtl { format!("\u{2066}{t}\u{2069}") } else { t.clone() };
-    let lookup = |k: &str| own.as_ref().and_then(|c| c.get(k)).cloned().or_else(|| en.as_ref().and_then(|c| c.get(k)).map(english)).or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
+    let english = |t: std::borrow::Cow<'static, str>| if rtl { format!("\u{2066}{t}\u{2069}") } else { t.into_owned() };
+    let lookup = |k: &str| catalogs.get(lang, k).map(|s| s.into_owned()).or_else(|| catalogs.get("en", k).map(english)).or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
     let text = count
         .and_then(|n| lookup(&format!("{key}.{}", category(n))).or_else(|| lookup(&format!("{key}.other"))))
         .or_else(|| lookup(key))

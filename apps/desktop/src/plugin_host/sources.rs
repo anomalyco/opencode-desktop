@@ -11,7 +11,6 @@
 //! change a built-in, copy it into `plugins-override/`. A debug build's repository copy wins over
 //! the embedded one, so saving a built-in's `.luau` file reloads it.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -53,7 +52,8 @@ mod embedded {
 pub enum Origin {
     /// A folder, with its files as they were read: what runs, and what a trust OK was for.
     Dir { dir: PathBuf, files: Arc<[(String, String)]> },
-    Embedded(&'static [(&'static str, &'static str)]),
+    /// Its files (no `locales/`) and its catalogs' table.
+    Embedded(&'static [(&'static str, &'static str)], &'static [u8]),
 }
 
 /// A plugin folder, or why it doesn't read as one.
@@ -88,7 +88,7 @@ pub fn parse(src: &str) -> Result<Manifest, String> {
 /// The built-ins: the copies built into the binary, after (in a debug build) the repository's
 /// folders, so saving one reloads it. A release build reads no file here.
 pub fn builtins() -> Vec<Found> {
-    let embedded = embedded::BUILTINS.iter().filter_map(|(_, files)| read_embedded(files));
+    let embedded = embedded::BUILTINS.iter().filter_map(|(_, files, catalogs)| read_embedded(files, catalogs));
     #[cfg(debug_assertions)]
     let repo = scan(Tier::Bundled, Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins")));
     #[cfg(not(debug_assertions))]
@@ -129,14 +129,14 @@ pub fn precompiled() -> impl Iterator<Item = (&'static str, &'static [u8])> {
 
 /// The ids of the built-ins this binary carries.
 pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
-    embedded::BUILTINS.iter().map(|(id, _)| *id)
+    embedded::BUILTINS.iter().map(|(id, _, _)| *id)
 }
 
-fn read_embedded(files: &'static [(&'static str, &'static str)]) -> Option<Found> {
+fn read_embedded(files: &'static [(&'static str, &'static str)], catalogs: &'static [u8]) -> Option<Found> {
     let toml = files.iter().find(|(p, _)| *p == "plugin.toml")?.1;
     Some(match parse(toml) {
-        Ok(manifest) => Found { manifest, origin: Origin::Embedded(files), tier: Tier::Bundled, error: None, hash: None },
-        Err(e) => Found { manifest: placeholder("embedded"), origin: Origin::Embedded(files), tier: Tier::Bundled, error: Some(format!("plugin.toml: {e}")), hash: None },
+        Ok(manifest) => Found { manifest, origin: Origin::Embedded(files, catalogs), tier: Tier::Bundled, error: None, hash: None },
+        Err(e) => Found { manifest: placeholder("embedded"), origin: Origin::Embedded(files, catalogs), tier: Tier::Bundled, error: Some(format!("plugin.toml: {e}")), hash: None },
     })
 }
 
@@ -176,7 +176,7 @@ impl Origin {
     /// read again.
     pub fn files(&self) -> Vec<(String, String)> {
         match self {
-            Origin::Embedded(files) => files.iter().map(|(p, s)| ((*p).to_owned(), (*s).to_owned())).collect(),
+            Origin::Embedded(files, _) => files.iter().map(|(p, s)| ((*p).to_owned(), (*s).to_owned())).collect(),
             Origin::Dir { files, .. } => files.to_vec(),
         }
     }
@@ -184,7 +184,16 @@ impl Origin {
     pub fn dir(&self) -> Option<&Path> {
         match self {
             Origin::Dir { dir, .. } => Some(dir),
-            Origin::Embedded(_) => None,
+            Origin::Embedded(..) => None,
+        }
+    }
+
+    /// Its message catalogs: a built-in's table as it lies in the binary; a folder's from its
+    /// `files`, each language parsed the first time a string is read in it.
+    pub fn catalogs(&self, files: &[(String, String)]) -> super::Catalogs {
+        match self {
+            Origin::Embedded(_, table) => super::Catalogs::Table(table),
+            Origin::Dir { .. } => super::Catalogs::folder(files),
         }
     }
 
@@ -250,48 +259,6 @@ pub fn intern_icons(plugin: &str, files: &[(String, String)]) {
 pub fn script_sources(files: &[(String, String)], folder: &str, entry: &str) -> rune_luau::Sources {
     let sources = files.iter().filter(|(p, _)| p.ends_with(".luau") || p.ends_with(".luaurc")).fold(rune_luau::Sources::new(), |s, (p, text)| s.with(p, text.as_str()));
     sources.parent_config(embedded::LUAURC).folder(folder).entry(entry)
-}
-
-/// The message catalogs in `locales/<id>.json`, by locale id: flat objects of strings.
-pub fn catalogs(files: &[(String, String)]) -> Catalogs {
-    Catalogs {
-        texts: files.iter().filter_map(|(path, text)| Some((path.strip_prefix("locales/")?.strip_suffix(".json")?.to_owned(), text.clone()))).collect(),
-        parsed: Default::default(),
-    }
-}
-
-/// A plugin's catalogs (`locales/<lang>.json`): each language's file is parsed the first time a string
-/// is read in it, so a plugin parses the interface language and English, not all 63 (16 plugins x 63
-/// files were parsed before each plugin ran). `locales/fill/<lang>.json`, where there is one, holds
-/// machine translations of the keys the plugin's own catalog for that language lacks, unreviewed;
-/// the plugin's own file is laid over it, so a translation the catalog gains wins.
-#[derive(Default)]
-pub struct Catalogs {
-    texts: BTreeMap<String, String>,
-    parsed: std::sync::Mutex<BTreeMap<String, std::sync::Arc<BTreeMap<String, String>>>>,
-}
-
-impl Catalogs {
-    /// Language `lang`'s strings; None when the plugin has no file for it.
-    pub fn get(&self, lang: &str) -> Option<std::sync::Arc<BTreeMap<String, String>>> {
-        if let Some(found) = self.parsed.lock().unwrap_or_else(|e| e.into_inner()).get(lang) {
-            return Some(found.clone());
-        }
-        let parse = |text: &str| -> Option<BTreeMap<String, String>> {
-            let v: serde_json::Value = serde_json::from_str(text).ok()?;
-            Some(v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
-        };
-        let own = self.texts.get(lang).and_then(|t| parse(t));
-        let fill = self.texts.get(&format!("fill/{lang}")).and_then(|t| parse(t));
-        if own.is_none() && fill.is_none() {
-            return None;
-        }
-        let mut strings = fill.unwrap_or_default();
-        strings.extend(own.unwrap_or_default());
-        let map = std::sync::Arc::new(strings);
-        self.parsed.lock().unwrap_or_else(|e| e.into_inner()).insert(lang.to_owned(), map.clone());
-        Some(map)
-    }
 }
 
 /// The SHA-256 of every file the plugin runs from: what trusting it means.
