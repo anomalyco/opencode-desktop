@@ -97,7 +97,7 @@ impl RuneMcpHub {
             inner.windows.insert(window_id, entry);
             Self::reconcile_locked(self, &mut inner)
         };
-        drop(to_drop);
+        close_later(to_drop);
     }
 
     fn remove_window(self: &Arc<Self>, window_id: u64) {
@@ -108,7 +108,7 @@ impl RuneMcpHub {
             }
             Self::reconcile_locked(self, &mut inner)
         };
-        drop(to_drop);
+        close_later(to_drop);
     }
 
     fn reconcile_locked(hub: &Arc<Self>, inner: &mut HubInner) -> Vec<ClientMcp> {
@@ -530,6 +530,16 @@ fn sync_window(s: &mut App) {
         waker: s.rune_mcp.waker.clone(),
     };
     s.rune_mcp.hub.update_window(s.rune_mcp.window_id, entry);
+}
+
+/// Closes connections a window no longer wants on a thread of their own: a close joins the
+/// connection's thread after its WebSocket close, which took 330-820 ms on the UI thread for every
+/// tab switch to another server (the window's folders move to that server's connections).
+fn close_later(conns: Vec<ClientMcp>) {
+    if conns.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new().name("desktop-rune-mcp-close".into()).spawn(move || drop(conns));
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
