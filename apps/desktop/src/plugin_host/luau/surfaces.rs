@@ -370,7 +370,8 @@ pub fn server_cover(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::ins
         ("dialog", Data::Bool(crate::plugin_host::servers::dialog_shows(app))),
     ]);
     let body = render(app, p, i, &format!("cover:{key}"), &f, props);
-    Some(col().key(format!("plugin-server-cover-{key}")).w_full().h_full().fill(p.bg_base).on_press(|_: &mut App| {}).child(body))
+    // Sized by the edges `view` pins it to (the main area under the titlebar), not the window's.
+    Some(col().key(format!("plugin-server-cover-{key}")).fill(p.bg_base).on_press(|_: &mut App| {}).child(body))
 }
 
 // ---- Settings ----------------------------------------------------------------------------------

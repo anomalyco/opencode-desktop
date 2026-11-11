@@ -9,7 +9,9 @@ local command = require("./command")
 
 local cover = {}
 
-local MUTED = { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", textAlign = "center", wrap = true }
+-- Desktop's panel text inherits 13/24 (`text-13-regular` is no utility class there), and its
+-- heading draws 16 on 28.8 (measured over CDP).
+local MUTED = { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true }
 
 function cover.render(env: any, v: View, props: ServerCoverProps): UiNode?
     local item = env.item(props.id)
@@ -27,9 +29,9 @@ function cover.render(env: any, v: View, props: ServerCoverProps): UiNode?
     local connecting = env.pending(id)
     return v:Memo(`cover-{id}`, `{env.version()}|{props.tab}`, function()
         local status: { UiNode } = {
-            ui.text(I18n:T("session.disconnected"), { size = 16, weight = "medium", lineHeight = 24, color = "text-chrome", textAlign = "center" }),
-            ui.text(command.name(item.config), { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
-            ui.text(I18n:T("session.reconnectDescription"), { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
+            ui.text(I18n:T("session.disconnected"), { size = 16, weight = "medium", lineHeight = 28.8, color = "text-chrome", textAlign = "center" }),
+            ui.text(command.name(item.config), { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
+            ui.text(I18n:T("session.reconnectDescription"), { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
         }
         local children: { UiNode } = {
             ui.icon("lock", { size = 20, color = "icon-weak" }),
