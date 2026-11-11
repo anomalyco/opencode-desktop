@@ -75,6 +75,16 @@ impl State {
         }
     }
 
+    /// Whether `id`'s first read is done: its latest page and the history behind it landed.
+    pub fn first_read_done(&self, id: &str) -> bool {
+        matches!(self.histories.get(self.server(), id), Some(History::Idle { .. } | History::Loading { .. } | History::Failed { .. } | History::Exhausted))
+    }
+
+    /// The session whose timeline stands near its top; empty when none does.
+    pub fn near_top(&self) -> std::cell::Ref<'_, String> {
+        self.near_top.borrow()
+    }
+
     /// An older page for `id` has taken longer than the opening hold: show that it's coming.
     pub fn loading_older(&self, id: &str) -> bool {
         matches!(self.histories.get(self.server(), id), Some(History::Loading { slow: true, .. }))
@@ -532,6 +542,7 @@ impl super::App {
             self.step_history(&id, HistoryEvent::Landed { cursor: page.cursor.clone(), added }, tx);
             // Where the page leaves the reader is reported next frame; read on only from there.
             self.pages.near_top.borrow_mut().clear();
+            self.context_window_landed(&id);
         }
         self.schedule_history(page, tx);
     }

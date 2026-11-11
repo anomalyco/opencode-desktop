@@ -2057,6 +2057,9 @@ A session as the app holds it.
 | `usageProviderId` | `string?` | The provider of the step `usage` came from. |
 | `usageModelId` | `string?` | The model of the step `usage` came from. |
 | `usageMessageId` | `string?` | The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert. |
+| `openedAt` | `number?` | When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens. |
+| `firstPage` | `number?` | How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most. |
+| `olderPages` | `number?` | How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top. |
 | `providerId` | `string?` | The provider of the model the session runs with. |
 | `modelId` | `string?` | The model the session runs with. |
 | `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |

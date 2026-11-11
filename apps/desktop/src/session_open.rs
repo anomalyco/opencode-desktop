@@ -78,6 +78,7 @@ impl App {
                 if !self.pages.has_pool() { let _ = r.send(Request::Session(id.to_owned())); }
                 let _ = r.send(Request::Inbox(id.to_owned()));
                 self.list_children(id);
+                self.window_opened(id);
                 self.read_open_requests(id);
                 if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
                     crate::subagents::shells::list(self, &dir);

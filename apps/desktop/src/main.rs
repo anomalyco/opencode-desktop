@@ -61,6 +61,7 @@ mod commands;
 mod commands_stories;
 mod compaction_stories;
 mod connect;
+mod context_window;
 mod deep_links;
 mod demo;
 mod demo_script;
@@ -279,6 +280,8 @@ pub struct App {
     pub zoom_pinch: pinch::Pinch,
     /// Changed files' diffs (`turn_diffs.rs`).
     pub turn_diffs: turn_diffs::TurnDiffs,
+    /// Which of each session's messages Desktop would hold, for the Context tab (`context_window`).
+    pub context_windows: context_window::Windows,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
     pub running: HashSet<String>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
@@ -1135,6 +1138,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= session_view::turns::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
+    changed |= s.poll_context_window();
     changed |= s.poll_sends();
     changed |= s.tick_outbox(tx);
     changed |= s.poll_open_in();

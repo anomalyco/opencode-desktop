@@ -3242,6 +3242,12 @@ export type Session = {
     usageModelId: string?,
     --- The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
     usageMessageId: string?,
+    --- When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens.
+    openedAt: number?,
+    --- How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most.
+    firstPage: number?,
+    --- How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top.
+    olderPages: number?,
     --- The provider of the model the session runs with.
     providerId: string?,
     --- The model the session runs with.

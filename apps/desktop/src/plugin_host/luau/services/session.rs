@@ -69,7 +69,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), &info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project, app.context_window(id))).hash(&mut h);
     h.finish()
 }
 
@@ -114,7 +114,8 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let busy = app.subtree_running(&info.id);
     let version = (session_version(app, id) >> 11) as f64;
     let cost = app.session_cost(id);
-    let s = record(lua, 21, |s| {
+    let window = app.context_window(id);
+    let s = record(lua, 24, |s| {
         s.str(c"id", &info.id);
         s.str(c"serverId", &server_id(crate::servers::runtime::active(app)));
         s.str(c"directory", &info.directory);
@@ -143,6 +144,11 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         if !info.model.id.is_empty() {
             s.str(c"providerId", &info.model.provider);
             s.str(c"modelId", &info.model.id);
+        }
+        if let Some(w) = window {
+            s.num(c"openedAt", w.opened as f64);
+            s.num(c"firstPage", f64::from(w.first));
+            s.num(c"olderPages", f64::from(w.older));
         }
         s.num(c"created", info.created as f64);
         s.num(c"updated", info.updated as f64);

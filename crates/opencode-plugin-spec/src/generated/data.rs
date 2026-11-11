@@ -172,6 +172,12 @@ pub struct Session {
     pub usage_model_id: Option<String>,
     /// The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
     pub usage_message_id: Option<String>,
+    /// When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens.
+    pub opened_at: Option<f64>,
+    /// How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most.
+    pub first_page: Option<i64>,
+    /// How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top.
+    pub older_pages: Option<i64>,
     /// The provider of the model the session runs with.
     pub provider_id: Option<String>,
     /// The model the session runs with.
@@ -183,7 +189,7 @@ pub struct Session {
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "openedAt", "firstPage", "olderPages", "providerId", "modelId", "created", "updated", "messages"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

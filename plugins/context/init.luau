@@ -10,7 +10,7 @@ local tab = require("@self/tab")
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
-    local state: tab.State = { open = {}, toggles = 0, export = { kind = "idle" }, parsed = {} }
+    local state: tab.State = { open = {}, toggles = 0, export = { kind = "idle" }, parsed = {}, pages = {} }
     local env = {
         Sessions = ctx:GetService("Sessions"),
         Models = ctx:GetService("Models"),
