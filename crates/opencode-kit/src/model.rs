@@ -49,18 +49,31 @@ impl ProjectIcon {
         ProjectIcon { url: s(&v["url"]), override_url: s(&v["override"]), color: s(&v["color"]) }
     }
 
-    /// The image to show, as Desktop picks it (`getProjectAvatarSource`): a chosen image, else
-    /// none when a colour is chosen, else the discovered one.
-    pub fn source(&self) -> Option<&str> {
+    /// The image to show for project `id`, as Desktop picks it (`getProjectAvatarSource`,
+    /// `project-avatar.tsx:78-86`): a chosen image, else none when a colour is chosen, else
+    /// OpenCode's favicon for OpenCode's own repo, else the discovered one.
+    pub fn source(&self, id: &str) -> Option<&str> {
         if !self.override_url.is_empty() {
             return Some(&self.override_url);
         }
-        if !self.color.is_empty() || self.url.is_empty() {
+        if !self.color.is_empty() {
             return None;
         }
-        Some(&self.url)
+        if OPENCODE_PROJECT_IDS.contains(&id) {
+            return Some(OPENCODE_FAVICON);
+        }
+        (!self.url.is_empty()).then_some(self.url.as_str())
     }
 }
+
+/// OpenCode's own repo (`project-avatar.tsx:72-76`): its ids hash the origin remote, V1's the
+/// root commit. The repo holds no icon file the server would find, so Desktop names one.
+const OPENCODE_PROJECT_IDS: [&str; 3] =
+    ["012780c4098d08caa4ea8c479ed0a4690489f38d", "476fbfe6befa9e63ddd7f9ae71655999a0104256", "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"];
+
+/// The drawing of `https://opencode.ai/favicon.svg` (`packages/ui/src/assets/favicon/favicon.svg`),
+/// which Desktop loads for those ids: carried here, so it shows on the first frame and offline.
+const OPENCODE_FAVICON: &str = "data:image/svg+xml;utf8,<svg width=\"512\" height=\"512\" viewBox=\"0 0 512 512\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"512\" height=\"512\" fill=\"#131010\"/><path d=\"M320 224V352H192V224H320Z\" fill=\"#5A5858\"/><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M384 416H128V96H384V416ZM320 160H192V352H320V160Z\" fill=\"white\"/></svg>";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tokens {

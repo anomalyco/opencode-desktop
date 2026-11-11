@@ -347,13 +347,17 @@ pub(crate) fn data_url(u: &str) -> Option<Data> {
     let bytes = if parts.any(|p| p.eq_ignore_ascii_case("base64")) { base64(body)? } else { percent(body) };
     match mime.as_str() {
         "image/svg+xml" => Some(Data::Svg(bytes)),
-        "image/png" | "image/jpeg" | "image/jpg" => Some(Data::Raster(bytes)),
+        m if RASTER.contains(&m) => Some(Data::Raster(bytes)),
         _ => None,
     }
 }
 
+/// The raster types the server's icon finder sends (`packages/core/src/project/icon.ts`: png,
+/// jpeg, webp, and `.ico` as `image/x-icon`), and `.ico`'s registered name.
+const RASTER: &[&str] = &["image/png", "image/jpeg", "image/jpg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"];
+
 pub(crate) fn is_data_image(u: &str) -> bool {
-    ["data:image/png", "data:image/jpeg", "data:image/jpg", "data:image/svg+xml"].iter().any(|p| u.starts_with(p))
+    u.strip_prefix("data:").and_then(|r| r.split([';', ',']).next()).is_some_and(|m| m.eq_ignore_ascii_case("image/svg+xml") || RASTER.iter().any(|r| m.eq_ignore_ascii_case(r)))
 }
 
 fn percent(s: &str) -> Vec<u8> {

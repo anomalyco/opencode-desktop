@@ -74,6 +74,17 @@ impl Buf {
         out
     }
 
+    /// The centred square a square box shows of it under `object-fit: cover`.
+    pub(crate) fn cover(self) -> Buf {
+        let side = self.w.min(self.h);
+        if self.w == self.h {
+            return self;
+        }
+        let mut out = Buf::new(side, side);
+        out.over(&self, -(((self.w - side) / 2) as i64), -(((self.h - side) / 2) as i64));
+        out
+    }
+
     /// Draws `src` over this at (`ox`, `oy`).
     pub(crate) fn over(&mut self, src: &Buf, ox: i64, oy: i64) {
         for y in 0..src.h as i64 {

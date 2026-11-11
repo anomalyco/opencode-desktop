@@ -173,7 +173,7 @@ fn tile(p: &Pal, letter: &str, v: usize, size: f32, font: f32) -> El {
 
 /// The project's 32 pt avatar: its image, else its letter in its colour.
 fn avatar(s: &App, p: &Pal, x: &Project) -> El {
-    if x.icon.source().is_some() {
+    if x.icon.source(&x.id).is_some() {
         return s.icons.view(&crate::icons::palette(p), x, 32.0);
     }
     let name = super::projects::name(x);

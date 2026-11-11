@@ -71,7 +71,7 @@ impl<'a> Project<'a> {
 
 impl<'a> From<&'a opencode_kit::model::Project> for Project<'a> {
     fn from(p: &'a opencode_kit::model::Project) -> Project<'a> {
-        Project { id: &p.id, name: &p.name, directory: &p.directory, image: p.icon.source(), color: &p.icon.color }
+        Project { id: &p.id, name: &p.name, directory: &p.directory, image: p.icon.source(&p.id), color: &p.icon.color }
     }
 }
 
@@ -121,6 +121,8 @@ enum Shown {
 }
 
 struct Job {
+    /// The entry in `found` it settles.
+    entry: String,
     dir: String,
     name: String,
     server: Option<String>,
@@ -191,10 +193,10 @@ impl Icons {
                 .name("project-icons".into())
                 .spawn(move || {
                     for job in rx {
-                        let had = fd.lock().unwrap().get(&job.dir).is_some_and(|f| f.icon.is_some());
+                        let had = fd.lock().unwrap().get(&job.entry).is_some_and(|f| f.icon.is_some());
                         let done = run(&c, &job);
                         let wake_now = matches!(&done, Some((_, Some(Shown::Vector(..))))) || (done.is_none() && had);
-                        settle(&fd, &job.dir, done);
+                        settle(&fd, &job.entry, done);
                         if wake_now {
                             wake();
                         }
@@ -214,16 +216,18 @@ impl Icons {
         }
         let stamp = server.map_or((0, 0), stamp);
         let dir = if p.directory.is_empty() { format!("id:{}", p.id) } else { p.directory.to_owned() };
+        // Two servers can hold the same folder with different images: each image is its own entry.
+        let entry = if server.is_some() { format!("{dir}\n{stamp:?}") } else { dir.clone() };
         self.with(|inner| {
             let job = {
                 let mut found = inner.found.lock().unwrap();
-                let f = found.entry(dir.clone()).or_default();
+                let f = found.entry(entry.clone()).or_default();
                 let stale = f.checked.is_none_or(|t| t.elapsed() > RECHECK) || f.server != stamp;
                 (stale && !f.pending).then(|| {
                     f.pending = true;
                     f.server = stamp;
                     let previous = f.key.clone();
-                    Job { dir: dir.clone(), name: p.name.to_owned(), server: server.map(str::to_owned), repo: !self.no_repo, previous }
+                    Job { entry: entry.clone(), dir, name: p.name.to_owned(), server: server.map(str::to_owned), repo: !self.no_repo, previous }
                 })
             };
             if let Some(job) = job {
@@ -232,13 +236,13 @@ impl Icons {
                     if let Some((_, Some(Shown::Tile(i) | Shown::Mark(i)))) = &done {
                         let _ = i.wait();
                     }
-                    settle(&inner.found, &dir, done);
+                    settle(&inner.found, &entry, done);
                 } else {
                     let _ = inner.jobs.send(job);
                 }
             }
             let found = inner.found.lock().unwrap();
-            found.get(&dir)?.icon.clone().filter(|s| match s {
+            found.get(&entry)?.icon.clone().filter(|s| match s {
                 Shown::Tile(i) | Shown::Mark(i) => i.is_ready() && i.error().is_none(),
                 Shown::Vector(..) => true,
             })
@@ -303,23 +307,27 @@ impl Icons {
         let radius = size_pt * styles::RADIUS;
         let variant = chosen_color(project.color);
         Some(match self.found(&project)? {
-            Shown::Tile(img) => {
-                let tile = el().size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
-                self.lift(pal, tile.child(self.top(size_pt, true, pal.ring)), size_pt)
-            }
+            Shown::Tile(img) => self.picture(pal, &img, variant, size_pt),
             Shown::Mark(img) => {
                 let inner = el().size(size_pt * 0.75, size_pt * 0.75).pixels_fit(img.pixels(), SurfaceFit::Fit);
                 let tile = el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner);
                 self.lift(pal, tile.child(self.top(size_pt, true, pal.ring)), size_pt)
             }
-            Shown::Vector(bytes, hash) => {
-                let img = self.vector(&bytes, hash, size_pt);
-                let (bg, border) = pal.avatars[variant.unwrap_or(8)];
-                let pic = el().absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
-                let tile = el().size(size_pt, size_pt).radius(radius).fill(bg).child(pic);
-                self.lift(pal, tile.child(self.top(size_pt, true, border)), size_pt)
-            }
+            Shown::Vector(bytes, hash) => self.picture(pal, &self.vector(&bytes, hash, size_pt), variant, size_pt),
         })
+    }
+
+    /// An image on Desktop's avatar surface (`project-avatar.css`): the avatar colour, its inset
+    /// ring, and the `<img>` over both, so an opaque image hides the ring. A lit finish's light
+    /// lies over the image.
+    fn picture(&self, pal: &Palette, img: &Image, variant: Option<usize>, size_pt: f32) -> El {
+        let radius = size_pt * styles::RADIUS;
+        let (bg, border) = pal.avatars[variant.unwrap_or(8)];
+        let pic = el().key("image").absolute(0.0, 0.0).size(size_pt, size_pt).radius(radius).pixels_fit(img.pixels(), SurfaceFit::Fill);
+        let top = self.top(size_pt, true, border);
+        let tile = el().size(size_pt, size_pt).radius(radius).fill(bg);
+        let tile = if self.finish().lit() { tile.child(pic).child(top) } else { tile.child(top).child(pic) };
+        self.lift(pal, tile, size_pt)
     }
 
     /// The procedural mark alone, in `look`.
@@ -446,8 +454,11 @@ fn run(cache: &ImageCache, job: &Job) -> Option<(Key, Option<Shown>)> {
                 return Some((key, Some(Shown::Vector(bytes.into(), hash))));
             }
             Some(Data::Raster(bytes)) => {
+                // Desktop's `<img>` fills the tile as it is (`object-fit: cover`), never trimmed or
+                // set small on a plate as a found repo icon is.
                 if let Ok(icon) = image::load_from_memory(&bytes) {
-                    return Some((key, Some(finish(cache, Buf::from_rgba8(&icon.into_rgba8()), true))));
+                    let buf = Buf::from_rgba8(&icon.into_rgba8()).cover();
+                    return Some((key, Some(Shown::Tile(cache.rgba(PX, PX, buf.resize(PX, PX).to_rgba8())))));
                 }
             }
             None => {}
