@@ -1451,6 +1451,9 @@ fn main() {
         disk::flush();
         storage::flush(opencode_storage::FlushReason::Quit, true);
         diagnostics.shutdown();
+        // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the
+        // browser engine's timing.
+        launch::trace::finish(1);
     }
 }
 

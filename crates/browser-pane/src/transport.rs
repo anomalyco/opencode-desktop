@@ -125,6 +125,9 @@ pub(crate) fn wire_stream(
                 }
                 let Ok(msg) = serde_json::from_str::<EngineMsg>(&line) else { continue };
                 // Straight to the tab's surface, which wakes the app itself.
+                if matches!(msg, EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. }) && !FIRST_FRAME.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    rune::marks::mark("browser.page.first_frame");
+                }
                 if let EngineMsg::SharedFrame { tab_id, frame_id, width, height, texture, release_fence } = msg {
                     push_shared(&surfaces, tab_id, frame_id, width, height, texture, release_fence);
                     continue;
@@ -141,6 +144,9 @@ pub(crate) fn wire_stream(
         })
         .ok();
 }
+
+/// The first page frame of the run, for the launch trace's `browser.page.first_frame`.
+static FIRST_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(windows)]
 fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String) {

@@ -144,6 +144,7 @@ impl BrowserHost {
     }
 
     fn spawn_and_connect(&mut self, bin: PathBuf, sock: PathBuf, mach_service: Option<String>) {
+        rune::marks::mark("browser.engine.spawn");
         *self.status.lock().unwrap() = EngineStatus::Connecting;
         let status = self.status.clone();
         let outbox = self.outbox.clone();

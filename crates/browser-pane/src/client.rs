@@ -249,6 +249,7 @@ impl BrowserHost {
     }
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
+        rune::marks::mark("browser.tab.open");
         let url = resolve_address(raw_url);
         let id = self.alloc_tab_id();
         let surface = NativeSurface::new();
@@ -412,6 +413,7 @@ impl BrowserHost {
         while let Ok(msg) = self.inbox_rx.try_recv() {
             match msg {
                 EngineMsg::Ready { .. } => {
+                    rune::marks::mark("browser.engine.ready");
                     *self.status.lock().unwrap() = EngineStatus::Ready;
                     for t in &mut self.tabs {
                         t.sent_resize = None;
