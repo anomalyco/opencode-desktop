@@ -434,7 +434,7 @@ pub struct App {
     pub browser: browser::BrowserPane,
     pub review: review::ReviewPane,
     /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
-    pub panel_sidebar: plugin_host::luau::native::sidebar::PanelSidebar,
+    pub panel_sidebar: plugin_host::native::sidebar::PanelSidebar,
     pub files: files::FilesPane,
     pub open_in: open_in::OpenIn,
     /// What a tool step last opened in the side region (`tool_open`).
@@ -499,10 +499,10 @@ impl session_view::TimelineHost for App {
         self.settings.timeline_detail
     }
     fn code_block_lang(&self, language: &str) -> bool {
-        plugin_host::luau::surfaces::code_block_lang(self, language)
+        plugin_host::surfaces::code_block_lang(self, language)
     }
     fn code_block(&self, p: &palette::Pal, language: &str, key: &str, code: &str, streaming: bool, version: u64, native: rune::El) -> Option<rune::El> {
-        plugin_host::luau::surfaces::code_block(self, p, language, key, code, streaming, version, native)
+        plugin_host::surfaces::code_block(self, p, language, key, code, streaming, version, native)
     }
     fn shell_output(&self, shell: &str) -> Option<&str> {
         self.shells.follow.output(shell)
@@ -957,7 +957,7 @@ impl App {
         self.load_open_in();
         if self.persists() {
             self.files.wrap = files::markdown::WrapPrefs::load();
-            self.panel_sidebar = plugin_host::luau::native::sidebar::PanelSidebar::load();
+            self.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::load();
@@ -1343,7 +1343,7 @@ fn main() {
     #[cfg(windows)]
     install::run_if_asked();
     launch::print_version_if_asked();
-    if plugin_host::luau::types::from_args() {
+    if plugin_host::types::from_args() {
         return;
     }
     if genui::skill::maybe_cli() {

@@ -123,7 +123,7 @@ impl App {
         // A strip its last tab left (a terminal that exited) shows a New tab, as Desktop's does.
         changed |= self.sync_empty_side();
         // The native views Luau panels place (Review's diffs).
-        changed |= crate::plugin_host::luau::native::poll(self, tx);
+        changed |= crate::plugin_host::native::poll(self, tx);
         // The plugins: what came due, finished or arrived for them. At rest it enters no VM.
         changed |= crate::plugin_host::poll(self, tx);
         changed
@@ -134,7 +134,7 @@ impl App {
         if !any_open || self.composer.focused {
             return false;
         }
-        if crate::plugin_host::luau::native::on_ime(self, ime) {
+        if crate::plugin_host::native::on_ime(self, ime) {
             return true;
         }
         for p in self.all_panels() {
@@ -198,7 +198,7 @@ impl App {
         }
 
         // The Luau panels' commands, likewise (Toggle terminal, New terminal, Open review).
-        if crate::plugin_host::luau::commands::panel_key(self, ev, tx) {
+        if crate::plugin_host::commands::panel_key(self, ev, tx) {
             return true;
         }
 
@@ -220,7 +220,7 @@ impl App {
 
         // 4. Active panels' own scoped key handlers (e.g. Browser's ⌘L, ⌘R, ⇧⌘C, or Terminal's keys),
         // and the native views Luau panels place.
-        if crate::plugin_host::luau::native::on_key(self, ev, tx) {
+        if crate::plugin_host::native::on_key(self, ev, tx) {
             return true;
         }
         for p in self.all_panels() {

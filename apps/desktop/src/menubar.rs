@@ -82,7 +82,7 @@ fn plugin_items() -> Vec<MenuItem<App>> {
 }
 
 fn app_items() -> Vec<(&'static str, String)> {
-    crate::plugin_host::luau::commands::menubar_items().into_iter().filter(|(_, menu, _, _)| menu == "app").map(|(key, _, label, _)| (key, label)).collect()
+    crate::plugin_host::commands::menubar_items().into_iter().filter(|(_, menu, _, _)| menu == "app").map(|(key, _, label, _)| (key, label)).collect()
 }
 
 fn plugin_slot<const I: usize>(s: &mut App, tx: &mut Tx) {

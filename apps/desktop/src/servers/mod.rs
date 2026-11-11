@@ -77,7 +77,7 @@ fn with<R>(f: impl FnOnce(&mut Registry) -> R) -> R {
 /// Something in the registry changed: every window and plugin reading it draws again.
 fn changed() {
     VERSION.set(VERSION.get().wrapping_add(1));
-    crate::plugin_host::luau::bump();
+    crate::plugin_host::bump();
 }
 
 /// Changes with every change to the list or a server's health.

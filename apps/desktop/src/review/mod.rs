@@ -2,7 +2,7 @@
 //! now runs as Luau (`plugins/review`): each session's diffs for the current source (`git`,
 //! `branch` or `turn`) read from the server, parsed off the UI thread into the diff view's state,
 //! and the file the preview shows. The plugin reaches it through the `Diff` service and draws it
-//! with `ui.diffView` and `ui.fileTree` (`plugin_host::luau::native`).
+//! with `ui.diffView` and `ui.fileTree` (`plugin_host::native`).
 
 pub mod chrome;
 pub mod data;

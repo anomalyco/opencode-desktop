@@ -1,7 +1,7 @@
 //! The panel providers of the session side region (`side`, `split`, and `bottom` panes).
 //!
 //! Every panel is a plugin's: Browser, Changes, Files and Terminal are built-in plugins', one
-//! provider per plugin (`plugin_host::luau::panels`). Tab metadata, launcher rows, shortcuts, and closed-tab restoration use
+//! provider per plugin (`plugin_host::panels`). Tab metadata, launcher rows, shortcuts, and closed-tab restoration use
 //! plain data descriptors (`PanelTabDesc`, `PanelLauncherDesc`, `ClosedPanelTab`).
 
 pub mod closing;
@@ -285,7 +285,7 @@ impl Launch {
         match self {
             Self::Pane(open) => open(s, pane, tx),
             Self::Entry(open) => open(s, id, pane, tx),
-            Self::Luau(plugin) => crate::plugin_host::luau::panels::open_entry(s, plugin, id, pane, tx),
+            Self::Luau(plugin) => crate::plugin_host::panels::open_entry(s, plugin, id, pane, tx),
         }
     }
 }
@@ -403,7 +403,7 @@ pub struct PanelRegistration {
     /// whether the tab is selected; `None` keeps the icon and title.
     pub tab_lead: Option<fn(&App, &Pal, &PanelTabDesc, bool) -> Option<El>>,
     /// The panels of the Luau plugin `plugin`: the callbacks above stay unset, and the dispatch
-    /// methods below ask the plugin (`plugin_host::luau::panels`).
+    /// methods below ask the plugin (`plugin_host::panels`).
     pub luau: bool,
 }
 
@@ -449,14 +449,14 @@ impl PanelRegistration {
     /// Luau plugin `plugin`'s panels, under its own namespace (`<plugin>:<tab>`, as Desktop keys
     /// a plugin's tabs).
     pub fn luau(plugin: &'static str, order: i32, default_pane: SessionPane) -> Self {
-        use crate::plugin_host::luau::panels as lp;
+        use crate::plugin_host::panels as lp;
         Self { order, default_pane, luau: true, ..Self::new(plugin, lp::list, lp::render) }
     }
 
     /// Whether this panel asks for the wider session minimum now.
     pub fn is_wide(&self, s: &App) -> bool {
         if self.luau {
-            return crate::plugin_host::luau::panels::wide(s, self.plugin);
+            return crate::plugin_host::panels::wide(s, self.plugin);
         }
         (self.wide)(s)
     }
@@ -464,7 +464,7 @@ impl PanelRegistration {
     /// Every `+` / New tab entry this provider offers, with how each opens.
     pub fn launcher_entries(&self, s: &App, ctx: &PanelSessionCtx) -> Vec<(PanelLauncherDesc, Launch)> {
         if self.luau {
-            return crate::plugin_host::luau::panels::launchers(s, ctx).into_iter().map(|d| (d, Launch::Luau(self.plugin))).collect();
+            return crate::plugin_host::panels::launchers(s, ctx).into_iter().map(|d| (d, Launch::Luau(self.plugin))).collect();
         }
         let one = self.launcher.zip(self.open_launcher).and_then(|(desc, open)| Some((desc(s, ctx)?, Launch::Pane(open))));
         let many = self.launchers.zip(self.open_entry).map(|(list, open)| list(s, ctx).into_iter().map(move |d| (d, Launch::Entry(open))));
@@ -474,7 +474,7 @@ impl PanelRegistration {
     /// Runs as `tab` of `session` becomes selected.
     pub fn focus(&self, s: &mut App, session: &str, tab: &str, restored: bool) {
         if self.luau {
-            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab, restored);
+            return crate::plugin_host::panels::focused(s, self.plugin, session, tab, restored);
         }
         if let Some(f) = self.on_focus_tab {
             f(s, session, tab, restored);
@@ -484,7 +484,7 @@ impl PanelRegistration {
     /// Runs as the side region opens onto `tab` of `session`.
     pub fn enter(&self, s: &mut App, session: &str, tab: &str) {
         if self.luau {
-            return crate::plugin_host::luau::panels::focused(s, self.plugin, session, tab, false);
+            return crate::plugin_host::panels::focused(s, self.plugin, session, tab, false);
         }
         if let Some(f) = self.on_enter {
             f(s, session, tab);
@@ -494,7 +494,7 @@ impl PanelRegistration {
     /// Runs after `tab` left `session`'s strip.
     pub fn close(&self, s: &mut App, session: &str, tab: &str, tx: &mut Tx) {
         if self.luau {
-            return crate::plugin_host::luau::panels::closed(s, self.plugin, session, tab, tx);
+            return crate::plugin_host::panels::closed(s, self.plugin, session, tab, tx);
         }
         if let Some(f) = self.on_close_tab {
             f(s, session, tab, tx);
@@ -504,7 +504,7 @@ impl PanelRegistration {
     /// What Recently closed keeps of `tab` as it closes.
     pub fn closed_info(&self, s: &App, session: &str, tab: &PanelTabDesc) -> ClosedTabInfo {
         if self.luau {
-            return crate::plugin_host::luau::panels::closed_info(s, self.plugin, session, tab);
+            return crate::plugin_host::panels::closed_info(s, self.plugin, session, tab);
         }
         self.closed_tab.map_or(ClosedTabInfo::Default, |f| f(s, session, tab))
     }
@@ -512,7 +512,7 @@ impl PanelRegistration {
     /// Restores a closed tab; false when the provider leaves it to the default reopen.
     pub fn restore(&self, s: &mut App, session: &str, tab: &str, data: Option<&str>, tx: &mut Tx) -> bool {
         if self.luau {
-            return crate::plugin_host::luau::panels::restore(s, self.plugin, session, tab, data, tx);
+            return crate::plugin_host::panels::restore(s, self.plugin, session, tab, data, tx);
         }
         match self.on_restore_tab {
             Some(f) => {
@@ -526,7 +526,7 @@ impl PanelRegistration {
     /// A tab's own strip label, if it draws one.
     pub fn lead(&self, s: &App, p: &Pal, tab: &PanelTabDesc, selected: bool) -> Option<El> {
         if self.luau {
-            return crate::plugin_host::luau::panels::tab_lead(s, p, self.plugin, tab, selected);
+            return crate::plugin_host::panels::tab_lead(s, p, self.plugin, tab, selected);
         }
         self.tab_lead.and_then(|lead| lead(s, p, tab, selected))
     }
@@ -554,7 +554,7 @@ impl PanelRegistration {
     /// The pane a new tab of this panel opens in beside none of its others.
     pub fn home_pane(&self, s: &App) -> SessionPane {
         if self.luau {
-            return crate::plugin_host::luau::panels::home_pane(s, self.plugin).unwrap_or(self.default_pane);
+            return crate::plugin_host::panels::home_pane(s, self.plugin).unwrap_or(self.default_pane);
         }
         self.placed.map_or(self.default_pane, |f| f(s))
     }

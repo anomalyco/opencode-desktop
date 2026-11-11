@@ -235,7 +235,7 @@ fn step(id: u64, doc: &mut Doc, reply: Reply) {
 
 /// The record `Office:OpenAsync` resumes with.
 fn answer(size: usize, document: Option<Data>, error: Option<&str>) -> Data {
-    crate::plugin_host::luau::services::map([
+    crate::plugin_host::services::map([
         ("size", Data::Integer(size as i64)),
         ("signature", Data::String("zip".into())),
         ("document", document.unwrap_or(Data::Nil)),
@@ -249,7 +249,7 @@ fn document(id: u64, kind: Kind, pages: &[PageInfo], sheets: &[String]) -> Data 
         Kind::Spreadsheet => "xlsx",
         Kind::Presentation => "pptx",
     };
-    crate::plugin_host::luau::services::map([
+    crate::plugin_host::services::map([
         ("id", Data::Integer(id as i64)),
         ("kind", Data::String(kind.into())),
         ("pages", Data::Integer(pages.len() as i64)),

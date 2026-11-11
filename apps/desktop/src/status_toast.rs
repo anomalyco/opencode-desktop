@@ -608,8 +608,8 @@ fn plugin_button(p: &Pal, id: u64, i: usize, b: PluginButton) -> El {
                 let _ = tx.open_url(url);
             }
             let Some(run) = &b.run else { return };
-            let Some(index) = s.plugins.luau.running().find(|(_, pl)| pl.half.id == b.plugin).map(|(i, _)| i) else { return };
-            crate::plugin_host::luau::commands::spawn(s, index, run, (), tx);
+            let Some(index) = s.plugins.running().find(|(_, pl)| pl.half.id == b.plugin).map(|(i, _)| i) else { return };
+            crate::plugin_host::commands::spawn(s, index, run, (), tx);
         })
         .child(text(label).font(TITLE).color(p.text))
 }

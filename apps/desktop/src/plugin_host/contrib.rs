@@ -39,9 +39,9 @@ pub fn sync(app: &App) {
     if !app.plugins.started {
         return;
     }
-    let all: Vec<CodeAction> = app.plugins.luau.running().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
+    let all: Vec<CodeAction> = app.plugins.running().flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().map(|c| CodeAction { key: c.key, label: c.spec.title.clone(), icon: resolve("", &c.spec.icon), languages: c.spec.languages.clone() }).collect::<Vec<_>>()).collect();
     CODE_ACTIONS.with(|a| *a.borrow_mut() = all);
-    let tools: Vec<McpTool> = super::luau::commands::mcp_tools(app).into_iter().map(|(name, description, schema)| McpTool::new(name, description, schema)).collect();
+    let tools: Vec<McpTool> = super::commands::mcp_tools(app).into_iter().map(|(name, description, schema)| McpTool::new(name, description, schema)).collect();
     if let Ok(mut t) = MCP_TOOLS.lock()
         && *t != tools
     {
@@ -66,13 +66,13 @@ pub fn mcp_tools_generation() -> u64 {
 /// `session` is the session the call came from.
 pub fn mcp_call(app: &mut App, session: &str, call: McpCall, tx: &mut Tx) -> Option<McpCall> {
     let directory = if call.directory.is_empty() { app.session(session).map(|s| s.directory.clone()).unwrap_or_default() } else { call.directory.clone() };
-    super::luau::commands::mcp_call(app, call, session, &directory, tx)
+    super::commands::mcp_call(app, call, session, &directory, tx)
 }
 
 /// Follows `href` with the highest-priority plugin link handler that takes it; false when none
 /// does.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
-    super::luau::commands::open_link(app, href, tx)
+    super::commands::open_link(app, href, tx)
 }
 
 /// Plugins' buttons for a code block's hover row, beside Copy (`TimelineHost::code_block_actions`).
@@ -97,7 +97,7 @@ pub fn code_block_actions(p: &Pal, language: Option<&str>, source: &str) -> Vec<
                     .hover(p.hover)
                     .press(p.pressed)
                     .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| super::luau::commands::run_code_block_action(s, key, &code, &lang, tx))
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| super::commands::run_code_block_action(s, key, &code, &lang, tx))
                     .child(icon(a.icon, 16.0).color(p.icon_muted))
             })
             .collect()
@@ -106,18 +106,18 @@ pub fn code_block_actions(p: &Pal, language: Option<&str>, source: &str) -> Vec<
 
 /// Runs menu item `key` (`<plugin>.<id>`) on `target` (a server's id for `server.row`).
 pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
-    super::luau::commands::run_menu_item(app, key, target, tx);
+    super::commands::run_menu_item(app, key, target, tx);
 }
 
 /// The `server.add` or `server.row` menu items, for Settings › Servers: `(key, title)`.
 pub fn server_menu_items(app: &App, menu: &str) -> Vec<(&'static str, String)> {
-    super::luau::commands::menu_items(app, menu).into_iter().map(|(key, title, ..)| (key, title)).collect()
+    super::commands::menu_items(app, menu).into_iter().map(|(key, title, ..)| (key, title)).collect()
 }
 
 /// The app menu's plugin items: `(submenu, key, title)`, the submenu one of `file`, `edit`,
 /// `view`, `go`, `window`, `help` (`app` items join Help where there's no app menu).
 pub fn menubar_items() -> Vec<(&'static str, &'static str, String)> {
-    let mut items: Vec<_> = super::luau::commands::menubar_items().into_iter().map(|(key, menu, label, order)| (order, menu_name(&menu), key, label)).collect();
+    let mut items: Vec<_> = super::commands::menubar_items().into_iter().map(|(key, menu, label, order)| (order, menu_name(&menu), key, label)).collect();
     items.sort_by_key(|i| i.0);
     items.into_iter().map(|(_, menu, key, title)| (menu, key, title)).collect()
 }
@@ -137,7 +137,7 @@ fn menu_name(target: &str) -> &'static str {
 
 /// Runs app menu item `key`; false when no plugin has it.
 pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
-    super::luau::commands::run_menubar(app, key, tx)
+    super::commands::run_menubar(app, key, tx)
 }
 
 /// One row settings search can find.
@@ -157,7 +157,7 @@ pub struct SearchEntry {
 /// plugin's manifest entries (known without running it) that no running plugin registered itself.
 pub fn settings_search(app: &App) -> Vec<SearchEntry> {
     let mut out: Vec<SearchEntry> = Vec::new();
-    for lp in &app.plugins.luau.plugins {
+    for lp in &app.plugins.list {
         let owner = lp.manifest.name.clone();
         out.extend(lp.half.contribs.borrow().settings.iter().map(|c| SearchEntry { owner: owner.clone(), page: "plugins".to_owned(), id: c.spec.id.clone(), title: c.spec.title.clone(), description: c.spec.description.clone().unwrap_or_default(), keywords: c.spec.keywords.clone().unwrap_or_default() }));
         out.extend(lp.manifest.settings_search.iter().filter(|e| !out.iter().any(|o| o.id == e.id)).map(|e| SearchEntry { owner: owner.clone(), page: e.page.clone(), id: e.id.clone(), title: e.title.clone(), description: e.description.clone().unwrap_or_default(), keywords: e.keywords.clone().unwrap_or_default() }).collect::<Vec<_>>());
@@ -169,7 +169,7 @@ pub fn settings_search(app: &App) -> Vec<SearchEntry> {
 /// their own (settings search, servers and their menus, MCP tools) too, for checking a plugin
 /// from the command line.
 pub(super) fn print_index(app: &App) {
-    super::luau::print_index(app);
+    super::print_index(app);
     for e in settings_search(app) {
         eprintln!("plugin index: settings search: {} › {} › {} ({}): {} [{}]", e.owner, e.page, e.title, e.id, e.description, e.keywords);
     }

@@ -1,7 +1,7 @@
 //! The window's embedded Chromium 156 browser (`browser_pane::BrowserHost`): its pages, the
 //! session each belongs to, the engine's background download, and the DevTools calls in flight.
 //! The browser plugin (`plugins/browser`) draws the pane, its address bar and its menus over
-//! this through the `Browser` service and `ui.browserSurface` (`plugin_host::luau::native::browser`).
+//! this through the `Browser` service and `ui.browserSurface` (`plugin_host::native::browser`).
 
 pub mod prefetch;
 pub mod view;

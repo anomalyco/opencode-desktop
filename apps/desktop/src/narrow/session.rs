@@ -42,7 +42,7 @@ pub struct NarrowView {
 /// Every narrow view the window offers, in ascending order.
 pub fn views(s: &App) -> Vec<NarrowView> {
     use opencode_plugin_spec::PanelMobileKind;
-    let mut out: Vec<NarrowView> = crate::plugin_host::luau::panels::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
+    let mut out: Vec<NarrowView> = crate::plugin_host::panels::narrow_views(s).into_iter().map(|(id, v)| NarrowView {
         id,
         title: v.title,
         order: v.order,

@@ -231,7 +231,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
         View::Error(e) => ("error", None, Some(e.as_str())),
     };
     let progress = snapshot.progress.filter(|p| p.total > 0).map(|p| p.downloaded as f64 / p.total as f64);
-    crate::plugin_host::luau::services::map([
+    crate::plugin_host::services::map([
         ("phase", Data::String(phase.into())),
         ("version", version.map_or(Data::Nil, |v| Data::String(v.clone()))),
         ("progress", progress.map_or(Data::Nil, Data::Number)),
@@ -242,7 +242,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
 /// `Updater:CheckAsync()`: checks now and answers with what the check found.
 pub fn check_async(s: &App, done: Completer) {
     let Some(service) = &s.updater.service else {
-        done.complete(crate::plugin_host::luau::services::map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
+        done.complete(crate::plugin_host::services::map([("phase", Data::String("error".into())), ("error", Data::String(NO_UPDATER.into()))]));
         return;
     };
     let ticket = service.borrow_mut().check();

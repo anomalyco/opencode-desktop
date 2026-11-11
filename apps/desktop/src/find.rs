@@ -479,7 +479,7 @@ impl App {
         let mut matches = Vec::new();
         let mut rows = HashMap::new();
         // Outlines read as their words only while a plugin draws them (Rune UI).
-        let outlines = crate::plugin_host::luau::surfaces::code_block_lang(self, "ui");
+        let outlines = crate::plugin_host::surfaces::code_block_lang(self, "ui");
         let mut record = |parts: &mut HashMap<(String, usize), CachedPart>, row_key: String, cache_key: (String, usize), body: &str, plain: bool| {
             let sig = str_sig(body);
             let len = body.len();

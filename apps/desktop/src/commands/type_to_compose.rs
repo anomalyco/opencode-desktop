@@ -67,7 +67,7 @@ impl App {
             && !self.fork.open
             && !self.find.input.focused
             && !self.search.focused
-            && !crate::plugin_host::luau::field_focused(self)
+            && !crate::plugin_host::field_focused(self)
             && self.menus.on.is_none()
             && self.menus.renaming().is_none()
             && self.menus.confirming().is_none()

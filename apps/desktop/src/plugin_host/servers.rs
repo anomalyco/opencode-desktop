@@ -53,7 +53,7 @@ impl Contributed {
 /// Every contributed server, its source's `order` first, then as listed.
 pub fn all(_app: &App) -> Vec<Contributed> {
     // Server sources' entries, shared by every window; a window half draws their rows.
-    let mut out: Vec<(i64, Contributed)> = super::luau::servers().into_iter().map(|(plugin, order, rec)| (order, Contributed { key: format!("{plugin}:{}", rec.id), rec, address: false })).collect();
+    let mut out: Vec<(i64, Contributed)> = super::server_sources::all().into_iter().map(|(plugin, order, rec)| (order, Contributed { key: format!("{plugin}:{}", rec.id), rec, address: false })).collect();
     out.sort_by_key(|(order, _)| *order);
     // Then the servers added by address, as Desktop lists its stored ones after those provided.
     let by_address = crate::servers::list().into_iter().map(|s| Contributed {
@@ -69,7 +69,7 @@ pub fn all(_app: &App) -> Vec<Contributed> {
 pub fn changed(app: &mut App, tx: &mut Tx) {
     tx.instant();
     let servers = all(app);
-    let pending = super::luau::servers::pending_sources();
+    let pending = super::server_sources::pending_sources();
     let facts = &mut app.plugins.shared.facts;
     facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == ServerState::Ready) || pending.iter().any(|(plugin, _)| key.starts_with(&format!("{plugin}:"))));
     let fresh: Vec<Contributed> = servers.into_iter().filter(|s| !s.by_address() && s.rec.state == ServerState::Ready && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
@@ -84,7 +84,7 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
                 let still = all(app).into_iter().any(|c| c.key == s.key && c.rec.url == s.rec.url && c.rec.state == ServerState::Ready);
                 if let (Some(v), true) = (version, still) {
                     app.plugins.shared.facts.health.insert(s.key.clone(), v);
-                    super::luau::bump();
+                    super::bump();
                     tx.instant();
                 }
             }));
@@ -103,7 +103,7 @@ pub fn read_own_version(app: &mut App) {
         deliver(Box::new(move |app: &mut App, _: &mut Tx| {
             if let Some(v) = version {
                 app.plugins.shared.facts.server_version = Some(v);
-                super::luau::bump();
+                super::bump();
             }
         }));
     });
@@ -234,7 +234,7 @@ pub fn poll_actions(app: &mut App, tx: &mut Tx) {
             .collect()
     });
     for key in dropped {
-        super::luau::servers::call(app, &key, "reconnect", None, tx);
+        super::server_sources::call(app, &key, "reconnect", None, tx);
     }
     if let Some(at) = ACTIONS.with_borrow(|a| a.values().filter_map(|s| match s.timeout {
         Timeout::Due { at, .. } => Some(at),
@@ -277,9 +277,9 @@ fn run_actions(app: &mut App, key: &str, effects: rune::machine::Effects<plugin_
                 });
                 tx.wake_at(at);
                 let answer = key.to_owned();
-                let settle: super::luau::servers::Settle = Box::new(move |ready| SETTLED.with_borrow_mut(|q| q.push((answer, attempt, ready))));
+                let settle: super::server_sources::Settle = Box::new(move |ready| SETTLED.with_borrow_mut(|q| q.push((answer, attempt, ready))));
                 // A source without `connect` can't sign in: the attempt ends at once.
-                if !super::luau::servers::call(app, key, "connect", Some(settle), tx) {
+                if !super::server_sources::call(app, key, "connect", Some(settle), tx) {
                     SETTLED.with_borrow_mut(|q| q.push((key.to_owned(), attempt, false)));
                 }
             }
@@ -339,7 +339,7 @@ pub fn cover(app: &App, p: &crate::palette::Pal) -> Option<rune::El> {
         crate::Route::Home => return None,
     };
     let c = all(app).into_iter().find(|c| !c.by_address() && c.key == server.as_str() && c.rec.state != ServerState::Ready)?;
-    super::luau::surfaces::server_cover(app, p, &c.key, &c.rec, &tab)
+    super::surfaces::server_cover(app, p, &c.key, &c.rec, &tab)
 }
 
 /// Contributed server `c`'s connection row in Settings › Servers, as its plugin draws it.
@@ -347,5 +347,5 @@ pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::
     if c.by_address() {
         return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| crate::settings::pages::servers::http_row(p, &s));
     }
-    super::luau::surfaces::server_row(app, p, &c.key, &c.rec)
+    super::surfaces::server_row(app, p, &c.key, &c.rec)
 }

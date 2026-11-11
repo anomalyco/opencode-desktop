@@ -264,7 +264,7 @@ fn sync(s: &mut App) {
     }
     let (stored, version) = STORE.with_borrow(|st| (st.selection.clone(), st.version));
     let env = machine::Env {
-        hydrated: !s.live() || crate::plugin_host::luau::servers::pending_sources().is_empty(),
+        hydrated: !s.live() || crate::plugin_host::server_sources::pending_sources().is_empty(),
         stored,
         servers: servers
             .iter()

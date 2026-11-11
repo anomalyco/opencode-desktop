@@ -84,7 +84,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // in Desktop's DOM.
     cx.web_focus();
     // The debug bar's FOCUS: every control shows its focus ring.
-    if s.plugins.luau.force_focus {
+    if s.plugins.force_focus {
         cx.force_focus_rings();
     }
     // Tooltips are Desktop's compact `Tooltip` (`tooltip.css`), placed and timed as its Kobalte.
@@ -169,7 +169,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let root = root.dir(ui_direction());
     root.on_key_up(crate::dictation::key_up)
         .on_window_focus(|s: &mut App, focused, tx| {
-            s.plugins.luau.window_blurred.set(!focused);
+            s.plugins.window_blurred.set(!focused);
             if focused { crate::launch::network_available(s, tx); }
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.

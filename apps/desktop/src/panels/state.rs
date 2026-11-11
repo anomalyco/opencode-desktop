@@ -215,7 +215,7 @@ impl ResolvedRegion {
 impl App {
     /// The panel providers: each running plugin that adds panels.
     pub fn all_panels(&self) -> Vec<PanelRegistration> {
-        let mut out = crate::plugin_host::luau::panels::providers(self);
+        let mut out = crate::plugin_host::panels::providers(self);
         out.sort_by_key(|p| (p.order, p.plugin));
         out
     }
@@ -469,7 +469,7 @@ impl App {
         if was_open {
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
-            crate::plugin_host::luau::blur_fields(self);
+            crate::plugin_host::blur_fields(self);
             return;
         }
 
@@ -697,7 +697,7 @@ impl App {
         tx.instant();
         self.side.tab_menu = None;
         // A plugin's field in the tab left behind gives up the keyboard, as the app's own do.
-        crate::plugin_host::luau::blur_fields(self);
+        crate::plugin_host::blur_fields(self);
         if !key.starts_with("file:") {
             self.files.filter.focused = false;
         }

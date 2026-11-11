@@ -407,7 +407,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         tools::execute(s, &routed.target_session, routed.call, tx);
         changed = true;
     }
-    if crate::plugin_host::luau::commands::expire_calls(tx) {
+    if crate::plugin_host::commands::expire_calls(tx) {
         changed = true;
     }
     changed

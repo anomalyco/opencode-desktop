@@ -4,14 +4,14 @@
 use rune::{El, Tx, col, row, text};
 
 use super::icons::intern;
-use super::luau::{Life, Plugin};
+use super::{Life, Plugin};
 use crate::App;
 use crate::palette::Pal;
 use crate::view::UI_MED;
 
 /// Settings › Plugins. Nothing when no plugin is installed.
 pub fn settings_section(s: &App, p: &Pal) -> Option<El> {
-    let plugins = &s.plugins.luau.plugins;
+    let plugins = &s.plugins.list;
     if plugins.is_empty() {
         return None;
     }
@@ -35,7 +35,7 @@ fn controls(p: &Pal, lp: &Plugin) -> El {
     let switchable = matches!(lp.life, Life::Running(_) | Life::Reloading(_) | Life::Disabled | Life::Errored { .. } | Life::AwaitingTrust);
     let toggle = switchable.then(|| {
         let id = id.clone();
-        crate::settings::switch(p, &format!("plugin-switch-{id}"), lp.running()).on_press_tx(move |app: &mut App, tx: &mut Tx| super::luau::toggle(app, &id, tx))
+        crate::settings::switch(p, &format!("plugin-switch-{id}"), lp.running()).on_press_tx(move |app: &mut App, tx: &mut Tx| super::toggle(app, &id, tx))
     });
     let reload = matches!(lp.life, Life::Running(_) | Life::Errored { .. }).then(|| {
         row()
@@ -51,8 +51,8 @@ fn controls(p: &Pal, lp: &Plugin) -> El {
             .press(p.pressed)
             .on_press_tx(move |app: &mut App, tx: &mut Tx| {
                 tx.instant();
-                if let Some(i) = app.plugins.luau.find(&id) {
-                    super::luau::reload(app, i, None);
+                if let Some(i) = app.plugins.find(&id) {
+                    super::reload(app, i, None);
                 }
             })
             .child(text("Reload").font(UI_MED).color(p.text))
@@ -62,11 +62,11 @@ fn controls(p: &Pal, lp: &Plugin) -> El {
 
 /// The settings rows plugin `i` registered, under its name.
 fn plugin_rows(s: &App, p: &Pal, i: usize) -> Option<El> {
-    let lp = &s.plugins.luau.plugins[i];
+    let lp = &s.plugins.list[i];
     if !lp.running() {
         return None;
     }
-    let rows = super::luau::surfaces::setting_rows(s, p, i);
+    let rows = super::surfaces::setting_rows(s, p, i);
     if rows.is_empty() {
         return None;
     }
