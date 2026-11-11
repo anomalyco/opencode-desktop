@@ -15,6 +15,12 @@
 //! The mic shows while Hex is there (on Windows always, so a press without Hex offers its
 //! download). Tests, headless runs and the storybook use a fake Hex unless `SEER_HEX` names an
 //! endpoint file, so they never open the microphone.
+//!
+//! Where Hex is costs the UI thread nothing, as Hex's own SDK does it (`connect()` reads the
+//! endpoint file when it connects): a press's thread finds Hex (`hex_client::dictate`). Only where
+//! the mic hides without Hex (off Windows) does the window need to know sooner; there the
+//! composer's first toolbar starts a watcher on Hex's folder, whose thread looks once and again
+//! only when the folder changes.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -35,8 +41,7 @@ const HOLD: f64 = 0.3;
 /// "Preparing dictation…" shows once Hex has taken this long to start, so a quick start shows
 /// nothing but the stop.
 const PREPARING_AFTER: f64 = 0.25;
-/// Seconds between looks for Hex while idle.
-const LOOK_SECS: f64 = 2.0;
+
 /// The fake's transcription time.
 const FAKE_TRANSCRIBE: f64 = 0.6;
 /// The fake's start when the storybook asks for a slow one.
@@ -66,10 +71,75 @@ impl Backend {
         Backend::Hex { file: hex_client::discovery(&support), support }
     }
 
-    fn presence(&self) -> Presence {
+    /// Where Hex is, as the watcher last saw: always running for the fake, never known on
+    /// Windows (the mic shows either way), unknown off it until a window's toolbar asks. `wake`
+    /// joins that window to the watcher's changes.
+    fn watch(&self, wake: Option<&rune::Waker>) -> Option<Presence> {
         match self {
-            Backend::Fake => Presence::Running,
-            Backend::Hex { file, support } => hex_client::presence(file, support),
+            Backend::Fake => Some(Presence::Running),
+            Backend::Hex { .. } if hex_client::MIC_WITHOUT_HEX => None,
+            Backend::Hex { file, support } => WATCH.with(|w| {
+                let w = w.get_or_init(|| Watch::spawn(file.clone(), support.clone()));
+                if let Some(wake) = wake { w.wakes.lock().unwrap_or_else(|e| e.into_inner()).push(wake.clone()); }
+                w.presence()
+            }),
+        }
+    }
+}
+
+thread_local! {
+    /// One watcher per UI thread, shared by its windows.
+    static WATCH: std::cell::OnceCell<Watch> = const { std::cell::OnceCell::new() };
+}
+
+/// Where Hex is, off Windows, kept by a thread that looks once and then again only when Hex's
+/// folder (or, until Hex makes it, the folder above it) changes. The thread keeps the watcher,
+/// and both last as long as the process.
+struct Watch {
+    /// `Presence` as 1 + its index; 0 until the thread's first look.
+    seen: Arc<std::sync::atomic::AtomicU8>,
+    /// The windows to wake when it changes.
+    wakes: Arc<Mutex<Vec<rune::Waker>>>,
+}
+
+impl Watch {
+    fn spawn(file: PathBuf, support: PathBuf) -> Watch {
+        use notify::Watcher as _;
+        let seen = Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let wakes: Arc<Mutex<Vec<rune::Waker>>> = Arc::default();
+        let woken = wakes.clone();
+        let (changed, changes) = mpsc::channel::<()>();
+        let slot = seen.clone();
+        let _ = std::thread::Builder::new().name("hex-presence".to_owned()).spawn(move || {
+            let mut watcher = notify::recommended_watcher(move |_: notify::Result<notify::Event>| { let _ = changed.send(()); }).ok();
+            let dir = file.parent().map(PathBuf::from).unwrap_or_default();
+            let mut watching: Option<PathBuf> = None;
+            loop {
+                // Hex's folder once it exists, else the nearest folder above it, for its making.
+                let target = dir.ancestors().find(|d| d.is_dir()).map(PathBuf::from);
+                if target != watching && let (Some(w), Some(to)) = (watcher.as_mut(), &target) {
+                    if let Some(old) = &watching { let _ = w.unwatch(old); }
+                    let _ = w.watch(to, notify::RecursiveMode::NonRecursive);
+                    watching = target;
+                }
+                let now = match hex_client::presence(&file, &support) { Presence::Missing => 1, Presence::Stopped => 2, Presence::Running => 3 };
+                if slot.swap(now, std::sync::atomic::Ordering::AcqRel) != now {
+                    for wake in woken.lock().unwrap_or_else(|e| e.into_inner()).iter() { wake(); }
+                }
+                if changes.recv().is_err() { return; }
+                // One save is several events: look once the folder is quiet.
+                while changes.recv_timeout(std::time::Duration::from_millis(50)).is_ok() {}
+            }
+        });
+        Watch { seen, wakes }
+    }
+
+    fn presence(&self) -> Option<Presence> {
+        match self.seen.load(std::sync::atomic::Ordering::Acquire) {
+            1 => Some(Presence::Missing),
+            2 => Some(Presence::Stopped),
+            3 => Some(Presence::Running),
+            _ => None,
         }
     }
 }
@@ -113,9 +183,12 @@ struct Rec {
 
 pub struct Dictation {
     backend: Backend,
-    /// Where Hex was at the last look, and when that was.
-    presence: Presence,
-    looked: f64,
+    /// Where Hex is, when known (`Backend::watch`).
+    presence: Option<Presence>,
+    /// This window's toolbar joined the watcher.
+    watching: std::cell::Cell<bool>,
+    /// The recording's Hex thread wakes the window when it hears something.
+    wakes: bool,
     phase: Phase,
     /// What Hex's threads heard, tagged with their recording.
     heard: Arc<Mutex<Vec<(Attempt, Heard)>>>,
@@ -132,8 +205,8 @@ impl Default for Dictation {
 
 impl Dictation {
     fn with(backend: Backend) -> Dictation {
-        let presence = backend.presence();
-        Dictation { backend, presence, looked: f64::NEG_INFINITY, phase: Phase::Idle, heard: Arc::default(), seq: Seq::default(), prepare: 0.0 }
+        let presence = matches!(backend, Backend::Fake).then_some(Presence::Running);
+        Dictation { backend, presence, watching: std::cell::Cell::new(false), wakes: false, phase: Phase::Idle, heard: Arc::default(), seq: Seq::default(), prepare: 0.0 }
     }
 
     /// The storybook's Hex, whatever the app runs on.
@@ -167,7 +240,7 @@ impl Dictation {
 
     /// The mic shows while Hex is there, or always where a press offers its download.
     fn shows_mic(&self) -> bool {
-        self.presence != Presence::Missing || hex_client::MIC_WITHOUT_HEX || self.active()
+        hex_client::MIC_WITHOUT_HEX || self.active() || self.presence.is_some_and(|p| p != Presence::Missing)
     }
 
     /// The fake starts slowly from now on, as a Hex loading its model would.
@@ -215,8 +288,8 @@ enum Effect {
 fn step(d: &mut Dictation, event: Event) -> (bool, Option<Effect>) {
     match (std::mem::replace(&mut d.phase, Phase::Idle), event) {
         (Phase::Idle | Phase::Failed(_), Event::Toggle { now, held }) => {
-            d.presence = d.backend.presence();
-            if d.presence == Presence::Missing {
+            // Off Windows the watcher knows; elsewhere the press's thread finds out.
+            if d.presence == Some(Presence::Missing) {
                 d.phase = Phase::Failed(if hex_client::MIC_WITHOUT_HEX { Problem::not_installed() } else { Problem::of(hex_client::NOT_RUNNING) });
                 return (true, None);
             }
@@ -329,9 +402,13 @@ fn run(s: &mut App, event: Event, tx: Option<&mut Tx>) -> bool {
             let d = &mut s.dictation;
             if let Backend::Hex { file, support } = &d.backend {
                 let (cmd, rx) = mpsc::channel();
-                let (file, support, heard) = (file.clone(), support.clone(), d.heard.clone());
+                let (file, support, heard, wake) = (file.clone(), support.clone(), d.heard.clone(), s.launch.inbox_wake.clone());
+                d.wakes = wake.is_some();
                 std::thread::spawn(move || {
-                    hex_client::dictate(&file, &support, SOURCE, &rx, &mut |h| heard.lock().unwrap_or_else(|e| e.into_inner()).push((attempt, h)));
+                    hex_client::dictate(&file, &support, SOURCE, &rx, &mut |h| {
+                        heard.lock().unwrap_or_else(|e| e.into_inner()).push((attempt, h));
+                        if let Some(wake) = &wake { wake(); }
+                    });
                 });
                 if let Phase::Starting { rec, .. } | Phase::Listening { rec, .. } = &mut d.phase {
                     rec.cmd = Some(cmd);
@@ -408,9 +485,9 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let d = &mut s.dictation;
     let mut changed = false;
-    if !d.active() && now - d.looked >= LOOK_SECS {
-        d.looked = now;
-        let presence = d.backend.presence();
+    // The watcher's look, once the toolbar has started it: one atomic load, no file.
+    if d.watching.get() {
+        let presence = d.backend.watch(None);
         changed |= presence != d.presence;
         d.presence = presence;
     }
@@ -430,9 +507,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if words_due.is_some_and(|t| now >= t) {
         heard.push(Heard::Words(std::env::var("SEER_FAKE_WORDS").unwrap_or_else(|_| FAKE_WORDS.into())));
     }
-    // Hex's thread can't wake the app, so look again soon; and on time for the slow-start line
-    // and the fake's next step.
-    let mut next = now + 0.1;
+    // On time for the slow-start line and the fake's next step; a Hex thread that can't wake
+    // the window (a press before its first frame) is looked at again soon.
+    let mut next = if d.wakes { f64::INFINITY } else { now + 0.1 };
     if starting {
         next = next.min(since + PREPARING_AFTER);
         if fake {
@@ -442,7 +519,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if let Some(t) = words_due {
         next = next.min(t);
     }
-    tx.wake_at(next.max(now + 0.001));
+    if next.is_finite() {
+        tx.wake_at(next.max(now + 0.001));
+    }
     if let Phase::Starting { slow, .. } = &mut d.phase
         && !*slow
         && now - since >= PREPARING_AFTER
@@ -483,6 +562,12 @@ fn insert(s: &mut App, words: &str) {
 /// Windows, where the mic offers Hex's download).
 pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
     let d = &s.dictation;
+    // Off Windows the mic hides without Hex: the first toolbar starts the watcher.
+    // Its waker comes with the window's first frame (`on_ready`).
+    if !hex_client::MIC_WITHOUT_HEX && !d.watching.get() && let Some(wake) = &s.launch.inbox_wake {
+        d.backend.watch(Some(wake));
+        d.watching.set(true);
+    }
     if !d.shows_mic() {
         return None;
     }
