@@ -841,7 +841,7 @@ impl App {
 
     /// `new`, for window `window`: its own tabs and page.
     fn new_window(window: windows::Window) -> App {
-        let mut app = Self::load(window);
+        let mut app = telemetry::startup("launch.load", || Self::load(window));
         appearance::apply_args(&mut app);
         if let Some(layout) = arg("--tab-layout") {
             app.settings.tab_layout = layout_state::TabLayout::parse(Some(&layout));
@@ -919,7 +919,7 @@ impl App {
         };
         // The window starts on the app's own server; its tabs' other servers join as they're listed.
         let server = servers::runtime::bind(self, server);
-        let doc = restore::read_window(self, &server);
+        let doc = telemetry::startup("launch.window_doc", || restore::read_window(self, &server));
         let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
         // Desktop Beta's tabs come into the profile's first window only.
         let beta = self.window.legacy && server.base == DEFAULT_SERVER;
@@ -948,7 +948,7 @@ impl App {
         }
         self.prompts = prompt_history::PromptHistory::load();
         self.pickers.prefs = model_prefs::load();
-        self.restore_ui(&doc, &server.base);
+        telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         self.base_ms = wall_ms();
         self.now_ms = self.base_ms;
         let allow_send = !flag("--read-only") && attended();
@@ -1248,7 +1248,11 @@ fn setup(s: &mut App, waker: Waker) {
     s.turn_diffs.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
-    plugin_host::setup(s, waker.clone());
+    if launch::deferred() && !headless() && s.launch.cold_transcript.is_some() {
+        s.launch.plugins = launch::PluginSetup::AfterFrame(waker.clone());
+    } else {
+        telemetry::startup("launch.plugins", || plugin_host::setup(s, waker.clone()));
+    }
     s.setup_rune_mcp(waker);
     if !s.playback.is_empty() {
         s.wake_at_playback();
@@ -1310,6 +1314,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 }
 
 fn main() {
+    telemetry::launched();
     launch::attach_console();
     askpass::run_if_asked();
     #[cfg(windows)]
@@ -1327,12 +1332,11 @@ fn main() {
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return;
     }
-    telemetry::launched();
     opencode_kit::client::set_download_dir(dirs::downloads());
-    rune_mac::launch();
-    notifications::identify();
-    rune::prewarm_gpu();
-    launch::apply_app_icon();
+    telemetry::startup("launch.platform", rune_mac::launch);
+    telemetry::startup("launch.notifications", notifications::identify);
+    telemetry::startup("launch.gpu", rune::prewarm_gpu);
+    telemetry::startup("launch.icon", launch::apply_app_icon);
     #[cfg(feature = "hot")]
     rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::hot) });
     #[cfg(not(feature = "hot"))]
@@ -1357,7 +1361,7 @@ fn main() {
         let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
         app.on_ready(move |_| {
             let wake = launch::inbox_waker(handle.clone());
-            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx); false });
+            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
         })
             .on_frame_encoded(move |f| {
                 encoded.encoded(f);
