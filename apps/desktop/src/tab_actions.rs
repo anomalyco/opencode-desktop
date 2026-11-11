@@ -96,6 +96,7 @@ impl App {
         if self.route == Route::Home && !self.settings.open {
             self.opening = None;
             self.route = self.tabs.last().map_or(Route::Home, crate::tabs::Tab::route);
+            let _ = self.show_draft();
             tx.settle();
             return false;
         }
@@ -155,6 +156,7 @@ impl App {
         let id = tabs::draft_id();
         self.tabs.push(Tab::draft(id.clone(), self.default_dir.clone()));
         self.route = Route::Draft(id.clone());
+        let _ = self.show_draft();
         self.apply_default_destination();
         if self.stage.is_none() {
             self.composer.focused = true;
@@ -176,6 +178,7 @@ impl App {
         self.close_picker(false);
         self.opening = None;
         self.route = Route::Draft(tab.id);
+        let _ = self.show_draft();
         if self.stage.is_none() {
             self.composer.focused = true;
         }
@@ -224,12 +227,10 @@ impl App {
             TabKind::Draft => {
                 self.forget_draft_history(&id);
                 self.restore.drafts.remove(&id);
+                self.restore.parked.remove(&id);
                 self.add.park(id.clone(), session_view::composer::mode::Mode::Normal);
                 if shown {
-                    self.restore.shown = None;
-                    let focused = self.composer.focused;
-                    self.composer = TextEdit::new("");
-                    self.composer.focused = focused;
+                    self.drop_shown_draft();
                 }
             }
         }

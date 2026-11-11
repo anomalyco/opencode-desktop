@@ -22,6 +22,8 @@ pub struct Seed {
     pub tabs: Vec<Tab>,
     pub route: Route,
     pub drafts: HashMap<String, String>,
+    /// The moving drafts' attachments, quotes and pills.
+    parked: HashMap<String, crate::restore::Parked>,
     /// The moving drafts in shell mode, which they keep.
     shell: Vec<String>,
     default_dir: String,
@@ -33,6 +35,7 @@ impl Seed {
     pub fn from(s: &App, tabs: Vec<Tab>, route: Route) -> Seed {
         Seed {
             drafts: tabs.iter().filter_map(|t| Some((t.id.clone(), s.draft_text(&t.id)?))).collect(),
+            parked: tabs.iter().filter_map(|t| Some((t.id.clone(), s.draft_parked(&t.id)?))).collect(),
             shell: tabs.iter().filter(|t| s.draft_mode(&t.id) == Mode::Shell).map(|t| t.id.clone()).collect(),
             tabs,
             route,
@@ -56,6 +59,7 @@ impl App {
         self.default_dir = seed.default_dir;
         self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);
+        self.restore.parked.extend(seed.parked);
         for id in seed.shell {
             self.add.park(id, Mode::Shell);
         }

@@ -201,7 +201,7 @@ impl App {
 
     /// Sends `tab` to the window under the pointer, where it joins the strip, and drops it here.
     fn move_tab_to(&mut self, tab: Tab, target: Target, tx: &mut Tx) {
-        let draft = self.draft_text(&tab.id);
+        let draft = (self.draft_text(&tab.id), self.draft_parked(&tab.id));
         let id = tab.uid();
         let at = target.at;
         target.app.update(move |a, tx| a.receive_tab(tab, draft, at, tx));
@@ -232,9 +232,13 @@ impl App {
     /// A tab dropped onto this window from another: on the strip at `at` (window points), into
     /// the gap the strip opened for it, found from its own tabs, or where `at` falls when the strip
     /// never opened one (a drop with no window following the pointer); anywhere else, at the end.
-    pub(crate) fn receive_tab(&mut self, tab: Tab, draft: Option<String>, at: Option<[f32; 2]>, tx: &mut Tx) {
-        if let Some(text) = draft {
+    pub(crate) fn receive_tab(&mut self, tab: Tab, draft: (Option<String>, Option<crate::restore::Parked>), at: Option<[f32; 2]>, tx: &mut Tx) {
+        let (text, parked) = draft;
+        if let Some(text) = text {
             self.restore.drafts.insert(tab.id.clone(), text);
+        }
+        if let Some(parked) = parked {
+            self.restore.parked.insert(tab.id.clone(), parked);
         }
         let slot = self.tab_drag.incoming_slot();
         self.tab_drag.set_incoming(None);
@@ -265,10 +269,10 @@ impl App {
         let shown = self.current_tab() == Some(self.tabs[i].uid());
         let id = self.tabs.remove(i).id;
         self.restore.drafts.remove(&id);
+        self.restore.parked.remove(&id);
         self.add.park(id, session_view::composer::mode::Mode::Normal);
         if shown {
-            self.restore.shown = None;
-            self.composer = rune::TextEdit::new("");
+            self.drop_shown_draft();
             match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {
                 Some(next) => self.select_tab(&next, tx),
                 None => self.go_home(tx),

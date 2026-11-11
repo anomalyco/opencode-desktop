@@ -7,6 +7,7 @@
 //! data folder (`crate::dirs`), under the app's own server.
 
 mod doc;
+mod parked;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -20,6 +21,7 @@ use serde_json::{Value, json};
 use crate::{App, Route};
 
 pub use doc::read_window;
+pub use parked::Parked;
 
 /// The draft key for a route: a session's id, or a draft tab's.
 pub fn draft_key(route: &Route) -> Option<String> {
@@ -63,6 +65,8 @@ impl InboxUi {
 pub struct Restore {
     /// Unsent composer text per draft key; the open one lives in `App::composer`.
     pub drafts: HashMap<String, String>,
+    /// The rest of each draft that isn't shown: attachments, quotes, pills (`parked`).
+    pub parked: HashMap<String, Parked>,
     /// Which draft `App::composer` holds.
     pub shown: Option<String>,
     pub inbox: InboxUi,
@@ -178,7 +182,7 @@ impl App {
         }
         self.side.restore_json(doc.side.as_ref().unwrap_or(&Value::Null));
         self.load_persisted_terminals(server);
-        self.show_draft();
+        let _ = self.show_draft();
         self.restore.saved = Some(self.ui_json());
         self.restore.stamp = Some(self.restore_stamp());
     }
@@ -216,29 +220,29 @@ impl App {
         crate::disk::flush();
     }
 
-    /// Swaps the composer's text when the route moves to another draft.
-    pub(crate) fn show_draft(&mut self) {
+    /// Swaps the composer's draft when the route moves to another: its words, pills, attachments,
+    /// context and quotes go with the draft they were made in. A story's composer is its own.
+    pub(crate) fn show_draft(&mut self) -> bool {
         let key = draft_key(&self.route);
-        if key == self.restore.shown {
-            return;
+        if key == self.restore.shown || self.stage.is_some() {
+            return false;
+        }
+        // Before any draft showed, what a scene put in the composer is the page's draft.
+        if self.restore.shown.is_none() && (!self.composer.text.is_empty() || self.attach.any() || self.quote.any()) {
+            self.restore.shown = key;
+            return false;
         }
         self.leave_queue_edits();
         self.add.swap_draft(self.restore.shown.as_deref(), key.as_deref());
+        let (text, parked) = self.take_composer_draft();
         if let Some(old) = self.restore.shown.take() {
-            let text = std::mem::take(&mut self.composer.text);
-            if text.trim().is_empty() {
-                self.restore.drafts.remove(&old);
-            } else {
-                self.restore.drafts.insert(old, text);
-            }
+            self.park_draft(old, text, parked);
         }
         // Another draft replaces this one: no list or recalled prompt applies to it (`history.reset`).
         self.suggest_drop();
-        let text = key.as_ref().and_then(|k| self.restore.drafts.get(k).cloned()).unwrap_or_default();
-        let focused = self.composer.focused;
-        self.composer = rune::TextEdit::new(&text);
-        self.composer.focused = focused;
+        self.put_composer_draft(key.as_deref());
         self.restore.shown = key;
+        true
     }
 
     fn ui_json(&self) -> Value {
@@ -310,7 +314,7 @@ impl App {
     /// Called every poll: keeps drafts per route and, on any change, writes the files off the UI
     /// thread (a few hundred bytes, renamed into place).
     pub fn poll_restore(&mut self) {
-        self.show_draft();
+        let _ = self.show_draft();
         self.freeze_organize_order();
         let stamp = self.restore_stamp();
         if self.restore.stamp == Some(stamp) {

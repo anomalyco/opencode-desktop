@@ -178,11 +178,14 @@ impl App {
                 self.attach.paths.extend(paths);
             }
             // Another page shows: the words land in the session's saved draft.
-            Effect::Merge { text, .. } => {
+            Effect::Merge { text, files, paths } => {
                 let key = crate::restore::draft_key(&Route::here(session.into()));
                 if let Some(key) = key {
-                    let draft = self.restore.drafts.entry(key).or_default();
+                    let draft = self.restore.drafts.entry(key.clone()).or_default();
                     *draft = merged_text(draft, &text);
+                    let parked = self.restore.parked.entry(key).or_default();
+                    parked.files.extend(files);
+                    parked.paths.extend(paths);
                 }
             }
             Effect::Load(_) | Effect::Restore { .. } => {}

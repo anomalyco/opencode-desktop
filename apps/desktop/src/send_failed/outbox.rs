@@ -242,7 +242,12 @@ impl App {
     pub(super) fn restore_rejection(&mut self, id: &str) {
         let Some(s) = self.unsent.get(id).cloned() else { return };
         if self.route != Route::here(s.session.clone()) {
-            self.restore.drafts.entry(s.session).or_insert(s.draft.text);
+            // Its session's draft takes it back whole, files and quotes too, when that's empty.
+            if self.capture_draft(&s.session).is_empty() {
+                let caret = s.draft.text.len();
+                let quotes = s.prompt.map(|p| p.comments).unwrap_or_default();
+                self.apply_draft(&s.session, crate::rewind::SavedDraft { entry: s.draft, caret, files: s.files, paths: s.paths, quotes });
+            }
             return;
         }
         if self.composer.text.is_empty() && !self.attach.any() && !self.quote.any() {

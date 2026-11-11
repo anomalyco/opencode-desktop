@@ -17,7 +17,7 @@ use opencode_kit::client::{PathAttachment, Ticket, TicketKind, Write};
 use opencode_kit::mention::{self, MentionKind};
 use opencode_kit::model::{self, Attachment, Message, PromptComment};
 use rune::machine::Attempt;
-use rune::{Align, El, LocalTime, Mark, MarkRange, Tx, icon};
+use rune::{Align, El, LocalTime, Tx, icon};
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::Pal;
@@ -55,8 +55,6 @@ pub struct RewindState {
     pub menu: Option<(String, String)>,
     /// Each session's rewinds, undos and redos (`machine.rs`).
     sessions: HashMap<String, SessionRevert>,
-    /// Per-session composer drafts (including pills, attachments and quotes) across tab switches.
-    pub(crate) drafts: HashMap<String, SavedDraft>,
 }
 
 impl RewindState {
@@ -121,7 +119,7 @@ impl App {
 
     /// Captures `session`'s current composer draft, attachments and quotes.
     pub fn capture_draft(&self, session: &str) -> SavedDraft {
-        if self.route == Route::here(session.to_owned()) {
+        if self.composer_holds(session) {
             return SavedDraft {
                 entry: Entry::of(&self.composer),
                 caret: self.composer.range().1.min(self.composer.text.len()),
@@ -130,73 +128,30 @@ impl App {
                 quotes: self.quote.quotes(),
             };
         }
-        if let Some(saved) = self.rewind.drafts.get(session) {
-            return saved.clone();
-        }
         let text = self.restore.drafts.get(session).cloned().unwrap_or_default();
-        let caret = text.len();
-        SavedDraft { entry: Entry { text, pills: Vec::new() }, caret, ..Default::default() }
+        let parked = self.restore.parked.get(session).cloned().unwrap_or_default();
+        let caret = parked.caret.filter(|&c| text.is_char_boundary(c)).unwrap_or(text.len());
+        SavedDraft { entry: Entry { text, pills: parked.pills }, caret, files: parked.files, paths: parked.paths, quotes: parked.quotes }
     }
 
     /// Replaces `session`'s composer draft, attachments and quotes (now if open, or for when it opens).
     pub fn apply_draft(&mut self, session: &str, draft: SavedDraft) {
-        if draft.entry.text.trim().is_empty() {
-            self.restore.drafts.remove(session);
-        } else {
-            self.restore.drafts.insert(session.to_owned(), draft.entry.text.clone());
+        if self.composer_holds(session) {
+            return self.write_composer_draft(draft);
         }
-        if draft.is_empty() {
-            self.rewind.drafts.remove(session);
-        } else {
-            self.rewind.drafts.insert(session.to_owned(), draft.clone());
-        }
-        if self.route == Route::here(session.to_owned()) {
-            self.write_composer_draft(draft);
-        }
+        let parked = crate::restore::Parked::of(&draft);
+        self.park_draft(session.to_owned(), draft.entry.text, parked);
     }
 
     fn write_composer_draft(&mut self, draft: SavedDraft) {
         let focused = self.composer.focused || (!self.stage.is_some_and(|st| st.watch()) && self.has_composer());
-        self.composer.replace_text(draft.entry.text);
-        self.composer.set_marks(
-            draft
-                .entry
-                .pills
-                .into_iter()
-                .map(|(r, id)| MarkRange::new(r, Mark::Pill(id)))
-                .collect(),
-        );
-        let caret = draft.caret.min(self.composer.text.len());
-        self.composer.set_caret(caret);
+        draft.entry.put(&mut self.composer, draft.caret.min(draft.entry.text.len()));
         self.composer.focused = focused;
         self.attach.files = draft.files;
         self.attach.paths = draft.paths;
         let _ = self.quote.take();
         for q in draft.quotes {
             self.quote.push(q);
-        }
-    }
-
-    /// Preserves per-session drafts created by rewind/fork across tab switches.
-    pub(crate) fn sync_route_draft(&mut self, prev: &Route, next_session: &str) {
-        if let Route::Session { id: old, .. } = prev
-            && old != next_session
-            && (self.rewind.drafts.contains_key(old) || self.rewind.drafts.contains_key(next_session))
-        {
-            let cur = SavedDraft {
-                entry: Entry::of(&self.composer),
-                caret: self.composer.range().1.min(self.composer.text.len()),
-                files: self.attach.files.clone(),
-                paths: self.attach.paths.clone(),
-                quotes: self.quote.quotes(),
-            };
-            if cur.is_empty() {
-                self.rewind.drafts.remove(old);
-            } else {
-                self.rewind.drafts.insert(old.clone(), cur);
-            }
-            let target = self.rewind.drafts.get(next_session).cloned().unwrap_or_default();
-            self.write_composer_draft(target);
         }
     }
 
