@@ -212,6 +212,11 @@ pub fn on_ready(waker: Waker) {
     }
 }
 
+/// Whether this run keeps its state in the database (not a run in memory).
+pub fn on_disk() -> bool {
+    !matches!(&*lock(), Some(Phase::Memory(_)) | None)
+}
+
 /// Whether every stored value is in memory (stage B joined, or a run in memory).
 pub fn is_ready() -> bool {
     matches!(&*lock(), Some(Phase::Ready(_) | Phase::Memory(_)) | None)

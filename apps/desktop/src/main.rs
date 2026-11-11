@@ -58,6 +58,7 @@ mod askpass;
 mod attachments;
 mod auto_accept;
 mod glitch;
+mod glyph_masks;
 mod auto_accept_story;
 mod background;
 mod background_stories;
@@ -1396,6 +1397,7 @@ fn main() {
     rune::marks::mark("instance.claimed");
     // The app's state: one database, read on its own thread while the windows are made.
     storage::start();
+    glyph_masks::start();
     rune::marks::mark("storage.started");
     opencode_kit::client::set_download_dir(dirs::downloads());
     telemetry::startup("launch.platform", rune_mac::launch);
