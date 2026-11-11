@@ -10,6 +10,7 @@ members = [
     "crates/opencode-kit",
     "crates/opencode-plugin",
     "crates/opencode-plugin-spec",
+    "crates/opencode-storage",
     "crates/otlp-lite",
     "crates/project-icon",
     "crates/rune-parts",

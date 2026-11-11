@@ -1,0 +1,42 @@
+[package]
+name = "opencode-storage"
+version = "0.0.1"
+description = "OpenCode desktop persistence: one SQLite database (native) or browser storage (wasm32), read from memory, written behind"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rune.workspace = true
+serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
+indexmap = "2"
+sha2 = "0.10"
+base64 = "0.22"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
+opencode-kit = { path = "../opencode-kit" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Storage",
+    "Event",
+    "IdbFactory",
+    "IdbDatabase",
+    "IdbObjectStore",
+    "IdbObjectStoreParameters",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
+    "IdbVersionChangeEvent",
+    "IdbCursorWithValue",
+    "IdbKeyRange",
+    "DomStringList",
+] }
+
+[lints]
+workspace = true
