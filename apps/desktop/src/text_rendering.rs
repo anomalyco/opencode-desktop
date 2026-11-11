@@ -26,6 +26,10 @@ pub enum TextRenderer {
     ClearType,
     RetinaLike,
     HintedGpu,
+    /// For measuring launch and frame cost only, by `--text-renderer first`, and never listed:
+    /// the renderer Rune first drew Windows text with (`FontSmoothing::Off`, the CPU's outline
+    /// fill with the exponent gamma of #187).
+    First,
 }
 
 impl TextRenderer {
@@ -52,6 +56,7 @@ impl TextRenderer {
             Self::ClearType => "cleartype",
             Self::RetinaLike => "retina",
             Self::HintedGpu => "hinted-gpu",
+            Self::First => "first",
         }
     }
 
@@ -60,6 +65,7 @@ impl TextRenderer {
         match s {
             Some("classic") if cfg!(target_os = "macos") => Self::RetinaLike,
             Some("classic") => Self::ChromiumLike,
+            Some("first") => Self::First,
             _ => Self::ALL.into_iter().find(|r| Some(r.name()) == s).unwrap_or_default(),
         }
     }
@@ -78,6 +84,7 @@ impl TextRenderer {
             Self::ClearType => t!("rune.textRendering.cleartype"),
             Self::RetinaLike => t!("rune.textRendering.retina"),
             Self::HintedGpu => t!("rune.textRendering.hintedGpu"),
+            Self::First => t!("rune.textRendering.first"),
         }
     }
 
@@ -94,6 +101,7 @@ impl TextRenderer {
             Self::HintedGpu => FontSmoothing::HintedGpu,
             Self::WindfoilRgb => FontSmoothing::WindfoilRgb,
             Self::ClearType => FontSmoothing::ClearType,
+            Self::First => FontSmoothing::Off,
         })
     }
 
