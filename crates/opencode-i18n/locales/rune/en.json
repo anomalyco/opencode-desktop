@@ -101,7 +101,6 @@
   "rune.menu.edit.findNext": "Find Next",
   "rune.menu.edit.findPrevious": "Find Previous",
   "rune.message.quote": "Quote",
-  "rune.message.copyQuote": "Copy quote",
   "rune.notice.backgroundShell": "Background shell",
   "rune.openIn.failed": "Couldn't open",
   "rune.queue.label": "Queued prompts",

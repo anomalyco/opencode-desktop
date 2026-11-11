@@ -242,8 +242,8 @@ fn hit_bg(p: &Pal) -> Color {
 /// Every value is Desktop's `markdown.css`: links with no underline until hovered, inline code
 /// at the text's size in the medium weight, code blocks on `background-stronger` coloured by
 /// the theme's `syntax-*` (shell commands plain on `layer-02`), invisible rules, outside list
-/// markers, the browser's disabled checkboxes, and the Console's data table. Quotes take a
-/// calmer look than its hairline: a 2 pt rounded rule, 12 pt in, and text a step towards muted.
+/// markers, the browser's disabled checkboxes, the Console's data table, and quotes in muted text
+/// 8 pt past a hairline rule (`markdown.css:258-265`).
 /// Selected text, and a quote's source while its comment is written, takes the timeline's
 /// selection colour (`quote-highlight.css`).
 pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
@@ -266,7 +266,8 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).
         .plain_code_text(p.muted)
         .shell_code(p.code_bg, p.border_muted, p.text)
-        .quote(p.border, 2.0, 12.0, p.text.mix(p.muted, 0.5))
+        // `border-inline-start: 0.5px solid border-base`, `padding-inline-start: 0.5rem`, `text-muted`.
+        .quote(p.border, 0.5, 8.0, p.muted)
         .rule(Color::TRANSPARENT)
         .body_font(MD)
         .heading_font(1, h1)
@@ -344,11 +345,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .selectable(true)
         .scroll_wide(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
-        .code_frame({
-            let copied = copied.clone();
-            move |card, c| code_card::<S>(&pal, card, c, &copied)
-        })
-        .quote_frame(move |quote, q| quote_card::<S>(&pal, quote, q, &copied))
+        .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
             Some(id) => s.open_session(id, tx),
             None => s.open_link(url, tx),
@@ -391,23 +388,6 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         .child(card)
         .child(buttons.group_opacity(0.0, 1.0))
 }
-
-/// A block quote with a Copy button that copies all of it as Cmd+C would (`QuoteFrame::text`):
-/// the code block's 24 pt ghost button, level with the first line at the right, fading in while
-/// the pointer is over the quote. The text keeps clear of it.
-fn quote_card<S: TimelineHost>(p: &Pal, quote: El, q: &rune_kit::QuoteFrame<'_>, copied: &[String]) -> El {
-    let key = copy_key("quote-copy", &q.text);
-    let button = copy_button::<S>(p, q.text, key, opencode_i18n::t!("rune.message.copyQuote"), copied);
-    col()
-        .w_full()
-        .hover_group_focus()
-        .hover_motion(HOVER_FADE, HOVER_FADE)
-        .child(quote.pr(QUOTE_BUTTON_ROOM))
-        .child(button.pin(None, Some(-1.0), Some(0.0), None).group_opacity(0.0, 1.0))
-}
-
-/// Room at a quote's right for its Copy button: the button and a 4 pt gap.
-const QUOTE_BUTTON_ROOM: f32 = 28.0;
 
 /// A copy button's `copied::mark_copied` mark: `prefix` and a hash of `what`.
 fn copy_key(prefix: &str, what: &impl std::hash::Hash) -> String {
