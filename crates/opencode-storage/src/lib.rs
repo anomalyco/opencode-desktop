@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use cache::Lookup;
 pub use model::{FlushReason, FlushReport, OutboxAttachment, OutboxRow, WindowFrame};
-pub use stores::{DocumentStore, OutboxStore, PluginStore, StateStore, WindowStore};
+pub use stores::{CacheStore, DocumentStore, OutboxStore, PluginStore, PreviewStore, StateStore, WindowStore};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{BootReport, StorageConfig};
+pub use native::{BootPacket, BootReport, BootSource, Opening, StorageConfig};
 #[cfg(not(target_arch = "wasm32"))]
 use native::Backend;
 #[cfg(target_arch = "wasm32")]
@@ -49,6 +49,8 @@ impl std::fmt::Display for StorageError {
 
 /// A Tier 0 write's answer: runs on the storage thread once the row is durable (or failed).
 pub type Done = Box<dyn FnOnce(Result<(), StorageError>) + Send>;
+/// A session preview read's answer: its `updated_at` and bytes.
+pub type PreviewRead = Box<dyn FnOnce(Option<(i64, Vec<u8>)>) + Send>;
 /// Runs on the storage thread once a load put its rows in memory: wake the UI with it.
 pub type Loaded = Box<dyn FnOnce() + Send>;
 
@@ -99,6 +101,10 @@ pub(crate) enum Cmd {
     LoadDocs { keys: Vec<String>, done: Option<Loaded> },
     LoadOutbox { done: Option<Loaded> },
     GetBlob { id: String, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send> },
+    Preview { server: String, session: String, value: Option<(i64, Arc<[u8]>)> },
+    GetPreview { server: String, session: String, done: PreviewRead },
+    Cache { key: String, value: Option<(i64, Arc<[u8]>)> },
+    GetCache { key: String, version: i64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send> },
 }
 
 /// The process's storage. Clone it freely: every clone shares one cache and one writer.
@@ -141,6 +147,14 @@ impl Storage {
 
     pub fn outbox(&self) -> OutboxStore<'_> {
         OutboxStore { storage: self }
+    }
+
+    pub fn previews(&self) -> PreviewStore<'_> {
+        PreviewStore { storage: self }
+    }
+
+    pub fn caches(&self) -> CacheStore<'_> {
+        CacheStore { storage: self }
     }
 
     /// Lands every queued row and waits up to `deadline` for it. Call on window hide, close,

@@ -22,6 +22,7 @@ pub fn open_read_only(db: &Path) -> Option<Connection> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI;
     let uri = |extra: &str| format!("file:{}?mode=ro{extra}", db.to_string_lossy().replace('\\', "/").replace('?', "%3f").replace('#', "%23"));
     let usable = |c: Connection| {
+        super::sql::persist_wal(&c);
         c.busy_timeout(std::time::Duration::from_millis(250)).ok();
         c.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).ok().map(|_| c)
     };
@@ -93,6 +94,7 @@ pub fn run(conn: &Connection, dirs: &[PathBuf], now_ms: i64) -> (Vec<(String, St
                 super::sql::put_window(&tx, &id, Some(&frame), now_ms)?;
             }
         }
+        super::boot_record::rebuild(&tx)?;
         tx.commit()?;
         Ok(inserted)
     })();

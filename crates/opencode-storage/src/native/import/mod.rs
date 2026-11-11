@@ -92,8 +92,12 @@ impl Deferred {
     }
 }
 
+/// Reopens the read-write connection (its exclusive lock must go for a fresh connection to read).
+pub(crate) type Reopen<'a> = &'a dyn Fn() -> rusqlite::Result<Connection>;
+
 struct Driver<'a> {
     conn: &'a mut Connection,
+    reopen: Option<Reopen<'a>>,
     cfg: Option<&'a ImportConfig>,
     official: &'a [PathBuf],
     now_ms: i64,
@@ -108,10 +112,10 @@ struct Driver<'a> {
 
 /// Runs the open's part: schema flags to verified import. Returns the summary, what waits for
 /// the first frame, and the header flags to store.
-pub(crate) fn run(conn: &mut Connection, cfg: &ImportConfig, official: &[PathBuf], flags: u32, now_ms: i64) -> (ImportSummary, Deferred, u32) {
+pub(crate) fn run(conn: &mut Connection, reopen: Reopen<'_>, cfg: &ImportConfig, official: &[PathBuf], flags: u32, now_ms: i64) -> (ImportSummary, Deferred, u32) {
     let mut state = ImportState::default();
     let effects = machine::step(&mut state, ImportEvent::SchemaReady { legacy_settled: flags & FLAG_LEGACY_SETTLED != 0, seed_settled: flags & FLAG_SEED_SETTLED != 0 });
-    let mut d = Driver { conn, cfg: Some(cfg), official, now_ms, flags, summary: ImportSummary::default(), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let mut d = Driver { conn, reopen: Some(reopen), cfg: Some(cfg), official, now_ms, flags, summary: ImportSummary::default(), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
     drive(&mut state, effects, &mut d);
     let flags = d.flags;
     let summary = d.summary;
@@ -123,7 +127,7 @@ pub(crate) fn run(conn: &mut Connection, cfg: &ImportConfig, official: &[PathBuf
 pub(crate) fn after_first_frame(conn: &mut Connection, deferred: &mut Deferred, now_ms: i64) -> Vec<(String, String, String)> {
     let effects = machine::step(&mut deferred.state, ImportEvent::FirstFramePresented);
     let official = std::mem::take(&mut deferred.official);
-    let mut d = Driver { conn, cfg: None, official: &official, now_ms, flags: deferred.flags, summary: std::mem::take(&mut deferred.summary), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let mut d = Driver { conn, reopen: None, cfg: None, official: &official, now_ms, flags: deferred.flags, summary: std::mem::take(&mut deferred.summary), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
     drive(&mut deferred.state, effects, &mut d);
     deferred.flags = d.flags;
     deferred.summary = d.summary;
@@ -216,6 +220,7 @@ fn import(d: &mut Driver<'_>) -> ImportEvent {
                 inserted.push(insert(&tx, row, now)?);
             }
         }
+        super::boot_record::rebuild(&tx)?;
         tx.commit()?;
         Ok(inserted)
     })();
@@ -266,18 +271,31 @@ fn insert(conn: &Connection, row: &Row, now: i64) -> rusqlite::Result<bool> {
 fn verify(d: &mut Driver<'_>) -> ImportEvent {
     let t = Instant::now();
     let path = d.conn.path().map(PathBuf::from).unwrap_or_default();
-    let Ok(ro) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX) else {
-        return ImportEvent::Verified { matched: Vec::new(), mismatched: d.plan.sources.iter().flat_map(|s| s.paths.clone()).collect() };
-    };
+    let all: Vec<PathBuf> = d.plan.sources.iter().flat_map(|s| s.paths.clone()).collect();
+    // The read-write connection holds the file exclusively: close it, read back through a fresh
+    // one, then open it again.
+    let (Some(reopen), Ok(placeholder)) = (d.reopen, Connection::open_in_memory()) else { return ImportEvent::Verified { matched: Vec::new(), mismatched: all } };
+    drop(std::mem::replace(d.conn, placeholder));
+    let ro = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).inspect(sql::persist_wal);
+    let verified = ro.map(|ro| verify_with(d, &ro));
+    match reopen() {
+        Ok(conn) => *d.conn = conn,
+        Err(e) => d.summary.reports.push(format!("couldn't reopen the database after the import's read-back: {e}")),
+    }
+    d.summary.verify_ns = ns_since(t);
+    verified.unwrap_or(ImportEvent::Verified { matched: Vec::new(), mismatched: all })
+}
+
+fn verify_with(d: &mut Driver<'_>, ro: &Connection) -> ImportEvent {
     let (mut matched, mut mismatched) = (Vec::new(), Vec::new());
     let mut at = 0;
     for source in &d.plan.sources {
-        let blobs_ok = source.blobs.iter().all(|(id, data)| sql::read_blob(&ro, id).ok().flatten().as_deref() == Some(data.as_slice()));
+        let blobs_ok = source.blobs.iter().all(|(id, data)| sql::read_blob(ro, id).ok().flatten().as_deref() == Some(data.as_slice()));
         let mut ok = blobs_ok;
         for row in &source.rows {
             let fresh = d.inserted.get(at).copied().unwrap_or(false);
             at += 1;
-            ok &= check(&ro, row, fresh).unwrap_or(false);
+            ok &= check(ro, row, fresh).unwrap_or(false);
         }
         if ok {
             matched.extend(source.paths.iter().cloned());
@@ -287,7 +305,6 @@ fn verify(d: &mut Driver<'_>) -> ImportEvent {
     }
     d.summary.verified_files = matched.len();
     d.summary.mismatched = mismatched.clone();
-    d.summary.verify_ns = ns_since(t);
     ImportEvent::Verified { matched, mismatched }
 }
 

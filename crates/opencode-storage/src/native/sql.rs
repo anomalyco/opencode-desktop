@@ -7,16 +7,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::model::{OutboxAttachment, OutboxRow, WindowFrame};
 
-/// Pages read from the file since the connection opened.
-#[allow(unsafe_code)]
-pub fn cache_misses(conn: &Connection) -> i64 {
-    let (mut current, mut high) = (0, 0);
-    // SAFETY: `handle` is this live connection's `sqlite3*`, used on its own thread; the two
-    // out-pointers are valid `c_int`s for the call.
-    let rc = unsafe { rusqlite::ffi::sqlite3_db_status(conn.handle(), rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS, &mut current, &mut high, 0) };
-    if rc == rusqlite::ffi::SQLITE_OK { i64::from(current) } else { -1 }
-}
-
 /// Keeps `-wal` and `-shm` on disk when the last connection closes, so no launch deletes and
 /// creates them again (each a new-file scan for antivirus on Windows).
 #[allow(unsafe_code)]

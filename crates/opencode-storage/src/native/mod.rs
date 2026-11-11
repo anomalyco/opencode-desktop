@@ -4,6 +4,7 @@
 //! `opencode-storage` thread, which owns it from then on.
 
 mod boot;
+pub mod boot_record;
 pub mod import;
 mod schema;
 pub mod seed;
@@ -15,7 +16,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-pub use boot::{BootReport, BootView, visible_drafts};
+pub use boot::{BootReport, Opening};
+pub use boot_record::{BootPacket, BootSource};
 pub use import::ImportConfig;
 pub use schema::SCHEMA_VERSION;
 
@@ -33,14 +35,11 @@ pub struct StorageConfig {
     /// Wall-clock milliseconds since the epoch, for `updated_at` (injected: the workspace forbids
     /// `SystemTime::now` outside its config).
     pub(crate) clock: fn() -> i64,
-    /// The documents the first frame draws (each window's visible draft), read with the boot
-    /// state; the rest load when asked.
-    pub(crate) boot_documents: fn(&boot::BootView<'_>) -> Vec<String>,
 }
 
 impl StorageConfig {
     pub fn native(path: impl Into<PathBuf>, clock: fn() -> i64) -> StorageConfig {
-        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock, boot_documents: boot::visible_drafts }
+        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock }
     }
 
     /// Imports the files Rune kept before the database, once, from `import.dir`.
@@ -55,22 +54,27 @@ impl StorageConfig {
         self.official = dirs;
         self
     }
-
-    pub fn boot_documents(mut self, pick: fn(&boot::BootView<'_>) -> Vec<String>) -> StorageConfig {
-        self.boot_documents = pick;
-        self
-    }
 }
 
 impl Storage {
-    /// Opens the database and hydrates what the first frame draws, in one read transaction.
-    /// Never fails: a database that can't open or migrate leaves state in memory for this run
-    /// ([`BootReport::error`]).
+    /// Opens the database on the calling thread, both stages. Never fails: a database that
+    /// can't open or migrate leaves state in memory for this run ([`BootReport::error`]).
     pub fn open(config: StorageConfig) -> (Storage, BootReport) {
+        let (storage, report, _) = boot::open(config);
+        (storage, report)
+    }
+
+    /// [`Storage::open`] with the boot packet stage A read.
+    pub fn open_with_boot(config: StorageConfig) -> (Storage, BootReport, BootPacket) {
         boot::open(config)
     }
-}
 
+    /// The open on its own thread, started at once: call it first thing in `main`, take
+    /// [`Opening::boot`] where the first frame is built and [`Opening::storage`] after it.
+    pub fn open_async(config: StorageConfig) -> Opening {
+        Opening::start(config)
+    }
+}
 /// The writer thread's handle, as the backend sees it.
 pub(crate) enum Writer {
     /// Opened and read; no write yet, so no thread.
@@ -175,6 +179,8 @@ fn answer_offline(cmd: Cmd) {
         Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } | Cmd::Outbox { done: Some(done), .. } => done(Ok(())),
         Cmd::LoadState { done: Some(done), .. } | Cmd::LoadDocs { done: Some(done), .. } | Cmd::LoadOutbox { done: Some(done) } => done(),
         Cmd::GetBlob { done, .. } => done(None),
+        Cmd::GetPreview { done, .. } => done(None),
+        Cmd::GetCache { done, .. } => done(None),
         _ => {}
     }
 }

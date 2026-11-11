@@ -65,6 +65,10 @@ pub(crate) struct Cache {
     pub plugins: BTreeMap<String, bool>,
     pub trust: BTreeMap<String, String>,
     pub outbox: OutboxCache,
+    /// What each session preview and cache entry written this run holds (`updated_at` or
+    /// version, and xxh3), so writing an unchanged one costs nothing.
+    pub preview_sums: HashMap<(String, String), (i64, u64)>,
+    pub cache_sums: HashMap<String, (i64, u64)>,
     /// Every namespace is in memory: an in-memory store, or a fresh database.
     pub complete: bool,
 }

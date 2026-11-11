@@ -119,6 +119,17 @@ impl DocumentStore<'_> {
     /// Sets (`Some`) or removes a document. Long strings are split into chunks on the storage
     /// thread, never on the caller's.
     pub fn set(&self, key: &str, value: Option<String>) {
+        {
+            let cache = self.storage.cache();
+            let same = match (cache.docs.get(key), &value) {
+                (Some(Doc::Present(old)), Some(new)) => **old == **new,
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                return;
+            }
+        }
         let value: Option<Arc<str>> = value.map(Into::into);
         {
             let mut cache = self.storage.cache();
@@ -308,5 +319,67 @@ impl OutboxStore<'_> {
             list.retain(|r| r.id != id);
         }
         self.storage.send(Cmd::Outbox { op: OutboxOp::Delete { server: server.to_owned(), id: id.to_owned() }, done });
+    }
+}
+
+/// What the first screen of a session draws (its latest visible messages, in the timeline's own
+/// encoding), per `(server, session)`. The app keeps it current; the active tab of each window
+/// goes into the boot record, so the first frame draws real messages before anything else loads.
+pub struct PreviewStore<'a> {
+    pub(crate) storage: &'a Storage,
+}
+
+impl PreviewStore<'_> {
+    /// Sets (`Some((updated_at, bytes))`) or removes a session's preview (500 ms; an unchanged
+    /// one writes nothing).
+    pub fn set(&self, server: &str, session: &str, value: Option<(i64, Arc<[u8]>)>) {
+        let key = (server.to_owned(), session.to_owned());
+        let sum = value.as_ref().map(|(at, data)| (*at, twox_hash::XxHash3_64::oneshot(data)));
+        {
+            let mut cache = self.storage.cache();
+            if cache.preview_sums.get(&key).copied() == sum {
+                return;
+            }
+            match sum {
+                Some(s) => cache.preview_sums.insert(key, s),
+                None => cache.preview_sums.remove(&key),
+            };
+        }
+        self.storage.send(Cmd::Preview { server: server.to_owned(), session: session.to_owned(), value });
+    }
+
+    /// Reads a session's preview on the storage thread.
+    pub fn get(&self, server: &str, session: &str, done: crate::PreviewRead) {
+        self.storage.send(Cmd::GetPreview { server: server.to_owned(), session: session.to_owned(), done });
+    }
+}
+
+/// Discardable caches of computed inputs (compiled bytecode, shaped runs), by key and version.
+/// Never read at boot; a version other than the stored one reads as absent.
+pub struct CacheStore<'a> {
+    pub(crate) storage: &'a Storage,
+}
+
+impl CacheStore<'_> {
+    pub fn put(&self, key: &str, version: i64, data: Arc<[u8]>) {
+        let sum = (version, twox_hash::XxHash3_64::oneshot(&data));
+        {
+            let mut cache = self.storage.cache();
+            if cache.cache_sums.get(key) == Some(&sum) {
+                return;
+            }
+            cache.cache_sums.insert(key.to_owned(), sum);
+        }
+        self.storage.send(Cmd::Cache { key: key.to_owned(), value: Some((version, data)) });
+    }
+
+    pub fn discard(&self, key: &str) {
+        self.storage.cache().cache_sums.remove(key);
+        self.storage.send(Cmd::Cache { key: key.to_owned(), value: None });
+    }
+
+    /// Reads `key` at `version` on the storage thread.
+    pub fn get(&self, key: &str, version: i64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        self.storage.send(Cmd::GetCache { key: key.to_owned(), version, done });
     }
 }

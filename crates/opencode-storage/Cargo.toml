@@ -12,10 +12,14 @@ serde = { version = "1", features = ["derive"] }
 indexmap = "2"
 sha2 = "0.10"
 base64 = "0.22"
+twox-hash = { version = "2", default-features = false, features = ["xxhash3_64"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
 opencode-kit = { path = "../opencode-kit" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

@@ -1,19 +1,23 @@
 //! The `opencode-storage` thread: the only owner of the read-write connection once the first
-//! write starts it. It drives the write-behind buffers (`state` and window frames at 250 ms,
-//! documents at 500 ms), commits Tier 0 rows at once with `synchronous = FULL`, sweeps blobs,
-//! checkpoints the WAL when writes go quiet, and loads lazy rows into the cache.
+//! write starts it. It drives the write-behind buffers (state and window frames at 250 ms,
+//! documents and session previews at 500 ms, caches at 1 s), commits Tier 0 rows at once with
+//! `synchronous = FULL`, keeps the boot record current in the same transaction as what it
+//! summarizes, sweeps blobs, checkpoints the WAL when writes go quiet, and loads lazy rows.
+//!
+//! Every flush lands all buffers in one `BEGIN IMMEDIATE … COMMIT`.
 
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use rune::machine::{Attempt, Effects, Seq};
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 use super::import::{self, Deferred};
-use super::sql;
+use super::{boot_record, sql};
 use crate::cache::{Cache, Doc, OutboxCache};
 use crate::machine::checkpoint::{self, WalEffect, WalEvent, WalState};
 use crate::machine::draft_gc::{self, BLOB_GRACE_MS, DraftGcEffect, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
@@ -27,19 +31,50 @@ pub(crate) enum Msg {
     Stop,
 }
 
-const STATE_DELAY_MS: u64 = 250;
-const DOCS_DELAY_MS: u64 = 500;
-const WINDOWS_DELAY_MS: u64 = 250;
-
 type StateKey = (String, String);
 type Value = Option<Arc<str>>;
+type PreviewKey = (String, String);
+/// A preview's `updated_at` and bytes.
+pub(crate) type Preview = (i64, Arc<[u8]>);
+/// A cache entry's version and bytes.
+pub(crate) type CacheEntry = (i64, Arc<[u8]>);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Buf {
-    State,
-    Docs,
-    Windows,
+/// A write batch a buffer's machine asked for, tagged with the buffer.
+enum Batch {
+    State(Attempt, IndexMap<StateKey, Value>),
+    Docs(Attempt, IndexMap<String, Value>),
+    Windows(Attempt, IndexMap<String, Option<WindowFrame>>),
+    Previews(Attempt, IndexMap<PreviewKey, Option<Preview>>),
+    Caches(Attempt, IndexMap<String, Option<CacheEntry>>),
 }
+
+impl Batch {
+    fn len(&self) -> usize {
+        match self {
+            Batch::State(_, m) => m.len(),
+            Batch::Docs(_, m) => m.len(),
+            Batch::Windows(_, m) => m.len(),
+            Batch::Previews(_, m) => m.len(),
+            Batch::Caches(_, m) => m.len(),
+        }
+    }
+
+    /// Whether it changes what the boot record holds.
+    fn touches_boot(&self) -> bool {
+        match self {
+            Batch::State(_, m) => m.keys().any(|(name, _)| crate::is_boot_namespace(name)),
+            Batch::Docs(_, m) => m.keys().any(|k| k.contains(":draft:")),
+            Batch::Windows(..) | Batch::Previews(..) => true,
+            Batch::Caches(..) => false,
+        }
+    }
+}
+
+const STATE_MS: u64 = 250;
+const DOCS_MS: u64 = 500;
+const WINDOWS_MS: u64 = 250;
+const PREVIEWS_MS: u64 = 500;
+const CACHES_MS: u64 = 1000;
 
 /// A timer a machine armed: its attempt and when it's due.
 type Armed = Option<(Attempt, Instant)>;
@@ -52,6 +87,8 @@ pub(crate) struct Writer {
     state: WriteBehindState<StateKey, Value>,
     docs: WriteBehindState<String, Value>,
     windows: WriteBehindState<String, Option<WindowFrame>>,
+    previews: WriteBehindState<PreviewKey, Option<Preview>>,
+    caches: WriteBehindState<String, Option<CacheEntry>>,
     gc: DraftGcState,
     wal: WalState,
     timers: HashMap<&'static str, Armed>,
@@ -61,6 +98,26 @@ pub(crate) struct Writer {
     touched: HashMap<String, i64>,
     /// Rows written since the last flush, for its report.
     written: usize,
+}
+
+/// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
+#[allow(clippy::too_many_arguments)]
+fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut WriteBehindState<K, V>, event: WriteBehindEvent<K, V>, delay: u64, timer: &'static str, timers: &mut HashMap<&'static str, Armed>) -> Vec<(Attempt, IndexMap<K, V>)> {
+    let mut out = Vec::new();
+    for effect in wb::step(seq, machine, event, delay) {
+        match effect {
+            WriteBehindEffect::ArmTimer { attempt, delay_ms } => {
+                timers.insert(timer, Some((attempt, Instant::now() + Duration::from_millis(delay_ms))));
+            }
+            WriteBehindEffect::CancelTimer => {
+                timers.insert(timer, None);
+            }
+            WriteBehindEffect::WriteBatch { attempt, batch } => out.push((attempt, batch)),
+            WriteBehindEffect::ReportError(e) => eprintln!("opencode-storage: {timer} write failed, retrying: {e}"),
+            WriteBehindEffect::RejectClosed => {}
+        }
+    }
+    out
 }
 
 impl Writer {
@@ -73,6 +130,8 @@ impl Writer {
             state: WriteBehindState::Idle,
             docs: WriteBehindState::Idle,
             windows: WriteBehindState::Idle,
+            previews: WriteBehindState::Idle,
+            caches: WriteBehindState::Idle,
             gc: DraftGcState::Closed,
             wal: WalState::Clean,
             timers: HashMap::new(),
@@ -91,7 +150,7 @@ impl Writer {
         self.gc = gc;
         self.gc_effects(effects);
         loop {
-            let msg = match self.next_due() {
+            let msg = match self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() {
                 Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
@@ -113,23 +172,18 @@ impl Writer {
         }
     }
 
-    fn next_due(&self) -> Option<Instant> {
-        self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min()
-    }
-
-    fn arm(&mut self, name: &'static str, attempt: Attempt, delay_ms: u64) {
-        self.timers.insert(name, Some((attempt, Instant::now() + Duration::from_millis(delay_ms))));
-    }
-
     fn fire_due(&mut self) {
         let now = Instant::now();
         let due: Vec<(&'static str, Attempt)> = self.timers.iter().filter_map(|(n, t)| t.filter(|(_, d)| *d <= now).map(|(a, _)| (*n, a))).collect();
         for (name, attempt) in due {
             self.timers.insert(name, None);
+            let fired = WriteBehindEvent::TimerFired { attempt };
             match name {
-                "state" => self.state_event(WriteBehindEvent::TimerFired { attempt }),
+                "state" => self.state_event(fired),
                 "docs" => self.docs_event(WriteBehindEvent::TimerFired { attempt }),
                 "windows" => self.windows_event(WriteBehindEvent::TimerFired { attempt }),
+                "previews" => self.previews_event(WriteBehindEvent::TimerFired { attempt }),
+                "caches" => self.caches_event(WriteBehindEvent::TimerFired { attempt }),
                 "gc" => {
                     let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::TimerFired { attempt, at_ms: (self.clock)() });
                     self.gc_effects(effects);
@@ -139,18 +193,102 @@ impl Writer {
         }
     }
 
+    fn state_event(&mut self, event: WriteBehindEvent<StateKey, Value>) {
+        let out = step_buffer(&mut self.seq, &mut self.state, event, STATE_MS, "state", &mut self.timers);
+        self.commit(out.into_iter().map(|(a, m)| Batch::State(a, m)).collect());
+    }
+
+    fn docs_event(&mut self, event: WriteBehindEvent<String, Value>) {
+        let out = step_buffer(&mut self.seq, &mut self.docs, event, DOCS_MS, "docs", &mut self.timers);
+        self.commit(out.into_iter().map(|(a, m)| Batch::Docs(a, m)).collect());
+    }
+
+    fn windows_event(&mut self, event: WriteBehindEvent<String, Option<WindowFrame>>) {
+        let out = step_buffer(&mut self.seq, &mut self.windows, event, WINDOWS_MS, "windows", &mut self.timers);
+        self.commit(out.into_iter().map(|(a, m)| Batch::Windows(a, m)).collect());
+    }
+
+    fn previews_event(&mut self, event: WriteBehindEvent<PreviewKey, Option<Preview>>) {
+        let out = step_buffer(&mut self.seq, &mut self.previews, event, PREVIEWS_MS, "previews", &mut self.timers);
+        self.commit(out.into_iter().map(|(a, m)| Batch::Previews(a, m)).collect());
+    }
+
+    fn caches_event(&mut self, event: WriteBehindEvent<String, Option<CacheEntry>>) {
+        let out = step_buffer(&mut self.seq, &mut self.caches, event, CACHES_MS, "caches", &mut self.timers);
+        self.commit(out.into_iter().map(|(a, m)| Batch::Caches(a, m)).collect());
+    }
+
+    /// Writes `batches` in one transaction, the boot record rebuilt in it when they touch it,
+    /// then tells each buffer's machine how its batch went.
+    fn commit(&mut self, batches: Vec<Batch>) {
+        if batches.is_empty() {
+            return;
+        }
+        let now = (self.clock)();
+        let boot = batches.iter().any(Batch::touches_boot);
+        let docs = batches.iter().any(|b| matches!(b, Batch::Docs(..)));
+        let mut fresh: Vec<String> = Vec::new();
+        let result = (|| -> rusqlite::Result<()> {
+            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+            for b in &batches {
+                apply(&tx, b, now, &self.touched, &mut fresh)?;
+            }
+            if boot {
+                boot_record::rebuild(&tx)?;
+            }
+            tx.commit()
+        })();
+        let ok = result.is_ok();
+        let error = result.err().map(|e| e.to_string());
+        for b in batches {
+            let rows = b.len();
+            match b {
+                Batch::State(a, _) => self.state_event(settled(a, &error)),
+                Batch::Docs(a, _) => self.docs_event(settled(a, &error)),
+                Batch::Windows(a, _) => self.windows_event(settled(a, &error)),
+                Batch::Previews(a, _) => self.previews_event(settled(a, &error)),
+                Batch::Caches(a, _) => self.caches_event(settled(a, &error)),
+            }
+            if ok {
+                self.written += rows;
+            }
+        }
+        if !ok {
+            return;
+        }
+        for id in fresh {
+            self.touched.insert(id, now);
+        }
+        self.wal_event(WalEvent::Committed);
+        if docs {
+            let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::DocumentsWritten { at_ms: now });
+            self.gc_effects(effects);
+        }
+    }
+
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::State { name, key, value } => self.state_event(WriteBehindEvent::Set { key: (name, key), value }),
             Cmd::ClearState { name } => {
                 let n = name.clone();
                 self.state_event(WriteBehindEvent::Drop(Box::new(move |k: &StateKey, _: &Value| k.0 == n)));
-                if self.conn.execute("DELETE FROM state WHERE name = ?1", [&name]).is_ok() {
+                let boot = crate::is_boot_namespace(&name);
+                let done = (|| -> rusqlite::Result<()> {
+                    let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+                    tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
+                    if boot {
+                        boot_record::rebuild(&tx)?;
+                    }
+                    tx.commit()
+                })();
+                if done.is_ok() {
                     self.wal_event(WalEvent::Committed);
                 }
             }
             Cmd::Doc { key, value } => self.docs_event(WriteBehindEvent::Set { key, value }),
             Cmd::Window { id, frame } => self.windows_event(WriteBehindEvent::Set { key: id, value: frame }),
+            Cmd::Preview { server, session, value } => self.previews_event(WriteBehindEvent::Set { key: (server, session), value }),
+            Cmd::Cache { key, value } => self.caches_event(WriteBehindEvent::Set { key, value }),
             Cmd::Blob { id, data } => {
                 let now = (self.clock)();
                 if sql::insert_blob(&self.conn, &id, &data, now).is_ok() {
@@ -161,15 +299,15 @@ impl Writer {
                 }
             }
             Cmd::Plugin { id, enabled, done } => {
-                let r = self.durable(|c, _| sql::put_plugin(c, &id, enabled));
+                let r = self.durable(true, |c, _| sql::put_plugin(c, &id, enabled));
                 answer(done, r);
             }
             Cmd::Trust { id, sha256, done } => {
-                let r = self.durable(|c, now| sql::put_trust(c, &id, sha256.as_deref(), now));
+                let r = self.durable(true, |c, now| sql::put_trust(c, &id, sha256.as_deref(), now));
                 answer(done, r);
             }
             Cmd::Outbox { op, done } => {
-                let r = self.durable(|c, now| match &op {
+                let r = self.durable(false, |c, now| match &op {
                     OutboxOp::Put { row, blobs } => {
                         for (id, data) in blobs {
                             sql::insert_blob(c, id, data, now)?;
@@ -186,9 +324,7 @@ impl Writer {
                         self.cache().hydrate(&name, rows);
                     }
                 }
-                if let Some(done) = done {
-                    done();
-                }
+                ran(done);
             }
             Cmd::LoadDocs { keys, done } => {
                 for key in keys {
@@ -203,9 +339,7 @@ impl Writer {
                         }
                     }
                 }
-                if let Some(done) = done {
-                    done();
-                }
+                ran(done);
             }
             Cmd::LoadOutbox { done } => {
                 if let Ok(all) = sql::read_outbox(&self.conn) {
@@ -214,11 +348,17 @@ impl Writer {
                         cache.outbox = OutboxCache::Loaded(all);
                     }
                 }
-                if let Some(done) = done {
-                    done();
-                }
+                ran(done);
             }
             Cmd::GetBlob { id, done } => done(sql::read_blob(&self.conn, &id).ok().flatten()),
+            Cmd::GetPreview { server, session, done } => {
+                let row = self.conn.prepare_cached("SELECT updated_at, data FROM session_preview WHERE server = ?1 AND session = ?2").and_then(|mut s| s.query_row([&server, &session], |r| Ok((r.get(0)?, r.get(1)?))).optional());
+                done(row.ok().flatten());
+            }
+            Cmd::GetCache { key, version, done } => {
+                let row: Option<Vec<u8>> = self.conn.prepare_cached("SELECT data FROM cache WHERE key = ?1 AND version = ?2").and_then(|mut s| s.query_row(rusqlite::params![key, version], |r| r.get(0)).optional()).ok().flatten();
+                done(row);
+            }
         }
     }
 
@@ -226,120 +366,16 @@ impl Writer {
         self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn state_event(&mut self, event: WriteBehindEvent<StateKey, Value>) {
-        self.buffer(Buf::State, |w| &mut w.state, Writer::write_state, event);
-    }
-
-    fn docs_event(&mut self, event: WriteBehindEvent<String, Value>) {
-        self.buffer(Buf::Docs, |w| &mut w.docs, Writer::write_docs, event);
-    }
-
-    fn windows_event(&mut self, event: WriteBehindEvent<String, Option<WindowFrame>>) {
-        self.buffer(Buf::Windows, |w| &mut w.windows, Writer::write_windows, event);
-    }
-
-    /// Steps one write-behind buffer and carries its effects out; a batch is written at once
-    /// and its result fed back.
-    fn buffer<K: std::hash::Hash + Eq + Clone, V: Clone>(
-        &mut self,
-        buf: Buf,
-        machine: fn(&mut Writer) -> &mut WriteBehindState<K, V>,
-        write: fn(&mut Writer, &IndexMap<K, V>) -> rusqlite::Result<()>,
-        event: WriteBehindEvent<K, V>,
-    ) {
-        let (timer, delay) = match buf {
-            Buf::State => ("state", STATE_DELAY_MS),
-            Buf::Docs => ("docs", DOCS_DELAY_MS),
-            Buf::Windows => ("windows", WINDOWS_DELAY_MS),
-        };
-        let mut events = vec![event];
-        while let Some(event) = events.pop() {
-            let mut state = std::mem::take(machine(self));
-            let effects = wb::step(&mut self.seq, &mut state, event, delay);
-            *machine(self) = state;
-            for effect in effects {
-                match effect {
-                    WriteBehindEffect::ArmTimer { attempt, delay_ms } => self.arm(timer, attempt, delay_ms),
-                    WriteBehindEffect::CancelTimer => {
-                        self.timers.insert(timer, None);
-                    }
-                    WriteBehindEffect::WriteBatch { attempt, batch } => {
-                        let result = write(self, &batch);
-                        events.push(match result {
-                            Ok(()) => {
-                                self.written += batch.len();
-                                self.wal_event(WalEvent::Committed);
-                                WriteBehindEvent::WriteSucceeded { attempt }
-                            }
-                            Err(e) => WriteBehindEvent::WriteFailed { attempt, error: e.to_string() },
-                        });
-                    }
-                    WriteBehindEffect::ReportError(e) => eprintln!("opencode-storage: {timer} write failed, retrying: {e}"),
-                    WriteBehindEffect::RejectClosed => {}
-                }
-            }
-        }
-    }
-
-    fn write_state(&mut self, batch: &IndexMap<StateKey, Value>) -> rusqlite::Result<()> {
-        let now = (self.clock)();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        for ((name, key), value) in batch {
-            sql::put_state(&tx, name, key, value.as_deref(), now)?;
-        }
-        tx.commit()
-    }
-
-    fn write_windows(&mut self, batch: &IndexMap<String, Option<WindowFrame>>) -> rusqlite::Result<()> {
-        let now = (self.clock)();
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        for (id, frame) in batch {
-            sql::put_window(&tx, id, frame.as_ref(), now)?;
-        }
-        tx.commit()
-    }
-
-    /// Documents, their long strings split into chunks here (never on the caller's thread).
-    /// A chunk this run touched within half the grace period isn't touched again.
-    fn write_docs(&mut self, batch: &IndexMap<String, Value>) -> rusqlite::Result<()> {
-        let now = (self.clock)();
-        let mut fresh: Vec<String> = Vec::new();
-        {
-            let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            for (key, value) in batch {
-                let Some(text) = value else {
-                    sql::put_document(&tx, key, None)?;
-                    continue;
-                };
-                let (stored, chunks) = sql::encode_text(text);
-                for (id, data) in &chunks {
-                    if self.touched.get(id).is_some_and(|t| now - t < BLOB_GRACE_MS / 2) {
-                        continue;
-                    }
-                    if !sql::insert_blob(&tx, id, data, now)? {
-                        sql::touch_blob(&tx, id, now)?;
-                    }
-                    fresh.push(id.clone());
-                }
-                sql::put_document(&tx, key, Some(&stored))?;
-            }
-            tx.commit()?;
-        }
-        for id in fresh {
-            self.touched.insert(id, now);
-        }
-        let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::DocumentsWritten { at_ms: now });
-        self.gc_effects(effects);
-        Ok(())
-    }
-
     /// A Tier 0 write: committed and synced before it returns.
-    fn durable(&mut self, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
+    fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
         let result = (|| {
             self.conn.execute_batch("PRAGMA synchronous = FULL")?;
-            let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             f(&tx, now)?;
+            if boot {
+                boot_record::rebuild(&tx)?;
+            }
             tx.commit()
         })();
         self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
@@ -354,14 +390,18 @@ impl Writer {
 
     fn flush(&mut self, reason: FlushReason, started: Instant) -> FlushReport {
         let quit = matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart);
-        let pending = wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows);
+        let pending = wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches);
         if !pending && (!quit || self.wal == WalState::Clean) {
             return FlushReport { clean: true, micros: super::micros(started), ..FlushReport::default() };
         }
         self.written = 0;
-        self.state_event(WriteBehindEvent::FlushRequested);
-        self.docs_event(WriteBehindEvent::FlushRequested);
-        self.windows_event(WriteBehindEvent::FlushRequested);
+        let mut batches: Vec<Batch> = Vec::new();
+        batches.extend(step_buffer(&mut self.seq, &mut self.state, WriteBehindEvent::FlushRequested, STATE_MS, "state", &mut self.timers).into_iter().map(|(a, m)| Batch::State(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.docs, WriteBehindEvent::FlushRequested, DOCS_MS, "docs", &mut self.timers).into_iter().map(|(a, m)| Batch::Docs(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.windows, WriteBehindEvent::FlushRequested, WINDOWS_MS, "windows", &mut self.timers).into_iter().map(|(a, m)| Batch::Windows(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.previews, WriteBehindEvent::FlushRequested, PREVIEWS_MS, "previews", &mut self.timers).into_iter().map(|(a, m)| Batch::Previews(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.caches, WriteBehindEvent::FlushRequested, CACHES_MS, "caches", &mut self.timers).into_iter().map(|(a, m)| Batch::Caches(a, m)));
+        self.commit(batches);
         let checkpointed = quit && self.wal != WalState::Clean;
         if quit {
             self.wal_event(WalEvent::QuitRequested);
@@ -375,6 +415,8 @@ impl Writer {
         self.state_event(WriteBehindEvent::CloseRequested);
         self.docs_event(WriteBehindEvent::CloseRequested);
         self.windows_event(WriteBehindEvent::CloseRequested);
+        self.previews_event(WriteBehindEvent::CloseRequested);
+        self.caches_event(WriteBehindEvent::CloseRequested);
     }
 
     fn first_frame(&mut self, done: Option<Loaded>) {
@@ -389,15 +431,15 @@ impl Writer {
             }
         }
         self.wal_event(WalEvent::Committed);
-        if let Some(done) = done {
-            done();
-        }
+        ran(done);
     }
 
     fn gc_effects(&mut self, effects: Effects<DraftGcEffect>) {
         for effect in effects {
             match effect {
-                DraftGcEffect::ArmTimer { attempt, delay_ms } => self.arm("gc", attempt, u64::try_from(delay_ms).unwrap_or(0)),
+                DraftGcEffect::ArmTimer { attempt, delay_ms } => {
+                    self.timers.insert("gc", Some((attempt, Instant::now() + Duration::from_millis(u64::try_from(delay_ms).unwrap_or(0)))));
+                }
                 DraftGcEffect::CancelTimer => {
                     self.timers.insert("gc", None);
                 }
@@ -421,7 +463,9 @@ impl Writer {
         let mut queue: Vec<WalEffect> = checkpoint::step(&mut self.seq, &mut self.wal, event).into_iter().collect();
         while let Some(effect) = queue.pop() {
             match effect {
-                WalEffect::ArmTimer { attempt, delay_ms } => self.arm("wal", attempt, delay_ms),
+                WalEffect::ArmTimer { attempt, delay_ms } => {
+                    self.timers.insert("wal", Some((attempt, Instant::now() + Duration::from_millis(delay_ms))));
+                }
                 WalEffect::CancelTimer => {
                     self.timers.insert("wal", None);
                 }
@@ -432,6 +476,77 @@ impl Writer {
                 }
             }
         }
+    }
+}
+
+/// One batch's rows. Documents' long strings become chunks here (never on the caller's thread);
+/// a chunk this run touched within half the grace period isn't touched again.
+fn apply(tx: &Connection, batch: &Batch, now: i64, touched: &HashMap<String, i64>, fresh: &mut Vec<String>) -> rusqlite::Result<()> {
+    match batch {
+        Batch::State(_, rows) => {
+            for ((name, key), value) in rows {
+                sql::put_state(tx, name, key, value.as_deref(), now)?;
+            }
+        }
+        Batch::Windows(_, rows) => {
+            for (id, frame) in rows {
+                sql::put_window(tx, id, frame.as_ref(), now)?;
+            }
+        }
+        Batch::Docs(_, rows) => {
+            for (key, value) in rows {
+                let Some(text) = value else {
+                    sql::put_document(tx, key, None)?;
+                    continue;
+                };
+                let (stored, chunks) = sql::encode_text(text);
+                for (id, data) in &chunks {
+                    if touched.get(id).is_some_and(|t| now - t < BLOB_GRACE_MS / 2) {
+                        continue;
+                    }
+                    if !sql::insert_blob(tx, id, data, now)? {
+                        sql::touch_blob(tx, id, now)?;
+                    }
+                    fresh.push(id.clone());
+                }
+                sql::put_document(tx, key, Some(&stored))?;
+            }
+        }
+        Batch::Previews(_, rows) => {
+            for ((server, session), value) in rows {
+                match value {
+                    Some((at, data)) => tx
+                        .prepare_cached("INSERT INTO session_preview (server, session, updated_at, data) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (server, session) DO UPDATE SET updated_at = excluded.updated_at, data = excluded.data")?
+                        .execute(rusqlite::params![server, session, at, &**data])?,
+                    None => tx.prepare_cached("DELETE FROM session_preview WHERE server = ?1 AND session = ?2")?.execute([server, session])?,
+                };
+            }
+        }
+        Batch::Caches(_, rows) => {
+            for (key, value) in rows {
+                match value {
+                    Some((version, data)) => tx
+                        .prepare_cached("INSERT INTO cache (key, version, data, touched_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (key) DO UPDATE SET version = excluded.version, data = excluded.data, touched_at = excluded.touched_at")?
+                        .execute(rusqlite::params![key, version, &**data, now])?,
+                    None => tx.prepare_cached("DELETE FROM cache WHERE key = ?1")?.execute([key])?,
+                };
+            }
+        }
+    }
+    Ok(())
+}
+
+/// How a batch's write went, as its machine's event.
+fn settled<K, V>(attempt: Attempt, error: &Option<String>) -> WriteBehindEvent<K, V> {
+    match error {
+        None => WriteBehindEvent::WriteSucceeded { attempt },
+        Some(e) => WriteBehindEvent::WriteFailed { attempt, error: e.clone() },
+    }
+}
+
+fn ran(done: Option<Loaded>) {
+    if let Some(done) = done {
+        done();
     }
 }
 
