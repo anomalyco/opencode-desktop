@@ -35,11 +35,40 @@ pub struct PersistentPtySnapshot {
     pub checkpoint: Vec<u8>,
 }
 
+/// What a new terminal starts with (`PersistentPty.CreateInput`): its title, folder, grid, and the
+/// program it runs instead of the user's shell.
 #[derive(Clone, Debug, Default)]
 pub struct TerminalCreate {
-    pub title: String,
-    pub cwd: Option<String>,
-    pub size: Option<(u16, u16)>,
+    title: String,
+    cwd: Option<String>,
+    size: Option<(u16, u16)>,
+    command: Option<String>,
+    args: Vec<String>,
+}
+
+impl TerminalCreate {
+    pub fn new(title: impl Into<String>) -> Self {
+        TerminalCreate { title: title.into(), ..TerminalCreate::default() }
+    }
+
+    /// The shell's working folder.
+    pub fn cwd(mut self, cwd: Option<String>) -> Self {
+        self.cwd = cwd;
+        self
+    }
+
+    /// Its first grid, in columns and rows.
+    pub fn size(mut self, size: Option<(u16, u16)>) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Runs `command` with `args` instead of the user's shell.
+    pub fn command(mut self, command: Option<String>, args: Vec<String>) -> Self {
+        self.command = command;
+        self.args = args;
+        self
+    }
 }
 
 pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
@@ -76,9 +105,12 @@ impl Server {
     /// Starts the server's shell for a session (`POST /api/experimental/session/:id/terminal`).
     pub fn terminal_create(&self, session_id: &str, input: &TerminalCreate) -> Result<PersistentPtyInfo, String> {
         let path = format!("/api/experimental/session/{}/terminal", encode_component(session_id));
-        let mut body = json!({ "args": [], "title": input.title, "env": {} });
+        let mut body = json!({ "args": input.args, "title": input.title, "env": {} });
         if let Some(cwd) = input.cwd.as_ref().filter(|c| !c.is_empty()) {
             body["cwd"] = json!(cwd);
+        }
+        if let Some(command) = input.command.as_ref().filter(|c| !c.is_empty()) {
+            body["command"] = json!(command);
         }
         if let Some((cols, rows)) = input.size {
             body["size"] = json!({ "cols": cols.max(1), "rows": rows.max(1) });

@@ -416,7 +416,7 @@ impl App {
             }
             let created = srv.terminal_create(
                 &session_id,
-                &TerminalCreate { title, cwd: Some(directory), size: Some((init_cols, init_rows)) },
+                &TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))),
             );
             let tab = created.and_then(|info| self.persistent_tab(srv, info));
             let ws = self.terminal.workspaces.get_mut(ws_key)?;
@@ -471,6 +471,37 @@ impl App {
         self.focus_terminal_surface();
         self.queue_terminal_save();
         Some(id)
+    }
+
+    /// `Terminal:Create`: starts a terminal of session `sid` on the server the window works
+    /// against, as [`App::new_terminal_in`] does (on this thread), running `command` with `args`
+    /// in `cwd` instead of the user's shell when given; named `title`, else the lowest free
+    /// "Terminal N". [`App::adopt_terminal`] then adds it to the session's terminals.
+    pub(crate) fn start_terminal(&self, sid: &str, title: Option<String>, cwd: Option<String>, command: Option<String>, args: Vec<String>) -> Result<PersistentPtyInfo, String> {
+        let Some((srv, false)) = self.live_terminals() else { return Err("This window can't start terminals".into()) };
+        let wk = self.terminal_workspace_key_for_session(sid);
+        let title = title.filter(|t| !t.is_empty()).unwrap_or_else(|| format!("Terminal {}", self.terminal.workspaces.get(&wk).map_or(1, TerminalWorkspace::next_title_number)));
+        let cwd = cwd.filter(|c| !c.is_empty()).or_else(|| self.session(sid).map(|s| s.directory.clone()));
+        srv.terminal_create(sid, &TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())).command(command, args))
+    }
+
+    /// A terminal [`App::start_terminal`] started joins session `sid`'s terminals and becomes
+    /// its active one, unless the server's event already brought it.
+    pub(crate) fn adopt_terminal(&mut self, sid: &str, info: PersistentPtyInfo) {
+        let wk = self.terminal_workspace_key_for_session(sid);
+        self.ensure_terminal_workspace_hydrated(&wk);
+        let Some((srv, _)) = self.live_terminals() else { return };
+        let directory = self.session(sid).map(|s| s.directory.clone()).unwrap_or_default();
+        let ws = self.terminal.workspaces.entry(wk.clone()).or_insert_with(|| TerminalWorkspace { directory, ..TerminalWorkspace::default() });
+        let id = info.id.clone();
+        if !ws.tabs.iter().any(|t| t.id == id) {
+            let Ok(tab) = self.persistent_tab(srv, info) else { return };
+            let Some(ws) = self.terminal.workspaces.get_mut(&wk) else { return };
+            ws.failure = None;
+            ws.tabs.push(tab);
+        }
+        self.select_terminal_tab(&wk, &id);
+        self.queue_terminal_save();
     }
 
     /// The grid a new terminal starts at, before the pane first measures itself.

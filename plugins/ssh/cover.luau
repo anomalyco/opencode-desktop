@@ -18,6 +18,12 @@ function cover.render(env: any, v: View, props: ServerCoverProps): UiNode?
     end
     local id = props.id
     local I18n = env.I18n
+    -- Offers the sign-in once per server and visit to a tab (`cover.canOffer` / `cover.offer`):
+    -- only while the host waits for a sign-in nobody answers and no dialog shows. Cancelling
+    -- doesn't open it again on this visit; a later visit offers it again.
+    if env.canOffer(id, props.visit, props.dialog) then
+        env.offer(id, props.visit)
+    end
     local connecting = env.pending(id)
     return v:Memo(`cover-{id}`, `{env.version()}|{props.tab}`, function()
         local status: { UiNode } = {

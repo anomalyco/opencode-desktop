@@ -362,7 +362,13 @@ pub fn server_cover(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::ins
     let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
         (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("cover").cloned())).flatten().map(|f| (i, f))
     })?;
-    let props = map([("id", Data::String(rec.id.clone())), ("key", Data::String(key.to_owned())), ("tab", Data::String(tab.to_owned()))]);
+    let props = map([
+        ("id", Data::String(rec.id.clone())),
+        ("key", Data::String(key.to_owned())),
+        ("tab", Data::String(tab.to_owned())),
+        ("visit", Data::Integer(app.plugins.cover_visit.visit())),
+        ("dialog", Data::Bool(crate::plugin_host::servers::dialog_shows(app))),
+    ]);
     let body = render(app, p, i, &format!("cover:{key}"), &f, props);
     Some(col().key(format!("plugin-server-cover-{key}")).w_full().h_full().fill(p.bg_base).on_press(|_: &mut App| {}).child(body))
 }

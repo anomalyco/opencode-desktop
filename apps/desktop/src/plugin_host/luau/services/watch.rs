@@ -84,7 +84,13 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             Some((hash((p.theme, p.generation, p.dark)), map([("scheme", Data::String(if p.dark { "dark" } else { "light" }.into()))])))
         }
         "I18n.Changed" | "App.LocaleChanged" => Some((hash(opencode_i18n::locale().id()), Data::String(opencode_i18n::locale().id().to_owned()))),
-        "Server.Connected" => Some((hash(&app.server_key()), Data::Bool(true))),
+        // The event connection of the server the window works against (the routed tab's): it
+        // fires as that connection drops or comes back, and with the new one's state as the
+        // window moves to another server.
+        "Server.Connected" => {
+            let connected = app.live() && !crate::reconnect::down(app);
+            Some((hash((app.server_key(), connected)), Data::Bool(connected)))
+        }
         "Servers.Changed" => Some((super::servers_version(app), Data::Nil)),
         "ctx.FocusChanged" => {
             let focused = !app.plugins.luau.window_blurred.get();

@@ -20,9 +20,18 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         _ => {
             async_method(lua, vmx, t, "ReadFileAsync", "Workspace.ReadFileAsync")?;
             async_method(lua, vmx, t, "SaveDownloadAsync", "Workspace.SaveDownloadAsync")?;
-            for name in ["OpenInApps", "OpenIn"] {
-                method(lua, t, name, move |_, _: MultiValue| -> mlua::Result<()> { Err(mlua::Error::runtime(format!("Workspace:{name} isn't in this app yet: ui.openInButton offers the apps"))) })?;
-            }
+            // The apps that open a path, where the server the window works against shares this
+            // machine's files (`session.server.local`); none on another machine's.
+            method(lua, t, "OpenInApps", |lua, ()| {
+                let app = super::app_now("Workspace:OpenInApps")?;
+                let apps: Vec<Data> = if app.can_open_in() { app.open_in.options().into_iter().map(|(id, name)| map([("id", Data::String(id.to_owned())), ("name", Data::String(name.to_owned()))])).collect() } else { Vec::new() };
+                mlua::IntoLua::into_lua(Data::List(apps), lua)
+            })?;
+            let q = vmx.half.id.clone();
+            method(lua, t, "OpenIn", move |_, (app, path): (String, String)| {
+                cx::ask(&q, cx::Request::OpenIn { app, path });
+                Ok(())
+            })?;
             method(lua, t, "Relative", |_, (path, directory): (String, String)| Ok(crate::tool_open::relative(&path, &directory)))?;
             super::lazy_signals(lua, vmx, t, "Workspace", &["FileChanged"])
         }

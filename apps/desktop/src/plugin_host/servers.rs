@@ -200,6 +200,7 @@ pub fn authenticating(key: &str) -> bool {
 /// and a managed server whose health dropped runs its plugin's `reconnect`.
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {
     sync_actions(app);
+    app.plugins.cover_visit.follow(&app.route, app.settings.open);
     for (key, attempt, ready) in SETTLED.take() {
         let effects = ACTIONS.with_borrow_mut(|a| a.get_mut(&key).map(|slot| plugin_server::step(&mut slot.machine, plugin_server::Event::ConnectSettled { attempt, ready })));
         run_actions(app, &key, effects.unwrap_or_default(), tx);
@@ -292,6 +293,41 @@ fn run_actions(app: &mut App, key: &str, effects: rune::machine::Effects<plugin_
         }
     }
     tx.instant();
+}
+
+/// The window's visits: each page change starts a new one (Desktop's routed path, the SSH
+/// window machine's `visit.changed`), on which a cover may offer a sign-in once per server.
+#[derive(Default)]
+pub struct CoverVisit {
+    page: Option<(crate::Route, bool)>,
+    visit: i64,
+}
+
+impl CoverVisit {
+    /// The page is `route`, Settings open over it or not.
+    fn follow(&mut self, route: &crate::Route, settings: bool) {
+        if self.page.as_ref().is_none_or(|(r, open)| r != route || *open != settings) {
+            self.page = Some((route.clone(), settings));
+            self.visit += 1;
+        }
+    }
+
+    pub fn visit(&self) -> i64 {
+        self.visit
+    }
+}
+
+/// A dialog shows over the window (`plugin.dialogs.active()`): a cover offers no sign-in then.
+pub fn dialog_shows(app: &App) -> bool {
+    app.plugins.dialog_open()
+        || app.switcher.open
+        || app.project_switcher.open
+        || app.fork.open
+        || app.menus.confirming().is_some()
+        || app.connect.open.is_some()
+        || app.mcp.open.is_some()
+        || app.settings_pages.servers.dialog.state.is_some()
+        || matches!(app.remote_picker, crate::projects::remote_picker::Picker::Open(_))
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the

@@ -180,6 +180,27 @@ return plugin.defineWindow(function(ctx)
         start(it.config, false)
     end
 
+    -- The cover's sign-in offer (`selectSshCanOffer`, `cover.offered` in `window-machine.ts`):
+    -- the server waits for a sign-in nobody answers (no prompt of an attempt in any window), no
+    -- dialog shows, the app half answers, and its cover hasn't offered it on this visit.
+    local offered: { [string]: number } = {}
+
+    function env.canOffer(id: string, visit: number, dialogShows: boolean): boolean
+        local it = item(id)
+        return api() ~= nil and not dialogShows and it ~= nil and it.stage == "authentication" and it.prompt == nil and offered[id] ~= visit
+    end
+
+    -- Spends the offer for this visit and starts the attempt the Authenticate button would,
+    -- after the render that asked.
+    function env.offer(id: string, visit: number)
+        offered[id] = visit
+        task.delay(0, function()
+            if not Dialog:IsOpen("connect") then
+                env.connect(id)
+            end
+        end)
+    end
+
     function env.forget(id: string)
         request("forget", { id = id })
     end

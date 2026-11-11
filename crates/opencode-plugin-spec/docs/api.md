@@ -3213,6 +3213,8 @@ What a server source's cover render receives.
 | `id` | `string` | The entry's id. |
 | `key` | `string` | Its key: `<plugin>:<id>`. |
 | `tab` | `string` | The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft. |
+| `visit` | `number` | The window's page visit: it changes whenever the window shows another page, so a cover can offer something once per visit, as Desktop's SSH cover offers its sign-in. |
+| `dialog` | `boolean` | A dialog shows over the window. A cover offers nothing that opens a dialog while one shows. |
 
 ### ServerSourceSpec
 

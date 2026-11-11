@@ -4614,6 +4614,10 @@ export type ServerCoverProps = {
     key: string,
     --- The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft.
     tab: string,
+    --- The window's page visit: it changes whenever the window shows another page, so a cover can offer something once per visit, as Desktop's SSH cover offers its sign-in.
+    visit: number,
+    --- A dialog shows over the window. A cover offers nothing that opens a dialog while one shows.
+    dialog: boolean,
 }
 
 --- A source of servers, such as SSH hosts or WSL distributions. Add it in the app half to list entries, and in each window half to draw them: the host runs a window half's `row`, `cover`, `connect`, `reconnect` and `remove`, else the app half's. Desktop's plugin API calls it `Server`.

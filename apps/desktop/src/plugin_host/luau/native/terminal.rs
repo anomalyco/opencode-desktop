@@ -59,7 +59,22 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
         let Some(sid) = app.active_session_id().map(str::to_owned) else { return Ok(Value::Nil) };
         Ok(Value::Table(session(lua, &sid, &id)?))
     })?;
-    method(lua, t, "Create", |_, _: Value| -> mlua::Result<()> { Err(mlua::Error::runtime("Terminal:Create isn't in this app yet: Terminal:New starts a session's terminal")) })?;
+    // A terminal of the routed session, on its server, running the spec's program in its folder;
+    // its tab joins the session's others.
+    method(lua, t, "Create", |lua, spec: Value| {
+        let spec: opencode_plugin_spec::TerminalSpec = mlua::FromLua::from_lua(spec, lua).and_then(|d: Data| d.decode().map_err(|e| mlua::Error::runtime(format!("TerminalSpec: {e}"))))?;
+        let app = app_now("Terminal:Create")?;
+        let sid = app.active_session_id().map(str::to_owned).ok_or_else(|| mlua::Error::runtime("Terminal:Create needs a session: this window shows none"))?;
+        let cwd = spec.cwd.or(Some(spec.directory));
+        let info = app.start_terminal(&sid, spec.title, cwd, spec.command, spec.args.unwrap_or_default()).map_err(mlua::Error::runtime)?;
+        let id = info.id.clone();
+        let owner = sid.clone();
+        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.adopt_terminal(&owner, info);
+        }));
+        session(lua, &sid, &id)
+    })?;
     super::super::services::async_method(lua, vmx, t, "OpenAsync", "Terminal.OpenAsync")
 }
 
@@ -115,7 +130,19 @@ fn session(lua: &Lua, sid: &str, id: &str) -> mlua::Result<Table> {
             Ok(())
         })?,
     )?;
-    method(lua, &m, "Write", |_, _: mlua::MultiValue| -> mlua::Result<()> { Err(mlua::Error::runtime("PtySession:Write isn't in this app yet")) })?;
+    m.raw_set(
+        "Write",
+        lua.create_function(move |_, (this, text): (Table, String)| {
+            let (sid, id) = read(&this)?;
+            app_now("PtySession:Write")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                let wk = s.terminal_workspace_key_for_session(&sid);
+                if let Some(tab) = s.terminal.workspaces.get(&wk).and_then(|w| w.tabs.iter().find(|t| t.id == id)) {
+                    tab.session.write_bytes(text.into_bytes());
+                }
+            }));
+            Ok(())
+        })?,
+    )?;
     let fields = [("Id", Value::String(lua.create_string(id)?)), ("sessionId", Value::String(lua.create_string(sid)?))];
     object(lua, "PtySession", &fields, m)
 }

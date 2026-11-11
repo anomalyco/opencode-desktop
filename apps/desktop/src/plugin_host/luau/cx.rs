@@ -68,6 +68,10 @@ pub enum Request {
     Toast { variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool, buttons: Vec<crate::status_toast::PluginButton>, handle: u64 },
     /// Closes the toast Toast:Show answered with this handle, when it still shows.
     DismissToast(u64),
+    /// Replaces what that toast shows, in place, while it shows (`ToastHandle:Update`).
+    UpdateToast { handle: u64, variant: String, title: String, description: String, reveal: Option<(String, String)>, persistent: bool, buttons: Vec<crate::status_toast::PluginButton> },
+    /// Opens a path in one of the apps `Workspace:OpenInApps` lists.
+    OpenIn { app: String, path: String },
     OpenSettings(Option<String>),
     NewDraft { directory: String, prompt: String },
     /// A draft on a listed server (`Layout:OpenDraft`); `server` None for the window's.

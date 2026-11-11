@@ -81,9 +81,25 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 _ => None,
             });
             if let Some(id) = shown {
+                tx.instant();
                 crate::status_toast::dismiss_id(app, id);
             }
         }
+        Request::UpdateToast { handle, variant, title, description, reveal, persistent, buttons } => {
+            let entry = app.toast.stack.entries_mut().iter_mut().find_map(|e| match &mut e.options {
+                crate::status_toast::Shown::Status(entry) if entry.handle == Some(handle) => Some(entry),
+                _ => None,
+            });
+            let Some(entry) = entry else { return };
+            entry.title = title;
+            entry.description = Some(description.trim().to_owned()).filter(|d| !d.is_empty());
+            entry.icon = (variant == "success").then_some(&rune_theme_opencode::icons::CIRCLE_CHECK);
+            entry.persistent = persistent || variant == "error";
+            entry.action = reveal.map(|(label, path)| crate::status_toast::ToastAction::Reveal(label, path.into()));
+            entry.buttons = buttons;
+            tx.instant();
+        }
+        Request::OpenIn { app: id, path } => app.open_in_at(&id, &path),
         Request::Toast { variant, title, description, reveal, persistent, buttons, handle } => {
             match variant.as_str() {
                 // A persistent toast stays until dismissed, as an error does.

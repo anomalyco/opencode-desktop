@@ -1510,7 +1510,9 @@
     { "name": "ServerCoverProps", "kind": "record", "doc": "What a server source's cover render receives.", "fields": [
       { "name": "id", "type": "string", "doc": "The entry's id." },
       { "name": "key", "type": "string", "doc": "Its key: `<plugin>:<id>`." },
-      { "name": "tab", "type": "string", "doc": "The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft." }
+      { "name": "tab", "type": "string", "doc": "The tab it covers: `<server>:<sessionId>` for a session, the draft's id for a draft." },
+      { "name": "visit", "type": "integer", "doc": "The window's page visit: it changes whenever the window shows another page, so a cover can offer something once per visit, as Desktop's SSH cover offers its sign-in." },
+      { "name": "dialog", "type": "boolean", "doc": "A dialog shows over the window. A cover offers nothing that opens a dialog while one shows." }
     ] },
     { "name": "ServerSourceSpec", "kind": "record", "rust": true, "official": "Server", "doc": "A source of servers, such as SSH hosts or WSL distributions. Add it in the app half to list entries, and in each window half to draw them: the host runs a window half's `row`, `cover`, `connect`, `reconnect` and `remove`, else the app half's.", "fields": [
       { "name": "id", "type": "string", "doc": "Its id within the plugin." },

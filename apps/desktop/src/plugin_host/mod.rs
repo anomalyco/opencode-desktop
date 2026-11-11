@@ -122,6 +122,8 @@ pub struct PluginHost {
     server_events: Vec<(String, String)>,
     /// The Luau plugins of this window (`luau::Host`, the window plugin host).
     pub luau: luau::Host,
+    /// The window's page visits, for server covers' one sign-in offer per visit.
+    pub cover_visit: servers::CoverVisit,
 }
 
 impl PluginHost {

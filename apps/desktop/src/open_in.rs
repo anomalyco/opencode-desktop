@@ -313,6 +313,18 @@ impl App {
         self.open_in.launch(app, path, reveal && app == FINDER);
     }
 
+    /// `Workspace:OpenIn`: opens `path` (absolute, or inside the open session's folder) in `app`,
+    /// where the server the window works against shares this machine's files; a file shows
+    /// selected in the file manager.
+    pub fn open_in_at(&mut self, app: &str, path: &str) {
+        if !self.can_open_in() || !self.open_in.options().iter().any(|(id, _)| *id == app) {
+            return;
+        }
+        let Some(path) = (if opencode_kit::path::is_absolute(path) { Some(path.to_owned()) } else { self.open_in_path(path) }) else { return };
+        let reveal = !std::path::Path::new(&path).is_dir();
+        self.open_in.launch(app, path, reveal && app == FINDER);
+    }
+
     pub fn poll_open_in(&mut self) -> bool {
         let (changed, err) = self.open_in.poll();
         if let Some(e) = err {

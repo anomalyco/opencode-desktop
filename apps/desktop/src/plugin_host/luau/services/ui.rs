@@ -158,7 +158,7 @@ fn buttons(plugin: &Rc<str>, spec: &Value) -> mlua::Result<Vec<crate::status_toa
     Ok(out)
 }
 
-/// A `ToastHandle`: `Dismiss` closes its toast while it shows.
+/// A `ToastHandle`: `Dismiss` closes its toast while it shows, `Update` replaces what it shows.
 fn toast_handle(lua: &Lua, plugin: &Rc<str>, handle: u64) -> mlua::Result<Table> {
     let h = lua.create_table()?;
     let q = plugin.clone();
@@ -166,7 +166,14 @@ fn toast_handle(lua: &Lua, plugin: &Rc<str>, handle: u64) -> mlua::Result<Table>
         cx::ask(&q, Request::DismissToast(handle));
         Ok(())
     })?;
-    method(lua, &h, "Update", |_, _: Value| Ok(()))?;
+    let q = plugin.clone();
+    method(lua, &h, "Update", move |lua, spec: Value| {
+        let buttons = buttons(&q, &spec)?;
+        let s: spec::ToastSpec = decode(lua, spec, "ToastSpec")?;
+        let reveal = s.actions.iter().flatten().find_map(|a| Some((a.label.clone(), a.reveal_path.clone()?)));
+        cx::ask(&q, Request::UpdateToast { handle, variant: s.variant.unwrap_or_default().as_str().to_owned(), title: s.title, description: s.description.unwrap_or_default(), reveal, persistent: s.persistent == Some(true), buttons });
+        Ok(())
+    })?;
     Ok(h)
 }
 fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
