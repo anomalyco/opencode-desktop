@@ -8,7 +8,7 @@ pub mod boot_record;
 pub mod import;
 mod schema;
 pub mod seed;
-mod sql;
+pub(crate) mod sql;
 mod writer;
 
 use std::path::PathBuf;
@@ -230,7 +230,8 @@ impl Backend {
 /// A command with no database behind it: callbacks still run, so a caller waiting on one never hangs.
 fn answer_offline(cmd: Cmd) {
     match cmd {
-        Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } | Cmd::Outbox { done: Some(done), .. } => done(Ok(())),
+        Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } => done(Ok(())),
+        Cmd::Outbox { op, done } => crate::outbox::offline(op, done),
         Cmd::LoadState { done: Some(done), .. } | Cmd::LoadDocs { done: Some(done), .. } | Cmd::LoadOutbox { done: Some(done) } => done(),
         Cmd::GetBlob { done, .. } => done(None),
         Cmd::GetPreview { done, .. } => done(None),

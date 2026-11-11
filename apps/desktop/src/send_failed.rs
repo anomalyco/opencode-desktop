@@ -1,7 +1,7 @@
 //! The outbox: every prompt this app sent that the server hasn't confirmed, one copy for all of a
-//! server's windows (`windows::peer`). Each prompt's way is the machine in `machine.rs`. An absent
-//! HTTP reply isn't a rejected prompt: check inbox admission and the exact message before
-//! replaying a journaled request with its original ID.
+//! server's windows (`windows::peer`). Each prompt's way is the machine in `machine.rs`; its row
+//! in the database is `store.rs`'s. An absent HTTP reply isn't a rejected prompt: check inbox
+//! admission and the exact message before replaying a journaled request with its original ID.
 use opencode_kit::client::{PathAttachment, Prompt};
 use opencode_kit::model::{Attachment, Message};
 use opencode_kit::plain_error::failed_for_sure;
@@ -12,8 +12,9 @@ use crate::{App, Source};
 mod receipt;
 mod reason;
 pub(crate) mod machine;
-mod journal;
 mod outbox;
+mod row;
+mod store;
 mod view;
 pub(crate) mod stories;
 pub use machine::Phase;
@@ -59,10 +60,16 @@ pub struct Sent {
     pub inbox: bool,
     pub prompt: Option<Prompt>,
     pub phase: Phase,
-    /// Kept in the journal across launches and sent again until the server has it; a fixture's
+    /// Kept in the outbox across launches and sent again until the server has it; a fixture's
     /// or story's local send only rolls back.
     journaled: bool,
     operation: outbox::Operation,
+    /// Its place in the server's outbox, across launches.
+    seq: i64,
+    /// Whether it has a row: later steps change its columns.
+    row: store::Row,
+    /// How many times it was handed to a writer (`Phase::Sending`'s `handoff`).
+    handoffs: u32,
 }
 
 /// Whether a receipt check is out.
@@ -84,7 +91,7 @@ enum Retry {
 
 #[derive(Default)]
 pub struct Log {
-    journal: journal::Journal,
+    store: store::Store,
     retry: Retry,
     sent: Vec<Sent>,
     receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, String>)>>,
@@ -119,9 +126,12 @@ impl Log {
 
     pub fn sending(&self, id: &str) -> bool { self.state(id) == Some(State::Unconfirmed) }
 
+    /// Takes prompt `id` out of the outbox, its row with it.
     pub(crate) fn take(&mut self, id: &str) -> Option<Sent> {
         let at = self.sent.iter().position(|s| s.id == id)?;
-        Some(self.sent.remove(at))
+        let mut s = self.sent.remove(at);
+        self.forget(&mut s);
+        Some(s)
     }
 
     /// A listing dropped `old` items: those still on their way from any of the server's windows
@@ -136,20 +146,31 @@ impl Log {
     /// Window `by` closed or left the server with writes out: their replies won't come to any
     /// window, so a receipt check settles them.
     pub(crate) fn release(&mut self, by: u64) -> bool {
-        let mut released = false;
-        for s in &mut self.sent {
-            released |= !machine::step(s, Event::Released { by }).is_empty();
+        let released: Vec<String> = self.sent.iter_mut().filter_map(|s| (!machine::step(s, Event::Released { by }).is_empty()).then(|| s.id.clone())).collect();
+        for id in &released {
+            self.persist(id, None);
         }
-        if released {
-            self.save();
-        }
-        released
+        !released.is_empty()
     }
 }
 
 impl Sent {
     pub fn new(session: &str, id: &str, draft: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, inbox: bool) -> Self {
-        Sent { session: session.into(), id: id.into(), draft, files, paths, inbox, prompt: None, phase: Phase::Sending { by: 0, then: None }, journaled: false, operation: Default::default() }
+        Sent {
+            session: session.into(),
+            id: id.into(),
+            draft,
+            files,
+            paths,
+            inbox,
+            prompt: None,
+            phase: Phase::Sending { by: 0, then: None, handoff: 0 },
+            journaled: false,
+            operation: Default::default(),
+            seq: store::next_seq(),
+            row: store::Row::None,
+            handoffs: 0,
+        }
     }
 
     pub fn with_prompt(mut self, prompt: &Prompt) -> Self { self.prompt = Some(prompt.clone()); self }
@@ -221,7 +242,7 @@ impl App {
 
     fn send_effect(&mut self, id: &str, effect: Effect) {
         match effect {
-            Effect::Save => { if self.unsent.journaled(id) { self.unsent.save(); } }
+            Effect::Save => self.unsent.persist(id, None),
             Effect::Check => self.check_sends(),
             Effect::Defer => self.defer_outbox(),
             Effect::Outbox => {
@@ -284,7 +305,8 @@ impl App {
     }
 
     pub(crate) fn poll_sends(&mut self) -> bool {
-        let Some(receipts) = self.unsent.receipts.take() else { return false };
+        let mailed = self.take_mail();
+        let Some(receipts) = self.unsent.receipts.take() else { return mailed };
         self.apply_receipts(receipts);
         true
     }
@@ -372,7 +394,7 @@ impl App {
                 delivery: sent.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(opencode_kit::model::Delivery::Steer),
             });
         }
-        self.unsent.note(Sent { phase: Phase::Sending { by: crate::windows::peer::token(self), then: None }, ..sent });
+        self.unsent.note(Sent { phase: Phase::Sending { by: crate::windows::peer::token(self), then: None, handoff: 0 }, ..sent });
     }
 
     pub(crate) fn edit_failed_send(&mut self, id: &str) {

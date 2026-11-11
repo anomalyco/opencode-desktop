@@ -23,7 +23,7 @@ use web_sys::{IdbDatabase, IdbRequest, IdbTransactionMode};
 use crate::cache::{Doc, DocsIndex, OutboxCache};
 use crate::machine::draft_gc::{self, BLOB_GRACE_MS, DraftGcEffect, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
 use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEvent, WriteBehindState};
-use crate::{Cmd, FlushReason, FlushReport, OutboxOp, OutboxRow, Storage, WindowFrame};
+use crate::{Cmd, FlushReason, FlushReport, OutboxRow, Storage, WindowFrame};
 
 const DB: &str = "opencode-rune-storage";
 const STORES: [&str; 5] = ["documents", "blobs", "outbox", "previews", "caches"];
@@ -43,19 +43,19 @@ pub struct BootReport {
 type StateKey = (String, String);
 type Value = Option<Arc<str>>;
 
-struct Web {
+pub(crate) struct Web {
     ls: Option<web_sys::Storage>,
-    idb: Idb,
+    pub(crate) idb: Idb,
     seq: Seq,
     state: WriteBehindState<StateKey, Value>,
     gc: DraftGcState,
     /// When this session last touched each blob (a blob put or referenced).
-    touched: HashMap<String, i64>,
-    cache: Arc<std::sync::Mutex<crate::cache::Cache>>,
+    pub(crate) touched: HashMap<String, i64>,
+    pub(crate) cache: Arc<std::sync::Mutex<crate::cache::Cache>>,
 }
 
 /// The IndexedDB connection, as it opens.
-enum Idb {
+pub(crate) enum Idb {
     Opening(Vec<Cmd>),
     Open(IdbDatabase),
     Failed,
@@ -72,7 +72,7 @@ unsafe impl Send for Backend {}
 #[allow(unsafe_code)]
 unsafe impl Sync for Backend {}
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     js_sys::Date::now() as i64
 }
 
@@ -160,7 +160,8 @@ impl Backend {
 
 fn offline(cmd: Cmd) {
     match cmd {
-        Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } | Cmd::Outbox { done: Some(done), .. } => done(Ok(())),
+        Cmd::Plugin { done: Some(done), .. } | Cmd::Trust { done: Some(done), .. } => done(Ok(())),
+        Cmd::Outbox { op, done } => crate::outbox::offline(op, done),
         Cmd::LoadState { done: Some(done), .. } | Cmd::LoadDocs { done: Some(done), .. } | Cmd::LoadOutbox { done: Some(done) } => done(),
         Cmd::GetBlob { done, .. } => done(None),
         Cmd::GetPreview { done, .. } => done(None),
@@ -269,7 +270,7 @@ fn later(ms: u64, f: impl FnOnce() + 'static) {
     window.set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), i32::try_from(ms).unwrap_or(i32::MAX)).ok();
 }
 
-fn on_success(req: &IdbRequest, f: impl FnOnce(JsValue) + 'static) {
+pub(crate) fn on_success(req: &IdbRequest, f: impl FnOnce(JsValue) + 'static) {
     let target = req.clone();
     let callback = Closure::once_into_js(move || f(target.result().unwrap_or(JsValue::UNDEFINED)));
     req.set_onsuccess(Some(callback.unchecked_ref()));
@@ -371,7 +372,7 @@ fn get(web: &Rc<RefCell<Web>>, name: &str, key: &str, f: impl FnOnce(JsValue) + 
     }
 }
 
-fn bytes(v: &JsValue) -> Option<Vec<u8>> {
+pub(crate) fn bytes(v: &JsValue) -> Option<Vec<u8>> {
     v.dyn_ref::<js_sys::Uint8Array>().map(js_sys::Uint8Array::to_vec)
 }
 
@@ -405,17 +406,7 @@ fn idb(web: &Rc<RefCell<Web>>, cmd: Cmd) {
             };
             gc_run(web, effects.into_iter().collect());
         }
-        Cmd::Outbox { op, done } => match op {
-            OutboxOp::Put { row, blobs } => {
-                for (id, data) in blobs {
-                    put(web, "blobs", &id, Some(&js_sys::Uint8Array::from(&*data).into()), None);
-                    web.borrow_mut().touched.insert(id, now);
-                }
-                let key = format!("{}\n{}", row.server, row.id);
-                put(web, "outbox", &key, Some(&JsValue::from_str(&outbox_json(&row))), done);
-            }
-            OutboxOp::Delete { server, id } => put(web, "outbox", &format!("{server}\n{id}"), None, done),
-        },
+        Cmd::Outbox { op, done } => crate::outbox::web::handle(web, op, done),
         Cmd::Preview { server, session, value } => {
             let key = format!("{server}\n{session}");
             let v = value.map(|(at, data)| {
@@ -496,7 +487,7 @@ fn idb(web: &Rc<RefCell<Web>>, cmd: Cmd) {
     }
 }
 
-fn outbox_json(row: &OutboxRow) -> String {
+pub(crate) fn outbox_json(row: &OutboxRow) -> String {
     serde_json::json!({
         "server": row.server, "id": row.id, "seq": row.seq, "session": row.session, "state": row.state,
         "operation_json": row.operation_json, "draft_json": row.draft_json, "prompt_json": row.prompt_json,
@@ -506,7 +497,7 @@ fn outbox_json(row: &OutboxRow) -> String {
     .to_string()
 }
 
-fn outbox_from(text: &str) -> Option<OutboxRow> {
+pub(crate) fn outbox_from(text: &str) -> Option<OutboxRow> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
     Some(OutboxRow {

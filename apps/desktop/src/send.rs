@@ -23,7 +23,9 @@ impl App {
             }
         }
         let typed = !self.composer.text.is_empty();
+        rune::marks::mark("send.submit");
         self.record_sent(|s| s.send_prompt(alternate, tx));
+        rune::marks::mark("send.handled");
         // A narrow window lets go of the composer once it sends (`submit.ts:436`).
         if self.narrow() && typed && self.composer.text.is_empty() {
             self.composer.focused = false;
@@ -144,7 +146,9 @@ impl App {
                     };
                     if journal {
                         let paths=sent.paths.clone();
+                        rune::marks::mark("send.enqueue");
                         if !self.enqueue_prompt(sent,w) {self.attach.paths.extend(paths);return;}
+                        rune::marks::mark("send.enqueued");
                     } else {
                         if !self.write(w) {self.attach.paths.extend(sent.paths);return;}
                         self.unsent.note(sent);
@@ -206,6 +210,7 @@ impl App {
         // As the server's copy will read, so a session mention's badge stays put when it lands.
         t.messages.push(Message::User { id: local, text: wire.text });
         self.composer.clear();
+        rune::marks::mark("send.landed");
     }
 
     /// Desktop's `quote.send` (`composer/machine.ts` `quote`, `submit.ts:144-166`): a prompt of

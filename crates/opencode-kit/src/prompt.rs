@@ -50,13 +50,38 @@ pub struct PathAttachment {
 }
 
 /// One `PromptInput.FileAttachment`: `uri` is a `data:` URL (see [`data_url`]), `file://`, or a
-/// `media:<hash>` ref the server sent, which it re-admits from its stored bytes.
+/// `media:<hash>` ref the server sent, which it re-admits from its stored bytes; empty when the
+/// file's bytes go `inline`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FileInput {
     pub uri: String,
     pub name: String,
     pub mime: Option<String>,
     pub mention: Option<Mention>,
+    /// The file's own bytes. The request carries them as a `data:` URL, encoded when its body is
+    /// built on the write lane, so the thread that makes the prompt never encodes or copies them.
+    #[serde(skip)]
+    pub inline: Option<Inline>,
+}
+
+impl FileInput {
+    /// A file sent by its bytes (a pasted image, an attached file read in full).
+    pub fn inline(name: &str, mime: &str, bytes: std::sync::Arc<[u8]>) -> FileInput {
+        FileInput { name: name.to_owned(), inline: Some(Inline { mime: mime.to_owned(), bytes }), ..Default::default() }
+    }
+}
+
+/// A file's bytes and their type, shared with the attachment they came from.
+#[derive(Clone, PartialEq)]
+pub struct Inline {
+    pub mime: String,
+    pub bytes: std::sync::Arc<[u8]>,
+}
+
+impl std::fmt::Debug for Inline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Inline({}, {} bytes)", self.mime, self.bytes.len())
+    }
 }
 
 /// Where a mention sits in the prompt's text: UTF-16 offsets, as the server's JavaScript
@@ -89,7 +114,39 @@ impl Mention {
 
 impl Prompt {
     pub fn body(&self) -> Value {
-        let mut body = self.input();
+        self.body_with(&|_, i| crate::client::data_url(&i.mime, &i.bytes))
+    }
+
+    /// [`Prompt::body`] as the request's bytes. An inline file's `data:` URL is encoded straight
+    /// into them, one pass over its bytes: no string of its own, no copy of it in a JSON value.
+    pub fn body_bytes(&self) -> Vec<u8> {
+        let inline: Vec<&Inline> = self.files.iter().filter_map(|f| f.inline.as_ref()).collect();
+        if inline.is_empty() {
+            return self.body().to_string().into_bytes();
+        }
+        // Each inline file's URL is a marker here (control characters, which JSON escapes, so
+        // nothing a user typed can look like one); the bytes go where the markers are.
+        let json = self.body_with(&|n, _| format!("\u{1}inline{n}\u{1}")).to_string();
+        let size = inline.iter().map(|i| i.bytes.len().div_ceil(3) * 4 + i.mime.len() + 16).sum::<usize>();
+        let mut out = Vec::with_capacity(json.len() + size);
+        let mut rest = json.as_str();
+        for (n, i) in inline.iter().enumerate() {
+            let marker = format!("\\u0001inline{n}\\u0001");
+            let Some(at) = rest.find(&marker) else { break };
+            out.extend_from_slice(rest[..at].as_bytes());
+            let mime = serde_json::to_string(&i.mime).unwrap_or_default();
+            out.extend_from_slice(b"data:");
+            out.extend_from_slice(mime.trim_matches('"').as_bytes());
+            out.extend_from_slice(b";base64,");
+            crate::client::base64_into(&i.bytes, &mut out);
+            rest = &rest[at + marker.len()..];
+        }
+        out.extend_from_slice(rest.as_bytes());
+        out
+    }
+
+    fn body_with(&self, inline: &dyn Fn(usize, &Inline) -> String) -> Value {
+        let mut body = self.input(inline);
         if let Some(id) = &self.id {
             body["id"] = id.clone().into();
         }
@@ -127,7 +184,7 @@ impl Prompt {
 
     /// `POST …/command`'s body: the command's name, with `text` as its arguments.
     pub fn command_body(&self) -> Value {
-        let mut body = self.input();
+        let mut body = self.input(&|_, i| crate::client::data_url(&i.mime, &i.bytes));
         body["name"] = self.command.clone().unwrap_or_default().into();
         if let Some(d) = self.delivery {
             body["delivery"] = d.as_str().into();
@@ -135,15 +192,24 @@ impl Prompt {
         body
     }
 
-    /// `PromptInput.Prompt`'s fields: text, files, agents and skills.
-    fn input(&self) -> Value {
+    /// `PromptInput.Prompt`'s fields: text, files, agents and skills; `inline` gives the n-th inline
+    /// file's `uri`.
+    fn input(&self, inline: &dyn Fn(usize, &Inline) -> String) -> Value {
         let mut body = serde_json::json!({ "text": self.text });
         if !self.files.is_empty() {
+            let mut n = 0;
             body["files"] = self
                 .files
                 .iter()
                 .map(|f| {
-                    let mut v = serde_json::json!({ "uri": f.uri, "name": f.name });
+                    let uri = match &f.inline {
+                        Some(i) => {
+                            n += 1;
+                            inline(n - 1, i)
+                        }
+                        None => f.uri.clone(),
+                    };
+                    let mut v = serde_json::json!({ "uri": uri, "name": f.name });
                     if let Some(mime) = &f.mime {
                         v["mime"] = mime.clone().into();
                     }

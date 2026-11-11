@@ -56,7 +56,7 @@ fn server_or_default(env: Option<String>) -> String {
 /// [`model::Attachment`]) instead of inline bytes. Servers without it ignore the header.
 pub const MEDIA_CAPABILITY: &str = "experimental-media-uri";
 
-pub use crate::prompt::{AgentInput, FileInput, Mention, PathAttachment, Prompt, SkillInput};
+pub use crate::prompt::{AgentInput, FileInput, Inline, Mention, PathAttachment, Prompt, SkillInput};
 
 /// `encodeURIComponent`, for a query value.
 pub(crate) fn encode_component(s: &str) -> String {
@@ -85,6 +85,12 @@ pub struct ReadTiming {
     pub parsing: Instant,
 }
 
+/// A prompt's request, made before it's sent ([`Server::prepare`]).
+pub enum Prepared {
+    Prompt(Vec<u8>),
+    Command(Vec<u8>),
+}
+
 #[derive(Clone)]
 pub struct Server {
     pub base: String,
@@ -102,19 +108,17 @@ impl std::fmt::Debug for Server {
 }
 
 fn base64(input: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for c in input.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
-        for k in 0..4 {
-            if k <= c.len() {
-                out.push(T[(n >> (18 - 6 * k) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(input)
+}
+
+/// Appends `input`'s standard base64 to `out`, encoded in place.
+pub(crate) fn base64_into(input: &[u8], out: &mut Vec<u8>) {
+    use base64::Engine;
+    let start = out.len();
+    out.resize(start + input.len().div_ceil(3) * 4, 0);
+    let written = base64::engine::general_purpose::STANDARD.encode_slice(input, &mut out[start..]).unwrap_or(0);
+    out.truncate(start + written);
 }
 
 impl Server {
@@ -293,8 +297,18 @@ impl Server {
         self.write_within(method, path, body, Duration::from_secs(15))
     }
 
+    /// `write` with the body's bytes already made (a prompt's, `Prompt::body_bytes`).
+    pub(crate) fn write_bytes(&self, path: &str, body: Vec<u8>) -> Result<Value, String> {
+        rune::marks::mark("net.sending");
+        self.write_raw("POST", path, Some(body), Duration::from_secs(15))
+    }
+
     /// `write`, waiting up to `timeout` for the reply.
     pub(crate) fn write_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+        self.write_raw(method, path, body.map(|b| b.to_string().into_bytes()), timeout)
+    }
+
+    fn write_raw(&self, method: &str, path: &str, body: Option<Vec<u8>>, timeout: Duration) -> Result<Value, String> {
         let url = format!("{}{path}", self.base);
         let agent = Self::agent(Some(timeout));
         let auth = self.auth.as_deref();
@@ -306,7 +320,7 @@ impl Server {
                 }
                 // `DELETE /api/worktree` names the worktree in its body.
                 match body {
-                    Some(b) => req.header("Content-Type", "application/json").force_send_body().send(b.to_string().as_bytes()),
+                    Some(b) => req.header("Content-Type", "application/json").force_send_body().send(&b[..]),
                     None => req.call(),
                 }
             }
@@ -315,21 +329,21 @@ impl Server {
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
-                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
             }
             "PUT" => {
                 let mut req = agent.put(url).header("Content-Type", "application/json");
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
-                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
             }
             _ => {
                 let mut req = agent.post(url).header("Content-Type", "application/json");
                 if let Some(a) = auth {
                     req = req.header("Authorization", a);
                 }
-                req.send(body.unwrap_or(Value::Object(Default::default())).to_string().as_bytes())
+                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
             }
         };
         let mut resp = resp.map_err(|e| format!("{method} {path}: {e}"))?;
@@ -345,15 +359,34 @@ impl Server {
     /// `POST /session/:id/prompt` with an id and files; returns the id the server gave the
     /// message (`data.id`), which is `prompt.id` when that was set.
     pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
-        self.apply_choice(session, prompt)?;
-        if prompt.command.is_some() {
-            return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
-        }
-        let prompt = self.with_mentions(None, session, prompt);
-        let v = self.write("POST", &format!("/api/session/{session}/prompt"), Some(prompt.body()))?;
-        Ok(v["data"]["id"].as_str().map(str::to_owned))
+        let request = self.prepare(session, prompt);
+        self.send_prepared(session, prompt, request)
     }
 
+    /// What [`Server::send`] posts, made before anything is sent: a command's body, or the
+    /// prompt's with the files its comments mention (reads only, no change on the server).
+    pub fn prepare(&self, session: &str, prompt: &Prompt) -> Prepared {
+        rune::marks::mark("net.prompt");
+        let request = match prompt.command {
+            Some(_) => Prepared::Command(prompt.command_body().to_string().into_bytes()),
+            None => Prepared::Prompt(self.with_mentions(None, session, prompt).body_bytes()),
+        };
+        rune::marks::mark("net.body");
+        request
+    }
+
+    /// Sends what [`Server::prepare`] made: the agent and model switches, then the prompt.
+    pub fn send_prepared(&self, session: &str, prompt: &Prompt, request: Prepared) -> Result<Option<String>, String> {
+        self.apply_choice(session, prompt)?;
+        match request {
+            Prepared::Command(body) => self.write_bytes(&format!("/api/session/{session}/command"), body).map(|_| None),
+            Prepared::Prompt(body) => {
+                let v = self.write_bytes(&format!("/api/session/{session}/prompt"), body)?;
+                rune::marks::mark("net.answered");
+                Ok(v["data"]["id"].as_str().map(str::to_owned))
+            }
+        }
+    }
     /// Desktop's `applySelection`: a prompt that runs now (a steer, or any prompt to an idle
     /// session) switches the session's agent, then its model, before it's admitted. A queued one
     /// mustn't reconfigure the turn it waits behind, so it only records its choice.
@@ -474,7 +507,7 @@ impl Server {
         // The create already chose the agent and model, so no switches before the prompt.
         let sent = created.as_ref().map_err(String::clone).and_then(|_| {
             let prompt = self.with_mentions(Some(directory), id, prompt);
-            self.write("POST", &format!("/api/session/{id}/prompt"), Some(prompt.body()))
+            self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes())
         });
         match sent {
             Ok(_) => created,

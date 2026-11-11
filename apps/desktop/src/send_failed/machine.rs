@@ -2,8 +2,12 @@
 //! `composer/machine.ts` (`handing-off`, then `failSubmission`/`restoreSubmission` in
 //! `composer/submit.ts:595-614`), `session/handoff-machine.ts` (the shown prompt waits for the
 //! server's admission echo) and `composer/prompt-status-machine.ts` (`admitted` / `failed`). The
-//! durable journal, the retries and the receipt check are Rune's own (`send_failed.rs`): Desktop
+//! durable outbox, the retries and the receipt check are Rune's own (`send_failed.rs`): Desktop
 //! puts a failed prompt back in the composer, where Rune keeps it in the outbox and sends it again.
+//!
+//! A journaled prompt's row is in `opencode.sqlite` (`outbox.rs`), and its write only ever leaves
+//! from the storage thread once the row that says `Sending` is durable: a prompt is never on the
+//! wire without a row that makes the next launch check for it, so none is lost or sent twice.
 
 use rune::machine::Effects;
 
@@ -19,8 +23,10 @@ pub enum Phase {
     /// only its turn).
     Waiting { why: String },
     /// On its way through the writer of window `by` (`windows::peer::token`; 0 is a window of
-    /// its own, a fixture or story).
-    Sending { by: u64, then: Option<AfterCheck> },
+    /// its own, a fixture or story), as hand-off number `handoff`: its row commits, then the
+    /// storage thread gives the write to the writer (`NotSaved` when the commit failed and the
+    /// write never went, `NotSent` when the writer was gone).
+    Sending { by: u64, then: Option<AfterCheck>, handoff: u32 },
     /// Its reply was lost: a receipt check decides whether the server has it. `why` is what the
     /// last check or failure said.
     Unconfirmed { why: String, then: Option<AfterCheck> },
@@ -59,8 +65,12 @@ pub enum Found {
 pub enum Event {
     /// The outbox's pump hands it to window `by`'s writer.
     Send { by: u64 },
-    /// The writer couldn't take it (gone, or the journal couldn't be saved first).
-    NotSent { why: &'static str },
+    /// Hand-off `handoff`'s writer couldn't take it (the window's link is gone).
+    NotSent { why: &'static str, handoff: u32 },
+    /// Its row couldn't be committed: hand-off `handoff`'s write never went, or (`handoff` none)
+    /// the row that holds it waiting was never saved. Either way nothing keeps it across a
+    /// launch, so its words go back to the composer.
+    NotSaved { handoff: Option<u32> },
     WriteFailed { why: String, verdict: Verdict },
     /// The server has it: its admission echo, a page or inbox listing with its id, the write's
     /// own reply, or a receipt.
@@ -82,7 +92,7 @@ pub enum Event {
 
 #[derive(Debug, PartialEq)]
 pub enum Effect {
-    /// Write the journal (journaled prompts only).
+    /// Write its row (journaled prompts only).
     Save,
     /// Ask the server for receipts of every unconfirmed prompt.
     Check,
@@ -110,21 +120,28 @@ pub fn step(s: &mut Sent, event: Event) -> Effects<Effect> {
             s.phase = Phase::Accepted;
             Effects::two(Effect::Save, Effect::Accepted { late })
         }
-        // The pump saves it before the writer sees it, and puts it back if that fails.
+        // The pump commits its row, and the storage thread hands the write over once it's durable.
         (Phase::Waiting { .. }, Event::Send { by }) => {
-            s.phase = Phase::Sending { by, then: None };
+            s.handoffs += 1;
+            s.phase = Phase::Sending { by, then: None, handoff: s.handoffs };
             Effects::none()
         }
-        (Phase::Sending { then, .. }, Event::NotSent { why }) => {
+        (Phase::Sending { then, handoff, .. }, Event::NotSent { why, handoff: h }) if *handoff == h => {
             let then = then.take();
+            // Its row still says Sending: a launch before the next hand-off checks for it first.
             s.phase = Phase::Waiting { why: why.into() };
             then.map_or(Effects::none(), |action| Effects::one(Effect::Run(action)))
         }
+        (Phase::Sending { then, handoff, .. }, Event::NotSaved { handoff: Some(h) }) if *handoff == h => {
+            let then = then.take();
+            reject(s, "Couldn't save message".into(), then)
+        }
+        (Phase::Waiting { .. }, Event::NotSaved { handoff: None }) => reject(s, "Couldn't save message".into(), None),
         (Phase::Sending { then, .. }, Event::WriteFailed { why, verdict }) => {
             let then = then.take();
             failed(s, why, verdict, then)
         }
-        (Phase::Sending { by, then }, Event::Released { by: gone }) if *by == gone => {
+        (Phase::Sending { by, then, .. }, Event::Released { by: gone }) if *by == gone => {
             s.phase = Phase::Unconfirmed { why: String::new(), then: then.take() };
             Effects::two(Effect::Save, Effect::Check)
         }

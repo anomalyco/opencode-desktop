@@ -27,7 +27,7 @@ pub fn context_input(directory: &str, path: &str, start: u32, end: u32) -> FileI
         uri: format!("file://{}?start={start}&end={end}", encode_path(&absolute(directory, path))),
         name: filename(path).to_owned(),
         mime: Some("text/plain".into()),
-        mention: None,
+        ..Default::default()
     }
 }
 
@@ -94,6 +94,7 @@ pub fn wire<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)], directory: &
                 name: filename(value).to_owned(),
                 mime: Some("text/plain".into()),
                 mention,
+                ..Default::default()
             }),
             // A reference is its folder, named as it was picked (`composer/model.ts:190-198`).
             "reference" => out.files.push(FileInput {
@@ -101,6 +102,7 @@ pub fn wire<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)], directory: &
                 name: shown.trim_start_matches('@').to_owned(),
                 mime: Some("application/x-directory".into()),
                 mention,
+                ..Default::default()
             }),
             _ => {}
         }

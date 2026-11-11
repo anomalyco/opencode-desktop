@@ -30,7 +30,7 @@ impl Server {
             .filter(|m| existing.contains(*m))
             .filter_map(|m| {
                 let uri = format!("file://{}", encode_path(&absolute(&directory, m)));
-                used.insert(uri.clone()).then(|| FileInput { uri, name: filename(m).to_owned(), mime: Some("text/plain".into()), mention: None })
+                used.insert(uri.clone()).then(|| FileInput { uri, name: filename(m).to_owned(), mime: Some("text/plain".into()), ..Default::default() })
             })
             .collect();
         if found.is_empty() {
@@ -39,7 +39,7 @@ impl Server {
         // Desktop sends `[...files, ...context, ...inline]`: these come after the typed mentions
         // and the file context, before the inline images.
         let mut out = prompt.clone();
-        let at = out.files.iter().position(|f| f.uri.starts_with("data:") || f.uri.starts_with("media:")).unwrap_or(out.files.len());
+        let at = out.files.iter().position(|f| f.inline.is_some() || f.uri.starts_with("data:") || f.uri.starts_with("media:")).unwrap_or(out.files.len());
         out.files.splice(at..at, found);
         Cow::Owned(out)
     }

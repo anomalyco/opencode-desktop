@@ -184,6 +184,11 @@ pub fn read_outbox_row(conn: &Connection, server: &str, id: &str) -> rusqlite::R
     conn.prepare_cached(&format!("SELECT {OUTBOX_COLUMNS} FROM outbox WHERE server = ?1 AND id = ?2"))?.query_row([server, id], outbox_from).optional()
 }
 
+/// One server's rows, oldest first.
+pub fn read_outbox_server(conn: &Connection, server: &str) -> rusqlite::Result<Vec<OutboxRow>> {
+    conn.prepare_cached(&format!("SELECT {OUTBOX_COLUMNS} FROM outbox WHERE server = ?1 ORDER BY seq"))?.query_map([server], outbox_from)?.collect()
+}
+
 pub fn read_outbox(conn: &Connection) -> rusqlite::Result<BTreeMap<String, Vec<OutboxRow>>> {
     let mut stmt = conn.prepare_cached(&format!("SELECT {OUTBOX_COLUMNS} FROM outbox ORDER BY server, seq"))?;
     let rows = stmt.query_map([], outbox_from)?;

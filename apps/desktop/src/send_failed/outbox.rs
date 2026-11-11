@@ -1,8 +1,8 @@
-//! Write-ahead journal for idempotent prompt admissions. The writer never sees a new ID
-//! until its complete request and editable draft have been committed locally. One journal per
-//! server, shared by its windows: a window that closes mid-send leaves its prompts to the others
-//! and to the next launch.
-use super::journal::{self, Journal};
+//! The outbox's way to the server: idempotent prompt admissions, each kept as a durable row
+//! (`store.rs`) before its write can leave. The writer never sees a new ID until its complete
+//! request and editable draft are committed. One outbox per server, shared by its windows: a
+//! window that closes mid-send leaves its prompts to the others and to the next launch.
+use super::store::{self, Forward, Mail, Store};
 use super::*;
 use crate::Route;
 use crate::pickers::PickerHost as _;
@@ -41,76 +41,88 @@ impl Operation {
 }
 
 impl Log {
-    pub(super) fn save(&self) -> bool {
-        match &self.journal {
-            Journal::Memory => true,
-            Journal::Blocked => false,
-            Journal::File(path) => journal::write(path, &self.sent).is_ok(),
-        }
-    }
-
-    /// Another window's read of the same server's journal, joining this one (`windows::peer`):
-    /// prompts this copy doesn't hold yet come in (an older build's per-window journal).
+    /// Another window's outbox of the same server, joining this one (`windows::peer`): prompts
+    /// this copy doesn't hold yet come in.
     pub(crate) fn absorb(&mut self, from: Log) {
-        let before = self.sent.len();
         for s in from.sent {
             if !self.sent.iter().any(|x| x.id == s.id) {
                 self.sent.push(s);
             }
         }
-        if self.journal == Journal::Memory {
-            self.journal = from.journal;
-        }
-        if self.sent.len() != before {
-            self.save();
+        self.sent.sort_by_key(|s| s.seq);
+        if self.store == Store::Memory {
+            self.store = from.store;
         }
     }
 }
 
-/// The journal of server `base` (one file per server), and an older build's journal of this
-/// window on it (one file per window and server), whose prompts move over.
-fn paths(base: &str, window: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-    use sha2::{Digest, Sha256};
-    let dir = crate::dirs::data()?;
-    let file = |scope: String| dir.join(format!("outbox-{:x}.json", Sha256::digest(scope)));
-    Some((file(format!("server\n{base}")), file(format!("{window}\n{base}"))))
-}
-
 impl App {
+    /// The window's server's outbox: its stored prompts are read on the storage thread, after
+    /// the first frame, and come in through `poll_sends`.
     pub(crate) fn open_outbox(&mut self) {
         let Source::Live { server, allow_send: true, .. } = &self.source else {
             return;
         };
+        let base = server.base.clone();
+        self.unsent = Log::default();
         if !self.persists() {
             return;
         }
-        let found = paths(&server.base, &self.window.id);
-        self.unsent = Log::default();
-        let Some((path, legacy)) = found else {
-            self.unsent.journal = Journal::Blocked;
-            return;
-        };
-        self.read_outbox(path, legacy);
+        store::listen(&base, self.waker.clone());
+        store::read(&base, &self.window.id);
+        self.unsent.store = Store::Reading { server: base };
     }
 
-    pub(super) fn read_outbox(&mut self, path: std::path::PathBuf, legacy: std::path::PathBuf) {
-        let (Ok(rows), Ok(old)) = (journal::read(&path), journal::read(&legacy)) else {
-            // Never overwrite unreadable words.
-            self.unsent.journal = Journal::Blocked;
-            return;
-        };
-        self.unsent.journal = Journal::File(path);
-        let moved = !old.is_empty();
-        for mut s in rows.into_iter().chain(old) {
-            machine::step(&mut s, Event::Reopened);
-            if !self.unsent.sent.iter().any(|x| x.id == s.id) {
-                self.unsent.note(s);
+    /// What the storage thread sent back for this server: its stored prompts, a row that couldn't
+    /// be saved, a writer that was gone.
+    pub(super) fn take_mail(&mut self) -> bool {
+        let Some(server) = self.unsent.store.server().map(str::to_owned) else { return false };
+        store::listen(&server, self.waker.clone());
+        let mail = store::take(&server);
+        let changed = !mail.is_empty();
+        for m in mail {
+            match m {
+                Mail::Read(rows) => self.stored_prompts(&server, rows),
+                Mail::NotSaved { id, handoff } => {
+                    if let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id) {
+                        s.row = store::Row::None;
+                    }
+                    self.step_send(&id, Event::NotSaved { handoff });
+                }
+                Mail::NotSent { id, handoff } => {
+                    self.step_send(&id, Event::NotSent { why: "waiting for connection", handoff });
+                }
             }
         }
-        if moved && self.unsent.save() {
-            let _ = std::fs::remove_file(legacy);
+        changed
+    }
+
+    /// The server's stored prompts are in: each takes its place before the ones sent since
+    /// (it's older), a write out when the app quit checks first, and the outbox may pump.
+    fn stored_prompts(&mut self, server: &str, rows: Result<Vec<Sent>, String>) {
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(e) => {
+                // Storage that can't keep them: this run's outbox lives in memory.
+                eprintln!("opencode-rune: outbox not readable, kept in memory: {e}");
+                self.unsent.store = Store::Memory;
+                return;
+            }
+        };
+        if !matches!(self.unsent.store, Store::Reading { .. }) && self.unsent.store != (Store::Open { server: server.to_owned() }) {
+            return;
         }
+        self.unsent.store = Store::Open { server: server.to_owned() };
+        for mut s in rows {
+            if self.unsent.sent.iter().any(|x| x.id == s.id) {
+                continue;
+            }
+            machine::step(&mut s, Event::Reopened);
+            self.unsent.note(s);
+        }
+        self.unsent.sent.sort_by_key(|s| s.seq);
         self.show_outbox();
+        self.pump_outbox();
     }
 
     /// Each unsent prompt where it waits: a follow-up behind steers already waiting waits with
@@ -141,8 +153,9 @@ impl App {
         }
     }
 
-    /// Journals `sent`, to go out as `write`, then pumps. False (and a toast) when it couldn't be
-    /// saved: the draft stays where it is.
+    /// Takes `sent`, to go out as `write`: its row is committed on the storage thread and, when
+    /// it's next in line, the write leaves from there once the row is durable. The UI thread
+    /// writes nothing. False only for a write the outbox doesn't keep.
     pub(crate) fn enqueue_prompt(&mut self, mut sent: Sent, write: Write) -> bool {
         sent.operation = match write {
             Write::Send { .. } => Operation::Send,
@@ -153,17 +166,17 @@ impl App {
             _ => return false,
         };
         sent.journaled = true;
+        sent.seq = store::next_seq();
         let offline = crate::reconnect::down(self) || matches!(self.source, Source::Live { writes: None, .. });
         sent.phase = Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } };
         let (id, session) = (sent.id.clone(), sent.session.clone());
         self.unsent.note(sent);
-        if !self.unsent.save() {
-            self.unsent.take(&id);
-            crate::status_toast::fail(self, "Couldn't save message", "Your draft hasn't been sent.");
-            return false;
-        }
         crate::telemetry::send_receipt(&session, &id, "saved", 0);
         self.pump_outbox();
+        // Not its turn (offline, or behind another): its row holds it until it is.
+        if self.unsent.state(&id) == Some(State::Waiting) {
+            self.unsent.persist(&id, None);
+        }
         true
     }
 
@@ -198,9 +211,10 @@ impl App {
     }
 
     /// Sends the outbox's oldest prompt still on its way, through this window's writer, once the
-    /// one before it is confirmed.
+    /// one before it is confirmed: its `Sending` row commits on the storage thread, which hands
+    /// the write to the writer once it's durable.
     pub(crate) fn pump_outbox(&mut self) -> bool {
-        if crate::reconnect::down(self) {
+        if crate::reconnect::down(self) || matches!(self.unsent.store, Store::Reading { .. }) {
             return false;
         }
         let Source::Live { writes: Some(writer), allow_send: true, .. } = &self.source else {
@@ -225,18 +239,23 @@ impl App {
         let (Some(prompt), operation) = (s.prompt.clone(), s.operation.clone()) else {
             return false;
         };
-        let was = s.why().to_owned();
         let by = crate::windows::peer::token(self);
         self.step_send(&id, Event::Send { by });
-        let why = if !self.unsent.save() {
-            "couldn’t save retry"
-        } else if writer.send(operation.write(session, prompt)).is_err() {
-            "waiting for connection"
-        } else {
+        let Some(Phase::Sending { handoff, .. }) = self.unsent.get(&id).map(|s| s.phase.clone()) else { return true };
+        let write = operation.write(session, prompt);
+        if self.unsent.store == Store::Memory {
+            if writer.send(write).is_err() {
+                self.step_send(&id, Event::NotSent { why: "waiting for connection", handoff });
+            }
             return true;
-        };
-        self.step_send(&id, Event::NotSent { why });
-        was != why
+        }
+        match hand_over(&writer, write, handoff) {
+            Some(forward) => self.unsent.persist(&id, Some(forward)),
+            None => {
+                self.step_send(&id, Event::NotSent { why: "waiting for connection", handoff });
+            }
+        }
+        true
     }
 
     pub(super) fn restore_rejection(&mut self, id: &str) {
@@ -310,13 +329,6 @@ impl App {
         if action == "outbox-retry" {
             if s.state() == State::Failed {
                 self.step_send(id, Event::Retry);
-                if !self.unsent.save() {
-                    if let Some(entry) = self.unsent.sent.iter_mut().find(|x| x.id == id) {
-                        entry.phase = s.phase.clone();
-                    }
-                    crate::status_toast::fail(self, "Couldn't save retry", "Your message hasn't changed.");
-                    return;
-                }
                 if matches!(s.phase, Phase::Failed { restored: true, .. }) && self.matches_restored(&s) {
                     self.composer.clear();
                     self.attach.files.clear();
@@ -335,22 +347,14 @@ impl App {
             return;
         }
         self.step_send(id, Event::Act(act));
-        if matches!(s.phase, Phase::Sending { .. } | Phase::Unconfirmed { .. }) && !self.unsent.save() {
-            crate::status_toast::fail(self, "Couldn't save change", "Check this message again after reconnecting.");
-        }
     }
 
     /// Takes prompt `id` out of the outbox and the timeline; an Edit puts its words in the
     /// composer, after anything already there.
     fn remove_from_outbox(&mut self, id: &str, action: AfterCheck) {
-        let Some(removed) = self.unsent.take(id) else {
+        let Some(s) = self.unsent.take(id) else {
             return;
         };
-        if !self.unsent.save() {
-            self.unsent.note(removed);
-            return;
-        }
-        let s = removed;
         if let Some(t) = self.transcripts.get_mut(&s.session) {
             t.messages.retain(|m| m.id() != id);
         }
@@ -386,4 +390,18 @@ impl App {
         }
         self.composer.focused = true;
     }
+}
+
+/// The write of hand-off `handoff`, waiting for its row: on the lane already, making its request
+/// while the row commits (natively), or to go once it has (a page, whose one thread can't wait).
+/// None when the lane is gone.
+fn hand_over(writer: &std::sync::mpsc::Sender<Write>, write: Write, handoff: u32) -> Option<Forward> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (gate, held) = std::sync::mpsc::sync_channel(1);
+        writer.send(Write::Gated { gate: held, write: Box::new(write) }).ok()?;
+        Some(Forward::Gate { gate, handoff })
+    }
+    #[cfg(target_arch = "wasm32")]
+    Some(Forward::After { writer: writer.clone(), write, handoff })
 }

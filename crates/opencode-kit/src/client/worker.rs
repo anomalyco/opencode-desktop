@@ -75,6 +75,11 @@ fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Wa
     }
 }
 
+/// Whether a held write may go: its gate's answer (`false` when the gate is gone), or at once.
+fn released(gate: &mut Option<std::sync::mpsc::Receiver<bool>>) -> bool {
+    gate.take().is_none_or(|g| g.recv().unwrap_or(false))
+}
+
 /// The fetch and write threads, answering into `inbox_tx`.
 pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: &Waker) -> (Sender<Request>, Sender<Write>) {
     let (req_tx, req_rx) = channel::<Request>();
@@ -85,6 +90,18 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
         let inbox_tx = inbox_tx.clone();
         let wake = wake.clone();
         rune::task::serve("opencode-write", write_rx, move |w| {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let (mut gate, w) = match w {
+                        Write::Gated { gate, write } => (Some(gate), *write),
+                        w => (None, w),
+                    };
+                    #[cfg(target_arch = "wasm32")]
+                    let mut gate: Option<std::sync::mpsc::Receiver<bool>> = None;
+                    // Every gated write but a plain send waits for its row first: they change the server
+                    // before they post the prompt (a session made, a revert committed).
+                    if !matches!(w, Write::Send { .. }) && !released(&mut gate) {
+                        return ControlFlow::Continue(());
+                    }
                     let (ticket, w) = match w {
                         Write::Tracked { ticket, write } => (Some(ticket), *write),
                         w => (None, w),
@@ -132,7 +149,14 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             let _ = inbox_tx.send(Incoming::Created(info));
                             Ok(())
                         }),
-                        Write::Send { session, prompt } => server.send(&session, &prompt).map(|_| ()),
+                        Write::Send { session, prompt } => {
+                            // A send makes its request while its row commits, and posts it once it has.
+                            let request = server.prepare(&session, &prompt);
+                            if !released(&mut gate) {
+                                return ControlFlow::Continue(());
+                            }
+                            server.send_prepared(&session, &prompt, request).map(|_| ())
+                        }
                         Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
                         Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
                             server.send(&info.id, &prompt)?;
@@ -189,6 +213,8 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
                         Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|session| forked = Some(session)),
                         Write::Tracked { .. } => Err("a tracked write can't track another".into()),
+                        #[cfg(not(target_arch = "wasm32"))]
+                        Write::Gated { .. } => Err("a gated write can't hold another".into()),
                     };
                     if let Some(ticket) = ticket {
                         if inbox_tx.send(Incoming::Settled { ticket, result: result.map(|()| forked) }).is_err() {

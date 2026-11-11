@@ -167,6 +167,11 @@ pub enum Write {
     /// `write`, whose outcome comes back as `Incoming::Settled` under `ticket`, success or not
     /// (no `Incoming::Status` for its failure).
     Tracked { ticket: Ticket, write: Box<Write> },
+    /// `write` (a prompt's), held on the write lane until `gate` says the outbox row that keeps it
+    /// is durable. The lane makes the request meanwhile (reads only, nothing changes on the
+    /// server), sends it on `true` and drops it on `false` (the app hears why from its storage).
+    #[cfg(not(target_arch = "wasm32"))]
+    Gated { gate: std::sync::mpsc::Receiver<bool>, write: Box<Write> },
     /// `StartAs` in a new worktree of `project` (Desktop's `createWorktree`): `POST /api/worktree`
     /// from the checkout `from`, on `branch` or its current one, then the session in the
     /// worktree it made. `Incoming::Event` `worktree.updated` follows the worktree, then

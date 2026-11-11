@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::cache::{Doc, Lookup, OutboxCache};
-use crate::{Cmd, Done, Loaded, OutboxOp, OutboxRow, Storage, WindowFrame};
+use crate::cache::{Doc, Lookup};
+use crate::{Cmd, Done, Loaded, Storage, WindowFrame};
 
 /// Namespaced key-value state (`state(name, key, value)`), as Desktop's `platform.storage(name)`.
 /// Values are JSON text.
@@ -264,63 +264,6 @@ impl PluginStore<'_> {
             };
         }
         self.storage.send(Cmd::Trust { id: id.to_owned(), sha256, done });
-    }
-}
-
-/// The durable prompt outbox, per server (Tier 0). Loaded after the first frame.
-pub struct OutboxStore<'a> {
-    pub(crate) storage: &'a Storage,
-}
-
-impl OutboxStore<'_> {
-    /// Server `server`'s rows in order; none until loaded ([`OutboxStore::load`]).
-    pub fn rows(&self, server: &str) -> Option<Vec<OutboxRow>> {
-        match &self.storage.cache().outbox {
-            OutboxCache::Loaded(all) => Some(all.get(server).cloned().unwrap_or_default()),
-            OutboxCache::Unloaded => None,
-        }
-    }
-
-    /// Every server with rows; none until loaded.
-    pub fn servers(&self) -> Option<Vec<String>> {
-        match &self.storage.cache().outbox {
-            OutboxCache::Loaded(all) => Some(all.keys().cloned().collect()),
-            OutboxCache::Unloaded => None,
-        }
-    }
-
-    pub fn load(&self, done: Option<Loaded>) {
-        if matches!(self.storage.cache().outbox, OutboxCache::Loaded(_)) {
-            if let Some(done) = done {
-                done();
-            }
-            return;
-        }
-        self.storage.send(Cmd::LoadOutbox { done });
-    }
-
-    /// Admits or updates a prompt with its attachment bytes (`blobs`: id and bytes, ids as
-    /// [`OutboxRow::attachments`] name them). `done` runs once the row and its blobs are durable
-    /// (`synchronous = FULL`): forward the network write only then.
-    pub fn put(&self, row: OutboxRow, blobs: Vec<(String, Arc<[u8]>)>, done: Option<Done>) {
-        if let OutboxCache::Loaded(all) = &mut self.storage.cache().outbox {
-            let list = all.entry(row.server.clone()).or_default();
-            match list.iter_mut().find(|r| r.id == row.id) {
-                Some(r) => *r = row.clone(),
-                None => list.push(row.clone()),
-            }
-            list.sort_by_key(|r| r.seq);
-        }
-        self.storage.send(Cmd::Outbox { op: OutboxOp::Put { row: Box::new(row), blobs }, done });
-    }
-
-    pub fn delete(&self, server: &str, id: &str, done: Option<Done>) {
-        if let OutboxCache::Loaded(all) = &mut self.storage.cache().outbox
-            && let Some(list) = all.get_mut(server)
-        {
-            list.retain(|r| r.id != id);
-        }
-        self.storage.send(Cmd::Outbox { op: OutboxOp::Delete { server: server.to_owned(), id: id.to_owned() }, done });
     }
 }
 

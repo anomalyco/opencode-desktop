@@ -22,7 +22,8 @@ use crate::cache::{Cache, Doc, OutboxCache};
 use crate::machine::checkpoint::{self, WalEffect, WalEvent, WalState};
 use crate::machine::draft_gc::{self, BLOB_GRACE_MS, DraftGcEffect, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
 use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEvent, WriteBehindState};
-use crate::{Cmd, FlushReason, FlushReport, Loaded, OutboxOp, StorageError, WindowFrame};
+use crate::outbox;
+use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 
 pub(crate) enum Msg {
     /// Commands are in the queue (`super::Queue`).
@@ -337,18 +338,27 @@ impl Writer {
                 let r = self.durable(true, |c, now| sql::put_trust(c, &id, sha256.as_deref(), now));
                 answer(done, r);
             }
-            Cmd::Outbox { op, done } => {
-                let r = self.durable(false, |c, now| match &op {
-                    OutboxOp::Put { row, blobs } => {
-                        for (id, data) in blobs {
-                            sql::insert_blob(c, id, data, now)?;
-                        }
-                        sql::put_outbox(c, row, now, true).map(drop)
+            Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
+                outbox::native::Prepared::Write(w, blobs) => {
+                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, now));
+                    if r.is_ok() {
+                        outbox::cached(&mut self.cache().outbox, &w);
                     }
-                    OutboxOp::Delete { server, id } => sql::delete_outbox(c, server, id),
-                });
-                answer(done, r);
-            }
+                    answer(done, r);
+                }
+                outbox::native::Prepared::Read { server, adopt, done } => {
+                    let adopted = match outbox::native::has_adoptees(&self.conn, &adopt) {
+                        Ok(true) => self.durable(false, |c, now| outbox::native::adopt(c, &server, &adopt, now)).map(|()| true),
+                        Ok(false) => Ok(false),
+                        Err(e) => Err(StorageError(e.to_string())),
+                    };
+                    if adopted == Ok(true) {
+                        // Re-read when next asked: the adopted rows moved.
+                        self.cache().outbox = OutboxCache::Unloaded;
+                    }
+                    done(adopted.and_then(|_| outbox::native::read(&self.conn, &server).map_err(|e| StorageError(e.to_string()))));
+                }
+            },
             Cmd::LoadState { names, done } => {
                 for name in names {
                     if let Ok(rows) = sql::read_namespace(&self.conn, &name) {

@@ -16,6 +16,7 @@ pub mod cache;
 pub mod chunk;
 pub mod machine;
 pub mod model;
+mod outbox;
 mod stores;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,7 +29,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub use boot_packet::{BootPacket, BootSource};
 pub use cache::Lookup;
 pub use model::{FlushReason, FlushReport, ImportGroup, OutboxAttachment, OutboxRow, WindowFrame};
-pub use stores::{CacheStore, DocumentStore, OutboxStore, PluginStore, PreviewStore, StateStore, WindowStore};
+pub use outbox::{OutboxBuild, OutboxEntry, OutboxPut, OutboxRead, OutboxStore, OutboxUpdate};
+pub use stores::{CacheStore, DocumentStore, PluginStore, PreviewStore, StateStore, WindowStore};
 
 // The same names on both targets: what differs is behind the backend.
 #[cfg(not(target_arch = "wasm32"))]
@@ -115,10 +117,7 @@ pub fn plugin_namespace(plugin_id: &str) -> String {
 /// The sent-prompt history document (normal and shell lists).
 pub const PROMPT_HISTORY_DOCUMENT: &str = "opencode.global.dat:prompt-history.v1";
 
-pub(crate) enum OutboxOp {
-    Put { row: Box<OutboxRow>, blobs: Vec<(String, Arc<[u8]>)> },
-    Delete { server: String, id: String },
-}
+pub(crate) use outbox::OutboxOp;
 
 /// What the stores send the storage thread (or the web backend).
 pub(crate) enum Cmd {

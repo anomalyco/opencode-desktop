@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use opencode_kit::client::{FileInput, PathAttachment, data_url};
+use opencode_kit::client::{FileInput, PathAttachment};
 use opencode_kit::model::{Attachment, Message, Transcript};
 use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -76,7 +76,8 @@ pub fn path_lines(text: &str, refs: &[PathAttachment]) -> String {
         .join("\n")
 }
 
-/// Encodes inline `Attachment`s into `PromptInput.FileAttachment` values (`data:` URL or `media:` ref).
+/// Inline `Attachment`s as `PromptInput.FileAttachment` values: a `media:` ref, or the bytes
+/// themselves, shared, which go as a `data:` URL when the request is built on the write lane.
 pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
     files
         .iter()
@@ -85,13 +86,9 @@ pub fn inputs(files: &[Attachment]) -> Vec<FileInput> {
                 uri: format!("media:{hash}"),
                 name: f.name.clone(),
                 mime: Some(f.mime.clone()),
-                mention: None,
-            },
-            None => FileInput {
-                uri: data_url(&f.mime, &f.bytes),
-                name: f.name.clone(),
                 ..Default::default()
             },
+            None => FileInput::inline(&f.name, &f.mime, f.bytes.clone()),
         })
         .collect()
 }

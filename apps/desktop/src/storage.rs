@@ -82,6 +82,8 @@ struct Queued {
     frames: Vec<(String, WindowFrame)>,
     forgotten: Vec<String>,
     previews: Vec<(String, String, Option<(i64, Arc<[u8]>)>)>,
+    /// Work that needs the storage itself (the outbox's reads and Tier 0 rows), in order.
+    later: Vec<Box<dyn FnOnce(&Storage) + Send>>,
 }
 
 impl Queued {
@@ -111,6 +113,9 @@ impl Queued {
         }
         for (server, session, value) in self.previews {
             s.previews().set(&server, &session, value);
+        }
+        for f in self.later {
+            f(s);
         }
     }
 }
@@ -169,9 +174,9 @@ fn config() -> Option<StorageConfig> {
     }
     let mut sidecar = vec![opencode_kit::client::DEFAULT_SERVER.to_owned()];
     sidecar.extend(crate::arg("--server"));
-    // Only the App group's files are imported: the plugin host, outbox, terminal, updater and
-    // browser still read theirs until their packages move them (the crate's staged import).
-    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App], clock: crate::wall_ms })
+    // The groups whose files the app has cut over (the crate's staged import): the plugin host,
+    // terminal, updater and browser still read theirs until their packages move them.
+    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App, ImportGroup::Outbox], clock: crate::wall_ms })
 }
 /// The first window presented its first frame: stage B is joined off the UI thread.
 pub fn presented() {
@@ -338,6 +343,27 @@ pub fn set_frame(id: &str, frame: WindowFrame) {
                 queued.frames.push((id.to_owned(), frame));
             }
         },
+    );
+}
+
+/// Every row of a namespace the first frame doesn't draw (`plugin.terminal`); none until it's loaded
+/// (`StateStore::load`, through [`with_storage`]).
+pub fn items(name: &str) -> Option<Vec<(String, Arc<str>)>> {
+    with(|s| s.state().items(name), |_, _| None)
+}
+
+/// Runs `f` with the storage: now when it's ready, else once it is, after the writes made
+/// meanwhile and in the order asked. For the stores that live only in the database (the
+/// outbox's rows), never read before the first frame.
+pub fn with_storage(f: impl FnOnce(&Storage) + Send + 'static) {
+    let f: std::cell::Cell<Option<Box<dyn FnOnce(&Storage) + Send>>> = std::cell::Cell::new(Some(Box::new(f)));
+    with(
+        |s| {
+            if let Some(f) = f.take() {
+                f(s);
+            }
+        },
+        |_, queued| queued.later.extend(f.take()),
     );
 }
 
