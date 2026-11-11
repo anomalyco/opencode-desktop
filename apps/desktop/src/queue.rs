@@ -251,10 +251,12 @@ impl App {
             self.check_sends();
         }
         // The queue hears the server's queued prompts whenever they change (`inbox.synced`).
-        if self.queue_ops.contains_key(sid) {
+        if let Some(queue) = self.queue_ops.get(sid) {
             let ids = self.inboxes.get(sid).map(|i| i.queued().map(|i| i.id.clone()).collect()).unwrap_or_default();
-            self.step_queue(sid, Event::Synced { ids });
+            let delivered = queue.doubted().is_some_and(|d| self.transcripts.get(sid).is_some_and(|t| t.messages.iter().any(|m| m.id() == d)));
+            self.step_queue(sid, Event::Synced { ids, delivered });
         }
+        crate::rewind::inbox_changed(self, sid);
         admitted || done.changed
     }
 
@@ -468,9 +470,9 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
     } else {
         let mut actions = reveal(row().key("actions").gap(4.0).center_y());
         if !st.editing {
-            actions = actions.child(steer).child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)));
+            actions = actions.child(steer.child(marker(format!("steer-{}", st.index)))).child(icon_button(p, "undo", opencode_i18n::t!("session.queue.undo"), &UNDO, 24.0, 16.0, move |s: &mut App| s.undo_queued(&su, &iu)).child(marker(format!("undo-{}", st.index))));
         }
-        let actions = actions.child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| s.withdraw(&sr, &ir)));
+        let actions = actions.child(icon_button(p, "remove", opencode_i18n::t!("session.queue.remove"), &XMARK, 24.0, 16.0, move |s: &mut App| s.withdraw(&sr, &ir)).child(marker(format!("remove-{}", st.index))));
         // While another change runs or a row is dragged, the actions wait
         // (`pointer-events-none`, `disabled`).
         if st.changing || st.dragging { actions.inert() } else { actions }

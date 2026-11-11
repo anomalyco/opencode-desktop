@@ -37,6 +37,11 @@ pub struct SavedDraft {
 }
 
 impl SavedDraft {
+    /// The same words, pills, files, paths and quotes, wherever the caret is.
+    pub fn same_words(&self, other: &SavedDraft) -> bool {
+        self.entry == other.entry && self.files == other.files && self.paths == other.paths && self.quotes == other.quotes
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entry.text.trim().is_empty() && self.files.is_empty() && self.paths.is_empty() && self.quotes.is_empty()
     }
@@ -218,11 +223,11 @@ impl App {
         }
         self.set_session_revert(session, Some(message_id.to_owned()));
         self.exit_shell();
-        self.apply_draft(session, restored);
+        self.apply_draft(session, restored.clone());
         let toast = crate::status_toast::rewound(self, UndoRewind { session: session.to_owned(), attempt });
 
         let rollback = Rollback { revert: prior.clone(), stopped, draft: Some(prior_draft.clone()), toast: Some(toast) };
-        let operation = Operation::Rewind { message: message_id.to_owned(), prior, draft: prior_draft, rollback };
+        let operation = Operation::Rewind { message: message_id.to_owned(), prior, draft: prior_draft, restored, rollback };
         self.step_revert(session, Event::Requested { operation, now: self.clock });
     }
 
@@ -301,8 +306,8 @@ impl App {
                 }
                 let ticket = Ticket { kind: TicketKind::Revert, session: session.to_owned(), attempt: attempt.0 };
                 if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
-                    let why = self.status.clone();
-                    self.step_revert(session, Event::Failed { attempt, why });
+                    let (why, now) = (self.status.clone(), self.clock);
+                    self.step_revert(session, Event::Failed { attempt, why, now });
                 }
             }
             Effect::Undo { rollback, why } => {
@@ -331,6 +336,16 @@ impl App {
                 self.apply_draft(session, draft);
             }
             Effect::RestoreDraft { draft } => self.apply_draft(session, draft),
+            // The server holds the boundary of a rewind that was rolled back: it shows, and its
+            // prompt comes back unless something was typed over the rolled-back draft since.
+            Effect::Land { attempt, boundary, rolled_back, restored } => {
+                self.set_session_revert(session, Some(boundary));
+                if self.capture_draft(session).same_words(&rolled_back) {
+                    self.exit_shell();
+                    self.apply_draft(session, restored);
+                }
+                crate::status_toast::rewound(self, UndoRewind { session: session.to_owned(), attempt });
+            }
             Effect::DismissToast => {
                 if let Some(e) = self.toast.current()
                     && matches!(&e.action, Some(crate::status_toast::ToastAction::UndoRewind(u)) if u.session == session)
@@ -346,7 +361,7 @@ impl App {
         let attempt = Attempt(attempt);
         let event = match result {
             Ok(()) => Event::Succeeded { attempt },
-            Err(why) => Event::Failed { attempt, why },
+            Err(why) => Event::Failed { attempt, why, now: self.clock },
         };
         self.step_revert(session, event);
     }
@@ -440,6 +455,27 @@ pub fn landed(s: &mut App, ty: &str, data: &serde_json::Value, sid: &str) -> Opt
     let event = if ty == "session.revert.committed" { Event::Committed } else { Event::Reported(reported) };
     s.step_revert(sid, event);
     s.rewind.sessions.get(sid)?.expected().cloned()
+}
+
+/// A fresh read of the sessions (a reconnect's): a rolled-back rewind whose boundary the server
+/// now holds landed after all.
+pub(crate) fn read_sessions(s: &mut App) {
+    let doubtful: Vec<(String, Option<String>)> = s.rewind.sessions.iter().filter(|(_, r)| r.doubtful()).map(|(id, _)| (id.clone(), s.session(id).and_then(|i| i.revert.clone()))).collect();
+    for (sid, revert) in doubtful {
+        s.step_revert(&sid, Event::Read(revert));
+    }
+}
+
+/// `sid`'s inbox changed: a withdrawal whose cancel failed, whose prompt left the inbox without
+/// reaching the transcript, was cancelled after all.
+pub(crate) fn inbox_changed(s: &mut App, sid: &str) {
+    let Some(machine::State::Doubtful { doubt: machine::Doubt::Withdraw { message, .. }, .. }) = s.rewind.sessions.get(sid).map(|r| &r.state) else { return };
+    let message = message.clone();
+    let queued = s.inboxes.get(sid).is_some_and(|i| i.items.iter().any(|i| i.id == message));
+    let delivered = s.transcripts.get(sid).is_some_and(|t| t.messages.iter().any(|m| m.id() == message));
+    if !queued && !delivered {
+        s.step_revert(sid, Event::Withdrawn { message });
+    }
 }
 
 /// The key of message `id`'s corner chevron, which its menu opens from.

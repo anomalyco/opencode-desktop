@@ -40,6 +40,12 @@ impl Server {
         self.read(&format!("/api/session/{session}/inbox")).map(|v| list(&v))
     }
 
+    /// Whether the server holds prompt `id`: in the inbox, or delivered among the newest messages.
+    fn holds_prompt(&self, session: &str, id: &str) -> bool {
+        let listed = self.inbox_items(session).is_ok_and(|items| items.iter().any(|i| i["id"] == id));
+        listed || self.read(&format!("/api/session/{session}/message?limit=20&order=desc")).is_ok_and(|v| list(&v).iter().any(|m| m["id"] == id))
+    }
+
     /// Admits `body` under `id` (`data.session.prompt`).
     fn admit(&self, session: &str, id: &str, body: &Value) -> Result<(), String> {
         let mut body = body.clone();
@@ -156,7 +162,13 @@ impl Server {
         // A steered replacement can be delivered before a withdrawal reaches it, so the bound
         // waits for the admission and the edit returns only if it really did not go out.
         progress(Progress::Committed);
-        self.admit(session, id, &with_delivery(admission, "steer"))?;
+        // An answer can be lost after the server admitted the steer: its receipt decides, so the
+        // edit never both goes out and comes back to the composer.
+        if let Err(e) = self.admit(session, id, &with_delivery(admission, "steer")) {
+            if !self.holds_prompt(session, id) {
+                return Err(e);
+            }
+        }
         progress(Progress::Admitted);
         // Cancelling is a no-op once the original is gone, so one retry is safe.
         self.cancel_inbox(session, original).or_else(|_| self.cancel_inbox(session, original))

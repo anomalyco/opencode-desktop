@@ -19,6 +19,8 @@ use session_view::composer::history::Entry;
 pub const MUTATION_TIMEOUT_SECS: f64 = 60.0;
 /// How long a confirmed row stays hidden waiting for the server's event (`queue.ts:181`).
 pub const GONE_SECS: f64 = 30.0;
+/// How long an undo whose cancel failed waits for the server to say it cancelled the prompt.
+pub const UNDO_DOUBT_SECS: f64 = 60.0;
 
 /// What the composer holds, or held before an edit opened (`EditStash`): its words and pills,
 /// caret, files, paths and mode.
@@ -161,12 +163,25 @@ pub struct Queue {
     gone: Vec<(String, f64)>,
     /// Each inbox id a finished edit or reorder replaced, with the id admitted in its place.
     moved: Vec<(String, String)>,
+    /// An undo whose cancel failed, until its expiry: the server may have cancelled the prompt
+    /// and lost the answer, and then its words belong in the composer (`Synced`).
+    doubt: Option<Undone>,
     seq: Seq,
 }
 
+/// A queued prompt an undo asked for, with its words.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Undone {
+    pub id: String,
+    text: String,
+    files: Vec<Attachment>,
+    expiry: f64,
+}
+
 pub enum Event {
-    /// The server's queued prompts, in order (`inbox.synced`).
-    Synced { ids: Vec<String> },
+    /// The server's queued prompts, in order (`inbox.synced`); `delivered`: the doubted undo's
+    /// prompt reached the transcript.
+    Synced { ids: Vec<String>, delivered: bool },
     EditStart { id: String, reverted: bool, draft: Draft, loaded: Draft },
     EditCancel,
     /// `ids`: fresh ids, one per queued prompt, for the replacements an edit admits.
@@ -220,6 +235,11 @@ impl Queue {
         self.active().is_some()
     }
 
+    /// The prompt of an undo whose cancel failed, which the server may still have cancelled.
+    pub fn doubted(&self) -> Option<&str> {
+        self.doubt.as_ref().map(|d| d.id.as_str())
+    }
+
     /// The row open in the composer.
     pub fn editing(&self) -> Option<&str> {
         self.edit().map(|e| e.id.as_str())
@@ -256,7 +276,7 @@ impl Queue {
 
     /// When the next timer is due: a change's bound or a gone row's expiry.
     pub fn due(&self) -> Option<f64> {
-        self.gone.iter().map(|(_, e)| *e).chain(self.active().and_then(|a| a.due)).reduce(f64::min)
+        self.gone.iter().map(|(_, e)| *e).chain(self.active().and_then(|a| a.due)).chain(self.doubt.as_ref().map(|d| d.expiry)).reduce(f64::min)
     }
 
     fn operations(&self) -> impl Iterator<Item = &Operation> {
@@ -329,7 +349,17 @@ impl Queue {
 
     pub fn step(&mut self, event: Event, rows: &[Row]) -> Effects<Effect> {
         match event {
-            Event::Synced { ids } => self.synced(&ids),
+            Event::Synced { ids, delivered } => {
+                let mut effects = self.synced(&ids);
+                // A doubted undo's prompt left the queue without being delivered: the cancel went
+                // through, so its words come back.
+                if let Some(d) = self.doubt.take_if(|d| !ids.contains(&d.id)) {
+                    if !delivered {
+                        effects.push(Effect::Merge { text: d.text, files: d.files, paths: Vec::new() });
+                    }
+                }
+                effects
+            }
             Event::EditStart { id, reverted, draft, loaded } => self.start_edit(id, reverted, draft, loaded, rows),
             Event::EditCancel => match self.close_edit() {
                 Some(edit) => Effects::one(Effect::Restore { stash: edit.stash, focus: true, keep: None }),
@@ -369,6 +399,7 @@ impl Queue {
             Event::Failed { attempt, hidden, now } => self.failed(attempt, hidden, now),
             Event::Tick { now, stage, hidden } => {
                 self.gone.retain(|(_, expiry)| *expiry > now);
+                self.doubt.take_if(|d| d.expiry <= now);
                 let Some(attempt) = self.active().filter(|a| a.due.is_some_and(|d| now + 1e-9 >= d)).map(|a| a.attempt) else { return Effects::none() };
                 // A change past its bound ends as it got: one whose irreversible step is in
                 // flight waits for that, a finished one succeeds, and anything else fails.
@@ -538,6 +569,8 @@ impl Queue {
 
     /// `operation` runs, with `pending` waiting behind it.
     fn start(&mut self, operation: Operation, pending: Vec<Operation>, now: f64) -> Effects<Effect> {
+        // A new change to the doubted prompt decides it: its words don't come back on their own.
+        self.doubt.take_if(|d| d.id == operation.id());
         let attempt = self.seq.next();
         let due = operation.bounded().then_some(now + MUTATION_TIMEOUT_SECS);
         let active = Active { attempt, operation: operation.clone(), due };
@@ -573,6 +606,10 @@ impl Queue {
         // merged into what it holds now, or into the draft an open edit stashed.
         let returned = match active.operation {
             Operation::Edit(e) if !e.admitted => Some(e.prompt),
+            Operation::Undo { id, text, files } => {
+                self.doubt = Some(Undone { id, text, files, expiry: now + UNDO_DOUBT_SECS });
+                None
+            }
             _ => None,
         };
         match (returned, &mut self.state) {
