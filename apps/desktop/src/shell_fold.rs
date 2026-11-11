@@ -6,10 +6,6 @@ use serde_json::json;
 
 use crate::App;
 
-/// The group Kit pressed.
-#[cfg(test)]
-pub const GROUP: &str = "c-call_zzshellfold";
-
 /// A turn of one shell call and a long answer, the next step still thinking.
 pub fn add_shell_fold(app: &mut App, sid: &str) {
     let t = app.transcripts.get_mut(sid).expect("session");

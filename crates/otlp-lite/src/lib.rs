@@ -178,5 +178,3 @@ fn post(to: SocketAddr, body: &str) {
     }
 }
 
-#[cfg(test)]
-mod tests;

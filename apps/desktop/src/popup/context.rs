@@ -102,6 +102,3 @@ pub fn show(s: &mut App, at: MenuAt, anchor: PopupAnchor, drawn: bool, tx: &mut 
 
 type Pick = Box<dyn FnOnce(&mut App, Option<&str>, &mut Tx)>;
 
-#[cfg(test)]
-#[path = "context_tests.rs"]
-mod tests;

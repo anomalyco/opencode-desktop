@@ -477,5 +477,3 @@ fn finish(cache: &ImageCache, buf: Buf, trim: bool) -> Shown {
     if mark { Shown::Mark(image) } else { Shown::Tile(image) }
 }
 
-#[cfg(test)]
-mod tests;

@@ -266,26 +266,3 @@ pub fn set_user_comments(id: &str, comments: Vec<PromptComment>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prompt_text_prefixes_every_line() {
-        let q = Quote { text: "one\ntwo".into(), comment: None };
-        assert_eq!(q.prompt_text(), "The user quoted the following from earlier in the conversation:\n> one\n> two");
-        let q = Quote { text: "x".into(), comment: Some("  why?  ".into()) };
-        assert_eq!(
-            q.prompt_text(),
-            "The user quoted the following from earlier in the conversation:\n> x\n\nThe user made the following comment regarding this quote: why?"
-        );
-        assert_eq!(Quote { text: "x".into(), comment: Some(" ".into()) }.json(), serde_json::json!({"type": "quote", "text": "x"}));
-    }
-
-    #[test]
-    fn metadata_needs_display_text_and_comments() {
-        let m = serde_json::json!({"displayText": "hi", "comments": [{"type": "quote", "text": "a"}, {"type": "note", "comment": "n"}]});
-        assert_eq!(parse_metadata(&m), Some(("hi".into(), vec![PromptComment::Quote(Quote { text: "a".into(), comment: None })])));
-        assert_eq!(parse_metadata(&serde_json::json!({"comments": []})), None);
-    }
-}

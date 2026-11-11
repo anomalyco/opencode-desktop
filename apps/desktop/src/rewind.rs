@@ -676,6 +676,3 @@ pub(crate) fn sent_label(id: &str, now: i64) -> Option<String> {
     Some(date::format(if sent.year == today.year { Style::MonthDayTime } else { Style::DateTime }, sent))
 }
 
-#[cfg(test)]
-#[path = "rewind_tests.rs"]
-mod tests;

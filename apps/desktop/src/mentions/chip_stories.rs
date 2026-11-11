@@ -7,7 +7,7 @@ use rune::Play;
 
 use crate::App;
 use crate::fixture_ids::CHILD;
-use crate::stories::{Trigger, replay, sid};
+use crate::stories::{replay, sid};
 
 const ASK: &str = "msg_zzzzsessionchips0";
 const REPLY: &str = "msg_zzzzsessionchips1";

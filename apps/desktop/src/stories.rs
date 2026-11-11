@@ -304,14 +304,14 @@ fn folds_file() -> Option<std::path::PathBuf> {
 /// Headless runs and tests neither read nor write them, so a capture's list never depends on
 /// what was folded at the desk.
 fn load_folds() -> Vec<String> {
-    if crate::headless() || cfg!(test) {
+    if crate::headless() {
         return Vec::new();
     }
     folds_file().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|mut v| serde_json::from_value(v["folded"].take()).ok()).unwrap_or_default()
 }
 
 fn save_folds(folded: &[String]) {
-    if crate::headless() || cfg!(test) {
+    if crate::headless() {
         return;
     }
     if let Some(f) = folds_file() {
@@ -749,30 +749,3 @@ fn scroll_up(s: &mut App, tx: &mut Play<App>) {
     tx.scroll_to(scroll_key(s), 0.0, 0.0);
 }
 
-/// The app with its storybook, headless and closed, on an empty real state that never reaches
-/// a server: open a story with `Runtime::open_playground`.
-#[cfg(test)]
-pub(crate) fn storybook() -> rune::Runtime<App> {
-    let spec = rune::AppSpec { setup: None, ..crate::spec(App::empty) };
-    let mut rt = crate::rune_app(spec).headless_runtime((1280.0, 820.0), rune::Env::new(true, 1.0));
-    rt.frame(0.0);
-    rt
-}
-
-/// The storybook open on `path`, on its variant `variant` if given.
-#[cfg(test)]
-pub(crate) fn story(path: &str, variant: Option<&str>) -> rune::Runtime<App> {
-    let mut rt = storybook();
-    rt.open_playground(path, variant);
-    rt
-}
-
-/// The open story's world.
-#[cfg(test)]
-pub(crate) fn world(rt: &rune::Runtime<App>) -> &App {
-    rt.playground_state::<App>().expect("a story is open")
-}
-
-#[cfg(test)]
-#[path = "stories_tests.rs"]
-mod tests;

@@ -11,8 +11,6 @@ impl App {
                 t.directory = s.directory.clone();
             }
         }
-        #[cfg(test)]
-        tabs::SAVED.with(|saved| *saved.borrow_mut() = Some(self.tabs.iter().map(|t| t.id.clone()).collect()));
         if self.persists() {
             // The mixed list and what `tabs.info` keeps of each, as Desktop's window file has them.
             let (list, info): (Vec<_>, serde_json::Map<String, Value>) = self.tabs.iter().map(Tab::to_doc).fold((Vec::new(), serde_json::Map::new()), |(mut list, mut info), (tab, i)| {

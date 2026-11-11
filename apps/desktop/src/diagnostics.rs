@@ -53,20 +53,6 @@ impl Diagnostics {
         }
     }
 
-    /// A recorder writing to `dir`, for `frame_benchmark`.
-    #[cfg(test)]
-    pub(crate) fn at(dir: &std::path::Path) -> Self {
-        let r = Recorder::start(Config::new(dir, "OpenCode (Rune) benchmark")).expect("recorder");
-        rune_perf::take_allocated_bytes();
-        Self(Rc::new(RefCell::new(State { started: true, recorder: Some(r), last_drawn: None })))
-    }
-
-    /// One drawn frame's record, as `encoded` sends it, for `frame_benchmark`.
-    #[cfg(test)]
-    pub(crate) fn drawn_frame(&self, seq: u64) {
-        self.record(seq, FrameOutcome::Drawn, Instant::now(), Some(1.0), Some(1.0));
-    }
-
     /// After `run`: drains what's queued. The window is gone, so nothing waits on it.
     pub fn shutdown(&self) {
         if let Some(r) = self.0.borrow_mut().recorder.take() {
@@ -114,5 +100,3 @@ fn start() -> Option<Recorder> {
     }
 }
 
-#[cfg(test)]
-mod tests;

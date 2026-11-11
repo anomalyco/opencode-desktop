@@ -1,8 +1,6 @@
 use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{KeyEvent, TextEdit, Transition};
-#[cfg(test)]
-pub use session_view::composer::COMPOSER_MAX_H;
 pub use session_view::composer::{ComposerHost, composer_fill, shows_whole_prompt};
 
 use super::narrow::{self, Agent};

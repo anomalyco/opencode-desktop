@@ -97,8 +97,6 @@ pub struct SideState {
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
     next_new_serial: u64,
-    #[cfg(test)]
-    pub extra_panels: Vec<PanelRegistration>,
 }
 
 impl Default for SideState {
@@ -122,8 +120,6 @@ impl Default for SideState {
             adding: Vec::new(),
             chosen_new_tab: HashMap::new(),
             next_new_serial: 1,
-            #[cfg(test)]
-            extra_panels: Vec::new(),
         }
     }
 }
@@ -189,11 +185,6 @@ impl App {
     pub fn all_panels(&self) -> Vec<PanelRegistration> {
         let mut out = registered_panels().to_vec();
         out.extend(crate::plugin_host::luau::panels::providers(self));
-        #[cfg(test)]
-        if !self.side.extra_panels.is_empty() {
-            out.retain(|p| !self.side.extra_panels.iter().any(|e| e.plugin == p.plugin));
-            out.extend(self.side.extra_panels.iter().copied());
-        }
         out.sort_by_key(|p| (p.order, p.plugin));
         out
     }

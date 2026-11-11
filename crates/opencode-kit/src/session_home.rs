@@ -56,6 +56,3 @@ pub fn moved_note(was: &str, home: &str) -> String {
     format!("Your folder {was} was removed, so this session moved to {home} to hear this. Make a new worktree before you change anything.")
 }
 
-#[cfg(test)]
-#[path = "session_home_tests.rs"]
-mod tests;

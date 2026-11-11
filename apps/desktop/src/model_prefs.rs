@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub use session_view::pickers::ModelPrefs;
 
 pub fn load() -> ModelPrefs {
-    let write: fn(PathBuf, String) = if crate::headless() || cfg!(test) { keep } else { write };
+    let write: fn(PathBuf, String) = if crate::headless() { keep } else { write };
     ModelPrefs::load(crate::dirs::data().map(|d| d.join("model-prefs.json")), write)
 }
 

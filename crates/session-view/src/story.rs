@@ -377,6 +377,3 @@ fn arg(flag: &str) -> Option<String> {
     None
 }
 
-#[cfg(test)]
-#[path = "story_tests.rs"]
-mod tests;

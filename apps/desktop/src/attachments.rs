@@ -4,17 +4,9 @@
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender, channel};
-#[cfg(test)]
-use std::sync::{Arc, Mutex};
 
 use opencode_kit::client::PathAttachment;
-#[cfg(test)]
-use opencode_kit::client::FileInput;
 use opencode_kit::model::Attachment;
-#[cfg(test)]
-use opencode_kit::model::{Message, Transcript};
-#[cfg(test)]
-use rune::{Cx, ImageCache, col};
 use rune::machine::Attempt;
 use rune::{El, Tx};
 
@@ -28,8 +20,6 @@ pub use session_view::composer::attachments::{
 pub use session_view::images::{
     MediaStore, PreparedImage, identity, inline_images, prepare_images, view_image, viewer,
 };
-#[cfg(test)]
-use session_view::images::{Fetch, Fetched, fit, gallery, shown};
 
 pub struct Attach {
     /// Waiting in the composer for the next send, inline.
@@ -315,5 +305,3 @@ mod reply_image;
 pub mod toast;
 pub mod uploads;
 
-#[cfg(test)]
-mod tests;

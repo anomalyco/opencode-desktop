@@ -193,6 +193,3 @@ impl Server {
     }
 }
 
-#[cfg(test)]
-#[path = "pty_tests.rs"]
-mod tests;

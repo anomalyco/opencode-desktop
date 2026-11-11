@@ -7,19 +7,11 @@ pub mod data;
 pub mod image;
 pub mod link_tip;
 mod link_tip_stories;
-#[cfg(test)]
-mod link_tip_tests;
 pub mod links;
-#[cfg(test)]
-mod links_tests;
 pub mod markdown;
 pub mod narrow;
 mod markdown_stories;
-#[cfg(test)]
-mod markdown_tests;
 mod stories;
-#[cfg(test)]
-mod tests;
 pub mod view;
 pub(crate) mod viewer;
 

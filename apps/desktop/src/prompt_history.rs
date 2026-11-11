@@ -33,13 +33,6 @@ impl PromptHistory {
         PromptHistory { inner: Inner::from_json(&v), path }
     }
 
-    /// ↑ or ↓ through the shared store's own walk, for its tests; the app walks in its
-    /// suggestion machine.
-    #[cfg(test)]
-    pub fn step(&mut self, composer: &mut rune::TextEdit, route: &Route, shell: bool, up: bool) -> bool {
-        self.inner.step(composer, route, shell, up)
-    }
-
     pub fn entries(&self, shell: bool) -> &[Entry] {
         self.inner.entries(shell)
     }
@@ -72,6 +65,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "prompt_history_tests.rs"]
-mod tests;

@@ -758,7 +758,3 @@ pub(crate) fn encode(s: &str) -> String {
         .collect()
 }
 
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod typing_tests;

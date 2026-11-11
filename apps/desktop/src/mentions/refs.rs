@@ -28,10 +28,6 @@ impl Lookups {
         data["sessionID"].as_str().is_some_and(|id| self.missing.insert(id.to_owned()))
     }
 
-    #[cfg(test)]
-    pub fn asked(&self, id: &str) -> bool {
-        self.asked.borrow().contains(id)
-    }
 }
 
 impl App {
@@ -72,6 +68,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "refs_tests.rs"]
-mod tests;

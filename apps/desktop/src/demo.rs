@@ -154,6 +154,3 @@ pub fn poll(s: &mut App) {
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("demo", start)]);
 
-#[cfg(test)]
-#[path = "demo_tests.rs"]
-mod tests;

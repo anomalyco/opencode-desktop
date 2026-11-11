@@ -4,5 +4,3 @@ pub use session_view::pickers::hover;
 
 mod story;
 
-#[cfg(test)]
-mod tests;

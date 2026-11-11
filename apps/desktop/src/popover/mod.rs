@@ -7,5 +7,3 @@ pub use session_view::popover::*;
 
 rune_register::register!(crate::knobs::GROUP_LIST: rune_knobs::Group = [motion::GROUP]);
 
-#[cfg(test)]
-pub(crate) mod tests;

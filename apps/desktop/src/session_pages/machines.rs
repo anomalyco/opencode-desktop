@@ -213,8 +213,6 @@ impl Histories {
     /// A new pool reads every history again.
     pub fn clear(&mut self) { self.map.clear(); }
 
-    #[cfg(test)]
-    pub fn set(&mut self, server: &str, id: &str, history: History) { self.map.insert((server.to_owned(), id.to_owned()), history); }
 }
 
 /// The calm "still trying" toast after a silence that lasts. It says so once per silence.

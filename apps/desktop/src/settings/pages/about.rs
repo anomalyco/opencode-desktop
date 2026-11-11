@@ -30,7 +30,7 @@ static BRUSH: Icon = Icon { name: "about-anomaly-brush", view: 110.0, body: incl
 /// window asks the first time About shows, with or without a server, as Desktop does
 /// (`loadOtherContributorCount`); headless runs and tests stay offline and show the fallback.
 fn others(s: &App) -> u32 {
-    if !crate::headless() && !cfg!(test) {
+    if !crate::headless() {
         ASKED.call_once(|| {
             let waker = s.waker.clone();
             std::thread::spawn(move || {

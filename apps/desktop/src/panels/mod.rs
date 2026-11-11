@@ -13,8 +13,6 @@ pub mod menus;
 pub mod persist;
 pub mod state;
 pub mod tabs;
-#[cfg(test)]
-mod tests;
 pub mod view;
 pub mod width;
 

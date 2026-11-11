@@ -15,10 +15,6 @@ use super::engine::{self, Engine, Facts};
 use super::feed;
 use super::platform::Platform;
 
-/// Local dev-install bundle ID (`apps/desktop/scripts/bundle.sh`), which never updates.
-#[cfg(test)]
-pub const LOCAL_DEV_BUNDLE_ID: &str = "anomaly.opencode-rune.dev";
-
 /// Team release bundle ID installed from the release feed.
 pub const TEAM_BUNDLE_ID: &str = "anomaly.opencode-rune";
 

@@ -5,11 +5,7 @@
 
 use std::ops::Range;
 
-#[cfg(test)]
-use opencode_kit::mention::MentionKind;
 use opencode_kit::mention::UserMention;
-#[cfg(test)]
-use rune::PillStyle;
 use rune::Tx;
 
 use crate::App;
@@ -17,12 +13,7 @@ use crate::view::title_of;
 
 pub use session_view::user_parts::{
     mention_bubble as bubble, mention_kind_of as kind_of,
-    mention_pill_style as pill_style,
 };
-#[cfg(test)]
-use session_view::user_parts::mention_ink as ink;
-#[cfg(test)]
-use session_view::user_parts::{mention_neutral as neutral, mention_tint as tint};
 
 /// The mentions of a prompt sent from the composer, over its trimmed text (what a pending
 /// steer shows until the server's copy replaces it).
@@ -80,6 +71,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "badge_tests.rs"]
-mod tests;

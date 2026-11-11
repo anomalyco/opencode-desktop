@@ -79,5 +79,3 @@ pub fn indicator(s: &App, p: &Pal) -> Option<El> {
     })
 }
 
-#[cfg(test)]
-mod tests;

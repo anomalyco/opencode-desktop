@@ -70,7 +70,7 @@ impl PanelSidebar {
 
     fn save(&self) {
         let Some(f) = Self::file() else { return };
-        if crate::headless() || cfg!(test) {
+        if crate::headless() {
             return;
         }
         let body = serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W) }).to_string();

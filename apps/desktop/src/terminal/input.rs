@@ -15,30 +15,6 @@ pub enum KeyOutcome {
     ConsumedResetBlink,
 }
 
-/// Handles a key event while the terminal holds focus; returns `true` when consumed.
-#[cfg(test)]
-pub fn handle_key(
-    s: &mut App,
-    session: &TerminalSession,
-    ev: &KeyEvent,
-    viewport_rows: u16,
-    tx: &mut Tx,
-) -> bool {
-    let ws_key = s.active_terminal_workspace_key();
-    let tab_id = ws_key
-        .as_ref()
-        .and_then(|k| s.terminal.workspaces.get(k))
-        .and_then(|w| w.active.clone());
-    match dispatch_key(session, None, None, ws_key, tab_id, ev, viewport_rows, tx) {
-        KeyOutcome::Ignored => false,
-        KeyOutcome::Consumed => true,
-        KeyOutcome::ConsumedResetBlink => {
-            s.terminal.reset_blink(s.clock);
-            true
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn dispatch_key(
     session: &TerminalSession,

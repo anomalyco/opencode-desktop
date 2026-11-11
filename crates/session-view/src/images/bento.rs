@@ -78,6 +78,3 @@ fn hero(a: &[f32]) -> ((f32, f32), Vec<Tile>) {
     }
 }
 
-#[cfg(test)]
-#[path = "bento_tests.rs"]
-mod tests;

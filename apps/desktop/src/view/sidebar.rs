@@ -23,9 +23,6 @@ const PEEK_SPRING: Spring = Spring::new(0.18, 0.0);
 const PEEK_FADE: Spring = Spring::new(0.15, 0.0);
 /// How far a closed panel's contents dim at the end of the flight.
 pub(super) const FADE_FLOOR: f32 = 0.5;
-/// A side tab's height plus the strip's 3pt gap: one row of the vertical strip.
-#[cfg(test)]
-pub(super) const TAB_PITCH: f32 = 28.0 + 3.0;
 /// The peek's edge zone (`sidebar-peek.ts`): 24pt in from the window's start, from 56pt below
 /// the sidebar's top, and the corridor around the toggle and the peek that holds it open.
 const EDGE_W: f32 = 24.0;

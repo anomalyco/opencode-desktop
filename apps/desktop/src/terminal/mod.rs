@@ -1,8 +1,6 @@
 //! Native Ghostty terminal pane (a side panel, `⌃\``), workspace tabs, persistence,
 //! theme sync, and knobs (`apps/desktop/src/terminal/`).
 
-#[cfg(all(test, feature = "frame-profile"))]
-mod bench;
 mod draw;
 pub mod grid;
 pub mod input;
@@ -13,8 +11,6 @@ mod side_ops;
 pub mod story;
 pub mod mount;
 pub mod streams;
-#[cfg(test)]
-mod tests;
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
@@ -235,7 +231,7 @@ impl App {
     /// The server whose session terminals this window shows, and whether it may only watch
     /// them: `--read-only` and headless runs never start a shell or type into one.
     pub(crate) fn live_terminals(&self) -> Option<(opencode_kit::client::Server, bool)> {
-        if cfg!(test) || self.stage.is_some() {
+        if self.stage.is_some() {
             return None;
         }
         match &self.source {

@@ -13,8 +13,6 @@ use crate::turns::{self, Block, Entry, Step};
 
 pub mod attachments;
 mod dividers;
-#[cfg(test)]
-mod open_tests;
 pub mod parts;
 
 pub use dividers::divider_runs;

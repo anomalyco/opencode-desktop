@@ -116,14 +116,6 @@ impl App {
         let starting = matches!(self.route, Route::Draft(_));
         let id = match self.route.clone() {
             Route::Session { id, .. } => id,
-            Route::Draft(_) if self.live() && crate::new_session::before() => {
-                if self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
-                    self.composer.clear();
-                    self.attach.files.clear();
-                    self.quote.take();
-                }
-                return;
-            }
             Route::Draft(_) => opencode_kit::client::session_id(),
             _ => {
                 crate::status_toast::say(self, opencode_i18n::t!("rune.composer.openSession"), "");

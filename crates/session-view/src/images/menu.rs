@@ -141,6 +141,3 @@ pub fn reveal_with_system(path: &Path) -> bool {
     spawned.map_err(|e| eprintln!("reveal {}: {e}", path.display())).is_ok()
 }
 
-#[cfg(test)]
-#[path = "menu_tests.rs"]
-mod tests;

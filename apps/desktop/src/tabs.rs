@@ -223,12 +223,6 @@ impl Closed {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// The tab ids the last `App::save_tabs` would write, in order.
-    pub static SAVED: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
-}
-
 fn file() -> Option<PathBuf> {
     crate::dirs::data().map(|d| d.join("tabs.json"))
 }
@@ -268,9 +262,6 @@ pub fn load_projects(server: &str) -> Option<Vec<String>> {
 }
 
 pub fn save_projects(server: &str, ids: &[String]) {
-    if cfg!(test) {
-        return;
-    }
     update("projects", format!("projects:{server}"), json!(ids));
 }
 

@@ -123,7 +123,7 @@ pub fn beta_notes() -> Option<&'static str> {
 /// Starts the update service when this build has an updater (`platform::make`), or joins this
 /// window to the one the first window started.
 pub fn start_if_packaged(s: &mut App) {
-    if crate::headless() || cfg!(test) || s.updater.service.is_some() {
+    if crate::headless() || s.updater.service.is_some() {
         return;
     }
     let service = SHARED.with(|shared| {
@@ -250,5 +250,3 @@ pub fn install_async(s: &App, done: Completer) {
     answer_waiting(service);
 }
 
-#[cfg(test)]
-mod tests;

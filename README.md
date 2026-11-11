@@ -52,12 +52,11 @@ session-view = { git = "https://github.com/anomalyco/rune-desktop", rev = "<rev>
 
 Hold a `session_view::ViewState` on your app state, implement `session_view::TimelineHost` (using `session_view::delegate_view_state!` for the state accessors), and render `session_view::timeline::session_timeline`. See [`crates/session-view/examples/read_only.rs`](crates/session-view/examples/read_only.rs) for a complete minimal host.
 
-## Testing and checks
+## Checks
+
+This repo has no automated tests (see `AGENTS.md`); verify changes by running the app.
 
 ```sh
-cargo test --workspace
-scripts/motion-audit-desktop
-apps/desktop/scripts/motion-audit.sh
 scripts/file-size.sh
 scripts/folder-shape.sh
 ```

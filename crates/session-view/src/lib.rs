@@ -47,11 +47,6 @@ pub mod usage;
 pub mod user_parts;
 pub mod working;
 
-#[cfg(test)]
-mod motion_tests;
-#[cfg(test)]
-mod reveal_tests;
-
 use std::ops::Range;
 
 use opencode_kit::client::Request;

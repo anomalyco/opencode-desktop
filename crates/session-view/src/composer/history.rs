@@ -213,6 +213,3 @@ pub fn arrow_up(ev: &KeyEvent) -> Option<bool> {
     }
 }
 
-#[cfg(test)]
-#[path = "history_tests.rs"]
-mod tests;

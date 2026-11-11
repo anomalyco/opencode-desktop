@@ -14,14 +14,9 @@ office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
-# Rune's per-phase frame timings, for the CPU benchmarks in `perf.rs` and the `*bench*` test
-# modules only: `cargo test --profile perf --features frame-profile ... -- --ignored`. Off in
-# every other build, so `cargo test` shares the `cargo build` Rune and ships no timers.
-frame-profile = ["rune/frame-profile"]
 # Built-in plugins linked into the binary through their own entry points, for headless and
 # fuzzer builds; release builds ship them as libraries in `<app>/plugins/`. Each links its
-# rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports. The Hello
-# test plugin is the tests' alone (a dev-dependency).
+# rlib (`plugins/<id>/impl`), never its cdylib, so the libraries keep their exports.
 static-builtins = []
 # The ⌘⇧K tuning layer.
 knobs = ["rune-knobs/panel"]
@@ -90,12 +85,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [build-dependencies]
 # The exe's icon, version and manifest resources on Windows.
 win-install = { path = "../../crates/win-install", features = ["resources"] }
-
-[dev-dependencies]
-# The built-ins the tests link in (`plugin_host::builtins`), so the motion gate covers what they draw.
-opencode-plugin-hello-impl = { path = "../../plugins/hello/impl" }
-png = "0.18"
-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

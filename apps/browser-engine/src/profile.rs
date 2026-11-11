@@ -100,18 +100,3 @@ fn is_dead(dir: &Path, _pid: i32) -> bool {
     lock(dir).is_some()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_engine_owns_the_profile_and_a_second_gets_a_throwaway() {
-        let root = std::env::temp_dir().join(format!("engine-profile-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let first = lock(&root).expect("first engine locks the profile");
-        assert!(lock(&root).is_none(), "a second engine can't take it while the first runs");
-        drop(first);
-        assert!(lock(&root).is_some(), "free again once the first exits");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}

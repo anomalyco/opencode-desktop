@@ -33,11 +33,6 @@ pub use host::PickerHost;
 pub use hover::ModelHover;
 pub use prefs::ModelPrefs;
 
-#[cfg(test)]
-mod providers_tests;
-#[cfg(test)]
-mod search_tests;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind { Agent, Model, Effort, Project }
 

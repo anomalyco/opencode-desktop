@@ -39,19 +39,10 @@ pub fn close_window(other_windows: bool, mac: bool) -> CloseWindow {
     if mac && !other_windows && !rune::quitting() { CloseWindow::Hide } else { CloseWindow::Close }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// How many other windows tests pretend are open.
-    pub(crate) static OTHERS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 impl App {
     /// Whether another window of the app is open (a torn-out tab's window still following the
     /// pointer doesn't count).
     pub(crate) fn other_windows(&self) -> bool {
-        #[cfg(test)]
-        return OTHERS.with(std::cell::Cell::get) > 0;
-        #[cfg(not(test))]
         OPEN.with(|o| o.borrow().iter().any(|w| w.id != self.window.id && w.life.saved()))
     }
 

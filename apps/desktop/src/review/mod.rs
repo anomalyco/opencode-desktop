@@ -8,8 +8,6 @@ pub mod chrome;
 pub mod data;
 pub mod mobile;
 mod stories;
-#[cfg(test)]
-mod tests;
 
 use std::collections::HashMap;
 

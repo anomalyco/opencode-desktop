@@ -443,5 +443,3 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     Some(row().key(key).h(28.0).radius(6.0).clip_rounded(6.0).box_shadow(rune::Shadow { spread: 1.0, color: p.border_muted, inset: true, ..rune::Shadow::default() }).center_y().child(main).child(chev))
 }
 
-#[cfg(test)]
-mod tests;

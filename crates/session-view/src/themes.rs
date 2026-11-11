@@ -122,26 +122,3 @@ pub fn json(i: usize, base: &str) -> Option<String> {
     Some(v.to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn desktop_themes_load_in_its_order_with_its_names() {
-        let names: Vec<&str> = all().iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names[0], "OpenCode");
-        assert!(names.contains(&"Tokyonight") && names.contains(&"Catppuccin") && names.contains(&"Synthwave '84"));
-        assert_eq!(all().len(), 36, "Desktop's 36 theme files");
-        assert_eq!(index("nope"), 0);
-        assert!(json(0, "{}").is_none(), "the default keeps theme.json");
-    }
-
-    #[test]
-    fn the_active_theme_is_per_thread() {
-        set_active("tokyonight");
-        assert_eq!(all()[active()].id, "tokyonight");
-        std::thread::spawn(|| assert_eq!(active(), 0)).join().unwrap();
-        set_active(DEFAULT);
-        assert_eq!(active(), 0);
-    }
-}

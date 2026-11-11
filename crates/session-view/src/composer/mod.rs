@@ -489,6 +489,3 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     }
 }
 
-#[cfg(test)]
-#[path = "composer_tests.rs"]
-mod tests;

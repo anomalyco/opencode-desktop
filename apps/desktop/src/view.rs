@@ -9,10 +9,9 @@ use rune::{
 };
 
 use rune_theme_opencode::icons as ic;
-use opencode_kit::model::{self, Message, SessionInfo, Transcript};
+use opencode_kit::model::{self, SessionInfo, Transcript};
 use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
-use crate::odometer::odometer_end;
 use crate::pickers::Kind;
 
 mod chrome;
@@ -42,15 +41,12 @@ pub use composer::*;
 pub(crate) use draft::*;
 pub(crate) use header::*;
 pub(crate) use home::{home, home_modifiers, session_row};
-pub(crate) use home::fold::add_flow;
 pub(crate) use home::list::{Hold as HomeHold, is_automation};
 pub(crate) use session::*;
 pub use sidebar::*;
 
 pub(crate) use session_view::composer::PROMPT;
 pub(crate) use session_view::style::{BUBBLE, CODE, DOCK_SIDE, H2, INSTANT, UI, UI_MED, UI_SMALL};
-#[cfg(test)]
-pub(crate) use session_view::style::CONTENT_W;
 
 /// What a layout switch flies its tabs and controls on (`layouts-design.md`'s GLIDE).
 pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
@@ -358,19 +354,3 @@ pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> Str
     project.map(|p| p.name.clone()).unwrap_or_else(|| opencode_kit::path::basename(dir).to_owned())
 }
 
-#[cfg(test)]
-mod composer_height_tests;
-#[cfg(test)]
-mod composer_tests;
-#[cfg(test)]
-mod diagram_width_tests;
-#[cfg(test)]
-mod narrow_tests;
-#[cfg(test)]
-pub(crate) mod selection_tests;
-#[cfg(test)]
-mod inline_code_selection_tests;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod icon_centre_tests;

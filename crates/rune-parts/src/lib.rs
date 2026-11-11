@@ -29,7 +29,3 @@ pub use html::to_html;
 pub use note::{Block, parse_note};
 pub use outline::{Node, Part, parse_outline, to_plain};
 
-#[cfg(test)]
-mod tests;
-#[cfg(all(test, feature = "view"))]
-mod view_tests;

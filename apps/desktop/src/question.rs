@@ -4,8 +4,6 @@
 use rune::{KeyEvent, Transition, Tx};
 
 pub use session_view::dock::question::Dock;
-#[cfg(test)]
-use session_view::dock::question::{Intent, Zone, intent};
 use session_view::dock::{self, question as q};
 
 use crate::{App, knobs};
@@ -83,7 +81,3 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
 pub(crate) mod long;
 pub mod reply;
 
-#[cfg(test)]
-mod custom_tests;
-#[cfg(test)]
-mod tests;

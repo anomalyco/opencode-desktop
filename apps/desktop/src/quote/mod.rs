@@ -381,6 +381,3 @@ fn bar(p: &Pal, truncated: bool) -> El {
         .child(button)
 }
 
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

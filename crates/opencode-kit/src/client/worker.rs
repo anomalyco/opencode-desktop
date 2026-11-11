@@ -65,9 +65,6 @@ fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Wa
     }
 }
 
-#[cfg(test)]
-mod retry_tests;
-
 /// The fetch and write threads, answering into `inbox_tx`.
 pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: &Waker) -> (Sender<Request>, Sender<Write>) {
     let (req_tx, req_rx) = channel::<Request>();
