@@ -33,8 +33,8 @@ pub struct Attach {
     seq: rune::machine::Seq,
     uploads_tx: Sender<Copied>,
     uploads_rx: Receiver<Copied>,
-    /// Each running upload's stop (Desktop's `runs`, its `AbortController`).
-    runs: std::collections::HashMap<Attempt, std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Each running upload's stop (Desktop's `runs`, its `AbortController`) and the draft it lands in.
+    runs: std::collections::HashMap<Attempt, (std::sync::Arc<std::sync::atomic::AtomicBool>, Option<String>)>,
     /// A file drag over the page, which shows the drop overlay.
     pub drop: crate::dropzone::Dropzone,
     /// Prompts shown before the server's copy: (session, local id, text).
@@ -166,9 +166,10 @@ impl App {
         };
         // The upload toast comes up with the first upload (`UploadToast`).
         crate::status_toast::uploads_shown(self);
+        let draft = crate::restore::draft_key(&self.route);
         let a = &mut self.attach;
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        a.runs.insert(attempt, stop.clone());
+        a.runs.insert(attempt, (stop.clone(), draft));
         let (out, wake, directory, path) = (a.uploads_tx.clone(), a.waker.clone(), self.composer_directory(), path.to_owned());
         std::thread::spawn(move || {
             let woke = || {
@@ -238,14 +239,14 @@ impl App {
                 uploads::Effect::Run(_) => {}
                 uploads::Effect::WakeAt(due) => tx.wake_at(due),
                 uploads::Effect::Abort(attempt) => {
-                    if let Some(stop) = self.attach.runs.remove(&attempt) {
+                    if let Some((stop, _)) = self.attach.runs.remove(&attempt) {
                         stop.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
                 uploads::Effect::Resolve(attempt) => {
-                    self.attach.runs.remove(&attempt);
+                    let draft = self.attach.runs.remove(&attempt).and_then(|(_, d)| d);
                     if let Some(Ok(r)) = done.take() {
-                        self.attach.add_path(r);
+                        self.land_upload(draft.as_deref(), r);
                     }
                 }
                 uploads::Effect::Reject(attempt, why) => {
@@ -272,7 +273,7 @@ impl App {
         let effects = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Cancelled { id });
         for effect in effects {
             if let uploads::Effect::Abort(attempt) = effect
-                && let Some(stop) = self.attach.runs.remove(&attempt)
+                && let Some((stop, _)) = self.attach.runs.remove(&attempt)
             {
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }

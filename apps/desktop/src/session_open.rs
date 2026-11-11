@@ -34,7 +34,6 @@ impl App {
     /// Commits the input destination immediately; the transcript can still be loading.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
         crate::telemetry::committed(id, false);
-        let prev_route = self.route.clone();
         self.close_picker(false);
         self.close_message_menu();
         self.close_fork_dialog(false);
@@ -46,7 +45,8 @@ impl App {
         }
         self.route = Route::here(id.to_owned());
         crate::session_state::opened(self, id, tx);
-        self.sync_route_draft(&prev_route, id);
+        // Its own draft is in the composer on the first frame.
+        let _ = self.show_draft();
         let root = self.root_of(id).to_owned();
         // As in Desktop, you can type straight away. A subagent's page waits for a click into
         // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's

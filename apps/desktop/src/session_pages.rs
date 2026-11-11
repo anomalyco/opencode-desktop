@@ -383,10 +383,8 @@ fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
 impl super::App {
     pub fn cancel_open(&mut self, tx: &mut rune::Tx) {
         if let Some(opening) = self.opening.take() {
-            if let super::Route::Session { id, .. } = &opening.from {
-                self.sync_route_draft(&self.route.clone(), id);
-            }
             self.route = opening.from;
+            let _ = self.show_draft();
             tx.settle();
         }
     }

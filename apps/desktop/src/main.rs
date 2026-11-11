@@ -1214,6 +1214,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= inbox_model::poll(s, now, tx);
     changed |= view::tab_preview::poll(s, now, tx);
     changed |= session_status::poll(s, now, tx);
+    // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
+    changed |= s.show_draft();
     if s.persists() {
         s.poll_restore();
         s.poll_window();

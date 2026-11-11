@@ -58,7 +58,7 @@ fn arrive(s: &mut App, tx: &mut Play<App>) {
 
 fn let_go(s: &mut App, tx: &mut Play<App>) {
     let (Some(tab), Some(at)) = (incoming(s), s.tab_drag.incoming_slot().and(along(s, 0.3))) else { return };
-    s.receive_tab(tab, None, Some(at), tx);
+    s.receive_tab(tab, (None, None), Some(at), tx);
 }
 
 fn view(s: &App, p: &Pal) -> El {
