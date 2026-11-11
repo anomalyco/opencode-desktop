@@ -791,46 +791,41 @@ impl App {
             e.provider.close(self, &sid, &e.tab.id, tx);
         }
 
-        // Check whether the side/split region or bottom dock is now completely empty.
+        // As Desktop's region `close`: the bottom pane shuts with its last tab, and the side region
+        // only once the whole strip is empty with no New tab left in its side pane. A side pane
+        // whose last tab closed while the bottom pane holds one stays open on the empty pane.
         let next_reg = self.resolve_side_region();
+        let strip_empty = next_reg.as_ref().is_none_or(|r| r.strip.is_empty());
+        let side_new = self.side.adding.iter().any(|n| n.session_id == sid && n.pane != SessionPane::Bottom);
+        let any_bottom = next_reg.as_ref().is_some_and(|r| r.strip.iter().any(|e| e.pane == SessionPane::Bottom));
+        if was_pane == SessionPane::Bottom && !any_bottom {
+            self.session_side_mut(&sid).bottom_open = false;
+            self.side.adding.retain(|n| !(n.session_id == sid && n.pane == SessionPane::Bottom));
+            self.side.focused = false;
+        }
+        if strip_empty && !side_new && self.side_stored_open() {
+            // The side region slides shut on its spring; a side tab it closed stays on screen
+            // until it lands.
+            self.session_side_mut(&sid).open = false;
+            self.side.focused = false;
+            if let Some(entry) = entry.filter(|_| was_pane != SessionPane::Bottom) {
+                let at = self.clock;
+                let effects = self.side.closing.step(Event::LastTabClosed { session_id: sid, entry, at });
+                self.run_closing(effects, tx);
+            }
+            return;
+        }
         if was_pane == SessionPane::Bottom {
-            let any_bottom = next_reg
-                .as_ref()
-                .is_some_and(|r| r.strip.iter().any(|e| e.pane == SessionPane::Bottom));
-            if !any_bottom {
-                self.session_side_mut(&sid).bottom_open = false;
-                self.side.focused = false;
-            }
-        } else {
-            let any_side = next_reg
-                .as_ref()
-                .is_some_and(|r| r.strip.iter().any(|e| e.pane != SessionPane::Bottom));
-            let any_new = self
-                .side
-                .adding
-                .iter()
-                .any(|n| n.session_id == sid && n.pane != SessionPane::Bottom);
-            if !any_side && !any_new {
-                // Closing the last tab collapses the side region smoothly on its spring, its
-                // contents staying on screen until it lands.
-                self.session_side_mut(&sid).open = false;
-                self.side.focused = false;
-                if let Some(entry) = entry {
-                    let at = self.clock;
-                    let effects = self.side.closing.step(Event::LastTabClosed { session_id: sid, entry, at });
-                    self.run_closing(effects, tx);
-                }
-            } else {
-                // Remaining tabs close the gap at once (docs/kit-design.md: immediate).
-                tx.instant();
-                if let Some(r) = &next_reg
-                    && let Some(act_key) = &r.active
-                    && let Some((pl, tid)) = split_panel_key(act_key)
-                    && let Some(prov) = self.find_panel(pl)
-                {
-                    prov.focus(self, &sid, tid, false);
-                }
-            }
+            return;
+        }
+        // Remaining tabs close the gap at once (docs/kit-design.md: immediate).
+        tx.instant();
+        if let Some(r) = &next_reg
+            && let Some(act_key) = &r.active
+            && let Some((pl, tid)) = split_panel_key(act_key)
+            && let Some(prov) = self.find_panel(pl)
+        {
+            prov.focus(self, &sid, tid, false);
         }
     }
 

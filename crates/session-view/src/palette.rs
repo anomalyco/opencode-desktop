@@ -78,6 +78,10 @@ pub struct Pal {
     pub v1_text_base: Color,
     pub v1_text_weak: Color,
     pub v1_icon_warning: Color,
+    /// `--icon-strong-base` and `--icon-weak-base`: OpenCode's mark (`logo.tsx` `Mark`), as an
+    /// empty side pane draws it.
+    pub v1_icon_strong: Color,
+    pub v1_icon_weak: Color,
     /// The terminal's text: Desktop's `text-stronger`; the default theme keeps `text`.
     pub term_fg: Color,
     /// A diff's added and removed colour: `syntax-diff-add`/`-delete`; the default keeps
@@ -395,6 +399,16 @@ fn build(theme: usize, dark: bool) -> Pal {
             (true, _) => c("state-fg-warning"),
             (false, true) => hex("#fbb73c"),
             (false, false) => hex("#ebb76e"),
+        },
+        v1_icon_strong: match (themed, dark) {
+            (true, _) => text,
+            (false, true) => hex("#ededed"),
+            (false, false) => hex("#171717"),
+        },
+        v1_icon_weak: match (themed, dark) {
+            (true, _) => c("icon-icon-faint"),
+            (false, true) => hex("#343434"),
+            (false, false) => hex("#dbdbdb"),
         },
         bg_base: c("background-bg-base"),
         bg_deep: c("background-bg-deep"),

@@ -551,20 +551,20 @@ fn close_button(p: &Pal, key: String, shown: bool, close: impl Fn(&mut App, &mut
 }
 
 /// A pane that shows nothing (`side-region.tsx`'s empty state): OpenCode's mark, 56 wide at 10%,
-/// over "Select a file to open", raised a little off centre.
+/// over "Select a file to open" in `text-weak`, raised a little off centre.
 fn empty_pane_view(p: &Pal) -> El {
-    // `Mark` on its 16 by 20 grid at 3.5×: the O in `icon-strong`, its shadow in `icon-weak`.
+    // `Mark` on its 16 by 20 grid at 3.5x: the O in `icon-strong-base`, its shadow in `icon-weak-base`.
     let u = 3.5;
     let bar = |x: f32, y: f32, w: f32, h: f32, c: Color| el().absolute(x * u, y * u).size(w * u, h * u).fill(c);
     let mark = el()
         .key("side-empty-mark")
         .size(16.0 * u, 20.0 * u)
         .opacity(0.1)
-        .child(bar(4.0, 8.0, 8.0, 8.0, p.icon_faint))
-        .child(bar(0.0, 0.0, 16.0, 4.0, p.icon))
-        .child(bar(0.0, 16.0, 16.0, 4.0, p.icon))
-        .child(bar(0.0, 4.0, 4.0, 12.0, p.icon))
-        .child(bar(12.0, 4.0, 4.0, 12.0, p.icon));
+        .child(bar(4.0, 8.0, 8.0, 8.0, p.v1_icon_weak))
+        .child(bar(0.0, 0.0, 16.0, 4.0, p.v1_icon_strong))
+        .child(bar(0.0, 16.0, 16.0, 4.0, p.v1_icon_strong))
+        .child(bar(0.0, 4.0, 4.0, 12.0, p.v1_icon_strong))
+        .child(bar(12.0, 4.0, 4.0, 12.0, p.v1_icon_strong));
     col()
         .key("side-empty")
         .w_full()
@@ -572,11 +572,12 @@ fn empty_pane_view(p: &Pal) -> El {
         .min_h(0.0)
         .center()
         .px(24.0)
-        // `pt-2`, `-mt-4` and `pb-42`: the centre sits 8 above where `pb-42` alone puts it.
-        .pb(168.0 + 16.0)
+        // `pt-2`, `-mt-4` and `pb-42` centre the group at (height - 192) / 2.
+        .pb(8.0 + 16.0 + 168.0)
         .gap(24.0)
         .child(mark)
-        .child(text(opencode_i18n::t!("session.files.selectToOpen")).font(rune::TextStyle::new(14.0, 400.0).lh(20.0)).color(p.muted).max_w(224.0))
+        // Desktop's line box measures 25.2 (14 at 1.8).
+        .child(text(opencode_i18n::t!("session.files.selectToOpen")).font(rune::TextStyle::new(14.0, 400.0).lh(25.2)).color(p.v1_text_weak).max_w(224.0))
 }
 
 /// Floating top-right toggle button (`SessionReviewToggle` in `screen.tsx:408`), kept outside panel motion.
