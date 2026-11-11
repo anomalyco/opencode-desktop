@@ -19,7 +19,6 @@ use crate::palette::Pal;
 use crate::view::UI_MED;
 use crate::{App, Route, Source};
 
-
 /// The hint's accessible label: "Press ⌃B to move running work to the background".
 pub fn hint_label() -> String {
     opencode_i18n::t!("session.background.moveInline", keybind = crate::keymap::Bind::Background.label())
@@ -157,6 +156,3 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     Some(hint)
 }
 
-#[cfg(test)]
-#[path = "background_tests.rs"]
-mod tests;

@@ -128,15 +128,6 @@ impl App {
                 changed |= poll(self, tx);
             }
         }
-        #[cfg(test)]
-        if !self.side.extra_panels.is_empty() {
-            let extras = self.side.extra_panels.clone();
-            for p in extras {
-                if let Some(poll) = p.poll {
-                    changed |= poll(self, tx);
-                }
-            }
-        }
         changed
     }
 

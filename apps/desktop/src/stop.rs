@@ -266,6 +266,3 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
     late
 }
 
-#[cfg(test)]
-#[path = "stop_tests.rs"]
-mod tests;

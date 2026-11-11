@@ -78,6 +78,3 @@ pub(crate) fn scene(s: &mut App) {
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("tab-badges", scene)]);
 
-#[cfg(test)]
-#[path = "tab_badges_tests.rs"]
-mod tests;

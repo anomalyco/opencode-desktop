@@ -1,7 +1,0 @@
-[profile.default]
-test-threads = 2
-slow-timeout = { period = "60s", terminate-after = 2 }
-
-[[profile.default.overrides]]
-filter = "test(=motion_gate::scenarios::every_message_animation_passes_the_motion_gate) | test(=stories::tests::every_story_plays_and_replays)"
-slow-timeout = { period = "60s", terminate-after = 20 }

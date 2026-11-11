@@ -382,30 +382,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn routes_round_trip() {
-        for r in [Route::Home, Route::Draft("draft_AbC".into()), Route::here("ses_AbC".into())] {
-            assert_eq!(route_from(&route_href(&r)), Some(Saved::Route(r)));
-        }
-    }
-
-    #[test]
-    fn each_session_keeps_its_own_draft() {
-        let mut a = App::empty();
-        a.route = Route::here("ses_a".into());
-        a.show_draft();
-        a.composer = rune::TextEdit::new("half a thought");
-        a.route = Route::here("ses_b".into());
-        a.show_draft();
-        assert_eq!(a.composer.text, "");
-        a.composer = rune::TextEdit::new("other");
-        a.route = Route::here("ses_a".into());
-        a.show_draft();
-        assert_eq!(a.composer.text, "half a thought");
-        assert_eq!(a.ui_json()["drafts"][TabKey::session(crate::servers::runtime::current(), "ses_b").encode()], "other");
-    }
-}

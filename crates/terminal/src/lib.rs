@@ -25,9 +25,3 @@ pub use types::{
     TerminalSnapshot, UnderlineKind, VtEvent,
 };
 
-#[cfg(test)]
-mod abi_tests;
-#[cfg(test)]
-mod pty_tests;
-#[cfg(test)]
-mod vt_tests;

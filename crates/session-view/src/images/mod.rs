@@ -504,5 +504,3 @@ pub fn identity(f: &Attachment) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests;

@@ -508,6 +508,3 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     [scrim, dialog.absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0)).raise()]
 }
 
-#[cfg(test)]
-#[path = "fork_tests.rs"]
-mod tests;

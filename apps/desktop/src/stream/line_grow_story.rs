@@ -73,12 +73,6 @@ pub(crate) fn script(word: f64) -> Vec<(f64, &'static str, &'static str, Value)>
     v
 }
 
-/// When the answer's words end, in seconds from the run's start.
-#[cfg(test)]
-pub(crate) fn words_end(word: f64) -> f64 {
-    WORDS_AT + ANSWER.split_inclusive(' ').count() as f64 * word + 0.1
-}
-
 /// Plays [`script`] on the open session from now.
 pub(crate) fn play(s: &mut App, word: f64) {
     let id = sid(s);

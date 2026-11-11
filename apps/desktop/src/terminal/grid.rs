@@ -130,12 +130,6 @@ fn measure(choice: u8, style: TextStyle, scale: f32) -> (f32, f32, f32) {
     })
 }
 
-/// How many cell sizes `cell_metrics` holds on this thread.
-#[cfg(test)]
-pub fn cached_metrics() -> usize {
-    METRIC_CACHE.with(|c| c.borrow().len())
-}
-
 /// A terminal's view in its pane (Desktop's `TerminalPanel`): the selected terminal `tab_id` (the
 /// workspace's active one without it) inset 14 by 12, or the notice while the session's terminals
 /// load or failed to. Its tab lives in the side region's shared strip.

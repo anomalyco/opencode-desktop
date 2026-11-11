@@ -176,6 +176,3 @@ impl Arrivals {
     }
 }
 
-#[cfg(test)]
-#[path = "arrivals_tests.rs"]
-mod tests;

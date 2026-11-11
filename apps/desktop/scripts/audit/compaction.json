@@ -1,8 +1,0 @@
-{
-  "playground": "Timeline/Compaction", "variant": "Done", "secs": 5.2,
-  "events": [
-    {"t": 3.3, "type": "move", "key": "cmp-msg_storycompaction-quiet/#0/bar/divider"},
-    {"t": 3.5, "type": "tap", "key": "cmp-msg_storycompaction-quiet/#0/bar/divider"},
-    {"t": 4.3, "type": "tap", "key": "cmp-msg_storycompaction-quiet/#0/bar/divider"}
-  ]
-}

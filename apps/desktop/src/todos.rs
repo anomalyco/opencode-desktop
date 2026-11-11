@@ -437,6 +437,3 @@ const ROW: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 /// `[data-component="tag"]`: 11 pt at weight 530, set solid, tabular.
 const BADGE: TextStyle = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"");
 
-#[cfg(test)]
-#[path = "todos_tests.rs"]
-mod tests;

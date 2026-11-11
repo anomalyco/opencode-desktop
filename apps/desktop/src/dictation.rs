@@ -59,7 +59,7 @@ enum Backend {
 impl Backend {
     fn detect() -> Backend {
         let headless = crate::headless() || crate::arg("--scene").is_some() || crate::arg("--fixture").is_some();
-        if std::env::var_os("SEER_HEX").is_none() && (cfg!(test) || headless) {
+        if std::env::var_os("SEER_HEX").is_none() && (headless) {
             return Backend::Fake;
         }
         let support = crate::dirs::hex_support().unwrap_or_default();
@@ -141,13 +141,6 @@ impl Dictation {
         Self::with(Backend::Fake)
     }
 
-    /// The real Hex behind this endpoint file (tests point it at a stand-in).
-    #[cfg(test)]
-    pub fn at(file: PathBuf) -> Dictation {
-        let support = file.parent().map(PathBuf::from).unwrap_or_default();
-        Self::with(Backend::Hex { file, support })
-    }
-
     fn rec(&self) -> Option<&Rec> {
         match &self.phase {
             Phase::Starting { rec, .. } | Phase::Listening { rec, .. } | Phase::Finishing { rec, .. } => Some(rec),
@@ -180,11 +173,6 @@ impl Dictation {
     /// The fake starts slowly from now on, as a Hex loading its model would.
     pub fn slow_fake(&mut self) {
         self.prepare = FAKE_SLOW_START;
-    }
-
-    #[cfg(test)]
-    pub fn preparing_shown(&self) -> bool {
-        matches!(self.phase, Phase::Starting { slow: true, .. })
     }
 
     fn fail(&mut self, why: Problem) {

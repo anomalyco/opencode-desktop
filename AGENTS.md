@@ -16,14 +16,20 @@
 
 Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Pin only revs on Rune's `dev` branch; upstream fixes go to `anomalyco/rune` first, then bump the rev here.
 
+## No tests
+
+Application code only. This repo has no automated tests of any kind, and none get added back (Hona and Kit, Nov 10: "Application code is truth, tests are a poor replica"):
+
+- No unit tests, `#[test]` or `#[cfg(test)]` code, `tests.rs` / `*_tests.rs` files, mocks, fuzzers, golden or snapshot files, motion audits, test benchmarks or CI test steps.
+- Don't spend time writing, fixing or running tests. Verify a change by building and running the app (`--fixture`, a story, or live).
+- Stories and `--fixture` are app features for looking at the app, not tests: don't turn them into assertions.
+
 ## Working here
 
-- Run targeted tests for what you touch (`cargo test -p <crate> <filter>`); never hit a real OpenCode server in unit tests (use `opencode_kit::client::Server` mocks or `--fixture`).
 - Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
-- Motion gates: any change to how `apps/desktop` or `crates/session-view` moves must pass `scripts/motion-audit-desktop` and `apps/desktop/scripts/motion-audit.sh` (scenarios in `apps/desktop/src/motion_gate/scenarios.rs` and `apps/desktop/scripts/audit/`).
-- File size & folder shape: keep Rust files under 800 non-test lines (1,500 hard cap, `scripts/file-size.sh`) and tests under 1,000 lines; keep prefix families in subfolders (`scripts/folder-shape.sh`).
+- File size & folder shape: keep Rust files under 800 lines (1,500 hard cap, `scripts/file-size.sh`); keep prefix families in subfolders (`scripts/folder-shape.sh`).
 - Hot reload & local install: `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`) and `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
-- Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net` in tests), real session IDs, and credentials out of code, tests, scripts, and commits.
+- Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 
 ## Explicit state machines
 

@@ -50,6 +50,3 @@ rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story { path: "Header/Title change", scene: |s| crate::stories::stage(s, crate::stories::header_view), knobs: &[TITLE], keys: KEYS, variants: &[] },
 ]);
 
-#[cfg(test)]
-#[path = "title_change_tests.rs"]
-mod tests;

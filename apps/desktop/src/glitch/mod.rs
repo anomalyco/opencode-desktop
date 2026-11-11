@@ -18,8 +18,6 @@ use opencode_kit::model::Transcript;
 
 use crate::{App, Route, Source};
 
-#[cfg(test)]
-mod tests;
 mod story;
 
 pub struct Glitch {

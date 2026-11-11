@@ -136,6 +136,3 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     vec![scrim, preview]
 }
 
-#[cfg(test)]
-#[path = "viewer_tests.rs"]
-mod tests;

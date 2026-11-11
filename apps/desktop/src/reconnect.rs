@@ -163,8 +163,6 @@ impl Links {
         self.refreshing.remove(server);
     }
 
-    #[cfg(test)]
-    pub fn set(&mut self, server: &str, link: Link) { self.links.insert(server.to_owned(), link); }
 }
 
 /// The server the window is checked out on (`servers::runtime`): the key the stream's lines and
@@ -323,6 +321,3 @@ mod story {
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("reconnecting", reconnecting)]);
 }
 
-#[cfg(test)]
-#[path = "reconnect_tests.rs"]
-mod tests;

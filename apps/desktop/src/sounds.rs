@@ -23,7 +23,7 @@ static CLIPS: &[(&str, &[u8])] = clips![
 
 /// Plays sound `id` now, stopping any sound still playing. Unknown ids play nothing.
 pub fn play(id: &str) {
-    if crate::headless() || cfg!(test) {
+    if crate::headless() {
         return;
     }
     if let Some((_, wav)) = CLIPS.iter().find(|(c, _)| *c == id) {

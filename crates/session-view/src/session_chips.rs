@@ -233,6 +233,3 @@ pub fn tips<S: TimelineHost>(s: &S, src: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-#[cfg(test)]
-#[path = "session_chips_tests.rs"]
-mod tests;

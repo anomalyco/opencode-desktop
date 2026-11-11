@@ -448,20 +448,3 @@ pub(crate) fn iso(ms: f64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z", rem / 3_600_000, rem / 60_000 % 60, rem / 1000 % 60, rem % 1000)
 }
 
-#[cfg(test)]
-pub(crate) fn stub_el(path: &str, parent: Option<usize>, rect: [f32; 4], text: Option<&str>) -> ElementInfo {
-    ElementInfo {
-        path: path.into(),
-        text: text.map(Into::into),
-        rect,
-        target: rect,
-        visible: rect,
-        parent,
-        fill: rune::Color::WHITE,
-        ..ElementInfo::stub(path.rsplit('/').next().unwrap_or(path))
-    }
-}
-
-#[cfg(test)]
-#[path = "motion_log_tests.rs"]
-mod tests;

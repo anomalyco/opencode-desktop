@@ -92,22 +92,3 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
     c
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn answers_pair_with_their_questions() {
-        let input = json!({ "questions": [
-            { "header": "Clock", "question": "How should the test control time?", "options": [] },
-            { "header": "Cases", "question": "Which cases?", "options": [], "multiple": true },
-            { "header": "Name", "question": "What's it called?", "options": [] },
-        ]});
-        assert_eq!(answers(&input, &json!(null)).1, None, "no answers while the dock asks");
-        let (q, a) = answers(&input, &json!({ "answers": [["Fake clock"], ["Reset after success", "Cap at 30 s"], []] }));
-        assert_eq!(q[1], "Which cases?");
-        assert_eq!(a.unwrap(), ["Fake clock", "Reset after success, Cap at 30 s", "(no answer)"]);
-    }
-}

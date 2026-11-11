@@ -1,8 +1,0 @@
-{
-  "scene": "session", "secs": 3.0,
-  "events": [
-    {"t": 0.3, "type": "key", "name": "n", "cmd": true},
-    {"t": 1.3, "type": "key", "name": "w", "cmd": true},
-    {"t": 2.2, "type": "move", "x": 700, "y": 300}
-  ]
-}

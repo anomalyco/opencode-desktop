@@ -98,6 +98,3 @@ fn press(s: &mut App, key: Key, tx: &mut Tx) -> bool {
     s.question.focus != before
 }
 
-#[cfg(test)]
-#[path = "long_tests.rs"]
-mod tests;

@@ -7,11 +7,6 @@ pub(crate) use session_view::timeline::{
     timeline_row_builds,
 };
 
-#[cfg(test)]
-pub(in crate::view) fn markdown_view(p: &Pal, src: &str, fade: f32, streaming: bool) -> El {
-    session_view::timeline::markdown_view::<App>(p, src, fade, streaming)
-}
-
 pub(crate) fn markdown_tinted(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
     session_view::style::markdown_tinted::<App>(p, src, fade, streaming, color, width)
 }

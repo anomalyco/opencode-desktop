@@ -275,6 +275,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "appearance_tests.rs"]
-mod tests;

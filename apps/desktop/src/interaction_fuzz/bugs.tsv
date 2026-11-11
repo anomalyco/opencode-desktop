@@ -1,7 +1,0 @@
-# Open bugs the fuzzer found (t1387), as name<TAB>ops for real.sh confirm. Each is also an
-# #[ignore] fails_with test in tests.rs; the seed there only matters to the sim.
-failed-send-keeps-working	LoseWrite, Send
-dead-send-blames-opencode	Dead, Send, Wait(53339)
-dead-stop-blames-server	Send, Wait(1500), Dead, EnterEmpty, Wait(7500)
-other-client-race	Slow, Other, Send
-racing-steers-swap	Other, Wait(500), Slow, Send, Other

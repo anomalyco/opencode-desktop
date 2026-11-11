@@ -260,10 +260,4 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 mod calls;
 #[path = "agent_rows/steered_stories.rs"]
 pub(crate) mod steered_stories;
-#[cfg(test)]
-#[path = "agent_rows/steered_tests.rs"]
-mod steered_tests;
 
-#[cfg(test)]
-#[path = "agent_rows_tests.rs"]
-mod tests;

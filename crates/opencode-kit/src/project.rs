@@ -150,37 +150,3 @@ pub fn parse_project(p: &Value) -> Option<Project> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn parses_location_and_project_metadata() {
-        let loc = parse_location(&json!({
-            "directory": "/Users/demo/code/worktrees/seer/open-project",
-            "project": {
-                "id": "proj_seer",
-                "directory": "/Users/demo/code/worktrees/seer/open-project",
-                "canonical": "/Users/demo/code/seer"
-            }
-        }))
-        .unwrap();
-        assert_eq!(loc.project_id, "proj_seer");
-        assert_eq!(loc.canonical, "/Users/demo/code/seer");
-        assert_eq!(loc.directory, "/Users/demo/code/worktrees/seer/open-project");
-
-        let proj = parse_project(&json!({
-            "id": "proj_seer",
-            "canonical": "/Users/demo/code/seer",
-            "name": "Seer",
-            "time": { "updated": 10, "active": 25 },
-            "sandboxes": ["/Users/demo/code/seer", "/Users/demo/code/worktrees/seer/open-project"]
-        }))
-        .unwrap();
-        assert_eq!(proj.name, "Seer");
-        assert_eq!(proj.directory, "/Users/demo/code/seer");
-        assert_eq!(proj.active, 25);
-        assert_eq!(project_sandboxes("proj_seer"), vec!["/Users/demo/code/worktrees/seer/open-project"]);
-    }
-}

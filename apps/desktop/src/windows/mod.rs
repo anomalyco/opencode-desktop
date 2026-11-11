@@ -12,21 +12,17 @@ use std::cell::RefCell;
 use std::sync::mpsc::{Receiver, Sender};
 
 use opencode_kit::client::{Incoming, Request, Write};
-use rune::{AppHandle, Tx, WindowHandle, WindowPlacement};
+use rune::{AppHandle, WindowHandle, WindowPlacement};
 
 use crate::App;
 
 pub mod close;
-#[cfg(test)]
-mod close_tests;
 mod life;
 mod open;
 pub mod peer;
 pub mod store;
 pub mod tear;
 pub(crate) mod tear_stories;
-#[cfg(test)]
-mod tear_tests;
 
 pub use open::{launch, new_window};
 

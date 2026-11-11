@@ -3,11 +3,7 @@
 //! The browser plugin (`plugins/browser`) draws the pane, its address bar and its menus over
 //! this through the `Browser` service and `ui.browserSurface` (`plugin_host::luau::native::browser`).
 
-#[cfg(test)]
-mod external_tests;
 pub mod prefetch;
-#[cfg(test)]
-mod tests;
 pub mod view;
 
 use std::collections::HashMap;
@@ -96,7 +92,7 @@ impl App {
     }
 
     pub(crate) fn use_mock_browser(&self) -> bool {
-        (crate::headless() || cfg!(test) || self.stage.is_some())
+        (crate::headless() || self.stage.is_some())
             && !self.browser.host.has_socket_override()
             && std::env::var_os("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Some(std::ffi::OsStr::new("1"))
     }

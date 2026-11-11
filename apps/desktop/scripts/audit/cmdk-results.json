@@ -1,8 +1,0 @@
-{
-  "scene": "home", "secs": 3.0,
-  "events": [
-    {"t": 0.3, "type": "key", "name": "k", "cmd": true, "expect": "instant"},
-    {"t": 0.6, "type": "type", "text": "fix", "every": 0.05, "expect": "instant"},
-    {"t": 1.6, "type": "key", "name": "Enter", "expect": "instant", "scope": "switcher"}
-  ]
-}

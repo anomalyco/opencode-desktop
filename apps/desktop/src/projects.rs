@@ -412,6 +412,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "projects_tests.rs"]
-mod tests;

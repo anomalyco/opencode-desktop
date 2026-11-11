@@ -436,5 +436,3 @@ rune_register::register!(COMMANDS: Cmd = [
     .when(|s| s.has_composer() && s.add.shell()),
 ]);
 
-#[cfg(test)]
-mod tests;

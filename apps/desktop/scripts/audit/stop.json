@@ -1,8 +1,0 @@
-{
-  "scene": "streaming", "secs": 4.5,
-  "events": [
-    {"t": 1.2, "type": "move", "key": "submit"},
-    {"t": 1.75, "type": "tap", "key": "submit"},
-    {"t": 2.4, "type": "tap", "key": "submit"}
-  ]
-}

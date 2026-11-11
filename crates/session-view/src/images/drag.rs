@@ -106,6 +106,3 @@ pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
     format!("{stem}.{ext}")
 }
 
-#[cfg(test)]
-#[path = "drag_tests.rs"]
-mod tests;

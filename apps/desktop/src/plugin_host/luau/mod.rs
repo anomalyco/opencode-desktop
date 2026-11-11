@@ -230,9 +230,8 @@ impl Host {
     }
 }
 
-/// Discovers the Luau plugins and starts the ones that may run. `isolated` (in-process tests)
-/// loads the built-ins alone.
-pub fn setup(app: &mut App, waker: rune::Waker, isolated: bool) {
+/// Discovers the Luau plugins and starts the ones that may run.
+pub fn setup(app: &mut App, waker: rune::Waker) {
     app.plugins.luau.waker = Some(waker);
     if app.plugins.luau.started {
         return;
@@ -240,7 +239,7 @@ pub fn setup(app: &mut App, waker: rune::Waker, isolated: bool) {
     app.plugins.luau.started = true;
     let builtins: Vec<&str> = sources::builtin_ids().collect();
     let mut seen: Vec<String> = app.plugins.slots.iter().map(|s| s.manifest.id.clone()).collect();
-    for found in sources::discover(isolated) {
+    for found in sources::discover() {
         let id = found.manifest.id.clone();
         let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
         if seen.contains(&id) && !shadows {
@@ -267,7 +266,7 @@ pub fn setup(app: &mut App, waker: rune::Waker, isolated: bool) {
         let i = app.plugins.luau.plugins.len() - 1;
         drive(app, i, first);
     }
-    if !isolated && (crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless())) {
+    if crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless()) {
         let dirs = app.plugins.luau.plugins.iter().enumerate().filter_map(|(i, p)| Some((i, p.origin.dir()?.to_owned()))).collect();
         app.plugins.luau.watcher = hot::Watcher::spawn(dirs, app.plugins.luau.waker.clone());
     }

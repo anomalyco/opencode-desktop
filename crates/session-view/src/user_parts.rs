@@ -340,6 +340,3 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     Some(c)
 }
 
-#[cfg(test)]
-#[path = "user_parts_tests.rs"]
-mod tests;

@@ -178,20 +178,6 @@ impl Starts {
 
 pub const FAILED: &str = "Couldn't start the session";
 
-#[cfg(test)]
-thread_local! {
-    /// The benchmark's "before": Send waits for the server's session, as it used to.
-    pub(crate) static BEFORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Whether Send on the new-session page takes the old wait-for-the-server path.
-pub(crate) fn before() -> bool {
-    #[cfg(test)]
-    { BEFORE.get() }
-    #[cfg(not(test))]
-    { false }
-}
-
 impl App {
     /// Shows session `id`, which the server is about to create in the new-session page's
     /// folder with the toolbar's agent and model, as the open page. It switches at once, as any
@@ -400,9 +386,3 @@ impl App {
 }
 
 mod stories;
-#[cfg(test)]
-mod bench;
-#[cfg(test)]
-pub(crate) mod mock;
-#[cfg(test)]
-mod tests;

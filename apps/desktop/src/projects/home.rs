@@ -115,9 +115,6 @@ fn file() -> Option<std::path::PathBuf> {
 }
 
 fn load() -> Store {
-    if cfg!(test) {
-        return Store::default();
-    }
     let Some(v) = file().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return Store::default() };
     let key = |v: &Value| v.as_str().filter(|k| !k.is_empty()).map(ServerKey::new);
     let selection = Selection::new(key(&v["selection"]["server"]), v["selection"]["directory"].as_str().map(str::to_owned));
@@ -127,7 +124,7 @@ fn load() -> Store {
 }
 
 fn save(store: &Store) {
-    if cfg!(test) || !crate::attended() {
+    if !crate::attended() {
         return;
     }
     let Some(path) = file() else { return };

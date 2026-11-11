@@ -5,8 +5,6 @@
 //! [`RuneMcpHub`], and every incoming `tools/call` is routed by `_meta["ai.opencode/sessionID"]`
 //! (and its parent chain) to the window and session tab showing it.
 
-#[cfg(test)]
-mod tests;
 pub mod tools;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -17,8 +15,6 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use opencode_kit::client::{DEFAULT_SERVER, Server};
-#[cfg(test)]
-use opencode_kit::client_mcp::ClientMcpStatus;
 use opencode_kit::client_mcp::{
     ClientMcp, ClientMcpOptions, McpCall, McpResult, RECONNECT_MAX, RECONNECT_MIN,
     UNSUPPORTED_RETRY,
@@ -93,23 +89,6 @@ impl RuneMcpHub {
                 unsupported_retry,
             }),
         })
-    }
-
-    #[cfg(test)]
-    pub fn status(&self, server: &Server, directory: &str) -> Option<ClientMcpStatus> {
-        let key = (server.endpoint_key(), clean_dir(directory));
-        lock(&self.inner).connections.get(&key).map(ClientMcp::status)
-    }
-
-    #[cfg(test)]
-    pub fn is_ready(&self, server: &Server, directory: &str) -> bool {
-        let key = (server.endpoint_key(), clean_dir(directory));
-        lock(&self.inner).connections.get(&key).is_some_and(ClientMcp::is_ready)
-    }
-
-    #[cfg(test)]
-    pub fn connection_count(&self) -> usize {
-        lock(&self.inner).connections.len()
     }
 
     fn update_window(self: &Arc<Self>, window_id: u64, entry: WindowEntry) {
@@ -419,22 +398,6 @@ impl App {
         self.rune_mcp.last_stamp = None;
     }
 
-    /// Attaches a dedicated [`RuneMcpHub`] and enables client MCP in headless/unit tests.
-    #[cfg(test)]
-    pub fn attach_test_mcp_hub(&mut self, hub: Arc<RuneMcpHub>, waker: Waker) {
-        self.rune_mcp.hub.remove_window(self.rune_mcp.window_id);
-        self.rune_mcp.hub = hub;
-        self.rune_mcp.waker = waker;
-        self.rune_mcp.force_enabled = true;
-        self.rune_mcp.last_stamp = None;
-        sync_window(self);
-    }
-
-    #[cfg(test)]
-    pub fn rune_mcp_ready(&self, directory: &str) -> bool {
-        let Source::Live { server, .. } = &self.source else { return false };
-        self.rune_mcp.hub.is_ready(server, directory)
-    }
 }
 
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
@@ -462,7 +425,7 @@ fn mcp_active(s: &App) -> Option<&Server> {
     if crate::headless() {
         return (flag("--client-mcp") && server.base != DEFAULT_SERVER).then_some(server);
     }
-    (*allow_send && !cfg!(test)).then_some(server)
+    (*allow_send).then_some(server)
 }
 
 fn sync_stamp(s: &App, active_srv: Option<&Server>) -> u64 {

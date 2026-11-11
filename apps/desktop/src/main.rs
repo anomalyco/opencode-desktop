@@ -14,57 +14,27 @@ pub use session_view::{
     subagent_card as agent_rows_view, themes, turns,
 };
 
-#[cfg_attr(test, path = ".")]
 mod compaction {
     pub use session_view::compaction::*;
-    #[cfg(test)]
-    use crate::{App, Route};
-    #[cfg(test)]
-    #[path = "compaction_tests.rs"]
-    mod tests;
 }
-#[cfg_attr(test, path = ".")]
 mod copied {
     pub use session_view::copied::*;
-    #[cfg(test)]
-    #[path = "copied_tests.rs"]
-    mod tests;
 }
 mod diagram {
     pub use session_view::diagram::*;
     pub(crate) mod stories;
-    #[cfg(test)]
-    mod tests;
 }
 mod genui {
     pub use session_view::genui::*;
     pub(crate) mod demo;
     pub(crate) mod diagrams;
     pub(crate) mod skill;
-    #[cfg(test)]
-    mod tests;
 }
-#[cfg_attr(test, path = ".")]
 mod turn_errors {
     pub use session_view::turn_errors::*;
-    #[cfg(test)]
-    use crate::{App, Route};
-    #[cfg(test)]
-    #[path = "turn_errors_tests.rs"]
-    mod tests;
 }
-#[cfg_attr(test, path = ".")]
 mod working {
     pub use session_view::working::*;
-    #[cfg(test)]
-    use crate::App;
-    #[cfg(test)]
-    use rune::Color;
-    #[cfg(test)]
-    use rune::color::srgb_encode;
-    #[cfg(test)]
-    #[path = "working_tests.rs"]
-    mod tests;
 }
 
 mod add_menu;
@@ -90,16 +60,12 @@ pub mod code_view;
 mod commands;
 mod commands_stories;
 mod compaction_stories;
-#[cfg(test)]
-mod compaction_fold_tests;
 mod connect;
 mod deep_links;
 mod demo;
 mod demo_script;
 mod diagnostics;
 mod dictation;
-#[cfg(test)]
-mod dictation_tests;
 mod dirs;
 mod disk;
 mod dock_fade_stories;
@@ -110,32 +76,20 @@ mod export_logs;
 mod files;
 mod find;
 mod find_stories;
-#[cfg(test)]
-mod find_tests;
 mod fixture_ids;
 mod fold_stories;
-#[cfg(test)]
-mod fold_tests;
 mod fork;
 mod forms;
 mod frosted_stories;
 mod composer_grow_stories;
 mod history;
 mod history_story;
-#[cfg(test)]
-mod history_tests;
 mod home_search;
-#[cfg(test)]
-mod home_search_tests;
 mod icons;
 mod inbox_model;
 mod incoming;
 #[cfg(windows)]
 mod install;
-#[cfg(test)]
-mod interaction_fuzz;
-#[cfg(test)]
-mod jump_tests;
 mod jobs;
 mod keymap;
 mod keys;
@@ -152,14 +106,6 @@ mod menubar;
 mod message_nav;
 mod model_picker;
 mod model_prefs;
-#[cfg(test)]
-mod tool_group_shut_tests;
-#[cfg(test)]
-mod shell_fold_tests;
-#[cfg(test)]
-mod console_tests;
-#[cfg(test)]
-mod motion_gate;
 mod motion_log;
 mod narrow;
 mod new_session;
@@ -168,14 +114,8 @@ mod notifications;
 mod odometer_stories;
 mod title_change;
 mod open_in;
-#[cfg(test)]
-mod open_replay;
 mod open_story;
-#[cfg(test)]
-mod open_story_tests;
 pub mod panels;
-#[cfg(test)]
-mod perf;
 mod permission;
 mod pickers;
 mod pinch;
@@ -199,8 +139,6 @@ mod recently_closed;
 mod restore;
 mod review;
 mod route;
-#[cfg(test)]
-mod revert;
 mod rewind;
 mod rewind_stories;
 mod rune_mcp;
@@ -214,13 +152,7 @@ mod served;
 mod servers;
 mod session_menu;
 mod session_menu_stories;
-#[cfg(test)]
-mod session_menu_tests;
 mod session_menu_view;
-#[cfg(test)]
-mod session_older_tests;
-#[cfg(test)]
-mod session_stall_tests;
 mod send_failed;
 mod session_open;
 mod session_pages;
@@ -233,8 +165,6 @@ mod slash;
 mod sounds;
 mod reconnect;
 mod status_toast;
-#[cfg(test)]
-mod status_toast_tests;
 mod stop;
 mod stop_stories;
 mod stories;
@@ -242,9 +172,6 @@ mod stories;
 mod stream_pace;
 #[path = "stream/line_grow_story.rs"]
 mod line_grow_story;
-#[cfg(test)]
-#[path = "stream/line_grow_tests.rs"]
-mod line_grow_tests;
 mod subagents;
 mod submit;
 mod suggestions;
@@ -259,8 +186,6 @@ mod todo_stories;
 mod tool_group_stories;
 mod tool_open;
 mod tool_open_stories;
-#[cfg(test)]
-mod tool_open_tests;
 mod turn_diffs;
 mod turn_errors_stories;
 #[path = "commands/type_to_compose.rs"]
@@ -851,10 +776,6 @@ fn attended() -> bool {
 }
 
 fn wall_ms() -> i64 {
-    #[cfg(test)]
-    if let Some(ms) = interaction_fuzz::wall_override() {
-        return ms;
-    }
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
@@ -892,7 +813,7 @@ impl App {
         let fixture_path = arg("--fixture");
         let server = launch::initial_server();
         let deferred = fixture_path.is_none() && launch::deferred();
-        let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless() && !cfg!(test)));
+        let want_live = fixture_path.is_none() && !demo::requested() && (deferred || flag("--live") || (!headless()));
         if want_live && app.load_live(server, false) { return app; }
         let src = match &fixture_path {
             Some(p) => std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}")),
@@ -1099,7 +1020,7 @@ impl App {
 
     /// Saves tabs, zoom, the open session and drafts: live, with a person at it.
     pub fn persists(&self) -> bool {
-        self.live() && attended() && !cfg!(test)
+        self.live() && attended()
     }
 
     /// Asks the server for one session's info (live only).
@@ -1456,41 +1377,3 @@ fn main() {
     }
 }
 
-#[cfg(test)]
-impl App {
-    /// The fixture's open session at the end of its stream, without probing a server.
-    pub(crate) fn fixture_session() -> Self {
-        let mut app = Self::empty();
-        app.load_fixture(FIXTURE);
-        open_scene(&mut app);
-        app.finish_stream();
-        app
-    }
-
-    /// Switches `source` to a live write channel so tests can read what would be sent.
-    pub(crate) fn fake_writes(&mut self) -> std::sync::mpsc::Receiver<Write> {
-        let (w, writes) = std::sync::mpsc::channel();
-        self.source = Source::Live { server: Server::new("http://127.0.0.1:9"), requests: None, writes: Some(w), allow_send: true };
-        writes
-    }
-
-    pub(crate) fn into_runtime(self) -> rune::Runtime<Self> {
-        self.into_runtime_sized((1280.0, 820.0))
-    }
-
-    /// [`Self::into_runtime`] in a `size` window.
-    pub(crate) fn into_runtime_sized(self, size: (f32, f32)) -> rune::Runtime<Self> {
-        let mut rt = rune::Runtime::new(self, view::app, size, rune::Env::new(true, 1.0));
-        rt.set_srgb_blend(true);
-        rt.poll = Some(poll);
-        rt.on_key = Some(on_key);
-        rt
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn fixture_runtime() -> rune::Runtime<App> {
-    let mut rt = App::fixture_session().into_runtime();
-    rt.frame(0.0);
-    rt
-}

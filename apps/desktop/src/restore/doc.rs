@@ -25,7 +25,7 @@ pub fn read_window(app: &App, server: &Server) -> WindowDoc {
     if migrated {
         legacy_new_drafts(&mut doc, &app.default_dir);
         // Once: the file is in the new shape from now on, what the old one held under `legacy`.
-        if crate::attended() && !cfg!(test) {
+        if crate::attended() {
             crate::windows::store::save_all(&app.window, doc.to_json());
         }
     }

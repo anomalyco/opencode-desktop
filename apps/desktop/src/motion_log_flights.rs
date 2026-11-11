@@ -46,10 +46,6 @@ pub struct Window {
 }
 
 impl Window {
-    #[cfg(test)]
-    pub fn new(size: (f32, f32)) -> Window {
-        Window { size, zoom: 1.0, at_end: true }
-    }
 }
 
 struct Pending {
@@ -78,9 +74,6 @@ pub struct Flights {
     pool: Vec<Vec<([f32; 4], f64)>>,
     /// Flights followed to rest, logged or not.
     pub landed: u64,
-    /// Follows nothing, for the benchmark's baseline.
-    #[cfg(test)]
-    pub off: bool,
 }
 
 impl Flights {
@@ -88,8 +81,6 @@ impl Flights {
     /// next few frames.
     pub fn mount(&mut self, path: &str, key: Option<&str>) {
         let Some(key) = key else { return };
-        #[cfg(test)]
-        if self.off { return; }
         if self.pending.len() >= PENDING { return; }
         for (dest, sources) in LAUNCHES {
             if let Some(q) = capture(dest, path, key) {
@@ -166,10 +157,6 @@ impl Flights {
         self.pool.push(f.frames);
     }
 
-    #[cfg(test)]
-    pub fn flying(&self) -> usize {
-        self.live.len()
-    }
 }
 
 impl Flight {
@@ -311,6 +298,3 @@ fn selects(selector: &str, path: &str, key: Option<&str>) -> bool {
     scope.rsplit('/').all(|seg| keyed.next() == Some(seg))
 }
 
-#[cfg(test)]
-#[path = "motion_log_flights_tests.rs"]
-mod tests;

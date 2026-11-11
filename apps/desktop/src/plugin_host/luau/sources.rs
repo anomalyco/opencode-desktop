@@ -63,13 +63,9 @@ pub fn parse(src: &str) -> Result<Manifest, String> {
     Ok(m)
 }
 
-/// Every Luau plugin in tier order, highest first; `isolated` (in-process tests), the embedded
-/// built-ins alone.
-pub fn discover(isolated: bool) -> Vec<Found> {
+/// Every Luau plugin in tier order, highest first.
+pub fn discover() -> Vec<Found> {
     let embedded = || embedded::BUILTINS.iter().filter_map(|(_, files)| read_embedded(files));
-    if isolated {
-        return embedded().collect();
-    }
     let mut first = Vec::new();
     if let Some(dir) = crate::arg("--plugin-dir") {
         first.push((Tier::Dev, PathBuf::from(dir)));

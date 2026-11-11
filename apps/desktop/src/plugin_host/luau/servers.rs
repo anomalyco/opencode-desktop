@@ -251,9 +251,6 @@ fn known<R>(f: impl FnOnce(&mut BTreeMap<String, Inventory>) -> R) -> R {
 }
 
 fn file() -> Option<std::path::PathBuf> {
-    if cfg!(test) {
-        return None;
-    }
     crate::dirs::data().map(|d| d.join("opencode.global.dat"))
 }
 

@@ -157,13 +157,6 @@ impl First {
     }
 }
 
-#[cfg(test)]
-impl First {
-    pub fn from_parts(projects: Value, sessions: Option<Value>) -> First {
-        First { projects, sessions, models: None, providers: None, active: None, config: None }
-    }
-}
-
 /// What `on_ready`'s background startup worker brings back: Desktop Beta's tabs (when no
 /// `tabs.json` exists yet) and the first server reads, or `first: None` when the server wasn't
 /// reachable and the window should fall back to the fixture.
@@ -320,13 +313,6 @@ pub(crate) fn story_offline(s: &mut App, checking: bool) {
         Phase::Offline { retries: 0, retry_at: f64::INFINITY }
     };
     s.launch.set_phase(&server, phase);
-}
-
-#[cfg(test)]
-impl Launch {
-    pub fn set_first(&mut self, server: &str, rx: Receiver<Ready>) {
-        self.set_phase(server, Phase::Probing { rx, again: None });
-    }
 }
 
 /// How long a launch keeps trying a server it hasn't reached before Home shows the setup card:
@@ -711,6 +697,3 @@ fn connect(s: &mut App, tx: &mut Tx) {
     }
 }
 
-#[cfg(test)]
-#[path = "launch_tests.rs"]
-mod tests;

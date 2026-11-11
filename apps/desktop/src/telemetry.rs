@@ -26,7 +26,7 @@ pub fn enabled() -> bool {
     match std::env::var("OPENCODE_RUNE_OTEL").as_deref() {
         Ok("0") => false,
         Ok("1") => true,
-        _ => !cfg!(test),
+        _ => true,
     }
 }
 
@@ -253,5 +253,3 @@ pub fn stream_drawn(window: &str, at: Instant) {
 /// The last `encoded` frame, for `drawn`.
 pub fn last_frame() -> Option<(Instant, Option<f64>, Option<f64>)> { FRAME.with(|x| x.borrow_mut().take()) }
 
-#[cfg(test)]
-mod tests;

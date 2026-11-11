@@ -6,10 +6,6 @@ use serde_json::json;
 
 use crate::App;
 
-/// The group Kit pressed.
-#[cfg(test)]
-pub const GROUP: &str = "c-msg_zzshort1-0";
-
 /// Kit's capture: a turn of one thought and one shell, five prompts queued under it, and the
 /// next step still thinking.
 pub fn add_short_group(app: &mut App, sid: &str) {

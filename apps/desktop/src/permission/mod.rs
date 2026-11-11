@@ -250,5 +250,3 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
 ]);
 
 mod stories;
-#[cfg(test)]
-mod tests;

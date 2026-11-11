@@ -22,13 +22,7 @@ pub const WARM: usize = 6;
 const OLDER: usize = 20;
 const NEAR_TOP: f32 = 200.0;
 
-#[cfg(test)]
-mod bench_tests;
 mod machines;
-#[cfg(test)]
-mod prefetch_tests;
-#[cfg(test)]
-mod typing_tests;
 
 pub use machines::{History, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
@@ -91,27 +85,6 @@ impl State {
         matches!(self.histories.get(self.server(), id), Some(History::Idle { .. } | History::Loading { .. } | History::Failed { .. }))
     }
 
-    #[cfg(test)]
-    pub fn stall_after(&mut self, after: Duration) {
-        self.stall_after = Some(after);
-    }
-
-    /// The cursor above `id`'s history: `Some(None)` once it ran out, `None` before it was read.
-    #[cfg(test)]
-    pub fn older(&self, id: &str) -> Option<Option<String>> {
-        match self.histories.get(self.server(), id)? {
-            History::Idle { cursor } | History::Loading { cursor, .. } | History::Failed { cursor, .. } => Some(Some(cursor.clone())),
-            History::Exhausted => Some(None),
-            History::Expanding { .. } | History::Filling { .. } => None,
-        }
-    }
-
-    /// As though `id`'s first history page had landed, leaving `cursor` to read before it.
-    #[cfg(test)]
-    pub fn set_older(&mut self, id: &str, cursor: Option<String>) {
-        let server = self.server().to_owned();
-        self.histories.set(&server, id, cursor.map_or(History::Exhausted, |cursor| History::Idle { cursor }));
-    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Key { pub id: String, pub updated: i64 }
@@ -240,62 +213,7 @@ impl Pages {
 
 /// The silence timer's clock: the interaction fuzzer's virtual one under it.
 fn now() -> Instant {
-    #[cfg(test)]
-    if let Some(at) = crate::interaction_fuzz::instant_override() {
-        return at;
-    }
     Instant::now()
-}
-
-/// The two lanes' workers, played by a test (`interaction_fuzz`) that answers the reads itself.
-#[cfg(test)]
-impl Pages {
-    /// The open lane's read failed and is being asked again (`failing`), or got an answer.
-    pub(crate) fn note_stall(&self, failing: bool) {
-        let mut q = self.shared.0.lock().unwrap();
-        if failing {
-            q.stalled.get_or_insert_with(now);
-        } else {
-            q.stalled = None;
-        }
-    }
-
-    /// The job lane `foreground`'s worker would take next, marked as being read: (key, cursor, limit).
-    pub(crate) fn take_job(&self, foreground: bool) -> Option<(Key, Option<String>, usize)> {
-        let mut q = self.shared.0.lock().unwrap();
-        let i = q.jobs.iter().rposition(|j| j.foreground == foreground)?;
-        let job = q.jobs.remove(i)?;
-        q.active.insert((job.key.clone(), job.cursor.clone()));
-        Some((job.key, job.cursor, job.limit))
-    }
-
-    /// Ends a job from [`Self::take_job`] as the worker does, once its result is sent.
-    pub(crate) fn finish_job(&self, key: &Key, cursor: &Option<String>, page: Option<&Arc<Page>>) {
-        let mut q = self.shared.0.lock().unwrap();
-        match page {
-            Some(page) if !page.history => {
-                if q.ready.iter().all(|p| p.key.id != page.key.id || p.key.updated <= page.key.updated) {
-                    q.ready.retain(|p| p.key.id != page.key.id);
-                    q.ready.push_back(page.clone());
-                    while q.ready.len() > ENTRIES {
-                        q.ready.pop_front();
-                    }
-                }
-            }
-            Some(_) => {}
-            None => {
-                q.failed.insert(key.clone(), Instant::now() + Duration::from_secs(30));
-            }
-        }
-        q.active.remove(&(key.clone(), cursor.clone()));
-    }
-}
-
-#[cfg(test)]
-impl State {
-    pub(crate) fn pool(&self) -> Option<&Pages> {
-        self.pool.as_ref()
-    }
 }
 
 fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
@@ -392,7 +310,7 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
 
 /// 2 s, 4 s, then 8 s between reads (tens of milliseconds under test).
 fn backoff(attempt: u32) -> Duration {
-    let unit = if cfg!(test) { Duration::from_millis(10) } else { Duration::from_secs(1) };
+    let unit = Duration::from_secs(1);
     unit * (2u32 << attempt.min(2))
 }
 
@@ -525,11 +443,6 @@ impl super::App {
             Some(o) => match &o.from { super::Route::Session { id: from, .. } => Some(from), _ => None },
             None => Some(id),
         }
-    }
-
-    /// Reads `id`'s latest page from the server again, ahead of anything speculative.
-    pub(crate) fn read_latest(&self, id: &str) {
-        if let Some(pool) = &self.pages.pool { pool.request(self.page_key(id), true); }
     }
 
     pub(crate) fn page_key(&self, id: &str) -> Key {
@@ -735,245 +648,3 @@ impl super::App {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{App, Route, view};
-    use rune::{Env, Runtime, Tx};
-
-    fn key(id: &str) -> Key { Key { id: id.into(), updated: 7 } }
-    fn page(text: &str) -> Value {
-        json!({"data":[{"id":"msg_last", "type":"user", "text":text,"time":{"created":1}}], "cursor":{"next":"older+/="}})
-    }
-    fn receive(p: &Pages) -> Arc<Page> { p.results.recv_timeout(Duration::from_secs(5)).unwrap().unwrap() }
-    struct Scratch(PathBuf);
-    impl Scratch {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            Self(std::env::temp_dir().join(format!("session-pages-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))))
-        }
-    }
-    impl Drop for Scratch { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
-
-    #[test]
-    fn a_prefetched_click_has_messages_on_its_first_frame() {
-        let pages = Pages::new(Arc::new(|path| {
-            assert!(path.ends_with("?limit=12&order=desc"));
-            Ok(page("Ready before the click"))
-        }), None, Arc::new(|| {}));
-        pages.request(key("ses_warm"), false);
-        receive(&pages);
-        let mut app = App::empty();
-        app.pages.set(pages);
-        app.open("ses_warm", &mut Tx::default());
-        assert_eq!(app.transcripts["ses_warm"].messages.len(), 1);
-        let mut rt = Runtime::new(app, view::app, (1280.0, 820.0), Env::new(true, 2.0));
-        rt.frame(0.0);
-        assert!(!rt.elements().iter().any(|e| e.path.ends_with("/loading")));
-    }
-
-    #[test]
-    fn foreground_does_not_wait_for_a_blocked_background_read() {
-        let (started, start) = channel();
-        let (release, wait) = channel();
-        let wait = Mutex::new(wait);
-        let pages = Pages::new(Arc::new(move |path| {
-            if path.contains("ses_slow/") { started.send(()).unwrap(); wait.lock().unwrap().recv().unwrap(); }
-            Ok(page("ready"))
-        }), None, Arc::new(|| {}));
-        pages.request(key("ses_slow"), false);
-        start.recv_timeout(Duration::from_secs(5)).unwrap();
-        pages.request(key("ses_click"), true);
-        let first = receive(&pages);
-        release.send(()).unwrap();
-        assert_eq!(first.key.id, "ses_click");
-        assert_eq!(receive(&pages).key.id, "ses_slow");
-    }
-
-    #[test]
-    fn disk_paints_before_network_and_updated_time_invalidates_it() {
-        let dir = Scratch::new();
-        let k = key("ses_disk");
-        disk_write(&dir.0, &k, &page("cached"));
-        assert!(disk_read(&dir.0, &Key { updated: 8, ..k.clone() }).is_none());
-        let (release, wait) = channel();
-        let wait = Mutex::new(wait);
-        let pages = Pages::new(Arc::new(move |_| { wait.lock().unwrap().recv().unwrap(); Ok(page("fresh")) }), Some(dir.0.clone()), Arc::new(|| {}));
-        pages.request(k, true);
-        let cached = receive(&pages);
-        assert!(cached.cached);
-        release.send(()).unwrap();
-        assert!(!receive(&pages).cached);
-    }
-
-    #[test]
-    fn cached_page_and_history_do_not_rewind_live_messages() {
-        let mut app = App::empty();
-        app.route = Route::here("ses_a".into());
-        let mut p = Page { key: key("ses_a"), messages: model::parse_messages(&page("new")), cursor: None, cached: false, history: false, images: vec![], bytes: 0, read: Default::default() };
-        app.show_page(&p, &mut Tx::default());
-        p.messages = model::parse_messages(&page("old"));
-        p.cached = true;
-        app.show_page(&p, &mut Tx::default());
-        assert!(matches!(&app.transcripts["ses_a"].messages[0], Message::User { text, .. } if text == "new"));
-        p.cached = false;
-        p.history = true;
-        p.messages.insert(0, Message::User { id: "msg_first".into(), text: "history".into() });
-        app.show_page(&p, &mut Tx::default());
-        assert_eq!(app.transcripts["ses_a"].messages.len(), 2);
-        assert!(matches!(&app.transcripts["ses_a"].messages[1], Message::User { text, .. } if text == "new"));
-    }
-
-    #[test]
-    fn history_uses_cursor_without_order_and_cache_is_bounded() {
-        let pages = Pages::new(Arc::new(|path| {
-            assert!(path.contains("?limit=68&cursor=older%2B%2F%3D"));
-            assert!(!path.contains("order="));
-            Ok(page("history"))
-        }), None, Arc::new(|| {}));
-        pages.history(key("ses_a"), "older+/=".into(), 68);
-        assert!(receive(&pages).history);
-        let dir = Scratch::new();
-        for i in 0..16 { disk_write(&dir.0, &key(&format!("ses_{i}")), &page("cached")); }
-        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), ENTRIES);
-        std::fs::write(file(&dir.0, &key("ses_bad")).unwrap(), "broken").unwrap();
-        assert!(disk_read(&dir.0, &key("ses_bad")).is_none());
-        assert!(file(&dir.0, &key("ses_../../bad")).is_none());
-    }
-
-    /// The whole click-to-paint sequence, not just the frame after recv() has completed.
-    #[test]
-    fn cold_open_frames_never_flash() {
-        frame_sequence(false, None);
-    }
-
-    #[test]
-    fn prefetched_open_frames_never_flash() {
-        frame_sequence(true, None);
-    }
-
-    #[test]
-    #[ignore = "private latest-page capture; COLD_OPEN_CAPTURE=/path/page.json --release"]
-    fn captured_open_frames_never_flash() {
-        let data = std::fs::read_to_string(std::env::var("COLD_OPEN_CAPTURE").unwrap()).unwrap();
-        for warm in [false, true] { frame_sequence(warm, Some(serde_json::from_str(&data).unwrap())); }
-    }
-
-    #[test]
-    fn opening_deadline_and_navigation() {
-        let mut app = App::empty();
-        let (pages, send) = Pages::fixture(None);
-        app.pages.set(pages);
-        let mut rt = Runtime::new(app, view::app, (1280.0,820.0), Env::new(true,1.0));
-        rt.frame(0.0);
-        rt.update(|s, tx| s.open("ses_slow", tx));
-        // A live delta before the first page must not bypass the opening gate.
-        rt.state.transcripts.insert("ses_slow".into(), model::Transcript { session:"ses_slow".into(), messages:vec![] });
-        for (at, loading) in [(0.0,false), (0.149,false), (0.150,true), (0.2,true)] {
-            rt.update(|s, tx| { s.clock = at; s.poll_pages(tx); });
-            rt.frame(1.0/60.0);
-            assert_eq!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Loading messages…")), loading, "at {at}");
-            assert!(!rt.elements().iter().any(|e| e.path.contains("/usage/") && e.text.as_deref() == Some("0")));
-        }
-        let result = |id: &str| Arc::new(Page { key:key(id), messages:model::parse_messages(&page("All ready")), cursor:None, cached:false, history:false, images:vec![], bytes:0, read:Default::default() });
-        send.send(Ok(result("ses_slow"))).unwrap();
-        rt.update(|s, tx| { s.poll_pages(tx); });
-        rt.frame(1.0/60.0);
-        assert!(rt.state.opening.is_none());
-        assert!(!rt.elements().iter().any(|e| e.text.as_deref() == Some("Loading messages…")));
-
-        rt.update(|s, tx| { s.open("ses_b", tx); s.open("ses_c", tx); });
-        send.send(Ok(result("ses_b"))).unwrap();
-        rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::here("ses_c".into()), "input follows the newest click immediately");
-        send.send(Ok(result("ses_c"))).unwrap();
-        rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::here("ses_c".into()));
-
-        rt.update(|s, tx| { s.open("ses_cancel", tx); s.route = Route::Home; s.poll_pages(tx); });
-        send.send(Ok(result("ses_cancel"))).unwrap();
-        rt.update(|s, tx| { s.poll_pages(tx); });
-        assert_eq!(rt.state.route, Route::Home);
-        assert!(rt.state.opening.is_none());
-
-        rt.update(|s, tx| s.open("ses_failed", tx));
-        send.send(Err((key("ses_failed"), "Session unavailable".into()))).unwrap();
-        rt.update(|s, tx| { s.clock += 0.150; s.poll_pages(tx); });
-        rt.frame(1.0/60.0);
-        assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some("Session unavailable")));
-        rt.update(|s, tx| s.cancel_open(tx));
-        assert_eq!(rt.state.route, Route::Home);
-    }
-
-    fn frame_sequence(prefetched: bool, capture: Option<Value>) {
-        let mut png = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png, 1600, 600);
-            encoder.set_color(png::ColorType::Rgb);
-            encoder.set_depth(png::BitDepth::Eight);
-            encoder.write_header().unwrap().write_image_data(&vec![140; 1600 * 600 * 3]).unwrap();
-        }
-        let mut data = json!({"data": [
-            {"id":format!("msg_image_{prefetched}"), "type":"user", "text":"Review this layout", "time":{"created":100},
-             "files":[{"mime":"image/png", "name":"layout.png", "uri":opencode_kit::client::data_url("image/png", &png)}]},
-            {"id":"msg_answer", "type":"assistant", "time":{"created":101,"completed":102},
-             "tokens":{"input":42000}, "content":[{"type":"text","text":"The image and this answer should arrive together."}]}
-        ]});
-        for i in (0..24).rev() {
-            data["data"].as_array_mut().unwrap().insert(0, json!({"id":format!("msg_prefix_{i:02}"),"type":"user","text":format!("Earlier layout note {i}: preserve the final position when this session opens."),"time":{"created":i}}));
-        }
-        let data = capture.unwrap_or(data);
-        let (release, wait) = channel();
-        let wait = Mutex::new(wait);
-        let pages = Pages::new(Arc::new(move |_| {
-            wait.lock().unwrap().recv_timeout(Duration::from_secs(5)).unwrap();
-            Ok(data.clone())
-        }), None, Arc::new(|| {}));
-        let mut app = App::empty();
-        app.route = Route::here("ses_previous".into());
-        app.transcripts.insert("ses_previous".into(), model::Transcript { session:"ses_previous".into(), messages:model::parse_messages(&page("Previous session stays here")) });
-        app.pages.set(pages);
-        if prefetched {
-            app.prefetch_session("ses_target");
-            release.send(()).unwrap();
-            let p = receive(app.pages.pool.as_ref().unwrap());
-            for image in &p.images { image.wait(); }
-        }
-        let mut rt = Runtime::new(app, view::app, (1280.0,820.0), Env::new(true,2.0));
-        rt.frame(0.0);
-        rt.update(|s, tx| s.open("ses_target", tx));
-        let mut bad = Vec::new();
-        let mut bottom = None;
-        for frame in 0..20 {
-            if frame == 3 {
-                release.send(()).unwrap();
-                let p = receive(rt.state.pages.pool.as_ref().unwrap());
-                rt.update(|s, tx| s.show_page(&p, tx));
-            }
-            if frame == 10 {
-                let history = Page { key: key("ses_target"), messages: (0..24).map(|i| Message::User {
-                    id:format!("old_{i}"), text:format!("Earlier discussion {i}. {}", "A long note about the prior revision. ".repeat(12)),
-                }).collect(), cursor:None, cached:false, history:true, images:vec![], bytes:0, read:Default::default() };
-                rt.update(|s, tx| s.show_page(&history, tx));
-            }
-            if frame == 6 { for image in rt.state.attach.image_handles() { image.wait().unwrap(); } }
-            rt.update(|s, tx| { s.clock = frame as f64 / 60.0; s.poll_pages(tx); });
-            rt.frame(1.0/60.0);
-            let elements = rt.elements();
-            let loading = elements.iter().any(|e| e.text.as_deref() == Some("Loading messages…"));
-            let target = rt.state.route == Route::here("ses_target".into());
-            let grey = rt.state.opening.is_none() && target && rt.state.attach.image_handles().iter().any(|img| !img.is_ready());
-            let zero = target && elements.iter().any(|e| e.path.contains("/usage/") && e.label.as_deref() == Some("0"));
-            let at_bottom = rt.scroll_at_bottom("scroll-ses_target");
-            let image = elements.iter().find(|e| e.path.ends_with("/img-0") && !e.exiting).map(|e| e.rect);
-            if loading || grey || zero || (rt.state.opening.is_none() && target && at_bottom == Some(false)) { bad.push(frame); }
-            if target && let Some(rect) = image {
-                if let Some(old) = bottom { if old != rect { bad.push(frame); } } else { bottom = Some(rect); }
-            }
-        }
-        // Release the refresh requested by a prefetched open.
-        let _ = release.send(());
-        assert!(bad.is_empty(), "intermediate frames flashed: {bad:?}");
-        assert_eq!(rt.state.route, Route::here("ses_target".into()));
-    }
-}

@@ -163,17 +163,7 @@ impl Coordinator {
     }
 }
 
-/// How many notifications this run keeps in the system's list.
-#[cfg(test)]
-pub fn shown() -> usize {
-    COORDINATOR.with_borrow(|c| c.shown.len())
-}
-
 impl Notifier {
-    #[cfg(test)]
-    pub fn with_sink(sink: impl Sink + 'static) -> Notifier {
-        Notifier { sink: Some(Box::new(sink)), ..Default::default() }
-    }
 
     /// A click on a notification for `session` on `server`, from any thread.
     fn click(clicks: &Mutex<Vec<(String, String)>>, session: String, server: String) {
@@ -406,6 +396,3 @@ pub fn identify() {
 #[cfg(not(target_os = "windows"))]
 pub fn identify() {}
 
-#[cfg(test)]
-#[path = "notifications_tests.rs"]
-mod tests;

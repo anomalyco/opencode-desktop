@@ -68,7 +68,7 @@ fn with<R>(f: impl FnOnce(&mut Registry) -> R) -> R {
     REGISTRY.with_borrow_mut(|r| {
         if !r.loaded {
             r.loaded = true;
-            r.list = if cfg!(test) { Vec::new() } else { load() };
+            r.list = load();
         }
         f(r)
     })
@@ -115,9 +115,6 @@ fn load() -> Vec<Server> {
 }
 
 fn save(list: &[Server]) {
-    if cfg!(test) {
-        return;
-    }
     let Some(path) = file() else { return };
     let list: Vec<Value> = list
         .iter()
@@ -182,7 +179,7 @@ pub fn remove(url: &str) {
 
 /// Checks each server that has no check yet.
 pub fn refresh(s: &App) {
-    if !s.live() || cfg!(test) {
+    if !s.live() {
         return;
     }
     let due: Vec<Server> = with(|r| {

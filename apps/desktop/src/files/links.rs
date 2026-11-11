@@ -229,7 +229,7 @@ impl App {
     }
 
     fn open_web(&self, url: &str, tx: &mut Tx) {
-        if self.live() || cfg!(test) {
+        if self.live() {
             let _ = tx.open_url(url);
         }
     }

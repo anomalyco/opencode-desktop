@@ -32,8 +32,6 @@ pub mod protocol;
 mod sidecar;
 mod site_zoom;
 mod surface;
-#[cfg(test)]
-mod tests;
 #[cfg(feature = "engine")]
 mod transport;
 

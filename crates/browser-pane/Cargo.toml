@@ -10,7 +10,7 @@ license.workspace = true
 default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
-# and Windows; test it on its own with `cargo test -p browser-pane --features engine`.
+# and Windows.
 engine = ["dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows"]
 
 [dependencies]

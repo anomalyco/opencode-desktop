@@ -28,10 +28,6 @@ mod wire;
 
 pub use wire::{Wire, context_input, wire};
 use wire::session_id_ok;
-#[cfg(test)]
-use opencode_kit::client::{AgentInput, FileInput, Mention, SkillInput};
-#[cfg(test)]
-use wire::{absolute, encode_path, filename};
 
 /// Session rows: Desktop shows at most 5 (`composer/model.ts:405`).
 const SESSIONS: usize = 5;
@@ -373,7 +369,6 @@ impl App {
     }
 }
 
-
 // ---------------------------------------------------------------------------------------------
 // View
 
@@ -409,7 +404,3 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     Some(popup(p, spec, rows, active.as_deref(), |s, key, tx| s.suggest_pointed(key, tx), |s, key, tx| s.suggest_pick(key, tx)))
 }
 
-#[cfg(test)]
-pub(crate) mod tests;
-#[cfg(all(test, feature = "frame-profile"))]
-mod bench_tests;

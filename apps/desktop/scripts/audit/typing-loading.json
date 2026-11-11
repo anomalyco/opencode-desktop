@@ -1,7 +1,0 @@
-{
-  "playground": "Session opening/Slow · 150 ms fallback", "secs": 1.8,
-  "events": [
-    {"t": 0.8, "type": "tap", "key": "prompt"},
-    {"t": 0.81, "type": "type", "text": "Keep typing while the messages arrive", "every": 0.01}
-  ]
-}

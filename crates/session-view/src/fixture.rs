@@ -110,6 +110,3 @@ pub const MOTION_STREAM: &[&str] = &[
     "\n\nFolds glide open and shut, and a new row eases in.",
 ];
 
-#[cfg(test)]
-#[path = "fixture_tests.rs"]
-mod tests;

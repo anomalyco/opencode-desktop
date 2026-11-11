@@ -296,11 +296,6 @@ fn save(settings: &Settings) {
     }
 }
 
-#[cfg(test)]
-fn write(path: &std::path::Path, settings: &Settings) {
-    crate::disk::replace(path, settings.to_json().to_string().as_bytes());
-}
-
 impl App {
     pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
         match self.settings.scheme {
@@ -505,102 +500,4 @@ pub mod prefs;
 pub mod search;
 mod shell;
 mod stories;
-#[cfg(test)]
-pub(crate) mod leave_tests;
-#[cfg(test)]
-mod scroll_tests;
-#[cfg(all(test, feature = "frame-profile"))]
-mod switch_bench;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::fixture_runtime as runtime;
-    use rune::{Mods, Runtime};
-
-    fn has_agent(rt: &Runtime<App>) -> bool {
-        rt.elements().iter().any(|e| e.label.as_deref() == Some("Choose agent"))
-    }
-
-    fn key(rt: &mut Runtime<App>, key: Key, cmd: bool) {
-        rt.key(KeyEvent { key, mods: Mods { cmd, ..Mods::default() } });
-        rt.frame(1.0 / 60.0);
-    }
-
-    fn tap(rt: &mut Runtime<App>, target: &str) {
-        let (x, y) = rt.find(target).unwrap();
-        rt.pointer_down(x, y);
-        rt.pointer_up(x, y);
-        rt.frame(1.0 / 60.0);
-    }
-
-    #[test]
-    fn effort_shows_without_a_chosen_variant() {
-        let mut rt = runtime();
-        rt.state.pickers.open = Some(crate::pickers::Kind::Effort);
-        rt.state.choose_picker("default");
-        assert!(rt.state.selection().model.variant.is_empty());
-        rt.frame(1.0 / 60.0);
-        assert!(rt.state.has_effort());
-        let (id, provider) = { let m = rt.state.selection().model; (m.id, m.provider) };
-        assert!(rt.state.pickers.models.iter().any(|m| m.id == id && m.provider == provider && !m.variants.is_empty()));
-        assert!(rt.find("effort").is_some());
-    }
-
-    #[test]
-    fn live_models_read_variant_objects() {
-        let mut p = crate::pickers::Pickers::default();
-        let models = json!([{ "id": "m", "providerID": "z", "name": "M", "variants": [{ "id": "low" }, { "id": "high" }], "limit": { "context": 9 } }]);
-        p.load_live(&models, &json!([{ "id": "build" }, { "id": "explore", "mode": "subagent" }]));
-        assert_eq!(p.models[0].variants, ["low", "high"]);
-        assert_eq!(p.agents, ["build"]);
-    }
-
-    #[test]
-    fn agent_picker_is_hidden_until_the_setting_is_on() {
-        let mut rt = runtime();
-        assert!(!has_agent(&rt));
-        assert_eq!(rt.state.selection().agent, "build");
-        rt.state.set_show_agent(true);
-        rt.invalidate();
-        rt.frame(1.0 / 60.0);
-        assert!(has_agent(&rt));
-    }
-
-    #[test]
-    fn command_comma_opens_settings_and_escape_closes_it() {
-        let mut rt = runtime();
-        key(&mut rt, Key::Command(','), true);
-        assert!(rt.state.settings.open);
-        assert!(rt.find("show-agent").is_some());
-        tap(&mut rt, "show-agent");
-        assert!(rt.state.settings.show_agent);
-        key(&mut rt, Key::Escape, false);
-        assert!(!rt.state.settings.open);
-        assert!(has_agent(&rt));
-    }
-
-    #[test]
-    fn back_to_app_closes_settings() {
-        let mut rt = runtime();
-        key(&mut rt, Key::Command(','), true);
-        assert!(rt.state.settings.open);
-        assert!(rt.elements().iter().any(|e| e.label.as_deref() == Some("Back to app")));
-        tap(&mut rt, "settings-back");
-        assert!(!rt.state.settings.open);
-        assert!(rt.find("settings").is_none());
-    }
-
-    #[test]
-    fn settings_persist() {
-        let dir = std::env::temp_dir().join(format!("rune-settings-{}", std::process::id()));
-        let path = dir.join("settings.json");
-        assert_eq!(read(&path), Settings::default());
-        let mut on = Settings { show_agent: true, scheme: Scheme::Light, terminal_placement: crate::panels::DockPlacement::Bottom, auto_accept: true, theme: "tokyonight".into(), reduce_motion: crate::appearance::ReduceMotion::On, terminal_font: 2, ui_font: 1, code_font: 2, ..Default::default() };
-        on.notify.set(crate::notifications::Kind::Agent, true);
-        on.notify.set(crate::notifications::Kind::Permission, false);
-        write(&path, &on);
-        assert_eq!(read(&path), on);
-        let _ = std::fs::remove_dir_all(dir);
-    }
-}

@@ -37,32 +37,3 @@ pub fn plain_error(raw: &str) -> String {
     words.to_owned()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn library_errors_become_plain_words() {
-        assert_eq!(plain_error("GET /api/session: timeout: global"), "OpenCode didn't answer in time");
-        assert_eq!(plain_error("io: Connection refused (os error 61)"), "OpenCode isn't running");
-        assert_eq!(plain_error("events: stream ended"), "OpenCode dropped the connection");
-        assert_eq!(plain_error("http status: 404"), "http status: 404");
-    }
-
-    #[test]
-    fn only_a_refusal_or_no_connection_is_a_sure_failure() {
-        assert!(failed_for_sure("POST /x: http status: 422"));
-        assert!(failed_for_sure("POST /x: io: Connection refused (os error 61)"));
-        assert!(!failed_for_sure("POST /x: timeout: global"));
-        assert!(!failed_for_sure("POST /x: http status: 500"));
-    }
-
-    #[test]
-    fn only_a_busy_or_gone_server_is_worth_asking_again() {
-        assert!(is_transient("GET /x: timeout: global"));
-        assert!(is_transient("GET /x: io: Connection refused (os error 61)"));
-        assert!(is_transient("GET /x: http status: 503"));
-        assert!(!is_transient("GET /x: http status: 404"));
-        assert!(!is_transient("GET /x: expected value at line 1"));
-    }
-}

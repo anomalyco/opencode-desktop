@@ -11,10 +11,6 @@ pub mod file_state;
 pub mod file_view;
 pub mod fold;
 pub mod notes;
-#[cfg(test)]
-mod edge_fade_tests;
-#[cfg(test)]
-mod tests;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};

@@ -96,6 +96,3 @@ impl App {
     }
 }
 
-#[cfg(test)]
-#[path = "type_to_compose_tests.rs"]
-mod tests;

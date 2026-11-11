@@ -1,7 +1,0 @@
-{
-  "playground": "Timeline/Images", "secs": 7.4,
-  "events": [
-    {"t": 4.6, "type": "tap", "key": "img", "expect": "smooth", "element": "image-viewer"},
-    {"t": 5.6, "type": "key", "name": "Escape", "expect": "smooth", "element": "img"}
-  ]
-}

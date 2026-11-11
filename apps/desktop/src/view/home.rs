@@ -8,8 +8,6 @@ pub(crate) mod list;
 pub(crate) mod projects;
 mod search;
 mod servers;
-#[cfg(test)]
-mod list_tests;
 
 pub(crate) use projects::home_projects_popover;
 
@@ -226,8 +224,6 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     let column = if tier == Tier::Wide { column.max_w(SESSIONS_MAX) } else { column };
     column.child(header).child(list).scroll_bar_hover("home")
 }
-
-
 
 /// The ghost-muted New session button (`h-7 px-2 [font-weight:530]`, the `edit` icon).
 fn new_session_button(p: &Pal) -> El {

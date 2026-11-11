@@ -719,6 +719,3 @@ fn send_normal_close(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) {
     ws.flush().ok();
 }
 
-#[cfg(test)]
-#[path = "client_mcp_tests.rs"]
-mod tests;

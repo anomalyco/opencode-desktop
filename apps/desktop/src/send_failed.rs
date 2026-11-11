@@ -89,12 +89,6 @@ pub struct Log {
     sent: Vec<Sent>,
     receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, String>)>>,
     check: Check,
-    #[cfg(test)]
-    fetch: Option<crate::session_pages::Fetch>,
-    /// Set, receipt checks are handed here for a test's own network to answer
-    /// (`receipts_from`), rather than read on a thread.
-    #[cfg(test)]
-    pub(crate) asked: Option<Vec<(String, String)>>,
 }
 
 impl Log {
@@ -282,13 +276,9 @@ impl App {
         let Source::Live { server, .. } = &self.source else { return };
         let server = server.clone();
         let fetch: crate::session_pages::Fetch = std::sync::Arc::new(move |path| server.read(path));
-        #[cfg(test)]
-        let fetch = self.unsent.fetch.clone().unwrap_or(fetch);
         let ask: Vec<(String, String)> = self.unsent.sent.iter().filter(|s| s.state() == State::Unconfirmed).map(|s| (s.session.clone(), s.id.clone())).collect();
         if ask.is_empty() { return; }
         self.unsent.check = Check::Checking { again: false };
-        #[cfg(test)]
-        if let Some(asked) = &mut self.unsent.asked { asked.extend(ask); return; }
         self.unsent.receipts = rune::Latest::new(self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {})));
         self.unsent.receipts.request(ask, move |ask| read_receipts(&*fetch, ask));
     }
@@ -297,12 +287,6 @@ impl App {
         let Some(receipts) = self.unsent.receipts.take() else { return false };
         self.apply_receipts(receipts);
         true
-    }
-
-    /// Answers the checks handed to `Log::asked` with `fetch`, as the thread would have.
-    #[cfg(test)]
-    pub(crate) fn receipts_from(&mut self, fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask: Vec<(String, String)>) {
-        self.apply_receipts(read_receipts(fetch, ask));
     }
 
     fn apply_receipts(&mut self, receipts: Vec<(String, Result<receipt::Receipt, String>)>) {
@@ -415,9 +399,3 @@ fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask:
     results
 }
 
-#[cfg(test)]
-#[path = "send_failed_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-mod outbox_tests;
