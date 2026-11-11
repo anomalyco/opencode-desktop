@@ -259,26 +259,26 @@ pub fn poll<S: TimelineHost>(s: &S, tx: &mut Tx) -> bool {
     changed
 }
 
-/// A background shell or subagent that came back (`notice()` for `source` shell or subagent):
-/// `Shell finished`, `Explore failed` or `… cancelled` in the outcome's ink, a warning or ban mark
-/// before a failure or a cancel, then `· ` and what it was in faint. Pressed, a shell's goes to its
-/// call and a subagent's opens its session; hovered, the faint words take the base ink.
+/// A background shell or subagent that came back (`notice()` for `source` shell or subagent): a
+/// quiet line like the other notices, `Background shell finished · <command>` or
+/// `Explore finished · <task>` in faint, the command fading at the edge. A failure or cancel
+/// keeps its ink and mark, as it needs a look. Desktop draws a success in link blue and jumps to
+/// the shell's call when pressed, which read as a link to an old row; here a shell's does
+/// nothing, and a subagent's opens its session (its words take the base ink on hover).
 fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) -> El {
     use opencode_kit::model::Outcome;
     let actor = match (&f.agent, f.subagent) {
         (Some(agent), true) => capitalize(agent),
         (None, true) => opencode_i18n::t!("ui.tool.agent.default").to_owned(),
-        _ => opencode_i18n::t!("ui.tool.shell").to_owned(),
+        _ => opencode_i18n::t!("rune.notice.backgroundShell").to_owned(),
     };
     let (label, ink, mark) = match f.outcome {
-        Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = actor), p.v2.text_code_accent, None),
+        Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = actor), p.faint, None),
         Outcome::Error => (opencode_i18n::t!("ui.sessionTimeline.notice.failed", actor = actor), p.danger, Some(&rune_theme_opencode::icons::WARNING)),
         Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = actor), p.cancelled, Some(&rune_theme_opencode::icons::CIRCLE_BAN_SIGN)),
     };
-    let shell = f.shell.clone().filter(|_| s.can_reveal_shell());
     let child = f.child.clone().filter(|_| f.subagent && s.can_open_session());
-    let clickable = shell.is_some() || child.is_some();
-    // One truncated line (`block w-full truncate pt-3 pb-1`): 16 high under 12, 4 below.
+    // One line (`block w-full truncate pt-3 pb-1`): 16 high under 12, 4 below.
     let mut line = row().key("notice").w_full().center_y().min_h(20.0).pt(12.0).pb(4.0);
     if let Some(m) = mark {
         line = line.child(icon(m, 16.0).key("mark").color(ink).mr(6.0));
@@ -287,21 +287,14 @@ fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) 
         Some(d) => format!("{label} {d}"),
         None => label.clone(),
     };
-    line = line.child(text(label).key("label").font(UI_MED).color(ink));
+    let label = text(label).key("label").font(UI_MED).color(ink);
+    line = line.child(if child.is_some() && mark.is_none() { label.group_color(p.text) } else { label });
     if let Some(d) = &f.data {
-        let data = text(format!(" \u{b7} {d}")).key("data").font(UI).color(p.faint).truncate().shrink().min_w(0.0);
-        line = line.child(if clickable { data.group_color(p.text) } else { data });
+        let data = text(format!(" \u{b7} {d}")).key("data").font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
+        line = line.child(if child.is_some() { data.group_color(p.text) } else { data });
     }
-    if !clickable {
-        return line;
-    }
-    line.hover_group().role("button").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| {
-        if let Some(sh) = &shell {
-            s.reveal_shell(sh, tx);
-        } else if let Some(c) = &child {
-            s.open_session(c, tx);
-        }
-    })
+    let Some(child) = child else { return line };
+    line.hover_group().role("link").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_session(&child, tx))
 }
 
 /// Whether notice `n` draws as a divider.
