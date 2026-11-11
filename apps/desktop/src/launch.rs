@@ -39,6 +39,68 @@ pub fn attach_console() {
 #[cfg(not(target_os = "windows"))]
 pub fn attach_console() {}
 
+/// Raises every thread of this process that runs below normal priority to normal, last thing
+/// before `main` returns. A thread has to run to finish its own termination, and D3D12's four
+/// "D3D Background Thread"s sit at idle priority (base 1): on a busy machine they waited seconds,
+/// once 137 s, Ready but never scheduled, after the process was told to end, and the process
+/// stayed alive with them (`harness\perf\linger.ts`).
+pub fn end_promptly() {
+    #[cfg(target_os = "windows")]
+    raise_threads(|_| true, windows_sys::Win32::System::Threading::THREAD_PRIORITY_NORMAL);
+}
+
+/// After the first frame: D3D12's background threads (shader work for the driver) from idle to
+/// below normal priority, still under the UI's, so a process ended from outside (Task Manager, the
+/// uninstaller closing running copies) isn't kept alive by them waiting for an idle CPU.
+pub fn unidle_gpu_threads() {
+    #[cfg(target_os = "windows")]
+    raise_threads(|name| name.starts_with("D3D Background Thread"), windows_sys::Win32::System::Threading::THREAD_PRIORITY_BELOW_NORMAL);
+}
+
+/// Raises this process's threads whose name passes `named` and whose priority is under `floor` to
+/// `floor`.
+#[cfg(target_os = "windows")]
+fn raise_threads(named: impl Fn(&str) -> bool, floor: i32) {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, LocalFree};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetThreadDescription, GetThreadPriority, OpenThread, SetThreadPriority, THREAD_QUERY_LIMITED_INFORMATION, THREAD_SET_INFORMATION};
+    // SAFETY: a thread snapshot read into a THREADENTRY32 this frame owns; each thread handle is
+    // this process's own and closed after use; a thread's description is freed with LocalFree.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let pid = GetCurrentProcessId();
+        let mut entry: THREADENTRY32 = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+        let mut more = Thread32First(snapshot, &mut entry) != 0;
+        while more {
+            if entry.th32OwnerProcessID == pid {
+                let thread = OpenThread(THREAD_QUERY_LIMITED_INFORMATION | THREAD_SET_INFORMATION, 0, entry.th32ThreadID);
+                if !thread.is_null() {
+                    let mut desc = std::ptr::null_mut();
+                    let name = if GetThreadDescription(thread, &mut desc) >= 0 && !desc.is_null() {
+                        let len = (0..).take_while(|&i| *desc.add(i) != 0).count();
+                        let name = String::from_utf16_lossy(std::slice::from_raw_parts(desc, len));
+                        LocalFree(desc.cast());
+                        name
+                    } else {
+                        String::new()
+                    };
+                    if named(&name) && GetThreadPriority(thread) < floor {
+                        SetThreadPriority(thread, floor);
+                    }
+                    CloseHandle(thread);
+                }
+            }
+            more = Thread32Next(snapshot, &mut entry) != 0;
+        }
+        CloseHandle(snapshot);
+    }
+}
+
+
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 pub fn print_version_if_asked() {
     if std::env::args().nth(1).as_deref() == Some("--version") {
@@ -413,6 +475,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() { s.launch.network_change = s.waker.clone().and_then(network::subscribe); }
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
+    unidle_gpu_threads();
     // Which Open in apps are installed: the first frame showed the remembered choice.
     s.open_in.detect();
     crate::updater::start_if_packaged(s);

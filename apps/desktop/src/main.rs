@@ -1415,6 +1415,7 @@ fn main() {
             updater::finish_quit();
             rune::marks::mark("quit.update_handed_off");
             launch::trace::finish(opened);
+            launch::end_promptly();
             return;
         }
         // The harness's `--realtime` probes launch as a window does: the server's first reads
