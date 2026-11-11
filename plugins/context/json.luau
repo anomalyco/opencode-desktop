@@ -178,4 +178,45 @@ function json.pretty(raw: string): string
     return table.concat(out)
 end
 
+local ESCAPES = table.freeze({ ['"'] = '"', ["\\"] = "\\", ["/"] = "/", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" })
+
+-- The string a JSON string literal (`raw`, quotes included) holds; nil for anything else.
+function json.string(raw: string?): string?
+    if raw == nil or string.byte(raw, 1) ~= QUOTE then
+        return nil
+    end
+    local body = string.sub(raw, 2, -2)
+    if not string.find(body, "\\", 1, true) then
+        return body
+    end
+    local out: { string } = {}
+    local i, n = 1, #body
+    while i <= n do
+        local at = string.find(body, "\\", i, true)
+        if at == nil then
+            table.insert(out, string.sub(body, i))
+            break
+        end
+        table.insert(out, string.sub(body, i, at - 1))
+        local c = string.sub(body, at + 1, at + 1)
+        if c == "u" then
+            local code = tonumber(string.sub(body, at + 2, at + 5), 16) or 0xFFFD
+            i = at + 6
+            -- A surrogate pair is one character.
+            if code >= 0xD800 and code <= 0xDBFF and string.sub(body, i, i + 1) == "\\u" then
+                local low = tonumber(string.sub(body, i + 2, i + 5), 16) or 0
+                if low >= 0xDC00 and low <= 0xDFFF then
+                    code = 0x10000 + (code - 0xD800) * 0x400 + (low - 0xDC00)
+                    i += 6
+                end
+            end
+            table.insert(out, utf8.char(code))
+        else
+            table.insert(out, ESCAPES[c] or c)
+            i = at + 2
+        end
+    end
+    return table.concat(out)
+end
+
 return json

@@ -104,6 +104,10 @@ pub struct Page {
     pub key: Key,
     pub messages: Vec<Message>,
     pub cursor: Option<String>,
+    /// Its messages' ids, kinds and times, in the server's order (context_window).
+    pub stubs: Vec<crate::context_window::Stub>,
+    /// How many messages the read asked for: a page with fewer is the session's first.
+    pub asked: usize,
     pub cached: bool,
     pub history: bool,
     pub images: Vec<super::attachments::PreparedImage>,
@@ -253,7 +257,7 @@ fn worker(q: Shared, fetch: Fetch, dir: Option<PathBuf>, out: Sender<Result<Arc<
             read.prepared = prepared.iter().map(|p| p.handle()).collect();
             read.thread = std::thread::current().name().unwrap_or("").to_owned();
             let page = Arc::new(Page {
-                key: job.key.clone(), messages,
+                key: job.key.clone(), messages, stubs: crate::context_window::stubs(value), asked: job.limit,
                 cursor: value["cursor"]["next"].as_str().map(str::to_owned), cached, history: job.cursor.is_some(),
                 bytes: serde_json::to_vec(value).map_or(0, |v| v.len()) + prepared.iter().map(|p| p.weight()).sum::<usize>(),
                 images: prepared,
@@ -544,6 +548,7 @@ impl super::App {
             self.pages.near_top.borrow_mut().clear();
             self.context_window_landed(&id);
         }
+        self.window_read(&page.key.id, &page.stubs, page.history, page.cursor.is_none() || page.stubs.len() < page.asked);
         self.schedule_history(page, tx);
     }
 

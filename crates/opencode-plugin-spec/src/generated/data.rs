@@ -162,6 +162,8 @@ pub struct Session {
     pub busy: bool,
     /// Changes whenever anything here does: put it in a memo's version.
     pub version: i64,
+    /// Changes when its newest messages or its inbox's waiting input do, not as older ones are read or the reader scrolls: the version for a read of its newest messages.
+    pub messages_version: i64,
     /// What it cost in USD, its subagents' sessions included.
     pub cost: f64,
     /// Token counts at the last step with tokens.
@@ -172,12 +174,10 @@ pub struct Session {
     pub usage_model_id: Option<String>,
     /// The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
     pub usage_message_id: Option<String>,
-    /// When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens.
-    pub opened_at: Option<f64>,
-    /// How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most.
-    pub first_page: Option<i64>,
-    /// How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top.
-    pub older_pages: Option<i64>,
+    /// The oldest message Desktop's timeline would hold: its first read on opening the session, a page of 20 per approach of the top since, and every message after. `usage` and the Context tab's counts come from these messages, as Desktop's do. Empty while that is not known yet; nil before this window opened the session (every message counts).
+    pub window_start: Option<String>,
+    /// When the message `usage` came from was created, in milliseconds since the Unix epoch.
+    pub usage_created: Option<f64>,
     /// The provider of the model the session runs with.
     pub provider_id: Option<String>,
     /// The model the session runs with.
@@ -189,7 +189,7 @@ pub struct Session {
     /// How many messages the app holds for it. Nil before it has read them.
     pub messages: Option<i64>,
 }
-impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "openedAt", "firstPage", "olderPages", "providerId", "modelId", "created", "updated", "messages"], [], []);
+impl_record!(Session, ["id", "serverId", "directory", "title", "parentId", "projectId", "agent", "variant", "busy", "version", "messagesVersion", "cost", "usage", "usageProviderId", "usageModelId", "usageMessageId", "windowStart", "usageCreated", "providerId", "modelId", "created", "updated", "messages"], [], []);
 
 /// A model as the server's catalog names it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -216,8 +216,11 @@ impl_record!(ModelInfo, ["providerName", "modelName", "contextLimit", "outputLim
 pub struct Resource {
     /// Its state.
     pub status: ResourceStatus,
-    /// The answer as JSON, when it is JSON.
+    /// The answer as JSON, when it is JSON and the read didn't ask for `items`.
     pub json: Option<Value>,
+    /// For a read that asked for them, the items its answer lists (`{ "data": [...] }` or `[...]`), split off the UI thread; `json` is the rest of the answer then.
+    #[serde(default, deserialize_with = "crate::lenient::opt_seq")]
+    pub items: Option<Vec<ResourceItem>>,
     /// The answer as text.
     pub text: Option<String>,
     /// Why it failed.
@@ -225,7 +228,23 @@ pub struct Resource {
     /// Changes with every new answer: put it in a memo's version.
     pub generation: i64,
 }
-impl_record!(Resource, ["status", "json", "text", "error", "generation"], [], []);
+impl_record!(Resource, ["status", "json", "items", "text", "error", "generation"], [], []);
+
+/// One item a read's answer lists.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ResourceItem {
+    /// Its `id`.
+    pub id: String,
+    /// Its `type`.
+    pub kind: String,
+    /// Its `time.created`.
+    pub created: Option<f64>,
+    /// Its JSON.
+    pub text: String,
+}
+impl_record!(ResourceItem, ["id", "kind", "created", "text"], [], []);
 
 /// A server's answer.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

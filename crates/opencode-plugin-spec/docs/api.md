@@ -161,7 +161,7 @@ The OpenCode server this window works with: the server of the session or draft i
 | Member | Type | Description |
 |---|---|---|
 | `:RequestAsync` | `(method: HttpMethod, path: string, body: any?) -> ServerResponse` | Sends a request with a JSON body, off the UI thread. Yields. |
-| `:Resource` | `(path: string, version: MemoVersion) -> Resource` | A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands. |
+| `:Resource` | `(path: string, version: MemoVersion, items: boolean?) -> Resource` | A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands. With `items`, a list's answer comes split into `items` off the UI thread instead of decoded into `json`. |
 | `:Invalidate` | `(prefix: string) -> ()` | Drops this plugin's cached reads whose path starts with `prefix`. |
 | `:OnEvent` | `(prefix: string) -> Signal<ServerEvent>` | A signal for the server's events whose type starts with `prefix`. |
 | `:EncodeUri` | `(text: string) -> string` | Percent-encodes text for a path or query. |
@@ -2052,14 +2052,14 @@ A session as the app holds it.
 | `variant` | `string?` | The model variant it runs with, such as `high`. Nil for the model's default. |
 | `busy` | `boolean` | A turn is running. |
 | `version` | `number` | Changes whenever anything here does: put it in a memo's version. |
+| `messagesVersion` | `number` | Changes when its newest messages or its inbox's waiting input do, not as older ones are read or the reader scrolls: the version for a read of its newest messages. |
 | `cost` | `number` | What it cost in USD, its subagents' sessions included. |
 | `usage` | `SessionUsage?` | Token counts at the last step with tokens. |
 | `usageProviderId` | `string?` | The provider of the step `usage` came from. |
 | `usageModelId` | `string?` | The model of the step `usage` came from. |
 | `usageMessageId` | `string?` | The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert. |
-| `openedAt` | `number?` | When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens. |
-| `firstPage` | `number?` | How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most. |
-| `olderPages` | `number?` | How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top. |
+| `windowStart` | `string?` | The oldest message Desktop's timeline would hold: its first read on opening the session, a page of 20 per approach of the top since, and every message after. `usage` and the Context tab's counts come from these messages, as Desktop's do. Empty while that is not known yet; nil before this window opened the session (every message counts). |
+| `usageCreated` | `number?` | When the message `usage` came from was created, in milliseconds since the Unix epoch. |
 | `providerId` | `string?` | The provider of the model the session runs with. |
 | `modelId` | `string?` | The model the session runs with. |
 | `created` | `number?` | When it was created, in milliseconds since the Unix epoch. |
@@ -2085,10 +2085,22 @@ A cached server read.
 | Field | Type | Description |
 |---|---|---|
 | `status` | `ResourceStatus` | Its state. |
-| `json` | `any?` | The answer as JSON, when it is JSON. |
+| `json` | `any?` | The answer as JSON, when it is JSON and the read didn't ask for `items`. |
+| `items` | `{ResourceItem}?` | For a read that asked for them, the items its answer lists (`{ "data": [...] }` or `[...]`), split off the UI thread; `json` is the rest of the answer then. |
 | `text` | `string?` | The answer as text. |
 | `error` | `string?` | Why it failed. |
 | `generation` | `number` | Changes with every new answer: put it in a memo's version. |
+
+### ResourceItem
+
+One item a read's answer lists.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Its `id`. |
+| `kind` | `string` | Its `type`. |
+| `created` | `number?` | Its `time.created`. |
+| `text` | `string` | Its JSON. |
 
 ### ServerResponse
 

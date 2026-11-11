@@ -3232,6 +3232,8 @@ export type Session = {
     busy: boolean,
     --- Changes whenever anything here does: put it in a memo's version.
     version: number,
+    --- Changes when its newest messages or its inbox's waiting input do, not as older ones are read or the reader scrolls: the version for a read of its newest messages.
+    messagesVersion: number,
     --- What it cost in USD, its subagents' sessions included.
     cost: number,
     --- Token counts at the last step with tokens.
@@ -3242,12 +3244,10 @@ export type Session = {
     usageModelId: string?,
     --- The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert.
     usageMessageId: string?,
-    --- When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens.
-    openedAt: number?,
-    --- How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most.
-    firstPage: number?,
-    --- How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top.
-    olderPages: number?,
+    --- The oldest message Desktop's timeline would hold: its first read on opening the session, a page of 20 per approach of the top since, and every message after. `usage` and the Context tab's counts come from these messages, as Desktop's do. Empty while that is not known yet; nil before this window opened the session (every message counts).
+    windowStart: string?,
+    --- When the message `usage` came from was created, in milliseconds since the Unix epoch.
+    usageCreated: number?,
     --- The provider of the model the session runs with.
     providerId: string?,
     --- The model the session runs with.
@@ -3278,14 +3278,28 @@ export type ModelInfo = {
 export type Resource = {
     --- Its state.
     status: ResourceStatus,
-    --- The answer as JSON, when it is JSON.
+    --- The answer as JSON, when it is JSON and the read didn't ask for `items`.
     json: any?,
+    --- For a read that asked for them, the items its answer lists (`{ "data": [...] }` or `[...]`), split off the UI thread; `json` is the rest of the answer then.
+    items: {ResourceItem}?,
     --- The answer as text.
     text: string?,
     --- Why it failed.
     error: string?,
     --- Changes with every new answer: put it in a memo's version.
     generation: number,
+}
+
+--- One item a read's answer lists.
+export type ResourceItem = {
+    --- Its `id`.
+    id: string,
+    --- Its `type`.
+    kind: string,
+    --- Its `time.created`.
+    created: number?,
+    --- Its JSON.
+    text: string,
 }
 
 --- A server's answer.
@@ -4750,8 +4764,8 @@ export type ModelsService = {
 export type ServerService = {
     --- Sends a request with a JSON body, off the UI thread. Yields: call it from a handler, a task or a signal callback.
     RequestAsync: (self: ServerService, method: HttpMethod, path: string, body: any?) -> ServerResponse,
-    --- A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands.
-    Resource: (self: ServerService, path: string, version: MemoVersion) -> Resource,
+    --- A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands. With `items`, a list's answer comes split into `items` off the UI thread instead of decoded into `json`.
+    Resource: (self: ServerService, path: string, version: MemoVersion, items: boolean?) -> Resource,
     --- Drops this plugin's cached reads whose path starts with `prefix`.
     Invalidate: (self: ServerService, prefix: string) -> (),
     --- A signal for the server's events whose type starts with `prefix`.

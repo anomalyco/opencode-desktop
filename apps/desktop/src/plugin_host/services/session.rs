@@ -10,7 +10,7 @@ use rune::Tx;
 use super::{app_now, json_to_lua, lazy_signals, method, record, snapshot};
 use crate::App;
 use crate::plugin_host::cx::{self, Dep};
-use crate::plugin_host::machines::{Ticket, TicketEffect, TicketEvent};
+use crate::plugin_host::machines::{Fetched, Item, Items, Ticket, TicketEffect, TicketEvent};
 use crate::plugin_host::plugin::Resource;
 use crate::plugin_host::vm::Vmx;
 
@@ -64,12 +64,33 @@ fn sessions(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
     let t = app.transcripts.get(&info.id);
-    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
+    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref(), |m| app.holds(id, m)));
     let cost = app.session_cost(id);
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
     let mut h = std::hash::DefaultHasher::new();
-    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project, app.context_window(id))).hash(&mut h);
+    (&info.title, info.updated, cost.to_bits(), messages, app.subtree_running(&info.id), usage, last.map(|(a, _)| (&a.id, a.completed)), (&info.model.provider, &info.model.id, &info.model.variant, &info.agent, &info.project, app.held(id))).hash(&mut h);
+    // The Context tab lists the inbox's waiting input too.
+    messages_version(app, id).hash(&mut h);
+    h.finish()
+}
+
+/// What moves when session `id`'s newest messages or its inbox do, and not as Rune reads older
+/// pages or the reader scrolls: its newest message and whether it finished, the inbox's waiting
+/// input, and the server's last change.
+fn messages_version(app: &App, id: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    app.session(id).map(|i| i.updated).hash(&mut h);
+    if let Some(m) = app.transcripts.get(id).and_then(|t| t.messages.last()) {
+        m.id().hash(&mut h);
+        if let opencode_kit::model::Message::Assistant(a) = m {
+            a.completed.hash(&mut h);
+        }
+    }
+    if let Some(inbox) = app.inboxes.get(id) {
+        inbox.items.iter().for_each(|i| i.id.hash(&mut h));
+        inbox.waiting_notices().for_each(|n| n.id.hash(&mut h));
+    }
     h.finish()
 }
 
@@ -110,11 +131,11 @@ fn other_server_session(lua: &Lua, app: &App, tab: &crate::tabs::Tab) -> mlua::R
 fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let Some(info) = app.session(id) else { return Ok(Value::Nil) };
     let t = app.transcripts.get(&info.id);
-    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref()));
+    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref(), |m| app.holds(id, m)));
     let busy = app.subtree_running(&info.id);
     let version = (session_version(app, id) >> 11) as f64;
     let cost = app.session_cost(id);
-    let window = app.context_window(id);
+    let held = app.held(id);
     let s = record(lua, 24, |s| {
         s.str(c"id", &info.id);
         s.str(c"serverId", &server_id(crate::servers::runtime::active(app)));
@@ -126,6 +147,7 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
         s.opt_str(c"variant", (!info.model.variant.is_empty() && info.model.variant != "default").then_some(info.model.variant.as_str()));
         s.bool(c"busy", busy);
         s.num(c"version", version);
+        s.num(c"messagesVersion", (messages_version(app, &info.id) >> 11) as f64);
         s.num(c"cost", cost);
         if let Some((a, k)) = last {
             s.record(c"usage", 5, |u| {
@@ -136,6 +158,9 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
                 u.num(c"cacheWrite", k.cache_write as f64);
             });
             s.str(c"usageMessageId", &a.id);
+            if a.created > 0 {
+                s.num(c"usageCreated", a.created as f64);
+            }
             if let Some(m) = a.model.as_ref() {
                 s.str(c"usageProviderId", &m.provider);
                 s.str(c"usageModelId", &m.id);
@@ -145,10 +170,10 @@ fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
             s.str(c"providerId", &info.model.provider);
             s.str(c"modelId", &info.model.id);
         }
-        if let Some(w) = window {
-            s.num(c"openedAt", w.opened as f64);
-            s.num(c"firstPage", f64::from(w.first));
-            s.num(c"olderPages", f64::from(w.older));
+        match held {
+            Some(crate::context_window::Held::From(start)) => s.str(c"windowStart", start),
+            Some(crate::context_window::Held::Unknown) => s.str(c"windowStart", ""),
+            None => {}
         }
         s.num(c"created", info.created as f64);
         s.num(c"updated", info.updated as f64);
@@ -198,7 +223,8 @@ fn models(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let plugin = vmx.half.id.clone();
     let half = vmx.half.clone();
-    method(lua, t, "Resource", move |lua, (path, version): (String, Value)| {
+    method(lua, t, "Resource", move |lua, (path, version, items): (String, Value, Option<bool>)| {
+        let items = items == Some(true);
         let app = app_now("Server:Resource")?;
         // Each server's reads are cached apart: a panel in a tab from another server reads that
         // server's answer, never this one's.
@@ -213,7 +239,11 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             let (plugin, path, key) = (plugin.to_string(), path.clone(), key.clone());
             app.job(move |srv| {
                 // A server still loading its plugins answers `/api/skill` with 503 for a while.
-                let answer = srv.get_text_ready(&path);
+                let answer = srv.get_text_ready(&path).map(|text| {
+                    // Split off the UI thread: a long list's JSON is too much to decode in a frame.
+                    let items = if items { split_items(&text) } else { None };
+                    Fetched { text, items }
+                });
                 Box::new(move |s: &mut App, tx: &mut Tx| land(s, &plugin, &key, asked, answer, tx)) as crate::jobs::Apply
             });
         }
@@ -278,22 +308,74 @@ fn resource_value(lua: &Lua, r: &mut Resource) -> mlua::Result<Value> {
         out.raw_set("text", "")?;
         return Ok(Value::Table(out));
     };
-    // The answer's text and JSON become Luau values once per answer, not once per read.
-    let (text, json) = match &r.value {
-        Some((g, text, json)) if *g == body.generation => (lua.registry_value::<Value>(text)?, lua.registry_value::<Value>(json)?),
+    // The answer's text and JSON (or its items) become Luau values once per answer, not once per
+    // read.
+    let (text, decoded) = match &r.value {
+        Some((g, text, decoded)) if *g == body.generation => (lua.registry_value::<Value>(text)?, lua.registry_value::<Value>(decoded)?),
         _ => {
             let text = Value::String(lua.create_string(&*body.text)?);
-            let json = match serde_json::from_str::<serde_json::Value>(&body.text) {
-                Ok(v) => json_to_lua(lua, &v)?,
-                Err(_) => Value::Nil,
+            // A split answer keeps its items and the rest of it apart: `{ items, json }`.
+            let decoded = match &body.items {
+                Some(items) => {
+                    let both = lua.create_table_with_capacity(2, 0)?;
+                    both.raw_push(items_value(lua, &items.list)?)?;
+                    both.raw_push(json_to_lua(lua, &items.rest)?)?;
+                    Value::Table(both)
+                }
+                None => match serde_json::from_str::<serde_json::Value>(&body.text) {
+                    Ok(v) => json_to_lua(lua, &v)?,
+                    Err(_) => Value::Nil,
+                },
             };
-            r.value = Some((body.generation, Rc::new(lua.create_registry_value(text.clone())?), Rc::new(lua.create_registry_value(json.clone())?)));
-            (text, json)
+            r.value = Some((body.generation, Rc::new(lua.create_registry_value(text.clone())?), Rc::new(lua.create_registry_value(decoded.clone())?)));
+            (text, decoded)
         }
     };
     out.raw_set("text", text)?;
-    out.raw_set("json", json)?;
+    match (&body.items, decoded) {
+        (Some(_), Value::Table(both)) => {
+            out.raw_set("items", both.raw_get::<Value>(1)?)?;
+            out.raw_set("json", both.raw_get::<Value>(2)?)?;
+        }
+        (_, decoded) => out.raw_set("json", decoded)?,
+    }
     Ok(Value::Table(out))
+}
+
+/// An answer's listed items (`{ "data": [...] }` or `[...]`), each with its `id`, `type`,
+/// `time.created` and JSON, and the rest of the answer; nil for an answer that lists none.
+fn split_items(text: &str) -> Option<Items> {
+    let mut v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let list = match &mut v {
+        serde_json::Value::Array(list) => std::mem::take(list),
+        serde_json::Value::Object(o) => match o.shift_remove("data") {
+            Some(serde_json::Value::Array(list)) => list,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let list = list.iter().map(|m| Item {
+        id: m["id"].as_str().unwrap_or("").to_owned(),
+        kind: m["type"].as_str().unwrap_or("").to_owned(),
+        created: m["time"]["created"].as_f64(),
+        text: m.to_string(),
+    }).collect();
+    Some(Items { list, rest: v })
+}
+
+fn items_value(lua: &Lua, items: &[Item]) -> mlua::Result<Value> {
+    let list = lua.create_table_with_capacity(items.len(), 0)?;
+    for item in items {
+        list.raw_push(record(lua, 4, |e| {
+            e.str(c"id", &item.id);
+            e.str(c"kind", &item.kind);
+            if let Some(at) = item.created {
+                e.num(c"created", at);
+            }
+            e.str(c"text", &item.text);
+        })?)?;
+    }
+    Ok(Value::Table(list))
 }
 
 /// A cached read's key: its server's, then its path (`(ServerKey, path)`).
@@ -301,7 +383,7 @@ fn resource_key(server: &opencode_kit::servers::ServerKey, path: &str) -> String
     format!("{server}\n{path}")
 }
 
-fn land(app: &mut App, plugin: &str, key: &str, version: u64, answer: Result<String, String>, tx: &mut Tx) {
+fn land(app: &mut App, plugin: &str, key: &str, version: u64, answer: Result<Fetched, String>, tx: &mut Tx) {
     let Some(half) = app.plugins.half(plugin) else { return };
     let mut map = half.resources.borrow_mut();
     let Some(r) = map.get_mut(key) else { return };

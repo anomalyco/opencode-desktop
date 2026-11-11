@@ -1,8 +1,8 @@
 --!strict
 -- The Context tab (tab.tsx): the session's figures in a two-column grid (one column under 32rem),
 -- its system prompt, and its raw messages, each opening to its JSON, with Export session. The
--- messages are the server's newest 200 (`GET /api/session/:id/message`), read again whenever the
--- session changes.
+-- messages are those Desktop's timeline would hold (the host's `windowStart` on), read off the
+-- server again whenever the session changes.
 
 local ui = require("@opencode/ui")
 local json = require("./json")
@@ -13,7 +13,7 @@ local tab = {}
 export type Export = { kind: "idle" } | { kind: "exporting", sessionId: string }
 
 -- One raw message: its text as the server wrote it and what the tab reads off it.
-type Raw = { text: string, value: any, id: string, kind: string }
+type Raw = { text: string, id: string, kind: string, created: number? }
 
 export type State = {
     -- Raw message rows shown open, by message id.
@@ -42,90 +42,16 @@ local function messagesPath(session: string): string
     return `/api/session/{session}/message?limit=200&order=asc`
 end
 
--- The session's newest 200 messages (the server's most), newest first.
+-- The session's newest 80 messages, newest first: Desktop's first read (40, then up to three
+-- pages of 20 for a cut turn) and a little room, without the whole of a long session's newest
+-- 200 (2.6 MB on a long real one).
 local function latestPath(session: string): string
-    return `/api/session/{session}/message?limit=200&order=desc`
-end
-
--- Desktop's first read and the pages a leading turn adds (`timeline/sync-machine.ts`): `first`
--- of the newest messages, then pages of 20, three at most, while the first assistant message
--- that read showed comes before any prompt (`leadingTurnNeedsParent`).
-local function firstRead(before: { Raw }, first: number): number
-    local n = #before
-    local size = math.min(first, n)
-    local assistant: string? = nil
-    for i = n - size + 1, n do
-        if before[i].kind == "assistant" then
-            assistant = before[i].id
-            break
-        end
-    end
-    if assistant == nil then
-        return size
-    end
-    local function needsParent(): boolean
-        local at, prompt = nil, nil
-        for i = n - size + 1, n do
-            local m = before[i]
-            if at == nil and m.id == assistant then
-                at = i
-            end
-            if prompt == nil and (m.kind == "user" or m.kind == "shell") then
-                prompt = i
-            end
-        end
-        return at ~= nil and (prompt == nil or at < prompt)
-    end
-    local pages = 0
-    while pages < 3 and size < n and needsParent() do
-        size = math.min(size + 20, n)
-        pages += 1
-    end
-    return size
-end
-
--- The messages Desktop holds (`data.session.message.list`), oldest first, from the newest ones the
--- server gave (`latest`, oldest first; `complete` when that is all of them): every message created
--- since this window opened the session, and before that the first read and 20 per approach of the
--- timeline's top. Nil when `latest` holds too few to tell; read more.
-local function window(latest: { Raw }, complete: boolean, session: Session): { Raw }?
-    local opened = session.openedAt
-    if opened == nil then
-        return latest
-    end
-    local function created(m: Raw): number
-        local t = m.value.time
-        return if type(t) == "table" and type(t.created) == "number" then t.created else 0
-    end
-    local before: { Raw } = {}
-    for _, m in latest do
-        if created(m) <= opened then
-            table.insert(before, m)
-        end
-    end
-    -- The first read can reach 60 past its page; each approach adds 20 more.
-    local most = (session.firstPage or 20) + 60 + 20 * (session.olderPages or 0)
-    if not complete and #before < most then
-        return nil
-    end
-    local size = math.min(#before, firstRead(before, session.firstPage or 20) + 20 * (session.olderPages or 0))
-    local from = #before - size + 1
-    local held: { Raw } = {}
-    local seen = 0
-    for _, m in latest do
-        if created(m) > opened then
-            table.insert(held, m)
-        else
-            seen += 1
-            if seen >= from then
-                table.insert(held, m)
-            end
-        end
-    end
-    return held
+    return `/api/session/{session}/message?limit=80&order=desc`
 end
 
 -- Props every use shares, frozen: the host decodes a frozen table once and copies the node.
+-- What Desktop's formatter writes for a figure it doesn't have (`format.ts`).
+local DASH = "\u{2014}"
 local STAT = table.freeze({ gap = 4, w = 0, grow = 1, minW = 0 } :: UiBoxProps)
 local STAT_NAME = table.freeze({ size = 13, weight = "regular" :: FontWeight, lineHeight = 19, color = "text-weak" } :: UiTextProps)
 -- Two 19.5 lines on whole pixels: a row is 59 tall, as Desktop's.
@@ -255,59 +181,56 @@ local RAW_JSON = table.freeze({
     color = "text-chrome",
 } :: UiTextProps)
 
-local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wide: boolean): ui.Node
+-- `raws`: the messages Desktop holds, nil until they're read; the counts wait for them, the step's
+-- figures (the host's, off the same messages) don't.
+local function stats(env: Env, session: Session?, sid: string, raws: { Raw }?, wide: boolean): ui.Node
     local I18n = env.I18n
     -- The step whose tokens fill the context window, as the header reads it (`lastAssistantWithUsage`
     -- on the messages the app holds, after the last finished compaction and before a staged revert).
     local tokens: { input: number, output: number, reasoning: number, read: number, write: number }? = nil
     local provider: string?, model: string? = nil, nil
-    local last: Raw? = nil
     if session and session.usage then
         local u = session.usage
         tokens =
             { input = u.input, output = u.output, reasoning = u.reasoning, read = u.cacheRead, write = u.cacheWrite }
         provider, model = session.usageProviderId, session.usageModelId
-        for i = #raws, 1, -1 do
-            if raws[i].id == session.usageMessageId then
-                last = raws[i]
-                break
-            end
-        end
     end
     local catalog = if provider and model then env.Models:Get(provider, model) else nil
     local total = if tokens then tokens.input + tokens.output + tokens.reasoning + tokens.read + tokens.write else nil
     local limit = if catalog then catalog.contextLimit else nil
     local usage = if total and limit and limit > 0 then math.round(total / limit * 100) else nil
     local function num(v: number?): string
-        return if v then I18n:Number(v) else "-"
+        return if v then I18n:Number(v) else DASH
     end
-    local function count(kind: string): number
+    local function count(kind: string?): string
+        if raws == nil then
+            return DASH
+        end
         local n = 0
         for _, m in raws do
-            if m.value.type == kind then
+            if kind == nil or m.kind == kind then
                 n += 1
             end
         end
-        return n
+        return I18n:Number(n)
     end
     local function time(ms: number?): string
-        return if ms and ms > 0 then I18n:Date(ms, "dateTime") else "-"
+        return if ms and ms > 0 then I18n:Date(ms, "dateTime") else DASH
     end
-    local providerName = if provider and catalog then catalog.providerName or provider else "-"
-    local modelName = if model and catalog then catalog.modelName or model else "-"
-    local title = if session then session.title elseif sid == "" then "-" else sid
-    local messages = if #raws == 0 then (if session then session.messages or 0 else 0) else #raws
+    local providerName = if provider then (if catalog then catalog.providerName else nil) or provider else DASH
+    local modelName = if model then (if catalog then catalog.modelName else nil) or model else DASH
+    local title = if session then session.title elseif sid == "" then DASH else sid
     local function stat(name: string, value: string): ui.Node
         return ui.col(STAT, { ui.text(I18n:T(name), STAT_NAME), ui.text(value, STAT_VALUE) })
     end
     local cells: { ui.Node } = {
         stat("stats.session", title),
-        stat("stats.messages", I18n:Number(messages)),
+        stat("stats.messages", count(nil)),
         stat("stats.provider", providerName),
         stat("stats.model", modelName),
         stat("stats.limit", num(limit)),
         stat("stats.totalTokens", num(total)),
-        stat("stats.usage", if usage then `{I18n:Number(usage)}%` else "-"),
+        stat("stats.usage", if usage then `{I18n:Number(usage)}%` else DASH),
         stat("stats.inputTokens", num(tokens and tokens.input)),
         stat("stats.outputTokens", num(tokens and tokens.output)),
         stat("stats.reasoningTokens", num(tokens and tokens.reasoning)),
@@ -315,11 +238,11 @@ local function stats(env: Env, session: Session?, sid: string, raws: { Raw }, wi
             ui.text(I18n:T("stats.cacheTokens"), STAT_NAME),
             ui.text("{1} / {2}", STAT_VALUE, num(tokens and tokens.read), num(tokens and tokens.write)),
         }),
-        stat("stats.userMessages", I18n:Number(count("user"))),
-        stat("stats.assistantMessages", I18n:Number(count("assistant"))),
+        stat("stats.userMessages", count("user")),
+        stat("stats.assistantMessages", count("assistant")),
         stat("stats.totalCost", I18n:Number(if session then session.cost else 0, CURRENCY)),
         stat("stats.sessionCreated", time(session and session.created)),
-        stat("stats.lastActivity", time(last and last.value.time and last.value.time.created)),
+        stat("stats.lastActivity", time(session and session.usageCreated)),
     }
     local lines: { ui.Node } = table.create(if wide then 8 else 16)
     if wide then
@@ -337,9 +260,9 @@ end
 -- The latest system message's text, trimmed; nil when there is none.
 local function promptOf(raws: { Raw }): string?
     for i = #raws, 1, -1 do
-        if raws[i].value.type == "system" then
-            local text = raws[i].value.text
-            local prompt = if type(text) == "string" then text:match("^%s*(.-)%s*$") else nil
+        if raws[i].kind == "system" then
+            local text = json.string(json.member(raws[i].text, "text"))
+            local prompt = if text then text:match("^%s*(.-)%s*$") else nil
             return if prompt == "" then nil else prompt
         end
     end
@@ -454,7 +377,7 @@ local function rawMessages(
         local m = raws[i]
         local id, kind, isOpen = m.id, m.kind, opened[i]
         local last = i == #raws
-        local created = if m.value.time then m.value.time.created else nil
+        local created = m.created
         local header = ui.row(RAW_ROW, {
             key = `raw-{id}`,
             label = `{kind} {id}`,
@@ -499,7 +422,8 @@ end
 -- One page of a session's messages, newest first, and the cursor past it; split once per answer.
 -- Nil while it loads.
 local function page(env: Env, path: string, version: number): ({ Raw }?, string?, number)
-    local res = env.Server:Resource(path, version)
+    -- The host splits the page off the UI thread (`items`).
+    local res = env.Server:Resource(path, version, true)
     if res.status ~= "ready" then
         return nil, nil, res.generation
     end
@@ -507,50 +431,96 @@ local function page(env: Env, path: string, version: number): ({ Raw }?, string?
     if cached and cached.generation == res.generation then
         return cached.raws, cached.next, res.generation
     end
-    local texts = json.items(json.member(res.text or "", "data") or "[]")
-    local data = if type(res.json) == "table" then res.json else {}
-    local values = if type(data.data) == "table" then data.data else {}
-    local raws: { Raw } = table.create(#texts)
-    for i, text in texts do
-        local value = values[i] or {}
-        table.insert(raws, { text = text, value = value, id = tostring(value.id or ""), kind = tostring(value.type or "") })
+    local items: { ResourceItem } = res.items or {}
+    local raws: { Raw } = table.create(#items)
+    for _, item in items do
+        table.insert(raws, { text = item.text, id = item.id, kind = item.kind, created = item.created })
     end
+    local data = if type(res.json) == "table" then res.json else {}
     local next = if type(data.cursor) == "table" and type(data.cursor.next) == "string" then data.cursor.next else nil
     env.state.pages[path] = { generation = res.generation, raws = raws, next = next }
     return raws, next, res.generation
 end
 
--- Session `sid`'s messages as Desktop holds them, oldest first: its newest page, then the pages
--- before it (200 each, the server's most) until they hold Desktop's window. What showed stays
--- while a page loads.
-local function held(env: Env, sid: string, session: Session?): ({ Raw }, string)
+-- Desktop's rows for the inbox's undelivered prompts and synthetic inputs, after `shown`: each
+-- `{ id, type, ...payload, time: { created } }` (`data.ts` `materializeInboxMessage`), unless the
+-- transcript already holds it.
+local function pending(inbox: Resource, shown: { Raw })
+    if inbox.status ~= "ready" then
+        return
+    end
+    local have: { [string]: boolean } = {}
+    for _, m in shown do
+        have[m.id] = true
+    end
+    local listed: { ResourceItem } = inbox.items or {}
+    for _, item in listed do
+        local kind: string, id: string = item.kind, item.id
+        if (kind == "user" or kind == "synthetic") and not have[id] then
+            local payload = json.member(item.text, "payload") or "{}"
+            local inner = payload:match("^%s*{(.*)}%s*$") or ""
+            local members = if inner:match("%S") then `{inner},` else ""
+            local raw = `\{"id":{json.member(item.text, "id") or "\"\""},"type":"{kind}",{members}"time":\{"created":{item.created or 0}\}\}`
+            local row: Raw = { text = raw, id = id, kind = kind, created = item.created }
+            table.insert(shown, row)
+        end
+    end
+end
+
+-- Session `sid`'s messages as Desktop holds them (`data.session.message.list`), oldest first: from
+-- the host's `windowStart` (the window's arithmetic is the host's, `context_window.rs`) to the
+-- newest, read newest first in pages (80, then 100 at a time) until the start shows. Nil until they're known; what showed
+-- stays while a page loads.
+local function held(env: Env, sid: string, session: Session?): ({ Raw }?, string)
+    local start = if session then session.windowStart else nil
+    if start == "" then
+        return nil, "unknown"
+    end
+    -- The newest page is read again only as new messages come (`messagesVersion`); a window
+    -- that grows as the reader scrolls back reads further pages, each once.
     local path = latestPath(sid)
-    local version = if session then session.version else 0
-    local key = `{session and session.openedAt}:{session and session.firstPage}:{session and session.olderPages}`
+    local version = if session then session.messagesVersion else 0
+    -- Desktop lists each undelivered prompt and synthetic input after the messages (`data.ts`
+    -- `materializeInboxMessage`).
+    -- Asked for with the newest page, so both reads go at once.
+    local inbox = env.Server:Resource(`/api/session/{sid}/inbox`, version, true)
+    page(env, path, version)
+    if inbox.status == "loading" then
+        local cached = env.state.parsed[sid]
+        return if cached then cached.raws else nil, if cached then cached.key else "loading"
+    end
+    local key = `{start}:{inbox.generation}`
     local newest: { Raw } = {}
     while true do
         local raws, next, generation = page(env, path, version)
         if raws == nil then
             local cached = env.state.parsed[sid]
-            return if cached then cached.raws else {}, if cached then cached.key else key
+            return if cached then cached.raws else nil, if cached then cached.key else key
         end
         key ..= `:{generation}`
-        table.move(raws, 1, #raws, #newest + 1, newest)
         local cached = env.state.parsed[sid]
         if cached and cached.key == key then
             return cached.raws, key
         end
-        local latest: { Raw } = table.create(#newest)
-        for i = #newest, 1, -1 do
-            table.insert(latest, newest[i])
+        local found = false
+        for _, m in raws do
+            table.insert(newest, m)
+            if m.id == start then
+                found = true
+                break
+            end
         end
-        local shown = if session then window(latest, next == nil, session) else latest
-        if shown then
+        if found or start == nil or next == nil then
+            local shown: { Raw } = table.create(#newest)
+            for i = #newest, 1, -1 do
+                table.insert(shown, newest[i])
+            end
+            pending(inbox, shown)
             env.state.parsed[sid] = { key = key, raws = shown }
             return shown, key
         end
         -- Older pages hardly change; the newest page's read carries the session's version.
-        path = `/api/session/{sid}/message?limit=200&cursor={env.Server:EncodeUri(next :: string)}`
+        path = `/api/session/{sid}/message?limit=100&cursor={env.Server:EncodeUri(next :: string)}`
         version = 0
     end
 end
@@ -568,7 +538,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
     return view:Memo(`panel-{sid}`, version, function()
         -- The figures and the system prompt move only with the session and its messages: a
         -- rebuild for a raw message opening or an export reuses them.
-        local prompt = promptOf(raws)
+        local prompt = promptOf(raws or {})
         local figures = `{session and session.version}:{generation}:{wide}:{look}`
         local content = ui.col(CONTENT, {
             view:Memo(`stats-{sid}`, figures, function()
@@ -579,7 +549,7 @@ function tab.panel(env: Env, view: View, props: PanelProps): ui.Node?
                     return systemPrompt(env, prompt :: string)
                 end)
                 else false,
-            rawMessages(env, view, sid, raws, generation, exporting, look),
+            rawMessages(env, view, sid, raws or {}, generation, exporting, look),
         } :: { any })
         -- The side region's tab sits 8 under the strip; a narrow window's view has no strip.
         return ui.col(if props.placement == "mobile" then TAB_MOBILE else TAB, {

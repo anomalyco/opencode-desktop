@@ -819,14 +819,14 @@
       { "name": "variant", "type": "string?", "doc": "The model variant it runs with, such as `high`. Nil for the model's default." },
       { "name": "busy", "type": "boolean", "doc": "A turn is running." },
       { "name": "version", "type": "integer", "doc": "Changes whenever anything here does: put it in a memo's version." },
+      { "name": "messagesVersion", "type": "integer", "doc": "Changes when its newest messages or its inbox's waiting input do, not as older ones are read or the reader scrolls: the version for a read of its newest messages." },
       { "name": "cost", "type": "number", "doc": "What it cost in USD, its subagents' sessions included." },
       { "name": "usage", "type": "SessionUsage?", "doc": "Token counts at the last step with tokens." },
       { "name": "usageProviderId", "type": "string?", "doc": "The provider of the step `usage` came from." },
       { "name": "usageModelId", "type": "string?", "doc": "The model of the step `usage` came from." },
       { "name": "usageMessageId", "type": "string?", "doc": "The id of the message `usage` came from: the last step with tokens after the last finished compaction and before a staged revert." },
-      { "name": "openedAt", "type": "number?", "doc": "When this window first opened it, in milliseconds since the Unix epoch. Desktop holds every message created since, plus `firstPage` and `olderPages` before. Nil until it opens." },
-      { "name": "firstPage", "type": "integer?", "doc": "How many of its newest messages Desktop reads on opening it: 40 with the Compact timeline, else 20. Desktop then reads pages of 20 until the leading turn starts with its prompt, three at most." },
-      { "name": "olderPages", "type": "integer?", "doc": "How many older pages of 20 Desktop would have read since it opened: one each time the timeline came within 200 px of its top." },
+      { "name": "windowStart", "type": "string?", "doc": "The oldest message Desktop's timeline would hold: its first read on opening the session, a page of 20 per approach of the top since, and every message after. `usage` and the Context tab's counts come from these messages, as Desktop's do. Empty while that is not known yet; nil before this window opened the session (every message counts)." },
+      { "name": "usageCreated", "type": "number?", "doc": "When the message `usage` came from was created, in milliseconds since the Unix epoch." },
       { "name": "providerId", "type": "string?", "doc": "The provider of the model the session runs with." },
       { "name": "modelId", "type": "string?", "doc": "The model the session runs with." },
       { "name": "created", "type": "number?", "doc": "When it was created, in milliseconds since the Unix epoch." },
@@ -842,10 +842,17 @@
     ] },
     { "name": "Resource", "kind": "record", "rust": true, "doc": "A cached server read.", "fields": [
       { "name": "status", "type": "ResourceStatus", "doc": "Its state." },
-      { "name": "json", "type": "any?", "doc": "The answer as JSON, when it is JSON." },
+      { "name": "json", "type": "any?", "doc": "The answer as JSON, when it is JSON and the read didn't ask for `items`." },
+      { "name": "items", "type": "{ResourceItem}?", "doc": "For a read that asked for them, the items its answer lists (`{ \"data\": [...] }` or `[...]`), split off the UI thread; `json` is the rest of the answer then." },
       { "name": "text", "type": "string?", "doc": "The answer as text." },
       { "name": "error", "type": "string?", "doc": "Why it failed." },
       { "name": "generation", "type": "integer", "doc": "Changes with every new answer: put it in a memo's version." }
+    ] },
+    { "name": "ResourceItem", "kind": "record", "rust": true, "doc": "One item a read's answer lists.", "fields": [
+      { "name": "id", "type": "string", "doc": "Its `id`." },
+      { "name": "kind", "type": "string", "doc": "Its `type`." },
+      { "name": "created", "type": "number?", "doc": "Its `time.created`." },
+      { "name": "text", "type": "string", "doc": "Its JSON." }
     ] },
     { "name": "ServerResponse", "kind": "record", "rust": true, "doc": "A server's answer.", "fields": [
       { "name": "ok", "type": "boolean", "doc": "A 2xx status." },
@@ -1611,7 +1618,7 @@
     ] },
     { "name": "Server", "halves": ["window", "app"], "doc": "The OpenCode server this window works with: the server of the session or draft it shows, so a panel in a tab from another server talks to that server. A path that starts with `local:` goes to the app's own server. In the app half, the app's own server.", "members": [
       { "name": "RequestAsync", "kind": "method", "sig": "(method: HttpMethod, path: string, body: any?) -> ServerResponse", "yields": true, "doc": "Sends a request with a JSON body, off the UI thread." },
-      { "name": "Resource", "kind": "method", "sig": "(path: string, version: MemoVersion) -> Resource", "doc": "A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands." },
+      { "name": "Resource", "kind": "method", "sig": "(path: string, version: MemoVersion, items: boolean?) -> Resource", "doc": "A GET of `path`, cached until `version` changes. Safe in a render: it never yields, and the window redraws when the answer lands. With `items`, a list's answer comes split into `items` off the UI thread instead of decoded into `json`." },
       { "name": "Invalidate", "kind": "method", "sig": "(prefix: string) -> ()", "doc": "Drops this plugin's cached reads whose path starts with `prefix`." },
       { "name": "OnEvent", "kind": "method", "sig": "(prefix: string) -> Signal<ServerEvent>", "doc": "A signal for the server's events whose type starts with `prefix`." },
       { "name": "EncodeUri", "kind": "method", "sig": "(text: string) -> string", "doc": "Percent-encodes text for a path or query." },

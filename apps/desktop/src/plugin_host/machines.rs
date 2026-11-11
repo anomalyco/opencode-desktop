@@ -216,11 +216,36 @@ impl Hot {
 
 // ---- Tickets: cached server reads --------------------------------------------------------------
 
-/// A read's answer: its text and, once a render asked for it, the JSON value decoded in the VM.
+/// A read's answer: its text and, once a render asked for it, the JSON value decoded in the VM;
+/// or, for a read that asked for them, the items its answer lists, split off the UI thread.
 #[derive(Clone)]
 pub struct Body {
     pub text: Rc<str>,
+    pub items: Option<Rc<Items>>,
     pub generation: i64,
+}
+
+/// An answer split into the items it lists and the rest of it (its other members).
+#[derive(Debug)]
+pub struct Items {
+    pub list: Vec<Item>,
+    pub rest: serde_json::Value,
+}
+
+/// One item of an answer that lists them (`{ "data": [...] }` or `[...]`): its `id`, `type` and
+/// `time.created`, and its JSON.
+#[derive(Clone, Debug)]
+pub struct Item {
+    pub id: String,
+    pub kind: String,
+    pub created: Option<f64>,
+    pub text: String,
+}
+
+/// What a read fetched, on the job thread.
+pub struct Fetched {
+    pub text: String,
+    pub items: Option<Items>,
 }
 
 /// One cached server read (`Server:Resource(path, version)`): asked for at a version, answered
@@ -241,7 +266,7 @@ pub enum Ticket {
 
 pub enum TicketEvent {
     Ask(u64),
-    Land(u64, Result<String, String>),
+    Land(u64, Result<Fetched, String>),
 }
 
 pub enum TicketEffect {
@@ -259,8 +284,8 @@ impl Ticket {
             (T::Loading { version, last }, TicketEvent::Land(v, answer)) if v == version => {
                 let generation = last.as_ref().map_or(0, |b| b.generation) + 1;
                 match answer {
-                    Ok(text) => (T::Ready { version, body: Body { text: text.into(), generation } }, vec![]),
-                    Err(error) => (T::Failed { version, error, last: last.map(|b| Body { generation, ..b }).or(Some(Body { text: "".into(), generation })) }, vec![]),
+                    Ok(f) => (T::Ready { version, body: Body { text: f.text.into(), items: f.items.map(Rc::new), generation } }, vec![]),
+                    Err(error) => (T::Failed { version, error, last: last.map(|b| Body { generation, ..b }).or(Some(Body { text: "".into(), items: None, generation })) }, vec![]),
                 }
             }
             // An answer for a version nobody waits for any more.
