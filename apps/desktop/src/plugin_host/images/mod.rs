@@ -1,7 +1,7 @@
-//! Images plugins draw: the ones a native plugin hands over (`HostApiVtable::image`) or a Luau
-//! plugin hands over or loads (`Images`, `ui.image`). Each is decoded by the window's Rune image
-//! cache on its own threads; a loaded one's bytes are read first on the store's worker. Every
-//! image runs the [`load::Load`] machine; the host's poll steps it, so a render only reads it.
+//! Images plugins draw: the ones a plugin hands over or loads (`Images`, `ui.image`). Each is
+//! decoded by the window's Rune image cache on its own threads; a loaded one's bytes are read
+//! first on the store's worker. Every image runs the [`load::Load`] machine; the host's poll
+//! steps it, so a render only reads it.
 
 pub mod load;
 
@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
-use rune::{El, Image, ImageCache, SurfaceFit};
+use rune::{Image, ImageCache};
 
 use load::{Load, LoadEffect, LoadEvent, Source};
 
@@ -171,14 +171,6 @@ impl Images {
                 player
             })
             .clone()
-    }
-
-    /// Image `id` of plugin `plugin`, fitted inside `el`'s box.
-    pub fn draw(&self, plugin: &str, id: u32, el: El) -> El {
-        match self.get(plugin, id).and_then(Load::image) {
-            Some(image) => el.pixels_fit(image.pixels(), SurfaceFit::Fit),
-            None => el,
-        }
     }
 }
 

@@ -124,12 +124,8 @@ impl App {
         changed |= self.sync_empty_side();
         // The native views Luau panels place (Review's diffs).
         changed |= crate::plugin_host::luau::native::poll(self, tx);
-        // Static slice iteration on idle frames: 0 heap allocations.
-        for p in super::registered_panels() {
-            if let Some(poll) = p.poll {
-                changed |= poll(self, tx);
-            }
-        }
+        // The plugins: what came due, finished or arrived for them. At rest it enters no VM.
+        changed |= crate::plugin_host::poll(self, tx);
         changed
     }
 
@@ -317,7 +313,7 @@ impl App {
 /// Moves Luau plugin `plugin`'s tabs stored under the host's old `plugin` panel
 /// (`plugin:<plugin>.<panel>`, `plugin:<plugin>.<panel>/<instance>`) to its own namespace.
 fn rekey_luau(tabs: &mut SessionTabs, plugin: &str) -> bool {
-    let old = format!("{}:{plugin}.", crate::plugin_host::view::PANEL);
+    let old = format!("plugin:{plugin}.");
     let new_key = |k: &str| -> Option<String> {
         let rest = k.strip_prefix(&old)?;
         Some(panel_key(plugin, rest.split_once('/').map_or(rest, |(_, instance)| instance)))

@@ -3,6 +3,8 @@
 //! every window runs on the UI thread, where Windows' execution state lives; on macOS and Linux
 //! a supervised `caffeinate -d` or `systemd-inhibit` runs while it's held. A lock goes with the
 //! plugin half that took it.
+// The OS call that keeps the display awake; the block says what it relies on.
+#![allow(unsafe_code)]
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;

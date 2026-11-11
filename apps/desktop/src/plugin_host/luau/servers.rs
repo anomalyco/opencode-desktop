@@ -20,7 +20,7 @@ use rune::Tx;
 use serde_json::{Value, json};
 
 use crate::App;
-use crate::plugin_host::instance::ServerRec;
+use crate::plugin_host::servers::ServerRec;
 
 /// One source's state.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -98,14 +98,7 @@ pub fn set_entries(plugin: &str, source: &str, entries: Vec<ServerEntry>, ready:
             id: e.id,
             name: e.name,
             label: e.label.unwrap_or_default(),
-            state: match e.state {
-                ServerState::Stopped => 0,
-                ServerState::Starting => 1,
-                ServerState::Auth => 2,
-                ServerState::Ready => 3,
-                ServerState::Failed => 4,
-                ServerState::Incompatible => 5,
-            },
+            state: e.state,
             url: e.http.as_ref().map(|h| h.url.clone()).unwrap_or_default(),
             password: e.http.and_then(|h| h.password).unwrap_or_default(),
             listed: e.listed.unwrap_or(true),
@@ -135,7 +128,7 @@ pub fn all() -> Vec<(String, i64, ServerRec)> {
     let remembered: Vec<(String, i64, ServerRec)> = known(|k| {
         k.iter()
             .filter(|(plugin, _)| !listing.contains(plugin))
-            .flat_map(|(plugin, inv)| inv.servers.iter().map(|r| (plugin.clone(), inv.order, ServerRec { state: opencode_plugin::abi::SERVER_STOPPED, url: String::new(), password: String::new(), ..r.clone() })))
+            .flat_map(|(plugin, inv)| inv.servers.iter().map(|r| (plugin.clone(), inv.order, ServerRec { state: ServerState::Stopped, url: String::new(), password: String::new(), ..r.clone() })))
             .collect()
     });
     live.into_iter().chain(remembered).collect()
@@ -231,7 +224,7 @@ fn remember(plugin: &str) {
     }
     let inventory = Inventory {
         order: lists.iter().map(|(o, _)| *o).min().unwrap_or(0),
-        servers: lists.into_iter().flat_map(|(_, l)| l).map(|r| ServerRec { state: opencode_plugin::abi::SERVER_STOPPED, url: String::new(), password: String::new(), ..r }).collect(),
+        servers: lists.into_iter().flat_map(|(_, l)| l).map(|r| ServerRec { state: ServerState::Stopped, url: String::new(), password: String::new(), ..r }).collect(),
     };
     let changed = known(|k| {
         if k.get(plugin) == Some(&inventory) {
@@ -272,7 +265,7 @@ fn load() -> BTreeMap<String, Inventory> {
                         id: text(&s["id"])?,
                         name: text(&s["name"])?,
                         label: text(&s["label"]).unwrap_or_default(),
-                        state: opencode_plugin::abi::SERVER_STOPPED,
+                        state: ServerState::Stopped,
                         url: String::new(),
                         password: String::new(),
                         listed: s["listed"].as_bool().unwrap_or(true),

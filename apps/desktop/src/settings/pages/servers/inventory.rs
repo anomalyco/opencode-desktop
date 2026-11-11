@@ -10,7 +10,7 @@ use opencode_kit::servers::settings::{self, Availability};
 use opencode_kit::servers::{ServerConn, ServerKey};
 
 use crate::App;
-use crate::plugin_host::instance::ServerRec;
+use crate::plugin_host::ServerRec;
 
 /// Where a server comes from.
 #[derive(Clone, Debug)]
@@ -74,7 +74,7 @@ pub fn list(s: &App) -> Vec<Server> {
         .collect();
     for c in contributed.iter().filter(|c| !c.by_address() && !c.rec.listed) {
         let key = ServerKey::new(&c.key);
-        let stage = (c.rec.state != opencode_plugin::abi::SERVER_READY).then(|| crate::plugin_host::servers_stage(c.rec.state));
+        let stage = (c.rec.state != opencode_plugin_spec::ServerState::Ready).then(|| crate::plugin_host::servers_stage(c.rec.state));
         out.push(server(key, c.rec.name.clone(), Kind::Plugin(c.rec.clone()), None, Some(stage)));
     }
     out

@@ -7,6 +7,8 @@
 //! Toast, Popover, Dialog, Menu, Layout, Links, Commands, Theme, App, System, Notifications,
 //! Workspace (files and downloads), Diagnostics (metrics) and I18n; LU-4 Power, Qr and Askpass.
 //! The rest answer with an error naming the package that brings them (see `PENDING`).
+// Records are built on the Lua stack through the C API; each block says what it relies on.
+#![allow(unsafe_code)]
 
 mod app;
 pub mod askpass;

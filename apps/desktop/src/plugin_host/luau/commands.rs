@@ -278,15 +278,6 @@ pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
     false
 }
 
-/// Code block actions for `language`, as `(key, icon, title)`.
-pub fn code_block_actions(app: &App, language: &str) -> Vec<(&'static str, String, String)> {
-    app.plugins
-        .luau
-        .running()
-        .flat_map(|(_, p)| p.half.contribs.borrow().code_block_actions.iter().filter(|c| c.spec.languages.iter().any(|l| l.eq_ignore_ascii_case(language))).map(|c| (c.key, c.spec.icon.clone(), c.spec.title.clone())).collect::<Vec<_>>())
-        .collect()
-}
-
 pub fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &str, tx: &mut Tx) {
     let found = app.plugins.luau.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().code_block_actions.iter().find(|c| c.key == key)?.f("run")?.clone())));
     if let Some((i, f)) = found {

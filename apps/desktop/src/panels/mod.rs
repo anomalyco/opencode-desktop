@@ -1,8 +1,7 @@
 //! The panel providers of the session side region (`side`, `split`, and `bottom` panes).
 //!
-//! The built-in panels (Browser, Changes, Files, Terminal) are Luau plugins', one provider per
-//! plugin (`plugin_host::luau::panels`); the native plugins' panels share one provider
-//! (`plugin_host::view`). Tab metadata, launcher rows, shortcuts, and closed-tab restoration use
+//! Every panel is a plugin's: Browser, Changes, Files and Terminal are built-in plugins', one
+//! provider per plugin (`plugin_host::luau::panels`). Tab metadata, launcher rows, shortcuts, and closed-tab restoration use
 //! plain data descriptors (`PanelTabDesc`, `PanelLauncherDesc`, `ClosedPanelTab`).
 
 pub mod closing;
@@ -17,7 +16,6 @@ pub mod tabs;
 pub mod view;
 pub mod width;
 
-use std::sync::OnceLock;
 
 use rune::{El, Icon, Ime, KeyEvent, Tx};
 
@@ -273,7 +271,7 @@ impl PanelLauncherDesc {
 }
 
 /// How a launcher entry opens: its panel's one launcher, or a provider's shared opener given
-/// the entry's id (a provider with several entries, such as native plugins' panels).
+/// the entry's id (a provider with several entries, such as a plugin with several panels).
 #[derive(Clone, Copy)]
 pub enum Launch {
     Pane(fn(&mut App, SessionPane, &mut Tx)),
@@ -378,7 +376,7 @@ pub struct PanelRegistration {
     /// Invoked when the user triggers the launcher or global command.
     pub open_launcher: Option<fn(&mut App, SessionPane, &mut Tx)>,
     /// Several `+` / `"New tab"` entries, each opened by `open_entry` with its id (a provider
-    /// whose tabs come and go at run time, such as native plugins' panels).
+    /// whose tabs come and go at run time).
     pub launchers: Option<fn(&App, &PanelSessionCtx) -> Vec<PanelLauncherDesc>>,
     pub open_entry: Option<fn(&mut App, &str, SessionPane, &mut Tx)>,
     /// Lists this panel's tabs for the routed session.
@@ -667,18 +665,6 @@ impl PanelRegistration {
         self.on_ime = Some(f);
         self
     }
-}
-
-/// The app's own panel providers: the native plugins' panels. The built-in panels are Luau
-/// plugins' (`plugin_host::luau::panels::providers`).
-pub fn registered_panels() -> &'static [PanelRegistration] {
-    static ALL: OnceLock<Vec<PanelRegistration>> = OnceLock::new();
-    ALL.get_or_init(|| vec![crate::plugin_host::view::provider()])
-}
-
-/// Finds a registered provider by its `plugin` id.
-pub fn find_panel(plugin: &str) -> Option<&'static PanelRegistration> {
-    registered_panels().iter().find(|p| p.plugin == plugin)
 }
 
 /// Icon lookup by stored closed-tab icon name.

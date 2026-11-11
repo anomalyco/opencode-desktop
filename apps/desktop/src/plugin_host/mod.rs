@@ -1,203 +1,77 @@
-//! `PluginHost`: native plugins (`crates/opencode-plugin`) loaded over the C ABI and bound to
-//! the app. Built-ins use the same boundary as third-party plugins.
+//! `PluginHost`: plugins as `--!strict` Luau source and a `plugin.toml` against the contract
+//! (`opencode-plugin-spec`), run on `rune-luau` (`luau`), bound to the app.
 //!
-//! - **Discovery** reads `plugin.toml` files (`manifest.rs`) without loading a library; their
-//!   settings search entries are known before any loads.
-//! - **Trust**: a third-party library waits in `PendingTrust` until the user OKs it in a drawn
-//!   prompt (`trust.rs`), which also offers to unblock a file Windows marked as downloaded.
-//! - **Loading** shakes hands over the ABI (`loader.rs`), loads the plugin's stores, then sets up
-//!   its app half (once per process) and its window half; each slot moves through an explicit
-//!   state machine (`lifecycle.rs`, `swap.rs`).
+//! - **Discovery and trust** (`luau::sources`, `luau::trust`): the built-ins are compiled into
+//!   the binary; a plugin from outside the app waits for a one-time OK keyed by its files'
+//!   SHA-256.
 //! - **Contributions** reach the app's surfaces (`contrib.rs`, `surfaces.rs`, `view.rs`): panels
 //!   with their own launchers, commands with keybinds and `/slash`, menus and the app menu,
 //!   settings pages, link handlers, titlebar items, composer pills, code block actions, shell
-//!   slots, themes, file viewers, server sources and MCP tools.
-//! - **Sharing**: contracts and services, read as `Live` values, and host-kept stores
-//!   (`shared.rs`); background jobs on host workers (`tasks.rs`); icons and strings interned so
-//!   nothing points into a library a reload unmaps (`icons.rs`).
-//! - **Rendering** fills `PluginRenderArena` (`arena.rs`) with real `rune::El`s; memos live in
-//!   the window's own cache under `p:<id>:`, so a reload evicts only that plugin's.
-//! - **Idle**: `poll` swaps two `AtomicU64`s of bits and checks one deadline. With every plugin
-//!   at rest it makes no call into any plugin and asks for no frame.
-//! - **Hot reload** (debug builds, or `--plugin-hot`): the watcher thread copies and loads a
-//!   rebuilt library (`hot.rs`); the app's thread only swaps instances, carrying editors, stores
-//!   and `save_hot_state` over, and drops the old generation once the new one is set up.
-//! - **Panics** never cross: a render panic shows an error card and the plugin keeps running; a
-//!   handler, poll or setup panic fails that plugin alone and withdraws its contributions.
-// The C ABI boundary is unsafe by nature; each block says what it relies on.
-#![allow(unsafe_code)]
+//!   slots, file viewers, server sources (`servers.rs`) and MCP tools.
+//! - **Host-kept state** (`shared.rs`): each plugin's stores, what the app knows that plugins ask
+//!   about, and their images; processes (`process.rs`) and background work (`tasks.rs`) off the
+//!   app's thread; icons and strings interned for Rune's `&'static` data (`icons.rs`).
+//! - **Idle**: `poll` checks each script's inbox and deadline and returns; nothing at rest
+//!   enters a VM or asks for a frame.
 
-mod app_half;
-mod arena;
-mod builtins;
 mod contrib;
-mod dialog;
-mod editors;
-mod hot;
 pub(crate) mod icons;
 mod images;
-pub(crate) mod instance;
-mod lifecycle;
-mod loader;
 pub mod luau;
-mod manifest;
 mod memory;
-mod motw;
-mod popover;
 pub(crate) mod process;
-mod render;
-mod requests;
-mod run;
+mod reveal;
 mod servers;
 mod shared;
 mod surfaces;
-mod swap;
 pub(crate) mod tasks;
-mod trust;
 pub(crate) mod view;
-pub(crate) mod vtable;
-pub(crate) mod widgets;
+mod widgets;
 
-use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use opencode_plugin::abi::PluginEntryFn;
-use rune::Waker;
+use rune::{KeyEvent, Tx, Waker};
 
-pub use contrib::sync_luau as contrib_sync_luau;
-pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menubar};
-pub use dialog::{key as dialog_key, view as dialog_view};
-pub use servers::{all as contributed_servers, authenticating as server_authenticating, changed as servers_changed, connect as connect_server, cover as server_cover, row as server_row, stage as servers_stage};
-pub use editors::PluginEditors;
-pub use popover::{key as popover_key, view as popover_view};
-pub use run::{commands, key, run_command, run_slash, server_event, slash_commands};
-pub use contrib::{run_menu_item, server_menu_items, settings_search};
-pub use surfaces::{composer_pills, pill_views, file_viewer, settings_page, settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with, titlebar_items};
-pub use requests::reveal;
-pub use trust::dialog as trust_dialog;
+pub use contrib::{code_block_actions, mcp_call, mcp_tools, mcp_tools_generation, menubar_items, open_link, run_menu_item, run_menubar, server_menu_items, settings_search};
+pub use luau::surfaces::{dialog_view, popover_view};
+pub use luau::trust::dialog as trust_dialog;
+pub use reveal::reveal;
+pub use servers::{ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed, connect as connect_server, cover as server_cover, row as server_row, stage as servers_stage};
+pub use surfaces::{file_viewer, pill_views, settings_page, settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot, slot_with, titlebar_items};
 pub use view::settings_section;
-
-use arena::PluginRenderArena;
-use instance::Instance;
-use lifecycle::{Event, PluginState};
-use manifest::{Found, Manifest, Tier};
-use vtable::WakeShared;
 
 use crate::App;
 
 #[derive(Default)]
 pub struct PluginHost {
-    slots: Vec<Slot>,
-    pub editors: PluginEditors,
-    arena: RefCell<PluginRenderArena>,
-    wake: Arc<WakeShared>,
-    /// The soonest `wake_after` deadline of any plugin, on the app clock.
-    next_deadline: Option<f64>,
-    /// The hot-reload watcher; dropping it stops its thread.
-    _watcher: Option<hot::Watcher>,
-    /// Libraries loaded off the app's thread (rebuilt, or just trusted), waiting to swap in.
-    ready: hot::Ready,
-    shadow_dir: Option<PathBuf>,
+    /// The plugins turned off in Settings › Plugins.
     disabled: BTreeSet<String>,
-    /// Third-party libraries the user OKed: plugin id → the SHA-256 they OKed.
+    /// Plugins from outside the app the user OKed: plugin id → the SHA-256 of their files.
     trusted: BTreeMap<String, String>,
     shared: shared::Shared,
-    /// Trust prompts put off for this launch.
-    trust_later: BTreeSet<String>,
     started: bool,
-    /// The plugin popover on screen.
-    popover: Option<popover::Open>,
-    /// Plugins' cached server reads (`resource`).
-    resources: vtable::Resources,
-    /// Server requests and saves in flight, by id: whose callback runs when they answer.
-    pending: std::collections::HashMap<u64, requests::Pending>,
-    next_pending: u64,
-    /// The plugin dialog on screen.
-    dialog: Option<dialog::Open>,
     /// Contributed servers whose health check is on its way.
     checking: HashSet<String>,
-    /// Server events plugins listen for, waiting for the next poll (contrib::EVENTS).
-    server_events: Vec<(String, String)>,
-    /// The Luau plugins of this window (`luau::Host`, the window plugin host).
+    /// The window's plugins (`luau::Host`, the window plugin host).
     pub luau: luau::Host,
     /// The window's page visits, for server covers' one sign-in offer per visit.
     pub cover_visit: servers::CoverVisit,
 }
 
 impl PluginHost {
-    /// Forgets every cached server read, as the window moves to another server.
-    pub fn forget_reads(&mut self) {
-        self.resources = vtable::Resources::default();
-    }
-
     /// Whether a plugin dialog is open.
     pub fn dialog_open(&self) -> bool {
-        self.dialog.is_some()
+        self.luau.dialog.is_some()
     }
 }
 
-pub enum Source {
-    Library(PathBuf),
-    Static(PluginEntryFn),
-}
-
-pub struct Slot {
-    pub manifest: Manifest,
-    pub dir: PathBuf,
-    pub tier: Tier,
-    pub source: Source,
-    pub state: PluginState,
-    pub instance: Option<Instance>,
-    /// Why it failed to load, set up, or keep running.
-    pub error: Option<String>,
-    /// The last render panic; the plugin keeps running.
-    pub render_error: RefCell<Option<String>>,
-    /// Why the last reload kept the previous generation.
-    pub reload_error: Option<String>,
-    pub generation: u32,
-    /// Bumped by a render panic, so no memo built before it is reused.
-    pub salt: Cell<u64>,
-    /// `p:<id>:`, the prefix of this plugin's memos.
-    pub prefix: String,
-    /// The tabs the last running generation offered (tab id, title, icon), kept so a failed
-    /// plugin's open tab stays and shows why, with Reload.
-    pub tabs: Vec<(String, String, String)>,
-    /// A third-party library's SHA-256, what trusting it means.
-    pub hash: Option<String>,
-    /// Windows marked the library as downloaded from the internet.
-    pub blocked: bool,
-}
-
-impl Slot {
-    fn go(&mut self, event: Event) {
-        match self.state.next(event) {
-            Some(next) => self.state = next,
-            None => tasks::log(format!("plugin {}: {event:?} doesn't apply in {:?}", self.manifest.id, self.state)),
-        }
-    }
-
-    fn active(&self) -> Option<&Instance> {
-        self.instance.as_ref().filter(|_| self.state == PluginState::Active)
-    }
-
-    fn library(&self) -> Option<&std::path::Path> {
-        match &self.source {
-            Source::Library(path) => Some(path),
-            Source::Static(_) => None,
-        }
-    }
-}
-
-/// Discovers and loads the plugins once the window's waker exists (`--no-plugins` skips it).
+/// Discovers and starts the plugins once the window's waker exists (`--no-plugins` skips it).
 pub fn setup(app: &mut App, waker: Waker) {
-    let luau_waker = waker.clone();
     let persists = app.persists();
     let keep_screen = app.settings.keep_screen_active;
     let host = &mut app.plugins;
     host.shared.images.borrow_mut().start(waker.clone());
-    host.wake.waker.set(waker).ok();
     if host.started || crate::flag("--no-plugins") {
         return;
     }
@@ -207,129 +81,107 @@ pub fn setup(app: &mut App, waker: Waker) {
     // moves into the plugin's store once.
     if keep_screen && persists {
         host.shared.stores.load("pairing");
-        if host.shared.stores.get("pairing", "keepScreenActive", "").is_none() {
+        if host.shared.stores.text("pairing", "keepScreenActive", "").is_none() {
             host.shared.stores.set("pairing", "keepScreenActive", "", "true");
         }
     }
-    let hot = crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless());
-    host.shadow_dir = hot.then(|| crate::dirs::cache().map(|c| c.join("plugin-hot"))).flatten();
-    if let Some(dir) = &host.shadow_dir {
-        loader::sweep(dir);
-    }
     (host.disabled, host.trusted) = load_state();
-    let builtin_ids: HashSet<String> = builtins::all().iter().filter_map(|(src, _)| manifest::parse(src).ok()).map(|m| m.id).collect();
-    let mut seen = HashSet::new();
-    for (found, source) in discover() {
-        let id = found.manifest.id.clone();
-        // A third-party plugin can't take a built-in's id: it shows, refused, beside it.
-        let shadows_builtin = found.tier == Tier::User && (builtin_ids.contains(&id) || seen_bundled(&host.slots, &id));
-        if !seen.insert(id.clone()) && !shadows_builtin {
-            continue;
-        }
-        let library = match &source {
-            Source::Library(path) if found.tier.needs_trust() => Some(path.clone()),
-            _ => None,
-        };
-        let mut slot = Slot {
-            prefix: format!("p:{id}:"),
-            manifest: found.manifest,
-            dir: found.dir,
-            tier: found.tier,
-            source,
-            state: PluginState::Discovered,
-            instance: None,
-            error: found.error,
-            render_error: RefCell::new(None),
-            tabs: Vec::new(),
-            reload_error: None,
-            generation: 0,
-            salt: Cell::new(0),
-            hash: library.as_deref().and_then(loader::hash),
-            blocked: library.as_deref().is_some_and(motw::blocked),
-        };
-        let reserved = id == "opencode" || shadows_builtin;
-        if slot.error.is_some() {
-            slot.go(Event::Load);
-            slot.go(Event::LibFailed);
-        } else if !slot.manifest.runs_here() {
-            slot.go(Event::WrongOs);
-        } else if reserved {
-            slot.go(Event::Reserved);
-        } else if host.disabled.contains(&id) {
-            slot.go(Event::UserDisabled);
-        } else if slot.tier.needs_trust() && host.trusted.get(&id) != slot.hash.as_ref() {
-            slot.go(Event::NeedsTrust);
-        }
-        host.slots.push(slot);
-    }
-    if !app.plugins.slots.is_empty() {
-        tasks::start();
-    }
-    // Luau plugins start processes and compare against the app's own server's version too.
+    // Plugins start processes and compare against the app's own server's version.
     process::warm();
     servers::read_own_version(app);
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
-    for i in 0..app.plugins.slots.len() {
-        if app.plugins.slots[i].state == PluginState::Discovered {
-            swap::load(app, i, None);
-        }
-    }
-    swap::settle(app);
-    luau::setup(app, luau_waker);
-    let host = &mut app.plugins;
-    if hot {
-        // Third-party libraries aren't watched: a changed one waits for the user's OK again.
-        let watches = host.slots.iter().enumerate().filter(|(_, s)| !s.tier.needs_trust()).filter_map(|(i, s)| {
-            s.library().map(|path| hot::Watch { slot: i, path: path.to_owned(), id: s.manifest.id.clone() })
-        });
-        host._watcher = hot::Watcher::spawn(host.wake.clone(), host.ready.clone(), watches.collect(), host.shadow_dir.clone());
-    }
+    luau::setup(app, waker);
     if crate::flag("--plugin-index") {
         contrib::print_index(app);
     }
 }
 
-fn seen_bundled(slots: &[Slot], id: &str) -> bool {
-    slots.iter().any(|s| s.manifest.id == id && s.tier <= Tier::Bundled)
+/// Runs what came due, finished or arrived for the plugins, and steps their servers' sign-ins.
+/// At rest it enters no VM.
+pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
+    servers::poll_actions(app, tx);
+    luau::poll(app, tx)
 }
 
-/// Every plugin folder in tier order, with how to load each; static built-ins join the
-/// bundled tier ahead of its folders.
-fn discover() -> Vec<(Found, Source)> {
-    let statics = builtins::all().into_iter().filter_map(|(src, entry)| {
-        let manifest = manifest::parse(src).ok()?;
-        Some((Found { manifest, dir: PathBuf::new(), tier: Tier::Bundled, error: None }, Source::Static(entry)))
-    });
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_owned()));
-    let mut tiers = Vec::new();
-    if let Some(dir) = crate::arg("--plugin-dir") {
-        tiers.push((Tier::Dev, PathBuf::from(dir)));
-    }
-    if let Some(config) = crate::dirs::config() {
-        tiers.push((Tier::Override, config.join("plugins-override")));
-    }
-    let first = manifest::scan(&tiers).into_iter().map(with_library);
-    let mut rest = Vec::new();
-    if let Some(exe) = exe_dir {
-        rest.push((Tier::Bundled, exe.join("plugins")));
-    }
-    if let Some(data) = crate::dirs::data() {
-        rest.push((Tier::User, data.join("plugins")));
-    }
-    first.chain(statics).chain(manifest::scan(&rest).into_iter().map(with_library)).collect()
+/// Queues a server event for the plugins listening for its type, delivered on the next poll.
+pub fn server_event(app: &mut App, ty: &str, data: &serde_json::Value) {
+    luau::server_event(app, ty, data);
 }
 
-fn with_library(found: Found) -> (Found, Source) {
-    let path = found.manifest.library_path(&found.dir);
-    (found, Source::Library(path))
+/// Runs plugin command `id` (`<plugin>.<command>`); false when it declined or is gone.
+pub fn run_command(app: &mut App, id: &str, tx: &mut Tx) -> bool {
+    luau::commands::run(app, id, None, tx)
+}
+
+/// Runs plugin command `id` from the composer's `/name words` with `words` as its input.
+pub fn run_slash(app: &mut App, id: &str, input: &str, tx: &mut Tx) -> bool {
+    luau::commands::run(app, id, Some(input), tx)
+}
+
+/// One plugin command the composer's `/` offers: hidden ones too (`/btw`), while enabled.
+pub struct SlashCommand {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    /// `/name ` waits for its words rather than running when picked.
+    pub args: bool,
+}
+
+pub fn slash_commands(app: &App) -> Vec<SlashCommand> {
+    luau::commands::all(app).into_iter().filter(|c| luau::commands::offered(app, c)).filter_map(|c| Some(SlashCommand { id: c.id, name: c.slash?, title: c.title, description: c.description, args: c.slash_args })).collect()
+}
+
+/// A plugin command's keybind. Chords with Ctrl, Alt or ⌘ fire anywhere; a plain key only
+/// outside a focused control, unless the command is `editable`.
+pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    luau::commands::key(app, ev, tx)
+}
+
+/// The plugins' commands: the ones offered now (`offered`), or every one, as Settings ›
+/// Shortcuts lists them. Hidden ones come too, marked: the palette leaves them out.
+pub fn commands(app: &App, offered: bool) -> Vec<crate::commands::Command> {
+    luau::commands::all(app)
+        .into_iter()
+        .filter(|c| !offered || luau::commands::offered(app, c))
+        .map(|c| crate::commands::Command {
+            id: c.id,
+            title: c.title,
+            description: c.description,
+            slash: c.slash,
+            keys: None,
+            chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
+            section: c.section,
+            hidden: c.hidden,
+            run: crate::commands::Run::Plugin(c.id),
+        })
+        .collect()
+}
+
+/// Esc closes the open plugin popover.
+pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key != rune::Key::Escape || !app.plugins.luau.overlay.is_open() {
+        return false;
+    }
+    luau::requests::close_popover(app, tx);
+    true
+}
+
+/// Esc closes the open plugin dialog, telling its plugin.
+pub fn dialog_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key != rune::Key::Escape || app.plugins.luau.dialog.is_none() {
+        return false;
+    }
+    luau::requests::dismiss_dialog(app, tx);
+    true
 }
 
 fn state_file() -> Option<PathBuf> {
     crate::dirs::data().map(|d| d.join("plugins-state.json"))
 }
 
-/// The plugins turned off, and the third-party libraries trusted.
+/// The plugins turned off, and the plugins from outside the app trusted.
 fn load_state() -> (BTreeSet<String>, BTreeMap<String, String>) {
     let Some(text) = state_file().and_then(|f| std::fs::read_to_string(f).ok()) else { return Default::default() };
     let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();

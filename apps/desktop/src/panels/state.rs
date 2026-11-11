@@ -12,7 +12,7 @@ use super::tabs::{
 };
 use super::{
     ClosedTabInfo, DockPlacement, PanelLauncherDesc,
-    PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane, find_panel, registered_panels,
+    PanelRegistration, PanelSessionCtx, PanelTabDesc, SessionPane,
 };
 use crate::{App, Route};
 
@@ -213,10 +213,9 @@ impl ResolvedRegion {
 }
 
 impl App {
-    /// The panel providers: the app's own, and each running Luau plugin that adds panels.
+    /// The panel providers: each running plugin that adds panels.
     pub fn all_panels(&self) -> Vec<PanelRegistration> {
-        let mut out = registered_panels().to_vec();
-        out.extend(crate::plugin_host::luau::panels::providers(self));
+        let mut out = crate::plugin_host::luau::panels::providers(self);
         out.sort_by_key(|p| (p.order, p.plugin));
         out
     }
@@ -850,7 +849,3 @@ impl App {
     }
 }
 
-#[allow(dead_code)]
-fn _use_find_panel() {
-    let _ = find_panel("browser");
-}

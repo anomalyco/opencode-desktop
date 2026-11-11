@@ -1,8 +1,8 @@
-//! `IconPool`: every string and icon a plugin hands the host for longer than one call, copied
-//! into host memory and interned. The palette, `rune::El::role` and `rune::Icon` take
-//! `&'static` data; pointing them into a plugin library's read-only data would dangle the moment
-//! a hot reload unmapped it. Interning copies once per distinct value, so a reload that hands
-//! the same strings and icons again costs nothing and leaks nothing new.
+//! `IconPool`: every string and icon a plugin hands the host for longer than one render,
+//! copied into host memory and interned. The palette, `rune::El::role` and `rune::Icon` take
+//! `&'static` data, while a plugin's strings live in its VM and go with it. Interning copies once
+//! per distinct value, so a reload that hands the same strings and icons again costs nothing and
+//! leaks nothing new.
 
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};

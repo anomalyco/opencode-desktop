@@ -1,5 +1,5 @@
-//! The app's registry of servers besides its own (Desktop's `Server` registry): the ones plugins
-//! contribute (`contrib::SERVER` and Luau server sources), keyed `<plugin>:<id>`, ordered by
+//! The app's registry of servers besides its own (Desktop's `Server` registry): the ones plugins'
+//! server sources list (`ServerSource:SetEntries`), keyed `<plugin>:<id>`, ordered by
 //! their source's `order`, checked for health once they're ready (their version, as Desktop's
 //! health poll reads it); then the ones added by address (`crate::servers`), keyed by it. Every
 //! window shares it: servers are added to the app, not switched to.
@@ -9,53 +9,57 @@ use std::collections::HashMap;
 
 use opencode_kit::servers::HttpBase;
 use opencode_kit::servers::plugin_server::{self, PluginEntry, PluginStage};
-use opencode_plugin::abi::{SERVER_READY, contrib as kinds};
+use opencode_plugin_spec::ServerState;
 use rune::Tx;
 use rune::machine::Attempt;
 
-use super::contrib::active;
-use super::instance::ServerRec;
 use crate::App;
 
-/// The slot of a server added by address (Luau sources' use `usize::MAX`).
-pub const BY_ADDRESS: usize = usize::MAX - 1;
+/// One server a server source listed.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ServerRec {
+    pub source: String,
+    pub id: String,
+    pub name: String,
+    /// Its kind's badge (`WSL`, `SSH`).
+    pub label: String,
+    pub state: ServerState,
+    pub url: String,
+    pub password: String,
+    /// It joins the app's servers rather than only showing in Settings.
+    pub listed: bool,
+    /// Its plugin keeps it reachable (an SSH tunnel): a check of its new address shows the
+    /// connecting spinner (`ServerEntry.managed`).
+    pub managed: bool,
+}
 
 /// A server in the registry with what the app knows of it.
 #[derive(Clone, Debug)]
 pub struct Contributed {
     /// `<plugin>:<id>`, or the address of one added by address.
     pub key: String,
-    pub slot: usize,
     pub rec: ServerRec,
+    /// Added by address (`crate::servers`), rather than by a plugin.
+    address: bool,
 }
 
 impl Contributed {
     /// Added by address, rather than by a plugin.
     pub fn by_address(&self) -> bool {
-        self.slot == BY_ADDRESS
+        self.address
     }
 }
 
 /// Every contributed server, its source's `order` first, then as listed.
-pub fn all(app: &App) -> Vec<Contributed> {
-    let host = &app.plugins;
-    let mut out: Vec<(i32, Contributed)> = Vec::new();
-    for (i, slot) in host.slots.iter().enumerate() {
-        let Some(inst) = slot.active() else { continue };
-        for rec in &inst.servers {
-            let order = active(host, kinds::SERVER).find(|(s, c)| *s == i && c.id == rec.source).map_or(0, |(_, c)| c.order);
-            let key = format!("{}:{}", slot.manifest.id, rec.id);
-            out.push((order, Contributed { key, slot: i, rec: rec.clone() }));
-        }
-    }
-    // Luau server sources' entries, shared by every window; a window half draws their rows.
-    out.extend(super::luau::servers().into_iter().map(|(plugin, order, rec)| (order as i32, Contributed { key: format!("{plugin}:{}", rec.id), slot: usize::MAX, rec })));
+pub fn all(_app: &App) -> Vec<Contributed> {
+    // Server sources' entries, shared by every window; a window half draws their rows.
+    let mut out: Vec<(i64, Contributed)> = super::luau::servers().into_iter().map(|(plugin, order, rec)| (order, Contributed { key: format!("{plugin}:{}", rec.id), rec, address: false })).collect();
     out.sort_by_key(|(order, _)| *order);
     // Then the servers added by address, as Desktop lists its stored ones after those provided.
     let by_address = crate::servers::list().into_iter().map(|s| Contributed {
         key: s.url.clone(),
-        slot: BY_ADDRESS,
-        rec: ServerRec { source: "http".into(), id: s.url.clone(), name: s.label(), label: String::new(), state: SERVER_READY, url: s.url, password: s.password.unwrap_or_default(), listed: true, managed: false },
+        rec: ServerRec { source: "http".into(), id: s.url.clone(), name: s.label(), label: String::new(), state: ServerState::Ready, url: s.url, password: s.password.unwrap_or_default(), listed: true, managed: false },
+        address: true,
     });
     out.into_iter().map(|(_, c)| c).chain(by_address).collect()
 }
@@ -67,8 +71,8 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
     let servers = all(app);
     let pending = super::luau::servers::pending_sources();
     let facts = &mut app.plugins.shared.facts;
-    facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == SERVER_READY) || pending.iter().any(|(plugin, _)| key.starts_with(&format!("{plugin}:"))));
-    let fresh: Vec<Contributed> = servers.into_iter().filter(|s| !s.by_address() && s.rec.state == SERVER_READY && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
+    facts.health.retain(|key, _| servers.iter().any(|s| &s.key == key && s.rec.state == ServerState::Ready) || pending.iter().any(|(plugin, _)| key.starts_with(&format!("{plugin}:"))));
+    let fresh: Vec<Contributed> = servers.into_iter().filter(|s| !s.by_address() && s.rec.state == ServerState::Ready && !s.rec.url.is_empty() && !app.plugins.checking.contains(&s.key)).filter(|s| !app.plugins.shared.facts.health.contains_key(&s.key)).collect();
     for s in fresh {
         app.plugins.checking.insert(s.key.clone());
         let deliver = app.deliverer();
@@ -77,14 +81,10 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
             let version = server.get("/api/info").ok().and_then(|v| v["version"].as_str().map(str::to_owned));
             deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
                 app.plugins.checking.remove(&s.key);
-                let still = all(app).into_iter().any(|c| c.key == s.key && c.rec.url == s.rec.url && c.rec.state == SERVER_READY);
+                let still = all(app).into_iter().any(|c| c.key == s.key && c.rec.url == s.rec.url && c.rec.state == ServerState::Ready);
                 if let (Some(v), true) = (version, still) {
                     app.plugins.shared.facts.health.insert(s.key.clone(), v);
-                    if s.slot == usize::MAX {
-                        super::luau::bump();
-                    } else {
-                        app.plugins.wake.wake(super::vtable::slot_bit(s.slot), false);
-                    }
+                    super::luau::bump();
                     tx.instant();
                 }
             }));
@@ -103,8 +103,7 @@ pub fn read_own_version(app: &mut App) {
         deliver(Box::new(move |app: &mut App, _: &mut Tx| {
             if let Some(v) = version {
                 app.plugins.shared.facts.server_version = Some(v);
-                let all = (0..app.plugins.slots.len()).fold(0, |bits, i| bits | super::vtable::slot_bit(i));
-                app.plugins.wake.wake(all, false);
+                super::luau::bump();
             }
         }));
     });
@@ -119,26 +118,26 @@ pub fn connect(app: &mut App, key: &str, tx: &mut Tx) {
     if can_authenticate(key) {
         return authenticate(app, key, tx);
     }
-    if !all(app).into_iter().any(|s| !s.by_address() && s.key == key && s.rec.listed && s.rec.state == SERVER_READY) {
+    if !all(app).into_iter().any(|s| !s.by_address() && s.key == key && s.rec.listed && s.rec.state == ServerState::Ready) {
         return;
     }
     app.focus_server(&opencode_kit::servers::ServerKey::new(key), tx);
 }
 
-/// A plugin server's stage (`SERVER_*` but ready).
-pub fn stage(state: u32) -> PluginStage {
+/// A plugin server's stage (any state but ready).
+pub fn stage(state: ServerState) -> PluginStage {
     match state {
-        opencode_plugin::abi::SERVER_STARTING => PluginStage::Starting,
-        opencode_plugin::abi::SERVER_AUTH => PluginStage::Auth,
-        opencode_plugin::abi::SERVER_FAILED => PluginStage::Failed,
-        opencode_plugin::abi::SERVER_INCOMPATIBLE => PluginStage::Incompatible,
-        _ => PluginStage::Stopped,
+        ServerState::Starting => PluginStage::Starting,
+        ServerState::Auth => PluginStage::Auth,
+        ServerState::Failed => PluginStage::Failed,
+        ServerState::Incompatible => PluginStage::Incompatible,
+        ServerState::Stopped | ServerState::Ready => PluginStage::Stopped,
     }
 }
 
 /// What the app reads of plugin server `c`'s entry (`PluginEntrySnapshot`).
 fn entry(c: &Contributed) -> PluginEntry {
-    if c.rec.state != SERVER_READY {
+    if c.rec.state != ServerState::Ready {
         return PluginEntry::staged(stage(c.rec.state));
     }
     if c.rec.url.is_empty() {
@@ -218,7 +217,7 @@ pub fn poll_actions(app: &mut App, tx: &mut Tx) {
         });
         run_actions(app, &key, effects.unwrap_or_default(), tx);
     }
-    let managed: Vec<String> = all(app).into_iter().filter(|c| !c.by_address() && c.rec.managed && c.rec.state == SERVER_READY).map(|c| c.key).collect();
+    let managed: Vec<String> = all(app).into_iter().filter(|c| !c.by_address() && c.rec.managed && c.rec.state == ServerState::Ready).map(|c| c.key).collect();
     let dropped: Vec<String> = ACTIONS.with_borrow_mut(|a| {
         a.iter_mut()
             .filter_map(|(key, slot)| {
@@ -339,7 +338,7 @@ pub fn cover(app: &App, p: &crate::palette::Pal) -> Option<rune::El> {
         crate::Route::Draft(id) => (app.tabs.iter().find(|t| t.id == *id)?.server.clone(), id.clone()),
         crate::Route::Home => return None,
     };
-    let c = all(app).into_iter().find(|c| !c.by_address() && c.key == server.as_str() && c.rec.state != SERVER_READY)?;
+    let c = all(app).into_iter().find(|c| !c.by_address() && c.key == server.as_str() && c.rec.state != ServerState::Ready)?;
     super::luau::surfaces::server_cover(app, p, &c.key, &c.rec, &tab)
 }
 
@@ -348,11 +347,5 @@ pub fn row(app: &App, p: &crate::palette::Pal, c: &Contributed) -> Option<rune::
     if c.by_address() {
         return crate::servers::list().into_iter().find(|s| s.url == c.key).map(|s| crate::settings::pages::servers::http_row(p, &s));
     }
-    if c.slot == usize::MAX {
-        return super::luau::surfaces::server_row(app, p, &c.key, &c.rec);
-    }
-    let (i, rec) = active(&app.plugins, kinds::SERVER).find(|(s, r)| *s == c.slot && r.id == c.rec.source)?;
-    let render = rec.render.as_ref()?;
-    let props = super::render::Props::new(opencode_plugin::abi::SURFACE_SERVER_ROW, &c.rec.id);
-    super::render::surface(app, i, render, &props, p).ok().flatten()
+    super::luau::surfaces::server_row(app, p, &c.key, &c.rec)
 }

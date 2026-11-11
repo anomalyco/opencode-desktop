@@ -4,8 +4,6 @@
 //! - **Two hosts.** A window's [`Host`] (`WindowPluginHost`, in each window's `PluginHost`) runs
 //!   every plugin's window half, `init.luau`; the process's `AppPluginHost` ([`app_half`]) runs
 //!   each `app.luau` once, polled once per tick whatever the number of windows.
-//! - **Beside the native host.** Discovery takes folders whose `plugin.toml` names a `contract`;
-//!   the native host keeps the others, so ported built-ins move over one by one.
 //! - **Loading** ([`sources`]): disk first (`--plugin-dir`, overrides, the app's folder, a
 //!   debug build's repository), then the copy built into the binary; a third-party plugin waits
 //!   for a one-time OK ([`trust`]) keyed by its files' SHA-256. `require` follows Luau's rules
@@ -238,7 +236,7 @@ pub fn setup(app: &mut App, waker: rune::Waker) {
     }
     app.plugins.luau.started = true;
     let builtins: Vec<&str> = sources::builtin_ids().collect();
-    let mut seen: Vec<String> = app.plugins.slots.iter().map(|s| s.manifest.id.clone()).collect();
+    let mut seen: Vec<String> = Vec::new();
     for found in sources::discover() {
         let id = found.manifest.id.clone();
         let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
@@ -493,7 +491,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     app.plugins.luau.clock.set(now);
     if app.plugins.luau.synced.get() != epoch() {
         app.plugins.luau.synced.set(epoch());
-        crate::plugin_host::contrib_sync_luau(app);
+        crate::plugin_host::contrib::sync(app);
     }
     changed
 }

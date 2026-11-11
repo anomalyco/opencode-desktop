@@ -180,8 +180,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     let picture = super::image::showing(ws, path);
     let mut out = col().key("files-code-area").grow(1.0).min_w(0.0).min_h(0.0).w_full();
     // A plugin's file viewer (`FileViewer`) shows the kinds of file it takes.
-    let text = doc.filter(|d| d.ready() && !d.missing() && !d.binary()).map_or("", |d| d.text());
-    let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path, text);
+    let plugin_view = crate::plugin_host::file_viewer(s, p, session_id, &s.link_directory(session_id), path);
     // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
     // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
     // `ArtifactToolbar`.

@@ -1,30 +1,23 @@
-//! Processes plugins start (`HostApiVtable::process_spawn`), supervised by the host: each runs
-//! with its window hidden, is killed when its plugin unloads or swaps, and on Windows sits in a
-//! job object that kills it when the app exits however it does (a crash included).
+//! Processes plugins start (`Process:Spawn`, `Process:RunAsync`), supervised by the host: each
+//! runs with its window hidden, is killed when its plugin stops or reloads, and on Windows sits
+//! in a job object that kills it when the app exits however it does (a crash included).
 //!
 //! The app's thread only queues a spawn: a long-lived supervisor thread starts the process and
 //! the threads that read its output and wait for it, so no thread starts on the app's thread
 //! (on Windows that runs every library's thread-attach code under the loader lock). Output and
-//! the exit land in an inbox and wake the plugin's slot; `drain` hands them to the plugin's
-//! callback on the half that spawned it. A process at rest costs the app's thread nothing.
+//! the exit go to the sink the Luau `Process` service passed, which wakes the window. A process
+//! at rest costs the app's thread nothing.
 //!
 //! Each process's life is one explicit machine ([`Life`]) behind one lock that the app's thread
 //! (a kill), the timeout thread and the supervisor's threads (start, exit) all step.
+// Windows job objects and process handles; each block says what it relies on.
+#![allow(unsafe_code)]
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-
-use opencode_plugin::abi::{AbiEvent, AbiStr, EVENT_PROCESS_EXIT, EVENT_PROCESS_OUTPUT};
-use rune::Tx;
-
-use super::instance::{CallbackEnv, Scope};
-use super::run::act;
-use super::vtable::{WakeShared, slot_bit};
-use crate::App;
 
 /// What a plugin asked to start.
 pub struct Spec {
@@ -47,7 +40,6 @@ pub enum Encoding {
     Utf8,
     Utf16Le,
 }
-
 /// Why a process that ended was stopped, when it was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum End {
@@ -106,14 +98,6 @@ impl Life {
     }
 }
 
-/// One running process, on the app's thread: whose callback hears it.
-struct Proc {
-    slot: usize,
-    generation: u32,
-    scope: Scope,
-    events: CallbackEnv,
-    ctl: Arc<Ctl>,
-}
 
 /// What the supervisor's threads and the app's thread share about one process.
 struct Ctl {
@@ -127,114 +111,8 @@ impl Default for Ctl {
     }
 }
 
-enum Msg {
-    Out { stream: u8, text: String },
-    Exit { code: Option<i64>, error: String },
-}
-
-/// The plugins' processes and the inbox their threads fill.
-#[derive(Default)]
-pub struct Processes {
-    next: u32,
-    table: HashMap<u32, Proc>,
-    inbox: Arc<Mutex<Vec<(u32, Msg)>>>,
-}
-
-impl Processes {
-    /// Queues `spec` for slot `slot`'s `scope` half; `events` hears it. The handle.
-    pub fn spawn(&mut self, slot: usize, generation: u32, scope: Scope, spec: Spec, events: CallbackEnv, wake: &Arc<WakeShared>) -> u32 {
-        self.next = self.next.wrapping_add(1).max(1);
-        let handle = self.next;
-        let ctl = Arc::new(Ctl::default());
-        self.table.insert(handle, Proc { slot, generation, scope, events, ctl: ctl.clone() });
-        let (inbox, wake2, bit) = (self.inbox.clone(), wake.clone(), slot_bit(slot));
-        let sink: Sink = Arc::new(move |msg| {
-            if let Ok(mut inbox) = inbox.lock() {
-                inbox.push((handle, msg));
-            }
-            wake2.wake(bit, false);
-        });
-        let job = Job { spec, ctl, sink };
-        let sent = supervisor().lock().ok().is_some_and(|tx| tx.send(job).is_ok());
-        if !sent {
-            if let Ok(mut inbox) = self.inbox.lock() {
-                inbox.push((handle, Msg::Exit { code: None, error: "the process supervisor isn't running".into() }));
-            }
-            wake.wake(slot_bit(slot), false);
-        }
-        handle
-    }
-
-    /// Writes to slot `slot`'s process `handle`'s stdin, closing it after when `close`.
-    pub fn write(&self, slot: usize, handle: u32, bytes: &[u8], close: bool) -> bool {
-        let Some(p) = self.table.get(&handle).filter(|p| p.slot == slot) else { return false };
-        let Ok(mut stdin) = p.ctl.stdin.lock() else { return false };
-        let ok = stdin.as_mut().is_some_and(|s| s.write_all(bytes).and_then(|()| s.flush()).is_ok());
-        if close {
-            *stdin = None;
-        }
-        ok
-    }
-
-    /// Kills slot `slot`'s process `handle`.
-    pub fn kill(&self, slot: usize, handle: u32) {
-        if let Some(p) = self.table.get(&handle).filter(|p| p.slot == slot) {
-            p.ctl.step(LifeEvent::Stop(End::Killed));
-        }
-    }
-
-    /// Kills every process of slot `slot` whose generation `gone` picks: the plugin unloaded,
-    /// failed, or swapped. Their exits are dropped with them.
-    pub fn reap(&mut self, slot: usize, gone: impl Fn(u32) -> bool) {
-        self.table.retain(|_, p| {
-            let gone = p.slot == slot && gone(p.generation);
-            if gone {
-                p.ctl.step(LifeEvent::Stop(End::Killed));
-            }
-            !gone
-        });
-    }
-
-}
-
-/// Hands every queued output and exit to its plugin's callback. Nothing queued costs one lock.
-pub fn drain(app: &mut App, tx: &mut Tx) -> bool {
-    let queued = match app.plugins.shared.processes.inbox.lock() {
-        Ok(mut inbox) if !inbox.is_empty() => std::mem::take(&mut *inbox),
-        _ => return false,
-    };
-    let mut changed = false;
-    let view = |s: &str| AbiStr { ptr: s.as_ptr(), len: s.len(), _lt: std::marker::PhantomData };
-    for (handle, msg) in queued {
-        let Some(p) = app.plugins.shared.processes.table.get(&handle) else { continue };
-        let how = match p.ctl.end() {
-            None => 0u8,
-            Some(End::TimedOut) => 1,
-            Some(End::Killed) => 2,
-        };
-        let (slot, generation, scope, cb) = (p.slot, p.generation, p.scope, p.events.cb);
-        let (kind, text, extra, x, y, ended) = match msg {
-            Msg::Out { stream, text } => (EVENT_PROCESS_OUTPUT, text, String::new(), f32::from(stream), 0.0, false),
-            Msg::Exit { code, error } => (EVENT_PROCESS_EXIT, code.map(|c| c.to_string()).unwrap_or_default(), error, 0.0, f32::from(how), true),
-        };
-        if let Some(func) = cb.func {
-            let event = AbiEvent { kind, mods: handle, x, y, text: view(&text), extra: view(&extra) };
-            // SAFETY: the plugin's own callback with its data, on the state of the generation that
-            // spawned it; the event's strings outlive the call.
-            if let super::run::Ran::Done(_, c) = act(app, tx, slot, scope, Some(generation), |state, ctx| unsafe { func(state, ctx, cb.data, &event) }) {
-                changed |= c;
-            }
-        }
-        if ended {
-            app.plugins.shared.processes.table.remove(&handle);
-        }
-    }
-    changed
-}
-
 /// Where a process's output and exit go.
-type Sink = Arc<dyn Fn(Msg) + Send + Sync>;
-
+type Sink = Arc<dyn Fn(Event) + Send + Sync>;
 struct Job {
     spec: Spec,
     ctl: Arc<Ctl>,
@@ -242,12 +120,11 @@ struct Job {
 }
 
 impl Job {
-    fn send(&self, msg: Msg) {
-        (self.sink)(msg);
+    fn send(&self, event: Event) {
+        (self.sink)(event);
     }
 }
-
-/// A process started for the Luau host: write to it, kill it, ask whether it runs.
+/// A started process: write to it, kill it, ask whether it runs.
 #[derive(Clone)]
 pub struct Control(Arc<Ctl>);
 
@@ -276,7 +153,7 @@ impl Control {
     }
 }
 
-/// What a process sends the Luau host.
+/// What a process sends its sink.
 pub enum Event {
     Output { stream: u8, text: String },
     Exit { code: Option<i64>, error: String },
@@ -286,19 +163,13 @@ pub enum Event {
 /// `sink` hears its output and exit on the supervisor's threads.
 pub fn launch(spec: Spec, sink: impl Fn(Event) + Send + Sync + 'static) -> Control {
     let ctl = Arc::new(Ctl::default());
-    let sink: Sink = Arc::new(move |msg| {
-        sink(match msg {
-            Msg::Out { stream, text } => Event::Output { stream, text },
-            Msg::Exit { code, error } => Event::Exit { code, error },
-        })
-    });
+    let sink: Sink = Arc::new(sink);
     let job = Job { spec, ctl: ctl.clone(), sink: sink.clone() };
     if !supervisor().lock().ok().is_some_and(|tx| tx.send(job).is_ok()) {
-        sink(Msg::Exit { code: None, error: "the process supervisor isn't running".into() });
+        sink(Event::Exit { code: None, error: "the process supervisor isn't running".into() });
     }
     Control(ctl)
 }
-
 fn supervisor() -> &'static Mutex<Sender<Job>> {
     static TX: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
     TX.get_or_init(|| {
@@ -325,7 +196,7 @@ fn start(job: Job) {
     let spec = &job.spec;
     if job.ctl.life.lock().is_ok_and(|l| matches!(*l, Life::Cancelled(_))) {
         job.ctl.step(LifeEvent::Exited);
-        return job.send(Msg::Exit { code: None, error: String::new() });
+        return job.send(Event::Exit { code: None, error: String::new() });
     }
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -344,7 +215,7 @@ fn start(job: Job) {
         Ok(c) => c,
         Err(e) => {
             job.ctl.step(LifeEvent::Exited);
-            return job.send(Msg::Exit { code: None, error: format!("{}: {e}", spec.program) });
+            return job.send(Event::Exit { code: None, error: format!("{}: {e}", spec.program) });
         }
     };
     platform::adopt(&child);
@@ -406,11 +277,11 @@ fn start(job: Job) {
             *stdin = None;
         }
         if let Some(text) = log.map(|l| l.take(waiter.spec.encoding)).filter(|t| !t.is_empty()) {
-            waiter.send(Msg::Out { stream: 2, text });
+            waiter.send(Event::Output { stream: 2, text });
         }
         let msg = match status {
-            Ok(s) => Msg::Exit { code: s.code().map(i64::from), error: String::new() },
-            Err(e) => Msg::Exit { code: None, error: e.to_string() },
+            Ok(s) => Event::Exit { code: s.code().map(i64::from), error: String::new() },
+            Err(e) => Event::Exit { code: None, error: e.to_string() },
         };
         waiter.send(msg);
     });
@@ -461,14 +332,14 @@ fn read(mut pipe: Box<dyn Read + Send>, stream: u8, job: &Job) {
             Ok(n) => {
                 let text = decoder.decode(&buf[..n]);
                 if !text.is_empty() {
-                    job.send(Msg::Out { stream, text });
+                    job.send(Event::Output { stream, text });
                 }
             }
         }
     }
     let rest = decoder.flush();
     if !rest.is_empty() {
-        job.send(Msg::Out { stream, text: rest });
+        job.send(Event::Output { stream, text: rest });
     }
 }
 

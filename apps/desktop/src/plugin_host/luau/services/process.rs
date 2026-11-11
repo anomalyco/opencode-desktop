@@ -1,4 +1,4 @@
-//! `Process`: programs a plugin starts, supervised by the host as native plugins' are (window
+//! `Process`: programs a plugin starts, supervised by the host (`plugin_host::process`: window
 //! hidden, in the app's job object, killed when the plugin goes). `Spawn` returns a handle whose
 //! `Output` and `Exited` signals fire as its threads report; `RunAsync` waits for the whole run.
 

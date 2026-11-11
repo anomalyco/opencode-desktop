@@ -177,7 +177,7 @@ const PLUGIN: &str = "app-menu-plugin-";
 /// The menu as it stands: a command's item is disabled while the command can't run. Plugins'
 /// items follow each submenu's own, after a separator.
 fn menu(s: &App) -> Menu {
-    let plugin_items = crate::plugin_host::menubar_items(s);
+    let plugin_items = crate::plugin_host::menubar_items();
     let menus = MENUS.iter().enumerate().map(|(m, (name, title, rows))| {
         let title = opencode_i18n::I18N.text(*title);
         let sub = rows.iter().enumerate().fold(Menu::new(title), |menu, (r, row)| match row {

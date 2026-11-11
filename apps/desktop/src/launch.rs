@@ -572,7 +572,6 @@ impl App {
         self.opening = None;
         self.route = Route::Home;
         crate::servers::runtime::switch(self, key);
-        self.plugins.forget_reads();
     }
 
     /// Attachments and markdown images read through the server, so a window that opens with

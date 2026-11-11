@@ -8,8 +8,7 @@
 //! | Embedded | Built into the binary (`build.rs`): a built-in no folder has | Trusted |
 //! | User | `<data>/plugins/<id>/` | Asks once; can't take a built-in's id |
 //!
-//! A folder is a Luau plugin when its `plugin.toml` names a `contract`; the native host takes
-//! the others. Files on disk win over the embedded copy, so a built-in's `.luau` files can be
+//! Files on disk win over the embedded copy, so a built-in's `.luau` files can be
 //! read and edited where they're installed, and save-to-reload works on them.
 
 use std::collections::BTreeMap;
@@ -18,7 +17,31 @@ use std::path::{Path, PathBuf};
 use opencode_plugin_spec::{Compat, ContractVersion, Manifest};
 use sha2::{Digest, Sha256};
 
-pub use super::super::manifest::Tier;
+/// Where a plugin comes from, highest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Tier {
+    Dev,
+    Override,
+    Bundled,
+    User,
+}
+
+impl Tier {
+    /// Whether it waits for the user's OK before it first runs: anything that isn't shipped with
+    /// the app or named on the command line.
+    pub fn needs_trust(self) -> bool {
+        matches!(self, Self::Override | Self::User)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dev => "Dev",
+            Self::Override => "Override",
+            Self::Bundled => "Built-in",
+            Self::User => "Installed",
+        }
+    }
+}
 
 mod embedded {
     include!(concat!(env!("OUT_DIR"), "/luau_builtins.rs"));
@@ -37,11 +60,6 @@ pub struct Found {
     pub origin: Origin,
     pub tier: Tier,
     pub error: Option<String>,
-}
-
-/// Whether `toml` is a Luau plugin's manifest: one that names a `contract`.
-pub fn is_luau(toml: &str) -> bool {
-    toml.parse::<toml_edit::DocumentMut>().is_ok_and(|doc| doc.get("contract").is_some())
 }
 
 /// Reads and checks a manifest against the contract this host implements.
@@ -110,9 +128,6 @@ fn scan(tier: Tier, dir: &Path) -> Vec<Found> {
 
 fn read(tier: Tier, dir: &Path) -> Option<Found> {
     let src = std::fs::read_to_string(dir.join("plugin.toml")).ok()?;
-    if !is_luau(&src) {
-        return None;
-    }
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let origin = Origin::Dir(dir.to_owned());
     Some(match parse(&src) {
@@ -180,12 +195,11 @@ pub fn relative(root: &Path, path: &Path) -> Option<String> {
 }
 
 /// Whether a plugin runs from the file at `rel`: its manifest, Luau modules, `.luaurc`,
-/// `locales/*.json` catalogs and `icons/*.svg` icons, outside hidden folders and a native
-/// plugin's `src/`, `impl/` and `target/`.
+/// `locales/*.json` catalogs and `icons/*.svg` icons, outside hidden folders.
 pub fn kept(rel: &str) -> bool {
     let mut parts: Vec<&str> = rel.split('/').collect();
     let Some(name) = parts.pop() else { return false };
-    if parts.iter().any(|d| d.starts_with('.') || matches!(*d, "target" | "src" | "impl")) {
+    if parts.iter().any(|d| d.starts_with('.')) {
         return false;
     }
     let under = |dir: &str, ext: &str| parts.last() == Some(&dir) && name.ends_with(ext);

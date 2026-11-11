@@ -3279,7 +3279,6 @@ dependencies = [
  "office-preview",
  "opencode-i18n",
  "opencode-kit",
- "opencode-plugin",
  "opencode-plugin-spec",
  "otlp-lite",
  "procwatch",
@@ -3323,41 +3322,6 @@ dependencies = [
  "serde_json",
  "tungstenite",
  "ureq",
-]
-
-[[package]]
-name = "opencode-plugin"
-version = "0.1.0-experimental"
-
-[[package]]
-name = "opencode-plugin-echo"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-hello-api",
-]
-
-[[package]]
-name = "opencode-plugin-hello"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-hello-impl",
-]
-
-[[package]]
-name = "opencode-plugin-hello-api"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
-]
-
-[[package]]
-name = "opencode-plugin-hello-impl"
-version = "0.1.0"
-dependencies = [
- "opencode-plugin",
- "opencode-plugin-hello-api",
 ]
 
 [[package]]

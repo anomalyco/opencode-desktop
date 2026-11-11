@@ -29,8 +29,8 @@ fn main() {
     }
 }
 
-/// The built-in Luau plugins (`plugins/<id>/` whose plugin.toml names a `contract`), embedded
-/// file by file as `luau_builtins.rs`: the fallback when no folder on disk has them.
+/// The built-in plugins (every `plugins/<id>/` with a `plugin.toml`), embedded file by file as
+/// `luau_builtins.rs`: the fallback when no folder on disk has them.
 fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     use std::fmt::Write as _;
     let root = manifest_dir.join("../../plugins");
@@ -40,8 +40,7 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     dirs.sort();
     for dir in dirs {
         let toml = dir.join("plugin.toml");
-        let Ok(text) = std::fs::read_to_string(&toml) else { continue };
-        if !text.lines().any(|l| l.trim_start().starts_with("contract")) {
+        if !toml.is_file() {
             continue;
         }
         let id = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -65,7 +64,7 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         for path in std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()) {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if path.is_dir() {
-                if name != "src" && name != "impl" && name != "target" {
+                if !name.starts_with('.') {
                     walk(root, &path, out);
                 }
                 continue;

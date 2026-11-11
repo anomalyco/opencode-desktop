@@ -86,8 +86,7 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
     let sid = info.map(|i| i.id.as_str()).unwrap_or("");
     // The actions: the Find bar and the plugins' `session.header` slots, 8 apart, 6 after the
     // title (`.session-header-actions`).
-    let flags = opencode_plugin::abi::RENDER_ACTIVE | if compact { opencode_plugin::abi::RENDER_COMPACT } else { 0 };
-    let slots = if info.is_some() { crate::plugin_host::slot_with(s, p, "session.header", sid, flags) } else { Vec::new() };
+    let slots = if info.is_some() { crate::plugin_host::slot_with(s, p, "session.header", sid, true, compact) } else { Vec::new() };
     let actions = row()
         .key("header-actions")
         .ml(6.0)

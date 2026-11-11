@@ -7,7 +7,7 @@
 use opencode_kit::servers::plugin_server::{PluginStage, PluginStatus};
 use opencode_kit::servers::registry::{server_hint, server_label};
 use opencode_kit::servers::{HttpBase, ServerConn, ServerKey};
-use opencode_plugin::abi;
+use opencode_plugin_spec::ServerState;
 
 use crate::App;
 
@@ -41,18 +41,18 @@ pub fn list(s: &App) -> Vec<Entry> {
     }
     for c in crate::plugin_host::contributed_servers(s).into_iter().filter(|c| !c.by_address() && c.rec.listed) {
         let status = match c.rec.state {
-            abi::SERVER_READY if !c.rec.url.is_empty() => {
+            ServerState::Ready if !c.rec.url.is_empty() => {
                 let mut http = HttpBase::new(&c.rec.url);
                 if !c.rec.password.is_empty() {
                     http = http.with_password(&c.rec.password);
                 }
                 PluginStatus::Ready { http }
             }
-            abi::SERVER_STARTING => PluginStatus::Stage(PluginStage::Starting),
-            abi::SERVER_AUTH => PluginStatus::Stage(PluginStage::Auth),
-            abi::SERVER_INCOMPATIBLE => PluginStatus::Stage(PluginStage::Incompatible),
-            abi::SERVER_FAILED | abi::SERVER_READY => PluginStatus::Stage(PluginStage::Failed),
-            _ => PluginStatus::Stage(PluginStage::Stopped),
+            ServerState::Starting => PluginStatus::Stage(PluginStage::Starting),
+            ServerState::Auth => PluginStatus::Stage(PluginStage::Auth),
+            ServerState::Incompatible => PluginStatus::Stage(PluginStage::Incompatible),
+            ServerState::Failed | ServerState::Ready => PluginStatus::Stage(PluginStage::Failed),
+            ServerState::Stopped => PluginStatus::Stage(PluginStage::Stopped),
         };
         let label = (!c.rec.label.is_empty()).then(|| c.rec.label.clone());
         let plugin = c.key.split(':').next().unwrap_or_default().to_owned();

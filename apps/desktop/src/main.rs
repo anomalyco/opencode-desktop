@@ -441,7 +441,7 @@ pub struct App {
     pub tool_open: Option<tool_open::Opened>,
     pub terminal: terminal::TerminalPane,
     pub rune_mcp: rune_mcp::WindowMcp,
-    /// Native plugins over the C ABI: their panels, commands and settings rows (`plugin_host`).
+    /// The plugins: their panels, commands, menus, settings and MCP tools (`plugin_host`).
     pub plugins: plugin_host::PluginHost,
     /// The server the window works against now and its halves of the others (`servers::runtime`).
     pub checkout: servers::runtime::Checkout,

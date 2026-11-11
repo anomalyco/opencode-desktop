@@ -3,8 +3,8 @@
 //! ([`Hot`]) and a cached server read ([`Ticket`]). The host carries the effects out; nothing
 //! here touches the app.
 //!
-//! Official Desktop has no machine for these (its GUI plugins load as code bundled with the app);
-//! the native host's `lifecycle.rs` is the model for [`Life`].
+//! Official Desktop's main-process plugin host keeps a plugin's life in `lifecycle-machine.ts`;
+//! trust and hot reload have no Desktop counterpart.
 
 use std::rc::Rc;
 

@@ -27,8 +27,8 @@ pub fn note_error() {
 
 /// Renders `f(view, props)` of plugin `i` as surface `surface`, entering the VM only when the
 /// script ran, the props, the theme or what the render read last time changed. A shell slot
-/// whose render fails draws nothing, as the native host's do, and isn't run again until the
-/// plugin reloads; the console has the error. Other surfaces show the error card with Reload.
+/// whose render fails draws nothing and isn't run again until the plugin reloads; the console
+/// has the error. Other surfaces show the error card with Reload.
 pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: Data) -> El {
     let plugin = &app.plugins.luau.plugins[i];
     let Some(script) = plugin.script() else { return el() };
@@ -331,7 +331,7 @@ pub fn dialog_view(app: &App, p: &Pal) -> Vec<El> {
 
 /// A Luau server source's entry `rec` (key `key`), as its window half's `row` draws it in
 /// Settings › Servers, with its latest health check.
-pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec) -> Option<El> {
+pub fn server_row(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::ServerRec) -> Option<El> {
     let plugin = key.split_once(':')?.0;
     let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
         (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("row").cloned())).flatten().map(|f| (i, f))
@@ -357,7 +357,7 @@ pub fn health_data(health: Option<&opencode_kit::servers::health::Health>) -> Da
 /// A Luau server source's cover over tab `tab` of its entry `rec` (key `key`), which isn't ready
 /// (`PluginServerCover`): its window half's `cover`, filling the tab's area. None when the
 /// source draws none.
-pub fn server_cover(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::instance::ServerRec, tab: &str) -> Option<El> {
+pub fn server_cover(app: &App, p: &Pal, key: &str, rec: &crate::plugin_host::ServerRec, tab: &str) -> Option<El> {
     let plugin = key.split_once(':')?.0;
     let (i, f) = app.plugins.luau.running().find_map(|(i, pl)| {
         (pl.manifest.id == plugin).then(|| pl.half.contribs.borrow().server_sources.iter().find(|c| c.spec.id == rec.source).and_then(|c| c.f("cover").cloned())).flatten().map(|f| (i, f))

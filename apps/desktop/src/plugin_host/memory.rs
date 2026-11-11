@@ -1,9 +1,9 @@
-//! The app process's memory for plugins (`TEXT_MEMORY`): what the OS counts and what the app's
-//! counting allocator holds, which every plugin library allocates on too.
+//! The app process's memory for `Diagnostics:Memory`: what the OS counts and what the app's
+//! counting allocator holds.
 
 use serde_json::{Value, json};
 
-/// The report as JSON (see `opencode_plugin::abi::TEXT_MEMORY`).
+/// The report as JSON: `footprint`, `footprintPeak`, `resident` and `heap`.
 pub fn report() -> String {
     let usage = procwatch::usage();
     let heap = procwatch::alloc::heap().map_or(Value::Null, |h| {

@@ -3,6 +3,8 @@
 //! (open a panel, show a toast) it queues with [`ask`], and the host carries the queue out with
 //! `&mut App` and the transaction as soon as the entry returns ([`super::requests::carry_out`]).
 //! A render also records what it read ([`read`]), so the host knows when to run it again.
+// The app pointer a binding reads is set and cleared around each entry; each block says why.
+#![allow(unsafe_code)]
 
 use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};

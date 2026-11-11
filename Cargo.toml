@@ -8,7 +8,6 @@ members = [
     "crates/office-preview",
     "crates/opencode-i18n",
     "crates/opencode-kit",
-    "crates/opencode-plugin",
     "crates/opencode-plugin-spec",
     "crates/opencode-storage",
     "crates/otlp-lite",
@@ -17,10 +16,6 @@ members = [
     "crates/session-view",
     "crates/terminal",
     "crates/win-install",
-    "plugins/echo",
-    "plugins/hello",
-    "plugins/hello/api",
-    "plugins/hello/impl",
 ]
 exclude = ["apps/browser-engine"]
 
