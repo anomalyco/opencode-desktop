@@ -30,6 +30,8 @@ struct Boot {
     /// The process's creation time (FILETIME, 100 ns since 1601), so a bench can line its own
     /// clock up with the marks.
     created: u64,
+    /// Page faults (soft and hard) before `main`'s first line: the loader and static initialisers.
+    faults: u32,
 }
 
 static BOOT: OnceLock<Boot> = OnceLock::new();
@@ -45,6 +47,7 @@ struct Io {
     write_ops: u64,
     write_bytes: u64,
     other_ops: u64,
+    faults: u32,
 }
 
 impl Io {
@@ -59,7 +62,7 @@ pub fn begin() {
     BOOT.get_or_init(|| {
         let at = Instant::now();
         let (created, now) = process_clock();
-        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created }
+        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults() }
     });
     mark("main.entered");
     #[cfg(target_os = "windows")]
@@ -185,6 +188,7 @@ pub fn finish(windows: usize) {
         "renderer": RENDERER.get().copied().unwrap_or("default"),
         "windows": windows,
         "ui_tid": ui_thread(),
+        "page_faults": { "main": boot.faults, "first_frame": FIRST_IO.get().map(|(io, _)| io.faults), "exit": page_faults() },
         "io_first_frame": FIRST_IO.get().map(|(io, _)| io.json()),
         "io_exit": io_counters().json(),
         "io": io_calls(&ns),
@@ -258,12 +262,32 @@ fn io_counters() -> Io {
         GetProcessIoCounters(GetCurrentProcess(), &mut c);
         c
     };
-    Io { read_ops: c.ReadOperationCount, read_bytes: c.ReadTransferCount, write_ops: c.WriteOperationCount, write_bytes: c.WriteTransferCount, other_ops: c.OtherOperationCount }
+    Io { read_ops: c.ReadOperationCount, read_bytes: c.ReadTransferCount, write_ops: c.WriteOperationCount, write_bytes: c.WriteTransferCount, other_ops: c.OtherOperationCount, faults: page_faults() }
 }
 
 #[cfg(not(target_os = "windows"))]
 fn io_counters() -> Io {
     Io::default()
+}
+
+/// This process's page faults so far, soft and hard (`GetProcessMemoryInfo`).
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn page_faults() -> u32 {
+    use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: a PROCESS_MEMORY_COUNTERS this frame owns, sized for the call.
+    unsafe {
+        let mut c: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb);
+        c.PageFaultCount
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn page_faults() -> u32 {
+    0
 }
 
 /// This process's live threads and their names (`SetThreadDescription`, which Rust's named threads

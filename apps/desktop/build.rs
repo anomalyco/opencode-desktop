@@ -13,8 +13,10 @@ fn main() {
     }
     // A release build is a windowed program: no console window opens beside it from the Start
     // menu, a link or a toast (`launch::attach_console` still prints to a terminal that starts
-    // it). Development builds keep their console for logs.
-    if env("OPENCODE_RUNE_BUILD_CHANNEL").is_some_and(|c| c != "local") {
+    // it), and no console host starts with it (about 17,000 µs per launch on blade). A local
+    // `--release` build is one too, so what it measures is what ships. Debug builds keep their
+    // console for logs.
+    if env("OPENCODE_RUNE_BUILD_CHANNEL").is_some_and(|c| c != "local") || env("PROFILE").as_deref() == Some("release") {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/SUBSYSTEM:WINDOWS");
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/ENTRY:mainCRTStartup");
     }
