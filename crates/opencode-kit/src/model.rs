@@ -12,6 +12,7 @@ mod compaction;
 mod inbox;
 mod notice;
 mod pending;
+pub mod preview;
 mod tool;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, set_user_files, user_files};

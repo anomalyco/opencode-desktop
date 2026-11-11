@@ -111,3 +111,26 @@ pub struct FlushReport {
     /// The deadline passed before the writer answered.
     pub timed_out: bool,
 }
+
+/// The legacy files, in the groups the app's packages cut over one at a time. A group's files
+/// are imported, verified and retired only once the running build names the group
+/// (`ImportConfig::groups`), and never looked at again once its flag is set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ImportGroup {
+    /// The window list, windows, frames, the shared app files, settings, history and small prefs.
+    App,
+    /// `plugins-state.json` and `plugins-state\<id>.json`.
+    Plugins,
+    /// `outbox-<sha>.json`.
+    Outbox,
+    /// `terminals.json`.
+    Terminal,
+    /// The updater's `ready` and `rollout-bucket`.
+    Updater,
+    /// `browser-zoom.json`.
+    Browser,
+}
+
+impl ImportGroup {
+    pub const ALL: [ImportGroup; 6] = [ImportGroup::App, ImportGroup::Plugins, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser];
+}

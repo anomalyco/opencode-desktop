@@ -10,6 +10,7 @@
 
 mod doc;
 mod parked;
+mod preview;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -76,6 +77,7 @@ pub struct Restore {
     stamp: Option<u64>,
     /// Whether the window has what the boot didn't hold: its closed tabs and other drafts.
     hydration: Hydration,
+    previews: preview::Previews,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.
@@ -172,9 +174,8 @@ impl App {
                     && let Route::Session { server: on, id } = &route
                     && *on == own
                     && !self.transcripts.contains_key(id)
-                    && let Some(messages) = crate::session_pages::load_cached_latest(server, id)
+                    && self.take_boot_preview(on, id)
                 {
-                    self.transcripts.insert(id.clone(), opencode_kit::model::Transcript { session: id.clone(), messages });
                     self.launch.cold_transcript = Some(id.clone());
                 }
                 self.route = route;
@@ -280,6 +281,7 @@ impl App {
         self.close_rune_mcp();
         if self.persists() {
             self.poll_restore();
+            self.poll_preview(true);
             self.queue_terminal_save();
         }
         self.window_closed();
@@ -294,6 +296,7 @@ impl App {
     pub fn save_on_quit(&mut self) {
         if self.persists() {
             self.poll_restore();
+            self.poll_preview(true);
             self.queue_terminal_save();
         }
         self.window_quitting();

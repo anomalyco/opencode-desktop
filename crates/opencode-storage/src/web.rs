@@ -604,3 +604,49 @@ fn collect(web: &Rc<RefCell<Web>>, attempt: rune::machine::Attempt, at_ms: i64, 
         gc_run(&web, effects.into_iter().collect());
     });
 }
+
+/// The browser's stores need no configuration: [`StorageConfig::app`] is the one way to ask for them.
+pub struct StorageConfig(());
+
+impl StorageConfig {
+    /// The app's storage ([`crate::AppStorage`]): in the browser, its own stores; the folders
+    /// and the import mean nothing here.
+    pub fn app(_app: crate::AppStorage) -> Option<StorageConfig> {
+        Some(StorageConfig(()))
+    }
+}
+
+/// The open, as the native backend stages it: here it's done at once (the state is read from
+/// `localStorage` synchronously), so the boot packet and the storage are both ready.
+pub struct Opening {
+    boot: crate::BootPacket,
+    ready: Option<(Storage, BootReport)>,
+}
+
+impl Opening {
+    pub fn boot(&self) -> crate::BootPacket {
+        self.boot.clone()
+    }
+
+    pub fn try_storage(&mut self) -> Option<(Storage, BootReport)> {
+        self.ready.take()
+    }
+
+    pub fn storage(mut self) -> (Storage, BootReport) {
+        self.ready.take().unwrap_or_else(|| (Storage::memory(), BootReport { error: Some("the storage was taken already".into()), ..BootReport::default() }))
+    }
+}
+
+impl Storage {
+    /// [`Storage::open_web`], as an [`Opening`] whose packet is built from what it read.
+    pub fn open_async(_config: StorageConfig) -> Opening {
+        let (storage, report) = Storage::open_web();
+        let boot = crate::boot_packet::from_cache(&storage.cache());
+        Opening { boot, ready: Some((storage, report)) }
+    }
+}
+
+/// Desktop's databases aren't reachable from a browser.
+pub fn desktop_recent_tabs(_dirs: &[std::path::PathBuf]) -> Option<(serde_json::Value, serde_json::Value)> {
+    None
+}

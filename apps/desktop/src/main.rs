@@ -1239,6 +1239,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.show_draft();
     if s.persists() {
         s.poll_restore();
+        s.poll_preview(false);
         s.prompts.hydrate(s.waker.clone());
         s.poll_window();
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
@@ -1349,6 +1350,7 @@ fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
     status_toast::visibility(s, shown, tx);
     if !shown && s.persists() {
         s.poll_restore();
+        s.poll_preview(true);
         storage::flush(opencode_storage::FlushReason::Hide, false);
     }
 }

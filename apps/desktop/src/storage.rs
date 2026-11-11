@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
-use opencode_storage::{BootPacket, FlushReason, Lookup, Opening, Storage, WindowFrame};
+use opencode_storage::{AppStorage, BootPacket, FlushReason, ImportGroup, Lookup, Opening, Storage, StorageConfig, WindowFrame};
 use rune::Waker;
 use serde_json::Value;
 
@@ -81,6 +81,7 @@ struct Queued {
     docs: Vec<(String, Option<String>)>,
     frames: Vec<(String, WindowFrame)>,
     forgotten: Vec<String>,
+    previews: Vec<(String, String, Option<(i64, Arc<[u8]>)>)>,
 }
 
 impl Queued {
@@ -107,6 +108,9 @@ impl Queued {
         }
         for id in self.forgotten {
             s.windows().forget(&id);
+        }
+        for (server, session, value) in self.previews {
+            s.previews().set(&server, &session, value);
         }
     }
 }
@@ -160,22 +164,16 @@ pub fn start() {
 
 /// The database for a run with a person at it (or the harness standing in for one, under a
 /// scratch root); none keeps the run in memory.
-fn config() -> Option<opencode_storage::StorageConfig> {
-    use opencode_storage::native::{ImportConfig, ImportGroup};
+fn config() -> Option<StorageConfig> {
     if !crate::attended() || crate::arg("--fixture").is_some() || crate::demo::requested() {
         return None;
     }
-    let data = crate::dirs::data()?;
     let mut sidecar = vec![opencode_kit::client::DEFAULT_SERVER.to_owned()];
     sidecar.extend(crate::arg("--server"));
-    let context = opencode_kit::servers::migration::Context { sidecar, ..Default::default() };
-    let mut import = ImportConfig::new(&data).context(context).groups(&[ImportGroup::App]);
-    if let Some(updates) = crate::dirs::updates() {
-        import = import.updates_dir(updates);
-    }
-    Some(opencode_storage::StorageConfig::native(data.join("opencode.sqlite"), crate::wall_ms).import(import).official(crate::dirs::official()))
+    // Only the App group's files are imported: the plugin host, outbox, terminal, updater and
+    // browser still read theirs until their packages move them (the crate's staged import).
+    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: vec![ImportGroup::App], clock: crate::wall_ms })
 }
-
 /// The first window presented its first frame: stage B is joined off the UI thread.
 pub fn presented() {
     send(Event::TakeBoot);
@@ -368,6 +366,17 @@ pub fn window_rows(id: &str) -> BTreeMap<String, Arc<str>> {
             rows
         },
     )
+}
+
+/// The session preview the boot packet holds for `session` on `server` (each window's shown
+/// session, before the storage is ready): its `updated_at` and bytes.
+pub fn boot_preview(server: &str, session: &str) -> Option<(i64, Vec<u8>)> {
+    with(|_| None, |boot, _| boot.preview(server, session).map(|(at, b)| (at, b.to_vec())))
+}
+
+/// Keeps session `session`'s first-screen preview (written behind; unchanged writes nothing).
+pub fn set_preview(server: &str, session: &str, value: Option<(i64, Arc<[u8]>)>) {
+    with(|s| s.previews().set(server, session, value.clone()), |_, queued| queued.previews.push((server.to_owned(), session.to_owned(), value.clone())));
 }
 
 /// Lands every queued write. `wait`: block until it's durable (close, quit, session end), else

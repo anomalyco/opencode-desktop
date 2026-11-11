@@ -36,28 +36,10 @@ pub const FLAG_BROWSER: u32 = 128;
 /// A `retired-<date>` folder of imported files waits to be purged (`state(rune.storage, retired)`).
 pub const FLAG_RETIRED: u32 = 256;
 
-/// The legacy files, in the groups the app's packages cut over one at a time. A group's files
-/// are imported, verified and retired only once the running build names the group
-/// (`ImportConfig::groups`), and never looked at again once its flag is set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ImportGroup {
-    /// The window list, windows, frames, the shared app files, settings, history and small prefs.
-    App,
-    /// `plugins-state.json` and `plugins-state\<id>.json`.
-    Plugins,
-    /// `outbox-<sha>.json`.
-    Outbox,
-    /// `terminals.json`.
-    Terminal,
-    /// The updater's `ready` and `rollout-bucket`.
-    Updater,
-    /// `browser-zoom.json`.
-    Browser,
-}
+pub use crate::model::ImportGroup;
 
 impl ImportGroup {
-    pub const ALL: [ImportGroup; 6] = [ImportGroup::App, ImportGroup::Plugins, ImportGroup::Outbox, ImportGroup::Terminal, ImportGroup::Updater, ImportGroup::Browser];
-
+    /// The header flag recording that the group's files were imported and retired.
     pub fn flag(self) -> u32 {
         match self {
             ImportGroup::App => FLAG_APP,

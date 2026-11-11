@@ -17,11 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use boot::{BootReport, Opening};
-pub use boot_record::{BootPacket, BootSource};
 pub use import::{ImportConfig, ImportGroup};
 pub use schema::SCHEMA_VERSION;
 
-use crate::{Cmd, FlushReason, FlushReport, Loaded, Storage};
+use crate::{BootPacket, Cmd, FlushReason, FlushReport, Loaded, Storage};
 
 /// Where the database is and what the open needs. Only this type names paths.
 pub struct StorageConfig {
@@ -46,6 +45,17 @@ impl StorageConfig {
     pub fn import(mut self, import: ImportConfig) -> StorageConfig {
         self.import = Some(import);
         self
+    }
+
+    /// The app's database ([`crate::AppStorage`]); none without a data folder (state in memory).
+    pub fn app(app: crate::AppStorage) -> Option<StorageConfig> {
+        let data = app.data?;
+        let context = opencode_kit::servers::migration::Context { sidecar: app.sidecar, ..Default::default() };
+        let mut import = ImportConfig::new(&data).context(context).groups(&app.groups);
+        if let Some(updates) = app.updates {
+            import = import.updates_dir(updates);
+        }
+        Some(StorageConfig::native(data.join("opencode.sqlite"), app.clock).import(import).official(app.official))
     }
 
     /// Desktop's `userData` folders (`ai.opencode.desktop`, `.beta`, `.dev`) to seed a fresh
@@ -198,4 +208,12 @@ pub(crate) fn micros(since: Instant) -> u64 {
 
 pub(crate) fn shared(cache: crate::cache::Cache) -> Arc<Mutex<crate::cache::Cache>> {
     Arc::new(Mutex::new(cache))
+}
+
+/// The tabs (`tabs`, `tabs.info`) of the window Desktop wrote last, in the newest of its
+/// databases in `dirs` (its `userData` folders), read-only and in process. Feed them to
+/// `opencode_kit::servers::migration::window::from_beta`.
+pub fn desktop_recent_tabs(dirs: &[PathBuf]) -> Option<(serde_json::Value, serde_json::Value)> {
+    let (dir, _) = seed::pick(dirs)?;
+    seed::recent_tabs(&dir.join("drafts.sqlite"))
 }

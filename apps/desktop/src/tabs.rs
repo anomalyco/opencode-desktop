@@ -262,8 +262,7 @@ fn scope(server: &str) -> String {
 /// and in process (`opencode_storage::native::seed`): the newest of Desktop's databases (its
 /// production, Beta and Dev builds).
 pub fn from_beta() -> Option<Vec<Tab>> {
-    let (dir, _) = opencode_storage::native::seed::pick(&crate::dirs::official())?;
-    let (tabs, info) = opencode_storage::native::seed::recent_tabs(&dir.join("drafts.sqlite"))?;
+    let (tabs, info) = opencode_storage::desktop_recent_tabs(&crate::dirs::official())?;
     // Desktop's rows are already in the mixed-server shape; its own sidecar's tabs are this app's.
     let beta = opencode_kit::servers::migration::window::from_beta(&tabs, &info);
     let list = beta.tabs.iter().flatten().filter(|t| matches!(t, doc::Tab::Session(s) if s.server.is_sidecar())).map(|t| Tab::from_doc(t, beta.info(&t.key()))).collect();

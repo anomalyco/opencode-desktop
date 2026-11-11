@@ -11,6 +11,7 @@
 //! - **Flush hooks** ([`Storage::flush`]) land every queued row on hide, close, quit, session
 //!   end and update restart; a flush with nothing queued touches nothing.
 
+mod boot_packet;
 pub mod cache;
 pub mod chunk;
 pub mod machine;
@@ -24,18 +25,35 @@ pub mod web;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
+pub use boot_packet::{BootPacket, BootSource};
 pub use cache::Lookup;
-pub use model::{FlushReason, FlushReport, OutboxAttachment, OutboxRow, WindowFrame};
+pub use model::{FlushReason, FlushReport, ImportGroup, OutboxAttachment, OutboxRow, WindowFrame};
 pub use stores::{CacheStore, DocumentStore, OutboxStore, PluginStore, PreviewStore, StateStore, WindowStore};
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::{BootPacket, BootReport, BootSource, Opening, StorageConfig};
+// The same names on both targets: what differs is behind the backend.
 #[cfg(not(target_arch = "wasm32"))]
 use native::Backend;
-#[cfg(target_arch = "wasm32")]
-pub use web::BootReport;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::{BootReport, Opening, StorageConfig, desktop_recent_tabs};
 #[cfg(target_arch = "wasm32")]
 use web::Backend;
+#[cfg(target_arch = "wasm32")]
+pub use web::{BootReport, Opening, StorageConfig, desktop_recent_tabs};
+
+/// Where the app keeps its state, as the app knows it; each backend takes what it uses. Native:
+/// `opencode.sqlite` in `data`, the legacy files there (and the updater's in `updates`) imported
+/// for the cut-over `groups`, a fresh profile seeded from Desktop's `official` folders; the old
+/// files' server addresses are classified with `sidecar` (the app's own server's). Web: the
+/// browser's stores; the folders mean nothing there.
+pub struct AppStorage {
+    pub data: Option<std::path::PathBuf>,
+    pub updates: Option<std::path::PathBuf>,
+    pub official: Vec<std::path::PathBuf>,
+    pub sidecar: Vec<String>,
+    pub groups: Vec<ImportGroup>,
+    /// Wall-clock milliseconds since the epoch.
+    pub clock: fn() -> i64,
+}
 
 /// A storage failure handed to a Tier 0 callback.
 #[derive(Clone, Debug, PartialEq, Eq)]

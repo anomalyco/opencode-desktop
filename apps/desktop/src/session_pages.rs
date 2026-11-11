@@ -402,22 +402,6 @@ fn disk_read(dir: &std::path::Path, key: &Key) -> Option<Value> {
     (v["id"] == key.id && v["updated"] == key.updated && v["page"]["data"].is_array()).then(|| v["page"].take())
 }
 
-/// The newest cached page on disk for `id` on `server`, read once before the first frame so the
-/// restored session shows its last-known messages while `on_ready` connects.
-pub fn load_cached_latest(server: &str, id: &str) -> Option<Vec<Message>> {
-    if !id.starts_with("ses_") || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') { return None; }
-    let dir = disk_dir(server)?;
-    let prefix = format!("{id}-");
-    let updated = std::fs::read_dir(&dir).ok()?.flatten().filter_map(|e| {
-        let name = e.file_name();
-        let rest = name.to_str()?.strip_prefix(&prefix)?.strip_suffix(".json")?;
-        rest.parse::<i64>().ok()
-    }).max()?;
-    let value = disk_read(&dir, &Key { id: id.to_owned(), updated })?;
-    let messages = model::parse_messages(&value);
-    (!messages.is_empty()).then_some(messages)
-}
-
 fn disk_write(dir: &std::path::Path, key: &Key, value: &Value) {
     let Some(path) = file(dir, key) else { return };
     let Ok(bytes) = serde_json::to_vec(&json!({"id": key.id, "updated": key.updated, "page": value})) else { return };
