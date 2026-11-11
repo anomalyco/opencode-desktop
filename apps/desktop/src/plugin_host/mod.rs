@@ -295,17 +295,40 @@ pub fn setup(app: &mut App, waker: Waker) {
     servers::read_own_version(app);
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
+    adopt(app, sources::builtins());
+    // Plugin folders are read off the app's thread, so a launch reads none of them before its
+    // first frame; a headless run (a capture, a check) waits for them.
+    if crate::headless() {
+        let found = sources::folders();
+        adopt(app, found);
+        folders_read(app);
+        return;
+    }
+    let deliver = app.deliverer();
+    tasks::run(move || {
+        let found = sources::folders();
+        deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
+            adopt(app, found);
+            folders_read(app);
+            tx.instant();
+        }));
+    });
+}
+
+/// Takes plugins found in tier order (higher first) into the window and starts the ones that
+/// may run. One from `--plugin-dir` or an override with a built-in's id replaces the built-in;
+/// an installed one can't, and shows refused beside it.
+fn adopt(app: &mut App, found: Vec<sources::Found>) {
     let builtins: Vec<&str> = sources::builtin_ids().collect();
-    let mut seen: Vec<String> = Vec::new();
-    for found in sources::discover() {
+    for found in found {
         let id = found.manifest.id.clone();
         let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
-        if seen.contains(&id) && !shadows {
+        let existing = app.plugins.find(&id);
+        let replaces = existing.filter(|&i| app.plugins.list[i].tier > found.tier);
+        if existing.is_some() && replaces.is_none() && !shadows {
             continue;
         }
-        seen.push(id.clone());
-        let hash = sources::content_hash(&found.origin.files());
-        let trust = Trust::at_launch(found.tier.needs_trust(), &hash, app.plugins.trusted.get(&id));
+        let trust = Trust::at_launch(found.tier.needs_trust(), found.hash.as_deref().unwrap_or_default(), app.plugins.trusted.get(&id));
         let first = if let Some(e) = found.error {
             LifeEvent::Refuse(e)
         } else if shadows || id == "opencode" {
@@ -319,11 +342,25 @@ pub fn setup(app: &mut App, waker: Waker) {
         } else {
             LifeEvent::Load
         };
-        let half = Half::new(&id, plugin::Kind::Window);
-        app.plugins.list.push(Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half });
-        let i = app.plugins.list.len() - 1;
+        let plugin = Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half: Half::new(&id, plugin::Kind::Window) };
+        let i = match replaces {
+            Some(i) => {
+                drive(app, i, LifeEvent::Disable);
+                app_half::stop(&id);
+                app.plugins.list[i] = plugin;
+                i
+            }
+            None => {
+                app.plugins.list.push(plugin);
+                app.plugins.list.len() - 1
+            }
+        };
         drive(app, i, first);
     }
+}
+
+/// Every plugin is in: save-to-reload watches their folders, and `--plugin-index` lists them.
+fn folders_read(app: &mut App) {
     if crate::flag("--plugin-hot") || (cfg!(debug_assertions) && !crate::headless()) {
         let dirs = app.plugins.list.iter().enumerate().filter_map(|(i, p)| Some((i, p.origin.dir()?.to_owned()))).collect();
         app.plugins.watcher = hot::Watcher::spawn(dirs, app.plugins.waker.clone());

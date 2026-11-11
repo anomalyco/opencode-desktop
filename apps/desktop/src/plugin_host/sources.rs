@@ -1,15 +1,15 @@
-//! Where Luau plugins come from, and their files.
+//! Where plugins come from, and their files.
 //!
 //! | Tier | Where | Trust |
 //! | --- | --- | --- |
 //! | Dev | `--plugin-dir <path>`: a plugin folder, or a folder of them | Trusted |
 //! | Override | `<config>/plugins-override/<id>/` | Asks once |
-//! | Bundled | `<exe dir>/plugins/<id>/`; in a debug build, the repository's `plugins/` | Trusted |
-//! | Embedded | Built into the binary (`build.rs`): a built-in no folder has | Trusted |
+//! | Bundled | Built into the binary (`build.rs`); a debug build reads the repository's `plugins/` | Trusted |
 //! | User | `<data>/plugins/<id>/` | Asks once; can't take a built-in's id |
 //!
-//! Files on disk win over the embedded copy, so a built-in's `.luau` files can be
-//! read and edited where they're installed, and save-to-reload works on them.
+//! A release build reads no folder for its built-ins: the install folder holds the app alone. To
+//! change a built-in, copy it into `plugins-override/`. A debug build's repository copy wins over
+//! the embedded one, so saving a built-in's `.luau` file reloads it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -60,6 +60,8 @@ pub struct Found {
     pub origin: Origin,
     pub tier: Tier,
     pub error: Option<String>,
+    /// The SHA-256 of its files, when it asks for trust.
+    pub hash: Option<String>,
 }
 
 /// Reads and checks a manifest against the contract this host implements.
@@ -81,28 +83,37 @@ pub fn parse(src: &str) -> Result<Manifest, String> {
     Ok(m)
 }
 
-/// Every Luau plugin in tier order, highest first.
-pub fn discover() -> Vec<Found> {
-    let embedded = || embedded::BUILTINS.iter().filter_map(|(_, files)| read_embedded(files));
-    let mut first = Vec::new();
-    if let Some(dir) = crate::arg("--plugin-dir") {
-        first.push((Tier::Dev, PathBuf::from(dir)));
-    }
-    if let Some(config) = crate::dirs::config() {
-        first.push((Tier::Override, config.join("plugins-override")));
-    }
-    if let Some(exe) = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_owned)) {
-        first.push((Tier::Bundled, exe.join("plugins")));
-    }
-    // A debug build runs its built-ins from the repository, so saving one reloads it.
+/// The built-ins: the copies built into the binary, after (in a debug build) the repository's
+/// folders, so saving one reloads it. A release build reads no file here.
+pub fn builtins() -> Vec<Found> {
+    let embedded = embedded::BUILTINS.iter().filter_map(|(_, files)| read_embedded(files));
     #[cfg(debug_assertions)]
-    first.push((Tier::Bundled, PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins"))));
-    let user = crate::dirs::data().map(|d| (Tier::User, d.join("plugins")));
-    let scanned = first.iter().flat_map(|(tier, dir)| scan(*tier, dir));
-    let users = user.iter().flat_map(|(tier, dir)| scan(*tier, dir));
-    scanned.chain(embedded()).chain(users).collect()
+    let repo = scan(Tier::Bundled, Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugins")));
+    #[cfg(not(debug_assertions))]
+    let repo = Vec::new();
+    repo.into_iter().chain(embedded).collect()
 }
 
+/// The plugins in folders, highest tier first: `--plugin-dir`, then the overrides, then the
+/// installed ones; each that asks for trust with its files' SHA-256. Reads the disk, so it runs
+/// off the app's thread.
+pub fn folders() -> Vec<Found> {
+    let mut tiers = Vec::new();
+    if let Some(dir) = crate::arg("--plugin-dir") {
+        tiers.push((Tier::Dev, PathBuf::from(dir)));
+    }
+    if let Some(config) = crate::dirs::config() {
+        tiers.push((Tier::Override, config.join("plugins-override")));
+    }
+    if let Some(data) = crate::dirs::data() {
+        tiers.push((Tier::User, data.join("plugins")));
+    }
+    let mut found: Vec<Found> = tiers.iter().flat_map(|(tier, dir)| scan(*tier, dir)).collect();
+    for f in found.iter_mut().filter(|f| f.tier.needs_trust()) {
+        f.hash = Some(content_hash(&f.origin.files()));
+    }
+    found
+}
 /// The ids of the built-ins this binary carries.
 pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
     embedded::BUILTINS.iter().map(|(id, _)| *id)
@@ -111,8 +122,8 @@ pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
 fn read_embedded(files: &'static [(&'static str, &'static str)]) -> Option<Found> {
     let toml = files.iter().find(|(p, _)| *p == "plugin.toml")?.1;
     Some(match parse(toml) {
-        Ok(manifest) => Found { manifest, origin: Origin::Embedded(files), tier: Tier::Bundled, error: None },
-        Err(e) => Found { manifest: placeholder("embedded"), origin: Origin::Embedded(files), tier: Tier::Bundled, error: Some(format!("plugin.toml: {e}")) },
+        Ok(manifest) => Found { manifest, origin: Origin::Embedded(files), tier: Tier::Bundled, error: None, hash: None },
+        Err(e) => Found { manifest: placeholder("embedded"), origin: Origin::Embedded(files), tier: Tier::Bundled, error: Some(format!("plugin.toml: {e}")), hash: None },
     })
 }
 
@@ -131,8 +142,8 @@ fn read(tier: Tier, dir: &Path) -> Option<Found> {
     let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let origin = Origin::Dir(dir.to_owned());
     Some(match parse(&src) {
-        Ok(manifest) => Found { manifest, origin, tier, error: None },
-        Err(e) => Found { manifest: placeholder(&folder), origin, tier, error: Some(format!("plugin.toml: {e}")) },
+        Ok(manifest) => Found { manifest, origin, tier, error: None, hash: None },
+        Err(e) => Found { manifest: placeholder(&folder), origin, tier, error: Some(format!("plugin.toml: {e}")), hash: None },
     })
 }
 
