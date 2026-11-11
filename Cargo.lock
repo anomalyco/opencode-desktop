@@ -5505,6 +5505,8 @@ name = "ureq-web"
 version = "0.0.1"
 dependencies = [
  "http",
+ "js-sys",
+ "rune",
  "wasm-bindgen",
  "web-sys",
 ]

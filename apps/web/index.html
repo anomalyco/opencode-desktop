@@ -33,8 +33,11 @@
     status.textContent = 'Loading…';
     try {
       if (!navigator.gpu) throw new Error('This page needs WebGPU: use a current Chrome or Edge.');
-      const { default: init } = await import('./app.js');
-      await init();
+      // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.
+      if (!('Suspending' in WebAssembly)) throw new Error('This page needs JS Promise Integration: use Chrome or Edge 137 or newer.');
+      const app = await import('./app.js');
+      await app.default();
+      app.start();
       status.remove();
     } catch (error) {
       status.textContent = String(error);

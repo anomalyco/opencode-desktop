@@ -1,15 +1,18 @@
 [package]
 name = "ureq-web"
 version = "0.0.1"
-description = "The part of ureq's blocking API the app uses, over a browser page's synchronous XMLHttpRequest"
+description = "The part of ureq's blocking API the app uses, in a browser: a fetch its rune::task work waits on, or a synchronous XMLHttpRequest"
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 http = "1"
+js-sys = "0.3"
+# Its fibers, where a request waits on its fetch.
+rune.workspace = true
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["XmlHttpRequest"] }
+web-sys = { version = "0.3", features = ["Headers", "Request", "RequestInit", "Response", "Window", "XmlHttpRequest"] }
 
 [lints]
 workspace = true

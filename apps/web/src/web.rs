@@ -8,8 +8,12 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{App, appearance, launch, rune_app, spec, storage};
 
-#[wasm_bindgen(start)]
+/// The page calls this once the module is in (index.html). A JSPI export, so the app's background
+/// work runs on fibers that wait on the network without holding the page (`rune::task`).
+#[allow(deprecated)]
+#[wasm_bindgen(jspi)]
 pub fn start() {
+    rune::task::start_runners();
     // The app's state: the browser's storage, as the database is natively.
     storage::start();
     // Reads wait for the first frame, as a window's do.

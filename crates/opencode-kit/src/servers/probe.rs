@@ -80,8 +80,7 @@ pub fn probe_with(http: &HttpBase, timeout: Duration, retries: u32, delay: Durat
                 if Instant::now() + wait >= deadline {
                     return ProbeResult::Unreachable;
                 }
-                #[cfg(not(target_arch = "wasm32"))]
-                std::thread::sleep(wait);
+                rune::task::sleep(wait);
             }
             Err(_) => return ProbeResult::Unreachable,
         }

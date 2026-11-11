@@ -200,7 +200,7 @@ impl Server {
         let mut wait = Duration::from_millis(250);
         for _ in 0..5 {
             match self.get(path) {
-                Err(e) if e.ends_with("http status: 503") => rest(wait),
+                Err(e) if e.ends_with("http status: 503") => rune::task::sleep(wait),
                 done => return done,
             }
             wait *= 2;
@@ -218,7 +218,7 @@ impl Server {
         let mut wait = Duration::from_millis(250);
         for _ in 0..5 {
             match self.get_text(path) {
-                Err(e) if e.ends_with("http status: 503") => rest(wait),
+                Err(e) if e.ends_with("http status: 503") => rune::task::sleep(wait),
                 done => return done,
             }
             wait *= 2;
@@ -670,13 +670,4 @@ fn event_line(line: &str) -> Option<Incoming> {
         data["eventLocation"] = v["location"].clone();
     }
     Some(Incoming::Event { ty, data })
-}
-
-/// The pause before asking a starting server again: a sleep off the app's thread natively; the
-/// web can't sleep, so it asks again at once.
-fn rest(wait: Duration) {
-    #[cfg(not(target_arch = "wasm32"))]
-    std::thread::sleep(wait);
-    #[cfg(target_arch = "wasm32")]
-    let _ = wait;
 }

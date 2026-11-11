@@ -336,8 +336,7 @@ fn read(q: &Shared, fetch: &Fetch, dir: &Option<PathBuf>, out: &Sender<Result<Ar
         // session stays as it is; the app speaks up only if the silence lasts (`State::stalled`).
         for attempt in 0.. {
             let Err(error) = &answer else { break };
-            // A page can't wait out a backoff; the open's failure shows, and opening it again asks again.
-            if !foreground || !opencode_kit::plain_error::is_transient(error) || cfg!(target_arch = "wasm32") { break; }
+            if !foreground || !opencode_kit::plain_error::is_transient(error) { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
             q.0.lock().unwrap().stalled.get_or_insert_with(now);
             wake();
@@ -379,7 +378,7 @@ fn pause(q: &Shared, total: Duration) -> bool {
     let until = Instant::now() + total;
     while Instant::now() < until {
         if q.0.lock().unwrap().stopped { return false; }
-        std::thread::sleep(Duration::from_millis(10).min(until - Instant::now()));
+        rune::task::sleep(Duration::from_millis(10).min(until - Instant::now()));
     }
     !q.0.lock().unwrap().stopped
 }

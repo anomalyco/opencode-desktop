@@ -1,6 +1,7 @@
 //! The part of ureq's API the app and its crates use, over a page's synchronous`n//! `XMLHttpRequest`: the same request code runs natively and in a browser. A file that makes
 //! requests names it `ureq` on the web (`#[cfg(target_arch = "wasm32")] use ureq_web as ureq;`).
-//! It runs from `rune::task`'s main-thread tasks, between frames.
+//! The app makes its requests from `rune::task` work, where they're a `fetch` the work waits
+//! on without holding the page.
 //!
 //! What a browser can't do: a page's synchronous request has no time limit (the timeouts are
 //! taken and ignored), and the whole body arrives before the call returns.
@@ -13,7 +14,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 pub use http;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 /// A request's failure, worded as ureq words it, so callers' checks on the text read the same.
 #[derive(Debug)]
@@ -295,21 +296,22 @@ impl BodyConfig<'_> {
     }
 }
 
-/// A synchronous request: the status the server answered and its body, or why the browser
-/// couldn't ask (no server there, or its CORS rules refuse this page's origin).
+/// A request: the status the server answered and its body, or why the browser couldn't ask (no
+/// server there, or its CORS rules refuse this page's origin).
 pub fn request_status(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<(u16, Vec<u8>), String> {
-    let failed = |_| "connection failed: the browser couldn't reach the server".to_owned();
-    let xhr = send(method, url, headers, body).map_err(failed)?;
-    let status = xhr.status().map_err(failed)?;
-    if status == 0 {
-        return Err(failed(JsValue::NULL));
-    }
-    Ok((status, body_bytes(&xhr)))
+    request_with_headers(method, url, headers, body).map(|(status, _, bytes)| (status, bytes))
 }
 
 /// [`request_status`] with the response's headers, lowercased as the browser reports them.
+///
+/// From task work (`rune::task`, on its fibers) it's a `fetch` the work waits on while the page
+/// goes on drawing and taking input. Anywhere else it's a synchronous `XMLHttpRequest`, which
+/// holds the page until the answer comes: the app makes its requests from task work.
 pub fn request_with_headers(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<(u16, Vec<(String, String)>, Vec<u8>), String> {
     let failed = |_| "connection failed: the browser couldn't reach the server".to_owned();
+    if let Some(answer) = fetch(method, url, headers, body) {
+        return answer.map_err(failed);
+    }
     let xhr = send(method, url, headers, body).map_err(failed)?;
     let status = xhr.status().map_err(failed)?;
     if status == 0 {
@@ -318,6 +320,47 @@ pub fn request_with_headers(method: &str, url: &str, headers: &[(&str, &str)], b
     let raw = xhr.get_all_response_headers().unwrap_or_default();
     let list = raw.lines().filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
     Ok((status, list, body_bytes(&xhr)))
+}
+
+/// The request as a `fetch` the task work waits on; `None` outside task work.
+fn fetch(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Option<Result<(u16, Vec<(String, String)>, Vec<u8>), JsValue>> {
+    let window = web_sys::window()?;
+    let request = (|| {
+        let init = web_sys::RequestInit::new();
+        init.set_method(method);
+        let h = web_sys::Headers::new()?;
+        for (name, value) in headers {
+            h.append(name, value)?;
+        }
+        init.set_headers(&h);
+        if let Some(bytes) = body {
+            init.set_body(&js_sys::Uint8Array::from(bytes));
+        }
+        web_sys::Request::new_with_str_and_init(url, &init)
+    })();
+    let request = match request {
+        Ok(r) => r,
+        Err(e) => return Some(Err(e)),
+    };
+    let response = match rune::task::wait(&window.fetch_with_request(&request))? {
+        Ok(r) => r.unchecked_into::<web_sys::Response>(),
+        Err(e) => return Some(Err(e)),
+    };
+    let status = response.status();
+    let mut list = Vec::new();
+    if let Ok(Some(entries)) = js_sys::try_iter(&response.headers()) {
+        for entry in entries.flatten() {
+            let pair = js_sys::Array::from(&entry);
+            if let (Some(k), Some(v)) = (pair.get(0).as_string(), pair.get(1).as_string()) {
+                list.push((k.to_ascii_lowercase(), v));
+            }
+        }
+    }
+    let buffer = match response.array_buffer() {
+        Ok(promise) => rune::task::wait(&promise)?,
+        Err(e) => Err(e),
+    };
+    Some(buffer.map(|b| (status, list, js_sys::Uint8Array::new(&b).to_vec())))
 }
 
 fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<web_sys::XmlHttpRequest, JsValue> {
