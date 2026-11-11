@@ -276,7 +276,15 @@ impl Phase {
 }
 
 #[derive(Default)]
+pub enum PluginSetup {
+    #[default]
+    Immediate,
+    AfterFrame(rune::Waker),
+}
+
+#[derive(Default)]
 pub struct Launch {
+    pub plugins: PluginSetup,
     network_change: Option<std::sync::Arc<network::Change>>,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
@@ -392,7 +400,7 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
-pub fn ready(s: &mut App, tx: &mut Tx) {
+pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() { s.launch.network_change = s.waker.clone().and_then(network::subscribe); }
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
@@ -400,6 +408,15 @@ pub fn ready(s: &mut App, tx: &mut Tx) {
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
     start(s, tx);
+    // Start the probe first so its I/O overlaps plugin setup. Redraw the newly
+    // registered panels and commands without waiting for a server response.
+    if let PluginSetup::AfterFrame(wake) = std::mem::take(&mut s.launch.plugins) {
+        crate::plugin_host::setup(s, wake);
+        tx.instant();
+        true
+    } else {
+        false
+    }
 }
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).

@@ -144,8 +144,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             let wake = crate::launch::inbox_waker(ready.clone());
             ready.update_if(move |s, tx| {
                 s.launch.inbox_wake = Some(wake);
-                crate::launch::ready(s, tx);
-                false
+                crate::launch::ready(s, tx)
             })
         })
         .on_frame_encoded(move |f| {

@@ -112,6 +112,15 @@ fn with_open<R>(id: &str, f: impl FnOnce(&mut Open) -> R) -> Option<R> {
 }
 
 static LAUNCHED: OnceLock<Instant> = OnceLock::new();
+static FIRST_FRAME: OnceLock<(Instant, Option<String>, usize)> = OnceLock::new();
+static PHASES: std::sync::Mutex<Vec<(&'static str, Instant, Instant)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn startup<R>(name: &'static str, f: impl FnOnce() -> R) -> R {
+    let start = Instant::now();
+    let result = f();
+    if FIRST_FRAME.get().is_none() { PHASES.lock().unwrap().push((name, start, Instant::now())); }
+    result
+}
 static LAUNCH_READS: std::sync::Mutex<Vec<(&'static str, Instant, Instant)>> = std::sync::Mutex::new(Vec::new());
 
 /// First thing in `main`: a restored session's open is timed from here.
@@ -128,6 +137,10 @@ pub fn open_restored(id: &str, cached: usize) {
     let start = LAUNCHED.get().copied().unwrap_or_else(Instant::now);
     let root = Span::root("session.open").at(start).attr("session.id", id).attr("restored", true).attr("cached_rows", cached as i64);
     let ctx = root.ctx();
+    for &(name, a, b) in PHASES.lock().unwrap().iter() { record(ctx, name, (a, b), vec![]); }
+    if let Some((end, shown, rows)) = FIRST_FRAME.get() {
+        record(ctx, "launch.first_frame", (start, *end), vec![("restored_session", (shown.as_deref() == Some(id)).into()), ("rows", (*rows as i64).into())]);
+    }
     for (path, a, b) in LAUNCH_READS.lock().unwrap().drain(..) { record(ctx, "launch.read", (a, b), vec![("path", path.into())]); }
     // on_ready connects after the cached launch frame; an unchanged server page need not draw.
     let painted = PAINTED.with(|p| p.borrow().as_ref().is_some_and(|(shown, rows)| shown == id && *rows > 0));
@@ -194,6 +207,14 @@ pub fn encoded(f: &rune::FrameEncoded) {
 /// After a drawn frame: `shown` is the session on screen with its messages, if any. Ends
 /// `session.open` on the first that paints the opening session, then times the older page's.
 pub fn drawn(shown: Option<(&str, usize)>, (at, update_ms, encode_ms): (Instant, Option<f64>, Option<f64>)) {
+    if FIRST_FRAME.get().is_none() {
+        let end = Instant::now();
+        let _ = FIRST_FRAME.set((end, shown.map(|(id, _)| id.to_owned()), shown.map_or(0, |(_, rows)| rows)));
+        if std::env::var_os("OPENCODE_RUNE_LAUNCH_REPORT").is_some() {
+            for &(name, a, b) in PHASES.lock().unwrap().iter() { eprintln!("{name} {:.2}", ms(b - a)); }
+            eprintln!("FIRST_FRAME rows={} main_ms={:.2}", shown.map_or(0, |(_, rows)| rows), ms(end - *LAUNCHED.get().unwrap()));
+        }
+    }
     PAINTED.with(|p| {
         let mut p = p.borrow_mut();
         if p.as_ref().map(|(id, rows)| (id.as_str(), *rows)) != shown {
