@@ -1448,8 +1448,9 @@ thread_local! {
 
 /// The windows' last step on the way out (`rune::fast_exit`), on the UI thread once every window's
 /// quit hook ran: the database's last write, the diagnostics' queue, an install-on-quit's helper
-/// (it must exist before this process ends), then the launch trace. Rune's fast exit raises every
-/// thread to normal priority before the process ends itself, so an idle one can't hold it.
+/// (it must exist before this process ends), the launch trace, then a training build's profile.
+/// Rune's fast exit raises every thread to normal priority before the process ends itself, so an
+/// idle one can't hold it.
 #[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
 fn quit_last() {
     // Landed and closed: the file's lock goes before the update helper takes over.
@@ -1467,6 +1468,7 @@ fn quit_last() {
     updater::finish_quit();
     rune::marks::mark("quit.update_handed_off");
     launch::trace::finish(windows::opened());
+    launch::write_profile();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

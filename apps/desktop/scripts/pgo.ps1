@@ -47,10 +47,15 @@ $command = $Train -split ' '
 if ($LASTEXITCODE -ne 0) { throw 'the training run failed' }
 $files = @(Get-ChildItem $raw -Filter *.profraw)
 if (-not $files) { throw "the training run wrote no .profraw into $raw" }
+# An empty file is a process that ended without writing its counts (launch::write_profile is how a
+# fast exit writes them).
+$empty = @($files | Where-Object Length -eq 0)
+if ($empty) { throw "$($empty.Count) of $($files.Count) processes wrote no counts: $($empty.Name -join ', ')" }
 $out = Join-Path $root "apps/desktop/pgo/$triple.profdata"
 & $profdata merge --sparse -o $out @($files.FullName)
 if ($LASTEXITCODE -ne 0) { throw 'llvm-profdata merge failed' }
 $summary = & $profdata show $out | Select-String 'Total functions'
+if ("$summary" -notmatch 'Total functions: [1-9]') { throw "the profile holds no function: $summary" }
 $rune = (Select-String -Path (Join-Path $root 'Cargo.toml') -Pattern '^rune = .*rev = "([0-9a-f]+)"').Matches[0].Groups[1].Value
 @(
     "commit $(git -C $root rev-parse HEAD)"

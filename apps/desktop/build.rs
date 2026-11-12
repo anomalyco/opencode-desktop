@@ -23,7 +23,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_URL_SCHEME");
     #[allow(clippy::disallowed_methods)]
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    embed_luau_plugins(std::path::Path::new(&env("CARGO_MANIFEST_DIR").unwrap_or_default()), std::path::Path::new(&env("OUT_DIR").unwrap_or_default()));
+    // A build recording the profile-guided optimisation profile (`scripts/pgo.ps1`) writes it
+    // before the fast exit (`launch::write_profile`).
+    println!("cargo:rustc-check-cfg=cfg(pgo_generate)");
+    println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
+    if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {
+        println!("cargo:rustc-cfg=pgo_generate");
+    }    embed_luau_plugins(std::path::Path::new(&env("CARGO_MANIFEST_DIR").unwrap_or_default()), std::path::Path::new(&env("OUT_DIR").unwrap_or_default()));
     embed_beta_notes(std::path::Path::new(&env("CARGO_MANIFEST_DIR").unwrap_or_default()), std::path::Path::new(&env("OUT_DIR").unwrap_or_default()), env("OPENCODE_RUNE_BUILD_CHANNEL").as_deref().unwrap_or("local"));
     if env("CARGO_CFG_TARGET_OS").as_deref() != Some("windows") {
         return;

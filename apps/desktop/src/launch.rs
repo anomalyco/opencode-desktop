@@ -39,6 +39,21 @@ pub fn attach_console() {
 #[cfg(not(target_os = "windows"))]
 pub fn attach_console() {}
 
+/// In a build that records the profile-guided optimisation profile (`scripts/pgo.ps1`), the counts:
+/// LLVM's runtime writes them when the process ends normally, and the fast exit ends it with
+/// `TerminateProcess`, which runs no exit handler.
+pub fn write_profile() {
+    #[cfg(pgo_generate)]
+    #[allow(unsafe_code)]
+    {
+        unsafe extern "C" {
+            fn __llvm_profile_write_file() -> i32;
+        }
+        // SAFETY: LLVM's profiler runtime, linked into every `-Cprofile-generate` build; it only
+        // writes the counters out.
+        unsafe { __llvm_profile_write_file() };
+    }
+}
 
 
 /// `opencode-desktop --version`: the version and the release channel it was built for.
