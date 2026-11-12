@@ -11,7 +11,7 @@ use std::io::ErrorKind;
 use std::net::{Shutdown, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -34,6 +34,10 @@ use tungstenite::{Message, WebSocket};
 
 use crate::client::{Server, encode_component};
 
+#[cfg(target_arch = "wasm32")]
+#[path = "client_mcp_web.rs"]
+mod web;
+
 pub const PROTOCOL_VERSION: &str = "2025-11-25";
 pub const SESSION_ID_META_KEY: &str = "ai.opencode/sessionID";
 pub const RECONNECT_MIN: Duration = Duration::from_millis(500);
@@ -41,7 +45,9 @@ pub const RECONNECT_MAX: Duration = Duration::from_secs(10);
 pub const UNSUPPORTED_RETRY: Duration = Duration::from_secs(60);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(target_arch = "wasm32"))]
 const IDLE_READ_TIMEOUT: Duration = Duration::from_millis(200);
+#[cfg(not(target_arch = "wasm32"))]
 const BUSY_READ_TIMEOUT: Duration = Duration::from_millis(5);
 
 /// One tool advertised on `tools/list`.
@@ -346,11 +352,10 @@ impl Server {
         });
         let worker_shared = shared.clone();
         let server = self.clone();
-        // TODO(web): a WebSocket from the page. Until then the page says the route is missing.
+        // A page's own WebSocket, on a task of the page's event loop (`client_mcp_web.rs`).
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = (worker_shared, server, calls, waker);
-            lock(&shared.state).conn = Conn::Waiting { unsupported: true };
+            web::start(server, options, calls, waker, worker_shared);
             return ClientMcp { shared, handle: None };
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -417,6 +422,7 @@ fn mark_ready(shared: &Shared, waker: &Waker) {
 }
 
 /// Waits out `delay` before the next dial; false when the socket was closed meanwhile.
+#[cfg(not(target_arch = "wasm32"))]
 fn wait_backoff(shared: &Shared, delay: Duration, unsupported: bool, waker: &Waker) -> bool {
     if !transition(shared, |_| Some(Conn::Waiting { unsupported }), waker) {
         return false;
@@ -577,13 +583,13 @@ fn serve_socket(
 
         match ws.read() {
             Ok(Message::Text(text)) => {
-                if !handle_frame(ws, text.as_str(), options, calls, waker, shared, out_tx, &mut in_flight, initialized) {
+                if !handle_frame(&mut |m| send_json(ws, m), text.as_str(), options, calls, waker, shared, out_tx, &mut in_flight, initialized) {
                     return LoopExit::ReceiverDropped;
                 }
             }
             Ok(Message::Binary(bytes)) => {
                 if let Ok(text) = std::str::from_utf8(&bytes)
-                    && !handle_frame(ws, text, options, calls, waker, shared, out_tx, &mut in_flight, initialized)
+                    && !handle_frame(&mut |m| send_json(ws, m), text, options, calls, waker, shared, out_tx, &mut in_flight, initialized)
                 {
                     return LoopExit::ReceiverDropped;
                 }
@@ -606,14 +612,8 @@ fn serve_socket(
 fn drain_outbound(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, out_rx: &Receiver<Outbound>, in_flight: &mut usize) -> bool {
     let mut wrote = false;
     loop {
-        let msg = match out_rx.try_recv() {
-            Ok(Outbound::Reply { id, result }) => {
-                *in_flight = in_flight.saturating_sub(1);
-                json!({ "jsonrpc": "2.0", "id": id, "result": result.to_json() })
-            }
-            Ok(Outbound::ToolsChanged) => json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }),
-            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-        };
+        let Ok(out) = out_rx.try_recv() else { break };
+        let msg = outbound_message(out, in_flight);
         if ws.write(Message::Text(msg.to_string().into())).is_err() {
             return false;
         }
@@ -622,10 +622,22 @@ fn drain_outbound(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, out_rx: &Receiv
     !wrote || ws.flush().is_ok()
 }
 
+/// What goes on the socket for an answer or a tool-list change; an answer settles a call.
+fn outbound_message(out: Outbound, in_flight: &mut usize) -> Value {
+    match out {
+        Outbound::Reply { id, result } => {
+            *in_flight = in_flight.saturating_sub(1);
+            json!({ "jsonrpc": "2.0", "id": id, "result": result.to_json() })
+        }
+        Outbound::ToolsChanged => json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }),
+    }
+}
+
+/// One JSON-RPC frame from the server: answers go out through `send` (false when the socket is
+/// gone), a `tools/call` goes to the app. False when the app stopped taking calls.
 #[allow(clippy::too_many_arguments)]
-#[cfg(not(target_arch = "wasm32"))]
 fn handle_frame(
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    send: &mut dyn FnMut(&Value) -> bool,
     raw: &str,
     options: &ClientMcpOptions,
     calls: &Sender<McpCall>,
@@ -655,14 +667,14 @@ fn handle_frame(
             if let Some(inst) = &options.instructions {
                 result["instructions"] = Value::String(inst.clone());
             }
-            send_json(ws, &json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
         }
         "ping" => {
-            send_json(ws, &json!({ "jsonrpc": "2.0", "id": id, "result": {} }));
+            send(&json!({ "jsonrpc": "2.0", "id": id, "result": {} }));
         }
         "tools/list" => {
             let tools_json: Vec<Value> = lock(&shared.state).tools.iter().map(tool_descriptor_json).collect();
-            if send_json(ws, &json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools_json } })) {
+            if send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools_json } })) {
                 mark_ready(shared, waker);
             }
         }
@@ -671,10 +683,7 @@ fn handle_frame(
             let known = tool_name.is_some_and(|name| lock(&shared.state).tools.iter().any(|t| t.name == name));
             let Some(name) = tool_name.filter(|_| known) else {
                 let raw_name = params.and_then(|p| p.get("name")).map(display_param_name).unwrap_or_else(|| "undefined".into());
-                send_json(
-                    ws,
-                    &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": format!("Unknown tool: {raw_name}") } }),
-                );
+                send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": format!("Unknown tool: {raw_name}") } }));
                 return true;
             };
             let arguments = params.and_then(|p| p.get("arguments")).filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
@@ -697,16 +706,12 @@ fn handle_frame(
             waker();
         }
         _ => {
-            send_json(
-                ws,
-                &json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("Method not found: {method}") } }),
-            );
+            send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("Method not found: {method}") } }));
         }
     }
     true
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn display_param_name(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -715,7 +720,6 @@ fn display_param_name(v: &Value) -> String {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn tool_descriptor_json(tool: &McpTool) -> Value {
     let mut schema = match &tool.input_schema {
         Value::Object(map) => map.clone(),

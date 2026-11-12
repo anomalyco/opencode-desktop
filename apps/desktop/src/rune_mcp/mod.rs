@@ -9,6 +9,7 @@ pub mod tools;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -170,10 +171,9 @@ impl RuneMcpHub {
                     let (tx, rx) = channel();
                     let weak = Arc::downgrade(hub);
                     let router_srv = srv.clone();
-                    std::thread::Builder::new()
-                        .name("desktop-rune-mcp-router".into())
-                        .spawn(move || run_router(weak, router_srv, rx))
-                        .ok();
+                    // A thread natively; drained between a page's events in a browser (`rune::task::serve`).
+                    let mut parent_cache = HashMap::new();
+                    let _ = rune::task::serve("desktop-rune-mcp-router", rx, move |call| route(&weak, &router_srv, &mut parent_cache, call));
                     inner.routers.insert(srv_key, tx.clone());
                     tx
                 }
@@ -209,39 +209,39 @@ impl RuneMcpHub {
     }
 }
 
-fn run_router(weak_hub: Weak<RuneMcpHub>, server: Server, rx: Receiver<McpCall>) {
-    let mut parent_cache: HashMap<(String, String), Option<String>> = HashMap::new();
-    while let Ok(call) = rx.recv() {
-        let Some(hub) = weak_hub.upgrade() else {
-            call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
-            break;
-        };
-        let Some(sid) = call.session_id.clone().filter(|s| !s.is_empty()) else {
-            call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
-            continue;
-        };
+/// Hands one `tools/call` to the window whose session (or an ancestor of it) asked; breaks once
+/// the hub is gone.
+fn route(weak_hub: &Weak<RuneMcpHub>, server: &Server, parent_cache: &mut HashMap<(String, String), Option<String>>, call: McpCall) -> ControlFlow<()> {
+    let Some(hub) = weak_hub.upgrade() else {
+        call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
+        return ControlFlow::Break(());
+    };
+    let Some(sid) = call.session_id.clone().filter(|s| !s.is_empty()) else {
+        call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
+        return ControlFlow::Continue(());
+    };
 
-        if let Some((tx, waker, target_session)) = match_window(&hub, &server, &sid, &parent_cache) {
+    if let Some((tx, waker, target_session)) = match_window(&hub, server, &sid, parent_cache) {
+        if tx.send(RoutedCall { target_session, call }).is_ok() {
+            waker();
+        }
+        return ControlFlow::Continue(());
+    }
+
+    // Subagent sessions may call a `rune` tool milliseconds before their `SessionInfo` arrives on
+    // SSE. Walk `/api/session/<id>` off-thread to discover ancestors if any window has open tabs.
+    if should_probe_ancestors(&hub, server, &sid, parent_cache) {
+        fetch_parent_chain(server, &sid, parent_cache);
+        if let Some((tx, waker, target_session)) = match_window(&hub, server, &sid, parent_cache) {
             if tx.send(RoutedCall { target_session, call }).is_ok() {
                 waker();
             }
-            continue;
+            return ControlFlow::Continue(());
         }
-
-        // Subagent sessions may call a `rune` tool milliseconds before their `SessionInfo` arrives on
-        // SSE. Walk `/api/session/<id>` off-thread to discover ancestors if any window has open tabs.
-        if should_probe_ancestors(&hub, &server, &sid, &parent_cache) {
-            fetch_parent_chain(&server, &sid, &mut parent_cache);
-            if let Some((tx, waker, target_session)) = match_window(&hub, &server, &sid, &parent_cache) {
-                if tx.send(RoutedCall { target_session, call }).is_ok() {
-                    waker();
-                }
-                continue;
-            }
-        }
-
-        call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
     }
+
+    call.respond(McpResult::error(SESSION_NOT_OPEN_ERROR));
+    ControlFlow::Continue(())
 }
 
 fn match_window(
