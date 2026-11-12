@@ -700,6 +700,7 @@ impl App {
             list.extend(rest);
             *self.sessions = list;
             self.sidebar_inbox.heard_sessions();
+            self.note_tab_titles();
         }
         if let Some(p) = &f.providers {
             self.pickers.load_providers(p.get("data").unwrap_or(p));

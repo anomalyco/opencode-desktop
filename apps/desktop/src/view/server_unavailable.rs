@@ -114,6 +114,21 @@ pub fn signed_out(p: &Pal, server: &ServerKey) -> El {
     frame("session-signed-out", children)
 }
 
+/// The session header's word for a signed-out server whose session stays on screen: what
+/// [`signed_out`] says, in one line, with its Sign in again as a link.
+pub fn signed_out_status(p: &Pal, server: &ServerKey) -> El {
+    let label = text(opencode_i18n::t!("session.error.signedOut").to_owned()).font(crate::view::UI_SMALL).color(p.faint);
+    let link = saved_url(server).map(|url| {
+        text(opencode_i18n::t!("session.error.signedOut.signIn").to_owned())
+            .key("connection-sign-in")
+            .font(crate::view::UI_SMALL)
+            .color(p.text)
+            .cursor(rune::Cursor::Pointer)
+            .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::servers::dialog::open(s, Some(&url), tx))
+    });
+    rune::row().key("connection-status").gap(6.0).center_y().child(label).children(link)
+}
+
 /// The `servers.json` address of server `key`, when it was added by address.
 fn saved_url(key: &ServerKey) -> Option<String> {
     crate::servers::list().into_iter().find(|x| opencode_kit::servers::ServerConn::http_server(&x.url).is_some_and(|c| c.key() == *key)).map(|x| x.url)

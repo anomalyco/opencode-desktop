@@ -4,7 +4,9 @@
 //! not-found`, 30 s `SESSION_RESOLUTION_TIMEOUT_MS`), combined with the server's health into what
 //! the tab shows (`sessionRouteView`): a session it holds shows even while its server is away; one
 //! it doesn't shows "Can't reach this server" (`session/server-unavailable-panel.tsx`), and one its
-//! server deleted "This session cannot be found" (`session/route-error.tsx`).
+//! server deleted "This session cannot be found" (`session/route-error.tsx`). Beyond Desktop, a
+//! session whose messages are on screen is never replaced by a panel: offline, signed out or on
+//! an unsupported server it stays readable, and the header says which ([`status`]).
 
 use std::collections::HashMap;
 
@@ -165,27 +167,57 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 /// What the tab of `id` shows: its resolution with its server's health, as `sessionRouteView`
-/// (`resolution-machine.ts:151-179`): a server that refused our credentials or runs an
-/// incompatible version covers it; a session its server has shows even while the server is away.
+/// (`resolution-machine.ts:151-179`), with one difference: a session whose messages are loaded
+/// (from its server, or the boot record's preview at launch) stays readable whatever its server
+/// says, and the header says why it isn't live ([`status`]). Desktop covers it with the signed
+/// out or incompatible panel, and an unreachable one whose info it hadn't listed.
 pub fn view(s: &App, id: &str) -> View {
     let key = crate::servers::runtime::active(s);
+    let resolution = s.session_states.get(&server(s), id);
+    if resolution == Some(Resolution::NotFound) {
+        return View::NotFound;
+    }
+    if s.transcripts.get(id).is_some_and(|t| !t.messages.is_empty()) {
+        return View::Session;
+    }
     match server_unavailable::cover(key) {
         Some(Cover::SignedOut) => return View::SignedOut,
         Some(Cover::Incompatible) => return View::Incompatible,
         None => {}
     }
     let known = s.session(id).is_some();
-    match s.session_states.get(&server(s), id) {
-        Some(Resolution::NotFound) => View::NotFound,
+    match resolution {
         Some(Resolution::Ready) => View::Session,
-        _ if known => View::Session,
+        _ if known && !offline(s) => View::Session,
         Some(Resolution::Unreachable) => View::Unreachable,
         // Nothing known of it and its server isn't answering (never reached, its stream is down,
         // or its health check failed): say so rather than wait blank, as Desktop's
         // `unreachable | stopped` health does.
-        _ if crate::launch::offline(s) || s.server_links.get(&server(s)).dropped() || server_unavailable::unreachable(key) => View::Unreachable,
+        _ if offline(s) || s.server_links.get(&server(s)).dropped() => View::Unreachable,
         _ => View::Session,
     }
+}
+
+/// The window's server didn't answer its launch, or its health says nothing answers it.
+fn offline(s: &App) -> bool {
+    crate::launch::offline(s) || server_unavailable::unreachable(crate::servers::runtime::active(s))
+}
+
+/// What the session header says beside a session that shows while its server can't serve it
+/// live: signed out (with Sign in again), an unsupported version, offline, or the stream
+/// reconnecting. Nothing while it's live.
+pub fn status(s: &App, p: &Pal) -> Option<El> {
+    let key = crate::servers::runtime::active(s);
+    let small = |words: &str| rune::text(words.to_owned()).key("connection-status").font(crate::view::UI_SMALL).color(p.faint);
+    match server_unavailable::cover(key) {
+        Some(Cover::SignedOut) => return Some(server_unavailable::signed_out_status(p, key)),
+        Some(Cover::Incompatible) => return Some(small(opencode_i18n::t!("session.error.incompatible"))),
+        None => {}
+    }
+    if offline(s) {
+        return Some(small(opencode_i18n::t!("rune.session.offlineCopy")));
+    }
+    crate::reconnect::shown(s).then(|| small(crate::reconnect::RECONNECTING))
 }
 
 /// The open session's panel, when it can't show.

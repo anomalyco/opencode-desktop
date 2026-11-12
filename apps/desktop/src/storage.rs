@@ -30,8 +30,9 @@ enum Phase {
     Joining { boot: Arc<BootPacket>, queued: Queued },
     /// Stage B was done when a read the boot packet couldn't answer needed it, before the first
     /// frame: everything reads from it, and what waits for the first frame (the import's file
-    /// moves, the seed) still waits.
-    Early(Storage),
+    /// moves, the seed) still waits. The boot packet stays until then for what the first frame
+    /// draws from it alone (the shown sessions' previews).
+    Early { storage: Storage, boot: Arc<BootPacket> },
     Ready(Storage),
 }
 
@@ -126,11 +127,11 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
         (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() => (Phase::Memory(Storage::memory()), None),
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
-            Some((storage, report)) => (Phase::Early(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Pending))),
+            Some((storage, report)) => (Phase::Early { storage: storage.clone(), boot }, Some(Effect::Adopt(storage, queued, report.error, Frame::Pending))),
             None => (Phase::Booted { boot, opening, queued }, None),
         },
         (Phase::Joining { queued, .. }, Event::Joined(storage, error)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, error, Frame::Presented))),
-        (Phase::Early(storage), Event::Presented) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
+        (Phase::Early { storage, .. }, Event::Presented) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
         (phase, _) => (phase, None),
     }
 }
@@ -307,7 +308,7 @@ pub fn on_disk() -> bool {
 
 /// Whether every stored value is in memory (stage B joined, or a run in memory).
 pub fn is_ready() -> bool {
-    matches!(&*lock(), Some(Phase::Ready(_) | Phase::Early(_) | Phase::Memory(_)) | None)
+    matches!(&*lock(), Some(Phase::Ready(_) | Phase::Early { .. } | Phase::Memory(_)) | None)
 }
 
 /// Runs `f` with the storage when it's ready; otherwise with the boot packet and the queue.
@@ -319,7 +320,7 @@ fn with<R>(ready: impl FnOnce(&Storage) -> R, booting: impl FnOnce(&BootPacket, 
         guard = lock();
     }
     match &mut *guard {
-        Some(Phase::Ready(s) | Phase::Early(s) | Phase::Memory(s)) => {
+        Some(Phase::Ready(s) | Phase::Early { storage: s, .. } | Phase::Memory(s)) => {
             let s = s.clone();
             drop(guard);
             ready(&s)
@@ -578,6 +579,10 @@ pub fn window_rows(id: &str) -> BTreeMap<String, Arc<str>> {
 /// The session preview the boot packet holds for `session` on `server` (each window's shown
 /// session, before the storage is ready): its `updated_at` and bytes.
 pub fn boot_preview(server: &str, session: &str) -> Option<(i64, Vec<u8>)> {
+    // Stage B may be in hand before the first frame (`Early`): the packet still answers for it.
+    if let Some(Phase::Early { boot, .. }) = &*lock() {
+        return boot.preview(server, session).map(|(at, b)| (at, b.to_vec()));
+    }
     with(|_| None, |boot, _| boot.preview(server, session).map(|(at, b)| (at, b.to_vec())))
 }
 
@@ -597,7 +602,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
         }
     }
     let storage = match &*lock() {
-        Some(Phase::Ready(s) | Phase::Early(s)) => s.clone(),
+        Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
         _ => return,
     };
     let deadline = if wait { Duration::from_secs(2) } else { Duration::ZERO };
@@ -610,7 +615,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 pub fn close() {
     flush(FlushReason::Quit, true);
     let storage = match &*lock() {
-        Some(Phase::Ready(s) | Phase::Early(s)) => s.clone(),
+        Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
         _ => return,
     };
     storage.close();

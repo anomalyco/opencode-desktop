@@ -25,8 +25,12 @@ pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
     }
     let shown = s.displayed_session(id).unwrap_or(id);
     let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
+    // A session its server hasn't listed yet (a launch offline) is named by what its tab saved.
+    let saved = s.session(shown).is_none().then(|| s.tabs.iter().find(|t| t.id == shown && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
+        opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
+    });
     // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
-    let head = header(s, p, s.session(shown), t);
+    let head = header(s, p, s.session(shown).or(saved.as_ref()), t);
     session_body(s, p, id, col().key("session").grow(1.0).w_full(), Some(head))
 }
 

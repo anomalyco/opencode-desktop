@@ -106,6 +106,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             s.sidebar_inbox.heard_sessions();
             s.sort_projects();
             crate::rewind::read_sessions(s);
+            s.note_tab_titles();
         }
         Incoming::Info(mut info) => {
             s.switcher.invalidate_sessions();
@@ -121,6 +122,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.fetch_info(&missing);
             }
             crate::rewind::read_sessions(s);
+            s.note_tab_titles();
         }
         Incoming::Children { sessions, .. } => s.children_listed(sessions),
         Incoming::Messages { session, messages } => {

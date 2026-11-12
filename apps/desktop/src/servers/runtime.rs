@@ -568,9 +568,13 @@ fn refit(s: &mut App) {
     }
     let key = s.checkout.active.clone();
     if stale(&key, &s.checkout.meta) {
+        // The same server under a new listing (it signed us out, moved, or took us back): what the
+        // window read of it stays on screen in the new half, rather than blanking until it reloads.
+        let kept = peer::reading(s);
         peer::leave_server(s);
         let (meta, mut half) = new_half(s, &key, false);
         half.swap(s);
+        peer::keep_reading(s, kept);
         s.checkout.meta = meta;
         peer::enter(s);
     }

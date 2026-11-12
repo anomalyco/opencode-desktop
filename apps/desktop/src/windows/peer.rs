@@ -281,6 +281,33 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
     *s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
 }
 
+/// What a window has read of its server and can show without it: its projects, sessions and
+/// loaded transcripts, copied out of the copy.
+pub struct Reading {
+    projects: Vec<Project>,
+    sessions: Vec<SessionInfo>,
+    transcripts: HashMap<String, Transcript>,
+}
+
+/// The window's reading of its server, before its half is replaced (the server signed us out,
+/// moved, or signed back in): what it read stays on screen instead of going with the copy.
+pub fn reading(s: &App) -> Reading {
+    Reading { projects: (*s.projects).clone(), sessions: (*s.sessions).clone(), transcripts: (*s.transcripts).clone() }
+}
+
+/// Puts `reading` into a fresh half's empty fields.
+pub fn keep_reading(s: &mut App, reading: Reading) {
+    if s.projects.is_empty() {
+        *s.projects = reading.projects;
+    }
+    if s.sessions.is_empty() {
+        *s.sessions = reading.sessions;
+    }
+    for (id, t) in reading.transcripts {
+        s.transcripts.entry(id).or_insert(t);
+    }
+}
+
 /// The window leaves its server's peer (it closes, moves to another server, or loses it): it
 /// keeps nothing of the copy, and the other windows keep it all. The last to leave ends the
 /// peer, stream and data.

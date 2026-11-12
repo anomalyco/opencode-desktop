@@ -25,6 +25,19 @@ impl App {
         }
     }
 
+    /// The server listed its sessions or one session's info: a tab whose saved title or folder that
+    /// changed is saved again, so a launch that can't reach the server still names its tabs (it was
+    /// saved only when the tabs themselves changed).
+    pub(crate) fn note_tab_titles(&mut self) {
+        let here = crate::servers::runtime::active(self).clone();
+        let stale = self.tabs.iter().filter(|t| t.kind == TabKind::Session && t.server == here).any(|t| {
+            self.sessions.iter().find(|s| s.id == t.id).is_some_and(|s| s.title != t.title || s.directory != t.directory)
+        });
+        if stale {
+            self.save_tabs();
+        }
+    }
+
     /// A dropped tab: it takes its new place, and ⌘1–9 follow the new order.
     pub fn move_tab(&mut self, from: usize, to: usize) {
         if from >= self.tabs.len() || to >= self.tabs.len() {
