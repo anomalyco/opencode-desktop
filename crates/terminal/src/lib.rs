@@ -7,8 +7,10 @@ pub mod ffi;
 mod ffi_fns;
 #[cfg(target_arch = "wasm32")]
 mod ffi_web;
+mod inbox;
 mod input;
 pub mod persistent_pty;
+mod publish;
 pub mod pty;
 mod render_extract;
 pub mod theme;

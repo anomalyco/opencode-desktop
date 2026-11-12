@@ -1,9 +1,13 @@
 //! Off-main-thread terminal session worker (`TerminalSession`) and deterministic [`StreamHandle`].
 //! An OpenCode session terminal's worker lives in `persistent_pty.rs`.
+//!
+//! Every worker sleeps until it has something to do: a stream's worker on its channel, a
+//! persistent PTY's on its socket and channel together (`inbox.rs`). Neither wakes on a timer
+//! unless a program holds its frame (`?2026`) or a resize waits out its debounce.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
 use rune::time::Instant;
 
@@ -12,16 +16,23 @@ use parking_lot::Mutex;
 use rune::Waker;
 
 use crate::core::VtCore;
+use crate::inbox::{Inbox, SocketWait};
 use crate::persistent_pty::run_persistent_worker;
+use crate::publish::{self, Handoff, Publish};
 use crate::theme::TerminalTheme;
 use crate::types::{
     GridPoint, KeyInput, MouseInput, ScrollOp, SelectionOp, TerminalSnapshot, VtEvent,
 };
 
 pub const MAX_PERSIST_SCROLLBACK: usize = 2_000;
+/// The most output fed before the worker looks at its commands again.
 pub(crate) const COALESCE_BUDGET: Duration = Duration::from_millis(2);
 pub(crate) const COALESCE_MAX_BYTES: usize = 256 * 1024;
-pub(crate) const RENDER_HOLD_TIMEOUT: Duration = Duration::from_secs(1);
+/// A UI that hasn't read a snapshot for this long is showing the terminal again: it waits for
+/// the screen as it is instead of drawing the old one first.
+const SHOWN_AGAIN: Duration = Duration::from_millis(50);
+/// The longest a returning reader waits for that screen.
+const SHOW_WAIT: Duration = Duration::from_millis(16);
 
 #[derive(Clone, Debug)]
 pub struct TerminalConfig {
@@ -89,16 +100,25 @@ pub(crate) enum WorkerCmd {
     Persist(Sender<PersistedTerminal>),
     /// The user pressed on the pane, which takes control of a shared terminal at its size.
     Interact,
-    Shutdown,
-}
-
-enum StreamInbound {
+    /// A stream's program wrote this.
     Output(Vec<u8>),
+    /// A stream's program exited.
     Exit(Option<u32>),
+    /// The UI read the snapshot; publish the screen if it changed since.
+    Nudge,
+    /// The UI is about to draw a terminal it hadn't drawn for a while: publish the screen now
+    /// and say when it's there.
+    Show(Sender<()>),
+    Shutdown,
 }
 
 pub(crate) struct SharedState {
     pub(crate) snapshot: Mutex<Arc<TerminalSnapshot>>,
+    pub(crate) handoff: Handoff,
+    /// Bumped by every publish and status change, so a view can tell it changed without reading.
+    pub(crate) generation: AtomicU64,
+    /// When the UI last read the snapshot (ns on the monotonic clock).
+    pub(crate) read_at: AtomicU64,
     pub(crate) status: Mutex<SessionStatus>,
     pub(crate) selected_text: Mutex<Option<String>>,
     pub(crate) events: Mutex<Vec<VtEvent>>,
@@ -106,21 +126,42 @@ pub(crate) struct SharedState {
     pub(crate) revealed: AtomicBool,
 }
 
+impl SharedState {
+    fn new(snapshot: Arc<TerminalSnapshot>, status: SessionStatus, cursor: i64, revealed: bool) -> SharedState {
+        SharedState {
+            snapshot: Mutex::new(snapshot),
+            handoff: Handoff::default(),
+            generation: AtomicU64::new(0),
+            read_at: AtomicU64::new(0),
+            status: Mutex::new(status),
+            selected_text: Mutex::new(None),
+            events: Mutex::new(Vec::new()),
+            cursor: AtomicI64::new(cursor),
+            revealed: AtomicBool::new(revealed),
+        }
+    }
+
+    pub(crate) fn set_status(&self, status: SessionStatus) {
+        *self.status.lock() = status;
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+}
+
 /// Handle returned by [`TerminalSession::spawn_stream`] to drive a headless/story terminal.
 #[derive(Clone)]
 pub struct StreamHandle {
-    in_tx: Sender<StreamInbound>,
+    inbox: Inbox,
     written: Arc<Mutex<Vec<u8>>>,
     resizes: Arc<Mutex<Vec<(u16, u16)>>>,
 }
 
 impl StreamHandle {
     pub fn feed(&self, bytes: impl AsRef<[u8]>) {
-        let _ = self.in_tx.send(StreamInbound::Output(bytes.as_ref().to_vec()));
+        self.inbox.send(WorkerCmd::Output(bytes.as_ref().to_vec()));
     }
 
     pub fn exit(&self, code: Option<u32>) {
-        let _ = self.in_tx.send(StreamInbound::Exit(code));
+        self.inbox.send(WorkerCmd::Exit(code));
     }
 
     pub fn take_written(&self) -> Vec<u8> {
@@ -136,20 +177,20 @@ impl StreamHandle {
 /// terminal's 2,000-row VT buffer without blocking the UI thread or holding `TerminalSession` alive.
 #[derive(Clone)]
 pub struct SessionPersistHandle {
-    cmd_tx: Sender<WorkerCmd>,
+    inbox: Inbox,
 }
 
 impl SessionPersistHandle {
     pub fn capture(&self, timeout: Duration) -> Option<PersistedTerminal> {
         let (tx, rx) = mpsc::channel();
-        self.cmd_tx.send(WorkerCmd::Persist(tx)).ok()?;
+        self.inbox.send(WorkerCmd::Persist(tx)).then_some(())?;
         rx.recv_timeout(timeout).ok()
     }
 }
 
 pub struct TerminalSession {
     shared: Arc<SharedState>,
-    cmd_tx: Sender<WorkerCmd>,
+    inbox: Inbox,
 }
 
 impl TerminalSession {
@@ -158,20 +199,13 @@ impl TerminalSession {
         restore: Option<RestoreState>,
         waker: Waker,
     ) -> Result<(Self, StreamHandle), String> {
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (in_tx, in_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
+        let inbox = Inbox::channel(tx);
         let written = Arc::new(Mutex::new(Vec::new()));
         let resizes = Arc::new(Mutex::new(Vec::new()));
 
         let (init_snap, init_revealed, init_cursor) = bootstrap_initial(&config, restore.as_ref())?;
-        let shared = Arc::new(SharedState {
-            snapshot: Mutex::new(init_snap),
-            status: Mutex::new(SessionStatus::Connected),
-            selected_text: Mutex::new(None),
-            events: Mutex::new(Vec::new()),
-            cursor: AtomicI64::new(init_cursor),
-            revealed: AtomicBool::new(init_revealed),
-        });
+        let shared = Arc::new(SharedState::new(init_snap, SessionStatus::Connected, init_cursor, init_revealed));
 
         let worker_shared = shared.clone();
         let worker_written = written.clone();
@@ -179,23 +213,14 @@ impl TerminalSession {
         std::thread::Builder::new()
             .name("terminal-stream".into())
             .spawn(move || {
-                run_stream_worker(
-                    config,
-                    restore,
-                    cmd_rx,
-                    in_rx,
-                    worker_shared,
-                    worker_written,
-                    worker_resizes,
-                    waker,
-                );
+                run_stream_worker(config, restore, rx, worker_shared, worker_written, worker_resizes, waker);
             })
             .map_err(|e| format!("failed to spawn terminal worker: {e}"))?;
 
         Ok((
-            Self { shared, cmd_tx },
+            Self { shared, inbox: inbox.clone() },
             StreamHandle {
-                in_tx,
+                inbox,
                 written,
                 resizes,
             },
@@ -211,26 +236,43 @@ impl TerminalSession {
         observer: bool,
         waker: Waker,
     ) -> Result<Self, String> {
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (init_snap, _, _) = bootstrap_initial(&config, None)?;
-        let shared = Arc::new(SharedState {
-            snapshot: Mutex::new(init_snap),
-            status: Mutex::new(SessionStatus::Connecting),
-            selected_text: Mutex::new(None),
-            events: Mutex::new(Vec::new()),
-            cursor: AtomicI64::new(0),
-            revealed: AtomicBool::new(false),
-        });
+        let (tx, rx) = mpsc::channel();
+        let wait = Arc::new(SocketWait::new().map_err(|e| format!("failed to start terminal PTY worker: {e}"))?);
+        let inbox = Inbox::socket(tx, wait.clone());
+        // The server's checkpoint paints the screen; until it comes, an empty one at its size.
+        let blank = Arc::new(TerminalSnapshot::blank(config.cols.max(1), config.rows.max(1), &config.theme));
+        let shared = Arc::new(SharedState::new(blank, SessionStatus::Connecting, 0, false));
         let worker_shared = shared.clone();
         std::thread::Builder::new()
             .name("terminal-persistent-pty".into())
-            .spawn(move || run_persistent_worker(server, pty_id, config, observer, cmd_rx, worker_shared, waker))
+            .spawn(move || run_persistent_worker(server, pty_id, config, observer, rx, wait, worker_shared, waker))
             .map_err(|e| format!("failed to spawn terminal PTY worker: {e}"))?;
-        Ok(Self { shared, cmd_tx })
+        Ok(Self { shared, inbox })
     }
 
+    /// The screen to draw. Reading it lets the worker publish the next one; a terminal drawn
+    /// again after a while gets the screen as it is now.
     pub fn snapshot(&self) -> Arc<TerminalSnapshot> {
+        let now = monotonic_ns();
+        let last = self.shared.read_at.swap(now, Ordering::AcqRel);
+        if self.shared.handoff.read() {
+            if now.saturating_sub(last) >= SHOWN_AGAIN.as_nanos() as u64 {
+                let (tx, rx) = mpsc::channel();
+                if self.inbox.send(WorkerCmd::Show(tx)) {
+                    let _ = rx.recv_timeout(SHOW_WAIT);
+                    // The fresh snapshot is this read's.
+                    self.shared.handoff.read();
+                }
+            } else {
+                self.inbox.nudge();
+            }
+        }
         self.shared.snapshot.lock().clone()
+    }
+
+    /// Changes with every new screen and status, without reading either.
+    pub fn generation(&self) -> u64 {
+        self.shared.generation.load(Ordering::Acquire)
     }
 
     pub fn status(&self) -> SessionStatus {
@@ -254,27 +296,27 @@ impl TerminalSession {
     }
 
     pub fn write_bytes(&self, bytes: impl Into<Vec<u8>>) {
-        let _ = self.cmd_tx.send(WorkerCmd::WriteRaw(bytes.into()));
+        self.inbox.send(WorkerCmd::WriteRaw(bytes.into()));
     }
 
     pub fn send_key(&self, key: KeyInput) {
-        let _ = self.cmd_tx.send(WorkerCmd::Key(key));
+        self.inbox.send(WorkerCmd::Key(key));
     }
 
     pub fn send_mouse(&self, mouse: MouseInput) {
-        let _ = self.cmd_tx.send(WorkerCmd::Mouse(mouse));
+        self.inbox.send(WorkerCmd::Mouse(mouse));
     }
 
     pub fn paste(&self, text: impl Into<String>) {
-        let _ = self.cmd_tx.send(WorkerCmd::Paste(text.into()));
+        self.inbox.send(WorkerCmd::Paste(text.into()));
     }
 
     pub fn scroll(&self, op: ScrollOp) {
-        let _ = self.cmd_tx.send(WorkerCmd::Scroll(op));
+        self.inbox.send(WorkerCmd::Scroll(op));
     }
 
     pub fn resize(&self, cols: u16, rows: u16, cell_w_px: u32, cell_h_px: u32) {
-        let _ = self.cmd_tx.send(WorkerCmd::Resize {
+        self.inbox.send(WorkerCmd::Resize {
             cols,
             rows,
             cell_w_px,
@@ -283,13 +325,13 @@ impl TerminalSession {
     }
 
     pub fn select(&self, op: SelectionOp) {
-        let _ = self.cmd_tx.send(WorkerCmd::Select(op));
+        self.inbox.send(WorkerCmd::Select(op));
     }
 
     /// The user pressed on the pane: a shared session terminal comes under this window's
     /// control at its size (Desktop's `interacted`).
     pub fn interact(&self) {
-        let _ = self.cmd_tx.send(WorkerCmd::Interact);
+        self.inbox.send(WorkerCmd::Interact);
     }
 
     pub fn select_range_viewport(&self, start: (u16, u16), end: (u16, u16), rectangular: bool) {
@@ -307,12 +349,12 @@ impl TerminalSession {
     }
 
     pub fn set_theme(&self, theme: TerminalTheme) {
-        let _ = self.cmd_tx.send(WorkerCmd::SetTheme(theme));
+        self.inbox.send(WorkerCmd::SetTheme(theme));
     }
 
     pub fn persist_handle(&self) -> SessionPersistHandle {
         SessionPersistHandle {
-            cmd_tx: self.cmd_tx.clone(),
+            inbox: self.inbox.clone(),
         }
     }
 
@@ -323,8 +365,14 @@ impl TerminalSession {
 
 impl Drop for TerminalSession {
     fn drop(&mut self) {
-        let _ = self.cmd_tx.send(WorkerCmd::Shutdown);
+        self.inbox.send(WorkerCmd::Shutdown);
     }
+}
+
+/// Nanoseconds since the first call in this process, never 0.
+fn monotonic_ns() -> u64 {
+    static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    (EPOCH.get_or_init(Instant::now).elapsed().as_nanos() as u64).max(1)
 }
 
 pub(crate) fn bootstrap_initial(
@@ -373,35 +421,79 @@ pub(crate) fn build_core(
     Ok(core)
 }
 
-pub(crate) fn publish_if_ready(
-    core: &mut VtCore,
-    shared: &SharedState,
-    waker: &Waker,
-    hold_started: &mut Option<Instant>,
-) {
-    if core.render_held() {
-        let started = *hold_started.get_or_insert_with(Instant::now);
-        if started.elapsed() < RENDER_HOLD_TIMEOUT {
-            return;
-        }
-        core.clear_render_hold();
-    }
-    *hold_started = None;
-
-    let evs = core.take_events();
-    if !evs.is_empty() {
-        shared.events.lock().extend(evs);
-    }
-    let snap = core.snapshot();
-    if !shared.revealed.load(Ordering::Acquire)
-        && snap.screen_rows.iter().any(|r| !r.trimmed_text().is_empty())
-    {
-        shared.revealed.store(true, Ordering::Release);
-    }
-    *shared.snapshot.lock() = snap;
-    waker();
+/// A worker's screen and what it owes the UI.
+pub(crate) struct Screen {
+    pub(crate) core: VtCore,
+    pub(crate) publish: Publish,
 }
 
+impl Screen {
+    pub(crate) fn new(core: VtCore) -> Screen {
+        Screen { core, publish: Publish::Current }
+    }
+
+    /// Steps the publish machine and carries out its action. Events the UI needs whatever it
+    /// draws (bell, title, folder) reach it even when no snapshot goes.
+    pub(crate) fn step(&mut self, event: publish::Event, shared: &SharedState, waker: &Waker) {
+        let (next, action) = self.publish.step(event, Instant::now(), &shared.handoff);
+        self.publish = next;
+        let events = self.core.take_events();
+        let has_events = !events.is_empty();
+        if has_events {
+            shared.events.lock().extend(events);
+        }
+        match action {
+            publish::Action::Publish => self.extract(shared, waker),
+            publish::Action::Nothing if has_events => waker(),
+            publish::Action::Nothing => {}
+        }
+    }
+
+    fn extract(&mut self, shared: &SharedState, waker: &Waker) {
+        self.core.clear_render_hold();
+        let snap = self.core.snapshot();
+        if !shared.revealed.load(Ordering::Acquire) && snap.screen_rows.iter().any(|r| !r.trimmed_text().is_empty()) {
+            shared.revealed.store(true, Ordering::Release);
+        }
+        *shared.snapshot.lock() = snap;
+        shared.generation.fetch_add(1, Ordering::Release);
+        waker();
+    }
+
+    /// Publishes the final screen of a worker that is ending, read or not.
+    pub(crate) fn last(&mut self, shared: &SharedState, waker: &Waker) {
+        let events = self.core.take_events();
+        if !events.is_empty() {
+            shared.events.lock().extend(events);
+        }
+        shared.handoff.published();
+        self.publish = Publish::Current;
+        self.extract(shared, waker);
+    }
+
+    /// The screen changed.
+    pub(crate) fn changed(&mut self, shared: &SharedState, waker: &Waker) {
+        let held = self.core.render_held();
+        self.step(publish::Event::Changed { held }, shared, waker);
+    }
+
+    /// The worker woke without new output.
+    pub(crate) fn woke(&mut self, shared: &SharedState, waker: &Waker) {
+        let held = self.core.render_held();
+        self.step(publish::Event::Woke { held }, shared, waker);
+    }
+
+    /// Publishes now for a reader that waits (`WorkerCmd::Show`), unless the program holds its frame.
+    pub(crate) fn show(&mut self, shared: &SharedState, waker: &Waker, reply: Sender<()>) {
+        if self.publish == Publish::Behind {
+            self.woke(shared, waker);
+        }
+        let _ = reply.send(());
+    }
+}
+
+/// Applies a command that changes the emulator; `false` ends the worker. Encoded input goes to
+/// `out_bytes`, a resize to `resized`; `dirty` says the screen changed.
 pub(crate) fn apply_worker_cmd(
     cmd: WorkerCmd,
     core: &mut VtCore,
@@ -412,24 +504,9 @@ pub(crate) fn apply_worker_cmd(
 ) -> bool {
     match cmd {
         WorkerCmd::WriteRaw(data) => out_bytes.extend_from_slice(&data),
-        WorkerCmd::Key(key) => {
-            let encoded = core.encode_key(&key);
-            if !encoded.is_empty() {
-                out_bytes.extend_from_slice(&encoded);
-            }
-        }
-        WorkerCmd::Mouse(mouse) => {
-            let encoded = core.encode_mouse(mouse);
-            if !encoded.is_empty() {
-                out_bytes.extend_from_slice(&encoded);
-            }
-        }
-        WorkerCmd::Paste(text) => {
-            let encoded = core.encode_paste(&text);
-            if !encoded.is_empty() {
-                out_bytes.extend_from_slice(&encoded);
-            }
-        }
+        WorkerCmd::Key(key) => out_bytes.extend_from_slice(&core.encode_key(&key)),
+        WorkerCmd::Mouse(mouse) => out_bytes.extend_from_slice(&core.encode_mouse(mouse)),
+        WorkerCmd::Paste(text) => out_bytes.extend_from_slice(&core.encode_paste(&text)),
         WorkerCmd::Scroll(op) => {
             core.scroll(op);
             *dirty = true;
@@ -464,91 +541,92 @@ pub(crate) fn apply_worker_cmd(
                 cursor: shared.cursor.load(Ordering::Acquire),
             });
         }
-        WorkerCmd::Interact => {}
+        WorkerCmd::Output(chunk) => {
+            shared.cursor.fetch_add(chunk.len() as i64, Ordering::AcqRel);
+            core.feed(&chunk);
+            out_bytes.extend_from_slice(&core.take_pty_writes());
+            *dirty = true;
+        }
+        WorkerCmd::Exit(code) => {
+            shared.set_status(SessionStatus::Exited { code });
+            *dirty = true;
+        }
+        WorkerCmd::Interact | WorkerCmd::Nudge | WorkerCmd::Show(_) => {}
         WorkerCmd::Shutdown => return false,
     }
     true
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_stream_worker(
     config: TerminalConfig,
     restore: Option<RestoreState>,
-    cmd_rx: Receiver<WorkerCmd>,
-    in_rx: Receiver<StreamInbound>,
+    rx: Receiver<WorkerCmd>,
     shared: Arc<SharedState>,
     written: Arc<Mutex<Vec<u8>>>,
     resizes: Arc<Mutex<Vec<(u16, u16)>>>,
     waker: Waker,
 ) {
-    let Ok(mut core) = build_core(&config, restore.as_ref()) else {
+    let Ok(core) = build_core(&config, restore.as_ref()) else {
         return;
     };
-    let mut hold_started: Option<Instant> = None;
+    let mut screen = Screen::new(core);
 
     loop {
+        // Asleep until a command, output, or the end of a program's frame hold.
+        let first = match screen.publish.deadline() {
+            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(cmd) => Some(cmd),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => return,
+            },
+            None => match rx.recv() {
+                Ok(cmd) => Some(cmd),
+                Err(_) => return,
+            },
+        };
+
         let mut dirty = false;
         let mut out_bytes = Vec::new();
         let mut resized = None;
-
-        loop {
-            match cmd_rx.try_recv() {
-                Ok(cmd) => {
-                    if !apply_worker_cmd(
-                        cmd,
-                        &mut core,
-                        &shared,
-                        &mut out_bytes,
-                        &mut resized,
-                        &mut dirty,
-                    ) {
+        let mut show = None;
+        let burst = Instant::now();
+        let mut fed = 0usize;
+        let mut next = first;
+        while let Some(cmd) = next.take() {
+            if let WorkerCmd::Output(chunk) = &cmd {
+                fed += chunk.len();
+            }
+            match cmd {
+                WorkerCmd::Show(reply) => show = Some(reply),
+                cmd => {
+                    if !apply_worker_cmd(cmd, &mut screen.core, &shared, &mut out_bytes, &mut resized, &mut dirty) {
                         return;
                     }
                 }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => return,
             }
+            if fed >= COALESCE_MAX_BYTES || burst.elapsed() >= COALESCE_BUDGET {
+                break;
+            }
+            next = match rx.try_recv() {
+                Ok(cmd) => Some(cmd),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => return,
+            };
         }
 
         if let Some(sz) = resized {
             resizes.lock().push(sz);
         }
-
-        let burst_start = Instant::now();
-        let mut fed_bytes = 0usize;
-        loop {
-            match in_rx.try_recv() {
-                Ok(StreamInbound::Output(chunk)) => {
-                    fed_bytes += chunk.len();
-                    shared
-                        .cursor
-                        .fetch_add(chunk.len() as i64, Ordering::AcqRel);
-                    core.feed(&chunk);
-                    out_bytes.extend_from_slice(&core.take_pty_writes());
-                    dirty = true;
-                    if fed_bytes >= COALESCE_MAX_BYTES
-                        || burst_start.elapsed() >= COALESCE_BUDGET
-                    {
-                        break;
-                    }
-                }
-                Ok(StreamInbound::Exit(code)) => {
-                    *shared.status.lock() = SessionStatus::Exited { code };
-                    dirty = true;
-                    break;
-                }
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
-        }
-
         if !out_bytes.is_empty() {
             written.lock().extend_from_slice(&out_bytes);
         }
-
-        if dirty || hold_started.is_some_and(|t| t.elapsed() >= RENDER_HOLD_TIMEOUT) {
-            publish_if_ready(&mut core, &shared, &waker, &mut hold_started);
+        if dirty {
+            screen.changed(&shared, &waker);
         } else {
-            std::thread::sleep(Duration::from_millis(1));
+            screen.woke(&shared, &waker);
+        }
+        if let Some(reply) = show {
+            screen.show(&shared, &waker, reply);
         }
     }
 }

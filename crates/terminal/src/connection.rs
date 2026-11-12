@@ -214,6 +214,14 @@ impl Sizing {
         }
     }
 
+    /// When a pending size settles.
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        match *self {
+            Sizing::Sized { pending: Some((_, since)), .. } => Some(since + SIZE_DEBOUNCE),
+            _ => None,
+        }
+    }
+
     /// The debounce settled by `now`: returns the size to apply (`size.debounced`).
     pub(crate) fn due(&mut self, now: Instant) -> Option<Size> {
         match *self {

@@ -163,6 +163,29 @@ pub struct TerminalSnapshot {
 }
 
 impl TerminalSnapshot {
+    /// An empty screen of `cols` by `rows` in `theme`, before any output.
+    pub fn blank(cols: u16, rows: u16, theme: &crate::theme::TerminalTheme) -> TerminalSnapshot {
+        TerminalSnapshot {
+            cols,
+            rows,
+            screen_rows: Vec::new(),
+            cursor: CursorSnapshot::default(),
+            scrollbar: ScrollbarSnapshot { total: u64::from(rows), offset: 0, len: u64::from(rows), at_bottom: true },
+            fg: theme.fg,
+            bg: theme.bg,
+            cursor_color: theme.cursor,
+            selection_alpha: theme.selection_alpha,
+            alt_screen: false,
+            mouse_tracking: false,
+            bracketed_paste: false,
+            focus_reporting: false,
+            kitty_keyboard_flags: 0,
+            title: String::new(),
+            pwd: String::new(),
+            bell_count: 0,
+        }
+    }
+
     pub fn line_text(&self, row: usize) -> &str {
         self.screen_rows.get(row).map_or("", |r| r.trimmed_text())
     }
