@@ -172,15 +172,27 @@ return plugin.defineWindow(function(ctx)
         return Server:IsLocal() or not address.loopback(name)
     end
 
-    -- A new blank tab in the session (the routed one by default), which starts in its address field.
-    local function openNew(sid: string?)
+    -- Where the keyboard goes when a new blank tab opens: its address field, or where it was
+    -- (Open browser's shortcut pressed outside the side region: Desktop's chat keeps it).
+    type Keyboard = "address" | "kept"
+    -- Blank tabs that opened with the keyboard kept, until their first focus.
+    local kept: { [string]: boolean } = {}
+    local opening: Keyboard? = nil
+
+    -- A new blank tab in the session (the routed one by default).
+    local function openNew(sid: string?, keyboard: Keyboard)
         local session = if sid then Sessions:Get(sid) else Sessions:Routed()
         if session == nil or not Browser:Available() then
             return
         end
-        local tab = Browser:OpenAsync({ url = "about:blank", sessionId = session.id })
-        if tab then
+        opening = keyboard
+        -- `background` opens and selects the tab and leaves the keyboard (and the strip's focus) where it was.
+        local tab = Browser:OpenAsync({ url = "about:blank", sessionId = session.id, background = keyboard == "kept" })
+        opening = nil
+        if tab and keyboard == "address" then
             edit(tab)
+        elseif tab then
+            kept[tab.Id] = true
         end
     end
 
@@ -393,7 +405,13 @@ return plugin.defineWindow(function(ctx)
         -- A blank tab starts in its address field, like a browser's new tab.
         onFocus = function(props)
             local tab = if props.instance then Browser:Get(props.instance) else nil
-            if tab and props.restored ~= true and pageUrl(tab) == "" then
+            if tab == nil or opening == "kept" or kept[tab.Id] then
+                if tab then
+                    kept[tab.Id] = nil
+                end
+                return
+            end
+            if props.restored ~= true and pageUrl(tab) == "" then
                 edit(tab)
             end
         end,
@@ -432,7 +450,9 @@ return plugin.defineWindow(function(ctx)
             if not Browser:Available() then
                 return false
             end
-            openNew(nil)
+            -- Desktop's shortcut focuses the new tab's address only from inside the side region; from
+            -- the chat (its composer or timeline) the keyboard stays there (measured with real input).
+            openNew(nil, if Layout:RegionFocused() then "address" else "kept")
             return nil
         end,
     })
@@ -489,7 +509,7 @@ return plugin.defineWindow(function(ctx)
         return true
     end)
     scoped("newTab", "mod+t", true, I18n:T("command.newTab"), function()
-        openNew(nil)
+        openNew(nil, "address")
         return true
     end)
     scoped("inspect", "mod+shift+c", false, I18n:T("command.inspect"), function(tab)
@@ -512,7 +532,7 @@ return plugin.defineWindow(function(ctx)
             return Sessions:Get(sid) ~= nil and Browser:Available()
         end,
         run = function(sid: string?)
-            openNew(sid)
+            openNew(sid, "address")
         end,
     })
 

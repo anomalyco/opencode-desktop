@@ -388,6 +388,8 @@ pub struct Popup {
 
 impl Popup {
     pub fn is_open(&self) -> bool { self.shown.is_some() }
+    /// A menu showing now holds the keyboard (Kobalte's focus their items, outside every pane).
+    pub fn holds_focus(&self) -> bool { self.shown.as_ref().is_some_and(|m| m.menu.holds_focus()) }
 
     /// The element focused as the last [`Menu::remembers_focus`] menu opened: its Edit items
     /// put focus back there before they send their keys.

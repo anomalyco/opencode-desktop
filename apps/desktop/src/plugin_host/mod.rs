@@ -31,7 +31,7 @@ pub mod console;
 mod contrib;
 mod ctx;
 pub mod cx;
-mod editors;
+pub(crate) mod editors;
 mod first_screen;
 pub mod flyout;
 mod hot;

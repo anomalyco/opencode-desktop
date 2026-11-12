@@ -28,7 +28,22 @@ pub const SIDE_FLIGHT: f64 = 0.6;
 /// thousandth of a point, so what changes once it lands changes out of sight.
 pub const SIDE_REST: f64 = 1.0;
 const INSTANT: Anim = Anim::INSTANT;
-const FADE_FLOOR: f32 = 0.5;
+/// Desktop's `panelOpacity` (`panel-motion.ts`): a side card's contents fade only across the
+/// last 15% of its travel, `min(1, (1 - closed) / 0.15)`. Over SIDE_SPRING (critically damped,
+/// ω = 2π / 0.3 s, travel `1 - (1 + ωt)e^-ωt`) that is opacity 1 for the first 161 ms of a
+/// close, then down to 0 by about 400 ms; an open reaches 1 after its first 15%, 32.5 ms in.
+/// Baked as the share of the change done at each share of the time.
+const CLOSE_FADE: Anim = Anim::new(Curve::tween(
+    0.4,
+    Easing::Piecewise(&[
+        [0.0, 0.0], [0.4035, 0.0], [0.45, 0.267], [0.5, 0.475], [0.55, 0.627], [0.6, 0.736],
+        [0.65, 0.814], [0.7, 0.87], [0.75, 0.909], [0.8, 0.937], [0.9, 0.97], [1.0, 1.0],
+    ]),
+));
+const OPEN_FADE: Anim = Anim::new(Curve::tween(
+    0.0325,
+    Easing::Piecewise(&[[0.0, 0.0], [0.23, 0.074], [0.46, 0.267], [0.69, 0.545], [0.92, 0.875], [1.0, 1.0]]),
+));
 /// How far the open side card's elevation shows past the side region's start edge.
 const SIDE_BLEED: f32 = 4.0;
 
@@ -99,8 +114,8 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
             .key("side-column")
             .pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom))
             .w(w)
-            .opacity(if col_open { 1.0 } else { FADE_FLOOR })
-            .opacity_motion(SIDE_SPRING);
+            .opacity(if col_open { 1.0 } else { 0.0 })
+            .opacity_motion(if col_open { OPEN_FADE } else { CLOSE_FADE });
         if !col_open {
             card = card.inert();
             column = column.inert();
@@ -336,8 +351,16 @@ fn tab_bar(
         .scroll(ScrollSpec { stick_bottom: false })
         .clip_fade(0.0, 0.0, 8.0, 0.0);
 
-    // While the keyboard is the chat's, the selected tab rests at the strip's muted ink.
-    let focused = s.side.focused && s.side.active_pane_focus == pane;
+    // While the keyboard is the chat's, or a menu's (Desktop's side focus is the last focus, click
+    // or key inside `#review-panel`; a menu's items sit in a portal outside it), the selected tab
+    // rests at the strip's muted ink.
+    // A plugin's field in the selected tab (the browser's address) holds the keyboard there too:
+    // a press on it is a press inside the region, though it doesn't reach the pane's own press.
+    let field_in_tab = entries
+        .iter()
+        .find(|e| pane_active == Some(e.key.as_str()))
+        .is_some_and(|e| crate::plugin_host::editors::plugin_focused(s, e.plugin));
+    let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !s.composer.focused && !s.popup.holds_focus();
     for entry in entries {
         let key = entry.key.clone();
         let active = shown_new_id.is_none() && pane_active == Some(key.as_str());

@@ -251,7 +251,10 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         .disabled(a.flag("disabled"));
     // A read-only field draws as usual and takes no edit.
     if !a.flag("readOnly") {
-        input = input.on_edit(move |app: &mut App| super::editors::get_mut(app, &edit_plugin, index));
+        input = input.on_edit(move |app: &mut App| {
+            super::editors::note_side_field(app, &edit_plugin);
+            super::editors::get_mut(app, &edit_plugin, index)
+        });
     }
     if a.string("w") == Some("full") {
         input = input.width(None);
@@ -339,7 +342,10 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .on_edit(move |app: &mut App| super::editors::get_mut(app, &on_edit, index))
+        .on_edit(move |app: &mut App| {
+            super::editors::note_side_field(app, &on_edit);
+            super::editors::get_mut(app, &on_edit, index)
+        })
         .on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &on_submit, index, tx));
     if let Some(dir) = dir(a) {
         input = input.dir(dir);

@@ -132,10 +132,13 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         local before = tab:Url()
         tab:Navigate(url)
         tab:Show({ sessionId = sid, background = true })
-        -- The navigation lands with the next frame; answer with the address it went to.
-        for _ = 1, 5 do
-            task.wait()
-            if tab:Url() ~= before then
+        -- Answer once the page says where it went (it changed address and stopped loading, or
+        -- failed), as Desktop's navigate answers after the load; at most 10 s.
+        local loaded = false
+        for _ = 1, 100 do
+            task.wait(0.1)
+            loaded = loaded or tab:Loading()
+            if tab:LoadError() ~= nil or ((loaded or tab:Url() ~= before) and not tab:Loading()) then
                 break
             end
         end

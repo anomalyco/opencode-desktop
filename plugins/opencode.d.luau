@@ -4914,6 +4914,8 @@ export type LayoutService = {
     OpenDrawerView: (self: LayoutService, title: string, data: { [string]: any }?) -> (),
     --- A session's side region is open. Defaults to the routed session.
     RegionOpen: (self: LayoutService, sessionId: string?) -> boolean,
+    --- The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region.
+    RegionFocused: (self: LayoutService) -> boolean,
 }
 
 --- Routes local links to the plugins that handle them. The window half only: `ctx:GetService("Links")`.

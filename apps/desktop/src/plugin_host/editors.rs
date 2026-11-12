@@ -103,3 +103,19 @@ pub fn get_mut<'a>(app: &'a mut App, plugin: &str, index: usize) -> &'a mut Text
 pub fn text_in(app: &App, plugin: &str, index: usize) -> String {
     app.plugins.editors.borrow().get(&(plugin.to_owned(), index)).map(|t| t.text.clone()).unwrap_or_default()
 }
+
+/// A plugin's field took an edit (a press focuses it, keys type in it): when its plugin's tab is the one a
+/// side pane shows, the side region has the keyboard, as Desktop's side focus follows a focus or
+/// click inside `#review-panel`.
+pub fn note_side_field(app: &mut App, plugin: &str) {
+    if app.side.focused && !app.composer.focused {
+        return;
+    }
+    let shown = crate::panels::SESSION_PANES.into_iter().find(|&pane| {
+        app.pane_shown_tab(pane).and_then(|key| app.resolve_side_region()?.entry(&key).map(|e| e.plugin == plugin)).unwrap_or(false)
+    });
+    if let Some(pane) = shown {
+        app.side.focused = true;
+        app.side.active_pane_focus = pane;
+    }
+}

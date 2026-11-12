@@ -337,8 +337,10 @@ impl BrowserHost {
 
     pub fn navigate(&mut self, tab_id: u64, raw_url: &str) {
         let url = resolve_address(raw_url);
+        // The page shows where it is until the engine says it went: the address field holds what
+        // was submitted meanwhile, as Desktop's does (an address set here at once ended that hold,
+        // and the engine's next report, still the old document, emptied the field).
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            t.url = url.clone();
             t.loading = true;
         }
         if self.is_connected() {
