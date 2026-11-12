@@ -31,7 +31,8 @@ function row.render(env: any, v: View, props: ServerRowProps): UiNode?
             ui.serverIndicator({ health = health, connecting = stage == "connecting", auth = stage == "authentication" }),
             ui.col({ grow = 1, shrink = true, minW = 0, gap = 6 }, {
                 ui.row({ gap = 4, align = "center", minW = 0 }, {
-                    ui.text(command.name(item.config), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true, shrink = true }),
+                    -- A given name reads its own way; the host taken from the target stays left to right.
+            ui.text(command.name(item.config), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true, shrink = true, dir = if (item.config.name or "") ~= "" then "auto" else "ltr" }),
                     ui.row({ px = 4, py = 2, radius = 3, border = "border-base", borderWidth = 1 }, {
                         ui.text(I18n:T("label"), { size = 9, weight = "regular", lineHeight = 9, color = "text-muted" }),
                     }),

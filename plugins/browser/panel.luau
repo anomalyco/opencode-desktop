@@ -138,6 +138,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             key = "browser-address-input",
             editor = env.editor,
             variant = "bare",
+            dir = "ltr",
             placeholder = env.I18n:T("address.search"),
             keys = { "ArrowUp", "ArrowDown", "Escape" },
             label = env.I18n:T("address.label"),
@@ -188,8 +189,10 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         }))
     end
     local editingPage = bar.editing and not bar.typed and bar.field ~= ""
+    -- An address reads left to right in any window (panel.tsx's `<form dir="ltr">`).
     return ui.row({
         key = "browser-address",
+        dir = "ltr",
         grow = 1,
         shrink = true,
         minW = 0,
@@ -298,6 +301,7 @@ function panel.row(view: View, key: string, visit: history.Visit, query: string,
     table.insert(items, marked(history.bare(visit.url), query, if suggestion then "text-chrome" else "text-muted", { grow = 1, truncate = true, shrink = true, minW = 0 }))
     return ui.row({
         key = key,
+        dir = "ltr",
         role = "button",
         label = if visit.title ~= "" then visit.title else visit.url,
         w = "full",
@@ -322,7 +326,7 @@ end
 local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.Node
     local visits = env.visits()
     if #visits == 0 then
-        return ui.col({ key = "browser-home", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
+        return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
             ui.col({ w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
                 ui.icon("outline-globe", { size = 20, color = "icon-weak" }),
                 ui.col({ w = "full", gap = 8, align = "center" }, {
@@ -342,7 +346,7 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
             env.act("go", tab, visit.url)
         end))
     end
-    return ui.col({ key = "browser-home", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
+    return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
         ui.col({ w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
             ui.text(env.I18n:T("home.recent"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted" }),
             ui.col({ w = "full", gap = 8 }, rows),
@@ -353,7 +357,7 @@ end
 -- A page that failed to load or whose renderer crashed (panel.tsx's failed state, over the page):
 -- the globe, what happened and what to do, centred above the file empty state's 200 bottom pad.
 local function failed(env: Env): ui.Node
-    return ui.col({ key = "browser-failed", w = "full", grow = 1, minH = 0, px = 24, pt = 24, pb = 200, gap = 8, align = "center", justify = "center" }, {
+    return ui.col({ key = "browser-failed", dir = "auto", w = "full", grow = 1, minH = 0, px = 24, pt = 24, pb = 200, gap = 8, align = "center", justify = "center" }, {
         ui.icon("outline-globe", { size = 20, color = "text-weak", mb = 8 }),
         ui.text(env.I18n:T("failed.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-strong", textAlign = "center" }),
         ui.text(env.I18n:T("failed.description"), { size = 13, weight = "regular", lineHeight = 20, color = "text-weak", textAlign = "center", wrap = true }),

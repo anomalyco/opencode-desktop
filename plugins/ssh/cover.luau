@@ -30,7 +30,7 @@ function cover.render(env: any, v: View, props: ServerCoverProps): UiNode?
     return v:Memo(`cover-{id}`, `{env.version()}|{props.tab}`, function()
         local status: { UiNode } = {
             ui.text(I18n:T("session.disconnected"), { size = 16, weight = "medium", lineHeight = 28.8, color = "text-chrome", textAlign = "center" }),
-            ui.text(command.name(item.config), { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
+            ui.text(command.name(item.config), { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true, maxW = 384, dir = "auto" }),
             ui.text(I18n:T("session.reconnectDescription"), { size = 13, weight = "regular", lineHeight = 24, color = "text-muted", textAlign = "center", wrap = true, maxW = 384 }),
         }
         local children: { UiNode } = {

@@ -267,8 +267,22 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
     } else if a.string("w") == Some("full") {
         input = input.width(None);
     }
+    // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
+    if let Some(dir) = dir(a) {
+        input = input.dir(dir);
+    }
     input = input.on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &plugin, index, tx));
     Ok(input.build(kit(&p(a))))
+}
+
+/// HTML's `dir` on a text input (`dir="auto"` on Desktop's name fields).
+fn dir(a: &NodeArgs) -> Option<rune::Direction> {
+    match a.string("dir")? {
+        "ltr" => Some(rune::Direction::Ltr),
+        "rtl" => Some(rune::Direction::Rtl),
+        "auto" => Some(rune::Direction::Auto),
+        _ => None,
+    }
 }
 
 /// Desktop's `ServerHealthIndicator` (`servers/registry/row.tsx`) as a plugin row's
@@ -327,6 +341,9 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
         .min_w(0.0)
         .on_edit(move |app: &mut App| super::editors::get_mut(app, &on_edit, index))
         .on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &on_submit, index, tx));
+    if let Some(dir) = dir(a) {
+        input = input.dir(dir);
+    }
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
             let Some(name) = handed.iter().find(|k| ev.key == **k && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt).map(|k| match k {

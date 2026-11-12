@@ -178,11 +178,11 @@ function dialog.render(env: any, v: View): UiNode?
     if view.showForm then
         table.insert(body, ui.col({ w = "full", gap = 8 }, {
             label(I18n:T("target")),
-            ui.field({ key = "ssh-target", editor = env.target, placeholder = I18n:T("placeholder"), size = "large", invalid = view.error ~= nil, disabled = view.inputsDisabled, w = "full" }),
+            ui.field({ key = "ssh-target", editor = env.target, placeholder = I18n:T("placeholder"), size = "large", invalid = view.error ~= nil, disabled = view.inputsDisabled, w = "full", dir = "ltr" }),
         }))
         table.insert(body, ui.col({ w = "full", gap = 8 }, {
             label(I18n:T("form.name")),
-            ui.field({ key = "ssh-name", editor = env.name, placeholder = I18n:T("form.namePlaceholder"), size = "large", disabled = view.inputsDisabled, w = "full" }),
+            ui.field({ key = "ssh-name", editor = env.name, placeholder = I18n:T("form.namePlaceholder"), size = "large", disabled = view.inputsDisabled, w = "full", dir = "auto" }),
         }))
     end
     if view.incompatible then
@@ -194,7 +194,7 @@ function dialog.render(env: any, v: View): UiNode?
     if view.prompt then
         local block: { UiNode } = {
             ui.col({ key = "ssh-prompt", w = "full", maxH = 200, scrollY = true }, {
-                ui.text(view.prompt.text, { mono = true, size = 12, weight = "regular", lineHeight = 16, wrap = true, selectable = true, color = "text-chrome" }),
+                ui.text(view.prompt.text, { mono = true, size = 12, weight = "regular", lineHeight = 16, wrap = true, selectable = true, color = "text-chrome", dir = "auto" }),
             }),
         }
         if not view.prompt.confirm then

@@ -153,7 +153,7 @@ function site.render(env: Env, view: View, url: string): ui.Node
     local items: { ui.Node } = {
         ui.row({ w = "full", px = 12, py = 4, gap = 8, align = "start" }, {
             ui.row({ h = 20, align = "center" }, { ui.icon("outline-globe", { size = 16, color = "icon-weak" }) }),
-            ui.text(if host ~= "" then host else url, { size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
+            ui.text(if host ~= "" then host else url, { dir = "ltr", size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
         }),
         -- Edge to edge, a 1 px line scaled to a hairline (half its colour).
         ui.col({ w = "full", h = 1, my = 2, fill = "border-base", opacity = 0.5 }),

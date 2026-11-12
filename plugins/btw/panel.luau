@@ -115,6 +115,8 @@ local QUESTION = table.freeze({
     color = "text-chrome",
     wrap = true,
     selectable = true,
+    -- `user-message-text` is `dir="auto"`: a question in Arabic reads from the right.
+    dir = "auto",
 } :: UiTextProps)
 
 local FULL = table.freeze({ w = "full" } :: UiBoxProps)
