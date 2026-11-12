@@ -170,7 +170,7 @@ fn cleanup(a: &Args) -> i32 {
     let app = crate::dirs::app();
     // The browser engine's folder is shared by every app with a browser pane: only this
     // install's socket, and with its data its browser profile, are its own.
-    let engine = rune::dirs::AppDirs::new("co.anomaly.opencode");
+    let engine = crate::dirs::engine();
     let exe = a.root.join(win_install::EXE);
     if let Some(engine) = &engine {
         std::fs::remove_file(engine.cache().join(browser_pane::installer::socket_name_for(&exe, 0))).ok();

@@ -62,7 +62,10 @@ pub(crate) struct Body<'a> {
     replay: u64,
     source: Option<Box<dyn Read + Send>>,
     hasher: Sha256,
+    /// Bytes handed on so far (the replayed ones too).
     have: u64,
+    /// Bytes the partial file held when it opened: progress never shows less.
+    resumed_at: u64,
     total: u64,
     progress: &'a mut dyn FnMut(u64, u64),
     pace: &'a mut dyn FnMut() -> Pace,
@@ -111,7 +114,8 @@ impl<'a> Body<'a> {
             replay: have,
             source,
             hasher: Sha256::new(),
-            have,
+            have: 0,
+            resumed_at: have,
             total,
             progress,
             pace,
@@ -119,6 +123,11 @@ impl<'a> Body<'a> {
             last_notify: have,
             cut: None,
         })
+    }
+
+    /// Bytes an earlier try left in the partial file.
+    pub(crate) fn resumed_at(&self) -> u64 {
+        self.resumed_at
     }
 
     /// Why the stream stopped early, once a read failed.
@@ -209,9 +218,9 @@ impl Read for Body<'_> {
         }
         self.hasher.update(&buf[..n]);
         self.have += n as u64;
-        if self.have - self.last_notify >= 256 * 1024 {
+        if self.have >= self.last_notify + 256 * 1024 {
             self.last_notify = self.have;
-            (self.progress)(self.have, self.total);
+            (self.progress)(self.have.max(self.resumed_at), self.total);
         }
         Ok(n)
     }

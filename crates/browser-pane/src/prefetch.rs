@@ -154,8 +154,9 @@ struct Job {
 impl Job {
     fn run(self) {
         let mut attempts = 0;
-        let mut low = !self.urgent();
-        background::set_background_priority(low);
+        // The index check and the OS's pause answer come at normal priority (they're small, and a
+        // busy machine would starve them for minutes); the download's first read sets its pace.
+        let mut low = false;
         loop {
             let mode = match self.ctl.state() {
                 State::Running(mode) => mode,
@@ -167,6 +168,7 @@ impl Job {
             if mode != Mode::Urgent
                 && let Some(reason) = background::pause_reason()
             {
+                log(&format!("browser engine: background download waits ({})", reason.describe()));
                 self.report(EngineStatus::Paused(reason));
                 self.ctl.wait(PAUSED_RECHECK);
                 continue;
@@ -189,8 +191,14 @@ impl Job {
             rune::marks::mark("browser.engine.index");
             // Up to date, or another app sharing the engine folder installed it meanwhile.
             if installed.as_ref().is_some_and(|i| i.version.is_none_or(|v| v >= release.version)) {
+                if mode == Mode::Update {
+                    log(&format!("browser engine: {} is current", release.version));
+                }
                 self.report(EngineStatus::Installed);
                 break;
+            }
+            if mode == Mode::Update {
+                log(&format!("browser engine: downloading {} for the next start", release.version));
             }
             let started = Instant::now();
             let err = match self.install(&release, &mut low) {
@@ -232,7 +240,15 @@ impl Job {
     fn install(&self, release: &Release, low: &mut bool) -> Result<(), Cut> {
         let root = installer::engines_root();
         std::fs::create_dir_all(&root).map_err(|e| Cut::Failed(err_write(&e)))?;
+        installer::sweep_unpacking(&root);
         let partial = root.join(format!(".{}-{}.part", release.version, &release.sha256[..16]));
+        // Before a byte comes: the rest of the archive and what it unpacks to (under three times
+        // its size) must fit.
+        let have = std::fs::metadata(&partial).map_or(0, |m| m.len()).min(release.size);
+        let need = release.size - have + release.size * 3;
+        if let Some(free) = background::free_space(&root).filter(|&free| free < need) {
+            return Err(Cut::Failed(installer::err_disk_space(need, free)));
+        }
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
         let _ = std::fs::remove_dir_all(&staging);
         std::fs::create_dir_all(&staging).map_err(|e| Cut::Failed(err_write(&e)))?;
@@ -294,7 +310,11 @@ impl Job {
         let verifier = Verifier::new(&release.trust);
         let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
         let tar_zst = release.url.split('?').next().is_some_and(|u| u.ends_with(".tar.zst"));
-        let streamed = if tar_zst {
+        // A first try unpacks as the bytes arrive. A resumed one downloads the rest first and
+        // unpacks the whole file once, rather than unpacking the bytes it already has again on
+        // every try.
+        let stream_unpack = tar_zst && body.resumed_at() == 0;
+        let streamed = if stream_unpack {
             unpack::tar_zst(&mut body, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)
         } else {
             std::io::copy(&mut body, &mut std::io::sink()).map(|_| ()).map_err(|_| Cut::Failed(installer::ERR_DOWNLOAD.into()))
@@ -303,12 +323,17 @@ impl Job {
             return Err(body.cut().cloned().unwrap_or(cut));
         }
         let sha256 = body.finish()?;
+
         rune::marks::mark("browser.engine.downloaded");
         if !update {
             self.report(EngineStatus::Verifying);
         }
         if sha256 != release.sha256 {
             return Err(Cut::Rejected(ERR_VERIFY.into()));
+        }
+        if tar_zst && !stream_unpack {
+            let mut archive = std::io::BufReader::new(std::fs::File::open(partial).map_err(|e| Cut::Failed(err_write(&e)))?);
+            unpack::tar_zst(&mut archive, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)?;
         }
         if !tar_zst {
             unzip(partial, staging)?;

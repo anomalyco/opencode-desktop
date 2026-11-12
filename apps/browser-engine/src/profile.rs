@@ -1,10 +1,10 @@
 //! Where Chromium keeps cookies, logins and site data.
 //!
-//! The engine that holds the lock on `co.anomaly.opencode/browser-profile` (in Application
-//! Support on macOS, `%LOCALAPPDATA%` on Windows) keeps one profile across launches, so sign-ins
-//! stick. CEF allows one process per profile, so a second engine running at the same time (a dev
-//! build next to the installed app) gets a throwaway profile in Caches (`%TEMP%` on Windows)
-//! that is deleted when it exits.
+//! The engine that holds the lock on its profile (`OPENCODE_BROWSER_PROFILE`, which the app always
+//! passes; else `co.anomaly.opencode/browser-profile` in Application Support on macOS,
+//! `%LOCALAPPDATA%` on Windows) keeps it across launches, so sign-ins stick. CEF allows one process
+//! per profile, so a second engine running at the same time gets a throwaway profile beside it
+//! (`<profile>-throwaway\pid-<pid>`), deleted when it exits.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -27,7 +27,7 @@ impl Profile {
         if let Some(lock) = lock(&root) {
             return Self { cache: root.join("Default"), root, temporary: false, _lock: Some(lock) };
         }
-        let scratch = scratch_dir();
+        let scratch = scratch_dir(&root);
         remove_dead_scratch(&scratch);
         let root = scratch.join(format!("pid-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&root);
@@ -43,10 +43,10 @@ fn state_dir() -> PathBuf {
     home.join("Library/Application Support/co.anomaly.opencode")
 }
 
-#[cfg(unix)]
-fn scratch_dir() -> PathBuf {
-    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
-    home.join("Library/Caches/co.anomaly.opencode/cef-profile")
+/// Throwaway profiles go beside the lasting one, under the same root.
+fn scratch_dir(root: &Path) -> PathBuf {
+    let name = root.file_name().map_or_else(|| "browser-profile".into(), |n| n.to_string_lossy().into_owned());
+    root.with_file_name(format!("{name}-throwaway"))
 }
 
 #[cfg(windows)]
@@ -56,10 +56,6 @@ fn state_dir() -> PathBuf {
         .join("co.anomaly.opencode")
 }
 
-#[cfg(windows)]
-fn scratch_dir() -> PathBuf {
-    std::env::temp_dir().join("co.anomaly.opencode").join("cef-profile")
-}
 
 /// An exclusive lock on `root`, held until the returned file closes (the process exits).
 fn lock(root: &Path) -> Option<File> {

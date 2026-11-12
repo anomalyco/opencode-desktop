@@ -11,19 +11,20 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
 # and Windows.
-engine = ["dep:authenticode", "dep:libc", "dep:ruzstd", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows"]
+engine = ["dep:authenticode", "dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 
 [dependencies]
 base64 = "0.22"
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true
-# The engine archive unpacks as it downloads (zstd around ustar).
-ruzstd = { version = "0.9", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = { version = "0.10", optional = true }
 # The system's certificate store, so a network that inspects TLS with its own root still works.
 ureq = { workspace = true, features = ["rustls", "platform-verifier"], optional = true }
+# The engine archive unpacks as it downloads (zstd around ustar): libzstd, 2.5x the pure-Rust
+# decoder's speed, so a fast connection isn't held up by it.
+zstd = { version = "0.13", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -35,6 +36,7 @@ authenticode = { path = "../authenticode", optional = true }
 uds_windows = { version = "1.1", optional = true }
 windows = { version = "0.62", optional = true, features = [
     "Networking_Connectivity",
+    "Win32_Storage_FileSystem",
     "Win32_System_Power",
     "Win32_System_Threading",
 ] }

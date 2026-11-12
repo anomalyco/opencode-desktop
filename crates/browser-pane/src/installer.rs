@@ -39,6 +39,12 @@ pub(crate) const ERR_DISK_FULL: &str = "There isn't enough disk space to install
 pub(crate) const ERR_NO_SOURCE: &str = "Browser isn't available for this platform yet.";
 pub const ERR_STOPPED: &str = "The browser stopped unexpectedly.";
 
+/// Not enough room for the download and what it unpacks to, said before it starts.
+pub(crate) fn err_disk_space(need: u64, free: u64) -> String {
+    let mb = |b: u64| b.div_ceil(1_000_000);
+    format!("The browser needs {} MB of disk space and {} MB are free. Free some space and try again.", mb(need), mb(free))
+}
+
 /// The download's server or the network in between refused it, with its HTTP status.
 pub(crate) fn err_blocked(status: u16) -> String {
     format!("The browser download was blocked (HTTP {status}). Your network or administrator may not allow it.")
@@ -164,12 +170,25 @@ impl std::fmt::Display for Version {
     }
 }
 
-/// The engine's folders, shared by every app that shows a browser pane (`rune::dirs`): its
-/// state folder is `~/Library/Application Support/co.anomaly.opencode` on macOS and
-/// `%LOCALAPPDATA%\co.anomaly.opencode` on Windows; its cache folder holds the sockets.
+/// Where everything of the engine lives, the third input beside the source and the trust rule:
+/// its state folder holds the installed versions and each app's browser profile, its cache
+/// folder the sockets. The app passes the folders its own data root decides (`set_home`), so a
+/// scratch profile gets a scratch engine and a real install the real one; without it they are
+/// `rune::dirs`' for `co.anomaly.opencode`, shared by every app that shows a browser pane
+/// (`~/Library/Application Support/co.anomaly.opencode` on macOS, `%LOCALAPPDATA%\co.anomaly.opencode`
+/// on Windows).
+#[cfg(feature = "engine")]
+static HOME: std::sync::OnceLock<rune::dirs::AppDirs> = std::sync::OnceLock::new();
+
+/// Sets the engine's folders, once, before any page opens.
+#[cfg(feature = "engine")]
+pub fn set_home(dirs: rune::dirs::AppDirs) {
+    let _ = HOME.set(dirs);
+}
+
 #[cfg(feature = "engine")]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
-    rune::dirs::AppDirs::new("co.anomaly.opencode")
+    HOME.get().cloned().or_else(|| rune::dirs::AppDirs::new("co.anomaly.opencode"))
 }
 
 /// The folder holding one folder per installed engine version.
@@ -221,7 +240,7 @@ pub(crate) fn bin_in(version_dir: &Path) -> PathBuf {
 }
 
 /// Removes every version folder but `keep` and the newest that each other app revision would
-/// start, and unpacking folders left by an app that quit mid-install (older than an hour, so
+/// start, and unpacking folders left by an app that quit mid-install (their process is gone, so
 /// another app's install in progress keeps its own). A folder an engine still runs from stays:
 /// it moves aside first, which Windows refuses while its files are open, so nothing in use is
 /// ever half deleted. Reads one folder; call it off the UI thread.
@@ -239,12 +258,20 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             let _ = std::fs::remove_dir_all(&trash);
         }
     }
+    sweep_unpacking(root);
+}
+
+/// Removes the unpacking and removal folders a process left behind when it quit (or was killed)
+/// mid-way; each one is as large as an engine.
+#[cfg(feature = "engine")]
+pub(crate) fn sweep_unpacking(root: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let ours = name.to_str().is_some_and(|n| n.starts_with('.') && (n.contains(".staging-") || n.contains(".old-")));
-        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|age| age.as_secs() > 3600));
-        if ours && stale {
+        let Some(name) = name.to_str() else { continue };
+        // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>`: the process that made it is gone.
+        let pid = name.strip_prefix('.').and_then(|n| n.split_once(".staging-").or_else(|| n.split_once(".old-"))).and_then(|(_, rest)| rest.split('-').next()?.parse::<u32>().ok());
+        if pid.is_some_and(|pid| pid != std::process::id() && !crate::background::pid_alive(pid)) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }

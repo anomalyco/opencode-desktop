@@ -104,7 +104,24 @@ pub(crate) fn spawn_and_attach(bin: &Path, sock: &Path, profile: &Path, mach_ser
     rune::marks::mark("browser.engine.listening");
     match UnixStream::connect(sock) {
         Ok(stream) => wire_stream(stream, mach_service, link),
-        Err(_) => link.set(EngineStatus::Failed(ERR_STOPPED.into())),
+        Err(_) => return link.set(EngineStatus::Failed(ERR_STOPPED.into())),
+    }
+    // The engine's process ends the moment it crashes or is killed, while its socket can stay
+    // open far longer (on Windows, until every CEF helper it started is gone: 25-70 s measured):
+    // its exit is what says it went away.
+    let link = link.clone();
+    let _ = std::thread::Builder::new().name("opencode-browser-watch".into()).spawn(move || {
+        let _ = child.wait();
+        lost(&link);
+    });
+}
+
+/// The engine went away on its own (the app's `shutdown_sidecar` empties the outbox first): the
+/// pane says so, and Retry starts it again.
+fn lost(link: &Link) {
+    if link.outbox.lock().unwrap().take().is_some() {
+        rune::marks::mark("browser.engine.lost");
+        link.set(EngineStatus::Failed(ERR_STOPPED.into()));
     }
 }
 
@@ -115,7 +132,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     let (tx, rx) = mpsc::channel::<HostMsg>();
     let _ = tx.send(HostMsg::Hello { mach_service, pid: std::process::id() });
     *link.outbox.lock().unwrap() = Some(tx);
-    *link.status.lock().unwrap() = EngineStatus::Connecting;
+    // Connected: the app's next turn sends the tabs that wait (`flush_pending_opens`).
+    link.set(EngineStatus::Connecting);
 
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
@@ -162,11 +180,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     link.wake();
                 }
             }
-            // The app shut the engine down (`shutdown_sidecar` empties the outbox first), or the
-            // engine went away on its own: then the pane says so, and Retry starts it again.
-            if link.outbox.lock().unwrap().take().is_some() {
-                link.set(EngineStatus::Failed(ERR_STOPPED.into()));
-            }
+            lost(&link);
         })
         .ok();
 }

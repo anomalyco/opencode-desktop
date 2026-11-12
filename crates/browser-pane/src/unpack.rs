@@ -11,8 +11,9 @@ use std::path::{Component, Path, PathBuf};
 use crate::download::Cut;
 use crate::installer::{ENGINE_BUNDLE_NAME, ERR_VERIFY, err_write};
 
-/// The largest zstd window this unpacks (package-windows.ps1 compresses at level 19: 8 MB).
-const MAX_WINDOW: u64 = 8 << 20;
+/// The largest zstd window this unpacks, as a power of two (package-windows.ps1 compresses at
+/// level 19: 8 MB).
+const MAX_WINDOW_LOG: u32 = 23;
 
 pub(crate) enum UnpackError {
     /// It isn't an archive this unpacks, or the stream under it failed (the download's reader
@@ -25,7 +26,9 @@ pub(crate) enum UnpackError {
 /// Unpacks `archive` into `dest` (which must exist), calling `unpacked` with each file's path once
 /// it's whole and closed. Returns once the archive's end marker is read.
 pub(crate) fn tar_zst(archive: &mut dyn Read, dest: &Path, unpacked: &mut dyn FnMut(&Path)) -> Result<(), UnpackError> {
-    let mut zstd = ruzstd::decoding::StreamingDecoder::new_with_max_window_size(archive, MAX_WINDOW).map_err(|_| UnpackError::Format)?;
+    // The decoder reads its input in large pieces (a download's reads are syscalls).
+    let mut zstd = zstd::stream::read::Decoder::new(archive).map_err(|_| UnpackError::Format)?;
+    zstd.window_log_max(MAX_WINDOW_LOG).map_err(|_| UnpackError::Format)?;
     let mut made: HashSet<PathBuf> = HashSet::new();
     let mut buf = vec![0u8; 1 << 20];
     let mut header = [0u8; 512];

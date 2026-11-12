@@ -1504,6 +1504,11 @@ fn main() {
     notifications::take_activation(rune::extra_args());
     glyph_masks::start();
     opencode_kit::client::set_download_dir(dirs::downloads());
+    // Where the browser engine lives follows this app's data root (no I/O until a page opens).
+    #[cfg(any(target_os = "macos", windows))]
+    if let Some(engine) = dirs::engine() {
+        browser_pane::installer::set_home(engine);
+    }
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
     telemetry::startup("launch.gpu", rune::prewarm_gpu);

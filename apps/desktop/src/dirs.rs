@@ -6,6 +6,7 @@
 //! | Caches (Office fonts, updates) | `~/Library/Caches/rune-opencode` | `%LOCALAPPDATA%\rune-opencode\Cache` |
 //! | Motion log, frame diagnostics (`perf/`) | `~/Library/Logs/opencode-rune` | `%LOCALAPPDATA%\rune-opencode\Logs` |
 //! | Update downloads and records | `~/Library/Caches/<team bundle id>/Updates` | `%LOCALAPPDATA%\rune-opencode\Cache\Updates` |
+//! | Browser engine: installed versions, browser profiles (shared with every app with a browser pane) | `~/Library/Application Support/co.anomaly.opencode` | `%LOCALAPPDATA%\co.anomaly.opencode` |
 //!
 //! Linux follows XDG. The folder names differ from OpenCode Desktop's (`ai.opencode.desktop*`),
 //! so the two apps never share files. `RUNE_DIRS_ROOT=<root>` moves every folder this app writes
@@ -81,6 +82,12 @@ pub fn updates() -> Option<PathBuf> {
 pub fn official() -> Vec<PathBuf> {
     let Some(app) = app() else { return Vec::new() };
     ["ai.opencode.desktop", "ai.opencode.desktop.beta", "ai.opencode.desktop.dev"].iter().map(|n| app.sibling(n).config().to_owned()).collect()
+}
+
+/// The browser engine's folders (its installed versions, browser profiles and sockets), shared
+/// with every app that shows a browser pane: beside this app's, so `RUNE_DIRS_ROOT` moves them too.
+pub fn engine() -> Option<AppDirs> {
+    Some(app()?.sibling("co.anomaly.opencode"))
 }
 
 /// The folder the Hex dictation app writes its endpoint file to.

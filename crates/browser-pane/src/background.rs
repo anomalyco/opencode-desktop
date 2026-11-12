@@ -17,6 +17,16 @@ pub(crate) fn set_background_priority(background: bool) {
     imp::set_background_priority(background);
 }
 
+/// Bytes free for this user on the volume holding `dir` (which must exist).
+pub(crate) fn free_space(dir: &std::path::Path) -> Option<u64> {
+    imp::free_space(dir)
+}
+
+/// Whether process `pid` still runs (true when it can't tell).
+pub(crate) fn pid_alive(pid: u32) -> bool {
+    imp::pid_alive(pid)
+}
+
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod imp {
@@ -61,6 +71,28 @@ mod imp {
         // I/O and memory priority, and only the thread itself may enter or leave it.
         let _ = unsafe { SetThreadPriority(GetCurrentThread(), mode) };
     }
+
+    pub(super) fn pid_alive(pid: u32) -> bool {
+        use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        // SAFETY: the handle is closed before returning; `code` is ours to fill.
+        unsafe {
+            let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+            let mut code = 0u32;
+            let running = GetExitCodeProcess(process, &mut code).is_err() || code == STILL_ACTIVE.0 as u32;
+            let _ = CloseHandle(process);
+            running
+        }
+    }
+
+    pub(super) fn free_space(dir: &std::path::Path) -> Option<u64> {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut free = 0u64;
+        // SAFETY: `wide` is a NUL-terminated path that outlives the call; `free` is ours to fill.
+        unsafe { windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut free), None, None) }.ok()?;
+        Some(free)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -81,6 +113,19 @@ mod imp {
         // SAFETY: sets the calling thread's own QoS class; no pointers are involved.
         let _ = unsafe { libc::pthread_set_qos_class_self_np(class, 0) };
     }
+
+    pub(super) fn pid_alive(pid: u32) -> bool {
+        // SAFETY: signal 0 only asks whether the process exists.
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) }
+    }
+
+    pub(super) fn free_space(dir: &std::path::Path) -> Option<u64> {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        // SAFETY: `path` is NUL-terminated and `stat` is ours to fill.
+        (unsafe { libc::statvfs(path.as_ptr(), &mut stat) } == 0).then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -92,4 +137,12 @@ mod imp {
     }
 
     pub(super) fn set_background_priority(_background: bool) {}
+
+    pub(super) fn free_space(_dir: &std::path::Path) -> Option<u64> {
+        None
+    }
+
+    pub(super) fn pid_alive(_pid: u32) -> bool {
+        true
+    }
 }

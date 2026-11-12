@@ -336,6 +336,7 @@ impl BrowserHost {
     }
 
     pub fn navigate(&mut self, tab_id: u64, raw_url: &str) {
+        rune::marks::mark("browser.page.navigate");
         let url = resolve_address(raw_url);
         // The page shows where it is until the engine says it went: the address field holds what
         // was submitted meanwhile, as Desktop's does (an address set here at once ended that hold,
@@ -443,6 +444,21 @@ impl BrowserHost {
         }
     }
 
+    /// Sends the tabs that waited for the engine, as soon as it's connected: the engine opens
+    /// them right after it says it's ready, without a turn of the app in between.
+    fn flush_pending_opens(&mut self) {
+        if !self.is_connected() {
+            return;
+        }
+        for (tab_id, url) in std::mem::take(&mut self.pending_opens) {
+            let ((width_pt, height_pt), scale) = self.tabs.iter_mut().find(|t| t.id == tab_id).map_or(((800.0, 600.0), 2.0), |t| {
+                t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
+                (t.viewport_pt, t.scale)
+            });
+            self.send(HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused: self.focused_tab == Some(tab_id) });
+        }
+    }
+
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
     /// Whether poll would find nothing to do: no message, no download to connect for, the
     /// status as last polled. Reads only, so a caller that polls every frame writes nothing.
@@ -455,6 +471,7 @@ impl BrowserHost {
 
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
+        self.flush_pending_opens();
         let mut mail = std::mem::take(&mut *self.held.borrow_mut());
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
         for msg in mail {
@@ -469,27 +486,13 @@ impl BrowserHost {
                     }
                     #[cfg(feature = "engine")]
                     self.check_for_update();
+                    // Tabs opened before it: their size again (a reconnect forgets it).
                     for t in &mut self.tabs {
-                        t.sent_resize = None;
+                        if !self.pending_opens.iter().any(|(id, _)| *id == t.id) {
+                            t.sent_resize = None;
+                        }
                     }
-                    for (tab_id, url) in std::mem::take(&mut self.pending_opens) {
-                        let ((width_pt, height_pt), scale) = self
-                            .tabs
-                            .iter_mut()
-                            .find(|t| t.id == tab_id)
-                            .map_or(((800.0, 600.0), 2.0), |t| {
-                                t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
-                                (t.viewport_pt, t.scale)
-                            });
-                        self.send(HostMsg::OpenTab {
-                            tab_id,
-                            url,
-                            width_pt,
-                            height_pt,
-                            scale,
-                            focused: self.focused_tab == Some(tab_id),
-                        });
-                    }
+                    self.flush_pending_opens();
                     changed = true;
                 }
                 EngineMsg::TabList { tabs } => {
@@ -655,6 +658,9 @@ impl BrowserHost {
     }
 
     pub(crate) fn upsert_tab(&mut self, snap: TabSnapshot) -> bool {
+        if !snap.loading && snap.url.starts_with("http") {
+            rune::marks::mark("browser.page.loaded");
+        }
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {

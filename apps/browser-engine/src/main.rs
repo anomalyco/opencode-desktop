@@ -50,7 +50,8 @@ const FRAME_RETRY: Duration = Duration::from_millis(4);
 
 /// What wakes the main thread.
 pub enum Event {
-    Connected { id: u64, stream: UnixStream },
+    /// Connection `id`, and the half the engine writes to; its messages follow as `Host`.
+    Connected { id: u64, writer: UnixStream },
     Disconnected { id: u64 },
     Host(HostMsg),
     /// CEF wants `cef::do_message_loop_work` in this many milliseconds (now when 0 or less).
@@ -92,7 +93,17 @@ fn main() {
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
+    // `--trace-startup`: each start step's µs since main, on stderr (the probe harness reads them).
+    let entered = Instant::now();
+    let trace = args.iter().any(|a| a == "--trace-startup");
+    let step = |name: &str| {
+        if trace {
+            eprintln!("engine-startup {name} {:.1}", entered.elapsed().as_secs_f64() * 1e6);
+        }
+    };
 
+    #[cfg(windows)]
+    end_children_with_engine();
     let sock_path = arg("--socket").map(PathBuf::from).unwrap_or_else(default_socket_path);
     if let Some(parent) = sock_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -111,6 +122,7 @@ fn main() {
         let _ = out.write_all(b"listening\n");
         let _ = out.flush();
     }
+    step("listening");
 
     let (events, rx) = mpsc::channel::<Event>();
     let client_writer: Arc<Mutex<Option<(u64, UnixStream)>>> = Arc::new(Mutex::new(None));
@@ -122,7 +134,11 @@ fn main() {
         .and_then(|(high, low)| Some((high.parse::<i32>().ok()?, low.parse::<u32>().ok()?)));
     // The app's language as Chromium names it (`de`, `zh-CN`): page strings and Accept-Language.
     let locale = arg("--lang").cloned();
+    // Windows: the D3D11 device frames are copied on (tens of ms) is made beside CEF's start.
+    #[cfg(windows)]
+    let gpu = std::thread::Builder::new().name("engine-gpu".into()).spawn(move || d3d_frames::Gpu::new(adapter_luid)).expect("spawn engine-gpu");
     let _cef = CefRuntime::initialize(adapter_luid, locale.as_deref(), events.clone());
+    step("cef_initialized");
 
     let (out_tx, out_rx) = mpsc::channel::<EngineMsg>();
     {
@@ -146,12 +162,60 @@ fn main() {
             .expect("spawn engine-sock-tx");
     }
 
-    let mut manager = EngineManager::new(out_tx, adapter_luid);
+    #[cfg(windows)]
+    let mut manager = EngineManager::new(out_tx, gpu.join().ok().flatten());
+    #[cfg(not(windows))]
+    let mut manager = EngineManager::new(out_tx);
+    step("manager");
+    let mut first_message = true;
     let start = Instant::now();
     let (mut client, mut tabs) = (Presence::AbsentSince(start), Presence::AbsentSince(start));
     let mut pump_at = Some(start);
 
-    loop {
+    // One event: false when the engine should stop.
+    macro_rules! dispatch {
+        ($event:expr) => {
+            match $event {
+                Event::Connected { id, writer } => {
+                    *client_writer.lock().unwrap() = Some((id, writer));
+                    true
+                }
+                Event::Disconnected { id } => {
+                    let mut writer = client_writer.lock().unwrap();
+                    if writer.as_ref().is_some_and(|(current, _)| *current == id) {
+                        *writer = None;
+                    }
+                    true
+                }
+                Event::Host(msg) => {
+                    if std::mem::take(&mut first_message) {
+                        step("first_message");
+                    }
+                    manager.handle(msg)
+                }
+                Event::Pump(delay_ms) => {
+                    let at = Instant::now() + Duration::from_millis(delay_ms.max(0) as u64);
+                    pump_at = Some(pump_at.map_or(at, |current| current.min(at)));
+                    true
+                }
+            }
+        };
+    }
+
+    'run: loop {
+        // What already waits goes before CEF's work, so the app's first messages (Hello, the tab
+        // it opens) don't queue behind it; at most a turn's worth, so CEF's work keeps its turn.
+        for _ in 0..64 {
+            match rx.try_recv() {
+                Ok(event) => {
+                    if !dispatch!(event) {
+                        break 'run;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => break 'run,
+            }
+        }
         let now = Instant::now();
         if pump_at.is_some_and(|at| at <= now) {
             pump_at = None;
@@ -184,44 +248,26 @@ fn main() {
             }
             Err(RecvTimeoutError::Disconnected) => break,
         };
-        match event {
-            Event::Connected { id, stream } => {
-                if let Ok(writer) = stream.try_clone() {
-                    *client_writer.lock().unwrap() = Some((id, writer));
-                    read_messages(id, stream, events.clone());
-                }
-            }
-            Event::Disconnected { id } => {
-                let mut writer = client_writer.lock().unwrap();
-                if writer.as_ref().is_some_and(|(current, _)| *current == id) {
-                    *writer = None;
-                }
-            }
-            Event::Host(msg) => {
-                if !manager.handle(msg) {
-                    break;
-                }
-            }
-            Event::Pump(delay_ms) => {
-                let at = Instant::now() + Duration::from_millis(delay_ms.max(0) as u64);
-                pump_at = Some(pump_at.map_or(at, |current| current.min(at)));
-            }
+        if !dispatch!(event) {
+            break;
         }
     }
-
     let _ = std::fs::remove_file(&sock_path);
 }
 
-/// Accepts the app's connections on a thread of its own; the last one is the app.
+/// Accepts the app's connections on a thread of its own (the last one is the app) and starts
+/// reading each at once, so its first messages wait in the queue while CEF starts.
 fn accept_connections(listener: UnixListener, events: Sender<Event>) {
     std::thread::Builder::new()
         .name("engine-sock-accept".into())
         .spawn(move || {
             for (id, stream) in (1u64..).zip(listener.incoming()) {
                 let Ok(stream) = stream else { continue };
-                if events.send(Event::Connected { id, stream }).is_err() {
+                let Ok(writer) = stream.try_clone() else { continue };
+                if events.send(Event::Connected { id, writer }).is_err() {
                     break;
                 }
+                read_messages(id, stream, events.clone());
             }
         })
         .expect("spawn engine-sock-accept");
@@ -243,6 +289,30 @@ fn read_messages(id: u64, stream: UnixStream, events: Sender<Event>) {
         }
         let _ = events.send(Event::Disconnected { id });
     });
+}
+
+/// Puts the engine in a job that ends every process in it when the engine's last handle to it
+/// goes, that is when the engine exits however it exits: CEF's renderers, GPU and utility
+/// processes never outlive it.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn end_children_with_engine() {
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
+    };
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: plain Win32 calls on a job this process owns; the handle is kept open on purpose
+    // (closing it is what ends the job's processes), so it's never closed here.
+    unsafe {
+        let Ok(job) = CreateJobObjectW(None, windows::core::PCWSTR::null()) else { return };
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let set = SetInformationJobObject(job, JobObjectExtendedLimitInformation, (&raw const limits).cast(), size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32);
+        if set.is_ok() {
+            let _ = AssignProcessToJobObject(job, GetCurrentProcess());
+        }
+    }
 }
 
 #[cfg(unix)]

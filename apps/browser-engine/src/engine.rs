@@ -58,6 +58,18 @@ impl CefRuntime {
         let _ = cef::api_hash(sys::CEF_API_VERSION_LAST, 0);
 
         let profile = Profile::open();
+        // Chromium's temporary files (and its helpers', which inherit this) go in the profile, not
+        // the user's temp folder: everything the engine writes is under the root the app gave it.
+        // An earlier run's leftovers go first.
+        let temp = profile.root.join("Temp");
+        let _ = std::fs::remove_dir_all(&temp);
+        let _ = std::fs::create_dir_all(&temp);
+        // SAFETY: no other thread of this process reads the environment while it changes (the
+        // socket's accept thread doesn't), and CEF starts after.
+        unsafe {
+            std::env::set_var("TMP", &temp);
+            std::env::set_var("TEMP", &temp);
+        }
 
         #[cfg(unix)]
         let exe_str = std::env::current_exe()
@@ -143,6 +155,11 @@ wrap_app! {
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
+            // A side panel's pages, as Desktop's Electron shows them: no component downloads
+            // (Widevine, Safe Browsing lists, on-device models), no field-trial or other
+            // background fetches, which cost network, disk and CPU while nothing is open.
+            cmd.append_switch(Some(&"disable-component-update".into()));
+            cmd.append_switch(Some(&"disable-background-networking".into()));
             if let Some(luid) = &self.adapter_luid {
                 cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
             }
@@ -216,9 +233,8 @@ pub struct EngineManager {
 }
 
 impl EngineManager {
-    pub fn new(out_tx: Sender<EngineMsg>, adapter_luid: Option<(i32, u32)>) -> Self {
-        #[cfg(not(windows))]
-        let _ = adapter_luid;
+    /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
+    pub fn new(out_tx: Sender<EngineMsg>, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -227,7 +243,7 @@ impl EngineManager {
             next_eref: 1,
             dark: None,
             #[cfg(windows)]
-            gpu: crate::d3d_frames::Gpu::new(adapter_luid),
+            gpu,
         }
     }
 
