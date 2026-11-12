@@ -11,8 +11,10 @@ use serde_json::{Value, json};
 use crate::App;
 use crate::tabs::Tab;
 
-/// The Rune app's icon, written two folders down in the repos below as Seer's repo has it.
-const STRAY_ICON: &[u8] = include_bytes!("../assets/icon.icns");
+/// The Rune app's icon, written two folders down in the repos below as Seer's repo has it: an ICNS
+/// holding only the representation the icon finder takes from the app's (`icns_png`: the 256 px
+/// PNG), 57 KB where the whole `icon.icns` was 1.4 MB of the exe.
+const STRAY_ICON: &[u8] = include_bytes!("../assets/stray-icon.icns");
 
 const SIGNAL_SVG: &str = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSIjMTExIi8+PGNpcmNsZSBjeD0iOCIgY3k9IjgiIHI9IjQiIGZpbGw9IiNmZjdhMWEiLz48L3N2Zz4=";
 const PICKS_SVG: &str = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNiAxNiI+PHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSIjMTMxMDEwIi8+PHJlY3QgeD0iNCIgeT0iMyIgd2lkdGg9IjgiIGhlaWdodD0iMTAiIGZpbGw9IiNmZmYiLz48cmVjdCB4PSI2IiB5PSI3IiB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjNWE1ODU4Ii8+PC9zdmc+";

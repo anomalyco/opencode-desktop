@@ -251,7 +251,8 @@ use keys::on_key;
 pub(crate) use scenes::open_scene;
 use tabs::Tab;
 
-const FIXTURE: &str = include_str!("../assets/fixture.json");
+// A static, not a const: a const's bytes are copied into every codegen unit that names it.
+static FIXTURE: &str = include_str!("../assets/fixture.json");
 
 pub use route::Route;
 
