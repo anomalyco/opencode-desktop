@@ -289,10 +289,13 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
     let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, if t.compact { UI_MED } else { UI }, d));
     if let Some(sub) = t.subtitle.filter(|x| !x.is_empty()) {
         let font = if t.code { TOOL_CODE.lh(16.0) } else { UI };
-        words = words.child(readable(p, text(sub).key("subtitle").font(font).color(p.faint).truncate_fade()).shrink().min_w(0.0));
+        // A command reads left to right in any window; a path, a pattern or a task's words read
+        // their own way, and fade at their own end.
+        let dir = if t.code { rune::Direction::Ltr } else { rune::Direction::Auto };
+        words = words.child(readable(p, text(sub).key("subtitle").dir(dir).font(font).color(p.faint).truncate_fade()).shrink().min_w(0.0));
     }
     for (k, a) in t.args.into_iter().enumerate() {
-        words = words.child(readable(p, text(a).key(format!("arg-{k}")).font(UI).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI).color(p.muted).truncate_fade()).shrink().min_w(0.0));
     }
     if let Some(l) = t.link {
         words = words.child(l);

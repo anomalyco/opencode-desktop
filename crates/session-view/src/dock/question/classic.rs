@@ -441,7 +441,10 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if minimized {
         return false;
     }
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
     let to = match &ev.key {
+        Key::Left if rtl => Some((focus + 1).min(count - 1)),
+        Key::Right if rtl => Some(focus.saturating_sub(1)),
         Key::Down | Key::Right => Some((focus + 1).min(count - 1)),
         Key::Up | Key::Left => Some(focus.saturating_sub(1)),
         Key::Home => Some(0),

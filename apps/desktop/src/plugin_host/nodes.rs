@@ -271,9 +271,9 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         input = input.width(None);
     }
     // The node's `dir` reaches the value, not just the frame: `auto` starts an Arabic name at the right.
-    if let Some(dir) = dir(a) {
-        input = input.dir(dir);
-    }
+    // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
+    // secret reads left to right.
+    input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     input = input.on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &plugin, index, tx));
     Ok(input.build(kit(&p(a))))
 }
@@ -347,9 +347,9 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
             super::editors::get_mut(app, &on_edit, index)
         })
         .on_submit(move |app: &mut App, tx: &mut Tx| super::submitted(app, &on_submit, index, tx));
-    if let Some(dir) = dir(a) {
-        input = input.dir(dir);
-    }
+    // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
+    // secret reads left to right.
+    input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
             let Some(name) = handed.iter().find(|k| ev.key == **k && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt).map(|k| match k {

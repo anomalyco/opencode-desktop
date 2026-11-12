@@ -92,7 +92,10 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // Past the window's start: closed, or a peek sliding away. Under Reduce Motion a peek fades
     // where it is instead.
     let away = !open && !peek.open();
-    let x = if away && !(reduced && peek.shown()) { -w } else { 0.0 };
+    // Away past the window's start edge: its left, or its right in a right-to-left window (an
+    // offset is physical, so it turns with the direction here).
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+    let x = if away && !(reduced && peek.shown()) { if rtl { w } else { -w } } else { 0.0 };
     let slide = match peek {
         SidebarPeekState::Leaving { .. } => Spring::new(k.get(&PEEK_OUT), 0.0),
         _ if peek.shown() => Spring::new(k.get(&PEEK_IN), 0.0),
@@ -120,8 +123,9 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     let tint = |c: Color| c.alpha((c.a * lift).min(1.0));
     let blur = k.get(&PEEK_SHADOW_BLUR);
     inner = inner
-        .box_shadow(Shadow { x: blur / 3.0, blur, color: tint(p.shadow), ..Shadow::default() })
-        .box_shadow(Shadow { x: 1.0, blur: 4.0, color: tint(p.shadow), ..Shadow::default() })
+        // The shadow falls over the chat, on the side away from the window's edge.
+        .box_shadow(Shadow { x: if rtl { -blur / 3.0 } else { blur / 3.0 }, blur, color: tint(p.shadow), ..Shadow::default() })
+        .box_shadow(Shadow { x: if rtl { -1.0 } else { 1.0 }, blur: 4.0, color: tint(p.shadow), ..Shadow::default() })
         .box_shadow(Shadow { color: tint(p.floating[2].color), ..p.floating[2] });
     // Out of sight it's out of reach: no Tab stops past the window's edge, nothing a reader
     // reads as on screen (Desktop's `guardClosingFocus` hides the closed panel the same way).
@@ -273,7 +277,9 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
                 Phase::Down => *s.sidebar_drag = Some(*s.sidebar_w),
                 Phase::Move => {
                     let from = s.sidebar_drag.unwrap_or(*s.sidebar_w);
-                    *s.sidebar_w = (from + d.dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    // Dragging toward the chat widens it: right, or left in a right-to-left window.
+                    let dx = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -d.dx } else { d.dx };
+                    *s.sidebar_w = (from + dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
                 }
                 Phase::Up => {
                     if d.cancelled() && let Some(w) = *s.sidebar_drag { *s.sidebar_w = w; }
@@ -310,8 +316,8 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.toggle_sidebar(tx);
         })
-        .child(icon(&ic::LAYOUT_LEFT_FULL, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
-        .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING));
+        .child(icon(&ic::LAYOUT_LEFT_FULL, 16.0).color(p.icon_muted).mirror_in_rtl().absolute(6.0, 6.0).opacity(if open { 1.0 } else { 0.0 }).opacity_motion(SIDEBAR_SPRING))
+        .child(icon(&ic::LAYOUT_LEFT, 16.0).color(p.icon_muted).mirror_in_rtl().absolute(6.0, 6.0).opacity(if open { 0.0 } else { 1.0 }).opacity_motion(SIDEBAR_SPRING));
     if unread {
         // `UnreadBadge`: a 7pt accent dot on the glyph's corner in a 1.5pt ring of the ground.
         let ring = 7.0 + 3.0;

@@ -298,7 +298,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {
     let mut r = row().key("stats").gap(4.0).center_y();
     if adds > 0 {
-        r = r.child(text(format!("+{adds}")).font(MONO_COUNT).color(p.success));
+        r = r.child(text(format!("+{adds}")).dir(rune::Direction::Ltr).font(MONO_COUNT).color(p.success));
     }
     if dels > 0 {
         r = r.child(text(format!("\u{2212}{dels}")).font(MONO_COUNT).color(p.danger));

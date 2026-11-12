@@ -235,8 +235,8 @@ pub fn file_header(p: &Pal, path: &str, status: rune_kit::diff::FileStatus, adds
         .key("counts")
         .gap(8.0)
         .center_y()
-        .children((adds + dels > 0).then(|| text(format!("+{adds}")).key("adds").font(COUNT).color(p.success)))
-        .children((adds + dels > 0).then(|| text(format!("-{dels}")).key("dels").font(COUNT).color(p.danger)));
+        .children((adds + dels > 0).then(|| text(format!("+{adds}")).dir(rune::Direction::Ltr).key("adds").font(COUNT).color(p.success)))
+        .children((adds + dels > 0).then(|| text(format!("-{dels}")).dir(rune::Direction::Ltr).key("dels").font(COUNT).color(p.danger)));
     row()
         .key("file-header")
         .w_full()

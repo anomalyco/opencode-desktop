@@ -212,7 +212,9 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         Some(at) => (&shown[..=at], &shown[at + 1..]),
         None => ("", shown),
     };
-    let mut words = row().key("name").shrink().min_w(0.0).grow(1.0).center_y();
+    // A path reads left to right in any window, beside its icon: `src/util/` keeps its slash
+    // last and `format.ts` stays after it.
+    let mut words = row().key("name").dir(rune::Direction::Ltr).shrink().min_w(0.0).center_y();
     if !dir.is_empty() {
         words = words.child(text(dir.to_owned()).key("dir").font(PATH).color(p.muted).truncate_head().shrink().min_w(0.0));
     }
@@ -319,8 +321,8 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
             let (a, d) = item.counts();
             (a + d > 0).then(|| {
                 row().key("change").gap(8.0).center_y()
-                    .child(text(format!("+{a}")).font(COUNTS).color(p.diff.add_text))
-                    .child(text(format!("-{d}")).font(COUNTS).color(p.diff.del_text))
+                    .child(text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text))
+                    .child(text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))
             })
         }
     }

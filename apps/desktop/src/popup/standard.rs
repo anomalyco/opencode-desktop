@@ -33,7 +33,7 @@ pub(super) fn root(p: &Pal, menu: &Menu, active: Option<usize>, sub: Option<SubO
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| choose(s, n, tx)),
             Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, true, lit)
-                .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon))
+                .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl())
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s| hover(s, n)))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| open_sub(s, n, false, tx)),
             Entry::Separator => rule(p, n),
@@ -118,7 +118,7 @@ fn item(p: &Pal, key: &str, title: &str, shortcut: Option<&str>, enabled: bool, 
         .radius(ROW_RADIUS)
         .fill(if lit && enabled { p.standard.hover } else { rune::Color::TRANSPARENT })
         .child(text(title.to_owned()).key("label").font(LABEL).color(if enabled { p.standard.text } else { p.standard.weak }).grow(1.0))
-        .children(shortcut.map(|keys| text(keys.to_owned()).key("shortcut").font(SHORTCUT).color(p.faint)));
+        .children(shortcut.map(|keys| text(keys.to_owned()).key("shortcut").dir(rune::Direction::Ltr).font(SHORTCUT).color(p.faint)));
     if enabled { takes_focus(r) } else { r.disabled(true) }
 }
 

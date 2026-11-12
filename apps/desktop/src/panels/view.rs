@@ -656,6 +656,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
             .child(
                 icon(&LAYOUT_RIGHT_FULL, 16.0)
                     .color(p.icon_muted)
+                    .mirror_in_rtl()
                     .absolute(6.0, 6.0)
                     .opacity(if open { 1.0 } else { 0.0 })
                     .opacity_motion(SIDE_SPRING),
@@ -663,6 +664,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
             .child(
                 icon(&LAYOUT_RIGHT, 16.0)
                     .color(p.icon_muted)
+                    .mirror_in_rtl()
                     .absolute(6.0, 6.0)
                     .opacity(if open { 0.0 } else { 1.0 })
                     .opacity_motion(SIDE_SPRING),
@@ -692,7 +694,8 @@ pub fn resize_handle(s: &App, p: &Pal, zoomed_w: f32) -> Option<El> {
                 let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
                 let event = match d.phase {
                     Phase::Down => ResizeEvent::Down { size: chat, stored: s.session_side_mut(&sid).session_width, clicks: d.clicks },
-                    Phase::Move => ResizeEvent::Move { by: d.dx },
+                    // The chat grows toward the side region: right, or left in a right-to-left window.
+                    Phase::Move => ResizeEvent::Move { by: if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -d.dx } else { d.dx } },
                     Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
                 };
                 match s.side.chat_resize.step(event) {

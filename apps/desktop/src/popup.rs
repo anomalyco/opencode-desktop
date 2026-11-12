@@ -790,7 +790,7 @@ fn diff_note(p: &Pal, added: u32, removed: u32) -> El {
     let st = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     row().gap(8.0).center_y()
         .child(text("·").font(st).color(p.muted))
-        .child(row().gap(4.0).child(text(format!("+{added}")).font(st).color(p.diff_add)).child(text(format!("-{removed}")).font(st).color(p.diff_del)))
+        .child(row().gap(4.0).child(text(format!("+{added}")).dir(rune::Direction::Ltr).font(st).color(p.diff_add)).child(text(format!("-{removed}")).dir(rune::Direction::Ltr).font(st).color(p.diff_del)))
 }
 
 /// A row that only tells (`SessionLocationDetail`): its 16 pt glyph in the muted ink and its

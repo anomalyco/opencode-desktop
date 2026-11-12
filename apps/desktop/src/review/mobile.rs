@@ -168,8 +168,8 @@ fn counts(p: &Pal, adds: u32, dels: u32) -> El {
         .gap(8.0)
         .center_y()
         // `--text-diff-add-base` and `-delete-base`, which Desktop's theme points at `state-fg-*`.
-        .child(text(format!("+{adds}")).font(COUNT).color(p.success))
-        .child(text(format!("-{dels}")).font(COUNT).color(p.danger))
+        .child(text(format!("+{adds}")).dir(rune::Direction::Ltr).font(COUNT).color(p.success))
+        .child(text(format!("-{dels}")).dir(rune::Direction::Ltr).font(COUNT).color(p.danger))
 }
 
 fn empty_state(p: &Pal, sr: &SessionReview) -> El {

@@ -103,13 +103,18 @@ fn scale(p: &Pal, at: usize) -> El {
         }
         tx.instant();
         let x = ((g.x - 8.0) / (g.w - 16.0).max(1.0)).clamp(0.0, 1.0);
+        // A right-to-left slider fills from its right.
+        let x = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 1.0 - x } else { x };
         set_stop(s, (x * (STOPS - 1) as f32).round() as usize);
     };
     el().key("settings-timeline-detail").role("slider").label(t!("settings.timeline.detail")).range_value(at as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
         .on_drag(pick)
         .on_key(|s: &mut App, ev, tx| {
             let at = stop(&s.settings.timeline_detail);
+            let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
             let to = match ev.key {
+                Key::Left if rtl => (at + 1).min(STOPS - 1),
+                Key::Right if rtl => at.saturating_sub(1),
                 Key::Left | Key::Down => at.saturating_sub(1),
                 Key::Right | Key::Up => (at + 1).min(STOPS - 1),
                 Key::Home => 0,

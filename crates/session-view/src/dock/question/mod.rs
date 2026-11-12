@@ -173,9 +173,11 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
     if m.shift && arrow {
         return Intent::None;
     }
+    // The questions run toward the end of the line: leftward in a right-to-left window.
+    let ahead = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -1 } else { 1 };
     match &ev.key {
-        Key::Left => Intent::Question(-1),
-        Key::Right => Intent::Question(1),
+        Key::Left => Intent::Question(-ahead),
+        Key::Right => Intent::Question(ahead),
         Key::Down => Intent::Move(1),
         Key::Up => Intent::Move(-1),
         Key::Home => Intent::First,

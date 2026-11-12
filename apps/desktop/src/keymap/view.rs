@@ -17,7 +17,8 @@ pub fn keycaps(p: &Pal, bind: Bind) -> El {
 /// Desktop's neutral `Keybind` (`keybind.css`): 2px apart, each key 14px tall and at least 14px
 /// wide with 4px sides, 2px corners on `bg-layer-03`, its label uppercase in `text-muted`.
 pub fn chips(p: &Pal, caps: Vec<String>) -> El {
-    caps.iter().fold(row().key("keys").gap(2.0).center_y(), |r, c| {
+    // A chord reads left to right in any window: Ctrl Shift P, never P Shift Ctrl.
+    caps.iter().fold(row().key("keys").dir(rune::Direction::Ltr).gap(2.0).center_y(), |r, c| {
         r.child(row().h(14.0).min_w(14.0).px(4.0).center().radius(2.0).fill(p.layer3).child(text(c.to_uppercase()).font(LABEL).color(p.muted)))
     })
 }

@@ -49,8 +49,8 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
         .child(text(opencode_i18n::plural!("ui.sessionTurn.diffs.changed", count)).font(TITLE.features("'tnum' 1")).color(p.text));
     if adds + dels > 0 {
         head = head.child(row().key("changes").gap(8.0).center_y()
-            .child(text(format!("+{adds}")).font(COUNT).color(p.success))
-            .child(text(format!("-{dels}")).font(COUNT).color(p.danger)));
+            .child(text(format!("+{adds}")).dir(rune::Direction::Ltr).font(COUNT).color(p.success))
+            .child(text(format!("-{dels}")).dir(rune::Direction::Ltr).font(COUNT).color(p.danger)));
     }
     if failed {
         head = head.child(text(opencode_i18n::t!("ui.sessionTurn.diffs.failed")).key("turn-diff-error").font(NOTE).color(p.faint).truncate().shrink().min_w(0.0));

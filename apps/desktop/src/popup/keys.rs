@@ -25,7 +25,14 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let level = shown.key_level();
     let lit = shown.active_at(level);
     let opens = |shown: &Shown, n: usize| shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
-    match &ev.key {
+    // Submenus open toward the end of the line: to the left in a right-to-left window, where Left
+    // opens one and Right goes back.
+    let key = match (&ev.key, opencode_i18n::direction() == opencode_i18n::Direction::Rtl) {
+        (Key::Left, true) => Key::Right,
+        (Key::Right, true) => Key::Left,
+        (k, _) => k.clone(),
+    };
+    match &key {
         Key::Escape | Key::Tab => {
             close(s, None, restore::Reason::Keys, tx);
             return true;

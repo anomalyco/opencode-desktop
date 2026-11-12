@@ -257,7 +257,7 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
         let hairline = rune::Shadow { spread: 0.5, color: p.border, inset: true, ..rune::Shadow::default() };
         chip = chip.child(
             row().key("todo-more").h(16.0).px(4.0).center().radius(2.0).fill(p.layer2).box_shadow(hairline)
-                .child(text(format!("+{more}")).font(BADGE).color(p.muted)),
+                .child(text(format!("+{more}")).dir(rune::Direction::Ltr).font(BADGE).color(p.muted)),
         );
     }
     Some(chip)
