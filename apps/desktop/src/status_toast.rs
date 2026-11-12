@@ -43,6 +43,8 @@ pub enum ToastAction {
     UndoRewind(UndoRewind),
     /// Puts back what the toast says was done (`crate::undo`): its offer goes with the toast.
     Undo,
+    /// Copies a failure's details (`crate::errors::UserError`).
+    CopyDetails(String),
     /// A plugin's button (its label) that shows a path in the file manager (desktop.reveal).
     Reveal(String, PathBuf),
 }
@@ -223,6 +225,7 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
     let action = entry.action.as_ref().map(|a| match a {
         ToastAction::UndoRewind(_) | ToastAction::Undo => "undo".to_owned(),
         ToastAction::Reveal(label, _) => label.clone(),
+        ToastAction::CopyDetails(_) => "details".to_owned(),
     });
     let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, entry.description.as_deref().unwrap_or(""));
     let now = *s.clock;
@@ -283,8 +286,21 @@ pub fn from_server(s: &mut App, e: String) {
         *s.status = e;
         return;
     }
+    // What the call was and what answered, said as one honest message (`crate::errors`).
+    if let Some(wire) = opencode_kit::wire_error::WireError::parse(&e) {
+        let server = crate::servers::runtime::label(crate::servers::runtime::active(s));
+        return error(s, &crate::errors::UserError::from_wire(write_title(method, path), &server, &wire));
+    }
     let why = plain(why);
     fail(s, write_title(method, path), why);
+}
+
+/// Shows `e`: what happened, why and what to do, with Copy details, until dismissed.
+pub fn error(s: &mut App, e: &crate::errors::UserError) {
+    let (title, description) = noted(s, e.what.clone(), e.description());
+    let entry = Entry { action: Some(ToastAction::CopyDetails(e.details.clone())), ..entry(title, description, true) };
+    show(s, entry, None);
+    s.speech.urgent();
 }
 
 /// Desktop's titles for a failed write (`prompt.toast.*`, `session.delete.failed.title`…).
@@ -549,6 +565,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         let (key, label) = match action {
             ToastAction::UndoRewind(_) | ToastAction::Undo => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
             ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
+            ToastAction::CopyDetails(_) => ("toast-copy-details", opencode_i18n::t!("rune.error.copyDetails").to_owned()),
         };
         let action = action.clone();
         row()
@@ -576,6 +593,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
                         ToastAction::UndoRewind(undo) => s.undo_rewind(undo, tx),
                         ToastAction::Reveal(_, path) => crate::plugin_host::reveal(&path.to_string_lossy()),
                         ToastAction::Undo => {}
+                        ToastAction::CopyDetails(details) => tx.copy_rich(rune::ClipboardContent::new(details)),
                     }
                 })
                 .child(text(label).font(TITLE).color(p.text))

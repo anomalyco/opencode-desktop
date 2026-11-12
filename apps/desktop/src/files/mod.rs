@@ -223,6 +223,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     }
     if let Some((session_id, path, payload)) = s.files.content_fetch.take() {
         tx.instant();
+        let server_label = crate::servers::runtime::label(crate::servers::runtime::active(s));
         let wrap = s.files.wrap;
         let picture = match &payload {
             FilePayload::Image(bytes) => Some(s.files.picture(bytes.clone(), false)),
@@ -240,6 +241,15 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             FilePayload::Binary(sz) => doc.set_binary(sz),
             FilePayload::Image(bytes) => doc.set_binary(bytes.len()),
             FilePayload::Missing => doc.set_missing(),
+            FilePayload::Failed(raw) => {
+                let what = opencode_i18n::t!("rune.file.readFailed", path = opencode_kit::path::basename(&path)).to_owned();
+                let server = &server_label;
+                let words = match opencode_kit::wire_error::WireError::parse(&raw) {
+                    Some(w) => crate::errors::UserError::from_wire(&what, server, &w).description(),
+                    None => crate::status_toast::plain(&raw),
+                };
+                doc.set_failed(what, words);
+            }
         }
         if let Some((start, end)) = ws.pending_jump.remove(&path) {
             let scroll_key = format!("file-code-{session_id}-{path}-scroll");
@@ -462,7 +472,9 @@ impl App {
             .sessions
             .get(session_id)
             .and_then(|w| w.docs.get(path))
-            .is_some();
+            // One still loading asks again (another file's read may have taken its place), and
+            // one whose read failed reads again: neither stays as it is.
+            .is_some_and(|d| d.ready() && d.failure().is_none());
         if already {
             return;
         }

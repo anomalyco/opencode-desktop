@@ -229,6 +229,7 @@ mod turn_errors_stories;
 mod type_to_compose;
 #[cfg(feature = "office")]
 mod office;
+mod errors;
 mod undo;
 mod updater;
 mod usage;

@@ -65,6 +65,20 @@ impl<S: 'static> CodeViewer<S> {
                 .center()
                 .child(text(opencode_i18n::t!("rune.file.loading")).font(look.label).color(look.muted));
         }
+        // A read that failed says so, and why, rather than "not found" (`files::FilePayload::Failed`).
+        if let Some((what, why)) = st.failure() {
+            return col()
+                .key(root_key)
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .fill(p.bg_base)
+                .center()
+                .gap(4.0)
+                .px(24.0)
+                .child(text(what.clone()).key("file-read-failed").font(look.label).color(p.text))
+                .child(text(why.clone()).font(look.label).color(look.muted).wrap().max_w(448.0).align(rune::Align::Center));
+        }
         if st.missing() {
             let name = opencode_kit::path::basename(st.path());
             return col()

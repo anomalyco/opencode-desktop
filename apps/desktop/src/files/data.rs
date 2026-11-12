@@ -51,6 +51,10 @@ pub enum FilePayload {
     /// A picture file's bytes (`image::is_image`).
     Image(Vec<u8>),
     Missing,
+    /// The read failed for another reason (the server away, a sign-in page answering): the raw
+    /// error, which the panel says in words and which a reopen reads again. Desktop's
+    /// `FileEntryState` tells these apart too (`content-machine.ts`).
+    Failed(String),
 }
 
 pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> FilePayload {
@@ -71,7 +75,8 @@ pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> 
                 }
             }
         }
-        Err(_) => FilePayload::Missing,
+        Err(e) if opencode_kit::wire_error::WireError::parse(&e).and_then(|w| w.status()) == Some(404) => FilePayload::Missing,
+        Err(e) => FilePayload::Failed(e),
     }
 }
 

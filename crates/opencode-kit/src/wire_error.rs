@@ -91,6 +91,43 @@ impl fmt::Display for WireKind {
 
 impl std::error::Error for WireError {}
 
+impl WireError {
+    /// The error back from its text ([`Display`](fmt::Display)): the app's channels carry a
+    /// failed call as text (`Incoming::Status`, `SendFailed`), so the UI reads it back into what
+    /// it was to say it in words. `None` for text no call wrote.
+    pub fn parse(text: &str) -> Option<WireError> {
+        let (call, rest) = text.split_once(": ")?;
+        let (method, path) = call.split_once(' ')?;
+        let method = ["GET", "POST", "PATCH", "PUT", "DELETE"].into_iter().find(|m| *m == method)?;
+        let kind = if let Some(e) = rest.strip_prefix("connection failed: ") {
+            WireKind::Unreachable(e.to_owned())
+        } else if rest == "timeout" {
+            WireKind::TimedOut
+        } else if let Some(e) = rest.strip_prefix("connection dropped: ") {
+            WireKind::Dropped(e.to_owned())
+        } else if let Some(e) = rest.strip_prefix("tls: ") {
+            WireKind::Tls(e.to_owned())
+        } else if let Some(what) = rest.strip_prefix(NOT_OPENCODE).and_then(|r| r.strip_prefix(": ")) {
+            match what.strip_prefix("a redirect (") {
+                Some(r) => {
+                    let (status, to) = r.split_once(") to ").unwrap_or((r, ""));
+                    WireKind::Redirected { status: status.parse().unwrap_or(302), location: (!to.is_empty() && to != "another page").then(|| to.to_owned()) }
+                }
+                None => {
+                    let (what, status) = what.rsplit_once(", status ").unwrap_or((what, "200"));
+                    WireKind::NotOpenCode { status: status.parse().unwrap_or(200), what: what.to_owned() }
+                }
+            }
+        } else if let Some((message, status)) = rest.rsplit_once("http status: ") {
+            let message = message.trim_end_matches(": ").trim();
+            WireKind::Status { status: status.trim().parse().ok()?, tag: None, message: (!message.is_empty()).then(|| message.to_owned()) }
+        } else {
+            WireKind::Other(rest.to_owned())
+        };
+        Some(WireError { method, path: path.to_owned(), kind })
+    }
+}
+
 impl From<WireError> for String {
     fn from(e: WireError) -> String {
         e.to_string()

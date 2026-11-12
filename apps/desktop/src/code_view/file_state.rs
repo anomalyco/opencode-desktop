@@ -76,6 +76,8 @@ pub struct CodeDocState {
     pub(crate) heights: super::RowHeights,
     pub(crate) rev: u64,
     pub(crate) keys_rev: u64,
+    /// Why it couldn't be read, when that's what it shows: a headline and the reason in words.
+    failure: Option<(String, String)>,
 }
 
 impl Default for CodeDocState {
@@ -114,6 +116,7 @@ impl CodeDocState {
             heights: super::RowHeights::default(),
             rev: 1,
             keys_rev: 1,
+            failure: None,
         };
         if !content.is_empty() {
             s.set_text(content);
@@ -126,6 +129,7 @@ impl CodeDocState {
     }
 
     pub fn set_text(&mut self, content: &str) {
+        self.failure = None;
         let size = content.len();
         let binary = content.contains('\0');
         self.content = if binary { Content::Binary { size } } else { Content::Text { size } };
@@ -144,6 +148,7 @@ impl CodeDocState {
     }
 
     pub fn set_binary(&mut self, size_bytes: usize) {
+        self.failure = None;
         self.content = Content::Binary { size: size_bytes };
         self.source = SourceLines::default();
         self.trailing = false;
@@ -151,6 +156,7 @@ impl CodeDocState {
     }
 
     pub fn set_missing(&mut self) {
+        self.failure = None;
         self.content = Content::Missing;
         self.source = SourceLines::default();
         self.trailing = false;
@@ -162,6 +168,17 @@ impl CodeDocState {
     }
 
     /// Loaded: text, binary or missing.
+    /// Its read failed (not a missing file): shown as `what`, `why`; a reopen reads it again.
+    pub fn set_failed(&mut self, what: String, why: String) {
+        self.set_missing();
+        self.failure = Some((what, why));
+    }
+
+    /// The failed read's headline and reason, when it failed.
+    pub fn failure(&self) -> Option<&(String, String)> {
+        self.failure.as_ref()
+    }
+
     pub fn ready(&self) -> bool {
         self.content != Content::Loading
     }
