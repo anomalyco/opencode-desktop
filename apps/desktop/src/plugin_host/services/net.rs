@@ -71,7 +71,13 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
         let answer = if method.eq_ignore_ascii_case("GET") {
             srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text))
         } else {
-            srv.call_within(&method.to_ascii_uppercase(), path, body, Duration::from_secs(600)).map(|v| {
+            let method = match method.to_ascii_uppercase().as_str() {
+                "PATCH" => "PATCH",
+                "PUT" => "PUT",
+                "DELETE" => "DELETE",
+                _ => "POST",
+            };
+            srv.call_within(method, path, body, Duration::from_secs(600)).map(|v| {
                 let text = v.to_string();
                 (Some(v), text)
             })

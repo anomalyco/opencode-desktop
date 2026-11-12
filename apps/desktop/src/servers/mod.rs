@@ -129,18 +129,16 @@ fn save(list: &[Server]) {
     });
 }
 
-/// `checkServerHealth`: `/api/info` with the password, if any. Blocks: off the app's thread only.
+/// `checkServerHealth`: `/api/info` with the password, if any. Healthy only on OpenCode's own
+/// answer: a sign-in page a captive portal redirects to isn't a server. Blocks: off the app's
+/// thread only.
 pub fn check(url: &str, password: Option<&str>, timeout: Duration) -> Health {
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into();
-    let mut req = agent.get(format!("{url}/api/info"));
-    if let Some(p) = password {
-        use base64::Engine as _;
-        req = req.header("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("opencode:{p}"))));
-    }
-    match req.call() {
-        Ok(resp) if resp.status().as_u16() == 401 => Health::Unauthorized,
-        Ok(resp) if resp.status().is_success() => Health::Healthy,
-        _ => Health::Unreachable,
+    use opencode_kit::servers::probe::{RequestError, info};
+    let http = opencode_kit::servers::registry::HttpBase { url: url.to_owned(), password: password.map(str::to_owned) };
+    match info(&http, timeout) {
+        Ok(_) => Health::Healthy,
+        Err(RequestError::Status(401)) => Health::Unauthorized,
+        Err(_) => Health::Unreachable,
     }
 }
 

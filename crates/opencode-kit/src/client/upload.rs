@@ -33,22 +33,20 @@ impl Server {
             encode_component(directory),
             encode_component(&target)
         );
-        let mut req = Self::agent(None)
-            .post(format!("{}{path}", self.base))
+        let req = self
+            .dress(self.agent.post(format!("{}{path}", self.base)), &[], None)
             .header("Content-Type", "application/octet-stream")
             .header("Content-Length", size.to_string());
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
         let mut reader = Progress { body, sent: 0, report: sent, stopped: false };
         let result = req.send(ureq::SendBody::from_reader(&mut reader));
         if reader.stopped {
             return Err(UploadError::Aborted);
         }
-        let mut resp = result.map_err(|e| failed(match e {
-            ureq::Error::StatusCode(n) => Some(n),
-            _ => None,
-        }))?;
+        let mut resp = result.map_err(|_| failed(None))?;
+        let status = resp.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(failed(Some(status)));
+        }
         let text = resp.body_mut().read_to_string().map_err(|_| failed(None))?;
         let v: Value = serde_json::from_str(&text).map_err(|_| failed(None))?;
         v["data"]["path"].as_str().map(str::to_owned).ok_or_else(|| failed(None))

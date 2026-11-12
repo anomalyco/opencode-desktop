@@ -301,42 +301,19 @@ pub fn location_query(dir: Option<&str>) -> String {
 
 impl Server {
     /// A request whose failure says what the server said (`{ message }`), else its status.
-    pub fn call(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+    pub fn call(&self, method: &'static str, path: &str, body: Option<Value>) -> Result<Value, String> {
         self.call_within(method, path, body, Duration::from_secs(30))
     }
 
     /// [`Self::call`], waiting up to `timeout` for the answer (a model's reply can take minutes).
-    pub fn call_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into();
-        let url = format!("{}{path}", self.base);
-        let body = body.map(|b| b.to_string());
-        let resp = match (method, body) {
-            ("GET", _) => self.authed(agent.get(&url)).call(),
-            ("DELETE", _) => self.authed(agent.delete(&url)).call(),
-            (_, body) => {
-                let req = match method {
-                    "PATCH" => agent.patch(&url),
-                    "PUT" => agent.put(&url),
-                    _ => agent.post(&url),
-                };
-                self.authed(req.header("Content-Type", "application/json")).send(body.unwrap_or_else(|| "{}".into()).as_bytes())
-            }
-        };
-        let mut resp = resp.map_err(|e| format!("{method} {path}: {e}"))?;
-        let status = resp.status().as_u16();
-        let text = resp.body_mut().read_to_string().unwrap_or_default();
-        let value: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-        if status >= 400 {
-            return Err(s(&value, "message").or_else(|| s(&value["data"], "message")).unwrap_or_else(|| format!("{method} {path}: HTTP {status}")));
-        }
-        Ok(value)
-    }
-
-    fn authed<B>(&self, req: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
-        match &self.auth {
-            Some(a) => req.header("Authorization", a),
-            None => req,
-        }
+    pub fn call_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+        // A DELETE here never carries a body.
+        let body = body.filter(|_| method != "DELETE").map(|b| b.to_string().into_bytes());
+        let answer = self.exchange(method, path, body.as_deref(), Some(timeout), &[]).and_then(|a| a.json(method, path));
+        answer.map(|(v, ..)| v).map_err(|e| match e.kind {
+            crate::wire_error::WireKind::Status { message: Some(m), .. } => m,
+            _ => e.to_string(),
+        })
     }
 
     pub fn integrations(&self, dir: Option<&str>) -> Result<Vec<Integration>, String> {

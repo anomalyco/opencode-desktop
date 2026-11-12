@@ -19,8 +19,10 @@ use rune::Waker;
 use serde_json::Value;
 
 use crate::model::{self, Delivery, Pending, SessionInfo};
+use crate::wire_error::WireError;
 
 mod downloads;
+mod http;
 mod hub;
 mod ids;
 mod mentions;
@@ -118,6 +120,8 @@ pub struct Server {
     /// Its files aren't this machine's even on a loopback address (a WSL distro's server, an SSH
     /// tunnel), as Desktop treats a contributed server.
     pub(crate) remote_files: bool,
+    /// Every request's connections, kept alive between them ([`http::agent_for`]).
+    pub(crate) agent: ureq::Agent,
 }
 
 impl std::fmt::Debug for Server {
@@ -152,7 +156,13 @@ impl Server {
             .map(|p| p.trim().to_owned())
             .filter(|p| !p.is_empty())
             .map(|p| format!("Basic {}", base64(format!("opencode:{p}").as_bytes())));
-        Server { base: clean, auth, media_refs: false, remote_files: false }
+        Server { agent: http::agent_for(&clean), base: clean, auth, media_refs: false, remote_files: false }
+    }
+
+    /// `base` with no password (not even the environment's), for a caller that brings its own.
+    pub fn anonymous(base: &str) -> Server {
+        let clean = base.trim_end_matches('/').to_owned();
+        Server { agent: http::agent_for(&clean), base: clean, auth: None, media_refs: false, remote_files: false }
     }
 
     /// Uses `password` (a token from a connect link, say) in place of the one `new` found.
@@ -208,10 +218,6 @@ impl Server {
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     }
 
-    pub(crate) fn agent(timeout: Option<Duration>) -> ureq::Agent {
-        ureq::Agent::config_builder().timeout_global(timeout).http_status_as_error(true).build().into()
-    }
-
     pub fn get(&self, path: &str) -> Result<Value, String> {
         self.get_with(path, None)
     }
@@ -220,15 +226,20 @@ impl Server {
     /// the server's plugins and refuses with `ServiceUnavailableError` until they've loaded. It
     /// tries again after 0.25, 0.5, 1, 2 and 4 s, so off the app's thread only.
     pub fn get_ready(&self, path: &str) -> Result<Value, String> {
+        self.ready(|| self.get_json(path, None, Duration::from_secs(15)).map(|(v, _)| v)).map_err(String::from)
+    }
+
+    /// `f`, again while it's refused with 503.
+    fn ready<T>(&self, f: impl Fn() -> Result<T, WireError>) -> Result<T, WireError> {
         let mut wait = Duration::from_millis(250);
         for _ in 0..5 {
-            match self.get(path) {
-                Err(e) if e.ends_with("http status: 503") => rune::task::sleep(wait),
+            match f() {
+                Err(e) if e.status() == Some(503) => rune::task::sleep(wait),
                 done => return done,
             }
             wait *= 2;
         }
-        self.get(path)
+        f()
     }
 
     fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, String> {
@@ -238,25 +249,19 @@ impl Server {
     /// `get_text`, waiting out a server that answers 503 while it starts, as [`Self::get_ready`]
     /// does: off the app's thread only.
     pub fn get_text_ready(&self, path: &str) -> Result<String, String> {
-        let mut wait = Duration::from_millis(250);
-        for _ in 0..5 {
-            match self.get_text(path) {
-                Err(e) if e.ends_with("http status: 503") => rune::task::sleep(wait),
-                done => return done,
-            }
-            wait *= 2;
-        }
-        self.get_text(path)
+        self.ready(|| self.json_text(path)).map_err(String::from)
     }
 
-    /// `GET path`'s body as the server wrote it, unparsed (its keys in the server's order).
+    /// `GET path`'s JSON as the server wrote it, unparsed (its keys in the server's order).
     pub fn get_text(&self, path: &str) -> Result<String, String> {
-        let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
-        resp.body_mut().with_config().limit(64 << 20).read_to_string().map_err(|e| format!("GET {path}: {e}"))
+        self.json_text(path).map_err(String::from)
+    }
+
+    fn json_text(&self, path: &str) -> Result<String, WireError> {
+        let answer = self.exchange("GET", path, None, Some(Duration::from_secs(15)), &[])?;
+        // Checked as JSON for whom it came from; handed back as the text it was.
+        let text = String::from_utf8_lossy(&answer.body).into_owned();
+        answer.json("GET", path).map(|_| text)
     }
 
     /// `read`, with when its response started, its body size and when parsing started.
@@ -265,24 +270,23 @@ impl Server {
     }
 
     fn get_timed(&self, path: &str, capabilities: Option<&str>) -> Result<(Value, ReadTiming), String> {
-        let mut req = Self::agent(Some(Duration::from_secs(15))).get(format!("{}{path}", self.base));
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        if let Some(c) = capabilities {
-            req = req.header("X-OpenCode-Capabilities", c);
-        }
-        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
-        let first_byte = Instant::now();
-        let text = resp
-            .body_mut()
-            .with_config()
-            .limit(64 << 20)
-            .read_to_string()
-            .map_err(|e| format!("GET {path}: {e}"))?;
-        let parsing = Instant::now();
-        let value = serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))?;
-        Ok((value, ReadTiming { first_byte, bytes: text.len(), parsing }))
+        self.get_json(path, capabilities, Duration::from_secs(15)).map_err(String::from)
+    }
+
+    /// A GET of OpenCode's JSON within `timeout`.
+    pub(crate) fn get_json(&self, path: &str, capabilities: Option<&str>, timeout: Duration) -> Result<(Value, ReadTiming), WireError> {
+        let caps;
+        let headers: &[(&str, &str)] = match capabilities {
+            Some(c) => {
+                caps = [("X-OpenCode-Capabilities", c)];
+                &caps
+            }
+            None => &[],
+        };
+        let answer = self.exchange("GET", path, None, Some(timeout), headers)?;
+        let first_byte = answer.first_byte;
+        let (value, bytes, parsing) = answer.json("GET", path)?;
+        Ok((value, ReadTiming { first_byte, bytes, parsing }))
     }
 
     /// The bytes behind a `media:<hash>` ref (`GET /api/experimental/media/:hash`). They never
@@ -303,16 +307,11 @@ impl Server {
 
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
     pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
-        let mut req = Self::agent(Some(Duration::from_secs(60))).get(format!("{}{path}", self.base));
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
-        resp.body_mut().with_config().limit(64 << 20).read_to_vec().map_err(|e| format!("GET {path}: {e}"))
+        self.exchange("GET", path, None, Some(Duration::from_secs(60)), &[])?.bytes("GET", path).map_err(String::from)
     }
 
-    /// A write: `method` with an optional JSON body; an empty (204) reply is `Value::Null`.
-    pub fn write(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+    /// A write: `method` with an optional JSON body; OpenCode's empty (204) reply is `Value::Null`.
+    pub fn write(&self, method: &'static str, path: &str, body: Option<Value>) -> Result<Value, String> {
         self.write_within(method, path, body, Duration::from_secs(15))
     }
 
@@ -323,51 +322,15 @@ impl Server {
     }
 
     /// `write`, waiting up to `timeout` for the reply.
-    pub(crate) fn write_within(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+    pub(crate) fn write_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
         self.write_raw(method, path, body.map(|b| b.to_string().into_bytes()), timeout)
     }
 
-    fn write_raw(&self, method: &str, path: &str, body: Option<Vec<u8>>, timeout: Duration) -> Result<Value, String> {
-        let url = format!("{}{path}", self.base);
-        let agent = Self::agent(Some(timeout));
-        let auth = self.auth.as_deref();
-        let resp = match method {
-            "DELETE" => {
-                let mut req = agent.delete(url);
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                // `DELETE /api/worktree` names the worktree in its body.
-                match body {
-                    Some(b) => req.header("Content-Type", "application/json").force_send_body().send(&b[..]),
-                    None => req.call(),
-                }
-            }
-            "PATCH" => {
-                let mut req = agent.patch(url).header("Content-Type", "application/json");
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
-            }
-            "PUT" => {
-                let mut req = agent.put(url).header("Content-Type", "application/json");
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
-            }
-            _ => {
-                let mut req = agent.post(url).header("Content-Type", "application/json");
-                if let Some(a) = auth {
-                    req = req.header("Authorization", a);
-                }
-                req.send(&body.unwrap_or_else(|| b"{}".to_vec())[..])
-            }
-        };
-        let mut resp = resp.map_err(|e| format!("{method} {path}: {e}"))?;
-        let text = resp.body_mut().read_to_string().unwrap_or_default();
-        Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
+    /// A write that counts only when OpenCode answers it: never a redirect followed to a sign-in
+    /// page, never a 200 that isn't OpenCode's JSON (`http::Answer::json`).
+    fn write_raw(&self, method: &'static str, path: &str, body: Option<Vec<u8>>, timeout: Duration) -> Result<Value, String> {
+        let answer = self.exchange(method, path, body.as_deref(), Some(timeout), &[])?;
+        Ok(answer.json(method, path)?.0)
     }
 
     /// `POST /session/:id/prompt`. Tests point this at a local mock, never the live server.
@@ -669,26 +632,44 @@ impl Server {
     }
 
     /// Reads the event stream until it ends or goes silent for `idle`; `opened` says whether it
-    /// got as far as the server's reply.
+    /// got as far as OpenCode's `server.connected`. Only then is it connected, so a stream a
+    /// captive portal answers (a redirect, a web page) is a failure, not a reconnect.
     #[cfg(not(target_arch = "wasm32"))]
     fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(true).build().into();
+        use crate::wire_error::{WireKind, transport};
+        let config = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(false).max_redirects(0);
+        let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
         }
-        let resp = req.call().map_err(|e| format!("events: {e}"))?;
-        *opened = true;
-        if resumed {
-            if inbox.send(Incoming::Reconnected).is_err() {
-                return Ok(());
-            }
-            wake();
+        let mut resp = req.call().map_err(|e| format!("events: {}", transport(e)))?;
+        let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+        if resp.status().as_u16() != 200 {
+            let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let body = resp.body_mut().with_config().limit(64 << 10).read_to_vec().unwrap_or_default();
+            let answer = http::Answer { status: resp.status().as_u16(), content_type, location, body, first_byte: Instant::now() };
+            return Err(format!("events: {}", answer.json("GET", "/api/event").err().map_or_else(|| "an empty answer".to_owned(), |e| e.kind.to_string())));
         }
+        if !content_type.trim_start().to_ascii_lowercase().starts_with("text/event-stream") {
+            return Err(format!("events: {}", WireKind::NotOpenCode { status: 200, what: http::kind_of(&content_type, false) }));
+        }
+        let mut connected = false;
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
             let line = line.map_err(|e| format!("events: {e}"))?;
             let Some(event) = event_line(&line) else { continue };
+            if !connected {
+                // OpenCode's first event, as Desktop waits for it (`connection.ts`).
+                if !matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected") {
+                    return Err(format!("events: {}", WireKind::NotOpenCode { status: 200, what: "an event stream that didn't start with server.connected".into() }));
+                }
+                connected = true;
+                *opened = true;
+                if resumed && inbox.send(Incoming::Reconnected).is_err() {
+                    return Ok(());
+                }
+            }
             if inbox.send(event).is_err() {
                 return Ok(());
             }

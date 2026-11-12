@@ -379,18 +379,7 @@ impl Server {
 
     /// Performs a JSON `GET` with an explicit timeout instead of the default 15s read timeout.
     pub fn get_timeout(&self, path: &str, timeout: Duration) -> Result<Value, String> {
-        let mut req = Self::agent(Some(timeout)).get(format!("{}{path}", self.base));
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        let mut resp = req.call().map_err(|e| format!("GET {path}: {e}"))?;
-        let text = resp
-            .body_mut()
-            .with_config()
-            .limit(4 << 20)
-            .read_to_string()
-            .map_err(|e| format!("GET {path}: {e}"))?;
-        serde_json::from_str(&text).map_err(|e| format!("GET {path}: {e}"))
+        Ok(self.get_json(path, None, timeout)?.0)
     }
 }
 

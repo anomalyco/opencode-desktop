@@ -94,31 +94,20 @@ pub fn info(http: &HttpBase, timeout: Duration) -> Result<ServerInfo, RequestErr
 }
 
 /// `GET <url><path>` with Basic auth when the endpoint has a password, parsed as JSON.
+/// A redirect or an answer that isn't OpenCode's (a captive portal's page) is `Body`: whatever
+/// answered, it wasn't this server.
 pub(super) fn get_json(http: &HttpBase, path: &str, timeout: Duration) -> Result<Value, RequestError> {
-    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into();
-    let mut req = agent.get(format!("{}{path}", http.url.trim_end_matches('/')));
-    if let Some(auth) = authorization(http) {
-        req = req.header("authorization", auth);
-    }
-    let mut resp = req.call().map_err(|e| match e {
-        ureq::Error::Timeout(_) => RequestError::Timeout,
-        e => RequestError::Transport(e.to_string()),
-    })?;
-    let status = resp.status().as_u16();
-    if !(200..300).contains(&status) {
-        return Err(RequestError::Status(status));
-    }
-    let text = resp.body_mut().with_config().limit(16 << 20).read_to_string().map_err(|e| match e {
-        ureq::Error::Timeout(_) => RequestError::Timeout,
-        e => RequestError::Body(e.to_string()),
-    })?;
-    serde_json::from_str(&text).map_err(|e| RequestError::Body(e.to_string()))
-}
-
-/// `Basic base64(opencode:<password>)` (`authTokenFromCredentials`), as [`crate::client::Server`]
-/// sends it.
-fn authorization(http: &HttpBase) -> Option<String> {
-    let password = http.password.as_deref().filter(|p| !p.is_empty())?;
-    let server = crate::client::Server { base: http.url.clone(), auth: None, media_refs: false, remote_files: false };
-    server.with_password(password).auth
+    use crate::wire_error::WireKind;
+    let base = http.url.trim_end_matches('/');
+    let server = crate::client::Server::anonymous(base);
+    let server = match http.password.as_deref().filter(|p| !p.is_empty()) {
+        Some(p) => server.with_password(p),
+        None => server,
+    };
+    server.get_json(path, None, timeout).map(|(v, _)| v).map_err(|e| match e.kind {
+        WireKind::TimedOut => RequestError::Timeout,
+        WireKind::Status { status, .. } => RequestError::Status(status),
+        WireKind::Unreachable(_) | WireKind::Dropped(_) | WireKind::Tls(_) | WireKind::Other(_) => RequestError::Transport(e.to_string()),
+        WireKind::Redirected { .. } | WireKind::NotOpenCode { .. } | WireKind::Shape(_) => RequestError::Body(e.to_string()),
+    })
 }

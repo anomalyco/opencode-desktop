@@ -147,16 +147,7 @@ impl Server {
     pub fn terminal_connect_url(&self, pty_id: &str, cursor: i64, attachment_id: &str, observer: bool) -> Result<String, String> {
         let id = encode_component(pty_id);
         let path = format!("/api/experimental/persistent-pty/{id}/connect-token");
-        let mut req = Self::agent(Some(Duration::from_secs(15)))
-            .post(format!("{}{path}", self.base))
-            .header("Content-Type", "application/json")
-            .header("x-opencode-ticket", "1");
-        if let Some(a) = &self.auth {
-            req = req.header("Authorization", a);
-        }
-        let mut resp = req.send(b"{}").map_err(|e| format!("POST {path}: {e}"))?;
-        let text = resp.body_mut().read_to_string().map_err(|e| format!("POST {path}: {e}"))?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| format!("POST {path}: {e}"))?;
+        let (v, ..) = self.exchange("POST", &path, Some(&b"{}"[..]), Some(Duration::from_secs(15)), &[("x-opencode-ticket", "1")])?.json("POST", &path)?;
         let ticket = v["data"]["ticket"]
             .as_str()
             .or_else(|| v["ticket"].as_str())

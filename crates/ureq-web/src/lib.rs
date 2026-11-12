@@ -97,8 +97,36 @@ impl Config {
         self.status_errors = on;
         self
     }
+    /// A page's requests follow redirects whatever they ask (a cross-origin one fails CORS).
+    pub fn max_redirects(self, _: u32) -> Self {
+        self
+    }
+    /// The browser chooses the page's proxy.
+    pub fn proxy(self, _: Option<Proxy>) -> Self {
+        self
+    }
+    /// The browser keeps its own connections.
+    pub fn max_idle_age(self, _: Duration) -> Self {
+        self
+    }
     pub fn build(self) -> Self {
         self
+    }
+}
+
+/// ureq's proxy setting, which a page has no say in.
+pub struct Proxy;
+
+/// A request's own settings (`RequestBuilder::config`): only its time limit, which a browser's
+/// synchronous request can't keep anyway.
+pub struct RequestConfig<B>(RequestBuilder<B>);
+
+impl<B> RequestConfig<B> {
+    pub fn timeout_global(self, _: Option<Duration>) -> Self {
+        self
+    }
+    pub fn build(self) -> RequestBuilder<B> {
+        self.0
     }
 }
 
@@ -142,6 +170,10 @@ impl<B> RequestBuilder<B> {
     pub fn header(mut self, name: impl AsRef<str>, value: impl AsRef<str>) -> Self {
         self.headers.push((name.as_ref().to_owned(), value.as_ref().to_owned()));
         self
+    }
+
+    pub fn config(self) -> RequestConfig<B> {
+        RequestConfig(self)
     }
 
     fn run(self, body: Option<&[u8]>) -> Result<Response, Error> {

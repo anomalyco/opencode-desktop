@@ -22,3 +22,4 @@ pub mod quote;
 pub mod servers;
 pub mod session_home;
 mod session_ops;
+pub mod wire_error;

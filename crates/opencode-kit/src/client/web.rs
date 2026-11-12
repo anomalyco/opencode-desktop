@@ -82,15 +82,15 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
     if !response.ok() {
         return Err(format!("events: http status: {}", response.status()));
     }
+    let content_type = response.headers().get("content-type").ok().flatten().unwrap_or_default();
+    if !content_type.trim_start().to_ascii_lowercase().starts_with("text/event-stream") {
+        let what = super::http::kind_of(&content_type, false);
+        return Err(format!("events: {}", crate::wire_error::WireKind::NotOpenCode { status: response.status(), what }));
+    }
     let reader: web_sys::ReadableStreamDefaultReader =
         response.body().ok_or("events: no body")?.get_reader().dyn_into().map_err(|_| "events: no reader")?;
-    *opened = true;
-    if resumed {
-        if inbox.send(Incoming::Reconnected).is_err() {
-            return Ok(());
-        }
-        wake();
-    }
+    // Connected only once OpenCode's first event (`server.connected`) is in.
+    let mut connected = false;
     let mut pending: Vec<u8> = Vec::new();
     loop {
         let chunk = with_idle(reader.read(), idle, &abort).await.map_err(|e| format!("events: {e}"))?;
@@ -104,6 +104,17 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
             let line: Vec<u8> = pending.drain(..=end).collect();
             let line = String::from_utf8_lossy(&line);
             let Some(message) = super::event_line(line.trim_end_matches(['\n', '\r'])) else { continue };
+            if !connected {
+                if !matches!(&message, Incoming::Event { ty, .. } if ty == "server.connected") {
+                    let what = "an event stream that didn't start with server.connected".to_owned();
+                    return Err(format!("events: {}", crate::wire_error::WireKind::NotOpenCode { status: 200, what }));
+                }
+                connected = true;
+                *opened = true;
+                if resumed && inbox.send(Incoming::Reconnected).is_err() {
+                    return Ok(());
+                }
+            }
             if inbox.send(message).is_err() {
                 return Ok(());
             }

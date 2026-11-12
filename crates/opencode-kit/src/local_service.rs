@@ -127,16 +127,7 @@ fn probe_usable(server: &Server) -> bool {
     if !server.reachable() {
         return false;
     }
-    let mut req = Server::agent(Some(std::time::Duration::from_millis(500)))
-        .get(format!("{}/api/project", server.base));
-    if let Some(auth) = &server.auth {
-        req = req.header("Authorization", auth);
-    }
-    req.call()
-        .ok()
-        .and_then(|r| r.into_body().read_to_string().ok())
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .is_some()
+    server.get_json("/api/project", None, std::time::Duration::from_millis(500)).is_ok()
 }
 
 fn discover_with_service(default: &Server, default_base: &str, svc: Option<LocalService>) -> Server {
