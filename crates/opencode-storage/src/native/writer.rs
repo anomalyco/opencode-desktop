@@ -75,6 +75,13 @@ impl Batch {
 /// The page size a file is rewritten to (`Writer::repage`), and the largest file rewritten.
 const REPAGE_TO: i64 = 16384;
 const REPAGE_MAX: i64 = 64 * 1024 * 1024;
+/// An unsynced commit (`commit_soon`, an outbox row): SQLite's checkpoint off for it, as it would
+/// run at OFF (`Writer::bound_unsynced`); and back.
+const UNSYNCED: &str = "PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0";
+const SYNCED: &str = "PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000";
+/// The longest unsynced commits pile up, and the most WAL they fill, before a checkpoint syncs them.
+const UNSYNCED_FOR: Duration = Duration::from_secs(30);
+const UNSYNCED_BYTES: u64 = 16 * 1024 * 1024;
 const STATE_MS: u64 = 250;
 const DOCS_MS: u64 = 500;
 const WINDOWS_MS: u64 = 250;
@@ -88,8 +95,10 @@ pub(crate) struct Writer {
     conn: Connection,
     /// A `Cmd::CommitSoon` came: commit the buffered rows once the queue is drained.
     commit_due: bool,
-    /// The WAL, opened once for `sync_wal`.
+    /// The WAL, opened once for `sync_wal` and `bound_unsynced`.
     wal_file: Option<std::fs::File>,
+    /// Since when the WAL holds commits nothing has synced (`bound_unsynced`).
+    unsynced_since: Option<Instant>,
     cache: Arc<Mutex<Cache>>,
     clock: fn() -> i64,
     seq: Seq,
@@ -151,6 +160,7 @@ impl Writer {
             written: 0,
             commit_due: false,
             wal_file: None,
+            unsynced_since: None,
         }
     }
 
@@ -435,12 +445,12 @@ impl Writer {
         let now = (self.clock)();
         let result = (|| {
             // Unsynced, the WAL header included (see `commit_if_due`); `sync_wal` follows.
-            self.conn.execute_batch("PRAGMA synchronous = OFF")?;
+            self.conn.execute_batch(UNSYNCED)?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
             f(&tx, now)?;
             tx.commit()
         })();
-        self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+        self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
                 self.wal_event(WalEvent::Committed { boot });
@@ -457,10 +467,33 @@ impl Writer {
             let path = self.conn.path().map(|p| format!("{p}-wal"));
             self.wal_file = path.and_then(|p| std::fs::OpenOptions::new().write(true).open(p).ok());
         }
-        if let Some(f) = &self.wal_file {
-            f.sync_data().ok();
+        if let Some(f) = &self.wal_file
+            && f.sync_data().is_ok()
+        {
+            self.unsynced_since = None;
         }
         rune::marks::mark("outbox.synced");
+    }
+
+    /// Unsynced commits leave SQLite's own checkpoint off (`UNSYNCED`): one run at
+    /// `synchronous = OFF` copies unsynced frames into the database file without a sync first,
+    /// which a power cut could leave half-written. This runs it at NORMAL instead (the WAL synced,
+    /// then copied, then the file synced) once unsynced commits have piled up for
+    /// `UNSYNCED_FOR` or the WAL has passed `UNSYNCED_BYTES`, which bounds what a power cut can
+    /// lose while changes keep coming; a quiet spell's checkpoint (`IDLE_CHECKPOINT_MS`) and the
+    /// quit's come sooner.
+    fn bound_unsynced(&mut self) {
+        let since = *self.unsynced_since.get_or_insert_with(Instant::now);
+        if self.wal_file.is_none() {
+            let path = self.conn.path().map(|p| format!("{p}-wal"));
+            self.wal_file = path.and_then(|p| std::fs::OpenOptions::new().write(true).open(p).ok());
+        }
+        let bytes = self.wal_file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
+        if since.elapsed() < UNSYNCED_FOR && bytes < UNSYNCED_BYTES {
+            return;
+        }
+        self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).ok();
+        self.unsynced_since = None;
     }
 
     /// A Tier 0 write: committed and synced before it returns.
@@ -541,9 +574,10 @@ impl Writer {
             // No sync at all, not even the WAL header's after a checkpoint (1,400 µs at NORMAL
             // against 145-165 µs, `proof\storage-2\first-commit.txt`): the frames are the
             // operating system's once written; the next checkpoint (at NORMAL) syncs them.
-            self.conn.execute_batch("PRAGMA synchronous = OFF").ok();
+            self.conn.execute_batch(UNSYNCED).ok();
             self.commit(batches);
-            self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+            self.conn.execute_batch(SYNCED).ok();
+            self.bound_unsynced();
         }
     }
 
@@ -626,6 +660,9 @@ impl Writer {
                         })()
                         .is_ok();
                     let busy = if rebuilt { self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1) } else { 1 };
+                    if busy == 0 {
+                        self.unsynced_since = None;
+                    }
                     let event = if busy == 0 { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
                     queue.extend(checkpoint::step(&mut self.seq, &mut self.wal, event));
                 }
