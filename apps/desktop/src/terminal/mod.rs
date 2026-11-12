@@ -225,7 +225,7 @@ pub(crate) fn dir_name(directory: &str) -> &str {
 
 impl App {
     pub(crate) fn server_id_str(&self) -> &str {
-        match &self.source {
+        match &*self.source {
             Source::Live { server, .. } => server.base.as_str(),
             Source::Fixture => "fixture",
         }
@@ -237,7 +237,7 @@ impl App {
         if self.stage.is_some() {
             return None;
         }
-        match &self.source {
+        match &*self.source {
             Source::Live { server, allow_send, .. } => Some((server.clone(), !allow_send)),
             Source::Fixture => None,
         }
@@ -260,7 +260,7 @@ impl App {
 
     pub fn terminal_waker(&self) -> Waker {
         let dirty = self.terminal.dirty_flag.clone();
-        let app_waker = self.waker.clone();
+        let app_waker = (*self.waker).clone();
         Arc::new(move || {
             dirty.store(true, Ordering::Release);
             if let Some(w) = &app_waker {
@@ -277,7 +277,7 @@ impl App {
         if self.stage.is_some() {
             return Some("story\0/workspace/seer".into());
         }
-        let Route::Session { id: sid, .. } = &self.route else {
+        let Route::Session { id: sid, .. } = &*self.route else {
             return None;
         };
         Some(self.terminal_workspace_key_for_session(sid))
@@ -326,7 +326,7 @@ impl App {
             self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, &key);
         }
         self.terminal.story_focused = true;
-        self.terminal.reset_blink(self.clock);
+        self.terminal.reset_blink(*self.clock);
     }
 
     pub fn terminal_tab_mut(&mut self, ws_key: &str, tab_id: &str) -> Option<&mut TerminalTab> {
@@ -513,7 +513,7 @@ impl App {
         let (cell_w, cell_h) = grid::cell_metrics(font_choice, style);
         let est_w = (self.side_width(self.side.laid_w.get()) - grid::PAD_X * 2.0 - 8.0).max(cell_w * 10.0);
         let est_bar = grid::BAR_H;
-        let est_pane_h = if self.dock_placement() == crate::panels::DockPlacement::Bottom { self.bottom_height() } else { 744.0 / self.zoom };
+        let est_pane_h = if self.dock_placement() == crate::panels::DockPlacement::Bottom { self.bottom_height() } else { 744.0 / *self.zoom };
         let est_h = (est_pane_h - est_bar - grid::PAD_Y * 2.0).max(cell_h * 2.0);
         (((est_w / cell_w).floor() as u16).clamp(10, 500), ((est_h / cell_h).floor() as u16).clamp(2, 240))
     }
@@ -559,6 +559,7 @@ impl App {
         initial_bytes: &[u8],
     ) -> Option<String> {
         let (_, directory) = self.terminal_session_dir(ws_key);
+        let connection = self.terminal.connections;
         self.terminal.touch_lru(ws_key);
         let (session, handle) =
             TerminalSession::spawn_stream(config, restore, self.terminal_waker()).ok()?;
@@ -580,7 +581,7 @@ impl App {
             fixture_shell: false,
             scroll_px_accum: 0.0,
             drag: mount::TextDrag::Idle,
-            mount: mount::Mount::Live { connection: self.terminal.connections },
+            mount: mount::Mount::Live { connection },
             fit: Cell::new(mount::Fit::Unmeasured),
         });
         ws.active = Some(id.to_owned());
@@ -642,7 +643,7 @@ impl App {
     /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
     pub fn poll_terminal(&mut self, tx: &mut Tx) -> bool {
         if self.stage.is_some()
-            && self.terminal.story_built_variant.is_some_and(|v| v != self.variant)
+            && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)
         {
             story::init_story(self);
             return true;
@@ -679,7 +680,7 @@ impl App {
         let mut changed = self.terminal.dirty_flag.swap(false, Ordering::AcqRel);
 
         if changed {
-            let now = self.clock;
+            let now = *self.clock;
             let mut bell = false;
             let mut title_changed = false;
             let mut to_remove: Vec<String> = Vec::new();
@@ -720,7 +721,7 @@ impl App {
 
         changed |= self.sync_terminal_mounts();
 
-        if self.terminal.bell_until > 0.0 && self.clock >= self.terminal.bell_until {
+        if self.terminal.bell_until > 0.0 && *self.clock >= self.terminal.bell_until {
             self.terminal.bell_until = 0.0;
             changed = true;
         }
@@ -749,12 +750,12 @@ impl App {
                 .unwrap_or(false);
 
             if blinks {
-                let lit = self.terminal.cursor_lit(self.clock);
+                let lit = self.terminal.cursor_lit(*self.clock);
                 if lit != self.terminal.last_blink_lit {
                     self.terminal.last_blink_lit = lit;
                     changed = true;
                 }
-                let dt = (self.clock - self.terminal.blink_epoch).max(0.0);
+                let dt = (*self.clock - self.terminal.blink_epoch).max(0.0);
                 let rem = (0.5 - (dt % 0.5)).clamp(0.01, 0.5);
                 tx.wake_after(Duration::from_secs_f64(rem));
             }

@@ -113,7 +113,7 @@ impl App {
         if id.is_empty() {
             return;
         }
-        let now = self.now_ms;
+        let now = *self.now_ms;
         if let Some(p) = self.projects.iter_mut().find(|p| p.id == id) {
             p.active = p.active.max(now);
         }
@@ -123,7 +123,7 @@ impl App {
     }
 
     pub(crate) fn save_used_projects(&self) {
-        if let Source::Live { server, .. } = &self.source
+        if let Source::Live { server, .. } = &*self.source
             && self.persists()
         {
             tabs::save_projects(&server.base, &self.project_state.used);
@@ -273,7 +273,7 @@ impl App {
         self.settings.open = false;
         self.menus.on = None;
         crate::subagents::shells::set_open(self, false);
-        self.todo_open = false;
+        *self.todo_open = false;
         let options = FileDialogOptions { title: opencode_i18n::t!("command.project.open").into(), ..Default::default() };
         tx.open_folder(options, move |s: &mut App, result, tx| match result {
             Ok(Some(path)) => s.open_project_dir(&path.to_string_lossy(), true, tx),
@@ -295,7 +295,7 @@ impl App {
         self.set_draft_dir(dir.clone());
         if self.live() && self.stage.is_none() {
             if self.write(Write::OpenProject { directory: dir, start_session }) {
-                self.status = "Opening project…".into();
+                *self.status = "Opening project…".into();
             }
             return;
         }
@@ -322,7 +322,7 @@ impl App {
         tx: &mut Tx,
     ) {
         tx.instant();
-        self.projects = projects;
+        *self.projects = projects;
         let dir = clean_dir(if location.directory.is_empty() { &location.project_directory } else { &location.directory });
         let root = clean_dir(if location.canonical.is_empty() { &dir } else { &location.canonical });
         let project_id = if !location.project_id.is_empty()
@@ -337,11 +337,11 @@ impl App {
             self.set_draft_dir(dir.clone());
         }
         self.touch_project(&project_id);
-        let server_label = match &self.source {
+        let server_label = match &*self.source {
             Source::Live { server, .. } => server.base.trim_start_matches("http://").to_owned(),
             Source::Fixture => DEFAULT_SERVER.trim_start_matches("http://").to_owned(),
         };
-        self.status = format!("Live · {server_label}");
+        *self.status = format!("Live · {server_label}");
         if let Some(mut info) = session {
             if info.project.is_empty() || info.project == "global" {
                 info.project.clone_from(&project_id);
@@ -365,7 +365,7 @@ impl App {
     /// Refreshes `/api/project` on a live server.
     #[allow(dead_code)]
     pub(crate) fn refresh_projects(&self) {
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(Request::Projects);
         }
     }
@@ -383,7 +383,7 @@ impl App {
             id: id.clone(),
             name,
             directory: dir.to_owned(),
-            active: self.now_ms,
+            active: *self.now_ms,
             icon: ProjectIcon::default(),
         });
         id
@@ -398,13 +398,13 @@ impl App {
             project: project_id.to_owned(),
             title: String::new(),
             directory: directory.to_owned(),
-            updated: self.now_ms,
+            updated: *self.now_ms,
             model: selection.model,
             cost: 0.0,
             idle: None,
-            viewed: Some(self.now_ms),
+            viewed: Some(*self.now_ms),
             agent: selection.agent,
-            created: self.now_ms,
+            created: *self.now_ms,
             outcome: None,
             revert: None,
             ..Default::default()

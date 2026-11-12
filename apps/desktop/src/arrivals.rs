@@ -20,7 +20,7 @@ pub struct Arrivals {
 
 impl Arrivals {
     pub fn before(s: &App) -> Arrivals {
-        let session = match &s.route {
+        let session = match &*s.route {
             Route::Session { id, .. } if s.transcripts.contains_key(id) => Some(id.clone()),
             _ => None,
         };
@@ -60,7 +60,7 @@ impl Arrivals {
             return;
         };
         s.glows.step(Event::Synced { session: &id, first: false });
-        if s.reduced_motion {
+        if *s.reduced_motion {
             return;
         }
         let arrived: Vec<String> = s.transcripts.get(&id).map_or(&[][..], |t| &t.messages[..]).iter().filter_map(|m| match m {

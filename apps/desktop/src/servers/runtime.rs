@@ -375,7 +375,7 @@ pub fn desired(s: &App) -> ServerKey {
     if s.settings.open && s.settings_pages.page.per_server() && listed().iter().any(|l| l.key == s.settings_pages.server.key) {
         return s.settings_pages.server.key.clone();
     }
-    match &s.route {
+    match &*s.route {
         Route::Session { server, .. } => server.clone(),
         Route::Draft(id) => s.tabs.iter().find(|t| t.id == *id).map_or_else(|| crate::projects::home::server(s), |t| t.server.clone()),
         Route::Home => crate::projects::home::server(s),
@@ -464,14 +464,14 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     }
     // A server that refused our credentials gets no connection until it takes them again.
     let listed = listed().into_iter().find(|l| l.key == *key && !l.signed_out);
-    let allow_send = matches!(s.source, Source::Live { allow_send: true, .. });
+    let allow_send = matches!(*s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
         Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
     let phase = if listed.is_some() { crate::launch::Phase::Waiting { beta_tabs: false } } else { crate::launch::Phase::Offline { retries: 0, retry_at: f64::INFINITY } };
     s.launch.set_phase(key.as_str(), phase);
-    let wake = s.launch.inbox_wake.clone().or_else(|| s.waker.clone());
+    let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let store = peer(key).filter(|_| adopt).map(|p| peer::member(p, wake)).unwrap_or_default();
     (meta, Half { source: Source::Live { server, requests: None, writes: None, allow_send }, store, ..Half::default() })
 }
@@ -534,9 +534,9 @@ fn background(s: &mut App, tx: &mut Tx) -> bool {
     s.tick_outbox(tx);
     s.poll_jobs(tx);
     crate::incoming::poll(s, tx, &mut None);
-    crate::stop::poll(s, s.clock, tx);
+    crate::stop::poll(s, *s.clock, tx);
     crate::session_state::poll(s, tx);
-    let now = s.clock;
+    let now = *s.clock;
     // Its running tabs' and rows' questions and permissions, so their marks say they wait on
     // you rather than work (Desktop syncs every server's requests).
     crate::session_status::poll(s, now, tx);

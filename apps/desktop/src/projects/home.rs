@@ -346,10 +346,15 @@ pub fn poll(s: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     }
     let shown = s.route == Route::Home && !s.settings.open;
     let target = shown.then(|| target(s));
-    let fx = home_load::step(&mut s.home_state.load, home_load::Event::ContextChanged(target));
-    run_load(s, fx, tx);
-    let now = s.clock;
-    let due: Vec<home_load::Event> = s
+    // Every poll comes here: off Home with the load at rest, and with no timer due, the home
+    // state isn't written.
+    if target.is_some() || !matches!(s.home_state.load, home_load::State::Idle { .. }) {
+        let fx = home_load::step(&mut s.home_state.load, home_load::Event::ContextChanged(target));
+        run_load(s, fx, tx);
+    }
+    let now = *s.clock;
+    let any_due = s.home_state.timers.iter().any(|t| matches!(t, Armed::At { due, .. } if *due <= now));
+    let due: Vec<home_load::Event> = if !any_due { Vec::new() } else { s
         .home_state
         .timers
         .iter_mut()
@@ -361,7 +366,7 @@ pub fn poll(s: &mut App, fresh: bool, tx: &mut Tx) -> bool {
             }
             _ => None,
         })
-        .collect();
+        .collect() };
     for event in due {
         let fx = home_load::step(&mut s.home_state.load, event);
         run_load(s, fx, tx);
@@ -399,7 +404,7 @@ fn run_load(s: &mut App, fx: Effects<home_load::Effect>, tx: &mut Tx) {
             // The window's own launch reads the list (`servers::runtime`): once it's there the
             // fetch has its answer.
             home_load::Effect::FetchStart { attempt, .. } => {
-                let fx = home_load::step(&mut s.home_state.load, home_load::Event::FetchSucceeded { attempt, reduced_motion: s.reduced_motion });
+                let fx = home_load::step(&mut s.home_state.load, home_load::Event::FetchSucceeded { attempt, reduced_motion: *s.reduced_motion });
                 run_load(s, fx, tx);
             }
             home_load::Effect::FetchCancel(_) => {}
@@ -410,7 +415,7 @@ fn run_load(s: &mut App, fx: Effects<home_load::Effect>, tx: &mut Tx) {
                 }
             }
             home_load::Effect::TimerStart { timer, delay_ms, event } => {
-                let due = s.clock + delay_ms as f64 / 1000.0;
+                let due = *s.clock + delay_ms as f64 / 1000.0;
                 s.home_state.timers[slot(timer)] = Armed::At { due, event };
                 tx.wake_at(due);
             }

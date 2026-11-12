@@ -98,21 +98,25 @@ fn listed(key: &str) -> bool {
 /// `layout.project(server, title)`.
 pub fn request(app: &mut App, server: String, title: String, tx: &mut Tx) {
     let listed = listed(&server);
-    let now = app.clock;
-    let host = &mut app.plugins;
-    let effects = step(&mut host.project, &mut host.project_attempt, Event::Request { server, title, listed, now });
+    let now = *app.clock;
+    let host = &mut *app.plugins;
+    let effects = step(&mut host.project, &mut host.project_attempt, Event::Request { server, title, listed, now: now });
     run(app, effects, tx);
 }
 
 /// `poll`: a waiting request's server was listed, or its time ran out.
 pub fn poll(app: &mut App, tx: &mut Tx) {
-    let host = &mut app.plugins;
+    // Every poll comes here: the host is written only for a request waiting on its server.
+    if !matches!(app.plugins.project, State::Waiting { .. }) {
+        return;
+    }
+    let host = &mut *app.plugins;
     let effects = match &host.project {
         State::Waiting { server, .. } if listed(server) => {
             let server = server.clone();
             step(&mut host.project, &mut host.project_attempt, Event::Listed { server })
         }
-        State::Waiting { attempt, due, .. } if app.clock >= *due => {
+        State::Waiting { attempt, due, .. } if *app.clock >= *due => {
             let attempt = *attempt;
             step(&mut host.project, &mut host.project_attempt, Event::Expire { attempt })
         }
@@ -141,7 +145,7 @@ fn open_picker(app: &mut App, key: &opencode_kit::servers::ServerKey, title: Str
         s.close_settings();
         crate::servers::runtime::switch(s, &server);
         s.open_project_dir(&dir, false, tx);
-        s.default_dir = crate::projects::clean_dir(&dir);
+        *s.default_dir = crate::projects::clean_dir(&dir);
         s.open_draft_tab();
         tx.settle();
     });

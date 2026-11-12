@@ -30,7 +30,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     if debug_bar_shown() {
         out.push("debug");
     }
-    let Route::Session { id: session, .. } = &app.route else { return out };
+    let Route::Session { id: session, .. } = &*app.route else { return out };
     let transcript = app.launch.cold_transcript.is_some();
     out.extend(sources::builtin_ids().filter(|id| has(id, &["Slot", "ComposerPill"]) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
     if let Some(side) = app.side.sessions.get(session) {

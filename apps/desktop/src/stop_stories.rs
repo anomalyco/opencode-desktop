@@ -43,7 +43,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     emit(s, "session.text.started", json!({ "assistantMessageID": REPLY, "ordinal": 0 }), tx);
     let words = "Reading the reconnect loop first, then the backoff it sleeps on, then the tests that wait on real timers and how long each of them takes to run on a busy machine.";
     for (k, w) in words.split_inclusive(' ').enumerate() {
-        s.schedule(s.clock + 0.2 + k as f64 * 0.12, "session.text.delta", json!({ "sessionID": id, "assistantMessageID": REPLY, "ordinal": 0, "delta": w }));
+        s.schedule(*s.clock + 0.2 + k as f64 * 0.12, "session.text.delta", json!({ "sessionID": id, "assistantMessageID": REPLY, "ordinal": 0, "delta": w }));
     }
     s.wake_at_playback();
 }

@@ -56,6 +56,11 @@ impl FileImage {
     }
 
     /// True once, when the decode finishes.
+    /// Whether landed would report the picture decoded: polls write the files only then.
+    pub fn lands(&self) -> bool {
+        !self.landed && self.image.is_ready()
+    }
+
     pub fn landed(&mut self) -> bool {
         if self.landed || !self.image.is_ready() { return false; }
         self.landed = true;
@@ -71,9 +76,10 @@ impl FileImage {
 /// The open picture's zoom, for the stage's handlers: the active file tab's.
 fn zoom(s: &mut App) -> &mut StageZoom {
     let active = s.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
-    match active.and_then(|(sid, path)| s.files.sessions.get_mut(&sid)?.images.get_mut(&path)) {
+    let files = &mut *s.files;
+    match active.and_then(|(sid, path)| files.sessions.get_mut(&sid)?.images.get_mut(&path)) {
         Some(img) => &mut img.zoom,
-        None => &mut s.files.spare_zoom,
+        None => &mut files.spare_zoom,
     }
 }
 

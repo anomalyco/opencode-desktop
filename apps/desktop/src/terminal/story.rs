@@ -65,17 +65,17 @@ pub fn init_story(s: &mut App) {
     s.terminal.workspaces.clear();
     s.terminal.lru_order.clear();
     s.terminal.story_focused = true;
-    s.terminal.story_built_variant = Some(s.variant);
-    s.terminal.reset_blink(s.clock);
+    s.terminal.story_built_variant = Some(*s.variant);
+    s.terminal.reset_blink(*s.clock);
 
     let theme = theme_from_pal(pal(s.terminal_dark()));
     let (choice, style) = terminal_font_style(&s.knobs);
     let (cw, ch) = cell_metrics(choice, style);
-    let (card_w, card_h) = story_card_size(s.zoom);
+    let (card_w, card_h) = story_card_size(*s.zoom);
     let cols = (((card_w - 32.0) / cw).floor() as u16).clamp(36, 200);
     let rows = (((card_h - 54.0) / ch).floor() as u16).clamp(8, 80);
 
-    let (title, bytes): (&str, Vec<u8>) = match s.variant {
+    let (title, bytes): (&str, Vec<u8>) = match *s.variant {
         1 => ("htop", HTOP_STREAM.to_vec()),
         2 => ("Colors & Unicode", COLORS_UNICODE_STREAM.to_vec()),
         3 => ("build.log", cat_lines_stream(1_500)),
@@ -178,7 +178,7 @@ fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {
 
 pub fn view_card(s: &App, p: &Pal) -> El {
     s.terminal.painted_dark.set(Some(p.dark));
-    let (card_w, card_h) = story_card_size(s.zoom);
+    let (card_w, card_h) = story_card_size(*s.zoom);
     let inner = render_terminal_pane(
         s,
         p,

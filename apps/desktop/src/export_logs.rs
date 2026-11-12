@@ -19,7 +19,7 @@ const MAX_FILE: u64 = 50 * 1024 * 1024;
 impl App {
     /// Writes the archive off the app's thread and reveals it.
     pub(crate) fn export_logs(&self) {
-        let now = self.now_ms;
+        let now = *self.now_ms;
         let logs = crate::dirs::logs();
         let Some(downloads) = crate::dirs::downloads() else { return };
         let server_logs = server_log_roots();

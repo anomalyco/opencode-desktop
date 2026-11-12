@@ -48,7 +48,7 @@ impl App {
         if refs.missing.contains(id) || !refs.asked.borrow_mut().insert(id.to_owned()) {
             return;
         }
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(Request::Lookup(id.to_owned()));
         }
     }

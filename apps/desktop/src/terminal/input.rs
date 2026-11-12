@@ -138,7 +138,7 @@ fn paste_clipboard(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) 
             {
                 st.feed(text.as_bytes());
             }
-            app.terminal.reset_blink(app.clock);
+            app.terminal.reset_blink(*app.clock);
         }
     });
 }

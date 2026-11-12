@@ -247,231 +247,231 @@ pub enum Source {
 
 #[derive(Default)]
 pub struct App {
-    pub source: Source,
-    inbox: Option<Receiver<Incoming>>,
+    pub source: rune::Tracked<Source>,
+    inbox: rune::Tracked<Option<Receiver<Incoming>>>,
     /// The live server events taken, for the motion log (`motion_log.rs`).
-    motion_events: motion_log::Events,
-    pages: session_pages::State,
-    opening: Option<session_pages::Opening>,
-    open_demo: Option<open_story::Demo>,
+    motion_events: rune::Tracked<motion_log::Events>,
+    pages: rune::Tracked<session_pages::State>,
+    opening: rune::Tracked<Option<session_pages::Opening>>,
+    open_demo: rune::Tracked<Option<open_story::Demo>>,
     /// The server's projects and sessions. This and the other server data (transcripts, running,
     /// stops, requests, pending, inboxes) are the server's copy, which every window of the server
     /// holds in turn (`windows::peer`).
-    pub projects: Vec<Project>,
-    pub sessions: Vec<SessionInfo>,
-    pub route: Route,
+    pub projects: rune::Tracked<Vec<Project>>,
+    pub sessions: rune::Tracked<Vec<SessionInfo>>,
+    pub route: rune::Tracked<Route>,
     /// The open tab this window left for Home, independent of tab order or layout.
-    home_return_tab: Option<String>,
+    home_return_tab: rune::Tracked<Option<String>>,
     /// Where ⌘[ and ⌘] go (`history.rs`).
-    pub nav: history::History,
-    pub transcripts: HashMap<String, Transcript>,
+    pub nav: rune::Tracked<history::History>,
+    pub transcripts: rune::Tracked<HashMap<String, Transcript>>,
     /// The disclosures the reader toggled, tool groups springing shut among them (`disclosure`).
-    pub expanded: disclosure::Disclosures,
+    pub expanded: rune::Tracked<disclosure::Disclosures>,
     /// Grow, then show's streaming words, held a line-grow behind (`line_reveal`).
-    pub line_hold: line_reveal::Hold,
+    pub line_hold: rune::Tracked<line_reveal::Hold>,
     /// The copy button showing its tick (`copied.rs`).
-    pub copied: copied::Copied,
+    pub copied: rune::Tracked<copied::Copied>,
     /// The diagrams replies show, and the one open full size (`diagram`).
-    pub diagram: diagram::Diagrams,
+    pub diagram: rune::Tracked<diagram::Diagrams>,
     /// Pinned session tabs, in sidebar order (see `tabs.rs` for where they come from).
-    pub tabs: Vec<Tab>,
+    pub tabs: rune::Tracked<Vec<Tab>>,
     /// The tab strip's gestures: a press, a drag to a new place, the width a close holds.
-    pub tab_drag: rune_kit::shell::TabDragState,
+    pub tab_drag: rune::Tracked<rune_kit::shell::TabDragState>,
     /// The card a resting pointer shows over a tab (`view::tab_preview`).
-    pub tab_preview: view::tab_preview::Preview,
+    pub tab_preview: rune::Tracked<view::tab_preview::Preview>,
     /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
-    pub closed: tabs::Closed,
+    pub closed: rune::Tracked<tabs::Closed>,
     /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
-    pub layout: layout_state::Shell,
+    pub layout: rune::Tracked<layout_state::Shell>,
     /// The Inbox layout's request times, branches and height (`inbox_model.rs`).
-    pub sidebar_inbox: inbox_model::SidebarInbox,
+    pub sidebar_inbox: rune::Tracked<inbox_model::SidebarInbox>,
     /// UI zoom, 1.0 = 100% (see `view::app`).
-    pub zoom: f32,
+    pub zoom: rune::Tracked<f32>,
     /// A pinch's zoom gesture (`pinch.rs`).
-    pub zoom_pinch: pinch::Pinch,
+    pub zoom_pinch: rune::Tracked<pinch::Pinch>,
     /// Changed files' diffs (`turn_diffs.rs`).
-    pub turn_diffs: turn_diffs::TurnDiffs,
+    pub turn_diffs: rune::Tracked<turn_diffs::TurnDiffs>,
     /// Which of each session's messages Desktop would hold, for the Context tab (`context_window`).
-    pub context_windows: context_window::Windows,
+    pub context_windows: rune::Tracked<context_window::Windows>,
     /// Sessions running right now (any depth; a tab is busy when anything in its family runs).
-    pub running: HashSet<String>,
+    pub running: rune::Tracked<HashSet<String>>,
     /// Runs stopped on a press, until the server confirms (`stop.rs`).
-    pub stops: stop::Stops,
+    pub stops: rune::Tracked<stop::Stops>,
     /// Pending permission and form requests: (session, request id).
-    pub requests: HashSet<(String, String)>,
+    pub requests: rune::Tracked<HashSet<(String, String)>>,
     /// Which sessions' requests this connection has read (`session_status.rs`).
-    pub request_reads: session_status::RequestReads,
+    pub request_reads: rune::Tracked<session_status::RequestReads>,
     /// The open permission requests and forms we know the details of.
-    pub pending: Vec<Pending>,
+    pub pending: rune::Tracked<Vec<Pending>>,
     /// Prompts sent while a session was busy that the server hasn't delivered yet, by session.
-    pub inboxes: HashMap<String, Inbox>,
+    pub inboxes: rune::Tracked<HashMap<String, Inbox>>,
     /// Each session's queue changes this window asked for (`queue::machine`).
-    pub queue_ops: HashMap<String, queue::machine::Queue>,
+    pub queue_ops: rune::Tracked<HashMap<String, queue::machine::Queue>>,
     /// A queued prompt dragged to a new place (`queue::drag`).
-    pub queue_drag: queue::drag::Drag,
+    pub queue_drag: rune::Tracked<queue::drag::Drag>,
     /// The queue rewrites in flight and how far each got (`queue::run`).
-    pub queue_runs: queue::run::Runs,
+    pub queue_runs: rune::Tracked<queue::run::Runs>,
     /// A send held while a session opens (`submit.rs`).
-    pub submit: submit::Submit,
+    pub submit: rune::Tracked<submit::Submit>,
     /// This window's place in its server's peer (`windows::peer`).
-    pub store: windows::peer::Link,
+    pub store: rune::Tracked<windows::peer::Link>,
     /// The question dock's place and in-progress answers for the forms it shows.
-    pub question: question::Dock,
+    pub question: rune::Tracked<question::Dock>,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
     /// The open draft's own folder is `App::draft_dir`.
-    pub default_dir: String,
+    pub default_dir: rune::Tracked<String>,
     /// The home folder paths show as `~`: the user's, or the fixture's in a fixture run.
-    pub home: String,
-    pub sidebar_open: bool,
-    pub sidebar_w: f32,
+    pub home: rune::Tracked<String>,
+    pub sidebar_open: rune::Tracked<bool>,
+    pub sidebar_w: rune::Tracked<f32>,
     /// The width when a resize drag started.
-    pub sidebar_drag: Option<f32>,
-    pub composer: TextEdit,
+    pub sidebar_drag: rune::Tracked<Option<f32>>,
+    pub composer: rune::Tracked<TextEdit>,
     /// Sent prompts, for ↑ and ↓ in the composer (`prompt_history.rs`).
-    pub prompts: prompt_history::PromptHistory,
+    pub prompts: rune::Tracked<prompt_history::PromptHistory>,
     /// The composer's images, and sent prompts waiting on the server's copy.
-    pub attach: attachments::Attach,
+    pub attach: rune::Tracked<attachments::Attach>,
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
-    pub quote: quote::Quotes,
+    pub quote: rune::Tracked<quote::Quotes>,
     /// Comments on lines of files, from Files and Changes (`line_comments`).
-    pub line_comments: line_comments::LineComments,
-    pub find: find::Find,
-    pub message_nav: message_nav::MessageNav,
-    pub usage: usage::Usage,
-    pub search: TextEdit,
-    pub home_search: home_search::HomeSearch,
+    pub line_comments: rune::Tracked<line_comments::LineComments>,
+    pub find: rune::Tracked<find::Find>,
+    pub message_nav: rune::Tracked<message_nav::MessageNav>,
+    pub usage: rune::Tracked<usage::Usage>,
+    pub search: rune::Tracked<TextEdit>,
+    pub home_search: rune::Tracked<home_search::HomeSearch>,
     /// Session menus, the title being renamed and Delete's confirmation.
-    pub menus: session_menu::Menus,
+    pub menus: rune::Tracked<session_menu::Menus>,
     /// The drawn menu or picker open now (off macOS).
-    pub popup: popup::Popup,
-    pub pickers: pickers::Pickers,
+    pub popup: rune::Tracked<popup::Popup>,
+    pub pickers: rune::Tracked<pickers::Pickers>,
     /// The composer's `@` popover and what it lists.
-    pub mentions: mentions::Mentions,
+    pub mentions: rune::Tracked<mentions::Mentions>,
     /// Session ids named in replies, looked up once (`mentions::refs`).
-    pub session_refs: mentions::refs::Lookups,
+    pub session_refs: rune::Tracked<mentions::refs::Lookups>,
     /// Live look-and-feel sliders (⌘⇧K).
-    pub knobs: rune_knobs::Knobs,
+    pub knobs: rune::Tracked<rune_knobs::Knobs>,
     /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
-    pub glitch: glitch::Glitch,
+    pub glitch: rune::Tracked<glitch::Glitch>,
     /// The + menu, the `/` command popover and shell mode.
-    pub add: add_menu::AddMenu,
+    pub add: rune::Tracked<add_menu::AddMenu>,
     /// The composer's suggestion lists and prompt recall (`suggestions/machine.rs`).
-    pub suggest: suggestions::Suggest,
+    pub suggest: rune::Tracked<suggestions::Suggest>,
     /// Hex dictation into the composer (⇧⌘M or the mic).
-    pub dictation: dictation::Dictation,
-    pub switcher: switcher::Switcher,
-    pub project_switcher: project_switcher::ProjectSwitcher,
-    pub project_state: projects::ProjectsState,
+    pub dictation: rune::Tracked<dictation::Dictation>,
+    pub switcher: rune::Tracked<switcher::Switcher>,
+    pub project_switcher: rune::Tracked<project_switcher::ProjectSwitcher>,
+    pub project_state: rune::Tracked<projects::ProjectsState>,
     /// Home across servers: its selection, its servers and its list's phase (`projects::home`).
-    pub home_state: projects::home::Home,
+    pub home_state: rune::Tracked<projects::home::Home>,
     /// A server's folder picker, while one is open (`projects::remote_picker`).
-    pub remote_picker: projects::remote_picker::Picker,
-    pub settings: settings::Settings,
+    pub remote_picker: rune::Tracked<projects::remote_picker::Picker>,
+    pub settings: rune::Tracked<settings::Settings>,
     /// Settings' Providers, Models and Extensions pages (`settings::pages`).
-    pub settings_pages: settings::pages::State,
+    pub settings_pages: rune::Tracked<settings::pages::State>,
     /// The connect dialog (`connect`).
-    pub connect: connect::Connect,
+    pub connect: rune::Tracked<connect::Connect>,
     /// The integrations and providers it and Settings read, by folder.
-    pub catalogs: connect::catalog::Catalogs,
+    pub catalogs: rune::Tracked<connect::catalog::Catalogs>,
     /// The MCP servers' toggles and the MCPs dialog (`mcp`).
-    pub mcp: mcp::Mcp,
+    pub mcp: rune::Tracked<mcp::Mcp>,
     /// Server requests on their way back (`jobs`).
-    jobs: jobs::Jobs,
+    jobs: rune::Tracked<jobs::Jobs>,
     /// System notifications for finished runs, permission requests and errors.
-    pub notify: notifications::Notifier,
+    pub notify: rune::Tracked<notifications::Notifier>,
     /// Links the system handed the app, until they open (`deep_links`).
-    pub deep_links: deep_links::DeepLinks,
+    pub deep_links: rune::Tracked<deep_links::DeepLinks>,
     /// Every server's link: live, in doubt or down (`reconnect`).
-    pub server_links: reconnect::Links,
+    pub server_links: rune::Tracked<reconnect::Links>,
     /// Whether each open session can show, by (server, session) (`session_state`).
-    pub session_states: session_state::States,
+    pub session_states: rune::Tracked<session_state::States>,
     /// The open session and composer drafts, saved for the next launch.
-    pub restore: restore::Restore,
+    pub restore: rune::Tracked<restore::Restore>,
     /// Background shells, and the running-work list above the composer (`subagents::activity`).
-    pub shells: subagents::shells::Shells,
+    pub shells: rune::Tracked<subagents::shells::Shells>,
     /// Permission replies still on their way, to bring back if the server refuses one.
-    pub permission_sent: permission::Sent,
+    pub permission_sent: rune::Tracked<permission::Sent>,
     /// The plan's list over the todo pill is open (`todos.rs`).
-    pub todo_open: bool,
-    pub todo_ticks: todos::Ticks,
+    pub todo_open: rune::Tracked<bool>,
+    pub todo_ticks: rune::Tracked<todos::Ticks>,
     /// Subagents' latest steps and how their runs ended, for their timeline rows.
-    pub agent_rows: agent_rows::Live,
-    pub demo: demo::Demo,
+    pub agent_rows: rune::Tracked<agent_rows::Live>,
+    pub demo: rune::Tracked<demo::Demo>,
     /// Whether AppKit is saving the window frame yet (`rune_mac::remember_frame`).
-    framed: bool,
-    pub reduced_motion: bool,
+    framed: rune::Tracked<bool>,
+    pub reduced_motion: rune::Tracked<bool>,
     /// Where `reduced_motion` comes from (`appearance.rs`).
-    pub motion: appearance::Motion,
+    pub motion: rune::Tracked<appearance::Motion>,
     /// The mode Appearance › Text rendering draws with (`text_rendering.rs`).
-    pub text_rendering: text_rendering::Rendering,
+    pub text_rendering: rune::Tracked<text_rendering::Rendering>,
     /// The open session's prompts from another client growing in (`arrivals`).
-    pub glows: session_view::arrivals::Arrivals,
+    pub glows: rune::Tracked<session_view::arrivals::Arrivals>,
     /// Where each session's timeline stands against its end (`jump.rs`).
-    pub ends: jump::Ends,
+    pub ends: rune::Tracked<jump::Ends>,
     /// The subagent call whose row is under the pointer, its chevron slid in (`subagent_card`).
-    pub agent_hover: Option<String>,
+    pub agent_hover: rune::Tracked<Option<String>>,
     /// When each run started, for the Working label's rhythm (`working.rs`).
-    pub working: working::Working,
+    pub working: rune::Tracked<working::Working>,
     /// Background compaction by directory and how each compaction enters (`compaction.rs`).
-    pub compactions: compaction::Compactions,
+    pub compactions: rune::Tracked<compaction::Compactions>,
     /// `--debug`: the status bar with the edge, the source and the last status.
-    pub debug: bool,
-    pub status: String,
-    pub rewind: rewind::RewindState,
-    pub fork: fork::ForkState,
-    pub toast: status_toast::StatusToast,
+    pub debug: rune::Tracked<bool>,
+    pub status: rune::Tracked<String>,
+    pub rewind: rune::Tracked<rewind::RewindState>,
+    pub fork: rune::Tracked<fork::ForkState>,
+    pub toast: rune::Tracked<status_toast::StatusToast>,
     /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
-    pub unsent: send_failed::Log,
+    pub unsent: rune::Tracked<send_failed::Log>,
     /// Sessions shown before the server has them (`new_session.rs`).
-    pub starts: new_session::Starts,
+    pub starts: rune::Tracked<new_session::Starts>,
     /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
-    pub new_worktree: new_worktree::NewWorktree,
+    pub new_worktree: rune::Tracked<new_worktree::NewWorktree>,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
-    pub now_ms: i64,
-    base_ms: i64,
-    clock: f64,
+    pub now_ms: rune::Tracked<i64>,
+    base_ms: rune::Tracked<i64>,
+    clock: rune::Tracked<f64>,
     /// How many times the view has run, and the count the last poll saw: state that a poll
     /// derives from other state (panel tabs, plugins' watched signals) can only have moved when
     /// the view ran since, or when an earlier poll this frame changed something.
     pub view_runs: std::cell::Cell<u64>,
     polled_runs: u64,
-    fixture: Value,
-    playback: VecDeque<(f64, String, Value)>,
+    fixture: rune::Tracked<Value>,
+    playback: rune::Tracked<VecDeque<(f64, String, Value)>>,
     /// What the fixture's server stored from the replies it streamed (`served.rs`).
-    served: served::Served,
-    background: background::Background,
-    sends: u32,
-    waker: Option<Waker>,
-    launch: launch::Launch,
-    pub updater: updater::Updater,
-    pub icons: project_icon::Icons,
-    pub side: panels::SideState,
-    pub browser: browser::BrowserPane,
-    pub review: review::ReviewPane,
+    served: rune::Tracked<served::Served>,
+    background: rune::Tracked<background::Background>,
+    sends: rune::Tracked<u32>,
+    waker: rune::Tracked<Option<Waker>>,
+    launch: rune::Tracked<launch::Launch>,
+    pub updater: rune::Tracked<updater::Updater>,
+    pub icons: rune::Tracked<project_icon::Icons>,
+    pub side: rune::Tracked<panels::SideState>,
+    pub browser: rune::Tracked<browser::BrowserPane>,
+    pub review: rune::Tracked<review::ReviewPane>,
     /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
-    pub panel_sidebar: plugin_host::native::sidebar::PanelSidebar,
-    pub files: files::FilesPane,
-    pub open_in: open_in::OpenIn,
+    pub panel_sidebar: rune::Tracked<plugin_host::native::sidebar::PanelSidebar>,
+    pub files: rune::Tracked<files::FilesPane>,
+    pub open_in: rune::Tracked<open_in::OpenIn>,
     /// What a tool step last opened in the side region (`tool_open`).
-    pub tool_open: Option<tool_open::Opened>,
-    pub terminal: terminal::TerminalPane,
-    pub rune_mcp: rune_mcp::WindowMcp,
+    pub tool_open: rune::Tracked<Option<tool_open::Opened>>,
+    pub terminal: rune::Tracked<terminal::TerminalPane>,
+    pub rune_mcp: rune::Tracked<rune_mcp::WindowMcp>,
     /// The plugins: their panels, commands, menus, settings and MCP tools (`plugin_host`).
-    pub plugins: plugin_host::PluginHost,
+    pub plugins: rune::Tracked<plugin_host::PluginHost>,
     /// The server the window works against now and its halves of the others (`servers::runtime`).
-    pub checkout: servers::runtime::Checkout,
+    pub checkout: rune::Tracked<servers::runtime::Checkout>,
     /// The session header's location card: each folder's branch once read.
-    pub location: view::location::Location,
+    pub location: rune::Tracked<view::location::Location>,
     /// A storybook (⌘⇧D) story's stage, in the world the playground made for it.
-    pub stage: Option<stories::Stage>,
+    pub stage: rune::Tracked<Option<stories::Stage>>,
     /// The story's variant (1 to 9 in the playground pick it).
-    pub variant: usize,
+    pub variant: rune::Tracked<usize>,
     /// Which window this is, and what it keeps of itself (`windows`).
-    pub window: windows::Window,
+    pub window: rune::Tracked<windows::Window>,
     /// The frame diagnostics every window reports to.
-    pub diagnostics: diagnostics::Diagnostics,
+    pub diagnostics: rune::Tracked<diagnostics::Diagnostics>,
     /// The locale this window's view last built in (`language`).
-    pub language: language::Applied,
+    pub language: rune::Tracked<language::Applied>,
 }
 
 fn arg(name: &str) -> Option<String> {
@@ -502,13 +502,13 @@ impl session_view::TimelineHost for App {
         &self.knobs
     }
     fn clock(&self) -> f64 {
-        self.clock
+        *self.clock
     }
     fn now_ms(&self) -> i64 {
-        self.now_ms
+        *self.now_ms
     }
     fn reduced_motion(&self) -> bool {
-        self.reduced_motion
+        *self.reduced_motion
     }
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
@@ -548,7 +548,7 @@ impl session_view::TimelineHost for App {
         Some("session")
     }
     fn active_session_id(&self) -> Option<&str> {
-        match &self.route {
+        match &*self.route {
             Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
@@ -651,7 +651,7 @@ impl session_view::TimelineHost for App {
         plugin_host::code_block_actions(p, language, source)
     }
     fn send_request(&self, req: Request) {
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(req);
         }
     }
@@ -688,7 +688,7 @@ impl session_view::TimelineHost for App {
         self.agent_hover.as_deref()
     }
     fn set_subagent_hover(&mut self, call: Option<String>) {
-        self.agent_hover = call;
+        *self.agent_hover = call;
     }
     fn open_subagent(&mut self, parent: &str, child: &str, title: &str, agent: &str, tx: &mut Tx) {
         self.open_child(parent, child, title, agent, tx);
@@ -810,18 +810,18 @@ impl App {
     fn empty() -> App {
         let home = dirs::home();
         App {
-            default_dir: arg("--directory").unwrap_or_else(|| home.clone()),
-            home,
-            sidebar_open: !flag("--sidebar-closed"),
-            sidebar_w: view::SIDEBAR_W,
-            zoom: arg("--zoom").and_then(|z| z.parse::<f32>().ok()).map_or(1.0, |z| z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX)),
-            composer: TextEdit::new(""),
-            search: TextEdit::new(""),
-            reduced_motion: flag("--reduced-motion"),
-            motion: appearance::Motion::new(flag("--reduced-motion")),
+            default_dir: arg("--directory").unwrap_or_else(|| home.clone()).into(),
+            home: home.into(),
+            sidebar_open: (!flag("--sidebar-closed")).into(),
+            sidebar_w: view::SIDEBAR_W.into(),
+            zoom: arg("--zoom").and_then(|z| z.parse::<f32>().ok()).map_or(1.0, |z| z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX)).into(),
+            composer: TextEdit::new("").into(),
+            search: TextEdit::new("").into(),
+            reduced_motion: flag("--reduced-motion").into(),
+            motion: appearance::Motion::new(flag("--reduced-motion")).into(),
             text_rendering: Default::default(),
-            debug: flag("--debug"),
-            icons: desktop_icons(),
+            debug: flag("--debug").into(),
+            icons: desktop_icons().into(),
             ..Default::default()
         }
     }
@@ -829,17 +829,17 @@ impl App {
     /// Back to Home, dropping a session that was still opening.
     pub(crate) fn go_home(&mut self, tx: &mut Tx) {
         if self.route != Route::Home {
-            self.home_return_tab = self.current_tab();
+            *self.home_return_tab = self.current_tab();
         }
         self.close_settings();
-        self.opening = None;
-        self.route = Route::Home;
+        *self.opening = None;
+        *self.route = Route::Home;
         tx.settle();
     }
 
     fn load(window: windows::Window) -> App {
         let mut app = Self::empty();
-        app.window = window;
+        *app.window = window;
         let fixture_path = arg("--fixture");
         let server = launch::initial_server();
         let deferred = fixture_path.is_none() && launch::deferred();
@@ -852,7 +852,7 @@ impl App {
         app.load_fixture(&src);
         // The demo plays on Kit's own zoom; a fixture run never saves it.
         if demo::requested() && arg("--zoom").is_none() && !headless() && let Some(z) = tabs::load_zoom() {
-            app.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
+            *app.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
         app
     }
@@ -875,7 +875,7 @@ impl App {
         appearance::apply_args(&mut app);
         if let Some(layout) = arg("--tab-layout") {
             app.settings.tab_layout = layout_state::TabLayout::parse(Some(&layout));
-            app.layout = layout_state::Shell::at_rest(app.settings.tab_layout);
+            *app.layout = layout_state::Shell::at_rest(app.settings.tab_layout);
         }
         app.apply_appearance();
         if let Some(name) = arg("--preset") {
@@ -896,10 +896,10 @@ impl App {
         self.pickers.load(&v);
         self.mentions.load(&v);
         self.add.slash.commands = slash::commands(&v["commands"]);
-        self.base_ms = v["now"].as_i64().unwrap_or(0);
-        self.now_ms = self.base_ms;
-        self.projects = opencode_kit::model::parse_projects(&v["projects"]);
-        self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
+        *self.base_ms = v["now"].as_i64().unwrap_or(0);
+        *self.now_ms = *self.base_ms;
+        *self.projects = opencode_kit::model::parse_projects(&v["projects"]);
+        *self.sessions = opencode_kit::model::parse_sessions(&v["sessions"]);
         if let Some(map) = v["messages"].as_object() {
             for (id, list) in map {
                 let msgs = opencode_kit::model::parse_messages(&serde_json::json!({ "data": list }));
@@ -907,27 +907,27 @@ impl App {
             }
         }
         let ids: Vec<String> = v["tabs"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
-        self.tabs = ids.iter().map(|id| Tab::session(id.clone(), "", "")).collect();
-        self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+        *self.tabs = ids.iter().map(|id| Tab::session(id.clone(), "", "")).collect();
+        *self.running = v["running"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
         for r in v["requests"].as_array().into_iter().flatten() {
             if let (Some(s), Some(id)) = (r["sessionID"].as_str(), r["id"].as_str()) {
                 self.requests.insert((s.to_owned(), id.to_owned()));
             }
         }
-        self.status = "Fixture".into();
-        self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
+        *self.status = "Fixture".into();
+        *self.open_in = open_in::OpenIn::with(std::sync::Arc::new(open_in::Fixed(vec!["vscode", "cursor", "zed", "terminal", "ghostty", "xcode", "powershell"])));
         self.open_in.detect();
         if let Some(home) = v["home"].as_str() {
-            self.home = home.to_owned();
+            *self.home = home.to_owned();
         }
-        self.fixture = v;
-        self.source = Source::Fixture;
+        *self.fixture = v;
+        *self.source = Source::Fixture;
         self.init_used_projects(None);
         self.sort_projects();
         if arg("--directory").is_none()
             && let Some(p) = self.projects.first()
         {
-            self.default_dir = p.directory.clone();
+            *self.default_dir = p.directory.clone();
         }
     }
 
@@ -955,7 +955,7 @@ impl App {
         // Desktop's tabs come into a fresh profile's first window only.
         let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {
-            Some(tabs) => self.tabs = tabs,
+            Some(tabs) => *self.tabs = tabs,
             None if deferred => self.launch.set_phase(ServerKey::SIDECAR, launch::Phase::Waiting { beta_tabs: beta }),
             None => {}
         }
@@ -968,24 +968,24 @@ impl App {
             self.init_used_projects(Some(tabs::load_projects(&server.base).unwrap_or_default()));
         }
         if let Some(z) = tabs::load_zoom() {
-            self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
+            *self.zoom = z.clamp(shortcuts::ZOOM_MIN, shortcuts::ZOOM_MAX);
         }
-        self.settings = settings::load();
-        self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
+        *self.settings = settings::load();
+        *self.layout = layout_state::Shell::at_rest(self.settings.tab_layout);
         self.load_open_in();
         if self.persists() {
             self.files.wrap = files::markdown::WrapPrefs::load();
-            self.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
+            *self.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
         }
-        self.prompts = prompt_history::PromptHistory::load(attended());
+        *self.prompts = prompt_history::PromptHistory::load(attended());
         self.pickers.prefs = model_prefs::load();
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
-        self.base_ms = wall_ms();
-        self.now_ms = self.base_ms;
+        *self.base_ms = wall_ms();
+        *self.now_ms = *self.base_ms;
         let allow_send = !flag("--read-only") && attended();
-        self.source = Source::Live { server, requests: None, writes: None, allow_send };
+        *self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.open_outbox();
-        self.status = self.live_status();
+        *self.status = self.live_status();
         self.resume_settings_page();
         true
     }
@@ -998,16 +998,14 @@ impl App {
             m
         });
         let key = |p: &Project| latest.get(p.id.as_str()).copied().unwrap_or(0).max(p.active);
-        let mut ps = std::mem::take(&mut self.projects);
-        ps.sort_by_key(|p| std::cmp::Reverse(key(p)));
-        self.projects = ps;
+        self.projects.sort_by_key(|p| std::cmp::Reverse(key(p)));
     }
 
     pub fn set_zoom(&mut self, dir: i32) {
-        self.zoom = shortcuts::step_zoom(self.zoom, dir);
+        *self.zoom = shortcuts::step_zoom(*self.zoom, dir);
         self.zoom_pinch.leveled();
         if self.persists() {
-            tabs::save_zoom(self.zoom);
+            tabs::save_zoom(*self.zoom);
         }
     }
 
@@ -1047,7 +1045,7 @@ impl App {
     }
 
     pub fn live(&self) -> bool {
-        matches!(self.source, Source::Live { .. })
+        matches!(*self.source, Source::Live { .. })
     }
 
     /// Saves tabs, zoom, the open session and drafts: live, with a person at it.
@@ -1057,7 +1055,7 @@ impl App {
 
     /// Asks the server for one session's info (live only).
     pub fn fetch_info(&self, id: &str) {
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(Request::Info(id.to_owned()));
         }
     }
@@ -1088,7 +1086,7 @@ impl App {
     }
 
     pub(crate) fn route_busy(&self) -> bool {
-        matches!(&self.route, Route::Session { id, .. } if self.busy(id))
+        matches!(&*self.route, Route::Session { id, .. } if self.busy(id))
     }
 
     /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's or draft's
@@ -1103,7 +1101,7 @@ impl App {
             let Some(project) = project else { return };
             Some(project.directory.clone())
         } else {
-            match &self.route {
+            match &*self.route {
                 Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()),
                 Route::Draft(_) => Some(self.draft_dir().to_owned()),
                 Route::Home => None,
@@ -1114,9 +1112,9 @@ impl App {
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
         if let Some(dir) = dir.filter(|d| !d.is_empty()) {
-            self.default_dir = dir;
+            *self.default_dir = dir;
         }
-        self.opening = None;
+        *self.opening = None;
         self.open_draft_tab();
         tx.settle();
     }
@@ -1124,9 +1122,10 @@ impl App {
 }
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    s.clock = now;
+   
+    *s.clock = now;
     s.sync_history();
-    s.now_ms = if s.live() { wall_ms() } else { s.base_ms + (now * 1000.0) as i64 };
+    *s.now_ms = if s.live() { wall_ms() } else { *s.base_ms + (now * 1000.0) as i64 };
     demo::poll(s);
     // The morph loop is for watching: the composer it lands on doesn't take the keys.
     if s.stage.is_some_and(|st| st.watch()) {
@@ -1215,7 +1214,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.dock_face() != asked {
         s.morph(tx);
     }
-    changed |= s.glows.poll(&s.knobs, now, tx);
+    if s.glows.busy() {
+        changed |= s.glows.poll(&s.knobs, now, tx);
+    }
     changed |= disclosure::poll(s, now, tx);
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
@@ -1255,12 +1256,12 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= s.hydrate_restore();
         s.poll_restore();
         s.poll_preview(false);
-        s.prompts.hydrate(s.waker.clone());
+        s.prompts.hydrate((*s.waker).clone());
         s.poll_window();
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
         // name can't tell windows apart; a hot build's one window isn't among them.
-        if !s.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
-            s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
+        if !*s.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
+            *s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
     }
     changed
@@ -1275,7 +1276,7 @@ fn desktop_icons() -> project_icon::Icons {
 }
 
 fn setup(s: &mut App, waker: Waker) {
-    s.waker = Some(waker.clone());
+    *s.waker = Some(waker.clone());
     storage::on_ready(waker.clone());
     // The outbox was opened before the window had a waker: its stored prompts wake it when they're in.
     s.listen_outbox();

@@ -169,7 +169,7 @@ impl AddMenu {
 impl App {
     /// The open page has a composer: a draft, or a session that isn't a subagent's.
     pub fn has_composer(&self) -> bool {
-        match &self.route {
+        match &*self.route {
             Route::Draft(_) => true,
             Route::Session { id, .. } => self.session(id).is_none_or(|i| i.parent.is_none()),
             Route::Home => false,
@@ -288,8 +288,8 @@ impl App {
     /// Runs a `/command` prompt: in the open session (steered or queued while it works, by
     /// the server), or in a new one from a draft.
     pub fn send_command(&mut self, mut prompt: Prompt, alternate: bool, tx: &mut Tx) {
-        match self.route.clone() {
-            Route::Session { .. } if matches!(self.source, Source::Fixture) => {
+        match (*self.route).clone() {
+            Route::Session { .. } if matches!(*self.source, Source::Fixture) => {
                 crate::status_toast::say(self, t!("rune.composer.commandsNeedServer"), t!("rune.composer.needServer.description"));
                 return;
             }
@@ -315,7 +315,7 @@ impl App {
                 if !self.write(Write::Start { directory: self.draft_dir().to_owned(), prompt }) {
                     return;
                 }
-                self.status = t!("rune.composer.starting").into();
+                *self.status = t!("rune.composer.starting").into();
             }
             _ => {
                 crate::status_toast::say(self, t!("rune.composer.openSession"), "");
@@ -333,7 +333,7 @@ impl App {
         if command.is_empty() {
             return;
         }
-        let Route::Session { id, .. } = self.route.clone() else {
+        let Route::Session { id, .. } = (*self.route).clone() else {
             crate::status_toast::say(self, t!("rune.composer.shell.needsSession"), t!("rune.composer.shell.needsSession.description"));
             return;
         };
@@ -341,7 +341,7 @@ impl App {
             crate::status_toast::say(self, t!("rune.composer.shell.noQueue"), t!("rune.composer.shell.noQueue.description"));
             return;
         }
-        if matches!(self.source, Source::Fixture) {
+        if matches!(*self.source, Source::Fixture) {
             crate::status_toast::say(self, t!("rune.composer.shell.needsServer"), t!("rune.composer.needServer.description"));
             return;
         }

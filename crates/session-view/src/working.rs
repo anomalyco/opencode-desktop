@@ -63,6 +63,16 @@ impl Working {
 /// ended, and ends a pass a new label interrupted once it's over. True when what's drawn
 /// changed.
 pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
+    // Every poll comes here: with every live session counted, none ended and no label
+    // finishing, nothing below changes, so the state isn't written.
+    let w = s.working_state();
+    let mut quiet = !matches!(w.relabeled, Relabel::Finishing { .. }) && w.since.keys().all(|id| s.is_session_live(id));
+    if quiet {
+        s.for_each_tracked_session(|id| quiet &= w.since.contains_key(id) || !s.is_session_live(id));
+    }
+    if quiet {
+        return false;
+    }
     let clock = s.clock();
     let mut working = std::mem::take(s.working_state_mut());
     let runs = working.since.len();

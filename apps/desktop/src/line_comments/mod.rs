@@ -185,7 +185,7 @@ impl App {
     /// The editor field's own event at `spot` (keys, buttons, the `@` list).
     pub fn line_comment_field(&mut self, spot: &Spot, event: FieldEvent, tx: &mut Tx) -> bool {
         let editing = matches!(self.line_comments.mode(spot), Mode::Editing { .. });
-        let LineComments { sessions, field_seq, .. } = &mut self.line_comments;
+        let LineComments { sessions, field_seq, .. } = &mut *self.line_comments;
         let mode = sessions.get_mut(&spot.session).and_then(|s| s.modes.get_mut(&spot.surface)).and_then(|m| m.get_mut(&spot.path));
         let Some(draft) = mode.and_then(Mode::draft_mut) else { return false };
         let (effects, handled) = field::field_step(field_seq, &mut draft.field, event);
@@ -249,12 +249,13 @@ impl App {
     fn add_line_comment(&mut self, spot: &Spot, selection: Range, comment: String, tx: &mut Tx) {
         self.line_comments.next += 1;
         // Unique across launches, for the store that will keep comments across them.
-        let (time, id) = (self.now_ms, format!("lc-{}-{}", self.now_ms, self.line_comments.next));
+        let (time, id) = (*self.now_ms, format!("lc-{}-{}", *self.now_ms, self.line_comments.next));
         let preview = self.line_preview(spot, selection);
-        let session = self.line_comments.sessions.entry(spot.session.clone()).or_default();
-        session.list.push(LineComment { id: id.clone(), file: spot.path.clone(), selection, comment: comment.clone(), time });
+        let lc = &mut *self.line_comments;
+        let session = lc.sessions.entry(spot.session.clone()).or_default();
+        session.list.push(LineComment { id: id.clone(), file: spot.path.clone(), selection, comment: comment.clone(), time: time });
         let target = focus::Target { file: spot.path.clone(), id: id.clone() };
-        for effect in focus::step(&mut self.line_comments.focus_seq, &mut session.focus, focus::Event::Set(Some(target), tx.clock())) {
+        for effect in focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Set(Some(target), tx.clock())) {
             let focus::Effect::WakeAt(due) = effect;
             tx.wake_at(due);
         }
@@ -281,18 +282,20 @@ impl App {
 
     /// `comment.remove` and `composer.detach`.
     pub fn remove_line_comment(&mut self, sid: &str, id: &str) {
-        let Some(session) = self.line_comments.sessions.get_mut(sid) else { return };
+        let lc = &mut *self.line_comments;
+        let Some(session) = lc.sessions.get_mut(sid) else { return };
         if let Some(gone) = session.list.iter().position(|c| c.id == id).map(|i| session.list.remove(i)) {
-            let _ = focus::step(&mut self.line_comments.focus_seq, &mut session.focus, focus::Event::Removed(focus::Target { file: gone.file, id: gone.id }));
+            let _ = focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Removed(focus::Target { file: gone.file, id: gone.id }));
         }
         self.quote.items.retain(|q| q.comment.file().is_none_or(|f| f.id.as_deref() != Some(id)));
     }
 
     /// A sent prompt took the session's comments with it (`input.comments.clear()`).
     pub fn clear_line_comments(&mut self, sid: &str) {
-        if let Some(session) = self.line_comments.sessions.get_mut(sid) {
+        let lc = &mut *self.line_comments;
+        if let Some(session) = lc.sessions.get_mut(sid) {
             session.list.clear();
-            let _ = focus::step(&mut self.line_comments.focus_seq, &mut session.focus, focus::Event::Reset);
+            let _ = focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Reset);
         }
     }
 
@@ -327,8 +330,9 @@ impl App {
             Some(CommentOrigin::Review) => self.open_review_for_session(&sid, None, None, Some(&f.path), None, tx),
             _ => self.open_workspace_file_for_session(&sid, &f.path, false, None, false, tx),
         }
-        let session = self.line_comments.sessions.entry(sid).or_default();
-        for effect in focus::step(&mut self.line_comments.focus_seq, &mut session.focus, focus::Event::Opened(focus::Target { file: f.path, id }, tx.clock())) {
+        let lc = &mut *self.line_comments;
+        let session = lc.sessions.entry(sid).or_default();
+        for effect in focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Opened(focus::Target { file: f.path, id }, tx.clock())) {
             let focus::Effect::WakeAt(due) = effect;
             tx.wake_at(due);
         }

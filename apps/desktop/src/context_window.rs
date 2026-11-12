@@ -203,8 +203,8 @@ impl App {
     pub(crate) fn window_opened(&mut self, id: &str) {
         let first = if self.settings.timeline_detail.preset() == Some(COMPACT) { 40 } else { 20 };
         let key = (server(self), id.to_owned());
-        let opened = self.now_ms;
-        let w = self.context_windows.map.entry(key).or_insert_with(|| Window { opened, first, older: 0, stubs: vec![], places: HashMap::new(), start: Start::Unknown, first_read: false, sync: Sync::Current });
+        let opened = *self.now_ms;
+        let w = self.context_windows.map.entry(key).or_insert_with(|| Window { opened: opened, first, older: 0, stubs: vec![], places: HashMap::new(), start: Start::Unknown, first_read: false, sync: Sync::Current });
         if w.sync == Sync::Forgotten {
             (w.opened, w.first, w.older, w.sync) = (opened, first, 0, Sync::Current);
         }

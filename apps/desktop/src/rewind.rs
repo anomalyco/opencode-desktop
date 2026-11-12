@@ -112,13 +112,13 @@ impl App {
 
     /// Whether `/undo` and `⌘K → Undo` are enabled on the open session.
     pub fn can_undo_session(&self) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         self.can_rewind_session(id) && !self.rewind.busy(id) && self.undo_target(id).is_some()
     }
 
     /// Whether `/redo` and `⌘K → Redo` are enabled on the open session.
     pub fn can_redo_session(&self) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         self.can_rewind_session(id) && !self.rewind.busy(id) && self.session(id).and_then(|i| i.revert.as_ref()).is_some()
     }
 
@@ -195,7 +195,7 @@ impl App {
                 draft.files = item.files;
             }
             let operation = Operation::Withdraw { message: message_id.to_owned(), draft };
-            self.step_revert(session, Event::Requested { operation, now: self.clock });
+            self.step_revert(session, Event::Requested { operation, now: *self.clock });
             return;
         }
         let Some(body) = self.transcripts.get(session).and_then(|t| {
@@ -218,7 +218,7 @@ impl App {
         for sid in &stopped {
             self.running.remove(sid);
         }
-        if self.stage.is_some() || matches!(self.source, Source::Fixture) {
+        if self.stage.is_some() || matches!(*self.source, Source::Fixture) {
             self.playback.retain(|(_, _, d)| d["sessionID"].as_str() != Some(session));
         }
         self.set_session_revert(session, Some(message_id.to_owned()));
@@ -228,13 +228,13 @@ impl App {
 
         let rollback = Rollback { revert: prior.clone(), stopped, draft: Some(prior_draft.clone()), toast: Some(toast) };
         let operation = Operation::Rewind { message: message_id.to_owned(), prior, draft: prior_draft, restored, rollback };
-        self.step_revert(session, Event::Requested { operation, now: self.clock });
+        self.step_revert(session, Event::Requested { operation, now: *self.clock });
     }
 
     /// `/undo` and `⌘K → Undo`: rewinds to the newest user message before the session's boundary,
     /// or withdraws it when it's still undelivered (`revert-machine.ts` `undo.requested`).
     pub fn undo_last(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session { id: session, .. } = self.route.clone() else { return false };
+        let Route::Session { id: session, .. } = (*self.route).clone() else { return false };
         if self.rewind.busy(&session) {
             return false;
         }
@@ -250,7 +250,7 @@ impl App {
 
     /// `/redo` and `⌘K → Redo`: restores every reverted message at once and leaves the composer alone.
     pub fn redo_revert(&mut self, _tx: &mut Tx) -> bool {
-        let Route::Session { id: session, .. } = self.route.clone() else { return false };
+        let Route::Session { id: session, .. } = (*self.route).clone() else { return false };
         if !self.can_rewind_session(&session) || self.rewind.busy(&session) {
             return false;
         }
@@ -259,7 +259,7 @@ impl App {
         };
         self.set_session_revert(&session, None);
         let rollback = Rollback { revert: Some(prior), ..Rollback::default() };
-        self.step_revert(&session, Event::Requested { operation: Operation::Redo { rollback }, now: self.clock });
+        self.step_revert(&session, Event::Requested { operation: Operation::Redo { rollback }, now: *self.clock });
         true
     }
 
@@ -279,7 +279,7 @@ impl App {
         };
         let rollback = Rollback { revert: self.session(&undo.session).and_then(|i| i.revert.clone()), draft: Some(self.capture_draft(&undo.session)), ..Rollback::default() };
         self.set_session_revert(&undo.session, prior);
-        self.step_revert(&undo.session, Event::ToastUndo { attempt, now: self.clock, rollback });
+        self.step_revert(&undo.session, Event::ToastUndo { attempt, now: *self.clock, rollback });
     }
 
     /// Steps `session`'s revert machine and carries out what it says.
@@ -301,12 +301,12 @@ impl App {
                     Operation::UndoRewind { prior: Some(prior), .. } => Write::RevertStage { session: session.to_owned(), message: prior.clone(), settle: false },
                 };
                 // The fixture and the storybook act as if the server agreed at once.
-                if self.stage.is_some() || matches!(self.source, Source::Fixture) {
+                if self.stage.is_some() || matches!(*self.source, Source::Fixture) {
                     return self.step_revert(session, Event::Succeeded { attempt });
                 }
                 let ticket = Ticket { kind: TicketKind::Revert, session: session.to_owned(), attempt: attempt.0 };
                 if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
-                    let (why, now) = (self.status.clone(), self.clock);
+                    let (why, now) = ((*self.status).clone(), *self.clock);
                     self.step_revert(session, Event::Failed { attempt, why, now });
                 }
             }
@@ -361,17 +361,17 @@ impl App {
         let attempt = Attempt(attempt);
         let event = match result {
             Ok(()) => Event::Succeeded { attempt },
-            Err(why) => Event::Failed { attempt, why, now: self.clock },
+            Err(why) => Event::Failed { attempt, why, now: *self.clock },
         };
         self.step_revert(session, event);
     }
 
     /// Each frame: an operation past its 30 s bound fails as it got. True when one did.
     pub(crate) fn revert_timeouts(&mut self, tx: &mut Tx) -> bool {
-        let now = self.clock;
+        let now = *self.clock;
         let due: Vec<String> = self.rewind.sessions.iter().filter(|(_, r)| r.due().is_some_and(|d| now + 1e-9 >= d)).map(|(id, _)| id.clone()).collect();
         for session in &due {
-            self.step_revert(session, Event::Due { now });
+            self.step_revert(session, Event::Due { now: now });
         }
         if let Some(next) = self.rewind.sessions.values().filter_map(SessionRevert::due).reduce(f64::min) {
             tx.wake_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
@@ -514,7 +514,7 @@ fn message_menu(s: &App, session: &str, mid: &str) -> Option<crate::popup::Menu>
 pub(crate) fn message_items(s: &App, session: &str, mid: &str, mut menu: crate::popup::Menu) -> Option<crate::popup::Menu> {
     use crate::popup::Item;
     if let Some(reply) = reply_body(s, session, mid) {
-        if let Some(when) = sent_label(mid, s.now_ms) {
+        if let Some(when) = sent_label(mid, *s.now_ms) {
             menu = menu.group(when).separator();
         }
         return Some(menu.item(Item::new("copy", opencode_i18n::t!("ui.message.copyMessage")).icon(&ic::OUTLINE_COPY).enabled(!reply.trim().is_empty())));
@@ -523,7 +523,7 @@ pub(crate) fn message_items(s: &App, session: &str, mid: &str, mut menu: crate::
     let pending = delivered.is_none();
     let body = delivered.or_else(|| pending_body(s, session, mid))?;
     let root = s.can_rewind_session(session);
-    let when = if pending { opencode_i18n::t!("ui.message.pending").to_owned() } else { sent_label(mid, s.now_ms).unwrap_or_default() };
+    let when = if pending { opencode_i18n::t!("ui.message.pending").to_owned() } else { sent_label(mid, *s.now_ms).unwrap_or_default() };
     if !when.is_empty() {
         menu = menu.group(when).separator();
     }

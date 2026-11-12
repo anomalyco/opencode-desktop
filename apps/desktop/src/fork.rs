@@ -65,7 +65,7 @@ pub fn fork_title(title: &str) -> String {
 impl App {
     /// Whether `/fork` and `⌘K → Fork from message` are enabled on the open session.
     pub fn can_fork_session(&self) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         self.can_rewind_session(id) && !self.visible_user_ids(id).is_empty()
     }
 
@@ -86,7 +86,7 @@ impl App {
         };
         let draft = self.draft_from_message(message_id, &body);
         let surface = if self.fork.open { Surface::Dialog } else { Surface::Inline };
-        let event = Event::Requested { surface, session: session.to_owned(), message: message_id.to_owned(), draft, now: self.clock };
+        let event = Event::Requested { surface, session: session.to_owned(), message: message_id.to_owned(), draft, now: *self.clock };
         self.step_fork(event, tx)
     }
 
@@ -98,7 +98,7 @@ impl App {
             match effect {
                 Effect::Start { attempt, session, message } => {
                     // The fixture and the storybook fork at once, as a server would.
-                    if self.stage.is_some() || matches!(self.source, Source::Fixture) {
+                    if self.stage.is_some() || matches!(*self.source, Source::Fixture) {
                         let forked = self.create_fixture_fork(&session, &message);
                         self.step_fork(Event::Succeeded { attempt, forked }, tx);
                         continue;
@@ -106,7 +106,7 @@ impl App {
                     let ticket = Ticket { kind: TicketKind::Fork, session: session.clone(), attempt: attempt.0 };
                     let write = Write::Fork { session, before: Some(message) };
                     if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
-                        let why = self.status.clone();
+                        let why = (*self.status).clone();
                         self.step_fork(Event::Failed { attempt, why }, tx);
                     }
                 }
@@ -127,7 +127,7 @@ impl App {
     fn create_fixture_fork(&mut self, session: &str, before_message: &str) -> String {
         self.fork.made += 1;
         let forked_id = format!("ses_fx_fork_{:04}", self.fork.made);
-        let now = self.now_ms;
+        let now = *self.now_ms;
         let info = match self.session(session).cloned() {
             Some(parent) => SessionInfo {
                 id: forked_id.clone(),
@@ -209,7 +209,7 @@ impl App {
 
     /// All non-empty user messages of the open session, newest first (`fork-dialog.tsx`).
     pub fn fork_messages(&self) -> Vec<ForkableMessage> {
-        let Route::Session { id: session, .. } = &self.route else { return Vec::new() };
+        let Route::Session { id: session, .. } = &*self.route else { return Vec::new() };
         let revert = self.session(session).and_then(|i| i.revert.as_deref());
         let Some(t) = self.transcripts.get(session) else { return Vec::new() };
         let shown = t.visible_len(revert);
@@ -270,7 +270,7 @@ impl App {
             }
             Key::Enter if !ev.mods.shift => {
                 tx.instant();
-                let Route::Session { id: session, .. } = self.route.clone() else { return true };
+                let Route::Session { id: session, .. } = (*self.route).clone() else { return true };
                 let chosen = self
                     .fork
                     .active
@@ -314,9 +314,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.route != Route::here(session.clone()) {
         return s.step_fork(Event::Left, tx);
     }
-    let (now, due) = (s.clock, *due);
+    let (now, due) = (*s.clock, *due);
     if now + 1e-9 >= due {
-        return s.step_fork(Event::Due { now }, tx);
+        return s.step_fork(Event::Due { now: now }, tx);
     }
     tx.wake_after(std::time::Duration::from_secs_f64(due - now));
     false
@@ -358,7 +358,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let all = s.fork_messages();
     let filtered = s.fork_filtered();
     let active = s.fork.active.as_ref().filter(|id| filtered.iter().any(|m| &m.id == *id));
-    let session = match &s.route {
+    let session = match &*s.route {
         Route::Session { id: sid, .. } => sid.clone(),
         _ => String::new(),
     };

@@ -31,7 +31,7 @@ fn setup(s: &mut App) {
     s.finish_stream();
     s.side = Default::default();
     s.review = Default::default();
-    s.tool_open = None;
+    *s.tool_open = None;
     s.expanded.insert(format!("c-{EDIT}"));
     s.expanded.insert("c-call_grep_27000".into());
     // The timeline ends on the turn that made the edit, so both steps show at its foot.

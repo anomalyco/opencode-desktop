@@ -18,7 +18,7 @@ use crate::{App, Route};
 impl App {
     /// The queued prompt open in the composer of the open session.
     pub fn queue_editing(&self) -> Option<&str> {
-        let Route::Session { id, .. } = &self.route else { return None };
+        let Route::Session { id, .. } = &*self.route else { return None };
         self.queue_ops.get(id).and_then(|q| q.editing())
     }
 
@@ -56,7 +56,7 @@ impl App {
 
     /// Mod+Up: the first queued prompt goes into the composer.
     fn edit_first_queued(&mut self) -> bool {
-        let Route::Session { id, .. } = self.route.clone() else { return false };
+        let Route::Session { id, .. } = (*self.route).clone() else { return false };
         let Some(first) = self.queue_rows(&id).into_iter().next() else { return false };
         self.edit_queued(&id, &first.id)
     }
@@ -64,7 +64,7 @@ impl App {
     /// Return (`queue`) or the other delivery (`steer`) while a queued prompt is open: it goes
     /// back as the composer has it (`edit.confirm`).
     pub fn confirm_queue_edit(&mut self, alternate: bool) {
-        let Route::Session { id: session, .. } = self.route.clone() else { return };
+        let Route::Session { id: session, .. } = (*self.route).clone() else { return };
         let Some(original) = self.queue_ops.get(&session).and_then(|q| q.editing()).map(str::to_owned) else { return };
         let wire = self.mention_wire();
         let refs = self.attach.paths.clone();
@@ -85,7 +85,7 @@ impl App {
             prompt: self.composer_draft(),
             admission: edited_admission(&session, &payload, &prompt),
             ids,
-            now: self.clock,
+            now: *self.clock,
         };
         self.step_queue(&session, event);
     }
@@ -109,7 +109,7 @@ impl App {
     pub(crate) fn queue_edit_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         let plain = !ev.mods.shift && !ev.mods.alt;
         if ev.key == Key::Escape && plain && !ev.mods.cmd && !ev.mods.ctrl && self.queue_editing().is_some() {
-            let Route::Session { id, .. } = self.route.clone() else { return false };
+            let Route::Session { id, .. } = (*self.route).clone() else { return false };
             tx.instant();
             self.step_queue(&id, Event::EditCancel);
             return true;

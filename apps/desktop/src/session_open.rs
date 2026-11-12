@@ -11,7 +11,7 @@ impl App {
         if held {
             self.begin_open(id, tx);
         } else {
-            self.opening = None;
+            *self.opening = None;
             self.open_now(id, tx);
             self.open_page(id, tx);
             self.ends.land(id, tx);
@@ -38,12 +38,12 @@ impl App {
         self.close_message_menu();
         self.close_fork_dialog(false);
         crate::subagents::shells::set_open(self, false);
-        self.todo_open = false;
+        *self.todo_open = false;
         if self.route != Route::here(id.to_owned()) {
             // Read scrolled up, it comes back where it was read; otherwise on its end.
             self.ends.reopen(id);
         }
-        self.route = Route::here(id.to_owned());
+        *self.route = Route::here(id.to_owned());
         crate::session_state::opened(self, id, tx);
         // Its own draft is in the composer on the first frame.
         let _ = self.show_draft();
@@ -71,7 +71,7 @@ impl App {
             self.review.dirty = true;
         }
         tx.settle();
-        match &self.source {
+        match &*self.source {
             // A session still starting has nothing to read yet (`new_session.rs`).
             Source::Live { .. } if self.starts.has(id) => {}
             Source::Live { requests: Some(r), .. } => {
@@ -93,7 +93,7 @@ impl App {
     /// (what's running, the session list and projects, pending requests), like the first load,
     /// once for all its windows (`App::apply_shared`).
     pub(crate) fn resync_shared(&mut self) {
-        let Source::Live { requests: Some(r), .. } = &self.source else { return };
+        let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         let _ = r.send(Request::Active);
         let _ = r.send(Request::Sessions);
         let _ = r.send(Request::Projects);
@@ -112,12 +112,12 @@ impl App {
     /// and latest page, and its subagents' pages.
     pub(crate) fn resync_view(&mut self) {
         crate::subagents::shells::forget_lists(self);
-        let dir = match &self.route { Route::Session { id, .. } => self.session(id).map(|i| i.directory.clone()), _ => None };
+        let dir = match &*self.route { Route::Session { id, .. } => self.session(id).map(|i| i.directory.clone()), _ => None };
         if let Some(dir) = dir {
             crate::subagents::shells::list(self, &dir);
         }
-        let Source::Live { requests: Some(r), .. } = &self.source else { return };
-        if let Route::Session { id, .. } = self.route.clone() {
+        let Source::Live { requests: Some(r), .. } = &*self.source else { return };
+        if let Route::Session { id, .. } = (*self.route).clone() {
             let _ = r.send(Request::Inbox(id.clone()));
             self.list_children(&id);
             self.read_open_requests(&id);
@@ -131,7 +131,7 @@ impl App {
         if stream["session"].as_str() != Some(id) || stream["played"].as_bool() == Some(true) || flag("--no-stream") {
             return;
         }
-        let at = self.clock;
+        let at = *self.clock;
         for e in stream["events"].as_array().into_iter().flatten() {
             let t = at + e["t"].as_f64().unwrap_or(0.0);
             self.playback.push_back((t, e["type"].as_str().unwrap_or("").to_owned(), e["data"].clone()));
@@ -151,8 +151,8 @@ impl App {
 
     /// Windowed runs sleep between frames; a timer thread wakes the window for each event.
     pub(crate) fn wake_at_playback(&self) {
-        let Some(w) = self.waker.clone() else { return };
-        let times: Vec<f64> = self.playback.iter().map(|e| e.0 - self.clock).collect();
+        let Some(w) = (*self.waker).clone() else { return };
+        let times: Vec<f64> = self.playback.iter().map(|e| e.0 - *self.clock).collect();
         std::thread::spawn(move || {
             let start = rune::time::Instant::now();
             for t in times {

@@ -79,6 +79,11 @@ impl EmptySpan {
     }
 
     /// Steps on the routed `session`'s region as it is now; true when it enters a span.
+    /// Whether step would change the span: polls write it only then.
+    pub fn moves(&self, session: &str, open_empty: bool) -> bool {
+        if open_empty { !self.within(session) } else { !matches!(self, Self::Outside) }
+    }
+
     pub fn step(&mut self, session: &str, open_empty: bool) -> bool {
         if !open_empty {
             *self = Self::Outside;
@@ -226,7 +231,7 @@ impl App {
     }
 
     pub fn active_session_id(&self) -> Option<&str> {
-        match &self.route {
+        match &*self.route {
             Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
@@ -496,7 +501,7 @@ impl App {
     /// empty and its last tab leaving without closing it (a terminal that exits). A side region
     /// whose only tabs are in the bottom pane shows the empty pane, as Desktop's does.
     pub(super) fn sync_empty_side(&mut self) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         let stored_empty = self.side.sessions.get(id).is_none_or(|st| st.tab_state.tabs.all.is_empty());
         let candidate = self.side_stored_open() && stored_empty;
         if candidate && self.side.empty_span.within(id) {
@@ -504,7 +509,7 @@ impl App {
         }
         // Pinned tabs fill the strip without being stored.
         let open_empty = candidate && self.resolve_side_region().is_none_or(|r| r.strip.is_empty());
-        if !self.side.empty_span.step(id, open_empty) {
+        if !self.side.empty_span.moves(id, open_empty) || !self.side.empty_span.step(id, open_empty) {
             return false;
         }
         // One left from an earlier opening shows again rather than being joined by another.
@@ -762,7 +767,7 @@ impl App {
                     file: e.tab.file.clone(),
                     detail: None,
                     data: None,
-                    closed_ms: self.now_ms,
+                    closed_ms: *self.now_ms,
                 }),
                 ClosedTabInfo::Allow(custom) => Some(ClosedSideTab {
                     key: key.to_owned(),
@@ -771,7 +776,7 @@ impl App {
                     file: e.tab.file.clone(),
                     detail: custom.detail,
                     data: custom.data,
-                    closed_ms: self.now_ms,
+                    closed_ms: *self.now_ms,
                 }),
             }
         });
@@ -808,8 +813,8 @@ impl App {
             self.session_side_mut(&sid).open = false;
             self.side.focused = false;
             if let Some(entry) = entry.filter(|_| was_pane != SessionPane::Bottom) {
-                let at = self.clock;
-                let effects = self.side.closing.step(Event::LastTabClosed { session_id: sid, entry, at });
+                let at = *self.clock;
+                let effects = self.side.closing.step(Event::LastTabClosed { session_id: sid, entry, at: at });
                 self.run_closing(effects, tx);
             }
             return;

@@ -28,7 +28,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("short-group", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        if let crate::Route::Session { id, .. } = s.route.clone() {
+        if let crate::Route::Session { id, .. } = (*s.route).clone() {
             add_short_group(s, &id);
         }
     }),

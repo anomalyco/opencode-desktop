@@ -148,6 +148,13 @@ pub enum RetryEffect {
 }
 
 impl Retry {
+    /// The server whose page the retry belongs to.
+    pub fn server(&self) -> &ServerKey {
+        match self {
+            Retry::Idle { server, .. } | Retry::Retrying { server, .. } => server,
+        }
+    }
+
     /// `createServerRetryState` (`:118-120`).
     pub fn new(server: ServerKey) -> Retry {
         Retry::Idle { server, attempt: Attempt(0) }

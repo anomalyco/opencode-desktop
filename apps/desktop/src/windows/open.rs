@@ -39,7 +39,7 @@ impl Seed {
             shell: tabs.iter().filter(|t| s.draft_mode(&t.id) == Mode::Shell).map(|t| t.id.clone()).collect(),
             tabs,
             route,
-            default_dir: s.default_dir.clone(),
+            default_dir: (*s.default_dir).clone(),
         }
     }
 }
@@ -56,14 +56,14 @@ impl App {
     }
 
     fn plant(&mut self, seed: Seed) {
-        self.default_dir = seed.default_dir;
-        self.tabs = seed.tabs;
+        *self.default_dir = seed.default_dir;
+        *self.tabs = seed.tabs;
         self.restore.drafts.extend(seed.drafts);
         self.restore.parked.extend(seed.parked);
         for id in seed.shell {
             self.add.park(id, Mode::Shell);
         }
-        self.route = seed.route;
+        *self.route = seed.route;
         // Before the window's first turn: the page's server's copy comes in for this, and goes back.
         peer::in_turn(self, |s| {
             s.set_media_fetch();
@@ -149,7 +149,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
     let app_diagnostics = diagnostics.clone();
     let app = crate::rune_app(AppSpec { families: crate::appearance::launch_families(), ..crate::spec(App::new) }).init(move || {
         let mut app = App::new_in(w);
-        app.diagnostics = app_diagnostics;
+        *app.diagnostics = app_diagnostics;
         app
     });
     let handle = app.handle();

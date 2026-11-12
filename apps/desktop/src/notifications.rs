@@ -191,7 +191,7 @@ impl Notifier {
 
 impl App {
     pub(crate) fn server_base(&self) -> &str {
-        match &self.source {
+        match &*self.source {
             crate::Source::Live { server, .. } => &server.base,
             crate::Source::Fixture => "",
         }
@@ -329,7 +329,7 @@ fn install(app: &mut App) {
         return;
     }
     let clicks = app.notify.clicks.clone();
-    let waker = app.waker.clone();
+    let waker = (*app.waker).clone();
     rune_notify::on_click(move |c| {
         let (session, server) = (c.get("session").unwrap_or("").to_owned(), c.get("server").unwrap_or("").to_owned());
         Notifier::click(&clicks, session, server);

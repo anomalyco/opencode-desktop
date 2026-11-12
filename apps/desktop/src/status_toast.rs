@@ -201,7 +201,7 @@ fn step(s: &mut App, event: ToastEvent<Shown>, mut tx: Option<&mut Tx>) {
         let wake = match effect {
             ToastEffect::WakeAt(due) => Some(due),
             // A toast shown again in front pulses (`pulseToast`), unless motion is reduced.
-            ToastEffect::Pulse(id) if !s.reduced_motion => s.toast.pulse.step(PulseEvent::Start { id, now: s.clock }),
+            ToastEffect::Pulse(id) if !*s.reduced_motion => s.toast.pulse.step(PulseEvent::Start { id, now: *s.clock }),
             ToastEffect::Pulse(_) | ToastEffect::Closed(_) => None,
         };
         // Without a `Tx`, the next poll wakes for it.
@@ -219,8 +219,8 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
         ToastAction::Reveal(label, _) => label.clone(),
     });
     let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, entry.description.as_deref().unwrap_or(""));
-    let now = s.clock;
-    step(s, ToastEvent::Shown { key, options: Shown::Status(entry), secs, now }, None);
+    let now = *s.clock;
+    step(s, ToastEvent::Shown { key, options: Shown::Status(entry), secs, now: now }, None);
     // A toast shown from a handler or a poll times out on the next poll's wake.
     let Some(front) = s.toast.stack.front().map(|f| f.id) else { return 0 };
     if let Some(e) = s.toast.current_mut() {
@@ -266,7 +266,7 @@ pub fn from_server(s: &mut App, e: String) {
     };
     let (method, path) = call.split_once(' ').unwrap_or(("", call));
     if method == "GET" || call == "events" {
-        s.status = e;
+        *s.status = e;
         return;
     }
     let why = plain(why);
@@ -317,7 +317,7 @@ pub fn fail(s: &mut App, title: impl Into<String>, description: impl Into<String
 /// 240 characters, or none.
 fn noted(s: &mut App, title: String, desc: String) -> (String, Option<String>) {
     let trimmed = desc.trim();
-    s.status = if trimmed.is_empty() { title.clone() } else { format!("{title}: {trimmed}") };
+    *s.status = if trimmed.is_empty() { title.clone() } else { format!("{title}: {trimmed}").into() };
     let description = (!trimmed.is_empty()).then(|| trimmed.chars().take(240).collect());
     (title, description)
 }
@@ -327,23 +327,23 @@ pub fn uploads_shown(s: &mut App) {
     if s.toast.stack.entries().iter().any(|e| matches!(e.options, Shown::Uploads)) {
         return;
     }
-    let now = s.clock;
-    step(s, ToastEvent::Shown { key: "\u{1}uploads".into(), options: Shown::Uploads, secs: None, now }, None);
+    let now = *s.clock;
+    step(s, ToastEvent::Shown { key: "\u{1}uploads".into(), options: Shown::Uploads, secs: None, now: now }, None);
 }
 
 /// Dismisses the newest status toast, if any.
 pub fn dismiss(s: &mut App) -> bool {
     let Some(id) = s.toast.current().map(|e| e.id) else { return false };
-    let now = s.clock;
-    step(s, ToastEvent::Dismissed { id: Some(id), now }, None);
+    let now = *s.clock;
+    step(s, ToastEvent::Dismissed { id: Some(id), now: now }, None);
     true
 }
 
 /// Dismisses toast `id` if it is still showing.
 pub fn dismiss_id(s: &mut App, id: u64) {
     if s.toast.stack.entries().iter().any(|e| e.id == id) {
-        let now = s.clock;
-        step(s, ToastEvent::Dismissed { id: Some(id), now }, None);
+        let now = *s.clock;
+        step(s, ToastEvent::Dismissed { id: Some(id), now: now }, None);
     }
 }
 
@@ -398,8 +398,8 @@ pub fn hotkey(s: &mut App, ev: &KeyEvent, tx: &mut Tx) {
     if !ev.mods.alt || !on_t || s.toast.stack.entries().is_empty() || s.toast.stack.stack().expanded() {
         return;
     }
-    let now = s.clock;
-    step(s, ToastEvent::Hotkey { now }, Some(tx));
+    let now = *s.clock;
+    step(s, ToastEvent::Hotkey { now: now }, Some(tx));
     tx.motion_curve(MOVE);
     // The list takes focus from the field typed in, as `listRef.current.focus()` does.
     s.composer.focused = false;
@@ -486,8 +486,8 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
         );
     }
     let stack = stack.h(reach.max(1.0)).on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
-        let now = s.clock;
-        let event = if inside { ToastEvent::PointerOver { now } } else { ToastEvent::PointerLeft { now } };
+        let now = *s.clock;
+        let event = if inside { ToastEvent::PointerOver { now: now } } else { ToastEvent::PointerLeft { now: now } };
         let was = s.toast.stack.stack();
         step(s, event, Some(tx));
         if s.toast.stack.stack() != was {

@@ -94,7 +94,7 @@ impl App {
             return;
         }
         let (dir, base) = (self.link_directory(sid), opencode_kit::path::parent(path).to_owned());
-        let live = matches!(self.source, crate::Source::Live { .. });
+        let live = matches!(*self.source, crate::Source::Live { .. });
         for code in todo {
             let target = match classify(&code, &base, &dir, &self.home) {
                 Link::Inside { path, .. } => Some(path),

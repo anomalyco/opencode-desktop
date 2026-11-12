@@ -300,7 +300,7 @@ impl App {
             return;
         }
 
-        match &self.source {
+        match &*self.source {
             Source::Fixture => {
                 let (files, meta, listed, cur_b, def_b, texts) = load_fixture_diffs(&self.fixture, session_id, mode);
                 let sr = self.review.sessions.entry(session_id.to_owned()).or_default();
@@ -385,7 +385,7 @@ impl App {
     }
 
     fn request_missing_review_texts(&mut self, session_id: &str) {
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         let directory = self.session(session_id).map(|i| i.directory.clone()).unwrap_or_default();
         let Some(sr) = self.review.sessions.get(session_id) else { return };
         let shown = sr.diffs.only().map_or_else(|| (0..sr.diffs.files().len()).collect::<Vec<_>>(), |f| vec![f]);
@@ -405,7 +405,7 @@ impl App {
     pub fn request_review_file_text(&mut self, f: usize) {
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         let Some(path) = self.review.sessions.get(&sid).and_then(|sr| sr.diffs.files().get(f)).map(|fd| fd.path().to_owned()) else { return };
-        let Source::Live { server, .. } = &self.source else {
+        let Source::Live { server, .. } = &*self.source else {
             if let Some(sr) = self.review.sessions.get_mut(&sid) {
                 sr.diffs.text_failed(&path);
             }
@@ -420,7 +420,7 @@ impl App {
     }
 
     pub fn route_supports_review(&self) -> bool {
-        matches!(self.route, Route::Session { .. })
+        matches!(*self.route, Route::Session { .. })
     }
 
     /// Opens the review of `sid` (the MCP `open_diff` tool, a tool step's change), in `mode` and

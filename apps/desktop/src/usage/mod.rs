@@ -135,7 +135,7 @@ impl App {
     fn sync_usage(&mut self, sync: Sync) {
         let Some(open) = self.usage.open.as_ref() else { return };
         let (attempt, directory) = (sync.attempt, open.directory.clone());
-        if let Source::Fixture = self.source {
+        if let Source::Fixture = *self.source {
             // No server, no Console: a fixture's own `usage_limits`, else signed out.
             let answer = Ok(serde_json::json!({ "data": self.fixture.get("usage_limits").cloned().unwrap_or(Value::Null) }));
             return loaded(self, attempt, &directory, answer);

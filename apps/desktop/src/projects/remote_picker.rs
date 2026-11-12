@@ -135,8 +135,8 @@ pub fn pick(s: &mut App, server: &ServerKey, title: String, tx: &mut Tx, on_pick
         git,
         seq,
         on_pick: Rc::new(on_pick),
-    }));
-    if let Picker::Open(o) = &mut s.remote_picker {
+    })).into();
+    if let Picker::Open(o) = &mut *s.remote_picker {
         o.input.focused = true;
     }
     s.project_state.home_menu_open = false;
@@ -156,7 +156,7 @@ fn text(v: &Value, keys: &[&str]) -> Option<String> {
 
 /// The server said where it is: the tree opens on its home (`start`).
 fn located(s: &mut App, attempt: Attempt, home: Option<String>, location: Option<String>, tx: &mut Tx) {
-    let Picker::Open(o) = &mut s.remote_picker else { return };
+    let Picker::Open(o) = &mut *s.remote_picker else { return };
     if o.tree != (Tree::Locating { attempt }) {
         return;
     }
@@ -178,7 +178,7 @@ fn infer_home(dir: &str) -> String {
 
 /// The tree opens on `root`, which is selected (`navigate`).
 pub fn navigate(s: &mut App, root: String, tx: &mut Tx) {
-    let Picker::Open(o) = &mut s.remote_picker else { return };
+    let Picker::Open(o) = &mut *s.remote_picker else { return };
     let attempt = o.seq.next();
     let root = canonical(&root);
     o.tree = Tree::Browsing { root: root.clone(), nodes: BTreeMap::from([(root.clone(), Node::Loading { attempt })]), expanded: BTreeSet::new(), selected: None };
@@ -189,7 +189,7 @@ pub fn navigate(s: &mut App, root: String, tx: &mut Tx) {
 
 /// A folder's row: it's selected, and opens or shuts; opening reads it once.
 pub fn toggle(s: &mut App, dir: &str, tx: &mut Tx) {
-    let Picker::Open(o) = &mut s.remote_picker else { return };
+    let Picker::Open(o) = &mut *s.remote_picker else { return };
     let Tree::Browsing { nodes, expanded, selected, .. } = &mut o.tree else { return };
     *selected = Some(dir.to_owned());
     tx.instant();
@@ -205,7 +205,7 @@ pub fn toggle(s: &mut App, dir: &str, tx: &mut Tx) {
 
 /// `GET /api/fs/list` for `dir`'s folders, on a worker.
 fn list(s: &App, dir: String, attempt: Attempt) {
-    let Picker::Open(o) = &s.remote_picker else { return };
+    let Picker::Open(o) = &*s.remote_picker else { return };
     let conn = o.conn.clone();
     let deliver = s.deliverer();
     crate::plugin_host::tasks::run(move || {
@@ -232,7 +232,7 @@ fn read_dirs(conn: &opencode_kit::client::Server, dir: &str) -> Option<Vec<Dir>>
 }
 
 fn listed(s: &mut App, dir: String, attempt: Attempt, dirs: Option<Vec<Dir>>, tx: &mut Tx) {
-    let Picker::Open(o) = &mut s.remote_picker else { return };
+    let Picker::Open(o) = &mut *s.remote_picker else { return };
     match &mut o.suggest {
         Suggest::Searching { attempt: a, query } if *a == attempt => {
             let prefix = query.rsplit('/').next().unwrap_or_default().to_lowercase();
@@ -252,7 +252,7 @@ fn listed(s: &mut App, dir: String, attempt: Attempt, dirs: Option<Vec<Dir>>, tx
 
 /// The path field changed: its folder's matching folders are suggested.
 pub fn typed(s: &mut App, tx: &mut Tx) {
-    let Picker::Open(o) = &mut s.remote_picker else { return };
+    let Picker::Open(o) = &mut *s.remote_picker else { return };
     let value = o.input.text.trim().to_owned();
     tx.instant();
     if value.is_empty() {
@@ -282,7 +282,7 @@ fn resolve(value: &str, home: &str, base: &str) -> String {
 /// The path field's keys: ↑ ↓ move through suggestions, ↩ opens the highlighted one or the
 /// typed path, Escape closes the suggestions, then the dialog.
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
-    let Picker::Open(o) = &mut s.remote_picker else { return false };
+    let Picker::Open(o) = &mut *s.remote_picker else { return false };
     if o.input.is_composing() {
         return false;
     }
@@ -319,7 +319,7 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
 
 /// A suggestion or a typed path: the tree opens on it (`directory.chosen`, `fromInput`).
 pub fn choose_input(s: &mut App, path: String, tx: &mut Tx) {
-    if let Picker::Open(o) = &mut s.remote_picker {
+    if let Picker::Open(o) = &mut *s.remote_picker {
         o.input = TextEdit::new("");
         o.input.focused = true;
     }
@@ -328,9 +328,9 @@ pub fn choose_input(s: &mut App, path: String, tx: &mut Tx) {
 
 /// Select folder: the pick ends with the folder.
 pub fn resolve_pick(s: &mut App, tx: &mut Tx) {
-    let Picker::Open(o) = std::mem::take(&mut s.remote_picker) else { return };
+    let Picker::Open(o) = std::mem::take(&mut *s.remote_picker) else { return };
     let Some(path) = o.tree.result().map(str::to_owned) else {
-        s.remote_picker = Picker::Open(o);
+        *s.remote_picker = Picker::Open(o);
         return;
     };
     tx.instant();
@@ -341,15 +341,15 @@ pub fn resolve_pick(s: &mut App, tx: &mut Tx) {
 
 /// Cancel, Escape, or a press outside: the pick ends with nothing.
 pub fn close(s: &mut App, tx: &mut Tx) {
-    if matches!(s.remote_picker, Picker::Open(_)) {
-        s.remote_picker = Picker::Closed;
+    if matches!(*s.remote_picker, Picker::Open(_)) {
+        *s.remote_picker = Picker::Closed;
         tx.instant();
     }
 }
 
 /// Each poll: a picker whose server left the list closes (`picker.tsx:61-63`).
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let Picker::Open(o) = &s.remote_picker else { return false };
+    let Picker::Open(o) = &*s.remote_picker else { return false };
     let key = o.server.clone();
     if crate::servers::runtime::listed().iter().any(|l| l.key == key) {
         return false;
@@ -446,7 +446,7 @@ pub mod view {
     const INDENT: f32 = 16.0;
 
     pub fn view(s: &App, p: &Pal) -> Vec<El> {
-        let Picker::Open(o) = &s.remote_picker else { return Vec::new() };
+        let Picker::Open(o) = &*s.remote_picker else { return Vec::new() };
         let k = kit(p);
         // `dialog-header`: the title and the server under it, and the 20 pt close button.
         let titles = col()
@@ -478,7 +478,7 @@ pub mod view {
         // `showClearButton`: only while something is typed.
         let input = if o.input.text.is_empty() { input } else { input.clear_button() };
         let input = input
-            .on_edit(|s: &mut App| match &mut s.remote_picker {
+            .on_edit(|s: &mut App| match &mut *s.remote_picker {
                 Picker::Open(o) => &mut o.input,
                 Picker::Closed => unreachable!("the picker's field outlives its dialog"),
             })

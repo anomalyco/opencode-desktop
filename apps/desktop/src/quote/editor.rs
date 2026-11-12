@@ -35,7 +35,7 @@ static CHECK: Icon = Icon {
 pub fn open(s: &mut App, key: u64, anchor: Option<Anchor>) {
     let Some(quote) = s.quote.items.iter().find(|q| q.key == key).and_then(|q| q.quote()) else { return };
     let saved = quote.comment.clone().unwrap_or_default();
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::Opened { key, saved, anchor });
     q.opening.set(0.0);
     s.composer.focused = false;
@@ -43,7 +43,7 @@ pub fn open(s: &mut App, key: u64, anchor: Option<Anchor>) {
 
 /// Closes the editor; Cancel and a save put focus back in the prompt.
 pub fn close(s: &mut App, focus: bool) {
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::Closed);
     if focus {
         s.composer.focused = true;
@@ -78,7 +78,7 @@ fn save(s: &mut App) {
 /// Where Ctrl+Return sends the prompt (`quoteSubmit.delivery`): steering or queueing, whichever
 /// Return doesn't, while the session works; a plain send otherwise.
 fn delivery(s: &App) -> &'static str {
-    let working = matches!(&s.route, crate::Route::Session { id, .. } if s.busy(id));
+    let working = matches!(&*s.route, crate::Route::Session { id, .. } if s.busy(id));
     match (working, s.settings.follow_up) {
         (false, _) => opencode_i18n::t!("session.quote.send"),
         (true, crate::settings::FollowUp::Queue) => opencode_i18n::t!("session.quote.steer"),
@@ -88,7 +88,7 @@ fn delivery(s: &App) -> &'static str {
 
 /// `quoteSubmit.available`: the prompt can go now.
 fn send_available(s: &App) -> bool {
-    matches!(s.route, crate::Route::Session { .. }) && s.attach.uploads.is_empty() && s.opening.is_none()
+    matches!(*s.route, crate::Route::Session { .. }) && s.attach.uploads.is_empty() && s.opening.is_none()
 }
 
 /// The alternate action (`quoteComment.send`): this quote goes with this comment, on its own, as
@@ -97,7 +97,7 @@ fn send_available(s: &App) -> bool {
 /// server has the prompt or the outbox keeps it, and says so, the draft and quote kept, when
 /// it failed.
 fn send(s: &mut App, tx: &mut Tx) {
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     for effect in comment::step(&mut q.comment_seq, &mut q.comment, Event::SendRequested) {
         let comment::Effect::Send { attempt, key, comment } = effect;
         if let Some(quote) = s.quote.items.iter_mut().find(|q| q.key == key).and_then(|q| q.comment.quote_mut()) {
@@ -107,7 +107,7 @@ fn send(s: &mut App, tx: &mut Tx) {
             None => Some(SendResult::Failed),
             Some(None) => Some(SendResult::Accepted),
             Some(Some(id)) => {
-                let q = &mut s.quote;
+                let q = &mut *s.quote;
                 comment::step(&mut q.comment_seq, &mut q.comment, Event::SendOut { attempt, prompt: id.clone() });
                 s.send_result(&id)
             }
@@ -132,7 +132,7 @@ fn settle(s: &mut App, attempt: rune::machine::Attempt, result: SendResult) {
     let Some(key) = s.quote.comment.key() else { return };
     let prompt = s.quote.comment.send().and_then(|(_, p)| p.map(str::to_owned));
     let sent = result != SendResult::Failed;
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::SendSettled { attempt, sent });
     if sent {
         s.quote.remove(key);
@@ -147,7 +147,7 @@ fn config(s: &App) -> Config {
 }
 
 fn field(s: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     let Some(f) = q.comment.field_mut() else { return false };
     let (effects, handled) = comment::field_step(&mut q.comment_seq, f, event);
     for effect in effects {
@@ -184,7 +184,7 @@ pub(crate) fn search_paths(
     query: String,
     latest: impl FnOnce(&mut App) -> &mut rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
 ) -> Option<Vec<String>> {
-    let crate::Source::Live { server, .. } = &s.source else {
+    let crate::Source::Live { server, .. } = &*s.source else {
         let index = &s.mentions.file_index;
         let targets: Vec<[crate::mentions::fuzzysort::Target; 1]> = index.iter().map(|p| [crate::mentions::fuzzysort::Target::new(&crate::mentions::shown_path(p))]).collect();
         let objects: Vec<&[crate::mentions::fuzzysort::Target]> = targets.iter().map(|t| &t[..]).collect();
@@ -216,7 +216,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
     let keys: Vec<u64> = s.quote.items.iter().map(|q| q.key).collect();
     if s.quote.comment.key().is_some_and(|k| !keys.contains(&k)) {
-        let q = &mut s.quote;
+        let q = &mut *s.quote;
         comment::step(&mut q.comment_seq, &mut q.comment, Event::Retained(keys));
         changed = true;
     }
@@ -303,13 +303,14 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .dir_by_paragraph()
         .on_edit(|s: &mut App| {
             // Read-only while its send settles.
-            if s.quote.comment.sending() {
-                return &mut s.quote.spare;
+            let q = &mut *s.quote;
+            if q.comment.sending() {
+                return &mut q.spare;
             }
-            s.quote.comment.draft_mut().unwrap_or(&mut s.quote.spare)
+            q.comment.draft_mut().unwrap_or(&mut q.spare)
         })
         .on_input_change(|s: &mut App, tx: &mut Tx| {
-            let q = &mut s.quote;
+            let q = &mut *s.quote;
             comment::step(&mut q.comment_seq, &mut q.comment, Event::Edited);
             let token = s.quote.comment.draft().and_then(comment::token);
             let now = tx.clock();

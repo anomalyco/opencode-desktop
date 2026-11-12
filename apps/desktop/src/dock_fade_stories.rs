@@ -39,7 +39,7 @@ fn toggle(s: &mut App, tx: &mut Play<App>) {
 
 fn tall(s: &mut App) {
     let text = if s.composer.text.is_empty() { "A longer prompt\nthat runs\nonto four\nlines" } else { "" };
-    s.composer = TextEdit::new(text);
+    *s.composer = TextEdit::new(text);
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [Story::session("Timeline/Fade into composer", KEYS).knobs(KNOBS)]);

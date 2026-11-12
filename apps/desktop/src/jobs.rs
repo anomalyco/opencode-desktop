@@ -35,7 +35,7 @@ impl App {
 
     /// [`App::job`] after `delay`, as a sign-in's next status poll.
     pub(crate) fn job_after(&self, delay: Duration, work: impl FnOnce(&Server) -> Apply + Send + 'static) {
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         // The harness's realtime probes stand in for a window, so they ask off the main thread as
         // one does: an answer asked inline holds the frame clock while the server moves on.
         if crate::headless() && !crate::harness_writes() {
@@ -44,7 +44,7 @@ impl App {
             }
             return;
         }
-        let (server, out, wake) = (server.clone(), self.jobs.tx.clone(), self.waker.clone());
+        let (server, out, wake) = (server.clone(), self.jobs.tx.clone(), (*self.waker).clone());
         let _ = rune::task::spawn_after("opencode-job", delay, move || {
             let _ = out.send(work(&server));
             if let Some(w) = wake {
@@ -57,14 +57,14 @@ impl App {
     /// after the transition that asked for it.
     pub(crate) fn later(&self, apply: Apply) {
         let _ = self.jobs.tx.send(apply);
-        if let Some(w) = &self.waker {
+        if let Some(w) = &*self.waker {
             w();
         }
     }
 
     /// Hands what a worker thread finished back to the app's thread: the next poll applies it.
     pub(crate) fn deliverer(&self) -> impl Fn(Apply) + Send + 'static {
-        let (out, wake) = (self.jobs.tx.clone(), self.waker.clone());
+        let (out, wake) = (self.jobs.tx.clone(), (*self.waker).clone());
         move |apply| {
             let _ = out.send(apply);
             if let Some(w) = &wake {
@@ -75,7 +75,7 @@ impl App {
 
     /// Whether this window may change the server: live, with a person at it, not read-only.
     pub(crate) fn can_write(&self) -> bool {
-        matches!(self.source, Source::Live { allow_send: true, .. }) && self.stage.is_none()
+        matches!(*self.source, Source::Live { allow_send: true, .. }) && self.stage.is_none()
     }
 
     /// Lands every finished job.

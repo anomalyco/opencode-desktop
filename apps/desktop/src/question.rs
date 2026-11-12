@@ -74,7 +74,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         let q = s.fixture["question"].clone();
         s.apply_event("form.created", &q);
         let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
-        s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+        *s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
     }),
 ]);
 

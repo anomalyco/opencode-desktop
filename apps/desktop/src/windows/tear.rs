@@ -187,8 +187,8 @@ impl App {
         let strip = self.window.strip.unwrap_or([0.0; 4]);
         let scale = p.scale as f32;
         let inset = (p.content_position.0 - p.position.0, p.content_position.1 - p.position.1);
-        let x = ((strip[0] + grab[0] * self.zoom) * scale).round() as i32 + inset.0;
-        let y = ((strip[1] + grab[1] * self.zoom) * scale).round() as i32 + inset.1;
+        let x = ((strip[0] + grab[0] * *self.zoom) * scale).round() as i32 + inset.0;
+        let y = ((strip[1] + grab[1] * *self.zoom) * scale).round() as i32 + inset.1;
         let frame = Frame { x: Some(point.0 - x), y: Some(point.1 - y), width: p.content_size.0, height: p.content_size.1, ..Frame::default() };
         Some((frame, (x, y)))
     }
@@ -222,7 +222,7 @@ impl App {
     pub(crate) fn tab_incoming(&mut self, at: Option<[f32; 2]>, tx: &mut Tx) -> bool {
         let open = self.tab_drag.incoming_slot().is_some();
         // The strip lays out in the view's points, the window's over its zoom.
-        self.tab_drag.set_incoming(at.map(|a| a.map(|v| v / self.zoom)));
+        self.tab_drag.set_incoming(at.map(|a| a.map(|v| v / *self.zoom)));
         if !open && at.is_none() {
             tx.live_only();
             return false;
@@ -258,7 +258,7 @@ impl App {
         let Some(r) = self.window.strip.filter(|_| n > 0) else { return n };
         let vertical = self.tab_layout().has_sidebar();
         let (from, span, most) = if vertical { (r[1], r[3], 31.0) } else { (r[0], r[2], 230.0) };
-        let pitch = (span / n as f32).min(most * self.zoom).max(1.0);
+        let pitch = (span / n as f32).min(most * *self.zoom).max(1.0);
         let along = if vertical { at[1] } else { at[0] };
         (((along - from) / pitch).round().max(0.0) as usize).min(n)
     }

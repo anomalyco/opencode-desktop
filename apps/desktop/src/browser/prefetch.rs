@@ -109,12 +109,13 @@ impl App {
     /// a live window with the setting on and no engine on disk (the download looks, off this thread).
     pub(crate) fn poll_browser_prefetch(&mut self, tx: &mut Tx) {
         let wanted = self.persists() && !self.use_mock_browser() && self.settings.prefetch_browser && matches!(self.browser.host.status(), EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled);
-        if !wanted && self.browser.prefetch == IdleGate::Unarmed {
+        // Unwanted or started, the gate keeps its state: polls write the pane only otherwise.
+        if !wanted || self.browser.prefetch == IdleGate::Started {
             return;
         }
-        let now = self.clock;
+        let now = *self.clock;
         let input = rune::last_input().map(|at| now - at.elapsed().as_secs_f64());
-        let (gate, effects) = std::mem::take(&mut self.browser.prefetch).step(GateEvent::Poll { now, input, wanted });
+        let (gate, effects) = std::mem::take(&mut self.browser.prefetch).step(GateEvent::Poll { now: now, input, wanted });
         self.browser.prefetch = gate;
         for effect in effects {
             match effect {

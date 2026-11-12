@@ -435,7 +435,7 @@ fn mcp_active(s: &App) -> Option<&Server> {
     if crate::launch::waiting(s) || s.stage.is_some() {
         return None;
     }
-    let Source::Live { server, allow_send, .. } = &s.source else { return None };
+    let Source::Live { server, allow_send, .. } = &*s.source else { return None };
     if s.rune_mcp.force_enabled {
         return Some(server);
     }
@@ -505,7 +505,7 @@ fn sync_window(s: &mut App) {
             folders.insert(d);
         }
     }
-    match &s.route {
+    match &*s.route {
         Route::Session { id: sid, .. } => {
             if let Some(info) = s.session(sid) {
                 let d = clean_dir(&info.directory);
@@ -524,7 +524,7 @@ fn sync_window(s: &mut App) {
     }
 
     let mut open_roots: HashSet<String> = s.tabs.iter().map(|t| t.id.clone()).collect();
-    let (routed_exact, routed_root) = match &s.route {
+    let (routed_exact, routed_root) = match &*s.route {
         Route::Session { id: sid, .. } => {
             let root = s.root_of(sid).to_owned();
             open_roots.insert(sid.clone());

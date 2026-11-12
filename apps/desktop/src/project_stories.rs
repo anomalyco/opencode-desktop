@@ -66,7 +66,7 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
     s.close_project_switcher(false);
     s.project_state.home_menu_open = false;
     s.clear_home_project(&mut Tx::default());
-    match s.variant {
+    match *s.variant {
         1 => {
             s.open_project_switcher();
             s.project_switcher.search.focused = false;
@@ -76,14 +76,14 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
             }
         }
         2 => {
-            s.route = Route::Home;
+            *s.route = Route::Home;
             if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
                 s.toggle_home_project(&id, &mut Tx::default());
             }
             s.project_state.home_menu_open = true;
         }
         3 => {
-            s.route = Route::Home;
+            *s.route = Route::Home;
             if let Some(id) = s.projects.iter().find(|p| p.name == "harbor").map(|p| p.id.clone()) {
                 s.toggle_home_project(&id, &mut Tx::default());
             }
@@ -100,7 +100,7 @@ fn switcher_story(s: &mut App, _: &mut Play<App>) {
 
 fn story_view(s: &App, p: &Pal) -> El {
     let panel_w = if s.route == Route::Home && s.variant == 3 { 900.0 } else { 720.0 };
-    let page = match &s.route {
+    let page = match &*s.route {
         Route::Draft(_) => view::draft_page(s, p, panel_w),
         Route::Session { id, .. } => view::session_page(s, p, id),
         Route::Home => view::home(s, p, [panel_w, 0.0], [0.0, 0.0]),

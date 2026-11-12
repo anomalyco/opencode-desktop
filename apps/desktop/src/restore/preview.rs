@@ -68,7 +68,7 @@ impl App {
     /// Keeps the shown session's preview current: when it settles, or (`now`) whatever it's doing,
     /// as the window hides, closes or quits.
     pub(crate) fn poll_preview(&mut self, now: bool) {
-        let Route::Session { server, id } = &self.route else { return };
+        let Route::Session { server, id } = &*self.route else { return };
         let Some(t) = self.transcripts.get(id) else { return };
         let streaming = matches!(t.messages.last(), Some(Message::Assistant(a)) if a.completed.is_none());
         if (streaming && !now) || t.messages.is_empty() {

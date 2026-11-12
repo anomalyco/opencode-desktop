@@ -96,12 +96,12 @@ const TRIGGER: &str = "location-branch";
 impl App {
     /// The open draft starts its session in a new worktree.
     pub fn draft_creates(&self) -> bool {
-        matches!(&self.route, Route::Draft(id) if self.new_worktree.drafts.contains_key(id))
+        matches!(&*self.route, Route::Draft(id) if self.new_worktree.drafts.contains_key(id))
     }
 
     /// The branch the open draft's new worktree starts from, once one is picked.
     pub(crate) fn draft_base(&self) -> Option<&str> {
-        let Route::Draft(id) = &self.route else { return None };
+        let Route::Draft(id) = &*self.route else { return None };
         self.new_worktree.drafts.get(id)?.as_deref()
     }
 
@@ -110,7 +110,7 @@ impl App {
     pub fn choose_new_worktree(&mut self, project: &str, directory: String) {
         self.set_draft_dir(directory);
         crate::view::draft_location::mark_used(self);
-        if let Route::Draft(id) = &self.route {
+        if let Route::Draft(id) = &*self.route {
             self.new_worktree.drafts.insert(id.clone(), None);
         }
         let dir = self.draft_dir().to_owned();
@@ -123,7 +123,7 @@ impl App {
     /// and Cycle session location (`new-session/commands.tsx`), each only where Desktop
     /// enables it.
     pub(crate) fn draft_location_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        if !matches!(self.route, Route::Draft(_)) || self.settings.open || self.project_switcher.open {
+        if !matches!(*self.route, Route::Draft(_)) || self.settings.open || self.project_switcher.open {
             return false;
         }
         if Bind::BranchChoose.matches_tx(ev, tx) {
@@ -205,7 +205,7 @@ impl App {
     /// A new draft starts where Settings › Default environment says: its folder, a new
     /// worktree, or wherever its project's last session started.
     pub(crate) fn apply_default_destination(&mut self) {
-        let Route::Draft(id) = self.route.clone() else { return };
+        let Route::Draft(id) = (*self.route).clone() else { return };
         let Some(project) = self.project_at(self.draft_dir()) else { return };
         let new = match self.settings.default_destination {
             crate::settings::Destination::New => true,
@@ -219,7 +219,7 @@ impl App {
 
     /// The open draft goes back to starting where its folder is.
     pub(crate) fn forget_new_worktree(&mut self) {
-        if let Route::Draft(id) = &self.route {
+        if let Route::Draft(id) = &*self.route {
             self.new_worktree.drafts.remove(id);
         }
     }
@@ -263,7 +263,7 @@ impl App {
     /// Asks the server for `project`'s worktrees (the worktree step opening, or one changing).
     pub fn list_worktrees(&self, project: &str) {
         let Some(root) = self.project(project).map(|p| p.directory.clone()) else { return };
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(Request::Worktrees { project: project.to_owned(), root });
         }
     }
@@ -287,7 +287,7 @@ impl App {
             }
             "worktree.updated" => {
                 self.list_worktrees(project);
-                if let Source::Live { requests: Some(r), .. } = &self.source {
+                if let Source::Live { requests: Some(r), .. } = &*self.source {
                     let _ = r.send(Request::Projects);
                 }
                 false
@@ -375,7 +375,7 @@ impl App {
 
     /// Asks the server for the checkout's branches matching `search`.
     fn ask_branches(&mut self, search: String) {
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             let _ = r.send(Request::Branches { directory: self.new_worktree.picker.directory.clone(), search });
         }
     }
@@ -389,7 +389,7 @@ impl App {
     }
 
     fn choose_branch(&mut self, branch: String, tx: &mut Tx) {
-        if let Route::Draft(id) = &self.route {
+        if let Route::Draft(id) = &*self.route {
             self.new_worktree.drafts.insert(id.clone(), Some(branch));
         }
         self.close_branch_picker(tx);
@@ -459,7 +459,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
 
 /// The open picker under its trigger, and the layer that closes it.
 pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
-    if !s.new_worktree.picker.is_open() || !matches!(s.route, Route::Draft(_)) {
+    if !s.new_worktree.picker.is_open() || !matches!(*s.route, Route::Draft(_)) {
         return None;
     }
     let picker = &s.new_worktree.picker;

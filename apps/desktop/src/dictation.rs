@@ -378,15 +378,15 @@ pub fn start(s: &mut App) {
     if s.dictation.active() {
         return;
     }
-    let now = s.clock;
-    run(s, Event::Toggle { now, held: false }, None);
+    let now = *s.clock;
+    run(s, Event::Toggle { now: now, held: false }, None);
 }
 
 /// Stops the microphone; the words land at the caret when Hex has them.
 pub fn stop(s: &mut App) {
     if s.dictation.recording() {
-        let now = s.clock;
-        run(s, Event::Toggle { now, held: false }, None);
+        let now = *s.clock;
+        run(s, Event::Toggle { now: now, held: false }, None);
     }
 }
 
@@ -399,7 +399,7 @@ fn run(s: &mut App, event: Event, tx: Option<&mut Tx>) -> bool {
     let (took, effect) = step(&mut s.dictation, event);
     match effect {
         Some(Effect::Start(attempt)) => {
-            let d = &mut s.dictation;
+            let d = &mut *s.dictation;
             if let Backend::Hex { file, support } = &d.backend {
                 let (cmd, rx) = mpsc::channel();
                 let (file, support, heard, wake) = (file.clone(), support.clone(), d.heard.clone(), s.launch.inbox_wake.clone());
@@ -434,12 +434,12 @@ fn run(s: &mut App, event: Event, tx: Option<&mut Tx>) -> bool {
 /// Send or ⏎ (`alternate` for ⌘⏎): while it listens, finishes and sends with the words, as the
 /// iOS app's Send does; while the words come, waits for them. True when dictation took it.
 pub fn submit(s: &mut App, alternate: bool) -> bool {
-    let now = s.clock;
+    let now = *s.clock;
     if let Phase::Failed(_) = s.dictation.phase {
         s.dictation.phase = Phase::Idle;
         return false;
     }
-    run(s, Event::Submit { now, alternate }, None)
+    run(s, Event::Submit { now: now, alternate }, None)
 }
 
 fn shortcut(ev: &KeyEvent) -> bool {
@@ -483,14 +483,20 @@ pub fn key_up(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Each frame: looks for Hex, follows Hex's thread, and puts Hex's words at the caret.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let d = &mut s.dictation;
     let mut changed = false;
-    // The watcher's look, once the toolbar has started it: one atomic load, no file.
-    if d.watching.get() {
-        let presence = d.backend.watch(None);
-        changed |= presence != d.presence;
-        d.presence = presence;
+    // The watcher's look, once the toolbar has started it: one atomic load, no file. Written
+    // only when it moved, and nothing else is until a recording runs.
+    if s.dictation.watching.get() {
+        let presence = s.dictation.backend.watch(None);
+        if presence != s.dictation.presence {
+            s.dictation.presence = presence;
+            changed = true;
+        }
     }
+    if s.dictation.rec().is_none() {
+        return changed;
+    }
+    let d = &mut *s.dictation;
     let Some(rec) = d.rec() else { return changed };
     let (attempt, since, fake) = (rec.attempt, rec.since, rec.cmd.is_none());
     let mut heard: Vec<Heard> = d.heard.lock().unwrap_or_else(|e| e.into_inner()).drain(..).filter(|(a, _)| *a == attempt).map(|(_, h)| h).collect();
@@ -542,7 +548,7 @@ fn insert(s: &mut App, words: &str) {
     if words.is_empty() {
         return;
     }
-    let c = &mut s.composer;
+    let c = &mut *s.composer;
     let (start, end) = (c.anchor.min(c.focus), c.anchor.max(c.focus));
     let before = c.text[..start.min(c.text.len())].chars().next_back().is_some_and(|ch| !ch.is_whitespace());
     let after = c.text.get(end..).and_then(|t| t.chars().next()).is_some_and(|ch| !ch.is_whitespace());
@@ -708,8 +714,8 @@ pub const STORY_KEYS: &[crate::stories::Trigger] = &[
 /// A draft with the caret after it, then the loop iOS shows: the stop while it listens, the
 /// spinner while the words come, the words at the caret.
 fn story_open(s: &mut App, tx: &mut rune::Play<App>) {
-    s.dictation = Dictation::fake();
-    s.composer = rune::TextEdit::new("Looks right. Before you merge,");
+    *s.dictation = Dictation::fake();
+    *s.composer = rune::TextEdit::new("Looks right. Before you merge,");
     start(s);
     tx.after(1.6, |s, tx| {
         tx.instant();

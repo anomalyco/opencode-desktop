@@ -64,6 +64,11 @@ impl NarrowReview {
     }
 
     /// Settings › Wrap lines: the open diffs wrap long lines or scroll them.
+    /// Whether `set_wrap(wrap)` would change an open diff.
+    pub fn wraps_otherwise(&self, wrap: bool) -> bool {
+        self.open.iter().any(|(_, d)| d.wrap() != wrap)
+    }
+
     pub fn set_wrap(&mut self, wrap: bool) {
         for (_, d) in &mut self.open {
             d.set_wrap(wrap);
@@ -315,9 +320,12 @@ fn diff(s: &App, p: &Pal, id: &str, path: &str, last: bool) -> El {
         let view = DiffViewer::new(
             format!("narrow-review-diff-{}", path.replace(['/', '\\', ':'], "_")),
             move |s: &App| s.review.sessions.get(&get_sid).and_then(|sr| sr.narrow.diff(&get_path)).unwrap_or(&s.review.empty_diffs),
-            move |s: &mut App| match s.review.sessions.get_mut(&mut_sid).and_then(|sr| sr.narrow.diff_mut(&mut_path)) {
-                Some(d) => d,
-                None => &mut s.review.empty_diffs,
+            move |s: &mut App| {
+                let review = &mut *s.review;
+                match review.sessions.get_mut(&mut_sid).and_then(|sr| sr.narrow.diff_mut(&mut_path)) {
+                    Some(d) => d,
+                    None => &mut review.empty_diffs,
+                }
             },
         )
         .sticky_headers(false)

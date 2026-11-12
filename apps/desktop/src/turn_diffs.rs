@@ -59,7 +59,7 @@ impl App {
             if self.turn_diffs.states.contains_key(&key) {
                 continue;
             }
-            if !matches!(self.source, crate::Source::Live { .. }) {
+            if !matches!(*self.source, crate::Source::Live { .. }) {
                 self.turn_diffs.states.insert(key, State::Failed);
                 changed = true;
                 continue;

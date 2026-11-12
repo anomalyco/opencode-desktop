@@ -67,7 +67,7 @@ impl App {
     pub(crate) fn composer_holds(&self, key: &str) -> bool {
         match &self.restore.shown {
             Some(shown) => shown == key,
-            None => crate::restore::draft_key(&self.route).as_deref() == Some(key),
+            None => crate::restore::draft_key(&*self.route).as_deref() == Some(key),
         }
     }
 
@@ -120,7 +120,7 @@ impl App {
         let text = key.and_then(|k| self.restore.drafts.get(k).cloned()).unwrap_or_default();
         let parked = key.and_then(|k| self.restore.parked.remove(k)).unwrap_or_default();
         let focused = self.composer.focused;
-        self.composer = parked.edit(&text);
+        *self.composer = parked.edit(&text);
         self.composer.focused = focused;
         self.attach.files = parked.files;
         self.attach.paths = parked.paths;
@@ -136,7 +136,7 @@ impl App {
         self.restore.shown = None;
         let _ = self.take_composer_draft();
         let focused = self.composer.focused;
-        self.composer = TextEdit::new("");
+        *self.composer = TextEdit::new("");
         self.composer.focused = focused;
     }
 

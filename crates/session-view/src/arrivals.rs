@@ -161,6 +161,11 @@ impl Arrivals {
 
     /// A frame on: a first load settles, finished glows drop, and a frame follows while any
     /// glows. True when what shows changed.
+    /// Whether `poll` has anything to do: rows growing or landing. Polls write nothing otherwise.
+    pub fn busy(&self) -> bool {
+        matches!(self, Arrivals::Tracking { growing, landing, .. } if !growing.is_empty() || *landing != Landing::default())
+    }
+
     pub fn poll(&mut self, k: &Knobs, now: f64, tx: &mut Tx) -> bool {
         let mut glowing = false;
         for effect in self.step(Event::Frame { now, secs: crate::knobs::glow_secs(k) }) {

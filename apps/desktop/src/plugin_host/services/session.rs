@@ -282,7 +282,7 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         if !window {
             return Ok(crate::servers::runtime::own_server().is_some_and(|s| s.is_local()));
         }
-        Ok(matches!(&app.source, crate::Source::Live { server, .. } if server.is_local()))
+        Ok(matches!(&*app.source, crate::Source::Live { server, .. } if server.is_local()))
     })?;
     method(lua, t, "CanWrite", |_, ()| {
         cx::read(Dep::Server);

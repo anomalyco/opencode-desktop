@@ -250,7 +250,7 @@ impl App {
         if self.mcp.open.is_some() {
             return self.close_mcp_dialog(tx);
         }
-        let dir = match &self.route {
+        let dir = match &*self.route {
             crate::Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
             _ => self.draft_dir().to_owned(),
         };

@@ -165,15 +165,29 @@ impl Fill {
 /// Closes the list once its pill goes, so the next plan doesn't bring it back open (t1132),
 /// starts a fill for each todo that has just finished, and draws each frame of those filling.
 pub fn sync(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let crate::Route::Session { id, .. } = &s.route else { return false };
+    let crate::Route::Session { id, .. } = &*s.route else { return false };
     let todos = s.shown_todos(id);
     let (secs, bounce) = (s.knobs.get(&CLOSE), s.knobs.get(&BOUNCE));
-    let ticks = &mut s.todo_ticks;
+    // Every poll comes here: with no fill growing and the list as last seen, nothing below
+    // changes, so the ticks aren't written.
+    let seen = &s.todo_ticks;
+    let quiet = seen.session == *id
+        && seen.growing.is_empty()
+        && seen.seen.len() == todos.len()
+        && seen.seen.iter().zip(&todos).all(|((c, st), t)| *c == t.content && *st == t.status);
+    if quiet {
+        if !*s.todo_open || current(&todos).is_some() {
+            return false;
+        }
+        *s.todo_open = false;
+        return true;
+    }
+    let ticks = &mut *s.todo_ticks;
     let was_filling = ticks.growing.values().any(|f| f.at(ticks.now).is_some());
     ticks.now = now;
     if ticks.session != *id {
-        *ticks = Ticks { session: id.clone(), now, ..Ticks::default() };
-    } else if !s.reduced_motion && secs > 0.0 {
+        *ticks = Ticks { session: id.clone(), now, ..Ticks::default() }.into();
+    } else if !*s.reduced_motion && secs > 0.0 {
         let wrap = words_width(&todos);
         for (k, t) in todos.iter().enumerate() {
             let was = ticks.seen.get(k).filter(|(c, _)| *c == t.content).map(|(_, st)| *st);
@@ -189,10 +203,10 @@ pub fn sync(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         tx.wake_after(Duration::ZERO);
     }
     let changed = filling || was_filling;
-    if !s.todo_open || current(&todos).is_some() {
+    if !*s.todo_open || current(&todos).is_some() {
         return changed;
     }
-    s.todo_open = false;
+    *s.todo_open = false;
     true
 }
 
@@ -223,16 +237,16 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
     let now = current(&todos)?;
     let more = todos.iter().filter(|t| t.status == Status::InProgress).count().saturating_sub(1);
     let sid = id.to_owned();
-    let mut chip = crate::subagents::chip(s, p, "todo-pill", label(&todos), s.todo_open)
+    let mut chip = crate::subagents::chip(s, p, "todo-pill", label(&todos), *s.todo_open)
         .pl(8.0)
         .gap(6.0)
         .shrink()
         .min_w(0.0)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            s.todo_open = !s.todo_open;
+            *s.todo_open = !*s.todo_open;
             crate::subagents::shells::set_open(s, false);
-            crate::popover::motion::toggled(&s.knobs, tx, s.todo_open);
-            if s.todo_open {
+            crate::popover::motion::toggled(&s.knobs, tx, *s.todo_open);
+            if *s.todo_open {
                 reveal_current(s, &sid, tx);
             }
         })
@@ -254,7 +268,7 @@ pub fn pill(s: &App, p: &Pal, id: &str) -> Option<El> {
 /// At least 240 wide, at most 400, its words wrapping; past 232 it scrolls, keeping the todo in
 /// progress in view.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
-    if !s.todo_open {
+    if !*s.todo_open {
         return None;
     }
     let todos = s.shown_todos(id);

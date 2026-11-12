@@ -110,7 +110,7 @@ fn page_href(app: &App) -> String {
     if app.settings.open {
         return Page::Settings(Some(app.settings_pages.page.id().to_owned())).href();
     }
-    route_href(&app.route)
+    route_href(&*app.route)
 }
 
 fn route_href(route: &Route) -> String {
@@ -145,7 +145,7 @@ impl App {
     pub fn restore_ui(&mut self, doc: &WindowDoc, server: &str) {
         self.restore.drafts = HashMap::new();
         self.take_drafts(&doc.drafts);
-        self.closed = crate::tabs::Closed::from_doc(&doc.closed);
+        *self.closed = crate::tabs::Closed::from_doc(&doc.closed);
         let global = |key: &str| crate::storage::json(GLOBAL, key).unwrap_or(Value::Null);
         self.restore.inbox = InboxUi::from_json(&global("sidebar.inbox"));
         self.restore_organize(&global("sidebar.organize"));
@@ -178,15 +178,15 @@ impl App {
                 {
                     self.launch.cold_transcript = Some(id.clone());
                 }
-                self.route = route;
+                *self.route = route;
             }
         }
         let sidebar = &global("layout")["sidebar"];
         if let Some(open) = sidebar["opened"].as_bool() {
-            self.sidebar_open = open;
+            *self.sidebar_open = open;
         }
         if let Some(w) = sidebar["width"].as_f64() {
-            self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
+            *self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
         }
         self.side.restore_json(doc.side.as_ref().unwrap_or(&Value::Null));
         self.load_persisted_terminals(server);
@@ -255,7 +255,7 @@ impl App {
             for e in self.closed.list(&[]).collect::<Vec<_>>().into_iter().rev() {
                 closed.push(e.clone());
             }
-            self.closed = closed;
+            *self.closed = closed;
             self.restore.written.keys.insert("tabs.closed", closed_json(&self.closed));
         }
         let (ready, pending) = crate::windows::store::drafts(&self.window);
@@ -268,7 +268,7 @@ impl App {
         let read = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.restore.hydration = Hydration::Loading { read: read.clone() };
         let keys: Vec<&str> = pending.iter().map(String::as_str).collect();
-        let waker = self.waker.clone();
+        let waker = (*self.waker).clone();
         crate::storage::load_docs(&keys, Box::new(move || {
             read.store(true, std::sync::atomic::Ordering::Release);
             if let Some(w) = waker {
@@ -323,7 +323,7 @@ impl App {
     /// Swaps the composer's draft when the route moves to another: its words, pills, attachments,
     /// context and quotes go with the draft they were made in. A story's composer is its own.
     pub(crate) fn show_draft(&mut self) -> bool {
-        let key = draft_key(&self.route);
+        let key = draft_key(&*self.route);
         if key == self.restore.shown || self.stage.is_some() {
             return false;
         }
@@ -404,7 +404,7 @@ impl App {
         if k.starts_with("draft_") {
             return TabKey::draft(k);
         }
-        let server = match &self.route {
+        let server = match &*self.route {
             Route::Session { server, id } if id == k => server.clone(),
             _ => crate::servers::runtime::current(),
         };
@@ -413,7 +413,7 @@ impl App {
 
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (&self.route, self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
+        (&*self.route, *self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
         (self.restore.drafts.len(), self.restore.shown.as_deref()).hash(&mut h);
         self.settings.open.then(|| self.settings_pages.page.id().to_owned()).hash(&mut h);
         self.side.stamp_hash(&mut h);
@@ -504,7 +504,7 @@ impl App {
         let strings = |v: &Value| v.as_array().into_iter().flatten().filter_map(|s| Some(s.as_str()?.to_owned())).collect::<Vec<_>>();
         // Saved before servers mixed: plain lists, of the app's own server's projects.
         let own = opencode_kit::servers::ServerKey::SIDECAR;
-        let st = &mut self.project_state;
+        let st = &mut *self.project_state;
         st.organize_collapsed = v["projectsCollapsed"].as_bool().unwrap_or(false);
         st.organize_expanded = match &v["expanded"] {
             Value::Object(m) => m.iter().filter(|(_, on)| on.as_bool() == Some(true)).map(|(k, _)| k.clone()).collect(),

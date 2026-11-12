@@ -58,6 +58,8 @@ pub struct BrowserHost {
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) inbox_tx: Sender<EngineMsg>,
     inbox_rx: Receiver<EngineMsg>,
+    /// Messages quiet read off the inbox, which poll handles first.
+    held: std::cell::RefCell<std::collections::VecDeque<EngineMsg>>,
     pub(crate) waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     pub(crate) socket_override: Option<PathBuf>,
@@ -100,6 +102,7 @@ impl BrowserHost {
             outbox: Arc::new(Mutex::new(None)),
             inbox_tx,
             inbox_rx,
+            held: Default::default(),
             waker: None,
             shell_shortcut: None,
             socket_override: None,
@@ -415,6 +418,11 @@ impl BrowserHost {
         self.cdp_responses.remove(&request_id)
     }
 
+    /// Whether the page picked an element since the last drain.
+    pub fn has_picked(&self) -> bool {
+        !self.picked.is_empty()
+    }
+
     pub fn drain_picked_elements(&mut self) -> impl Iterator<Item = PickedElement> + '_ {
         self.picked.drain(..)
     }
@@ -424,9 +432,20 @@ impl BrowserHost {
     }
 
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
+    /// Whether poll would find nothing to do: no message, no download to connect for, the
+    /// status as last polled. Reads only, so a caller that polls every frame writes nothing.
+    pub fn quiet(&self) -> bool {
+        if let Ok(msg) = self.inbox_rx.try_recv() {
+            self.held.borrow_mut().push_back(msg);
+        }
+        self.held.borrow().is_empty() && self.pending_opens.is_empty() && *self.status.lock().unwrap() == self.last_polled_status
+    }
+
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
-        while let Ok(msg) = self.inbox_rx.try_recv() {
+        let mut mail = std::mem::take(&mut *self.held.borrow_mut());
+        mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
+        for msg in mail {
             match msg {
                 EngineMsg::Ready { .. } => {
                     rune::marks::mark("browser.engine.ready");

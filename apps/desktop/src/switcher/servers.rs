@@ -62,17 +62,17 @@ pub(crate) fn open(s: &mut App) -> Vec<Remote> {
     let active = crate::servers::runtime::active(s).clone();
     let usable: Vec<ServerKey> = visible.iter().map(|e| e.key()).filter(|k| !opencode_kit::servers::health::is_failed(crate::servers::health::get(k).as_ref())).collect();
     let count = usable.len();
-    let waker = s.waker.clone();
+    let waker = (*s.waker).clone();
     let mut out = Vec::new();
     for key in usable.into_iter().filter(|k| *k != active) {
         let tag = tag(s, &key, count);
         let read = |s: &mut App| {
-            let conn = match &s.source {
+            let conn = match &*s.source {
                 Source::Live { server, .. } => Some(server.clone()),
                 Source::Fixture => None,
             };
             let known: Vec<SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none()).cloned().collect();
-            (conn, known, s.projects.clone())
+            (conn, known, (*s.projects).clone())
         };
         let Some((Some(conn), known, projects)) = crate::servers::runtime::with_server(s, &key, read) else { continue };
         let fetch = waker.clone().map_or_else(Latest::default, Latest::new);

@@ -143,7 +143,7 @@ impl Quotes {
 /// The session the composer can take a quote into: not a subagent's (it has no composer), and
 /// not in shell mode (a command takes no quotes).
 fn available(s: &App) -> Option<&str> {
-    let Route::Session { id, .. } = &s.route else { return None };
+    let Route::Session { id, .. } = &*s.route else { return None };
     let child = s.session(id).is_some_and(|i| i.parent.is_some());
     (!child && !s.add.shell() && !s.settings.open).then_some(id.as_str())
 }
@@ -152,7 +152,7 @@ fn available(s: &App) -> Option<&str> {
 /// the toolbar at once, and so does a press making one.
 pub fn selection_changed(s: &mut App, change: &SelectionChange, tx: &mut Tx) {
     let now = tx.clock();
-    let q = &mut s.quote;
+    let q = &mut *s.quote;
     let idle = q.toolbar == machine::Toolbar::default();
     let Some(sel) = change.selection() else {
         if idle && q.selection.is_none() { tx.live_only(); }
@@ -186,7 +186,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     changed |= editor::poll(s, tx);
     if s.quote.toolbar.settle.is_some_and(|w| now + 1e-3 >= w.due) {
-        let read = machine::step(&mut s.quote.seq, &mut s.quote.toolbar, machine::Event::Due { now });
+        let q = &mut *s.quote;
+        let read = machine::step(&mut q.seq, &mut q.toolbar, machine::Event::Due { now });
         if read.into_iter().any(|e| e == machine::Effect::Read) {
             read_selection(s, session.as_deref(), tx);
             changed = true;

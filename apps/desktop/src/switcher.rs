@@ -326,7 +326,7 @@ impl App {
     /// The session whose folder the palette searches for files: Desktop lists files only where
     /// the palette opens over a session (`DialogCommandPalette`), not on Home.
     pub(crate) fn switcher_files_session(&self) -> Option<&str> {
-        match (&self.route, self.switcher.mode) {
+        match (&*self.route, self.switcher.mode) {
             (Route::Session { .. }, SwitcherMode::All) => self.active_session_id(),
             _ => None,
         }
@@ -367,7 +367,7 @@ impl App {
     /// no query).
     fn switcher_asks_sessions(&self, q: &str) -> bool {
         self.switcher.mode != SwitcherMode::Commands
-            && matches!(self.source, Source::Live { .. })
+            && matches!(*self.source, Source::Live { .. })
             && (!q.is_empty() || self.switcher.mode == SwitcherMode::Archived)
     }
 
@@ -547,7 +547,7 @@ impl App {
         self.switcher.files = search::Source::default();
         self.switcher.restore = Restore::Idle;
         self.switcher.remotes = servers::open(self);
-        self.switcher.shown.step(Event::Opened { now: self.clock });
+        self.switcher.shown.step(Event::Opened { now: *self.clock });
     }
 
     /// Closes it; `restore` gives the composer back its focus if it had it.
@@ -611,7 +611,7 @@ impl App {
                 self.open(&id, tx);
                 // The palette is gone: show the chosen shell, not the previous transcript,
                 // while the existing page request finishes. Keep its retry/back state.
-                if let Some(open) = &mut self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
+                if let Some(open) = &mut *self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
             }
             Action::RemoteSession { .. } => {}
             Action::Command(id) => self.run_command(id, tx),
@@ -665,7 +665,7 @@ impl App {
             }
             return true;
         }
-        if Bind::FileOpen.matches_tx(ev, tx) && matches!(self.route, Route::Session { .. }) && !self.settings.open {
+        if Bind::FileOpen.matches_tx(ev, tx) && matches!(*self.route, Route::Session { .. }) && !self.settings.open {
             if self.switcher.open && self.switcher.mode == SwitcherMode::All {
                 tx.instant();
                 self.close_switcher(true);

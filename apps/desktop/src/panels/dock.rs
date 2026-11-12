@@ -12,7 +12,7 @@ use crate::{App, Route};
 /// Extra bottom inset reserved inside `window` when the bottom pane is open, so `panel` and
 /// `side-column` sit cleanly above it without changing `window/panel`'s element path.
 pub fn bottom_reserve_height(s: &App, cx: &mut Cx<App>) -> f32 {
-    if !matches!(s.route, Route::Session { .. }) || s.settings.open {
+    if !matches!(*s.route, Route::Session { .. }) || s.settings.open {
         return 0.0;
     }
     if let Some(reg) = s.resolve_side_region() {
@@ -35,12 +35,12 @@ fn bottom_pane_height(s: &App, _cx: &mut Cx<App>) -> f32 {
 
 /// The tallest a drag takes the bottom pane: 70% of the window (`window.innerHeight * 0.7`).
 fn bottom_pane_max(s: &App, cx: &mut Cx<App>) -> f32 {
-    (cx.layout_size("zoom").map_or(820.0 / s.zoom, |[_, h]| h) * 0.7).round()
+    (cx.layout_size("zoom").map_or(820.0 / *s.zoom, |[_, h]| h) * 0.7).round()
 }
 
 /// The bottom pane across the session screen, while any tab is in it.
 pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
-    if !matches!(s.route, Route::Session { .. }) || s.settings.open {
+    if !matches!(*s.route, Route::Session { .. }) || s.settings.open {
         return None;
     }
 

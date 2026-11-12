@@ -38,10 +38,10 @@ pub fn setup(s: &mut App, at: usize) {
     let (pages, send) = Pages::fixture(prefetched.then(|| page.clone()));
     s.pages.set(pages);
     s.transcripts.remove(TARGET);
-    s.opening = None;
+    *s.opening = None;
     s.attach = Default::default();
     s.attach.fixture_media(MEDIA, prefetched.then(|| png.clone()));
-    s.route = Route::here("ses_open_previous".into());
+    *s.route = Route::here("ses_open_previous".into());
     s.transcripts.insert("ses_open_previous".into(), Transcript { session:"ses_open_previous".into(), messages:vec![Message::User { id:"story_previous".into(), text:"Keep this session visible while the dashboard review gets ready.".into() }] });
     if !s.sessions.iter().any(|i| i.id == TARGET) {
         let mut info = s.sessions.first().cloned().unwrap_or_default();
@@ -52,7 +52,7 @@ pub fn setup(s: &mut App, at: usize) {
     }
     s.sessions.iter_mut().find(|i| i.id == TARGET).unwrap().parent = (at == 3).then(|| "ses_open_previous".into());
     s.composer.focused = false;
-    s.open_demo = Some(Demo { page, send, png, at, before:false });
+    *s.open_demo = Some(Demo { page, send, png, at, before:false });
 }
 
 /// A Session opening story's setup: the click lands 0.75 s in.
@@ -97,7 +97,7 @@ fn pixels(s: &mut App, _: &mut Play<App>) {
 
 pub fn view(s: &App, p: &Pal) -> El {
     let Some(d) = s.open_demo.as_ref() else { return col() };
-    let Route::Session { id, .. } = &s.route else { return col() };
+    let Route::Session { id, .. } = &*s.route else { return col() };
     let label = if d.before { "Immediate transcript" } else { "Type while the transcript loads" };
     col().key("opening-stage").w_full().h_full()
         .child(text(label).font(crate::view::UI).color(p.muted).px(16.0).py(16.0))

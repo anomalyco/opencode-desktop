@@ -3,14 +3,14 @@ use super::*;
 pub(crate) fn open_scene(s: &mut App) {
     let id = s.fixture["open"].as_str().map(str::to_owned).or_else(|| s.sessions.first().map(|x| x.id.clone()));
     if let Some(id) = id {
-        s.route = Route::here(id.clone());
+        *s.route = Route::here(id.clone());
     }
 }
 
 pub(crate) fn busy_scene(s: &mut App) {
     open_scene(s);
     s.finish_stream();
-    if let Route::Session { id, .. } = s.route.clone() {
+    if let Route::Session { id, .. } = (*s.route).clone() {
         if let Some(Message::Assistant(a)) = s.transcripts.get_mut(&id).and_then(|t| t.messages.last_mut()) {
             a.completed = None;
         }
@@ -21,7 +21,7 @@ pub(crate) fn busy_scene(s: &mut App) {
 /// Shows the scene in side tabs rather than Desktop's default top tabs.
 pub(crate) fn side_tabs(s: &mut App) {
     s.settings.tab_layout = crate::layout_state::TabLayout::Vertical;
-    s.layout = crate::layout_state::Shell::at_rest(s.settings.tab_layout);
+    *s.layout = crate::layout_state::Shell::at_rest(s.settings.tab_layout);
 }
 
 /// A named scene: `--snap SCENE` and `--list-scenes`.
@@ -80,9 +80,9 @@ rune_register::register!(SCENE_LIST: Scene = [
     // 7.6 s: with `scripts/steer-dock.json`, a steer and two queued prompts delivered.
     ("busy-deliver", |s| {
         busy_scene(s);
-        let Route::Session { id, .. } = s.route.clone() else { return };
+        let Route::Session { id, .. } = (*s.route).clone() else { return };
         let next = |kind: &str| serde_json::json!({ "sessionID": id, "next": kind });
-        s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
+        *s.playback = [(5.6, "session.inbox.delivered".into(), next("steer")), (6.6, "session.inbox.delivered".into(), next("queue")), (7.6, "session.inbox.delivered".into(), next("queue"))].into();
     }),
     ("draft", |s| {
         s.open_draft_tab();
@@ -98,7 +98,7 @@ rune_register::register!(SCENE_LIST: Scene = [
         open_scene(s);
         s.finish_stream();
         side_tabs(s);
-        s.sidebar_open = false;
+        *s.sidebar_open = false;
     }),
     // Settings › Interface layout: Side tabs, with the session open.
     ("layout-side-tabs", |s| {
@@ -121,7 +121,7 @@ rune_register::register!(SCENE_LIST: Scene = [
     ("tab-overflow", |s| {
         open_scene(s);
         s.finish_stream();
-        let dir = s.default_dir.clone();
+        let dir = (*s.default_dir).clone();
         for n in 1..=24 {
             s.tabs.push(crate::tabs::Tab::session(format!("ses_overflow_{n:02}"), format!("Overflow tab {n}"), dir.clone()));
         }

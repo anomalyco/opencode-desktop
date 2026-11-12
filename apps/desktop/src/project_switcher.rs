@@ -212,7 +212,7 @@ impl App {
         }
         // Outside a new session's page it opens one and searches there, so the pick is that
         // draft's project (`titlebar.tsx:478-492`); the page's own command searches in place.
-        if !matches!(self.route, Route::Draft(_)) && self.stage.is_none() {
+        if !matches!(*self.route, Route::Draft(_)) && self.stage.is_none() {
             self.open_draft_tab();
             self.composer.focused = true;
         }
@@ -250,7 +250,7 @@ impl App {
         self.open_project_switcher();
         self.list_worktrees(project);
         tx.instant();
-        let ps = &mut self.project_switcher;
+        let ps = &mut *self.project_switcher;
         ps.history = vec![location::Frame { mode: StepMode::Projects, query: String::new(), active: Some(format!("project:{project}")) }];
         ps.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true };
     }
@@ -306,19 +306,19 @@ impl App {
 
     /// Runs `event` through the step machine and its effects; true when it took the key.
     fn location_event(&mut self, event: location::Event, tx: &mut Tx) -> bool {
-        let ps = &mut self.project_switcher;
+        let ps = &mut *self.project_switcher;
         let (effects, handled) = location::step(&mut ps.mode, &ps.search.text, &mut ps.history, event);
         for effect in effects {
             tx.instant();
             match effect {
                 location::Effect::Query(query) => {
-                    let ps = &mut self.project_switcher;
+                    let ps = &mut *self.project_switcher;
                     ps.search = TextEdit::new(&query);
                     ps.search.anchor = query.len();
                     ps.search.focus = query.len();
                 }
                 location::Effect::Focus(active) => {
-                    let ps = &mut self.project_switcher;
+                    let ps = &mut *self.project_switcher;
                     ps.search.focused = true;
                     match active {
                         Some(key) => ps.active.set(key),
@@ -376,7 +376,7 @@ impl App {
             RowKind::Create { project_id, directory, .. } => {
                 tx.instant();
                 self.close_project_switcher(false);
-                if !matches!(self.route, Route::Draft(_)) {
+                if !matches!(*self.route, Route::Draft(_)) {
                     self.open_draft_tab();
                 }
                 self.choose_new_worktree(&project_id, directory);
@@ -393,7 +393,7 @@ impl App {
                 self.touch_project(&id);
                 self.sort_projects();
                 self.close_project_switcher(false);
-                if matches!(self.route, Route::Draft(_)) {
+                if matches!(*self.route, Route::Draft(_)) {
                     self.set_draft_dir(directory);
                     if self.stage.is_none() {
                         self.composer.focused = true;

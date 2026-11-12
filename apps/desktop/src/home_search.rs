@@ -247,7 +247,7 @@ impl App {
         for effect in self.home_search.search.step(event) {
             match effect {
                 Effect::Lookup { attempt, id } => {
-                    let Source::Live { server, .. } = &self.source else { continue };
+                    let Source::Live { server, .. } = &*self.source else { continue };
                     let server = server.clone();
                     self.home_search.lookup.request(id, move |id| {
                         let found = server.get(&format!("/api/session/{id}")).ok().map(|v| model::parse_session(v.get("data").unwrap_or(&v)));
@@ -391,12 +391,12 @@ impl App {
         let selection = crate::projects::home::selection(self);
         let scope = format!("{}\0{}", selection.server.as_ref().map_or("", |k| k.as_str()), selection.directory.as_deref().unwrap_or(""));
         let key = crate::projects::home::server(self);
-        let connected = matches!(self.source, Source::Live { .. }) && self.home_state.servers.iter().any(|v| v.key == key && v.healthy());
+        let connected = matches!(*self.source, Source::Live { .. }) && self.home_state.servers.iter().any(|v| v.key == key && v.healthy());
         let query = self.search.text.trim().to_owned();
-        let now = self.clock;
+        let now = *self.clock;
         let before = self.home_search.search.mark();
-        self.home_search_step(Event::Synced { query: &query, scope: &scope, connected, now }, tx);
-        self.home_search_step(Event::Tick { now }, tx);
+        self.home_search_step(Event::Synced { query: &query, scope: &scope, connected, now: now }, tx);
+        self.home_search_step(Event::Tick { now: now }, tx);
         changed | (self.home_search.search.mark() != before)
     }
 }
@@ -426,13 +426,13 @@ const STORY_KEYS: &[Trigger] = &[
 const STORY_VARIANTS: &[(&str, usize)] = &[("By title", 0), ("By project", 1), ("No results", 2)];
 
 fn story_open(s: &mut App, tx: &mut Play<App>) {
-    s.route = Route::Home;
-    let q = match s.variant {
+    *s.route = Route::Home;
+    let q = match *s.variant {
         1 => "harbor",
         2 => "notpresent",
         _ => "reconnect",
     };
-    s.search = TextEdit::new(q);
+    *s.search = TextEdit::new(q);
     s.search.focused = true;
     s.composer.focused = false;
     tx.instant();
@@ -440,7 +440,7 @@ fn story_open(s: &mut App, tx: &mut Play<App>) {
 
 fn story_toggle(s: &mut App, tx: &mut Play<App>) {
     if s.search.text.is_empty() {
-        s.search = TextEdit::new("reconnect");
+        *s.search = TextEdit::new("reconnect");
         s.search.focused = true;
         tx.instant();
     } else {

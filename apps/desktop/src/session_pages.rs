@@ -376,7 +376,7 @@ fn pause(q: &Shared, total: Duration) -> bool {
 impl super::App {
     pub fn cancel_open(&mut self, tx: &mut rune::Tx) {
         if let Some(opening) = self.opening.take() {
-            self.route = opening.from;
+            *self.route = opening.from;
             let _ = self.show_draft();
             tx.settle();
         }
@@ -385,9 +385,9 @@ impl super::App {
     pub fn begin_open(&mut self, id: &str, tx: &mut rune::Tx) {
         self.close_picker(false);
         crate::subagents::shells::set_open(self, false);
-        self.todo_open = false;
-        let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| self.route.clone(), |o| o.from.clone());
-        self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), self.clock));
+        *self.todo_open = false;
+        let from = self.opening.as_ref().filter(|o| !o.loading()).map_or_else(|| (*self.route).clone(), |o| o.from.clone());
+        *self.opening = Some(Opening::new(id, from, self.transcripts.contains_key(id), *self.clock));
         self.open_now(id, tx);
         self.open_page(id, tx);
         self.poll_open(tx);
@@ -395,15 +395,15 @@ impl super::App {
     }
 
     fn poll_open(&mut self, tx: &mut rune::Tx) -> bool {
-        let Some(opening) = &self.opening else { return false };
+        let Some(opening) = &*self.opening else { return false };
         if self.route != opening.from && self.route != super::Route::here(opening.id.clone()) {
-            self.opening = None;
+            *self.opening = None;
             return false;
         }
         let id = opening.id.clone();
         let ready = opening.received() && self.transcripts.get(&id).is_some_and(|t| self.attach.transcript_ready(t));
         if ready {
-            self.opening = None;
+            *self.opening = None;
             // Mount the finished transcript at its end, or where it was read, without
             // resetting input or focus.
             tx.settle();
@@ -411,7 +411,7 @@ impl super::App {
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
-        let expired = opening.expired(self.live(), self.clock);
+        let expired = opening.expired(self.live(), *self.clock);
         if expired && self.opening.as_mut().is_some_and(|o| o.step(OpenEvent::Expired)) {
             tx.settle();
             return true;
@@ -421,7 +421,7 @@ impl super::App {
 
     /// The session on screen with its messages painted (not held, not loading), for traces.
     pub fn painted_session(&self) -> Option<(&str, usize)> {
-        let super::Route::Session { id, .. } = &self.route else { return None };
+        let super::Route::Session { id, .. } = &*self.route else { return None };
         if self.opening.is_some() { return None; }
         Some((id, self.transcripts.get(id).map_or(0, |t| t.messages.len())))
     }
@@ -444,7 +444,7 @@ impl super::App {
     }
 
     pub(crate) fn reload_session(&self, id: &str) {
-        let super::Source::Live { requests: Some(r), .. } = &self.source else { return };
+        let super::Source::Live { requests: Some(r), .. } = &*self.source else { return };
         match &self.pages.pool {
             Some(pages) => pages.request(self.page_key(id), true),
             None => {
@@ -497,7 +497,7 @@ impl super::App {
     fn merge_page(&mut self, page: &Page, tx: &mut rune::Tx) {
         // A page this window read goes into the server's copy, for its other windows too.
         crate::windows::peer::touch(self);
-        if let Some(o) = &mut self.opening && o.id == page.key.id && !page.history { o.step(OpenEvent::Received); }
+        if let Some(o) = &mut *self.opening && o.id == page.key.id && !page.history { o.step(OpenEvent::Received); }
         self.attach.adopt(&page.images);
         let id = &page.key.id;
         let stale = self.page_key(id).updated > page.key.updated;
@@ -571,12 +571,12 @@ impl super::App {
             match result {
                 Ok(page) if self.route == super::Route::here(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && crate::session_state::not_found_error(&error) => {
-                    self.opening = None;
+                    *self.opening = None;
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
-                    self.status = error.clone();
-                    if let Some(o) = &mut self.opening { o.step(OpenEvent::Failed(error)); }
+                    *self.status = error.clone();
+                    if let Some(o) = &mut *self.opening { o.step(OpenEvent::Failed(error)); }
                     changed = true;
                 }
                 Err((key, error)) if self.route == super::Route::here(key.id.clone()) && crate::session_state::not_found_error(&error) => {
@@ -636,7 +636,7 @@ impl super::App {
     /// top. It lands above what's on screen without moving it: the virtual list holds its
     /// first visible row (Rune `VirtualList::anchor_delta`).
     fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
-        let super::Route::Session { id, .. } = &self.route else { return false };
+        let super::Route::Session { id, .. } = &*self.route else { return false };
         if *self.pages.near_top.borrow() != *id || self.pages.pool.is_none() { return false; }
         let id = id.clone();
         self.step_history(&id, HistoryEvent::NearTop { now: Instant::now() }, tx)

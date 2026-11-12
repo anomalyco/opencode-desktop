@@ -94,7 +94,7 @@ pub fn changed(app: &mut App, tx: &mut Tx) {
 
 /// Reads the app's own server's version (`/api/info`) for plugins that compare against it.
 pub fn read_own_version(app: &mut App) {
-    let crate::Source::Live { server, .. } = &app.source else { return };
+    let crate::Source::Live { server, .. } = &*app.source else { return };
     let (server, deliver) = (server.clone(), app.deliverer());
     super::tasks::run(move || {
         let info = server.get("/api/info").ok();
@@ -199,12 +199,14 @@ pub fn authenticating(key: &str) -> bool {
 /// and a managed server whose health dropped runs its plugin's `reconnect`.
 pub fn poll_actions(app: &mut App, tx: &mut Tx) {
     sync_actions(app);
-    app.plugins.cover_visit.follow(&app.route, app.settings.open);
+    if app.plugins.cover_visit.moved(&app.route, app.settings.open) {
+        app.plugins.cover_visit.follow(&*app.route, app.settings.open);
+    }
     for (key, attempt, ready) in SETTLED.take() {
         let effects = ACTIONS.with_borrow_mut(|a| a.get_mut(&key).map(|slot| plugin_server::step(&mut slot.machine, plugin_server::Event::ConnectSettled { attempt, ready })));
         run_actions(app, &key, effects.unwrap_or_default(), tx);
     }
-    let now = app.clock;
+    let now = *app.clock;
     let due: Vec<(String, Attempt)> = ACTIONS.with_borrow(|a| a.iter().filter_map(|(k, s)| match s.timeout {
         Timeout::Due { attempt, at } if now >= at => Some((k.clone(), attempt)),
         _ => None,
@@ -269,7 +271,7 @@ fn run_actions(app: &mut App, key: &str, effects: rune::machine::Effects<plugin_
     for effect in effects {
         match effect {
             plugin_server::Effect::Connect { attempt, timeout_ms } => {
-                let at = app.clock + timeout_ms as f64 / 1000.0;
+                let at = *app.clock + timeout_ms as f64 / 1000.0;
                 ACTIONS.with_borrow_mut(|a| {
                     if let Some(slot) = a.get_mut(key) {
                         slot.timeout = Timeout::Due { attempt, at };
@@ -304,8 +306,13 @@ pub struct CoverVisit {
 
 impl CoverVisit {
     /// The page is `route`, Settings open over it or not.
+    /// Whether the window went somewhere ollow hasn't seen: polls write only then.
+    fn moved(&self, route: &crate::Route, settings: bool) -> bool {
+        self.page.as_ref().is_none_or(|(r, open)| r != route || *open != settings)
+    }
+
     fn follow(&mut self, route: &crate::Route, settings: bool) {
-        if self.page.as_ref().is_none_or(|(r, open)| r != route || *open != settings) {
+        if self.moved(route, settings) {
             self.page = Some((route.clone(), settings));
             self.visit += 1;
         }
@@ -326,14 +333,14 @@ pub fn dialog_shows(app: &App) -> bool {
         || app.connect.open.is_some()
         || app.mcp.open.is_some()
         || app.settings_pages.servers.dialog.state.is_some()
-        || matches!(app.remote_picker, crate::projects::remote_picker::Picker::Open(_))
+        || matches!(*app.remote_picker, crate::projects::remote_picker::Picker::Open(_))
 }
 
 /// The plugin cover over the routed session or draft tab (`PluginServerCover`): drawn by the
 /// window half of the plugin whose server the tab is on while that server isn't ready and its
 /// source has a `cover`. None otherwise; the tab stays mounted under it.
 pub fn cover(app: &App, p: &crate::palette::Pal) -> Option<rune::El> {
-    let (server, tab) = match &app.route {
+    let (server, tab) = match &*app.route {
         crate::Route::Session { server, id } => (server.clone(), format!("{}:{id}", server.as_str())),
         crate::Route::Draft(id) => (app.tabs.iter().find(|t| t.id == *id)?.server.clone(), id.clone()),
         crate::Route::Home => return None,

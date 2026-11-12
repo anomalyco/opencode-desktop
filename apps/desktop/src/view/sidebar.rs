@@ -87,8 +87,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     if !s.shows_sidebar() {
         return aside.w(GAP_ROOM).clip_soft(0.0);
     }
-    let (w, open, peek, k) = (s.sidebar_w, s.sidebar_open, s.layout.peek, &s.knobs);
-    let reduced = s.reduced_motion;
+    let (w, open, peek, k) = (*s.sidebar_w, *s.sidebar_open, s.layout.peek, &s.knobs);
+    let reduced = *s.reduced_motion;
     // Past the window's start: closed, or a peek sliding away. Under Reduce Motion a peek fades
     // where it is instead.
     let away = !open && !peek.open();
@@ -141,7 +141,7 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
     let home = s.route == Route::Home && !s.settings.open;
     col()
-        .w(s.sidebar_w)
+        .w(*s.sidebar_w)
         .pt(top)
         .pl(INSET_START)
         .pr(INSET_END)
@@ -223,13 +223,13 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
         .w(s.knobs.get(&PEEK_EDGE))
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
-            let can_peek = !s.sidebar_open && can_peek(s);
+            let can_peek = !*s.sidebar_open && can_peek(s);
             s.queue_peek(PeekEvent::Edge { inside, can_peek, held: held(s) }, tx);
         });
     let corridor = el()
         .key("peek-corridor")
         .pin(Some(0.0), Some(chrome.row_h), None, Some(0.0))
-        .w(s.sidebar_w + CORRIDOR)
+        .w(*s.sidebar_w + CORRIDOR)
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
             s.queue_peek(PeekEvent::Corridor { inside, held: held(s) }, tx);
@@ -265,14 +265,14 @@ pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
         .on_drag(|s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             match d.phase {
-                Phase::Down => s.sidebar_drag = Some(s.sidebar_w),
+                Phase::Down => *s.sidebar_drag = Some(*s.sidebar_w),
                 Phase::Move => {
-                    let from = s.sidebar_drag.unwrap_or(s.sidebar_w);
-                    s.sidebar_w = (from + d.dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    let from = s.sidebar_drag.unwrap_or(*s.sidebar_w);
+                    *s.sidebar_w = (from + d.dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
                 }
                 Phase::Up => {
-                    if d.cancelled() && let Some(w) = s.sidebar_drag { s.sidebar_w = w; }
-                    s.sidebar_drag = None;
+                    if d.cancelled() && let Some(w) = *s.sidebar_drag { *s.sidebar_w = w; }
+                    *s.sidebar_drag = None;
                 }
             }
         })
@@ -327,7 +327,7 @@ pub(super) fn sidebar_toggle(s: &App, p: &Pal, open: bool, w: f32) -> El {
 /// Room the session header keeps for the collapsed toggle.
 pub(crate) fn collapsed_slot(s: &App) -> El {
     // Beta measures from the header's 10px padding; this header pads 14.
-    let open = s.sidebar_open || !s.shows_sidebar();
+    let open = *s.sidebar_open || !s.shows_sidebar();
     el().key("toggle-space").w(chrome().toggle_space(open)).h(28.0).motion(SIDEBAR_SPRING)
 }
 

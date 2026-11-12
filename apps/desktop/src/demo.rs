@@ -29,7 +29,7 @@ pub fn requested() -> bool {
 
 /// The scene: a fresh session in the fixture's first project, and the script queued from now.
 pub fn start(s: &mut App) {
-    if !matches!(s.source, crate::Source::Fixture) {
+    if !matches!(*s.source, crate::Source::Fixture) {
         return;
     }
     // A send in the fixture answers with its canned reply; the script is the reply here.
@@ -47,15 +47,15 @@ pub fn start(s: &mut App) {
         title: "New session".into(),
         model: from.model,
         agent: "build".into(),
-        created: s.now_ms,
-        updated: s.now_ms,
+        created: *s.now_ms,
+        updated: *s.now_ms,
         ..Default::default()
     });
     s.transcripts.insert(ids.session.clone(), Transcript { session: ids.session.clone(), messages: Vec::new() });
     s.tabs.push(Tab::session(ids.session.clone(), "", from.directory));
-    s.route = Route::here(ids.session.clone());
+    *s.route = Route::here(ids.session.clone());
     s.composer.clear();
-    let now = s.clock;
+    let now = *s.clock;
     for (t, ty, data) in demo_script::events(&ids) {
         s.playback.push_back((now + t, ty, data));
     }
@@ -84,7 +84,7 @@ pub fn apply(s: &mut App, ty: &str, data: &Value, tx: &mut Tx) {
         }
         "demo.send" => s.submit(false, tx),
         "demo.child" => {
-            let Route::Session { id: parent, .. } = s.route.clone() else { return };
+            let Route::Session { id: parent, .. } = (*s.route).clone() else { return };
             let id = data["id"].as_str().unwrap_or("").to_owned();
             let from = s.session(&parent).cloned().unwrap_or_default();
             s.sessions.push(SessionInfo {
@@ -95,8 +95,8 @@ pub fn apply(s: &mut App, ty: &str, data: &Value, tx: &mut Tx) {
                 title: data["title"].as_str().unwrap_or("").into(),
                 model: from.model,
                 agent: "general".into(),
-                created: s.now_ms,
-                updated: s.now_ms,
+                created: *s.now_ms,
+                updated: *s.now_ms,
                 ..Default::default()
             });
             s.transcripts.insert(id.clone(), Transcript { session: id, messages: Vec::new() });
@@ -130,12 +130,12 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn toggle_pause(s: &mut App) {
     match s.demo.paused.take() {
         None => {
-            let now = s.clock;
+            let now = *s.clock;
             let held = s.playback.drain(..).map(|(t, ty, d)| ((t - now).max(0.0), ty, d)).collect();
-            s.demo.paused = Some((s.now_ms, held));
+            s.demo.paused = Some((*s.now_ms, held));
         }
         Some((_, held)) => {
-            let now = s.clock;
+            let now = *s.clock;
             for (t, ty, d) in held {
                 s.playback.push_back((now + t, ty, d));
             }
@@ -147,8 +147,8 @@ fn toggle_pause(s: &mut App) {
 /// Each frame while paused, the app's ms clock stays where the pause stopped it.
 pub fn poll(s: &mut App) {
     if let Some((at, _)) = s.demo.paused {
-        s.base_ms = at - (s.clock * 1000.0) as i64;
-        s.now_ms = at;
+        *s.base_ms = at - (*s.clock * 1000.0) as i64;
+        *s.now_ms = at;
     }
 }
 

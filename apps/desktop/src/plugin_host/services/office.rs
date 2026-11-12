@@ -63,7 +63,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         other => return Err(mlua::Error::runtime(format!("unknown OfficeKind {other:?}"))),
     };
     let app = cx::app().ok_or_else(|| mlua::Error::runtime("Office:OpenAsync needs a window"))?;
-    let waker = app.waker.clone();
+    let waker = (*app.waker).clone();
     let opened = move |bytes: Result<Vec<u8>, String>| {
         let bytes = match bytes {
             Ok(bytes) => bytes,

@@ -260,8 +260,10 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     // A picture's size is known once it decodes: its stage lays out again.
-    for ws in s.files.sessions.values_mut() {
-        changed |= ws.images.values_mut().fold(false, |any, i| i.landed() | any);
+    if s.files.sessions.values().any(|ws| ws.images.values().any(image::FileImage::lands)) {
+        for ws in s.files.sessions.values_mut() {
+            changed |= ws.images.values_mut().fold(false, |any, i| i.landed() | any);
+        }
     }
     changed |= video::poll(s, tx);
     if s.files.dirty {
@@ -385,7 +387,7 @@ impl App {
         {
             return;
         }
-        match &self.source {
+        match &*self.source {
             Source::Fixture => {
                 let (files, contents) = load_fixture_workspace(&self.fixture);
                 let wrap = self.files.wrap;
@@ -434,10 +436,10 @@ impl App {
             } else {
                 ws.expanded_dirs.insert(dir_path.to_owned());
                 ws.rebuild_tree();
-                matches!(self.source, Source::Live { .. }) && !ws.listed_dirs.contains(dir_path)
+                matches!(*self.source, Source::Live { .. }) && !ws.listed_dirs.contains(dir_path)
             }
         };
-        if need_fetch && let Source::Live { server, .. } = &self.source {
+        if need_fetch && let Source::Live { server, .. } = &*self.source {
             let directory = self
                 .session(&sid)
                 .map(|s| s.directory.clone())
@@ -464,7 +466,7 @@ impl App {
         if already {
             return;
         }
-        match &self.source {
+        match &*self.source {
             Source::Fixture => {
                 let (_, contents) = load_fixture_workspace(&self.fixture);
                 let wrap = self.files.wrap;
@@ -630,7 +632,7 @@ impl App {
         if q.is_empty() {
             return;
         }
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         let ws = self.files.sessions.entry(sid.clone()).or_default();
         if !ws.search.ask(&q) {
             return;

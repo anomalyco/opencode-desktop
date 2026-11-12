@@ -29,7 +29,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     if s.popup.open_at(TRIGGER) {
         return popup::dismiss(s, tx);
     }
-    let crate::Route::Session { id, .. } = &s.route else { return };
+    let crate::Route::Session { id, .. } = &*s.route else { return };
     let Some(info) = s.session(id).cloned() else { return };
     // The changes row keeps the session's changes fresh while the card shows, and Move session
     // to lists the project's worktrees as they are now.
@@ -56,7 +56,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
 /// Draws the open card again with what it's learned.
 fn reshow(s: &mut App, tx: &mut Tx) {
     if s.popup.open_at(TRIGGER)
-        && let crate::Route::Session { id, .. } = &s.route
+        && let crate::Route::Session { id, .. } = &*s.route
         && let Some(info) = s.session(id).cloned()
     {
         tx.instant();
@@ -120,13 +120,13 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     }
 
     menu = menu.separator();
-    if let crate::Source::Live { server, .. } = &s.source
+    if let crate::Source::Live { server, .. } = &*s.source
         && !server.is_local()
     {
         menu = menu.item(Item::new("server", server.base.clone()).icon(&ic::SERVER).detail());
     }
     let mut folder = Menu::new(dir.clone()).item(Item::new("copy-path", t!("session.location.copyPath")).icon(&ic::OUTLINE_COPY));
-    if matches!(&s.source, crate::Source::Live { server, .. } if server.is_local()) {
+    if matches!(&*s.source, crate::Source::Live { server, .. } if server.is_local()) {
         folder = folder.item(Item::new("reveal", reveal_label()).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
     // The file plugin's row (`session.location.path.menu`): Open in the chosen app.

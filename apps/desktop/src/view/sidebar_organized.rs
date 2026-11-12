@@ -126,7 +126,7 @@ fn project(s: &App, p: &Pal, proj: &model::Project, index: usize) -> El {
         .center_y()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            let st = &mut s.project_state;
+            let st = &mut *s.project_state;
             // A release that ends a drag isn't a press on the row it dropped.
             if std::mem::take(&mut st.organize_dropped) {
                 return;

@@ -17,6 +17,9 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             return false;
         }
     }
+    if s.popup.shown.is_none() {
+        return false;
+    }
     let Some(shown) = s.popup.shown.as_mut() else { return false };
     // The keys move in the deepest open menu with a lit row.
     let level = shown.key_level();

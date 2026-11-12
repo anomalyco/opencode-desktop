@@ -39,7 +39,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     };
     let anthropic = |spent| Budget { covers_all: false, vendors: vec!["Anthropic".into()], models: vec![opus(None), sonnet(None)], spent, ..budget("anthropic") };
     let pool = |spent| Budget { each_member: false, shared: true, limit: 1_000.0, spent, ..budget("pool") };
-    let now = s.now_ms;
+    let now = *s.now_ms;
     let meter = |percent, hours| Meter { percent, limited: false, resets_at: now + hours * HOUR };
     let info = |budgets: Vec<Budget>, go: bool| Info {
         workspace: Workspace { name: Some("Acme".into()), usage_url: "https://opencode.ai/wrk_1/activity/overview".into() },
@@ -56,7 +56,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
         models: vec![opus(Some(20.0)), sonnet(Some(4.5))],
         ..budget("each")
     };
-    let (load, model, credits) = match s.variant {
+    let (load, model, credits) = match *s.variant {
         1 => (Load::Ready(info(vec![per_model], false)), current, false),
         2 => (Load::Ready(info(vec![anthropic(150.42), pool(394.57)], false)), current, false),
         3 => (Load::Ready(info(vec![anthropic(80.0), pool(1_000.12)], false)), None, false),

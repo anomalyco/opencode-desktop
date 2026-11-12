@@ -103,13 +103,13 @@ impl App {
     }
 
     fn switcher_sessions_step(&mut self, event: search::Event<()>, tx: &mut Tx) {
-        let effects = search::step(&mut self.switcher.seq, &mut self.switcher.sessions, event);
+        let effects = { let sw = &mut *self.switcher; search::step(&mut sw.seq, &mut sw.sessions, event) };
         for effect in effects {
             match effect {
                 search::Effect::WakeAt(due) => tx.wake_at(due),
                 search::Effect::Cancel => self.switcher.fetch.cancel(),
                 search::Effect::Fetch { attempt, query } => {
-                    let Source::Live { server, .. } = &self.source else { continue };
+                    let Source::Live { server, .. } = &*self.source else { continue };
                     let (server, archived) = (server.clone(), self.switcher.mode == SwitcherMode::Archived);
                     self.switcher.fetch.request(query, move |q| {
                         let path = format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(&q));
@@ -135,7 +135,7 @@ impl App {
 
     /// The files matching the query, in the session's folder (a typed `:line` left out).
     fn switcher_files_step(&mut self, event: search::Event<String>, tx: &mut Tx) {
-        let effects = search::step(&mut self.switcher.seq, &mut self.switcher.files, event);
+        let effects = { let sw = &mut *self.switcher; search::step(&mut sw.seq, &mut sw.files, event) };
         for effect in effects {
             match effect {
                 search::Effect::WakeAt(due) => tx.wake_at(due),
@@ -145,7 +145,7 @@ impl App {
                 }
                 search::Effect::Fetch { attempt, query } => {
                     let Some(sid) = self.switcher_files_session().map(str::to_owned) else { continue };
-                    let Source::Live { server, .. } = &self.source else {
+                    let Source::Live { server, .. } = &*self.source else {
                         // The fixture's folder and `find_files` (files only its server has seen)
                         // are the answer, `find_ms` later as a server's would be (at once without it).
                         let mut known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
@@ -158,7 +158,8 @@ impl App {
                                 tx.wake_at(at);
                             }
                             _ => {
-                                search::step(&mut self.switcher.seq, &mut self.switcher.files, search::Event::Answered { attempt, items });
+                                let sw = &mut *self.switcher;
+                                search::step(&mut sw.seq, &mut sw.files, search::Event::Answered { attempt, items });
                             }
                         }
                         continue;

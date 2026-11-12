@@ -198,8 +198,11 @@ rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
 /// Draws this window's text as Appearance › Text rendering says; Rune redraws only when the
 /// mode changes.
 pub fn poll(s: &mut App, tx: &mut Tx) {
-    let effects = s.text_rendering.step(RenderingEvent::Poll(s.settings.text_renderer));
-    s.apply_rendering(effects);
+    // Every poll comes here: the state is written only when the choice resolves differently.
+    if resolve(s.settings.text_renderer) != *s.text_rendering {
+        let effects = s.text_rendering.step(RenderingEvent::Poll(s.settings.text_renderer));
+        s.apply_rendering(effects);
+    }
     let (mode, name) = match measured() {
         Some(forced) => forced,
         None => (s.text_rendering.mode(), s.settings.text_renderer.name()),

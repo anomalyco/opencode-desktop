@@ -203,7 +203,7 @@ pub fn trigger(before: &str, open: bool) -> Option<(usize, &str)> {
 impl App {
     /// The composer's directory: the open session's, or where a new one starts.
     pub fn composer_directory(&self) -> String {
-        match &self.route {
+        match &*self.route {
             Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
             _ => self.draft_dir().to_owned(),
         }
@@ -215,7 +215,7 @@ impl App {
 
     /// There's a server to search; the fixture's files and sessions are searched here.
     pub(crate) fn mention_server(&self) -> bool {
-        matches!(self.source, Source::Live { .. })
+        matches!(*self.source, Source::Live { .. })
     }
 
     /// The open `@` list's query.
@@ -226,7 +226,7 @@ impl App {
     /// Sessions a mention can name: loaded roots and what the server found, newest first, not
     /// the open one.
     fn mention_sessions(&self) -> Vec<&SessionInfo> {
-        let current = match &self.route {
+        let current = match &*self.route {
             Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         };
@@ -258,19 +258,19 @@ impl App {
     pub(crate) fn sync_mention_search(&mut self, tx: &mut Tx) {
         let now = tx.clock();
         let server = self.mention_server();
-        let m = &mut self.mentions;
+        let m = &mut *self.mentions;
         let effects = match self.suggest.state.context() {
             Some(list) => search::step(&mut m.seq, &mut m.search, search::Event::Changed { query: &list.query, server, now }),
             None => search::step(&mut m.seq, &mut m.search, search::Event::Closed),
         };
         self.run_mention_search(effects, tx);
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         if self.suggest.state.context().is_none() {
             return;
         }
         let (server, directory) = (server.clone(), self.composer_directory());
         let opened = matches!(self.mentions.catalog, search::Catalog::Unread | search::Catalog::Failed { .. });
-        let m = &mut self.mentions;
+        let m = &mut *self.mentions;
         let Some((attempt, directory)) = search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Wanted { directory: &directory, opened }) else { return };
         // `/api/skill` answers 503 until the server's plugins load, which `get_ready` waits out.
         m.catalog_fetch.request(directory, move |directory| {
@@ -283,7 +283,7 @@ impl App {
     }
 
     fn run_mention_search(&mut self, effects: impl IntoIterator<Item = search::Effect>, tx: &mut Tx) {
-        let Source::Live { server, .. } = &self.source else {
+        let Source::Live { server, .. } = &*self.source else {
             for effect in effects {
                 if let search::Effect::WakeAt(due) = effect {
                     tx.wake_at(due);
@@ -322,9 +322,16 @@ impl App {
     /// land with this frame, without fading in or sliding.
     pub fn poll_mentions(&mut self, tx: &mut Tx) -> bool {
         let now = tx.clock();
-        let m = &mut self.mentions;
+        // Every poll comes here: what arrived is taken without writing, and the mentions are
+        // written only when something did or the search came due.
+        let (catalog, files, sessions) = (self.mentions.catalog_fetch.take(), self.mentions.files_fetch.take(), self.mentions.sessions_fetch.take());
+        let due = self.mentions.search.next_due().is_some_and(|due| now + 1e-9 >= due);
+        if catalog.is_none() && files.is_none() && sessions.is_none() && !due {
+            return false;
+        }
+        let m = &mut *self.mentions;
         let mut changed = false;
-        if let Some((attempt, agents, skills, references)) = m.catalog_fetch.take() {
+        if let Some((attempt, agents, skills, references)) = catalog {
             // A failed read keeps what was there, as Desktop's location data does, rather than
             // settling on an empty list.
             let failed = agents.is_none() || skills.is_none() || references.is_none();
@@ -337,12 +344,12 @@ impl App {
             search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Answered { attempt, failed });
         }
         let mut effects = Vec::new();
-        if let Some((attempt, paths)) = m.files_fetch.take() {
+        if let Some((attempt, paths)) = files {
             let before = m.search.clone();
             effects.extend(search::step(&mut m.seq, &mut m.search, search::Event::Files { attempt, paths }));
             changed |= m.search != before;
         }
-        if let Some((attempt, list)) = m.sessions_fetch.take() {
+        if let Some((attempt, list)) = sessions {
             if let Some(list) = list {
                 upsert_sessions(&mut m.found, list);
                 changed = true;

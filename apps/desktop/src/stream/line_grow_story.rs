@@ -76,7 +76,7 @@ pub(crate) fn script(word: f64) -> Vec<(f64, &'static str, &'static str, Value)>
 /// Plays [`script`] on the open session from now.
 pub(crate) fn play(s: &mut App, word: f64) {
     let id = sid(s);
-    let at = s.clock;
+    let at = *s.clock;
     for (t, ty, step, more) in script(word) {
         let mut d = json!({ "sessionID": id, "assistantMessageID": step });
         d.as_object_mut().unwrap().extend(more.as_object().cloned().unwrap_or_default());
@@ -87,9 +87,9 @@ pub(crate) fn play(s: &mut App, word: f64) {
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    let reveal = Reveal::ALL[(s.variant / 2).min(3)];
+    let reveal = Reveal::ALL[(*s.variant / 2).min(3)];
     s.knobs.set(&NEW_LINE_REVEAL, reveal.knob());
-    play(s, if s.variant % 2 == 1 { FAST } else { SLOW });
+    play(s, if *s.variant % 2 == 1 { FAST } else { SLOW });
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

@@ -138,8 +138,8 @@ pub fn spawn(s: &mut App, tx: &mut Tx) {
         directory: from.directory,
         title: title.into(),
         agent: agent.into(),
-        created: s.now_ms,
-        updated: s.now_ms,
+        created: *s.now_ms,
+        updated: *s.now_ms,
         ..Default::default()
     });
     let call = Part::Tool {
@@ -167,7 +167,7 @@ pub fn advance(s: &mut App, tx: &mut Tx) {
             continue;
         }
         let steps = AGENTS[k % AGENTS.len()].2;
-        let since = s.session(&id).map_or(0, |i| s.now_ms - i.created);
+        let since = s.session(&id).map_or(0, |i| *s.now_ms - i.created);
         let (name, field, value) = steps[(since as f64 / 1000.0 / STEP) as usize % steps.len()];
         let mut input = json!({});
         input[field] = value.into();
@@ -182,7 +182,7 @@ pub fn finish_oldest(s: &mut App, tx: &mut Tx) {
         let id = all[k].clone();
         let answer = Assistant {
             id: format!("msg_story_answer_{k:02}"),
-            completed: Some(s.now_ms),
+            completed: Some(*s.now_ms),
             parts: vec![Part::Text { text: ANSWERS[k % ANSWERS.len()].into() }],
             ..Default::default()
         };

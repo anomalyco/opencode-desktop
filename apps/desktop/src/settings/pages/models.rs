@@ -55,7 +55,7 @@ fn read() -> Value {
 
 /// The server the folds are kept for; none while nothing persists (headless, a fixture).
 fn server(s: &App) -> Option<String> {
-    match &s.source {
+    match &*s.source {
         crate::Source::Live { server, .. } if s.persists() => Some(server.base.clone()),
         _ => None,
     }

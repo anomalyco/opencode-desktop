@@ -91,11 +91,11 @@ impl App {
         if !self.settings.pinch_zoom {
             return true;
         }
-        let delta = wheel_pixels(&ev, self.zoom);
-        if let Some(zoom) = self.zoom_pinch.wheel(self.zoom, delta, self.clock) {
+        let delta = wheel_pixels(&ev, *self.zoom);
+        if let Some(zoom) = self.zoom_pinch.wheel(*self.zoom, delta, *self.clock) {
             tx.instant();
-            self.zoom_pinch.level.get_or_insert(self.zoom);
-            self.zoom = zoom;
+            self.zoom_pinch.level.get_or_insert(*self.zoom);
+            *self.zoom = zoom;
         }
         true
     }
@@ -105,7 +105,7 @@ impl App {
         tx.instant();
         self.change_settings(|s| s.pinch_zoom = on);
         if let Some(level) = self.zoom_pinch.level.filter(|_| !on) {
-            self.zoom = level;
+            *self.zoom = level;
         }
         if !on {
             self.zoom_pinch.leveled();

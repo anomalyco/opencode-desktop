@@ -15,7 +15,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     let steps: [(f64, Step<App>); 8] = [
         (0.8, |s, tx| s.open(OTHER, tx)),
         (1.6, |s, tx| {
-            s.route = Route::Home;
+            *s.route = Route::Home;
             tx.instant();
         }),
         (2.4, |s, tx| s.open(MAIN, tx)),
@@ -49,7 +49,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         let chip = col().px(8.0).py(4.0).radius(6.0).fill(if here { p.layer3 } else { p.layer1 });
         strip.child(chip.child(text(name).font(crate::view::UI).color(if here { p.text } else { p.muted })))
     });
-    let page = match &s.route {
+    let page = match &*s.route {
         Route::Session { id, .. } => crate::view::session_page(s, p, id),
         _ => col().h_full().child(text("Home").font(crate::view::UI).color(p.muted).px(16.0)),
     };

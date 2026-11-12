@@ -129,7 +129,7 @@ pub fn drawn(s: &App) {
     if rows > 0 {
         mark("content.rows");
     }
-    let shows = rows > 0 || !matches!(s.route, Route::Session { .. });
+    let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
         mark("content.live");
     }

@@ -15,7 +15,7 @@ pub const KEYS: &[Trigger] = &[replay(open), Trigger { key: 'p', label: "The pro
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.composer = draft();
+    *s.composer = draft();
     s.composer.focused = true;
     prompt(s, tx);
 }

@@ -81,7 +81,7 @@ pub fn script(id: &str, reply: &str, pace: Pace, words: usize) -> Vec<(f64, &'st
 /// Queues [`script`] into the app's playback from now.
 pub fn queue(s: &mut App, id: &str, reply: &str, pace: Pace, words: usize) {
     s.running.insert(id.to_owned());
-    let now = s.clock;
+    let now = *s.clock;
     for (t, ty, data) in script(id, reply, pace, words) {
         s.schedule(now + t, ty, data);
     }
@@ -91,7 +91,7 @@ pub fn queue(s: &mut App, id: &str, reply: &str, pace: Pace, words: usize) {
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
-    let pace = match s.variant {
+    let pace = match *s.variant {
         1 => Pace::Steady(20.0),
         2 => Pace::Burst,
         3 => Pace::Bursty,

@@ -243,7 +243,8 @@ impl App {
     /// routed session's selected one. True when what the pane shows changed.
     pub fn poll_browser(&mut self, tx: &mut Tx) -> bool {
         self.poll_browser_prefetch(tx);
-        let mut changed = self.browser.host.poll();
+        // Every poll comes here: the pane is written only when the engine has something.
+        let mut changed = !self.browser.host.quiet() && self.browser.host.poll();
         // The engine paints only its focused tab, so the page on screen must be that tab (after a
         // session switch, say, which shows another session's page without selecting it).
         if self.side_open()

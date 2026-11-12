@@ -92,7 +92,7 @@ fn ticking(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.2, |s, tx| {
         crate::agent_stories::spawn(s, tx);
-        let now = s.now_ms;
+        let now = *s.now_ms;
         let parent = s.fixture["open"].as_str().map(str::to_owned);
         if let Some(c) = s.sessions.iter_mut().rev().find(|x| x.parent.is_some() && x.parent == parent) {
             c.created = now - 7_500;
@@ -100,7 +100,7 @@ fn ticking(s: &mut App, tx: &mut Play<App>) {
     });
     for k in 0..4 {
         tx.after(0.9 + k as f64, |s, _| {
-            let Route::Session { id, .. } = s.route.clone() else { return };
+            let Route::Session { id, .. } = (*s.route).clone() else { return };
             let total = s.sessions.iter().find(|x| x.id == id).map_or(0.0, |i| i.cost);
             // To $1.97, then up 1¢ a step.
             let add = if total < 1.9 { 1.97 - total } else { 0.01 };

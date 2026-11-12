@@ -108,7 +108,7 @@ fn run(s: &mut App, effects: Effects<ResolutionEffect>, tx: &mut Tx) -> bool {
     let mut changed = false;
     for effect in effects {
         match effect {
-            ResolutionEffect::WakeAt(at) => tx.wake_after(std::time::Duration::from_secs_f64((at - s.clock).max(0.0))),
+            ResolutionEffect::WakeAt(at) => tx.wake_after(std::time::Duration::from_secs_f64((at - *s.clock).max(0.0))),
             ResolutionEffect::Repaint => {
                 tx.instant();
                 changed = true;
@@ -120,8 +120,8 @@ fn run(s: &mut App, effects: Effects<ResolutionEffect>, tx: &mut Tx) -> bool {
 
 /// The tab of `id` opened.
 pub fn opened(s: &mut App, id: &str, tx: &mut Tx) {
-    let (server, known, now) = (server(s), s.session(id).is_some(), s.clock);
-    let effects = s.session_states.apply(&server, id, ResolutionEvent::Opened { known, now });
+    let (server, known, now) = (server(s), s.session(id).is_some(), *s.clock);
+    let effects = s.session_states.apply(&server, id, ResolutionEvent::Opened { known, now: now });
     run(s, effects, tx);
 }
 
@@ -137,10 +137,10 @@ pub fn not_found_error(e: &str) -> bool { e.contains("http status: 404") }
 
 /// The server came back: what didn't resolve tries again.
 pub fn reconnected(s: &mut App, tx: &mut Tx) {
-    let (server, now) = (server(s), s.clock);
+    let (server, now) = (server(s), *s.clock);
     let ids: Vec<String> = s.session_states.0.iter().filter(|((k, _), r)| *k == server && **r == Resolution::Unreachable).map(|((_, id), _)| id.clone()).collect();
     for id in ids {
-        let effects = s.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now });
+        let effects = s.session_states.apply(&server, &id, ResolutionEvent::Reconnected { now: now });
         run(s, effects, tx);
         s.reload_session(&id);
     }
@@ -153,11 +153,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if !s.session_states.0.iter().any(|((k, _), r)| k == key && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)) {
         return false;
     }
-    let (server, now) = (server(s), s.clock);
+    let (server, now) = (server(s), *s.clock);
     let resolving: Vec<String> = s.session_states.0.iter().filter(|((k, _), r)| *k == server && matches!(r, Resolution::Resolving { .. } | Resolution::Unreachable)).map(|((_, id), _)| id.clone()).collect();
     let mut changed = false;
     for id in resolving {
-        let event = if s.session(&id).is_some() { ResolutionEvent::Known } else { ResolutionEvent::Tick { now } };
+        let event = if s.session(&id).is_some() { ResolutionEvent::Known } else { ResolutionEvent::Tick { now: now } };
         let effects = s.session_states.apply(&server, &id, event);
         changed |= run(s, effects, tx);
     }
@@ -190,7 +190,7 @@ pub fn view(s: &App, id: &str) -> View {
 
 /// The open session's panel, when it can't show.
 pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
-    let Route::Session { id: open, server } = &s.route else { return None };
+    let Route::Session { id: open, server } = &*s.route else { return None };
     if open != id {
         return None;
     }

@@ -176,11 +176,11 @@ impl App {
     fn copy_id(&mut self, id: Option<String>, tx: &mut Tx) {
         let Some(id) = id.filter(|i| !i.is_empty()) else { return };
         tx.copy(id);
-        self.status = opencode_i18n::t!("common.copied").into();
+        *self.status = opencode_i18n::t!("common.copied").into();
     }
 
     fn open_session(&self) -> Option<String> {
-        match &self.route {
+        match &*self.route {
             Route::Session { id, .. } => Some(id.clone()),
             _ => None,
         }
@@ -251,13 +251,13 @@ fn agent_shown(s: &App) -> bool {
 }
 
 fn is_live(s: &App) -> bool {
-    matches!(s.source, crate::Source::Live { .. })
+    matches!(*s.source, crate::Source::Live { .. })
 }
 
 /// `/reload` (`composer/commands.tsx:45-84`): the server rebuilds every location, and the app
 /// says so while it does and once it has.
 fn reload(s: &mut App, _: &mut Tx) {
-    s.status = opencode_i18n::t!("command.config.reload.pending").into();
+    *s.status = opencode_i18n::t!("command.config.reload.pending").into();
     s.write(Write::Reload);
 }
 

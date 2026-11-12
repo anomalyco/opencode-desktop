@@ -300,13 +300,13 @@ impl App {
     /// Settings' Interface layout: saves the choice and starts the switch. It ends a tab drag,
     /// a rename and the peek first, so nothing is mid-gesture while the tabs fly.
     pub fn set_tab_layout(&mut self, layout: TabLayout, tx: &mut Tx) {
-        if !self.layout.motion.switch(layout, self.clock) {
+        if !self.layout.motion.switch(layout, *self.clock) {
             return;
         }
         self.change_settings(|s| s.tab_layout = layout);
         self.tab_drag.cancel();
         self.finish_rename(true);
-        self.layout.peek_event(PeekEvent::Disabled, self.clock);
+        self.layout.peek_event(PeekEvent::Disabled, *self.clock);
         // The Inbox shows its cards in the switch's own frame when it can, so the active
         // session's tab has a card to fly into.
         if layout == TabLayout::Inbox {
@@ -347,15 +347,22 @@ impl App {
 /// Runs out the machines' deadlines on the poll clock, and wakes for the next one.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let dwell = f64::from(s.knobs.get(&crate::view::PEEK_DELAY));
-    let shell = &mut s.layout;
-    shell.dwell = dwell;
-    let was = shell.peek;
-    for event in std::mem::take(&mut shell.queued) {
-        shell.peek_event(event, now);
-    }
-    let heard = shell.peek != was;
-    let (ready, keep_open) = (shell.pointer.can_start_edge(), shell.pointer.keep_open());
-    let changed = heard | shell.motion.tick(now) | shell.peek.tick(now, ready, keep_open);
+    let due = |at: Option<f64>| at.is_some_and(|at| now + 1e-9 >= at);
+    // Every poll comes here: the shell is borrowed to write only when something changes it, so
+    // regions that read it stay reused.
+    let quiet = s.layout.dwell == dwell && s.layout.queued.is_empty() && !due(s.layout.motion.due()) && !due(s.layout.peek.due());
+    let changed = !quiet && {
+        let shell = &mut *s.layout;
+        shell.dwell = dwell;
+        let was = shell.peek;
+        for event in std::mem::take(&mut shell.queued) {
+            shell.peek_event(event, now);
+        }
+        let heard = shell.peek != was;
+        let (ready, keep_open) = (shell.pointer.can_start_edge(), shell.pointer.keep_open());
+        heard | shell.motion.tick(now) | shell.peek.tick(now, ready, keep_open)
+    };
+    let shell = &*s.layout;
     if let Some(at) = [shell.motion.due(), shell.peek.due()].into_iter().flatten().reduce(f64::min) {
         tx.wake_after(Duration::from_secs_f64((at - now).max(0.0)));
     }

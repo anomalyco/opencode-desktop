@@ -117,7 +117,7 @@ fn content(s: &App, p: &Pal, v: &limits::View) -> El {
                 panel = panel.child(divider(p));
             }
             let status = t!("usage.go.used", percent = g.meter.percent.round() as i64);
-            let resets = t!("usage.go.resetsIn", duration = duration(g.meter.resets_at, s.now_ms));
+            let resets = t!("usage.go.resetsIn", duration = duration(g.meter.resets_at, *s.now_ms));
             let title = match g.window {
                 "rolling" => t!("usage.go.rolling"),
                 "weekly" => t!("usage.go.weekly"),

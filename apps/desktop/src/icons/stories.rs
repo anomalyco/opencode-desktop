@@ -32,7 +32,7 @@ const GLYPH: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/
 
 fn setup(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
-    s.knobs.set(&FINISH, s.variant as f32);
+    s.knobs.set(&FINISH, *s.variant as f32);
     for p in &mut s.projects {
         match opencode_kit::path::basename(&p.directory) {
             "lumen" => p.icon.override_url = DROP.into(),
@@ -47,7 +47,7 @@ fn setup(s: &mut App, _: &mut Play<App>) {
 /// The sidebar's tabs, as the app draws them, at the sidebar's width.
 fn story_view(s: &App, p: &Pal) -> El {
     let list = view::tab_strip(s, p, "story-tabs", rune_kit::shell::TabOrientation::Vertical, None, None);
-    col().key("story-project-icons").w(s.sidebar_w).h(300.0).pt(8.0).pl(11.0).pr(3.0).fill(p.bg_deep).radius(10.0).child(list)
+    col().key("story-project-icons").w(*s.sidebar_w).h(300.0).pt(8.0).pl(11.0).pr(3.0).fill(p.bg_deep).radius(10.0).child(list)
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

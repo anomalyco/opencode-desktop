@@ -113,24 +113,24 @@ impl App {
         // The side region's contents glide with its edge while the sidebar's flight moves it
         // (`panels::view::region_card`), and land at once again after.
         if self.side_open() {
-            self.side.edge_flight = Some(self.clock + crate::panels::view::SIDE_FLIGHT);
+            self.side.edge_flight = Some(*self.clock + crate::panels::view::SIDE_FLIGHT);
             tx.wake_after(std::time::Duration::from_secs_f64(crate::panels::view::SIDE_FLIGHT + 0.01));
         }
-        self.sidebar_open = !self.sidebar_open;
-        let event = if self.sidebar_open { crate::layout_state::PeekEvent::DockOpened } else { crate::layout_state::PeekEvent::DockClosed };
-        self.layout.peek_event(event, self.clock);
+        *self.sidebar_open = !*self.sidebar_open;
+        let event = if *self.sidebar_open { crate::layout_state::PeekEvent::DockOpened } else { crate::layout_state::PeekEvent::DockClosed };
+        self.layout.peek_event(event, *self.clock);
         tx.wake_after(std::time::Duration::from_secs_f64(crate::layout_state::PEEK_HANDOFF_TIMEOUT));
         true
     }
 
     /// How wide the docked sidebar is: none for top tabs, or while it's closed.
     pub(crate) fn sidebar_shown_w(&self) -> f32 {
-        if self.sidebar_open && self.shows_sidebar() { self.sidebar_w } else { 0.0 }
+        if *self.sidebar_open && self.shows_sidebar() { *self.sidebar_w } else { 0.0 }
     }
 
     /// The open draft's folder, where its session will start; off a draft, the folder last picked.
     pub fn draft_dir(&self) -> &str {
-        match &self.route {
+        match &*self.route {
             Route::Draft(id) => self.tabs.iter().find(|t| t.id == *id).map_or(self.default_dir.as_str(), |t| t.directory.as_str()),
             _ => &self.default_dir,
         }
@@ -141,7 +141,7 @@ impl App {
         crate::view::draft_location::picked(self, &dir);
         self.forget_new_worktree();
         self.note_destination(&dir, "local");
-        let open = match &self.route {
+        let open = match &*self.route {
             Route::Draft(id) => self.tabs.iter_mut().find(|t| t.id == *id && t.directory != dir),
             _ => None,
         };
@@ -149,14 +149,14 @@ impl App {
             tab.directory = dir.clone();
             self.save_tabs();
         }
-        self.default_dir = dir;
+        *self.default_dir = dir;
     }
 
     /// Adds a "New session" draft tab in the last folder picked and shows it (`newDraft`).
     pub(crate) fn open_draft_tab(&mut self) -> String {
         let id = tabs::draft_id();
-        self.tabs.push(Tab::draft(id.clone(), self.default_dir.clone()));
-        self.route = Route::Draft(id.clone());
+        self.tabs.push(Tab::draft(id.clone(), (*self.default_dir).clone()));
+        *self.route = Route::Draft(id.clone());
         let _ = self.show_draft();
         self.apply_default_destination();
         if self.stage.is_none() {
@@ -177,8 +177,8 @@ impl App {
         }
         self.close_settings();
         self.close_picker(false);
-        self.opening = None;
-        self.route = Route::Draft(tab.id);
+        *self.opening = None;
+        *self.route = Route::Draft(tab.id);
         let _ = self.show_draft();
         if self.stage.is_none() {
             self.composer.focused = true;
@@ -189,7 +189,7 @@ impl App {
     /// The draft the open page shows becomes session `id`'s tab, in its place (Desktop's
     /// `prepareSession`). The draft's id, or None when no draft is open.
     pub(crate) fn promote_draft(&mut self, id: &str, directory: &str) -> Option<String> {
-        let Route::Draft(draft) = self.route.clone() else { return None };
+        let Route::Draft(draft) = (*self.route).clone() else { return None };
         let tab = self.tabs.iter_mut().find(|t| t.id == draft)?;
         *tab = Tab::session(id, "", directory);
         self.forget_draft_history(&draft);
@@ -281,7 +281,7 @@ impl App {
     /// The tab the open page belongs to, if any (its `Tab::uid`): a draft's, or the root
     /// session's on the page's server.
     pub(crate) fn current_tab(&self) -> Option<String> {
-        match &self.route {
+        match &*self.route {
             Route::Draft(id) => self.tabs.iter().find(|t| t.id == *id).map(Tab::uid),
             Route::Session { id, server } => {
                 let root = self.root_of(id);
@@ -305,7 +305,7 @@ impl App {
 
     /// The tab, or inbox row, the open page belongs to.
     fn nav_current(&self) -> Option<String> {
-        match (&self.route, self.tab_layout()) {
+        match (&*self.route, self.tab_layout()) {
             (Route::Session { id, server }, crate::layout_state::TabLayout::Inbox) if !self.settings.open => Some(tabs::session_uid(server, self.root_of(id))),
             _ => self.current_tab(),
         }

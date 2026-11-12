@@ -311,7 +311,7 @@ impl App {
 
     /// Opens Find in the active session (or focuses and selects its query when already open).
     pub fn open_find(&mut self, tx: &mut Tx) {
-        let Route::Session { id, .. } = self.route.clone() else { return };
+        let Route::Session { id, .. } = (*self.route).clone() else { return };
         self.close_picker(false);
         self.sync_find_index();
         self.find_step(Event::Open { session: &id }, tx);
@@ -394,7 +394,7 @@ impl App {
     }
 
     fn seek_active(&mut self, tx: &mut Tx) {
-        let Route::Session { id: sid, .. } = self.route.clone() else { return };
+        let Route::Session { id: sid, .. } = (*self.route).clone() else { return };
         let idx = self.find.active_index();
         let Some(hit) = self.find.matches.get(idx).cloned() else { return };
         if self.unfold_if_hidden(&sid, &hit) {
@@ -417,7 +417,7 @@ impl App {
     /// that session's matches (`session.changed`), and leaving the session view closes it, as
     /// Desktop's search goes with its session screen (`disposed`).
     fn sync_find_session(&mut self) -> Option<String> {
-        let Route::Session { id, .. } = &self.route else {
+        let Route::Session { id, .. } = &*self.route else {
             let _ = step(&mut self.find.state, Event::Left);
             self.find.input.clear();
             self.find.input.focused = false;
@@ -588,14 +588,14 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if Bind::Find.matches_tx(ev, tx) {
-        return match s.route {
+        return match *s.route {
             Route::Session { .. } => { s.open_find(tx); true }
             Route::Home => { s.focus_home_search(tx); true }
             Route::Draft(_) => false,
         };
     }
     let step = [(Bind::FindNext, 1), (Bind::FindPrev, -1)].into_iter().find(|(b, _)| b.matches_tx(ev, tx));
-    if let Some((_, d)) = step.filter(|_| matches!(s.route, Route::Session { .. }) && s.find.is_open()) {
+    if let Some((_, d)) = step.filter(|_| matches!(*s.route, Route::Session { .. }) && s.find.is_open()) {
         s.step_find(d, tx);
         return true;
     }
@@ -604,7 +604,7 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 /// Escape when Find is open (outside a busy composer's stop).
 pub fn dismiss_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let take = ev.key == Key::Escape && s.find.is_open() && matches!(s.route, Route::Session { .. });
+    let take = ev.key == Key::Escape && s.find.is_open() && matches!(*s.route, Route::Session { .. });
     // Desktop leaves nothing focused once Escape closes the bar (`esc-find`).
     if take { s.close_find(tx); }
     take
@@ -705,7 +705,7 @@ pub fn menu_items() -> Vec<MenuItem<App>> {
     };
     [
         MenuItem::separator().menu("Edit").after("selectAll:"),
-        item(opencode_i18n::t!("rune.menu.edit.find"), "Edit/Find", Bind::Find, |s, tx| match s.route {
+        item(opencode_i18n::t!("rune.menu.edit.find"), "Edit/Find", Bind::Find, |s, tx| match *s.route {
             Route::Session { .. } => s.open_find(tx),
             Route::Home => s.focus_home_search(tx),
             Route::Draft(_) => {}

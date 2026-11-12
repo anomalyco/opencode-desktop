@@ -64,7 +64,7 @@ pub fn run_thirty(s: &mut App) {
     for (k, (agent, title)) in TASKS.iter().enumerate() {
         let id = child(k);
         let ago = 20_000 + k as i64 * 47_000;
-        let (created, idle) = if k % 3 == 2 { (s.now_ms - ago * 40, Some(s.now_ms - ago)) } else { (s.now_ms - ago, None) };
+        let (created, idle) = if k % 3 == 2 { (*s.now_ms - ago * 40, Some(*s.now_ms - ago)) } else { (*s.now_ms - ago, None) };
         s.sessions.push(SessionInfo {
             id: id.clone(),
             parent: Some(parent.clone()),
@@ -73,7 +73,7 @@ pub fn run_thirty(s: &mut App) {
             title: (*title).into(),
             agent: (*agent).into(),
             created,
-            updated: s.now_ms,
+            updated: *s.now_ms,
             idle,
             ..Default::default()
         });

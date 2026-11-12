@@ -55,19 +55,19 @@ pub(crate) fn step(stack: &[Layer], event: Event) -> Option<Effect> {
 
 /// The open layers, bottom first.
 pub(crate) fn stack(s: &App) -> Vec<Layer> {
-    let session = matches!(s.route, Route::Session { .. });
+    let session = matches!(*s.route, Route::Session { .. });
     [
         (Layer::ChildSession, crate::subagents::reply::composer_empty(s) && s.has_parent()),
         (Layer::ToolStep, s.tool_view_open()),
         (Layer::Toast, s.toast.current().is_some_and(|t| t.persistent)),
         (Layer::Find, s.find.is_open() && session),
-        (Layer::Todo, s.todo_open),
+        (Layer::Todo, *s.todo_open),
         (Layer::Activity, s.shells.activity.is_open()),
         (Layer::HomeMenu, s.project_state.home_menu_open),
         (Layer::Run, crate::stop::escape_stops(s)),
         (Layer::Opening, s.opening.is_some()),
         (Layer::Quote, s.quote.offered()),
-        (Layer::Peek, !s.sidebar_open && s.layout.peek.shown()),
+        (Layer::Peek, !*s.sidebar_open && s.layout.peek.shown()),
     ]
     .into_iter()
     .filter_map(|(layer, open)| open.then_some(layer))
@@ -103,7 +103,7 @@ fn apply(s: &mut App, effect: Effect, ev: &KeyEvent, tx: &mut Tx) {
         }
         Layer::Todo => {
             tx.instant();
-            s.todo_open = false;
+            *s.todo_open = false;
         }
         Layer::Find => {
             crate::find::dismiss_key(s, ev, tx);

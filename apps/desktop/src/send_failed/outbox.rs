@@ -60,15 +60,15 @@ impl App {
     /// The window's server's outbox: its stored prompts are read on the storage thread, after
     /// the first frame, and come in through `poll_sends`.
     pub(crate) fn open_outbox(&mut self) {
-        let Source::Live { server, allow_send: true, .. } = &self.source else {
+        let Source::Live { server, allow_send: true, .. } = &*self.source else {
             return;
         };
         let base = server.base.clone();
-        self.unsent = Log::default();
+        *self.unsent = Log::default();
         if !self.persists() {
             return;
         }
-        store::listen(&base, self.waker.clone());
+        store::listen(&base, (*self.waker).clone());
         store::read(&base, &self.window.id);
         self.unsent.store = Store::Reading { server: base };
     }
@@ -76,7 +76,7 @@ impl App {
     /// This window is woken when the storage thread answers its server's outbox.
     pub(crate) fn listen_outbox(&self) {
         if let Some(server) = self.unsent.store.server() {
-            store::listen(server, self.waker.clone());
+            store::listen(server, (*self.waker).clone());
         }
     }
 
@@ -84,7 +84,7 @@ impl App {
     /// be saved, a writer that was gone.
     pub(super) fn take_mail(&mut self) -> bool {
         let Some(server) = self.unsent.store.server().map(str::to_owned) else { return false };
-        store::listen(&server, self.waker.clone());
+        store::listen(&server, (*self.waker).clone());
         let mail = store::take(&server);
         let changed = !mail.is_empty();
         for m in mail {
@@ -181,7 +181,7 @@ impl App {
                 crate::storage::set_doc(key, None);
             }
         }
-        let offline = crate::reconnect::down(self) || matches!(self.source, Source::Live { writes: None, .. });
+        let offline = crate::reconnect::down(self) || matches!(*self.source, Source::Live { writes: None, .. });
         sent.phase = Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } };
         let (id, session) = (sent.id.clone(), sent.session.clone());
         self.unsent.note(sent);
@@ -200,7 +200,7 @@ impl App {
             Retry::Backoff { attempts, .. } => attempts,
         };
         let delay = (0.25 * 2_f64.powi(attempts.min(5) as i32)).min(5.0);
-        self.unsent.retry = Retry::Backoff { attempts: attempts + 1, until: self.clock + delay };
+        self.unsent.retry = Retry::Backoff { attempts: attempts + 1, until: *self.clock + delay };
     }
 
     pub(crate) fn tick_outbox(&mut self, tx: &mut rune::Tx) -> bool {
@@ -209,18 +209,18 @@ impl App {
         }
         let mut changed = false;
         let due = match self.unsent.retry {
-            Retry::Ready => self.clock,
+            Retry::Ready => *self.clock,
             Retry::Backoff { until, .. } => until,
         };
-        if self.clock >= due {
+        if *self.clock >= due {
             changed = self.pump_outbox();
             self.defer_outbox();
         }
         let next = match self.unsent.retry {
-            Retry::Ready => self.clock,
+            Retry::Ready => *self.clock,
             Retry::Backoff { until, .. } => until,
         };
-        tx.wake_after(Duration::from_secs_f64((next - self.clock).max(0.01)));
+        tx.wake_after(Duration::from_secs_f64((next - *self.clock).max(0.01)));
         changed
     }
 
@@ -231,7 +231,7 @@ impl App {
         if crate::reconnect::down(self) || matches!(self.unsent.store, Store::Reading { .. }) {
             return false;
         }
-        let Source::Live { writes: Some(writer), allow_send: true, .. } = &self.source else {
+        let Source::Live { writes: Some(writer), allow_send: true, .. } = &*self.source else {
             return false;
         };
         let writer = writer.clone();

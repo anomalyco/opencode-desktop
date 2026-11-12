@@ -126,7 +126,7 @@ fn shimmer(a: &mut NodeArgs) -> Result<El, String> {
     let font = style(a, TextStyle::new(13.0, 440.0));
     let pal = p(a);
     let app = cx::app().ok_or("ui.shimmer draws only in a render")?;
-    Ok(session_view::working::shimmer(app, &pal, &words, font, app.clock))
+    Ok(session_view::working::shimmer(app, &pal, &words, font, *app.clock))
 }
 
 fn keybind(a: &mut NodeArgs) -> Result<El, String> {
@@ -523,8 +523,8 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
                 return tx.live_only();
             }
             let aiming = open.0 != row_key && aim.heading(point, open.1);
-            let now = app.clock;
-            moved(app, tx, &move |row: super::flyout::Row| super::FlyoutEvent::Moved { row, aiming, now });
+            let now = *app.clock;
+            moved(app, tx, &move |row: super::flyout::Row| super::FlyoutEvent::Moved { row, aiming, now: now });
         })
         .on_press_tx(move |app: &mut App, tx: &mut Tx| press(app, tx, &super::FlyoutEvent::Activated)))
 }

@@ -63,7 +63,7 @@ pub fn step(s: &mut App, event: RetryEvent, tx: &mut Tx) {
     for effect in settings::step(&mut s.settings_pages.server.retry, event) {
         match effect {
             RetryEffect::Run { attempt, timeout_ms } => {
-                let due = s.clock + timeout_ms as f64 / 1000.0;
+                let due = *s.clock + timeout_ms as f64 / 1000.0;
                 // Without a server nothing answers: the timeout ends it.
                 let waiter = crate::servers::health::retry(s, tx).unwrap_or(0);
                 s.settings_pages.server.wait = Wait::Armed { attempt, waiter, due };
@@ -80,13 +80,16 @@ pub fn step(s: &mut App, event: RetryEvent, tx: &mut Tx) {
 /// `poll`: the Retry's probes answered (`retry.settled`) or its time ran out (`retry.timed-out`);
 /// the page follows the server it shows (`server.synced`).
 pub fn poll(s: &mut App, tx: &mut Tx) {
-    let key = s.settings_pages.server.key.clone();
-    step(s, RetryEvent::ServerSynced(key), tx);
+    // Every poll comes here: the page's retry is written only when its server changed.
+    if *s.settings_pages.server.retry.server() != s.settings_pages.server.key {
+        let key = s.settings_pages.server.key.clone();
+        step(s, RetryEvent::ServerSynced(key), tx);
+    }
     let Wait::Armed { attempt, waiter, due } = s.settings_pages.server.wait else { return };
     if crate::servers::health::resolved(waiter) {
         return step(s, RetryEvent::Settled { attempt }, tx);
     }
-    if s.clock >= due {
+    if *s.clock >= due {
         s.settings_pages.server.wait = Wait::Off;
         step(s, RetryEvent::TimedOut { attempt }, tx);
     }

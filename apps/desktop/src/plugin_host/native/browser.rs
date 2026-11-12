@@ -399,7 +399,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     if let Some(next) = app.browser.devtools.values().map(|(_, at)| *at).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
-    let picks: Vec<_> = app.browser.host.drain_picked_elements().collect();
+    let picks: Vec<_> = if app.browser.host.has_picked() { app.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {

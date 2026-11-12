@@ -287,7 +287,7 @@ fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, project: Option<&opencod
         return (Some(avatar), Some((ring, 14.0)));
     }
     let meta = e.updated.map(|at| {
-        let ago = relative_time(s.now_ms, at);
+        let ago = relative_time(*s.now_ms, at);
         let w = rune::text::measure(&ago, &[], META, None).0;
         // The full date shows on hover (`Tooltip` over `command-palette-meta`).
         let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, session_view::turn_errors::moment(rune::LocalTime::at(at)));

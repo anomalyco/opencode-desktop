@@ -104,7 +104,7 @@ impl App {
 
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
-        let now = self.now_ms;
+        let now = *self.now_ms;
         let mut done = Done { status: self.apply_status(ty, data, &sid), ..Done::default() };
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             done.inbox = self.apply_inbox(ty, data, &sid);
@@ -132,7 +132,7 @@ impl App {
                     done.renamed = true;
                 }
             } else if (ty == "session.created" || ty == "session.step.started")
-                && let Source::Live { requests: Some(r), .. } = &self.source
+                && let Source::Live { requests: Some(r), .. } = &*self.source
             {
                 // A session we haven't listed: refresh the list (one GET).
                 let _ = r.send(Request::Sessions);
@@ -168,7 +168,7 @@ impl App {
                 }
                 self.stops.forget(sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
-                let now = self.now_ms;
+                let now = *self.now_ms;
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.busy = Some(now);
                 }
@@ -180,12 +180,12 @@ impl App {
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }
-                let now = self.now_ms;
+                let now = *self.now_ms;
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.idle = Some(now);
                 }
                 // The server's own idle mark, like Desktop's re-read after a run ends.
-                if let Source::Live { requests: Some(r), .. } = &self.source {
+                if let Source::Live { requests: Some(r), .. } = &*self.source {
                     let _ = r.send(Request::Info(sid.to_owned()));
                 }
                 true
@@ -247,7 +247,7 @@ impl App {
     /// Whether `sid`'s transcript is on screen: the open session's family (its page, agent
     /// rows and subagent panels) is the only place transcripts draw.
     fn shows_transcript(&self, sid: &str) -> bool {
-        matches!(&self.route, Route::Session { id: open, .. } if self.root_of(open) == self.root_of(sid))
+        matches!(&*self.route, Route::Session { id: open, .. } if self.root_of(open) == self.root_of(sid))
     }
 
     /// An event the server's copy took, in this window: what it shows and does. True when its
@@ -255,7 +255,7 @@ impl App {
     pub(crate) fn react(&mut self, e: &StreamEvent) -> bool {
         let (ty, data, done) = (e.ty.as_str(), &e.data, &e.done);
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
-        if matches!(self.source, Source::Fixture) { self.served.record(ty, data); }
+        if matches!(*self.source, Source::Fixture) { self.served.record(ty, data); }
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= done.status | self.status_landed(ty, data, &sid);
@@ -293,7 +293,7 @@ impl App {
         if ty.starts_with("session.") && !sid.is_empty() {
             // A plain session page with side/top tabs shows neither the age nor the
             // recency order of unrelated sessions. Still keep their metadata current.
-            let shows_age = !matches!(self.route, Route::Session { .. }) || self.shows_transcript(&sid)
+            let shows_age = !matches!(*self.route, Route::Session { .. }) || self.shows_transcript(&sid)
                 || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
                 || self.suggest.state.context().is_some() || self.side_open() || self.settings.open;
             if done.touched || done.renamed {
@@ -323,7 +323,7 @@ impl App {
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
                 // Desktop reports the open session's idle mark as viewed, so it never lights
                 // up: every window that shows it marks it, whichever window took the event.
-                let open = matches!(&self.route, Route::Session { id: r, .. } if self.root_of(r) == self.root_of(sid));
+                let open = matches!(&*self.route, Route::Session { id: r, .. } if self.root_of(r) == self.root_of(sid));
                 let marked = open && self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
                     let was = s.viewed;
                     s.viewed = s.viewed.max(s.idle);
@@ -339,7 +339,7 @@ impl App {
             }
             "permission.asked" | "form.created" => {
                 let id = if data["form"].is_object() { &data["form"]["id"] } else { &data["id"] };
-                let at = data["eventCreated"].as_i64().unwrap_or(self.now_ms);
+                let at = data["eventCreated"].as_i64().unwrap_or(*self.now_ms);
                 if let Some(id) = id.as_str() { self.sidebar_inbox.asked(id, at); }
                 false
             }
@@ -375,7 +375,7 @@ impl App {
 impl App {
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
-        let now = self.now_ms;
+        let now = *self.now_ms;
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
             "session.archived" | "session.unarchived" => i.archived = (ty == "session.archived").then_some(now),

@@ -690,9 +690,12 @@ pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
 /// are the plugins' watched signals compared again.
 pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     servers::poll_actions(app, tx);
-    let now = app.clock;
+    let now = *app.clock;
     mark(&app.plugins, now);
-    let mut changed = std::mem::take(&mut app.plugins.asked);
+    let mut changed = app.plugins.asked;
+    if changed {
+        app.plugins.asked = false;
+    }
     changed |= app_half::poll(app, now, tx);
     project_request::poll(app, tx);
     // Images that landed or settled: the surfaces that drew them read them again.
@@ -798,8 +801,9 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
             step_trust(app, i, TrustEvent::Revoke);
         }
         Life::Disabled => {
+            let allows = p.trust.allows();
             app.plugins.disabled.remove(id);
-            if p.trust.allows() {
+            if allows {
                 drive(app, i, LifeEvent::Load);
             } else {
                 step_trust(app, i, TrustEvent::Ask);

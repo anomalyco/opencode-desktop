@@ -100,7 +100,7 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         input::KeyOutcome::Ignored => false,
         input::KeyOutcome::Consumed => true,
         input::KeyOutcome::ConsumedResetBlink => {
-            s.terminal.reset_blink(s.clock);
+            s.terminal.reset_blink(*s.clock);
             true
         }
     }
@@ -114,7 +114,7 @@ pub(crate) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
         input::dispatch_ime(&tab.session, tab.stream.as_ref(), tab.fixture_shell, ime)
     };
     if consumed {
-        s.terminal.reset_blink(s.clock);
+        s.terminal.reset_blink(*s.clock);
     }
     consumed
 }

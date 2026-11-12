@@ -75,7 +75,8 @@ pub fn shown(size: Option<[u32; 2]>, w: f32, h: f32) -> [f32; 4] {
 
 /// Steps the open image's zoom glide (the app's poll).
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
-    s.media_store_mut().zoom.poll(now, tx)
+    // Every poll comes here: the store is written only while a glide runs.
+    s.media_store().zoom.gliding() && s.media_store_mut().zoom.poll(now, tx)
 }
 
 fn close<S: TimelineHost>(s: &mut S, _: &mut Tx) {

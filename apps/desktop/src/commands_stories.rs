@@ -19,13 +19,13 @@ const KEYS: &[Trigger] = &[
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    show(s, s.variant, tx);
+    show(s, *s.variant, tx);
 }
 
 fn show(s: &mut App, variant: usize, tx: &mut Tx) {
-    s.variant = variant;
+    *s.variant = variant;
     s.close_switcher(false);
-    s.composer = TextEdit::new("");
+    *s.composer = TextEdit::new("");
     tx.instant();
     match variant {
         0 => {
@@ -51,7 +51,7 @@ fn view(s: &App, p: &Pal) -> El {
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story { path: "Composer/Commands", scene: |s| {
         s.finish_stream();
-        show(s, s.variant, &mut Tx::default());
+        show(s, *s.variant, &mut Tx::default());
         stage(s, view);
     }, knobs: &[], keys: KEYS, variants: VARIANTS },
 ]);

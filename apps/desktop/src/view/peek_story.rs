@@ -20,7 +20,7 @@ fn open(s: &mut App, play: &mut rune::Play<'_, App>) {
     crate::open_scene(s);
     s.finish_stream();
     crate::scenes::side_tabs(s);
-    s.sidebar_open = false;
+    *s.sidebar_open = false;
     play.instant();
     play.after(0.6, |s, tx| s.queue_peek(at_edge(true), tx));
     play.after(1.8, leave);
@@ -33,7 +33,7 @@ fn leave(s: &mut App, tx: &mut rune::Play<'_, App>) {
 
 /// A window's shell in small: the sidebar, the panel beside it, the peek's zones and the toggle.
 fn view(s: &App, p: &Pal) -> El {
-    let page = match &s.route {
+    let page = match &*s.route {
         Route::Session { id, .. } => session_page(s, p, id),
         _ => el(),
     };
@@ -61,7 +61,7 @@ fn view(s: &App, p: &Pal) -> El {
         .child(sidebar(s, p))
         .child(panel)
         .children(peek(s))
-        .children(chrome().sidebar_header().then(|| sidebar_toggle(s, p, s.sidebar_open, s.sidebar_w)))
+        .children(chrome().sidebar_header().then(|| sidebar_toggle(s, p, *s.sidebar_open, *s.sidebar_w)))
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

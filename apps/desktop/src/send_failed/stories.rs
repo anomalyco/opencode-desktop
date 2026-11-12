@@ -11,7 +11,7 @@ pub(crate) const SECOND: &str = "msg_zzreceipt2";
 pub(crate) fn setup(s: &mut App) {
     crate::scenes::busy_scene(s);
     s.playback.clear();
-    let Route::Session { id: sid, .. } = s.route.clone() else { return };
+    let Route::Session { id: sid, .. } = (*s.route).clone() else { return };
     for (id, body) in [(FIRST, "Why does it run on that machine?"), (SECOND, "Let's start with the ideas first.")] {
         s.transcripts.get_mut(&sid).unwrap().messages.push(Message::User { id: id.into(), text: body.into() });
         let prompt = opencode_kit::client::Prompt { id: Some(id.into()), text: body.into(), ..Default::default() };
@@ -22,7 +22,7 @@ pub(crate) fn setup(s: &mut App) {
 }
 
 pub(crate) fn confirmed(s: &mut App) {
-    let Route::Session { id: sid, .. } = s.route.clone() else { return };
+    let Route::Session { id: sid, .. } = (*s.route).clone() else { return };
     s.judge_sends_by_page(&sid, &[Message::User { id: SECOND.into(), text: "Let's start with the ideas first.".into() }]);
     // The timed-out first is unconfirmed until its receipt check: the server never got it.
     s.step_send(FIRST, super::machine::Event::Checked(super::machine::Found::Missing));
@@ -45,7 +45,7 @@ And keep each slide to one idea, with the code it came from a click away rather 
 pub(crate) fn queued_long(s: &mut App) {
     crate::scenes::busy_scene(s);
     s.settings.fold_user = true;
-    let Route::Session { id: sid, .. } = s.route.clone() else { return };
+    let Route::Session { id: sid, .. } = (*s.route).clone() else { return };
     for (id, body) in [(FIRST, LONG), (SECOND, "Wait, I don't see the show source thing in the slide. Is it built into what I've been running?")] {
         s.inboxes.entry(sid.clone()).or_default().upsert(opencode_kit::model::InboxItem { id: id.into(), text: body.into(), delivery: opencode_kit::model::Delivery::Steer, files: vec![] });
     }
@@ -58,7 +58,7 @@ fn open(s: &mut App, _: &mut Play<App>) { setup(s); }
 
 fn offline(s:&mut App) {
     crate::open_scene(s); s.finish_stream();
-    let Route::Session { id: session, .. }=s.route.clone() else { return };
+    let Route::Session { id: session, .. }=(*s.route).clone() else { return };
     let body="Run the tests before you merge.";
     let mut sent=Sent::new(&session,FIRST,Entry::of(&TextEdit::new(body)),vec![],vec![],false);
     sent.phase=super::Phase::Waiting { why: "waiting for connection".into() }; sent.journaled=true;

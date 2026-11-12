@@ -143,7 +143,7 @@ impl App {
                 return crate::status_toast::fail(self, opencode_i18n::t!("rune.attach.failed"), crate::status_toast::plain(&e));
             }
         };
-        let server = match &self.source {
+        let server = match &*self.source {
             crate::Source::Live { server, .. } if !server.is_local() => server.clone(),
             _ => {
                 return self.attach.add_path(PathAttachment {
@@ -157,7 +157,7 @@ impl App {
         // copies twice and lands once (`addPath` keeps one per path).
         let id = opencode_kit::client::message_id();
         let size = size as u64;
-        let a = &mut self.attach;
+        let a = &mut *self.attach;
         let Some(attempt) = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Started { id: &id, name: &name, mime: &mime, size }).into_iter().find_map(|e| match e {
             uploads::Effect::Run(attempt) => Some(attempt),
             _ => None,
@@ -166,8 +166,8 @@ impl App {
         };
         // The upload toast comes up with the first upload (`UploadToast`).
         crate::status_toast::uploads_shown(self);
-        let draft = crate::restore::draft_key(&self.route);
-        let a = &mut self.attach;
+        let draft = crate::restore::draft_key(&*self.route);
+        let a = &mut *self.attach;
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         a.runs.insert(attempt, (stop.clone(), draft));
         let (out, wake, directory, path) = (a.uploads_tx.clone(), a.waker.clone(), self.composer_directory(), path.to_owned());
@@ -218,14 +218,14 @@ impl App {
                     (event, Some(done))
                 }
             };
-            let a = &mut self.attach;
+            let a = &mut *self.attach;
             let before = a.uploads.clone();
             let effects = uploads::step(&mut a.seq, &mut a.uploads, event);
             changed |= a.uploads != before;
             self.upload_effects(effects, done, tx);
         }
         if self.attach.uploads.next_stall().is_some_and(|due| now + 1e-9 >= due) {
-            let a = &mut self.attach;
+            let a = &mut *self.attach;
             let effects = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Tick { now });
             changed |= !effects.is_empty();
             self.upload_effects(effects, None, tx);
@@ -269,7 +269,7 @@ impl App {
     /// The upload card's cancel (`upload.cancelled`): it leaves the composer, its copy stops,
     /// and what the copy answers later is dropped.
     pub fn cancel_upload(&mut self, id: &str) {
-        let a = &mut self.attach;
+        let a = &mut *self.attach;
         let effects = uploads::step(&mut a.seq, &mut a.uploads, uploads::Event::Cancelled { id });
         for effect in effects {
             if let uploads::Effect::Abort(attempt) = effect

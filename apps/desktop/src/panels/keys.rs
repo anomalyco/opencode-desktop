@@ -76,7 +76,7 @@ impl App {
         let mut changed = false;
         if let Some(sid) = self.side.closing.session().map(str::to_owned) {
             let shut = self.side_region_shut(&sid, None);
-            let effects = self.side.closing.step(Event::Frame { clock: self.clock, shut });
+            let effects = self.side.closing.step(Event::Frame { clock: *self.clock, shut });
             changed |= self.run_closing(effects, tx);
         }
         let has_stored_tabs = fresh && self

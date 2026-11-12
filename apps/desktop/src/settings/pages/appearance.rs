@@ -86,10 +86,10 @@ pub fn view(s: &App, p: &Pal) -> El {
     let f = &s.settings_pages.fonts;
     let themes = crate::themes::all();
     let theme_about = row().child(about(p, &format!("{} ", t!("settings.general.row.theme.description")))).child(link(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/docs/themes"));
-    let zoom = (st.zoom_percent(s.zoom), ZOOM_LEVELS);
+    let zoom = (st.zoom_percent(*s.zoom), ZOOM_LEVELS);
     let mut levels: Vec<(String, String)> = zoom.1.iter().map(|l| (format!("{}", (l * 100.0).round() as i32), opencode_i18n::percent(f64::from(*l)))).collect();
     if !levels.iter().any(|(id, _)| *id == zoom.0) {
-        levels.push((zoom.0.clone(), opencode_i18n::percent(f64::from(s.zoom))));
+        levels.push((zoom.0.clone(), opencode_i18n::percent(f64::from(*s.zoom))));
         levels.sort_by_key(|(id, _)| id.parse::<i32>().unwrap_or(0));
     }
     let face = |family: Family| {
@@ -137,17 +137,17 @@ impl settings::Settings {
 impl App {
     /// Sets the window's zoom to `level` (Appearance › Zoom), clamped as the zoom keys clamp it.
     pub fn set_zoom_level(&mut self, level: f32) {
-        self.zoom = level.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX);
+        *self.zoom = level.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX);
         self.zoom_pinch.leveled();
         if self.persists() {
-            crate::tabs::save_zoom(self.zoom);
+            crate::tabs::save_zoom(*self.zoom);
         }
     }
 }
 
 /// Text rendering's description, and what the choice falls back to here when it does.
 fn text_rendering_note(s: &App) -> String {
-    match s.text_rendering {
+    match *s.text_rendering {
         crate::text_rendering::Rendering::FellBack { reason, .. } if !reason.is_empty() => format!("{} {reason}.", t!("rune.textRendering.description")),
         _ => t!("rune.textRendering.description").to_owned(),
     }

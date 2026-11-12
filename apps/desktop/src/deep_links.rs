@@ -139,7 +139,7 @@ fn server_of(_: &App) -> Option<ServerId> {
 /// The servers the window has a half of that can take writes: a link waits only for its own
 /// server, not for the one the window shows.
 fn ready_servers(s: &mut App) -> Vec<ServerId> {
-    let can_write = |s: &mut App| matches!(&s.source, Source::Live { writes: Some(_), .. } | Source::Fixture);
+    let can_write = |s: &mut App| matches!(&*s.source, Source::Live { writes: Some(_), .. } | Source::Fixture);
     s.checkout.keys().into_iter().filter(|k| crate::servers::runtime::with_server(s, k, can_write).unwrap_or(false)).map(|k| k.as_str().to_owned()).collect()
 }
 

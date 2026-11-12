@@ -57,7 +57,7 @@ impl App {
     /// Steer `id` went to `session` while it worked: once the server admits it, it moves the
     /// blocking work. The fixture admits at once.
     pub fn steered(&mut self, session: &str, id: &str) {
-        match self.source {
+        match *self.source {
             Source::Fixture => {
                 self.move_blocking(session, true);
             }
@@ -69,7 +69,7 @@ impl App {
 
     /// ⌃B and the hint: moves the open session's blocking work, reporting a failure.
     pub fn move_to_background(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session { id, .. } = self.route.clone() else { return false };
+        let Route::Session { id, .. } = (*self.route).clone() else { return false };
         tx.instant();
         self.move_blocking(&id, false)
     }
@@ -79,7 +79,7 @@ impl App {
         if parts.is_empty() {
             return false;
         }
-        match self.source {
+        match *self.source {
             Source::Fixture => {
                 self.fixture_background(session, &parts);
                 true
@@ -113,7 +113,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !crate::keymap::Bind::Background.matches_tx(ev, tx) {
         return false;
     }
-    let Route::Session { id, .. } = s.route.clone() else { return false };
+    let Route::Session { id, .. } = (*s.route).clone() else { return false };
     if blocking(s, &id).is_empty() {
         return false;
     }

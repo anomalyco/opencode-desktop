@@ -86,7 +86,7 @@ impl crate::App {
     /// A live app re-reads the open session after each step starts (`events.rs`); the fixture
     /// answers from what it streamed.
     pub(crate) fn refresh_fixture_page(&mut self, sid: &str) {
-        self.schedule(self.clock + REFRESH, "fixture.page", json!({ "sessionID": sid }));
+        self.schedule(*self.clock + REFRESH, "fixture.page", json!({ "sessionID": sid }));
     }
 
     /// `POST /api/session/:id/background`: each blocking call returns, as a live server's does
@@ -94,7 +94,7 @@ impl crate::App {
     pub(crate) fn fixture_background(&mut self, sid: &str, parts: &[String]) {
         self.background.fixture_moves.push(sid.to_owned());
         let Some(Message::Assistant(a)) = self.transcripts.get(sid).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(a) if a.completed.is_none()))) else { return };
-        let at = self.clock + 0.05;
+        let at = *self.clock + 0.05;
         let moves: Vec<Value> = a
             .parts
             .iter()

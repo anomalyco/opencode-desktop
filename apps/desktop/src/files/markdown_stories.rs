@@ -43,7 +43,7 @@ pub fn init(s: &mut App) {
     s.open_workspace_file(PROPOSAL, false, None, &mut tx);
     s.panel_sidebar.opened = false;
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
-    match s.variant {
+    match *s.variant {
         1 => s.toggle_rendered(&sid, PROPOSAL, &mut tx),
         2 => follow(s),
         _ => {}

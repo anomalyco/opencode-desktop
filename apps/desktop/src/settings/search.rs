@@ -94,7 +94,10 @@ pub fn leave(s: &mut App) {
 
 /// Starts the lit row's fade after its first frame, and drops it once faded.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let now = s.clock;
+    let now = *s.clock;
+    if s.settings_pages.find.reveal.is_none() {
+        return false;
+    }
     let Some(r) = s.settings_pages.find.reveal.as_mut() else { return false };
     if !s.settings.open {
         s.settings_pages.find.reveal = None;
@@ -407,7 +410,7 @@ fn reveal_entry(s: &mut App, e: &Entry, tx: &mut Tx) {
     }
     match &e.target {
         Some(target) => {
-            s.settings_pages.find.reveal = Some(Reveal { target: target.clone(), started: s.clock, fading: false });
+            s.settings_pages.find.reveal = Some(Reveal { target: target.clone(), started: *s.clock, fading: false });
             tx.scroll_center(format!("setting-{target}"));
             tx.wake_after(std::time::Duration::from_millis(50));
         }
@@ -426,10 +429,11 @@ pub fn palette(s: &App, query: &str, max: usize) -> Vec<Entry> {
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if crate::keymap::Bind::SettingsSearch.matches_tx(ev, tx) {
         tx.instant();
-        let q = &mut s.settings_pages.find.query;
-        s.settings_pages.search.focused = false;
-        s.settings_pages.shortcuts.filter.focused = false;
-        s.settings_pages.projects.filter.focused = false;
+        let pages = &mut *s.settings_pages;
+        let q = &mut pages.find.query;
+        pages.search.focused = false;
+        pages.shortcuts.filter.focused = false;
+        pages.projects.filter.focused = false;
         q.focused = true;
         let end = q.text.len();
         q.set_selection(0, end);

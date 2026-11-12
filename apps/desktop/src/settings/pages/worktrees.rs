@@ -283,7 +283,7 @@ fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, followed: 
     let status = if compact { None } else if deleting {
         Some(faint(t!("workspace.lifecycle.deleting").to_owned()).key("settings-worktree-deleting"))
     } else {
-        linked.first().filter(|x| x.updated > 0).map(|x| faint(crate::switcher::relative_time(s.now_ms, x.updated)).key("settings-worktree-active").help(t!("settings.workspaces.lastActiveSession").to_owned()))
+        linked.first().filter(|x| x.updated > 0).map(|x| faint(crate::switcher::relative_time(*s.now_ms, x.updated)).key("settings-worktree-active").help(t!("settings.workspaces.lastActiveSession").to_owned()))
     };
     let mut r = col().key(format!("settings-worktree-{}", w.key())).w_full().gap(12.0).pb(if divided { 20.0 } else { 0.0 }).mb(if divided { 20.0 } else { 0.0 })
         .child(row().w_full().gap(20.0).items_start()
@@ -306,7 +306,7 @@ fn worktree_row(s: &App, p: &Pal, w: &Worktree, active: Option<&str>, followed: 
 fn sessions(s: &App, p: &Pal, linked: &[&SessionInfo]) -> El {
     let n = linked.len();
     let rows = linked.iter().enumerate().map(|(i, x)| {
-        let time = (n > 1 && x.updated > 0).then(|| text(crate::switcher::relative_time(s.now_ms, x.updated)).font(BODY).color(p.faint));
+        let time = (n > 1 && x.updated > 0).then(|| text(crate::switcher::relative_time(*s.now_ms, x.updated)).font(BODY).color(p.faint));
         row().key(format!("settings-worktree-session-{}", x.id)).w_full().py(10.0).pl(12.0).pr(16.0).gap(12.0).center_y()
             .border_sides([0.0, 0.0, if i + 1 < n { 0.5 } else { 0.0 }, 0.0], p.border)
             .border_layout()
@@ -335,11 +335,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             dispatch(s, Event::InventorySynced { keys });
         }
     }
-    let now = s.now_ms;
-    let st = &mut s.settings_pages.worktrees;
-    if st.timers.is_empty() {
+    let now = *s.now_ms;
+    if s.settings_pages.worktrees.timers.is_empty() {
         return false;
     }
+    let st = &mut s.settings_pages.worktrees;
     let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut st.timers).into_iter().partition(|(at, _)| *at <= now);
     st.timers = later;
     if let Some(next) = st.timers.iter().map(|(at, _)| *at).min() {
@@ -357,7 +357,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 fn timer(s: &mut App, ms: i64, due: Due) {
-    s.settings_pages.worktrees.timers.push((s.now_ms + ms, due));
+    s.settings_pages.worktrees.timers.push((*s.now_ms + ms, due));
 }
 
 fn stop(s: &mut App, due: Due) {

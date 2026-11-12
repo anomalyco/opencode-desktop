@@ -145,10 +145,10 @@ fn card(s: &App, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
 
 /// A row's field lost focus: the rename is dropped, as a click away drops Desktop's.
 pub fn poll(s: &mut App) -> bool {
-    let st = &mut s.settings_pages.project;
-    if st.renaming.is_some() && !st.rename.focused {
-        st.renaming = None;
-        return true;
+    let st = &s.settings_pages.project;
+    if st.renaming.is_none() || st.rename.focused {
+        return false;
     }
-    false
+    s.settings_pages.project.renaming = None;
+    true
 }

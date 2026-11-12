@@ -117,7 +117,7 @@ impl App {
     pub fn suggestion_ids(&self) -> Vec<String> {
         match &self.suggest.state {
             Popover::Context(list) => {
-                let stale = !matches!(self.source, crate::Source::Fixture) && self.mentions.search.files_stale(&list.query);
+                let stale = !matches!(*self.source, crate::Source::Fixture) && self.mentions.search.files_stale(&list.query);
                 self.mention_items().into_iter().filter(|i| !(stale && i.kind == crate::mentions::Kind::File && !i.recent)).map(|i| i.key).collect()
             }
             Popover::CommandInline(_) | Popover::CommandMenu(_) => self.slash_items().into_iter().map(|c| c.id).collect(),
@@ -242,7 +242,7 @@ impl App {
     /// Another draft replaced this one (`history.reset`): every list closes, and its searches.
     pub fn suggest_drop(&mut self) {
         machine::step(&mut self.suggest.state, Event::HistoryReset);
-        let m = &mut self.mentions;
+        let m = &mut *self.mentions;
         crate::mentions::search::step(&mut m.seq, &mut m.search, crate::mentions::search::Event::Closed);
     }
 

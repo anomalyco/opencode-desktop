@@ -52,7 +52,7 @@ impl App {
         let item = InboxItem { id: id.clone(), text: prompt.display_text.clone().unwrap_or_else(|| prompt.text.clone()), delivery, files: self.attach.files.clone() };
         let sent = crate::send_failed::Sent::new(session, &id, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), true).with_prompt(&prompt);
         let write = self.send_write(session, prompt);
-        if matches!(self.source, Source::Live {allow_send: true,..}) && self.stage.is_none() {
+        if matches!(*self.source, Source::Live {allow_send: true,..}) && self.stage.is_none() {
             let paths=sent.paths.clone();
             if !self.enqueue_prompt(sent,write) { self.attach.paths.extend(paths); return; }
         } else {
@@ -94,26 +94,26 @@ impl App {
         // An item listed by the server has its files only on the item.
         let files = model::user_files(&item.id);
         let files = if files.is_empty() { item.files } else { files.to_vec() };
-        let (shell, now) = (self.add.shell(), self.clock);
-        self.step_queue(session, Event::UndoRequested { id: item.id, text: item.text, files, shell, now });
+        let (shell, now) = (self.add.shell(), *self.clock);
+        self.step_queue(session, Event::UndoRequested { id: item.id, text: item.text, files, shell, now: now });
     }
 
     /// A row dropped in a new place: the queue is rewritten in `ids`' order (`reorder.requested`).
     pub fn reorder_queued(&mut self, session: &str, ids: Vec<String>) {
         let reverted = self.session(session).and_then(|i| i.revert.as_ref()).is_some();
-        let (rows, now) = (self.queue_rows(session), self.clock);
-        self.step_queue(session, Event::ReorderRequested { ids, reverted, rows, now });
+        let (rows, now) = (self.queue_rows(session), *self.clock);
+        self.step_queue(session, Event::ReorderRequested { ids, reverted, rows, now: now });
     }
 
     /// Fixture runs act locally, as if the server agreed.
     fn inbox_write(&mut self, w: Write) -> bool {
-        matches!(self.source, Source::Fixture) || self.write(w)
+        matches!(*self.source, Source::Fixture) || self.write(w)
     }
 
     /// Asks `session`'s queue machine for `operation`.
     fn queue_op(&mut self, session: &str, operation: Operation) {
-        let now = self.clock;
-        self.step_queue(session, Event::Requested { operation, now });
+        let now = *self.clock;
+        self.step_queue(session, Event::Requested { operation, now: now });
     }
 
     pub(crate) fn step_queue(&mut self, session: &str, event: Event) {
@@ -135,7 +135,7 @@ impl App {
     /// `Incoming::Settled` for a queue change of `session`. A change the server took shows at
     /// once, as its event will say.
     pub(crate) fn queue_settled(&mut self, session: &str, attempt: u32, ok: bool) {
-        let (attempt, now) = (Attempt(attempt), self.clock);
+        let (attempt, now) = (Attempt(attempt), *self.clock);
         let Some((a, active)) = self.queue_ops.get(session).and_then(|q| q.running()).map(|(a, o)| (a, o.clone())) else { return };
         if a != attempt {
             return;
@@ -161,14 +161,14 @@ impl App {
                 self.steered(session, id);
             }
             crate::windows::peer::touch(self);
-            return self.step_queue(session, Event::Succeeded { attempt, now });
+            return self.step_queue(session, Event::Succeeded { attempt, now: now });
         }
-        self.step_queue(session, Event::Failed { attempt, hidden: Vec::new(), now });
+        self.step_queue(session, Event::Failed { attempt, hidden: Vec::new(), now: now });
     }
 
     /// Each frame: confirmed rows' hiding expires and a change past its bound ends as it got.
     pub(crate) fn queue_timers(&mut self, tx: &mut Tx) {
-        let now = self.clock;
+        let now = *self.clock;
         let due: Vec<String> = self.queue_ops.iter().filter(|(_, q)| q.due().is_some_and(|d| now + 1e-9 >= d)).map(|(s, _)| s.clone()).collect();
         for session in due {
             let (stage, hidden) = match self.queue_ops.get(&session).and_then(|q| q.running()) {
@@ -177,7 +177,7 @@ impl App {
                 Some((attempt, _)) => self.queue_runs.progress(&session, attempt),
                 None => (Stage::Running, Vec::new()),
             };
-            self.step_queue(&session, Event::Tick { now, stage, hidden });
+            self.step_queue(&session, Event::Tick { now: now, stage, hidden });
         }
         if let Some(next) = self.queue_ops.values().filter_map(machine::Queue::due).reduce(f64::min) {
             tx.wake_after(std::time::Duration::from_secs_f64((next - now).max(0.0)));
@@ -601,7 +601,7 @@ pub fn alternate_hint(p: &Pal, room: f32, sm: bool, steer: bool) -> Option<El> {
 /// when `ask`.
 pub fn scene(s: &mut App, n: usize, ask: bool) {
     crate::scenes::busy_scene(s);
-    let crate::Route::Session { id, .. } = s.route.clone() else { return };
+    let crate::Route::Session { id, .. } = (*s.route).clone() else { return };
     let words = ["Then write up what changed in the PR description", "And keep the retry budget as it is", "Bump the version and tag it"];
     for k in 0..n {
         let item = InboxItem { id: format!("msg_zzqueued{k}"), text: words[k % words.len()].into(), delivery: Delivery::Queue, files: Vec::new() };
@@ -624,7 +624,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         scene(s, 1, true);
         let q = s.fixture["question"].clone();
         let replied = serde_json::json!({ "id": q["id"], "sessionID": q["sessionID"] });
-        s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
+        *s.playback = [(1.5, "form.replied".into(), replied), (2.5, "form.created".into(), q)].into();
     }),
 ]);
 
@@ -662,7 +662,7 @@ mod behind_story {
 
     fn send(s: &mut App, tx: &mut Play<App>) {
         let sent = s.inbox_for(&sid(s)).map_or(0, |i| i.items.len());
-        s.composer = rune::TextEdit::new(WORDS[sent % WORDS.len()]);
+        *s.composer = rune::TextEdit::new(WORDS[sent % WORDS.len()]);
         s.send(tx);
     }
 

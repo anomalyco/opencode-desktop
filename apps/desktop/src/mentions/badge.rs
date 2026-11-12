@@ -46,7 +46,7 @@ impl App {
     pub fn open_mentioned(&mut self, id: &str, tx: &mut Tx) {
         if self.session(id).is_none() {
             let found = self.mentions.found_session(id).cloned();
-            let here = match &self.route {
+            let here = match &*self.route {
                 crate::Route::Session { id: open, .. } => self.session(open).cloned(),
                 _ => None,
             };

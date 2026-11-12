@@ -32,20 +32,20 @@ fn spot(v: usize) -> Spot {
 
 /// The session the story is on: the open one, which is the first tab's.
 fn first(s: &App) -> String {
-    match &s.route {
+    match &*s.route {
         Route::Session { id, .. } => s.root_of(id).to_owned(),
         _ => s.tabs.first().map_or_else(String::new, |t| t.id.clone()),
     }
 }
 
 fn target(s: &App) -> Target {
-    Target::new(&first(s), spot(s.variant))
+    Target::new(&first(s), spot(*s.variant))
 }
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.menus = Default::default();
-    match s.variant {
+    match *s.variant {
         0..=2 => {
             s.menus.on = Some(target(s));
             s.menus.hot = Some("rename".into());
@@ -57,7 +57,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
 
 /// Starts the rename; `retitle` types a new title first, as a person would.
 fn start(s: &mut App, retitle: bool) {
-    let t = Target::new(&first(s), spot(s.variant));
+    let t = Target::new(&first(s), spot(*s.variant));
     s.begin_rename(&t);
     if retitle {
         s.menus.edit.replace_text("Reconnect jitter, with a fake clock");
@@ -89,7 +89,7 @@ fn next(s: &mut App, _: &mut Tx) {
 
 pub fn view(s: &App, p: &Pal) -> El {
     let t = target(s);
-    let menu = (s.variant <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
+    let menu = (*s.variant <= 2).then(|| preview(p, "menu", &session_menu::lines(s, &t), s.menus.hot.as_deref()));
     let stage = match t.spot {
         Spot::Tab => tabs(s, p, menu),
         Spot::Row => rows(s, p, menu),
@@ -101,8 +101,8 @@ pub fn view(s: &App, p: &Pal) -> El {
 /// The sidebar's tabs, as the app draws them.
 fn tabs(s: &App, p: &Pal, menu: Option<El>) -> El {
     let list = view::tab_strip(s, p, "story-tabs", rune_kit::shell::TabOrientation::Vertical, None, None);
-    let side = col().key("story-sidebar").w(s.sidebar_w).h(280.0).pt(8.0).pl(11.0).pr(3.0).fill(p.bg_deep).radius(10.0).child(list);
-    let stage = el().key("story-stage").w_full().h(300.0).child(side).child(row().key("story-tab-0").absolute(11.0, 8.0).w(s.sidebar_w - 14.0).h(28.0));
+    let side = col().key("story-sidebar").w(*s.sidebar_w).h(280.0).pt(8.0).pl(11.0).pr(3.0).fill(p.bg_deep).radius(10.0).child(list);
+    let stage = el().key("story-stage").w_full().h(300.0).child(side).child(row().key("story-tab-0").absolute(11.0, 8.0).w(*s.sidebar_w - 14.0).h(28.0));
     place(stage, menu, 36.0 + 8.0, 40.0)
 }
 

@@ -134,7 +134,7 @@ impl App {
         let shown = self.previewed().map(str::to_owned);
         // A draft has no session, so it never takes the card (`!props.session`).
         let draft = self.tab(id).is_some_and(crate::tabs::Tab::is_draft);
-        let p = &mut self.tab_preview;
+        let p = &mut *self.tab_preview;
         if !inside {
             // Leaving the tab cancels its opening, and the pointer off the tab and its card
             // closes it (`onHoverOutside`, `closeDelay` 0).
@@ -221,13 +221,14 @@ impl App {
             Card::Asked { tab } if self.preview_open(tab) => Some(tab.clone()),
             _ => None,
         };
-        let p = &mut self.tab_preview;
-        match (&p.state, open) {
+        // Every poll comes here: the preview is written only when the card opens or closes.
+        match (&self.tab_preview.state, open) {
             (State::Open { tab, .. }, None) => {
                 let tab = tab.clone();
-                step(&mut p.state, Event::Closed(&tab), now);
+                step(&mut self.tab_preview.state, Event::Closed(&tab), now);
             }
-            (_, Some(tab)) => step(&mut p.state, Event::Opened(&tab), now),
+            (State::Open { tab: shown, .. }, Some(tab)) if *shown == tab => {}
+            (_, Some(tab)) => step(&mut self.tab_preview.state, Event::Opened(&tab), now),
             _ => {}
         }
     }
@@ -288,7 +289,7 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
         // The pointer stays level with the middle of a row-sized slot, clamped to the strip
         // (`cursorOffset`), in the view's points; the strip is kept in the window's.
         let row_h = 28.0;
-        let (lo, hi) = s.window.strip.map_or((f32::MIN, f32::MAX), |r| (r[1] / s.zoom, (r[1] + r[3]) / s.zoom));
+        let (lo, hi) = s.window.strip.map_or((f32::MIN, f32::MAX), |r| (r[1] / *s.zoom, (r[1] + r[3]) / *s.zoom));
         let clamped = (y - row_h / 2.0).min(hi - card_h).max(lo);
         card = card.offset(0.0, clamped - top).offset_motion(Spring::NONE);
     }

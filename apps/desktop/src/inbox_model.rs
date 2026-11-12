@@ -166,7 +166,7 @@ impl App {
 
     /// Whether `e` is the open session, or the root of the open subagent, on its server.
     pub fn inbox_selected(&self, e: &Entry<'_>) -> bool {
-        matches!(&self.route, Route::Session { id, server } if !self.settings.open && server == e.server && self.root_of(id) == e.session.id)
+        matches!(&*self.route, Route::Session { id, server } if !self.settings.open && server == e.server && self.root_of(id) == e.session.id)
     }
 
     /// The groups the sidebar shows (`SidebarInbox`'s `sections`).
@@ -248,7 +248,7 @@ impl App {
 
     /// Archive: the session leaves the list and its tabs at once (`inbox.archive`).
     pub fn archive_session(&mut self, id: &str, tx: &mut Tx) {
-        let now = self.now_ms;
+        let now = *self.now_ms;
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
         info.archived = Some(now);
         let here = crate::servers::runtime::active(self).clone();
@@ -513,13 +513,16 @@ impl SidebarInbox {
 pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
     let live = s.live();
     let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.family_busy(&i.id))).map(|i| i.id.clone()).collect();
-    s.sidebar_inbox.settle(live, &working, s.now_ms, tx)
+    s.sidebar_inbox.settle(live, &working, *s.now_ms, tx)
 }
 
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
+    // Every poll comes here: the inbox is written only when an answered request leaves it.
+    if s.sidebar_inbox.asked.keys().any(|id| !s.requests.iter().any(|(_, r)| r == id)) {
+        s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
+    }
     // The new-session page names its folder's branch the same way (`NewSessionBranch`).
-    let draft = matches!(s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
+    let draft = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
     // So does a Home row under the pointer, as Desktop syncs a row's location on hover.
     let hovered = (s.route == crate::Route::Home)
         .then(|| s.home_search.hovered.as_deref().and_then(|id| s.session(id).or_else(|| s.home_search.loaded.iter().find(|x| x.id == id))))
@@ -537,23 +540,29 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             return false;
         }
         s.sidebar_inbox.branches.enqueue(draft.into_iter().chain(revealed));
-        let waker = s.waker.clone();
+        let waker = (*s.waker).clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
     // A working root's pending requests load in `session_status::poll`, so a run waiting on a
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
     let mut changed = settle_now(s, tx);
-    changed |= std::mem::take(&mut s.sidebar_inbox.redraw);
+    if s.sidebar_inbox.redraw {
+        s.sidebar_inbox.redraw = false;
+        changed = true;
+    }
     changed |= load_archived(s);
     let sections = s.inbox_sections();
     let working = sections.rows().any(|e| e.status == InboxStatus::Working);
     let dirs: Vec<String> = sections.rows().map(|e| e.session.directory.clone()).collect();
     let step = if working { 1000 } else { 60_000 };
     let tick = s.now_ms.div_euclid(step);
-    changed |= std::mem::replace(&mut s.sidebar_inbox.tick, tick) != tick;
+    if s.sidebar_inbox.tick != tick {
+        s.sidebar_inbox.tick = tick;
+        changed = true;
+    }
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
     s.sidebar_inbox.branches.enqueue(dirs.into_iter().chain(draft).chain(revealed));
-    let waker = s.waker.clone();
+    let waker = (*s.waker).clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
 }
@@ -561,16 +570,16 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
 /// Reads the newest archived root sessions once (`ARCHIVED_LIMIT`), and takes them in. True
 /// when they land.
 fn load_archived(s: &mut App) -> bool {
-    let inbox = &mut s.sidebar_inbox;
+    let inbox = &mut *s.sidebar_inbox;
     if let Some(list) = inbox.archived_landed.lock().unwrap_or_else(|e| e.into_inner()).take() {
         inbox.archived = list;
         return true;
     }
-    let Source::Live { server, .. } = &s.source else { return false };
+    let Source::Live { server, .. } = &*s.source else { return false };
     if std::mem::replace(&mut inbox.archived_asked, true) {
         return false;
     }
-    let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), s.waker.clone());
+    let (server, landed, wake) = (server.clone(), Arc::clone(&inbox.archived_landed), (*s.waker).clone());
     let _ = rune::task::spawn("inbox-archived", move || {
         let Ok(v) = server.get("/api/session?parentID=null&archived=true&limit=50") else { return };
         *landed.lock().unwrap_or_else(|e| e.into_inner()) = Some(opencode_kit::model::parse_sessions(&v));
@@ -604,16 +613,17 @@ pub fn snap(s: &mut App) {
         r.branch = s.sidebar_inbox.branches.get(&r.session.directory).map(str::to_owned);
     }
     let face = |r: &Row| (r.session.id.clone(), r.session.title.clone(), r.session.updated, r.session.archived, r.status, r.since, r.branch.clone(), r.project.as_ref().map(|p| p.id.clone()), r.worktree);
-    match s.sidebar_inbox.servers.iter_mut().find(|(k, _)| *k == key) {
+    let inbox = &mut *s.sidebar_inbox;
+    match inbox.servers.iter_mut().find(|(k, _)| *k == key) {
         Some((_, list)) => {
             if list.iter().map(face).ne(rows.iter().map(face)) {
-                s.sidebar_inbox.redraw = true;
+                inbox.redraw = true;
             }
             *list = rows;
         }
         None => {
-            s.sidebar_inbox.redraw = true;
-            s.sidebar_inbox.servers.push((key, rows));
+            inbox.redraw = true;
+            inbox.servers.push((key, rows));
         }
     }
     let order: Vec<ServerKey> = crate::servers::runtime::listed().into_iter().map(|l| l.key).collect();
@@ -626,7 +636,7 @@ pub fn poll_branches(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.tab_layout() != TabLayout::Inbox {
         return false;
     }
-    let waker = s.waker.clone();
+    let waker = (*s.waker).clone();
     s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx)
 }
 
@@ -657,9 +667,9 @@ fn same_path(a: &str, b: &str) -> bool {
 /// fixture already has a permission waiting, two runs and two unread; this adds a question
 /// waiting, a failed run and when the runs started.
 fn scene(s: &mut App) {
-    s.layout = crate::layout_state::Shell::at_rest(TabLayout::Inbox);
+    *s.layout = crate::layout_state::Shell::at_rest(TabLayout::Inbox);
     s.settings.tab_layout = TabLayout::Inbox;
-    let now = s.now_ms;
+    let now = *s.now_ms;
     s.requests.insert(("ses_fx0003aaaaaaaaaaaaaaaaaa".into(), "que_fx0001".into()));
     for (id, busy) in [("ses_fx0006aaaaaaaaaaaaaaaaaa", 95_000), ("ses_fx0018aaaaaaaaaaaaaaaaaa", 12_000)] {
         if let Some(info) = s.sessions.iter_mut().find(|i| i.id == id) {

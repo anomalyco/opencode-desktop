@@ -57,7 +57,7 @@ impl App {
             Operation::Edit(_) | Operation::Reorder { .. } => return self.run_rewrite(session, attempt, operation),
         };
         // Fixture runs act locally, as if the server agreed at once.
-        if matches!(self.source, Source::Fixture) {
+        if matches!(*self.source, Source::Fixture) {
             return self.queue_settled(session, attempt.0, true);
         }
         let ticket = Ticket { kind: TicketKind::Inbox, session: session.to_owned(), attempt: attempt.0 };
@@ -68,14 +68,14 @@ impl App {
 
     /// An edit or reorder: its chain runs off the app's thread and reports back here.
     fn run_rewrite(&mut self, session: &str, attempt: Attempt, operation: Operation) {
-        if matches!(self.source, Source::Fixture) {
+        if matches!(*self.source, Source::Fixture) {
             self.fixture_rewrite(session, &operation);
-            let now = self.clock;
-            return self.step_queue(session, Event::Succeeded { attempt, now });
+            let now = *self.clock;
+            return self.step_queue(session, Event::Succeeded { attempt, now: now });
         }
         if !self.can_write() {
-            let (s, now) = (session.to_owned(), self.clock);
-            return self.later(Box::new(move |app: &mut App, _| app.step_queue(&s, Event::Failed { attempt, hidden: Vec::new(), now })));
+            let (s, now) = (session.to_owned(), *self.clock);
+            return self.later(Box::new(move |app: &mut App, _| app.step_queue(&s, Event::Failed { attempt, hidden: Vec::new(), now: now })));
         }
         let run = Arc::new(Mutex::new(Run::default()));
         let abort = run.lock().unwrap().abort.clone();
@@ -125,8 +125,8 @@ impl App {
                     if let Some(items) = listed {
                         app.apply_event("session.inbox.listed", &serde_json::json!({ "sessionID": session, "items": items }));
                     }
-                    let now = app.clock;
-                    app.step_queue(&session, if ok { Event::Succeeded { attempt, now } } else { Event::Failed { attempt, hidden, now } });
+                    let now = *app.clock;
+                    app.step_queue(&session, if ok { Event::Succeeded { attempt, now: now } } else { Event::Failed { attempt, hidden, now: now } });
                 });
             })
         });

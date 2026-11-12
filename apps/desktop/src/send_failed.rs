@@ -298,13 +298,13 @@ impl App {
     /// A successful read or reconnect retries receipts, with at most one bounded batch in flight.
     pub fn check_sends(&mut self) {
         if let Check::Checking { again } = &mut self.unsent.check { *again = true; return; }
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         let server = server.clone();
         let fetch: crate::session_pages::Fetch = std::sync::Arc::new(move |path| server.read(path));
         let ask: Vec<(String, String)> = self.unsent.sent.iter().filter(|s| s.state() == State::Unconfirmed).map(|s| (s.session.clone(), s.id.clone())).collect();
         if ask.is_empty() { return; }
         self.unsent.check = Check::Checking { again: false };
-        self.unsent.receipts = rune::Latest::new(self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {})));
+        self.unsent.receipts = rune::Latest::new((*self.waker).clone().unwrap_or_else(|| std::sync::Arc::new(|| {})));
         self.unsent.receipts.request(ask, move |ask| read_receipts(&*fetch, ask));
     }
 
@@ -390,7 +390,7 @@ impl App {
         let Some(sent) = self.unsent.get(id).filter(|s| s.phase_is(State::Failed)).cloned() else { return };
         let Some(prompt) = sent.prompt.clone() else { return };
         let write = self.send_write(&sent.session, prompt);
-        if !matches!(self.source, Source::Fixture) && !self.write(write) { return; }
+        if !matches!(*self.source, Source::Fixture) && !self.write(write) { return; }
         if sent.inbox {
             if let Some(t) = self.transcripts.get_mut(&sent.session) { t.messages.retain(|m| m.id() != id); }
             self.inboxes.entry(sent.session.clone()).or_default().upsert(opencode_kit::model::InboxItem {
@@ -398,7 +398,8 @@ impl App {
                 delivery: sent.prompt.as_ref().and_then(|p| p.delivery).unwrap_or(opencode_kit::model::Delivery::Steer),
             });
         }
-        self.unsent.note(Sent { phase: Phase::Sending { by: crate::windows::peer::token(self), then: None, handoff: 0 }, ..sent });
+        let by = crate::windows::peer::token(self);
+        self.unsent.note(Sent { phase: Phase::Sending { by, then: None, handoff: 0 }, ..sent });
     }
 
     pub(crate) fn edit_failed_send(&mut self, id: &str) {

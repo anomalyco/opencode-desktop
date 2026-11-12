@@ -40,7 +40,7 @@ pub fn init_files(s: &mut App) {
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     s.ensure_session_review(&sid);
     let mut tx = rune::Tx::default();
-    match s.variant {
+    match *s.variant {
         0 => {
             s.open_workspace_file("src/net/stream.ts", false, Some(12), &mut tx);
         }

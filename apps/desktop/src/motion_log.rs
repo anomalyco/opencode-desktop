@@ -307,8 +307,8 @@ impl Feed {
         let events = (events.seq != self.event_seq).then(|| (events.seq, events.recent.iter().cloned().collect()));
         self.event_seq = rt.state.motion_events.seq;
         self.seq += 1;
-        let at_end = match &rt.state.route { Route::Session { id, .. } => rt.state.ends.at_end(id), _ => false };
-        let window = Window { size: rt.viewport, zoom: rt.state.zoom, at_end };
+        let at_end = match &*rt.state.route { Route::Session { id, .. } => rt.state.ends.at_end(id), _ => false };
+        let window = Window { size: rt.viewport, zoom: *rt.state.zoom, at_end };
         Frame { seq: self.seq, els, paths, reset, window, input, load: rt.settled, events, ms }
     }
 }

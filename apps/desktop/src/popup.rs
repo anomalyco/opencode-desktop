@@ -481,6 +481,9 @@ fn refresh(s: &mut App) {
     let Some(search) = s.popup.shown.as_ref().and_then(|m| m.menu.search.clone()) else { return };
     let query = s.popup.query.text.clone();
     let menu = Menu { search: Some(search.clone()), ..(search.rows)(s, &query) };
+    if s.popup.shown.is_none() {
+        return;
+    }
     let Some(shown) = s.popup.shown.as_mut() else { return };
     let changed = shown.menu.entries != menu.entries;
     shown.menu = menu;
@@ -493,7 +496,7 @@ fn refresh(s: &mut App) {
 /// (`search-list.tsx:261-265`).
 fn query_changed(s: &mut App) {
     refresh(s);
-    if let Some(shown) = s.popup.shown.as_mut() {
+    if s.popup.shown.is_some() && let Some(shown) = s.popup.shown.as_mut() {
         shown.active = shown.menu.offered().first().copied();
     }
 }
@@ -501,6 +504,10 @@ fn query_changed(s: &mut App) {
 /// Closes the drawn menu, answering `picked`, for `reason`; focus goes where the menu machine
 /// says (`restore`). Nothing when none is open.
 fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx) {
+    // Called with nothing shown too (every key): the popup is written only when one closes.
+    if s.popup.shown.is_none() {
+        return;
+    }
     let Some(shown) = s.popup.shown.take() else { return };
     s.popup.query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
@@ -554,6 +561,9 @@ fn open_sub(s: &mut App, n: usize, keys: bool, tx: &mut Tx) {
 
 /// Opens row `n`'s submenu of the menu `level` deep, closing any open from its other rows.
 fn open_sub_at(s: &mut App, level: usize, n: usize, keys: bool, tx: &mut Tx) {
+    if s.popup.shown.is_none() {
+        return;
+    }
     let Some(shown) = s.popup.shown.as_mut() else { return };
     let Some(sub) = shown.menu_at(level).and_then(|m| m.sub_at(n)) else { return };
     let active = keys.then(|| sub.offered().first().copied()).flatten();
@@ -817,6 +827,9 @@ fn hover_sub(s: &mut App, m: usize) {
 /// The pointer over row `n` of the menu `level` deep: it lights, and opens its submenu or
 /// closes the ones open from its other rows.
 fn hover_at(s: &mut App, level: usize, n: usize) {
+    if s.popup.shown.is_none() {
+        return;
+    }
     let Some(shown) = &mut s.popup.shown else { return };
     if level > shown.subs.len() {
         return;

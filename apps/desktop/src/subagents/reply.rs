@@ -22,7 +22,7 @@ use crate::{App, Route};
 impl App {
     /// The open page's session when it's a subagent's.
     pub fn subagent_page(&self) -> Option<&SessionInfo> {
-        let Route::Session { id, .. } = &self.route else { return None };
+        let Route::Session { id, .. } = &*self.route else { return None };
         self.session(id).filter(|i| i.parent.is_some())
     }
 

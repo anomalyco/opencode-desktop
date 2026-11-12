@@ -371,7 +371,7 @@ fn grip(p: &Pal, spot: &Spot, height: f32) -> El {
             tx.instant();
             let event = match d.phase {
                 Phase::Down => GripEvent::Down { height },
-                Phase::Move => GripEvent::Move { dy: d.dy / s.zoom },
+                Phase::Move => GripEvent::Move { dy: d.dy / *s.zoom },
                 Phase::Up => GripEvent::Up,
             };
             if let Some(draft) = s.line_comments.draft_mut(&spot) {

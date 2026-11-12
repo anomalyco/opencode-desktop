@@ -242,7 +242,7 @@ pub fn behind(s: &mut App) -> bool {
 /// The window, connected to its server, joins that server's peer, or starts it: what it read
 /// goes into the copy, and the copy is in its fields for the rest of the turn.
 pub fn join(s: &mut App, wake: Option<rune::Waker>) {
-    let Source::Live { server, .. } = &s.source else { return };
+    let Source::Live { server, .. } = &*s.source else { return };
     let server = server.clone();
     let base = server.base.clone();
     if s.store.peer.as_ref().is_some_and(|p| p.stream.hub.base() == base) {
@@ -278,7 +278,7 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
         peer.wakers.lock().unwrap_or_else(|e| e.into_inner()).push((token, w.clone()));
     }
     peer.members.borrow_mut().push(Member { token, wake, heard: VecDeque::new(), view: View::Current });
-    s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
+    *s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
 }
 
 /// The window leaves its server's peer (it closes, moves to another server, or loses it): it

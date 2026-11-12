@@ -26,12 +26,12 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn shell(s: &mut App, tx: &mut Play<App>) {
-    let call = format!("call_story_shell_{}", s.clock as u64);
+    let call = format!("call_story_shell_{}", *s.clock as u64);
     emit(s, "session.tool.called", json!({ "assistantMessageID": REPLY, "id": call, "name": "shell", "input": { "command": "cargo test -p opencode-desktop" } }), tx);
 }
 
 fn steer(s: &mut App, tx: &mut Play<App>) {
-    s.composer = TextEdit::new("Stop waiting on the tests and fix the flake first");
+    *s.composer = TextEdit::new("Stop waiting on the tests and fix the flake first");
     s.submit(false, tx);
 }
 

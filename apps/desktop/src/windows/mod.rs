@@ -211,7 +211,7 @@ impl App {
     /// Notes the strip's rect for drops from other windows: laid out in the view's points, kept
     /// in the window's (times the zoom), as other windows find it.
     pub(crate) fn strip_laid_out(&mut self, rect: [f32; 4]) {
-        let rect = rect.map(|v| v * self.zoom);
+        let rect = rect.map(|v| v * *self.zoom);
         self.window.strip = Some(rect);
         let id = self.window.id.clone();
         OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = Some(rect)));
@@ -227,10 +227,10 @@ impl App {
             let id = self.window.id.clone();
             OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = None));
         }
-        if self.window.id.is_empty() || !self.persists() || (self.clock - self.window.read_at).abs() < 0.5 {
+        if self.window.id.is_empty() || !self.persists() || (*self.clock - self.window.read_at).abs() < 0.5 {
             return;
         }
-        self.window.read_at = self.clock;
+        self.window.read_at = *self.clock;
         let Some(frame) = self.window_frame() else { return };
         if self.window.saved != Some(frame) {
             self.window.saved = Some(frame);

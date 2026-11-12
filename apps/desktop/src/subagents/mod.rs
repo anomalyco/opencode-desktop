@@ -100,11 +100,11 @@ impl App {
     /// From a subagent's session back to the one that started it.
     /// The open session is a subagent's, with the session that started it known.
     pub fn has_parent(&self) -> bool {
-        matches!(&self.route, Route::Session { id, .. } if self.session(id).is_some_and(|s| s.parent.is_some()))
+        matches!(&*self.route, Route::Session { id, .. } if self.session(id).is_some_and(|s| s.parent.is_some()))
     }
 
     pub fn open_parent(&mut self, tx: &mut Tx) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         let Some(parent) = self.session(id).and_then(|s| s.parent.clone()) else { return false };
         self.open(&parent, tx);
         true
@@ -148,7 +148,7 @@ pub fn capsule(s: &App, p: &Pal, id: &str) -> Option<El> {
     let mut chip = chip(s, p, "activity-chip", label, s.shells.activity.is_open())
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             shells::set_open(s, !s.shells.activity.is_open());
-            s.todo_open = false;
+            *s.todo_open = false;
             crate::popover::motion::toggled(&s.knobs, tx, s.shells.activity.is_open());
         })
         .child(activity_ring_sized(p, 16.0));

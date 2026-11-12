@@ -219,19 +219,26 @@ impl OpenIn {
     }
 
     /// Takes in finished work; the error of a launch that failed.
-    pub fn poll(&mut self) -> (bool, Option<String>) {
+    /// What came in since the last poll, read without writing anything: `None` when nothing did.
+    fn arrived(&self) -> Option<(bool, Option<Vec<&'static str>>, Option<Result<(), String>>)> {
+        let detect = self.wanted.take() && matches!(self.installed, Installed::Unknown);
+        let (found, done) = (self.found.take(), self.done.take());
+        (detect || found.is_some() || done.is_some()).then_some((detect, found, done))
+    }
+
+    fn poll(&mut self, (detect, found, done): (bool, Option<Vec<&'static str>>, Option<Result<(), String>>)) -> (bool, Option<String>) {
         let mut changed = false;
-        if self.wanted.take() && matches!(self.installed, Installed::Unknown) {
+        if detect {
             self.detect();
             changed |= matches!(self.installed, Installed::Known(_));
         }
-        if let Some(found) = self.found.take() {
+        if let Some(found) = found {
             *FOUND.lock().unwrap_or_else(|e| e.into_inner()) = Some(found.clone());
             self.installed = Installed::Known(APPS.iter().filter(|a| found.contains(&a.open_with)).map(|a| a.id).collect());
             changed = true;
         }
         let mut err = None;
-        if let Some(r) = self.done.take() {
+        if let Some(r) = done {
             self.busy = false;
             changed = true;
             err = r.err();
@@ -298,7 +305,7 @@ impl App {
     /// Opening only works where the server shares this machine's files.
     pub fn can_open_in(&self) -> bool {
         cfg!(any(target_os = "macos", target_os = "windows"))
-            && match &self.source {
+            && match &*self.source {
                 crate::Source::Live { server, .. } => server.is_local(),
                 crate::Source::Fixture => true,
             }
@@ -350,7 +357,9 @@ impl App {
     }
 
     pub fn poll_open_in(&mut self) -> bool {
-        let (changed, err) = self.open_in.poll();
+        // Every poll comes here: the state is written only when something arrived.
+        let Some(arrived) = self.open_in.arrived() else { return false };
+        let (changed, err) = self.open_in.poll(arrived);
         if let Some(e) = err {
             crate::status_toast::fail(self, opencode_i18n::t!("rune.openIn.failed"), crate::status_toast::plain(&e.to_string()));
         }

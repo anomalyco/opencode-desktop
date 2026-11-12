@@ -189,6 +189,12 @@ fn sig(text: &str) -> u64 {
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let grow_then_show = reveal(s.knobs()) == Reveal::GrowThenShow;
     let delay = f64::from(s.knobs().get(&LINE_GROW)) / 1000.0;
+    // Every poll comes here: with nothing streaming in the shown session and nothing held, the
+    // hold isn't written.
+    let live = s.active_session_id().is_some_and(|sid| s.is_session_live(sid));
+    if !live && s.line_hold().paced.is_empty() && s.line_hold().held.is_empty() {
+        return false;
+    }
     let mut hold = std::mem::take(s.line_hold_mut());
     let (mut changed, mut next) = (false, f64::INFINITY);
     let mut lens: Vec<(String, usize)> = Vec::new();

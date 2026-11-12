@@ -84,7 +84,7 @@ impl App {
             let t = rune::LocalTime::at(ms);
             (t.year, t.month, t.day)
         };
-        let (today, yesterday) = (day(self.now_ms), day(self.now_ms - 86_400_000));
+        let (today, yesterday) = (day(*self.now_ms), day(*self.now_ms - 86_400_000));
         let hold = self.home_search.hold.at();
         let bucket = |ses: &SessionInfo| {
             if let Some(&(_, b)) = hold.and_then(|h| h.get(&ses.id)) {

@@ -45,6 +45,11 @@ impl History {
         self.index
     }
 
+    /// Whether `observe` would leave the history as it is: the app is where the current entry says.
+    fn holds(&self, route: &Route, settings: &Option<Page>) -> bool {
+        self.expect.is_none() && self.stack.get(self.index).is_some_and(|cur| cur.route == *route && cur.settings == *settings)
+    }
+
     /// Where the app is now. The first call starts the stack with Home behind it.
     fn observe(&mut self, route: &Route, settings: Option<Page>, opening: bool) {
         // Every poll lands here, so staying put clones nothing.
@@ -139,7 +144,10 @@ impl App {
     /// Notes where the app is, so a move made since the last look joins the history.
     pub fn sync_history(&mut self) {
         let page = self.settings.open.then(|| self.settings_pages.page.clone());
-        self.nav.observe(&self.route, page, self.opening.is_some());
+        // Every poll comes here: the history is written only when the app moved.
+        if !self.nav.holds(&self.route, &page) {
+            self.nav.observe(&*self.route, page, self.opening.is_some());
+        }
     }
 
     /// Opens the entry before (or after) this one. False when there's nowhere to go.
@@ -154,7 +162,7 @@ impl App {
                 crate::servers::runtime::switch(self, &server);
                 self.open(&id, tx);
             }
-            route => self.route = route,
+            route => *self.route = route,
         }
         match (to.settings, self.settings.open) {
             (Some(page), _) => {

@@ -73,7 +73,7 @@ pub(crate) fn scene(s: &mut App) {
         s.sessions.push(parse_session(&info));
         tabs.push(Tab::session(id, title, directory));
     }
-    s.tabs = tabs;
+    *s.tabs = tabs;
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [("tab-badges", scene)]);

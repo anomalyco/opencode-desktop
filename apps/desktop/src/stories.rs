@@ -243,7 +243,7 @@ const COPY_KEYS: &[Trigger] = &[replay(copy_last)];
 /// Copies the session's last reply, as pressing its Copy does.
 fn copy_last(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.copied = crate::copied::Copied::default();
+    *s.copied = crate::copied::Copied::default();
     let id = sid(s);
     let last = s
         .transcripts
@@ -288,7 +288,7 @@ pub fn playground() -> Playground<App> {
             pg = pg.trigger(st.path, t.key, t.label, t.run);
         }
         for &(name, v) in st.variants {
-            pg = pg.variant(st.path, name, move |s: &mut App| s.variant = v);
+            pg = pg.variant(st.path, name, move |s: &mut App| *s.variant = v);
         }
         if !st.knobs.is_empty() {
             let knobs = st.knobs;
@@ -340,22 +340,22 @@ fn fresh(real: &App) -> App {
     let mut w = App::empty();
     w.load_fixture(FIXTURE);
     w.knobs = real.knobs.clone();
-    w.zoom = real.zoom;
-    w.sidebar_w = real.sidebar_w;
-    w.sidebar_open = real.sidebar_open;
-    w.reduced_motion = real.reduced_motion;
-    w.debug = real.debug;
+    *w.zoom = *real.zoom;
+    *w.sidebar_w = *real.sidebar_w;
+    *w.sidebar_open = *real.sidebar_open;
+    *w.reduced_motion = *real.reduced_motion;
+    *w.debug = *real.debug;
     w.settings.scheme = real.settings.scheme;
     w.settings.theme = real.settings.theme.clone();
     (w.settings.ui_font, w.settings.code_font) = (real.settings.ui_font, real.settings.code_font);
     w.settings.text_renderer = real.settings.text_renderer;
-    w.clock = real.clock;
+    *w.clock = *real.clock;
     // Relative times read as the fixture has them, however long the app has run.
-    w.base_ms -= (real.clock * 1000.0) as i64;
-    w.now_ms = w.base_ms + (real.clock * 1000.0) as i64;
+    *w.base_ms -= (*real.clock * 1000.0) as i64;
+    *w.now_ms = *w.base_ms + (*real.clock * 1000.0) as i64;
     w.waker = real.waker.clone();
     serve_pictures(&w);
-    if let Some(waker) = w.waker.clone() {
+    if let Some(waker) = (*w.waker).clone() {
         w.attach.set_waker(waker.clone());
         w.icons.set_waker(waker.clone());
         w.mentions.set_waker(waker.clone());
@@ -373,12 +373,12 @@ fn keep(stage: &App, real: &mut App) {
 
 /// Sets up a story's stage: `view` alone on it.
 pub(crate) fn stage(s: &mut App, view: fn(&App, &Pal) -> El) {
-    s.stage = Some(Stage { view, watch: false });
+    *s.stage = Some(Stage { view, watch: false });
 }
 
 /// [`stage`] for a story that only plays.
 pub(crate) fn watch(s: &mut App, view: fn(&App, &Pal) -> El) {
-    s.stage = Some(Stage { view, watch: true });
+    *s.stage = Some(Stage { view, watch: true });
 }
 
 // Drawing.
@@ -457,7 +457,7 @@ pub(crate) fn history_view(s: &App, p: &Pal) -> El {
 // Setting up.
 
 pub(crate) fn sid(s: &App) -> String {
-    match &s.route {
+    match &*s.route {
         Route::Session { id, .. } => id.clone(),
         _ => String::new(),
     }
@@ -472,21 +472,21 @@ pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     if data["sessionID"].is_null() {
         data["sessionID"] = sid(s).into();
     }
-    s.schedule(s.clock, ty, data);
+    s.schedule(*s.clock, ty, data);
     tx.wake_after(std::time::Duration::ZERO);
 }
 
 fn composer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    match s.variant {
-        1 => s.composer = TextEdit::new(DRAFT),
+    match *s.variant {
+        1 => *s.composer = TextEdit::new(DRAFT),
         2 => pending(s),
         3 => {
             s.running.insert(CHILD.into());
         }
         // A call transcript pasted whole: the editor stops at its cap and shows the end.
         4 => {
-            s.composer = TextEdit::new(long_paste());
+            *s.composer = TextEdit::new(long_paste());
             tx.scroll_to_bottom_instant("editor");
         }
         _ => {}
@@ -516,16 +516,16 @@ fn glow_open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn arrive(s: &mut App, tx: &mut Play<App>) {
-    s.sends += 1;
+    *s.sends += 1;
     let text = ["Sent from my phone: does this cover the laptop waking on battery too?", "And on a flaky hotel network?", "One more: what about a VPN dropping?"];
-    let n = s.sends as usize;
+    let n = *s.sends as usize;
     emit(s, "session.prompted", json!({ "messageID": format!("{ARRIVED}{n}"), "text": text[(n - 1) % text.len()] }), tx);
 }
 
 /// A draft in the composer, sent; the fixture's reply plays under it.
 fn send_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    s.composer = TextEdit::new(SEND_TEXT);
+    *s.composer = TextEdit::new(SEND_TEXT);
     tx.after(0.6, send);
 }
 
@@ -536,7 +536,7 @@ fn send(s: &mut App, tx: &mut Play<App>) {
 /// Sends `text` as typed in the composer: a steer or, with `queue`, a queued prompt while the
 /// session works.
 fn prompt(s: &mut App, text: &str, queue: bool, tx: &mut Tx) {
-    s.composer = TextEdit::new(text);
+    *s.composer = TextEdit::new(text);
     s.submit(queue, tx);
 }
 
@@ -598,7 +598,7 @@ const LABELS: &[&str] = &["Working", "Thinking", "Running the tests", "Searching
 
 fn relabel(s: &mut App, _: &mut Play<App>) {
     let at = LABELS.iter().position(|l| *l == s.working.label()).unwrap_or(0);
-    let now = s.clock;
+    let now = *s.clock;
     s.working.relabel(LABELS[(at + 1) % LABELS.len()], now);
 }
 
@@ -615,7 +615,7 @@ fn steer_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     let id = sid(s);
     s.running.insert(id);
-    s.composer = TextEdit::new(STEER_TEXT);
+    *s.composer = TextEdit::new(STEER_TEXT);
     tx.after(0.5, |s, tx| prompt(s, STEER_TEXT, false, tx));
     tx.after(2.3, deliver);
 }

@@ -81,7 +81,7 @@ impl App {
 
     /// The view the routed session shows in a narrow window: "session" or a panel's plugin.
     pub fn narrow_view(&self) -> &str {
-        let routed = match &self.route {
+        let routed = match &*self.route {
             Route::Session { id, .. } if !self.settings.open => Some(id.as_str()),
             _ => None,
         };
@@ -93,11 +93,11 @@ impl App {
     pub fn select_narrow_view(&mut self, session: &str, view: &str, tx: &mut Tx) {
         tx.instant();
         let routed = self.active_session_id().map(str::to_owned);
-        let event = ViewEvent::Select { session: session.to_owned(), view: view.to_owned(), routed, now: self.clock };
+        let event = ViewEvent::Select { session: session.to_owned(), view: view.to_owned(), routed, now: *self.clock };
         let (next, effect) = std::mem::take(&mut self.layout.narrow.view).step(event);
         self.layout.narrow.view = next;
         if let Some(ViewEffect::WakeAt(at)) = effect {
-            tx.wake_after(Duration::from_secs_f64((at - self.clock).max(0.0)));
+            tx.wake_after(Duration::from_secs_f64((at - *self.clock).max(0.0)));
         }
     }
 
@@ -112,7 +112,7 @@ impl App {
         (st.open, st.bottom_open) = was;
         let Some(view) = session::view_for_tab(self, key) else { return };
         let routed = self.active_session_id().map(str::to_owned);
-        let event = ViewEvent::Select { session: session.to_owned(), view, routed, now: self.clock };
+        let event = ViewEvent::Select { session: session.to_owned(), view, routed, now: *self.clock };
         self.layout.narrow.view = std::mem::take(&mut self.layout.narrow.view).step(event).0;
     }
 
@@ -121,17 +121,19 @@ impl App {
         let (next, effect) = self.layout.narrow.tabs.step(event, &mut self.layout.narrow.tab_attempts);
         self.layout.narrow.tabs = next;
         match effect {
-            Some(TabsEffect::WakeAt(at)) => tx.wake_after(Duration::from_secs_f64((at - self.clock).max(0.0))),
+            Some(TabsEffect::WakeAt(at)) => tx.wake_after(Duration::from_secs_f64((at - *self.clock).max(0.0))),
             Some(TabsEffect::OpenSettings) => self.open_settings(),
             None => {}
         }
-        present(&mut self.layout.narrow.tabs_presence, self.layout.narrow.tabs.is_open(), self.clock, tx);
+        let narrow = &mut self.layout.narrow;
+        present(&mut narrow.tabs_presence, narrow.tabs.is_open(), *self.clock, tx);
     }
 
     /// The More drawer hears `event`.
     pub fn more_drawer(&mut self, event: MoreEvent, tx: &mut Tx) {
         self.layout.narrow.more = std::mem::take(&mut self.layout.narrow.more).step(event);
-        present(&mut self.layout.narrow.more_presence, self.layout.narrow.more.is_open(), self.clock, tx);
+        let narrow = &mut self.layout.narrow;
+        present(&mut narrow.more_presence, narrow.more.is_open(), *self.clock, tx);
     }
 }
 
@@ -163,10 +165,12 @@ pub fn settle(s: &mut App, tx: &mut Tx) -> bool {
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = settle(s, tx);
     let wrap = s.settings.mobile_diff_wrap;
-    for sr in s.review.sessions.values_mut() {
-        sr.narrow.set_wrap(wrap);
+    if s.review.sessions.values().any(|sr| sr.narrow.wraps_otherwise(wrap)) {
+        for sr in s.review.sessions.values_mut() {
+            sr.narrow.set_wrap(wrap);
+        }
     }
-    let routed = match &s.route {
+    let routed = match &*s.route {
         Route::Session { id, .. } => Some(id.as_str()),
         _ => None,
     };
@@ -179,24 +183,32 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.more_drawer(MoreEvent::Close, tx);
         changed = true;
     }
-    let view = std::mem::take(&mut s.layout.narrow.view);
-    let (view, _) = view.step(ViewEvent::Tick { now });
-    changed |= view != s.layout.narrow.view;
-    s.layout.narrow.view = view;
+    // The clock moves only a pending view and a drawer sliding out: polls borrow the shell to
+    // write only then, so regions that read it stay reused.
+    if matches!(s.layout.narrow.view, View::Pending { .. }) {
+        let view = std::mem::take(&mut s.layout.narrow.view);
+        let (view, _) = view.step(ViewEvent::Tick { now });
+        changed |= view != s.layout.narrow.view;
+        s.layout.narrow.view = view;
+    }
     if let TabsDrawer::ClosingToSettings { attempt, due_at } = s.layout.narrow.tabs
         && now + 1e-9 >= due_at
     {
         s.tabs_drawer(TabsEvent::CloseTimedOut { attempt }, tx);
         changed = true;
     }
-    let (more, _) = s.layout.narrow.more_presence.step(PresenceEvent::Tick { now });
-    changed |= more != s.layout.narrow.more_presence;
-    s.layout.narrow.more_presence = more;
-    let (tabs, effect) = s.layout.narrow.tabs_presence.step(PresenceEvent::Tick { now });
-    changed |= tabs != s.layout.narrow.tabs_presence;
-    s.layout.narrow.tabs_presence = tabs;
-    if effect == Some(PresenceEffect::Gone) {
-        s.tabs_drawer(TabsEvent::ContentPresent { present: false }, tx);
+    if matches!(s.layout.narrow.more_presence, Presence::Leaving { .. }) {
+        let (more, _) = s.layout.narrow.more_presence.step(PresenceEvent::Tick { now });
+        changed |= more != s.layout.narrow.more_presence;
+        s.layout.narrow.more_presence = more;
+    }
+    if matches!(s.layout.narrow.tabs_presence, Presence::Leaving { .. }) {
+        let (tabs, effect) = s.layout.narrow.tabs_presence.step(PresenceEvent::Tick { now });
+        changed |= tabs != s.layout.narrow.tabs_presence;
+        s.layout.narrow.tabs_presence = tabs;
+        if effect == Some(PresenceEffect::Gone) {
+            s.tabs_drawer(TabsEvent::ContentPresent { present: false }, tx);
+        }
     }
     changed
 }

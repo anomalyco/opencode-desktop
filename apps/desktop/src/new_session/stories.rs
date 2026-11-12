@@ -14,20 +14,20 @@ const KEYS: &[Trigger] = &[replay(open), Trigger { key: 's', label: "Send", run:
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.new_session(tx);
-    s.composer = rune::TextEdit::new(TEXT);
+    *s.composer = rune::TextEdit::new(TEXT);
     s.composer.focused = true;
     tx.after(0.6, |s, tx| send(s, tx));
 }
 
 fn send(s: &mut App, tx: &mut Tx) {
-    if matches!(s.route, Route::Draft(_)) {
+    if matches!(*s.route, Route::Draft(_)) {
         s.send(tx);
     }
 }
 
 /// As the server's refusal would: the session goes and the words come back.
 fn fail(s: &mut App, tx: &mut Tx) {
-    let Route::Session { id, .. } = s.route.clone() else { return };
+    let Route::Session { id, .. } = (*s.route).clone() else { return };
     let Some(Message::User { id: prompt, text }) = s.transcripts.get(&id).and_then(|t| t.messages.iter().find(|m| matches!(m, Message::User { .. }))).cloned() else { return };
     s.playback.retain(|e| e.2["sessionID"] != id.as_str());
     let directory = s.draft_dir().to_owned();
@@ -37,7 +37,7 @@ fn fail(s: &mut App, tx: &mut Tx) {
 }
 
 fn view(s: &App, p: &Pal) -> El {
-    let page = match &s.route {
+    let page = match &*s.route {
         Route::Session { id, .. } => crate::view::session_page(s, p, id),
         _ => crate::view::draft_page(s, p, 820.0),
     };
@@ -52,14 +52,14 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
 /// start's phases, its status line under the prompt (Desktop's `PreparingSession`).
 fn start_scene(s: &mut App, worktree: bool) {
     crate::scenes::open_scene(s);
-    let directory = match &s.route {
+    let directory = match &*s.route {
         Route::Session { id, .. } => s.session(id).map(|i| i.directory.clone()).unwrap_or_default(),
         _ => String::new(),
     };
     let (id, prompt) = ("ses_zzzzstartscene".to_owned(), "msg_zzzzstartscene".to_owned());
     s.sessions.insert(0, opencode_kit::model::SessionInfo { id: id.clone(), directory: directory.clone(), ..Default::default() });
     s.transcripts.insert(id.clone(), opencode_kit::model::Transcript { session: id.clone(), messages: vec![Message::User { id: prompt.clone(), text: TEXT.into() }] });
-    s.route = Route::here(id.clone());
+    *s.route = Route::here(id.clone());
     let start = if worktree {
         let sent = crate::send_failed::Sent::new(&id, &prompt, crate::prompt_history::Entry::of(&rune::TextEdit::new(TEXT)), vec![], vec![], false);
         super::Start::Worktree { attempt: rune::machine::Attempt(1), draft: None, held: super::Held { sent, prompt: Default::default() }, due: f64::INFINITY }

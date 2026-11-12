@@ -92,7 +92,7 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: u
     let spring = s.switch_spring();
     let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
-    let active = !draft && matches!(&s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
+    let active = !draft && matches!(&*s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
     let id = uid.to_owned();
     item.decorate(move |slot, _| {
         // The arrows open the tab they reach as they pass it; its menu on a right-click.

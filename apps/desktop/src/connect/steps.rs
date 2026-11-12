@@ -403,7 +403,7 @@ fn text_step(s: &App, p: &Pal, f: &form::Form) -> El {
 
 /// Desktop's notice for a sign-in that a remote server stores.
 fn remote_notice(s: &App, p: &Pal) -> El {
-    let name = match &s.source {
+    let name = match &*s.source {
         crate::Source::Live { server, .. } => server.base.split("://").nth(1).unwrap_or(&server.base).to_owned(),
         crate::Source::Fixture => String::new(),
     };
@@ -709,7 +709,7 @@ fn provider_id(s: &App) -> String {
 impl App {
     /// Whether the server shares this machine, so a sign-in stays here.
     pub(crate) fn server_is_local(&self) -> bool {
-        match &self.source {
+        match &*self.source {
             crate::Source::Live { server, .. } => server.is_local(),
             crate::Source::Fixture => true,
         }

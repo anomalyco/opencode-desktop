@@ -128,7 +128,7 @@ impl MessageNav {
 impl App {
     /// Steps `offset` prompts from the one in view.
     pub fn navigate_message(&mut self, offset: i32, tx: &mut Tx) {
-        let Route::Session { id, .. } = &self.route else { return };
+        let Route::Session { id, .. } = &*self.route else { return };
         let Some(sid) = self.displayed_session(id).map(str::to_owned) else { return };
         if let Some(current) = self.message_nav.fresh(&sid) {
             return jump(self, &sid, Some(current), offset, tx);

@@ -510,7 +510,7 @@ pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &
 const SERVE_CMD: &str = "opencode serve --port 4096";
 
 fn no_server_home(s: &App, p: &Pal) -> El {
-    let addr = match (&s.launch.story_addr, &s.source) {
+    let addr = match (&s.launch.story_addr, &*s.source) {
         (Some(a), _) => a.as_str(),
         (None, crate::Source::Live { server, .. }) => server.base.as_str(),
         (None, crate::Source::Fixture) => opencode_kit::client::DEFAULT_SERVER,
@@ -617,7 +617,7 @@ mod no_server_story {
     ];
 
     fn setup(s: &mut App) {
-        s.route = crate::Route::Home;
+        *s.route = crate::Route::Home;
         s.sessions.clear();
         s.tabs.clear();
         s.projects.clear();
@@ -648,6 +648,6 @@ mod no_server_story {
 
     rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         ("no-server", setup),
-        ("no-server-remote", |s| { s.variant = 2; setup(s) }),
+        ("no-server-remote", |s| { *s.variant = 2; setup(s) }),
     ]);
 }

@@ -11,7 +11,7 @@ use opencode_i18n::t;
 // Composer and status bar
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let (queue, status) = match &s.route {
+    let (queue, status) = match &*s.route {
         Route::Session { id, .. } => (
             Some(crate::queue::panel(s, p, id, s.busy(id))),
             crate::subagents::reply::status_line(s, p, id),
@@ -95,7 +95,7 @@ impl ComposerHost for App {
         &mut self.composer
     }
     fn composer_busy(&self) -> bool {
-        matches!(&self.route, Route::Session { id, .. } if self.busy(id))
+        matches!(&*self.route, Route::Session { id, .. } if self.busy(id))
     }
     fn composer_send(&mut self, tx: &mut Tx) {
         self.send(tx);
@@ -146,7 +146,7 @@ impl ComposerHost for App {
     /// Desktop's (`composer/model.ts:113-120`): a shell example, a follow-up while the session
     /// works or has prompts queued, else the question.
     fn composer_placeholder(&self) -> String {
-        let queued = matches!(&self.route, Route::Session { id, .. } if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
+        let queued = matches!(&*self.route, Route::Session { id, .. } if self.inbox_for(id).is_some_and(|i| i.queued().next().is_some()));
         if self.add.shell() {
             t!("prompt.placeholder.shell", example = "git status")
         } else if self.composer_busy() || queued {
@@ -167,7 +167,7 @@ impl ComposerHost for App {
     /// A session's composer sits on its docks (`region.tsx` passes `borderUnderlay`); the
     /// new-session page's doesn't.
     fn composer_border_underlay(&self) -> bool {
-        matches!(self.route, Route::Session { .. })
+        matches!(*self.route, Route::Session { .. })
     }
     fn composer_editing(&self) -> bool {
         self.queue_editing().is_some()
@@ -368,5 +368,5 @@ pub(super) fn status_bar(s: &App, p: &Pal, info: Option<&SessionInfo>) -> El {
         .child(text(dir).font(UI_SMALL).color(p.faint).truncate_fade())
         .child(spacer())
         .child(el().size(6.0, 6.0).radius(3.0).fill(if live { p.success } else { p.icon_faint }))
-        .child(text(s.status.clone()).font(UI_SMALL).color(p.faint))
+        .child(text((*s.status).clone()).font(UI_SMALL).color(p.faint))
 }

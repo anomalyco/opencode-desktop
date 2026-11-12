@@ -85,7 +85,7 @@ pub fn running_for<'a>(s: &'a App, id: &str) -> Vec<&'a Shell> {
 
 /// What runs in the open session's background now, as the machine sees it.
 pub fn work(s: &App) -> Work {
-    let Route::Session { id, .. } = &s.route else { return Work::default() };
+    let Route::Session { id, .. } = &*s.route else { return Work::default() };
     Work {
         enabled: s.settings.background_activity != crate::settings::BackgroundActivity::Off,
         subagents: s.running_subagents(id).into_iter().map(|r| r.session).collect(),
@@ -120,7 +120,7 @@ pub fn list(s: &mut App, directory: &str) {
     if directory.is_empty() || !s.shells.listed.insert(directory.to_owned()) {
         return;
     }
-    let Source::Live { server, .. } = &s.source else { return };
+    let Source::Live { server, .. } = &*s.source else { return };
     let path = format!("/api/shell?{}", location(directory));
     if crate::headless() {
         if let Ok(v) = server.read(&path) {
@@ -129,7 +129,7 @@ pub fn list(s: &mut App, directory: &str) {
         }
         return;
     }
-    let (server, landed, wake, dir) = (server.clone(), Arc::clone(&s.shells.landed), s.waker.clone(), directory.to_owned());
+    let (server, landed, wake, dir) = (server.clone(), Arc::clone(&s.shells.landed), (*s.waker).clone(), directory.to_owned());
     spawn(move || {
         if let Ok(v) = server.get(&path) {
             let shells = parse_list(&v, &dir);
@@ -173,7 +173,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let before = s.shells.activity.clone();
     let landed = std::mem::take(&mut *s.shells.landed.lock().unwrap_or_else(|e| e.into_inner()));
     let mut changed = !landed.is_empty();
-    let now = s.now_ms;
+    let now = *s.now_ms;
     for l in landed {
         match l {
             Landed::Listed(dir, shells) => replace(&mut s.shells, &dir, shells),
@@ -187,7 +187,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
                     dispatch(s, Event::Tail(e));
                 }
             }
-            Landed::Ended { attempt, info } => dispatch(s, Event::EndedSettled { attempt, info, now }),
+            Landed::Ended { attempt, info } => dispatch(s, Event::EndedSettled { attempt, info, now: now }),
             Landed::Follow { id, generation, attempt, page } => {
                 let effects = s.shells.follow.landed(&id, generation, attempt, page);
                 run_follow(s, effects);
@@ -196,16 +196,24 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 if !ok {
                     crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), String::new());
                 }
-                dispatch(s, Event::StopSettled { attempt, stopped: ok, now });
+                dispatch(s, Event::StopSettled { attempt, stopped: ok, now: now });
             }
         }
     }
-    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut s.shells.timers).into_iter().partition(|(at, _)| *at <= now);
-    s.shells.timers = later;
+    // Every poll comes here: the shells are written only when a timer is due, a followed shell
+    // shows or one stops showing, or the clock passes a second.
+    let (due, later): (Vec<_>, Vec<_>) = if s.shells.timers.iter().any(|(at, _)| *at <= now) {
+        std::mem::take(&mut s.shells.timers).into_iter().partition(|(at, _)| *at <= now)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    if !due.is_empty() {
+        s.shells.timers = later;
+    }
     for (_, d) in due {
         match d {
             Due::Machine { attempt, timer: Timer::Stopping } => dispatch(s, Event::StopTimedOut { attempt }),
-            Due::Machine { attempt, timer: Timer::Ending } => dispatch(s, Event::EndedTimedOut { attempt, now }),
+            Due::Machine { attempt, timer: Timer::Ending } => dispatch(s, Event::EndedTimedOut { attempt, now: now }),
             Due::TailWait { attempt } => dispatch(s, Event::Tail(TailEvent::WaitElapsed { attempt })),
             Due::FollowWait { id, generation, attempt } => {
                 let effects = s.shells.follow.elapsed(&id, generation, attempt);
@@ -217,8 +225,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         dispatch(s, Event::WorkSynced);
     }
     let shown = followed(s);
-    let effects = s.shells.follow.sync(&shown);
-    run_follow(s, effects);
+    if !shown.is_empty() || s.shells.follow.shows_any() {
+        let effects = s.shells.follow.sync(&shown);
+        run_follow(s, effects);
+    }
     if let Some(next) = s.shells.timers.iter().map(|(at, _)| *at).min() {
         tx.wake_after(std::time::Duration::from_millis((next - now).max(0) as u64));
     }
@@ -226,7 +236,10 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.shells.activity.is_open() && (!s.shells.work.shells.is_empty() || !s.shells.work.subagents.is_empty()) {
         let second = now.div_euclid(1000);
         tx.wake_after(std::time::Duration::from_millis(((second + 1) * 1000 - now) as u64));
-        changed |= std::mem::replace(&mut s.shells.ticked, second) != second;
+        if s.shells.ticked != second {
+            s.shells.ticked = second;
+            changed = true;
+        }
     }
     changed || s.shells.activity != before
 }
@@ -234,7 +247,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 /// The open shell consoles of the open session that read their shell, each
 /// `(shell, directory, running)` (`tools::shell_follow`).
 fn followed(s: &App) -> Vec<(String, String, bool)> {
-    let Route::Session { id, .. } = &s.route else { return Vec::new() };
+    let Route::Session { id, .. } = &*s.route else { return Vec::new() };
     let Some(t) = s.transcripts.get(id) else { return Vec::new() };
     let directory = s.session(id).map_or("", |i| i.directory.as_str());
     let running = |shell: &str| s.shells.running.iter().any(|r| r.id == shell);
@@ -259,7 +272,7 @@ fn followed(s: &App) -> Vec<(String, String, bool)> {
 
 /// Runs the reads and waits of the timeline consoles' followers.
 fn run_follow(s: &mut App, effects: Vec<shell_follow::Effect>) {
-    let now = s.now_ms;
+    let now = *s.now_ms;
     for e in effects {
         match e.effect {
             TailEffect::Wait { attempt, ms } => s.shells.timers.push((now + ms, Due::FollowWait { id: e.id, generation: e.generation, attempt })),
@@ -276,7 +289,7 @@ fn run_follow(s: &mut App, effects: Vec<shell_follow::Effect>) {
 }
 
 fn run(s: &mut App, effect: Effect) {
-    let now = s.now_ms;
+    let now = *s.now_ms;
     match effect {
         Effect::TimerStart { attempt, timer } => {
             let ms = if timer == Timer::Stopping { activity::STOP_TIMEOUT_MS } else { activity::END_TIMEOUT_MS };
@@ -327,14 +340,14 @@ fn run(s: &mut App, effect: Effect) {
 
 /// Runs `work` against the live server on a thread, its result landing for the next poll.
 fn request(s: &App, work: impl FnOnce(&opencode_kit::client::Server) -> Landed + Send + 'static) {
-    let Source::Live { server, .. } = &s.source else { return };
+    let Source::Live { server, .. } = &*s.source else { return };
     // Headless snapshots have no event loop to wait on a thread: the read lands for the next frame.
     if crate::headless() {
         let l = work(server);
         push(&s.shells.landed, None, l);
         return;
     }
-    let (server, landed, wake) = (server.clone(), Arc::clone(&s.shells.landed), s.waker.clone());
+    let (server, landed, wake) = (server.clone(), Arc::clone(&s.shells.landed), (*s.waker).clone());
     spawn(move || {
         let l = work(&server);
         push(&landed, wake.as_ref(), l);

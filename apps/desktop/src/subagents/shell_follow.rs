@@ -56,6 +56,11 @@ impl Followers {
 
     /// The consoles showing now, each `(shell, directory, running)`: new ones start following,
     /// gone ones stop, and a shell that started or stopped running tells its follower.
+    /// Whether any shell's output is followed: with none and none to show, `sync` does nothing.
+    pub fn shows_any(&self) -> bool {
+        self.entries.iter().any(|(_, e)| matches!(e, Entry::Shown { .. }))
+    }
+
     pub fn sync(&mut self, shown: &[(String, String, bool)]) -> Vec<Effect> {
         let mut out = Vec::new();
         for (id, entry) in &mut self.entries {

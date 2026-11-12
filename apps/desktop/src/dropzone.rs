@@ -123,6 +123,10 @@ pub fn drop(s: &mut App, paths: &[std::path::PathBuf], tx: &mut Tx) {
 }
 
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    // Only a landed drop and a fade out hear the clock: at rest the composer isn't written.
+    if !matches!(s.attach.drop, Dropzone::Landed | Dropzone::Leaving { .. }) {
+        return false;
+    }
     let now = tx.clock();
     let event = match s.attach.drop {
         Dropzone::Landed => Event::Settled { now, input: s.attachment_input() },
@@ -153,7 +157,7 @@ pub fn overlay(s: &App, p: &Pal, size: (f32, f32)) -> El {
         Dropzone::Leaving { input, .. } => input,
         _ => s.attachment_input(),
     };
-    layer(p, size, s.attach.drop, label(input), s.reduced_motion)
+    layer(p, size, s.attach.drop, label(input), *s.reduced_motion)
 }
 
 /// The overlay's layer over a `w`x`h` page: always there, inert, and empty while hidden; its

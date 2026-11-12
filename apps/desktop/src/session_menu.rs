@@ -241,13 +241,13 @@ impl App {
     /// Ends the edit: with `save`, a changed, non-empty title is sent. Nothing when none is open.
     pub fn finish_rename(&mut self, save: bool) {
         let draft = self.menus.edit.text.clone();
-        let event = if save { rename::Event::Submit { draft: &draft, now: self.clock } } else { rename::Event::Cancel };
+        let event = if save { rename::Event::Submit { draft: &draft, now: *self.clock } } else { rename::Event::Cancel };
         self.rename_event(event, "");
     }
 
     /// Runs `event` through the rename machine and carries out what it asks.
     fn rename_event(&mut self, event: rename::Event<'_>, why: &str) {
-        let m = &mut self.menus;
+        let m = &mut *self.menus;
         for effect in rename::step(&mut m.seq, &mut m.rename, &mut m.save, event) {
             match effect {
                 rename::Effect::Arm(title) => {
@@ -399,7 +399,11 @@ impl App {
     /// The delete's deadline.
     pub fn poll_delete(&mut self, now: f64, tx: &mut Tx) -> bool {
         let before = self.menus.confirming();
-        self.delete_event(delete::Event::Tick { now }, "", tx);
+        // Only a delete in flight hears the clock: polls leave the menus untouched otherwise, so
+        // regions that read them stay reused.
+        if matches!(self.menus.delete, delete::Delete::Deleting { .. }) {
+            self.delete_event(delete::Event::Tick { now }, "", tx);
+        }
         if let delete::Delete::Deleting { due, .. } = self.menus.delete {
             tx.wake_at(due);
         }
@@ -445,12 +449,12 @@ impl App {
     fn session_removed(&mut self, gone: &[String]) {
         let server = crate::servers::runtime::active(self).clone();
         self.forget_history(|_, x| gone.iter().any(|g| g == x));
-        let open_gone = matches!(&self.route, Route::Session { id: open, server: on } if *on == server && gone.contains(open));
+        let open_gone = matches!(&*self.route, Route::Session { id: open, server: on } if *on == server && gone.contains(open));
         self.sessions.retain(|s| !gone.contains(&s.id));
         self.tabs.retain(|t| t.is_draft() || t.server != server || !gone.contains(&t.id));
         self.closed.remove(|id| gone.iter().any(|g| g == id));
         if open_gone {
-            self.route = Route::Home;
+            *self.route = Route::Home;
         }
         self.save_tabs();
     }
@@ -483,7 +487,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !crate::keymap::Bind::Rename.matches_tx(ev, tx) || pane_owns || s.stage.is_some() {
         return false;
     }
-    let Route::Session { id, .. } = s.route.clone() else { return false };
+    let Route::Session { id, .. } = (*s.route).clone() else { return false };
     if s.session(&id).is_none_or(|i| i.parent.is_some()) {
         return false;
     }

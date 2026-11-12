@@ -26,7 +26,7 @@ pub const LAYOUT_KEYS: &[Trigger] = &[
         crate::open_scene(s);
         s.finish_stream();
         s.settings.tab_layout = TabLayout::Horizontal;
-        s.layout = crate::layout_state::Shell::at_rest(TabLayout::Horizontal);
+        *s.layout = crate::layout_state::Shell::at_rest(TabLayout::Horizontal);
         s.open_settings();
     }),
     Trigger { key: 's', label: "Side tabs", run: |s, tx| s.set_tab_layout(TabLayout::Vertical, tx) },
@@ -51,7 +51,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         crate::open_scene(s);
         s.finish_stream();
         crate::scenes::side_tabs(s);
-        s.sidebar_open = false;
+        *s.sidebar_open = false;
         s.open_settings();
     }),
     ("settings-providers", |s| on(s, Page::Providers)),

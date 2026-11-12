@@ -33,7 +33,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .key("titlebar")
         .height(chrome.row_h)
         .top_padding(chrome.row_pad)
-        .leading_padding(leading_pad(top, insets.leading, s.zoom))
+        .leading_padding(leading_pad(top, insets.leading, *s.zoom))
         .fill(p.bg_deep)
         // Right to left the row runs from the caption buttons, which stay on the right
         // (`titlebar.tsx:192`), as the traffic lights stay on the left.
@@ -53,7 +53,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         return Some(built.build(crate::palette::kit(p)));
     }
     if !top {
-        return Some(bar.leading(toggle_button(s, p, s.sidebar_open)).build(crate::palette::kit(p)));
+        return Some(bar.leading(toggle_button(s, p, *s.sidebar_open)).build(crate::palette::kit(p)));
     }
     let nav = row().key("titlebar-nav").gap(2.0).center_y().child(home_button(s, p)).child(search_button(p));
     // The strip's width matters only while the tabs can't all have their full 224 pt: below

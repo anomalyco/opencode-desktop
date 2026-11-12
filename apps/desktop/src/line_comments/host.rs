@@ -118,8 +118,9 @@ pub fn reveal(s: &mut App, tx: &mut Tx) -> bool {
         .collect();
     for (sid, target, attempt, due) in pending {
         if now + 1e-3 >= due {
-            if let Some(c) = s.line_comments.sessions.get_mut(&sid) {
-                let _ = focus::step(&mut s.line_comments.focus_seq, &mut c.focus, focus::Event::TimedOut { attempt, now });
+            let lc = &mut *s.line_comments;
+            if let Some(c) = lc.sessions.get_mut(&sid) {
+                let _ = focus::step(&mut lc.focus_seq, &mut c.focus, focus::Event::TimedOut { attempt, now });
             }
             changed = true;
             continue;
@@ -129,8 +130,9 @@ pub fn reveal(s: &mut App, tx: &mut Tx) -> bool {
         let spot = Spot { session: sid.clone(), surface, path: target.file.clone() };
         s.line_comment(&spot, Event::CommentFocused { id: target.id.clone(), range }, tx);
         scroll_to(s, &spot, range, tx);
-        if let Some(c) = s.line_comments.sessions.get_mut(&sid) {
-            let _ = focus::step(&mut s.line_comments.focus_seq, &mut c.focus, focus::Event::Set(None, now));
+        let lc = &mut *s.line_comments;
+        if let Some(c) = lc.sessions.get_mut(&sid) {
+            let _ = focus::step(&mut lc.focus_seq, &mut c.focus, focus::Event::Set(None, now));
         }
         changed = true;
     }

@@ -9,12 +9,12 @@ const WIDTHS: [f32; 4] = [200.0, 260.0, 330.0, 420.0];
 
 const KEYS: &[Trigger] = &[
     replay(|s, _| s.finish_stream()),
-    Trigger { key: 's', label: "Sidebar open or closed", run: |s, _| s.sidebar_open = !s.sidebar_open },
+    Trigger { key: 's', label: "Sidebar open or closed", run: |s, _| s.sidebar_open = (!*s.sidebar_open).into() },
     Trigger { key: 'a', label: "Show the agent", run: |s, _| s.settings.show_agent = !s.settings.show_agent },
 ];
 
 fn view(s: &App, p: &Pal) -> El {
-    let Route::Session { id, .. } = &s.route else { return el() };
+    let Route::Session { id, .. } = &*s.route else { return el() };
     let (info, t) = (s.session(id), s.transcripts.get(id));
     let mut widths = col().key("narrow-widths").gap(16.0).items_center();
     for w in WIDTHS {

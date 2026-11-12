@@ -479,7 +479,7 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
-    if s.live() { s.launch.network_change = s.waker.clone().and_then(network::subscribe); }
+    if s.live() { s.launch.network_change = (*s.waker).clone().and_then(network::subscribe); }
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     unidle_gpu_threads();
@@ -530,7 +530,7 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
             }
             LaunchEffect::Connect => connect(s, tx),
             LaunchEffect::Unreachable | LaunchEffect::Fixture => {}
-            LaunchEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - s.clock).max(0.0))),
+            LaunchEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
             LaunchEffect::Repaint => {
                 tx.instant();
                 changed = true;
@@ -543,8 +543,8 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
 /// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
 fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     let (out, rx) = std::sync::mpsc::channel();
-    let Source::Live { server, .. } = &s.source else { return rx };
-    let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| s.waker.clone()));
+    let Source::Live { server, .. } = &*s.source else { return rx };
+    let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()));
     // Only the app's own server may stand down for the fixture, or move to the port
     // `service.json` names.
     let own = crate::servers::runtime::active(s).is_sidecar();
@@ -582,7 +582,7 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
-    let now = s.clock;
+    let now = *s.clock;
     if s.live() && crate::attended() {
         step(s, LaunchEvent::Tick { now }, tx);
         if window_phase(s).is_some_and(|p| matches!(p, Phase::Offline { retry_at, .. } if retry_at.is_infinite()))
@@ -613,11 +613,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         crate::windows::peer::leave_server(s);
         s.transcripts.clear();
         s.tabs.clear();
-        s.route = Route::Home;
+        *s.route = Route::Home;
         s.load_fixture(crate::FIXTURE);
         return true;
     };
-    if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut s.source) {
+    if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut *s.source) {
         *server = actual.clone();
         if crate::servers::runtime::active(s).is_sidecar() {
             crate::servers::runtime::moved(s, &actual);
@@ -625,7 +625,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     if let Some(tabs) = ready.beta_tabs {
         let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();
-        s.tabs = tabs;
+        *s.tabs = tabs;
         s.tabs.extend(drafts);
     }
     match result {
@@ -642,7 +642,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         // hasn't answered the unavailable panel (`view::session_state`).
         Err(e) => {
             let shown = step(s, LaunchEvent::Landed { reached, refused, now }, tx);
-            if shown { s.status = e; }
+            if shown { s.status = e.into(); }
             shown
         }
     }
@@ -657,15 +657,15 @@ impl App {
         }
         tx.instant();
         crate::projects::home::focus(self, key);
-        self.opening = None;
-        self.route = Route::Home;
+        *self.opening = None;
+        *self.route = Route::Home;
         crate::servers::runtime::switch(self, key);
     }
 
     /// Attachments and markdown images read through the server, so a window that opens with
     /// a transcript (a torn-out tab's) shows its images before it connects.
     pub(crate) fn set_media_fetch(&mut self) {
-        let Source::Live { server, .. } = &self.source else { return };
+        let Source::Live { server, .. } = &*self.source else { return };
         let media = server.clone();
         self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
         // Markdown images read through the server as Desktop's `readLocalImage` does; web
@@ -685,7 +685,7 @@ impl App {
         // lacks: the copy is live, and newer than these reads.
         let joined = crate::windows::peer::joined(self);
         if !joined || self.projects.is_empty() {
-            self.projects = opencode_kit::model::parse_projects(&f.projects);
+            *self.projects = opencode_kit::model::parse_projects(&f.projects);
         }
         if let Some(sessions) = &f.sessions {
             // Sessions past the page (another window's tab, a subagent's parent) stay known,
@@ -698,7 +698,7 @@ impl App {
             }
             let rest: Vec<_> = self.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
             list.extend(rest);
-            self.sessions = list;
+            *self.sessions = list;
             self.sidebar_inbox.heard_sessions();
         }
         if let Some(p) = &f.providers {
@@ -712,23 +712,23 @@ impl App {
         }
         if let Some(a) = f.active.as_ref().filter(|_| !joined) {
             let map = a.get("data").unwrap_or(a);
-            self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).filter(|id| !self.stops.pending(id)).collect();
+            *self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).filter(|id| !self.stops.pending(id)).collect();
         }
         crate::windows::peer::touch(self);
         // A fresh profile has used no projects yet: Home lists none, as Desktop's
         // `usedProjectIDs` starts empty.
-        let saved_projects = match &self.source {
+        let saved_projects = match &*self.source {
             Source::Live { server, .. } => Some(crate::tabs::load_projects(&server.base).unwrap_or_default()),
             Source::Fixture => None,
         };
         self.init_used_projects(saved_projects);
-        if let Route::Session { id, server } = &self.route
+        if let Route::Session { id, server } = &*self.route
             && server == crate::servers::runtime::active(self)
             && !self.tabs.iter().any(|t| t.id == *id)
             && !self.sessions.iter().any(|s| s.id == *id)
         {
             self.launch.cold_transcript = None;
-            self.route = Route::Home;
+            *self.route = Route::Home;
         }
         self.sort_projects();
     }
@@ -742,7 +742,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     missing.sort();
     missing.dedup();
     s.set_media_fetch();
-    if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut s.source, s.waker.clone()) {
+    if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
         let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
@@ -755,13 +755,13 @@ fn connect(s: &mut App, tx: &mut Tx) {
             let _ = r.send(Request::Info(id));
         }
         *requests = Some(r);
-        s.inbox = Some(inbox);
+        *s.inbox = Some(inbox);
         crate::windows::peer::join(s, Some(inbox_wake.clone()));
         // A window that started in its opener's copy was woken plainly until now.
         crate::windows::peer::set_waker(s, inbox_wake);
         s.list_unlisted_worktrees();
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
-        if let Route::Session { id, server } = s.route.clone()
+        if let Route::Session { id, server } = (*s.route).clone()
             && server == *crate::servers::runtime::active(s)
         {
             crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));
@@ -785,7 +785,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     }
     // Deterministic headless snapshots have no wall-clock event loop to await the worker.
     if headless()
-        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&s.route, &s.source)
+        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && !s.transcripts.contains_key(id)
         && let Ok(v) = server.read(&format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST))
@@ -794,7 +794,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     }
     // And what waits in its inbox: steers, and shells and subagents that came back.
     if headless()
-        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&s.route, &s.source)
+        && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
     {

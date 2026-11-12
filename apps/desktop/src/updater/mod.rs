@@ -154,13 +154,13 @@ pub fn start_if_packaged(s: &mut App) {
     let shared = SHARED.with(|shared| shared.borrow().clone());
     let service = match shared {
         Some(service) => {
-            if let Some(waker) = s.waker.clone() {
+            if let Some(waker) = (*s.waker).clone() {
                 service.borrow().add_waker(waker);
             }
             service
         }
         None => {
-            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(build_channel()), s.waker.clone())));
+            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(build_channel()), (*s.waker).clone())));
             SHARED.with(|shared| *shared.borrow_mut() = Some(service.clone()));
             service
         }

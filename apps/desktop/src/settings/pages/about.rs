@@ -32,7 +32,7 @@ static BRUSH: Icon = Icon { name: "about-anomaly-brush", view: 110.0, body: incl
 fn others(s: &App) -> u32 {
     if !crate::headless() {
         ASKED.call_once(|| {
-            let waker = s.waker.clone();
+            let waker = (*s.waker).clone();
             std::thread::spawn(move || {
                 let link = ureq::get("https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1")
                     .header("Accept", "application/vnd.github+json")
@@ -170,7 +170,10 @@ impl Wordmark {
 
 /// Runs the scramble on the app's clock: an opening's first letters, then each tick's.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    let reduced = s.reduced_motion;
+    let reduced = *s.reduced_motion;
+    if !s.settings_pages.wordmark.pending && s.settings_pages.wordmark.started.is_none() {
+        return false;
+    }
     let w = &mut s.settings_pages.wordmark;
     if std::mem::take(&mut w.pending) && !reduced {
         w.seed ^= now.to_bits() | 1;

@@ -183,6 +183,10 @@ pub(super) fn field(s: &App, p: &Pal, id: &str) -> Option<El> {
 
 /// The armed frame, and a click away, which saves as the field's blur does.
 pub(super) fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    // Every poll comes here: the terminal is written only for an arming rename or a blur.
+    if matches!(&s.terminal.renaming.edit, Edit::Idle) || matches!(&s.terminal.renaming.edit, Edit::Editing { at } if at.field.focused) {
+        return false;
+    }
     let event = match &mut s.terminal.renaming.edit {
         // `arm`'s frame: focus that settled elsewhere comes back to the field first.
         Edit::Arming { at, attempt, edited } => {

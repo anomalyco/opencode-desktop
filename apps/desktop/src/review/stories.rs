@@ -64,7 +64,7 @@ pub fn init_review(s: &mut App) {
     s.review = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
     s.show_side_tab(&sid, &panel_key("review", "changes"), None);
-    match s.variant {
+    match *s.variant {
         0 => s.set_review_diff_mode(DiffMode::Unified),
         1 => s.set_review_diff_mode(DiffMode::Split),
         _ => {

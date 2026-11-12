@@ -190,7 +190,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
     let Some(proj) = s.project(id).cloned() else { return };
     let server = crate::servers::runtime::active(s).clone();
     let unread = project_unread(s, &proj).next().is_some();
-    let local = matches!(&s.source, crate::Source::Live { server, .. } if server.is_local());
+    let local = matches!(&*s.source, crate::Source::Live { server, .. } if server.is_local());
     let mut menu = Menu::new(t!("command.category.project"))
         .min_width(160.0)
         .align(Align::End)
@@ -238,8 +238,8 @@ impl App {
     pub(crate) fn new_session_in(&mut self, dir: &str, tx: &mut Tx) {
         self.close_settings();
         self.project_state.home_menu_open = false;
-        self.default_dir = dir.to_owned();
-        self.opening = None;
+        *self.default_dir = dir.to_owned();
+        *self.opening = None;
         self.open_draft_tab();
         tx.settle();
     }
@@ -256,7 +256,7 @@ impl App {
         for id in ids {
             let Some(info) = self.sessions.iter_mut().find(|i| i.id == id) else { continue };
             info.viewed = info.idle.max(info.viewed);
-            let idle = info.idle.unwrap_or(self.now_ms);
+            let idle = info.idle.unwrap_or(*self.now_ms);
             self.write(opencode_kit::client::Write::View { session: id, idle });
         }
     }

@@ -135,14 +135,14 @@ impl App {
     /// Stops only the open session, as Desktop does. The server cancels its blocking work;
     /// detached background helpers keep running and can be stopped from their own pages.
     pub fn stop(&mut self) {
-        let Route::Session { id: sid, .. } = self.route.clone() else { return };
+        let Route::Session { id: sid, .. } = (*self.route).clone() else { return };
         if !self.running.contains(&sid) || self.stops.has(&sid) {
             return;
         }
         // The fixture and the storybook answer as a server would, a little later.
-        let fixture = self.stage.is_some() || matches!(self.source, Source::Fixture);
-        let now = self.now_ms;
-        for effect in self.stops.step(&sid, Event::Pressed { now }) {
+        let fixture = self.stage.is_some() || matches!(*self.source, Source::Fixture);
+        let now = *self.now_ms;
+        for effect in self.stops.step(&sid, Event::Pressed { now: now }) {
             let Effect::Interrupt(attempt) = effect else { continue };
             let asked = if fixture {
                 self.fixture_interrupt(&sid);
@@ -166,9 +166,9 @@ impl App {
     /// lands, the rest of the run never comes, then its open step fails as interrupted and the
     /// run ends.
     fn fixture_interrupt(&mut self, sid: &str) {
-        let on_the_way = self.clock + ON_THE_WAY_SECS;
+        let on_the_way = *self.clock + ON_THE_WAY_SECS;
         self.playback.retain(|(at, _, d)| *at <= on_the_way || d["sessionID"].as_str() != Some(sid));
-        let at = self.clock + FIXTURE_SECS;
+        let at = *self.clock + FIXTURE_SECS;
         let open = self.transcripts.get(sid).and_then(|t| match t.messages.last() {
             Some(Message::Assistant(a)) if a.completed.is_none() => Some(a.id.clone()),
             _ => None,
@@ -189,14 +189,14 @@ impl App {
 /// Whether Escape stops the open session's run: the composer has focus while it runs or its stop
 /// settles (the escape stack's `Run` layer).
 pub fn escape_stops(s: &App) -> bool {
-    let Route::Session { id, .. } = &s.route else { return false };
+    let Route::Session { id, .. } = &*s.route else { return false };
     s.composer.focused && (s.busy(id) || s.stopping(id))
 }
 
 /// Esc or ⌃G in the composer while the open session runs, as Desktop's: stops it. Again while
 /// that stop settles, it does nothing more (Esc doesn't fall through and leave the composer).
 pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
-    let Route::Session { id, .. } = s.route.clone() else { return false };
+    let Route::Session { id, .. } = (*s.route).clone() else { return false };
     if !session_view::composer::is_stop_shortcut(ev) || !s.composer.focused {
         return false;
     }
@@ -237,11 +237,11 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
     if s.stops.by.is_empty() {
         return false;
     }
-    let now = s.now_ms;
+    let now = *s.now_ms;
     let ids: Vec<String> = s.stops.by.keys().cloned().collect();
     let mut late = false;
     for sid in ids {
-        for effect in s.stops.step(&sid, Event::Due { now }) {
+        for effect in s.stops.step(&sid, Event::Due { now: now }) {
             if effect == (Effect::Resume { failed: false }) {
                 late = true;
                 s.running.insert(sid.clone());
@@ -254,7 +254,7 @@ pub fn poll(s: &mut App, _clock: f64, tx: &mut rune::Tx) -> bool {
         }
     }
     if late {
-        if let Source::Live { requests: Some(r), .. } = &s.source {
+        if let Source::Live { requests: Some(r), .. } = &*s.source {
             let _ = r.send(Request::Active);
         }
         crate::windows::peer::touch(s);

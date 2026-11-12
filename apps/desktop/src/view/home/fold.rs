@@ -68,7 +68,7 @@ pub(crate) fn add_flow(s: &mut App, n: usize, running: usize) {
         let mut ses = base.clone();
         ses.id = format!("ses_flow{i:04}aaaaaaaaaaaaaaaaaa");
         ses.title = format!("flow: gauntlet R5 {task}-{:06x} {task}", 0x221c15 + i * 7919);
-        ses.updated = s.now_ms - 20_000 - i as i64 * 37_000;
+        ses.updated = *s.now_ms - 20_000 - i as i64 * 37_000;
         ses.created = ses.updated - 600_000;
         if i < running {
             s.running.insert(ses.id.clone());
@@ -92,7 +92,7 @@ mod story {
             key: 'u',
             label: "A lower session updates",
             run: |s, _| {
-                let now = s.now_ms;
+                let now = *s.now_ms;
                 if let Some(ses) = s.sessions.iter_mut().filter(|x| x.parent.is_none() && !crate::view::is_automation(&x.title)).last() {
                     ses.updated = now;
                 }
@@ -101,7 +101,7 @@ mod story {
     ];
 
     pub(crate) fn setup(s: &mut App) {
-        s.route = Route::Home;
+        *s.route = Route::Home;
         super::add_flow(s, 40, 3);
         s.restore.inbox.home_automations = s.variant == 1;
     }

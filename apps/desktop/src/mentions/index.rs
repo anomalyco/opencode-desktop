@@ -67,7 +67,7 @@ fn group(item: &Item) -> u8 {
 impl App {
     fn sessions_key(&self) -> SessionsKey {
         SessionsKey {
-            route: match &self.route {
+            route: match &*self.route {
                 Route::Session { id, .. } => Some(id.clone()),
                 _ => None,
             },
@@ -116,7 +116,7 @@ impl App {
     /// its files as a search would find them (fuzzysort standing in for the server's), and none
     /// for a query the live search skips (`search::next_files`).
     fn searched_files(&self, query: &str) -> Vec<String> {
-        match &self.source {
+        match &*self.source {
             Source::Live { .. } => self.mentions.search.files().iter().map(|p| shown_path(p)).collect(),
             _ => {
                 let index = &self.mentions.file_index;
@@ -140,7 +140,7 @@ impl App {
         let Some(query) = self.mention_query() else { return Vec::new() };
         let sessions_key = self.sessions_key();
         let recent = self.recent_files();
-        let files = match &self.source {
+        let files = match &*self.source {
             Source::Live { .. } => (self.mentions.search.files_query().to_owned(), self.mentions.search.files().len()),
             _ => (String::new(), self.mentions.file_index.len()),
         };

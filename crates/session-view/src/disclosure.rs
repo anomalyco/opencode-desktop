@@ -245,6 +245,13 @@ pub fn toggle_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 
 
 /// Drops the steps of groups that have finished shutting, and wakes for the next.
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
+    // Every poll comes here: the disclosures are written only when one finished shutting.
+    if !s.expanded().0.values().any(|d| matches!(d, Disclosure::Shutting { until } if *until <= now + 1e-9)) {
+        if let Some(due) = s.expanded().next_due() {
+            tx.wake_at(due);
+        }
+        return false;
+    }
     let before = s.expanded().0.len();
     for effect in s.expanded_mut().step("", Event::Tick { now }) {
         let Effect::WakeAt(due) = effect;

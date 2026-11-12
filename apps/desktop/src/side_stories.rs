@@ -119,14 +119,14 @@ pub fn init_region(s: &mut App) {
     s.browser = Default::default();
     let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
 
-    match s.variant {
+    match *s.variant {
         0 => {
             s.open_new_browser_tab("http://localhost:3000/dashboard");
             s.open_new_browser_tab("https://github.com/anomalyco/rune");
         }
         1 => {
             s.open_new_browser_tab("http://localhost:3000/");
-            let now = s.now_ms;
+            let now = *s.now_ms;
             push_closed_tab(
                 &mut s.session_side_mut(&sid).closed,
                 ClosedSideTab {
@@ -187,7 +187,7 @@ pub fn init_browser(s: &mut App) {
     s.finish_stream();
     s.side = Default::default();
     s.browser = Default::default();
-    match s.variant {
+    match *s.variant {
         0 => {
             let id = s.browser.host.insert_mock_tab(
                 "http://localhost:3000/dashboard",
@@ -231,7 +231,7 @@ pub fn init_install(s: &mut App) {
     s.finish_stream();
     s.side = Default::default();
     s.browser = Default::default();
-    let status = match s.variant {
+    let status = match *s.variant {
         0 => EngineStatus::NotInstalled,
         1 => EngineStatus::Downloading {
             downloaded_bytes: 58_400_000,

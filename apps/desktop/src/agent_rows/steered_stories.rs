@@ -79,8 +79,8 @@ pub fn call(s: &mut App, tx: &mut Tx) {
             directory: from.directory,
             title: CALLS[0].0.into(),
             agent: "explore".into(),
-            created: s.now_ms,
-            updated: s.now_ms,
+            created: *s.now_ms,
+            updated: *s.now_ms,
             ..Default::default()
         });
     }
@@ -96,7 +96,7 @@ pub fn call(s: &mut App, tx: &mut Tx) {
         }
         a.parts.push(part);
     }
-    s.agent_rows.called.insert(id, s.now_ms);
+    s.agent_rows.called.insert(id, *s.now_ms);
     if k == 0 {
         emit(s, "session.execution.started", json!({ "sessionID": CHILD }), tx);
     } else {
@@ -111,7 +111,7 @@ fn advance(s: &mut App, tx: &mut Tx) {
     }
     let k = calls(s).saturating_sub(1);
     let steps = CALLS[k.min(CALLS.len() - 1)].2;
-    let since = s.agent_rows.called.get(&format!("call_story_steer_{k}")).map_or(0, |at| s.now_ms - at);
+    let since = s.agent_rows.called.get(&format!("call_story_steer_{k}")).map_or(0, |at| *s.now_ms - at);
     let (name, field, value) = steps[(since as f64 / 1000.0 / STEP) as usize % steps.len()];
     let mut input = json!({});
     input[field] = value.into();
@@ -130,7 +130,7 @@ pub fn finish(s: &mut App, tx: &mut Tx) {
     if !s.running.contains(CHILD) {
         return;
     }
-    let answer = Assistant { id: format!("msg_story_steered_{}", s.now_ms), created: s.now_ms - 400, completed: Some(s.now_ms), parts: vec![Part::Text { text: ANSWER.into() }], ..Default::default() };
+    let answer = Assistant { id: format!("msg_story_steered_{}", *s.now_ms), created: *s.now_ms - 400, completed: Some(*s.now_ms), parts: vec![Part::Text { text: ANSWER.into() }], ..Default::default() };
     s.transcripts.entry(CHILD.into()).or_insert_with(|| Transcript { session: CHILD.into(), messages: Vec::new() }).messages.push(Message::Assistant(answer));
     emit(s, "session.execution.succeeded", json!({ "sessionID": CHILD }), tx);
 }

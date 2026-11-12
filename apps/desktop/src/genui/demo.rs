@@ -98,11 +98,11 @@ pub fn add_mixed(app: &mut App, id: &str) {
 pub(crate) fn stream(s: &mut App, reply: &str, text: &str, step: f64) {
     let id = sid(s);
     s.running.insert(id.clone());
-    let now = s.clock;
+    let now = *s.clock;
     s.schedule(now, "session.execution.started", json!({ "sessionID": id, "assistantMessageID": reply }));
     s.schedule(now, "session.step.started", json!({ "sessionID": id, "assistantMessageID": reply, "agent": "build", "model": { "id": "claude-opus-5-5", "providerID": "anthropic" } }));
     s.schedule(now, "session.text.started", json!({ "sessionID": id, "assistantMessageID": reply, "ordinal": 0 }));
-    let mut at = s.clock + 0.3;
+    let mut at = *s.clock + 0.3;
     for chunk in chunks(text) {
         s.schedule(at, "session.text.delta", json!({ "sessionID": id, "assistantMessageID": reply, "ordinal": 0, "delta": chunk }));
         at += step;
@@ -143,7 +143,7 @@ fn prompt(s: &mut App) {
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     prompt(s);
-    match s.variant {
+    match *s.variant {
         1 => stream(s, MIXED_ID, MIXED, 0.06),
         _ => stream(s, PLAN_ID, PLAN, 0.09),
     }
@@ -166,7 +166,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("genui", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        if let crate::Route::Session { id, .. } = s.route.clone() {
+        if let crate::Route::Session { id, .. } = (*s.route).clone() {
             add_mixed(s, &id);
         }
     }),

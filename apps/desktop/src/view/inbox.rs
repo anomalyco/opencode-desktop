@@ -109,7 +109,7 @@ fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
         .gap(8.0)
         .pt(7.0)
         // From 1pt into the sidebar to 1pt short of the panel, past the 8pt gutter (`--sidebar-divider-bleed`).
-        .child(el().key("inbox-working-rule").absolute(1.0 - inset.0, 0.0).w(s.sidebar_w - 2.0 + 8.0).h(1.0).fill(p.border_muted))
+        .child(el().key("inbox-working-rule").absolute(1.0 - inset.0, 0.0).w(*s.sidebar_w - 2.0 + 8.0).h(1.0).fill(p.border_muted))
         .child(working_header(s, p, open));
     if s.sidebar_inbox.height > 0.0 {
         shelf = shelf.max_h(s.sidebar_inbox.height * 0.4);
@@ -222,7 +222,7 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
             end = end.child(el().key("dot").size(7.0, 7.0).radius(3.5).fill(fill));
         }
     }
-    if let Some(label) = age(e.status, e.since, s.now_ms) {
+    if let Some(label) = age(e.status, e.since, *s.now_ms) {
         end = end.child(text(label).key("age").font(AGE).color(p.faint));
     }
     let key = e.key();
@@ -255,7 +255,7 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
         .child(row().key("sub").w_full().h(16.0).pl(24.0).gap(8.0).center_y().children(server).child(place).child(end));
     // The routed session's tab becomes this card as the layout switches, Settings open over it or
     // not (`shell-active-{id}`): 28 tall in Side tabs, 54 here, on SETTLE; GLIDE from Top tabs.
-    if matches!(&s.route, Route::Session { id: r, server } if server == e.server && s.root_of(r) == info.id) {
+    if matches!(&*s.route, Route::Session { id: r, server } if server == e.server && s.root_of(r) == info.id) {
         card = card.matched(format!("{}-{key}", super::tab_strip::ACTIVE)).matched_crop();
         if let Some(spring) = s.switch_spring() {
             card = card.motion(spring);

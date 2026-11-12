@@ -372,7 +372,7 @@ impl App {
             return;
         }
         self.take_stored_terminals();
-        let Source::Live { server, .. } = &self.source else {
+        let Source::Live { server, .. } = &*self.source else {
             return;
         };
         let server_base = server.base.clone();

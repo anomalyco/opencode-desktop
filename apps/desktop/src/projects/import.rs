@@ -118,7 +118,7 @@ impl Import {
 impl App {
     /// Import session into `directory` of the active server (`importSession`).
     pub(crate) fn import_session(&mut self, directory: &str, tx: &mut Tx) {
-        let target = Target { server: crate::servers::runtime::active(self).clone(), directory: directory.to_owned(), origin: self.route.clone() };
+        let target = Target { server: crate::servers::runtime::active(self).clone(), directory: directory.to_owned(), origin: (*self.route).clone() };
         self.import_step(Event::Requested(target), tx);
     }
 
@@ -179,7 +179,7 @@ impl App {
             let made = srv.write("POST", "/api/experimental/session/import", Some(serde_json::Value::Object(data)));
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let event = match made {
-                    Ok(v) => Event::Imported { attempt, session: opencode_kit::model::parse_session(v.get("data").unwrap_or(&v)), here: s.route.clone() },
+                    Ok(v) => Event::Imported { attempt, session: opencode_kit::model::parse_session(v.get("data").unwrap_or(&v)), here: (*s.route).clone() },
                     Err(why) => Event::Failed { attempt, why },
                 };
                 s.import_step(event, tx);

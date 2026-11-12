@@ -54,7 +54,7 @@ That's everything from the call; start with the backoff and the tests.";
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     s.settings.fold_user = s.variant != 2;
-    s.composer = TextEdit::new(prompt(s));
+    *s.composer = TextEdit::new(prompt(s));
     if s.variant == 3 || s.variant == 4 {
         // While a run works the prompt waits: as a Pending steer, or in the queue.
         let id = sid(s);        s.running.insert(id);
@@ -66,7 +66,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn send(s: &mut App, tx: &mut Tx) {
-    s.composer = TextEdit::new(prompt(s));
+    *s.composer = TextEdit::new(prompt(s));
     s.submit(s.variant == 4, tx);
 }
 

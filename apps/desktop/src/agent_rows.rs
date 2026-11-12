@@ -77,7 +77,7 @@ impl App {
             && matches!(data["name"].as_str(), Some("subagent" | "task"))
             && let Some(id) = data["id"].as_str()
         {
-            self.agent_rows.called.entry(id.to_owned()).or_insert(self.now_ms);
+            self.agent_rows.called.entry(id.to_owned()).or_insert(*self.now_ms);
         }
         // A session we don't know yet may be a subagent that started while the link was down.
         if sid.is_empty() || self.session(sid).is_some_and(|i| i.parent.is_none()) {
@@ -87,8 +87,8 @@ impl App {
             "session.tool.called" => step_of(data["name"].as_str().unwrap_or(""), &data["input"]),
             "session.reasoning.started" => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_owned(),
             "session.execution.started" => {
-                self.agent_rows.started.insert(sid.to_owned(), self.now_ms);
-                self.agent_rows.began.insert(sid.to_owned(), self.now_ms);
+                self.agent_rows.started.insert(sid.to_owned(), *self.now_ms);
+                self.agent_rows.began.insert(sid.to_owned(), *self.now_ms);
                 let had = self.agent_rows.ended.remove(sid).is_some();
                 return self.agent_rows.steps.contains_key(sid) || had;
             }
@@ -96,9 +96,9 @@ impl App {
                 self.agent_rows.started.remove(sid);
                 let failed = ty != "session.execution.succeeded";
                 let error = data["error"]["message"].as_str().or(data["error"].as_str()).map(str::to_owned);
-                self.agent_rows.ended.insert(sid.to_owned(), (failed, self.now_ms, error));
+                self.agent_rows.ended.insert(sid.to_owned(), (failed, *self.now_ms, error));
                 let ends = self.agent_rows.ends.entry(sid.to_owned()).or_default();
-                ends.push((self.now_ms, failed));
+                ends.push((*self.now_ms, failed));
                 if ends.len() > ENDS {
                     ends.remove(0);
                 }
@@ -112,7 +112,7 @@ impl App {
         if log.list.last().is_some_and(|l| l.1 == step && l.0 >= began) {
             return false;
         }
-        log.list.push((self.now_ms, step));
+        log.list.push((*self.now_ms, step));
         if log.list.len() > LOG {
             let (at, _) = log.list.remove(0);
             log.dropped += 1;
@@ -235,7 +235,7 @@ impl App {
 
     /// Whether the open page shows a running time: a subagent at or below it runs.
     fn run_times_shown(&self) -> bool {
-        let Route::Session { id, .. } = &self.route else { return false };
+        let Route::Session { id, .. } = &*self.route else { return false };
         self.running.iter().any(|r| self.descends(r, id) && self.session(r).is_some_and(|i| i.parent.is_some()))
     }
 }
@@ -243,9 +243,12 @@ impl App {
 /// Wakes the app once on each whole second of [`App::run_clock`] while the page shows a running
 /// time; true when one just passed.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let (now, last) = (s.now_ms, s.agent_rows.polled);
-    s.agent_rows.polled = now;
-    if !s.agent_rows.ended.is_empty() {
+    let (now, last) = (*s.now_ms, s.agent_rows.polled);
+    // Only the second matters (below): the rows are written once a second, not every poll.
+    if now.div_euclid(1000) != last.div_euclid(1000) {
+        s.agent_rows.polled = now;
+    }
+    if s.agent_rows.ended.values().any(|e| now - e.1 >= 3_600_000) {
         s.agent_rows.ended.retain(|_, e| now - e.1 < 3_600_000);
     }
     if s.running.is_empty() || !s.run_times_shown() {

@@ -6,7 +6,7 @@ use super::*;
 pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
     // A server that refused our credentials or runs an incompatible version covers the draft
     // (`new-session/route.tsx:42-102`); one that's away leaves it mounted and editable.
-    if let Route::Draft(id) = &s.route
+    if let Route::Draft(id) = &*s.route
         && let Some(tab) = s.tab(id)
         && let Some(cover) = super::server_unavailable::cover(&tab.server)
     {

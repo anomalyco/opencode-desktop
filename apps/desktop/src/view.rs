@@ -57,7 +57,7 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// page zoom into the device scale, so every size, border, icon and motion is the zoomed one.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     s.view_runs.set(s.view_runs.get().wrapping_add(1));
-    cx.zoom(s.zoom);
+    cx.zoom(*s.zoom);
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
@@ -68,16 +68,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
-    set_chrome(cx.chrome_insets(), s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
+    set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
     // lights move to the layout's titlebar.
     if cfg!(target_os = "macos") {
-        cx.set_titlebar(mac_titlebar(layout, s.zoom, chrome().bottom));
+        cx.set_titlebar(mac_titlebar(layout, *s.zoom, chrome().bottom));
     } else {
-        cx.titlebar_height(titlebar_height(s.zoom));
+        cx.titlebar_height(titlebar_height(*s.zoom));
     }
     cx.caption_color(caption_color(p.bg_deep));
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
@@ -98,16 +98,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::icons::prepare(s, cx);
     crate::diagram::prepare(s);
     crate::files::link_tip::prepare(s);
-    let mut inner = match s.stage {
+    let mut inner = match *s.stage {
         Some(st) => {
-            cx.reduced_motion(s.reduced_motion);
+            cx.reduced_motion(*s.reduced_motion);
             crate::stories::page(s, p, st)
         }
         None => shell(s, cx),
     };
     inner = inner.children(crate::narrow::sheet::layer(s, p, cx));
     inner = inner.children(session_view::pickers::view::layer(s, p));
-    if let Route::Session { id, .. } = &s.route
+    if let Route::Session { id, .. } = &*s.route
         && let Some(panel) = crate::subagents::panel(s, p, id)
     {
         inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
@@ -117,13 +117,13 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             }))
             .child(panel);
     }
-    if let Route::Session { id, .. } = &s.route
+    if let Route::Session { id, .. } = &*s.route
         && let Some(panel) = crate::todos::panel(s, p, id)
     {
         inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                s.todo_open = false;
+                *s.todo_open = false;
             }))
             .child(panel);
     }
@@ -196,22 +196,22 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal(s.dark(cx));
     cx.time_scale(crate::knobs::time_scale(s));
-    cx.reduced_motion(s.reduced_motion);
+    cx.reduced_motion(*s.reduced_motion);
     cx.time_scale(crate::knobs::time_scale(s));
-    let w = s.sidebar_w;
+    let w = *s.sidebar_w;
     let side_tabs = s.shows_sidebar();
     // A narrow window's panel runs edge to edge, 1 pt clear for its outline (`--shell-inline-inset`).
     let inset = if s.narrow() { 1.0 } else { 8.0 };
-    let open = s.sidebar_open && side_tabs;
+    let open = *s.sidebar_open && side_tabs;
     // The side region's width comes from the row's while it's open or sliding shut (it keeps the
     // last as the far end of a close's travel); shut, nothing reads it, so a resize runs no view.
     // Opening reads it fresh, in the frame it opens.
-    let win_w = if matches!(s.route, Route::Session { .. }) && (s.side_open() || s.side.mounted) {
+    let win_w = if matches!(*s.route, Route::Session { .. }) && (s.side_open() || s.side.mounted) {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w)
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.present();
+    let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.present();
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
@@ -223,7 +223,19 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // the tabs slide under its edges between the titlebar and the sidebar rather than over the
     // page. The titlebar row comes and goes at once, and below the panel while it does.
     let switching = s.switching_layout();
-    let band = titlebar::titlebar(s, p, cx)
+    // The titlebar rebuilds only when what it shows changed: the `Tracked` state it reads (the
+    // tabs, the route, the sessions behind them, menus, the drag), and what isn't tracked, as
+    // inputs: the palette, the chrome, the locale, the zoom and whether a tab can be torn out.
+    let bar_inputs = (
+        (p.theme, p.generation, p.dark),
+        format!("{:?} {:?}", chrome(), cx.chrome_insets()),
+        opencode_i18n::locale().id(),
+        s.zoom.to_bits(),
+        *s.sidebar_open,
+        s.can_tear(),
+    );
+    let band = (chrome().row_h > 0.0)
+        .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
         .map(|bar| {
             // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
             let band = el().key("titlebar-band").h(chrome().row_h).transition(rune::Transition::none()).child(bar);
@@ -273,7 +285,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .on_drop_files(crate::dropzone::drop)
                 .accepts_files(|path| !session_view::images::drag::is_own(path))
                 .on_drop_hover(crate::dropzone::hover)
-                .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &s.route {
+                .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
                     Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
                     Route::Session { id, .. } => session_page(s, p, id),
                     Route::Draft(_) => draft_page(s, p, panel_sz.0),
@@ -301,12 +313,12 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     root = root.children(sidebar::peek(s));
     // Without a titlebar row, the toggle rides the sidebar header's line (`sidebar-toggle.tsx`).
     if side_tabs && chrome().sidebar_header() {
-        root = root.child(sidebar_toggle(s, p, s.sidebar_open, w));
+        root = root.child(sidebar_toggle(s, p, *s.sidebar_open, w));
     }
     root = root.children(crate::plugin_host::titlebar_items(s, p));
     // Plugins' `window.bottom` slot (the debug bar) runs across the window's foot, under the
     // panels, taking its own room (`shell.tsx`'s last `PluginSlot`).
-    let sid = match &s.route {
+    let sid = match &*s.route {
         Route::Session { id, .. } => id.as_str(),
         _ => "",
     };

@@ -376,6 +376,10 @@ impl DiffDocState {
         }
     }
 
+    pub(crate) fn wrap(&self) -> bool {
+        self.wrap
+    }
+
     pub fn set_wrap(&mut self, wrap: bool) {
         if self.wrap != wrap {
             self.wrap = wrap;

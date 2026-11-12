@@ -106,7 +106,7 @@ fn bundle_dir(s: &App) -> PathBuf {
 
 /// The session the bundle goes to: the open one, or the last tab from Home.
 fn target(s: &App) -> Option<String> {
-    match &s.route {
+    match &*s.route {
         Route::Session { id, .. } => Some(id.clone()),
         _ => s.tabs.iter().rev().find(|t| !t.is_draft()).map(|t| t.id.clone()),
     }
@@ -143,7 +143,7 @@ fn send(s: &mut App, sent: Sent, _: &mut Tx) {
     let prompt = prompt(&bundle);
     let local = prompt.id.clone().unwrap_or_default();
     let display = prompt.display_text.clone().unwrap_or_default();
-    if matches!(s.source, Source::Live { .. }) {
+    if matches!(*s.source, Source::Live { .. }) {
         let busy = s.busy(&session);
         let w = s.send_write(&session, prompt);
         if !s.write(w) {
@@ -162,7 +162,7 @@ fn send(s: &mut App, sent: Sent, _: &mut Tx) {
 fn close(s: &mut App, session: &str) {
     s.glitch.scrub.close();
     let title = s.sessions.iter().find(|i| i.id == session).map(|i| i.title.clone()).filter(|t| !t.is_empty());
-    s.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
+    *s.status = format!("Sent to {}", title.as_deref().unwrap_or("the session"));
 }
 
 /// Settings › Developer.

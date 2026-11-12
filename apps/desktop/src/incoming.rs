@@ -102,7 +102,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             // Sessions past the page (a tab's, a subagent's parent) stay known.
             let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
             list.extend(rest);
-            s.sessions = list;
+            *s.sessions = list;
             s.sidebar_inbox.heard_sessions();
             s.sort_projects();
             crate::rewind::read_sessions(s);
@@ -185,12 +185,12 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             s.stops.reconcile(&ids);
             reconnect::active(s, &ids);
             // A stop the server hasn't confirmed yet stays stopped, whichever window pressed it.
-            s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
+            *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
         }
         Incoming::Projects(projects) => {
             s.switcher.invalidate_sessions();
             tx.instant();
-            s.projects = projects;
+            *s.projects = projects;
             s.sort_projects();
             s.list_unlisted_worktrees();
         }
@@ -208,7 +208,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             if s.session(&id).is_none() {
                 s.sessions.insert(0, info);
             }
-            s.status = s.live_status();
+            *s.status = s.live_status();
             s.open(&id, tx);
         }
     }

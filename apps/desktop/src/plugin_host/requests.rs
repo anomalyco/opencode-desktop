@@ -133,7 +133,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         Request::NewDraft { directory, prompt } => {
             tx.instant();
             if !directory.is_empty() {
-                app.default_dir = directory;
+                *app.default_dir = directory;
             }
             app.close_settings();
             app.open_draft_tab();
@@ -153,7 +153,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             app.close_settings();
             crate::servers::runtime::switch(app, &key);
             if !directory.is_empty() {
-                app.default_dir = directory;
+                *app.default_dir = directory;
             }
             app.open_draft_tab();
             app.composer.replace_text(prompt);
@@ -192,7 +192,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
 
 /// Steps the open popover's flyout (of `plugin`, when named) with `event`.
 pub fn step_flyout(app: &mut App, plugin: Option<&std::rc::Rc<str>>, event: super::FlyoutEvent, tx: &mut Tx) {
-    let clock = app.clock;
+    let clock = *app.clock;
     let Overlay::Popover { plugin: owner, flyout, .. } = &mut app.plugins.overlay else { return };
     if plugin.is_some_and(|p| p != owner) {
         return;

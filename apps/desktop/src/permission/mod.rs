@@ -96,13 +96,13 @@ impl App {
     /// Whether a reply can leave now: a live server that takes writes. Otherwise [`App::write`]
     /// says why not.
     fn writes_open(&self) -> bool {
-        matches!(&self.source, Source::Live { allow_send: true, writes: Some(_), .. })
+        matches!(&*self.source, Source::Live { allow_send: true, writes: Some(_), .. })
     }
 
     /// A story's or the fixture's permission is answered at once, as the server's
     /// `permission.replied` would.
     fn answers_at_once(&self) -> bool {
-        self.stage.is_some() || matches!(self.source, Source::Fixture)
+        self.stage.is_some() || matches!(*self.source, Source::Fixture)
     }
 
     fn permission_step(&mut self, id: &str, event: reply::Event<'_>) {
@@ -242,9 +242,9 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("permission", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        let Route::Session { id, .. } = s.route.clone() else { return };
+        let Route::Session { id, .. } = (*s.route).clone() else { return };
         let ask = json!({ "id": "per_scene_bash", "sessionID": id, "action": "bash", "resources": ["bun test test/net/backoff.test.ts"] });
-        s.playback.push_back((s.clock + 0.6, "permission.asked".into(), ask));
+        s.playback.push_back((*s.clock + 0.6, "permission.asked".into(), ask));
         s.wake_at_playback();
     }),
 ]);

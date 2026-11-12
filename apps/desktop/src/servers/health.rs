@@ -179,10 +179,10 @@ pub fn poll(s: &App, tx: &mut Tx) -> bool {
         Timer::Stopped => None,
     });
     if let Some(due) = due {
-        if due <= s.clock {
+        if due <= *s.clock {
             let fx = HEALTH.with_borrow_mut(|h| {
                 if let Timer::Every { interval, .. } = h.timer {
-                    h.timer = Timer::Every { due: s.clock + interval, interval };
+                    h.timer = Timer::Every { due: *s.clock + interval, interval };
                 }
                 health::step(&mut h.state, Event::PollDue)
             });
@@ -216,8 +216,8 @@ fn run(s: &App, fx: rune::machine::Effects<Effect>, tx: &mut Tx) {
             }
             Effect::TimerStart { interval_ms } => {
                 let interval = interval_ms as f64 / 1000.0;
-                HEALTH.with_borrow_mut(|h| h.timer = Timer::Every { due: s.clock + interval, interval });
-                tx.wake_at(s.clock + interval);
+                HEALTH.with_borrow_mut(|h| h.timer = Timer::Every { due: *s.clock + interval, interval });
+                tx.wake_at(*s.clock + interval);
             }
             Effect::TimerStop => HEALTH.with_borrow_mut(|h| h.timer = Timer::Stopped),
             Effect::ResolveWaiters(ids) => {
@@ -253,7 +253,7 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
     let server = HEALTH.with_borrow(|h| h.conns.get(key).cloned()).and_then(|c| super::registry::server_for(&c))?;
     // The windows' quiet poll: answers landing together wake the window once, and draw only if
     // something changed.
-    let wake = s.launch.inbox_wake.clone().or_else(|| s.waker.clone());
+    let wake = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone());
     let patient = HEALTH.with_borrow_mut(|h| h.patient.remove(key));
     if !patient && server.refusing() {
         server.watch_reach(wake);

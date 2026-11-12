@@ -22,9 +22,9 @@ const KEYS: &[Trigger] = &[
 const PATH: &[(f64, f32)] = &[(0.3, 0.9), (0.6, 0.62), (0.9, 0.38), (1.2, 0.2), (1.5, 0.05), (1.9, 0.3)];
 
 fn scene(s: &mut App) {
-    s.tabs = roots(s).into_iter().take(3).collect();
+    *s.tabs = roots(s).into_iter().take(3).collect();
     if let Some(first) = s.tabs.first() {
-        s.route = crate::Route::here(first.id.clone());
+        *s.route = crate::Route::here(first.id.clone());
     }
     stage(s, view);
 }
@@ -66,7 +66,7 @@ fn view(s: &App, p: &Pal) -> El {
     let orientation = if side { TabOrientation::Vertical } else { TabOrientation::Horizontal };
     let strip = crate::view::tab_strip(s, p, "story-tabs", orientation, (!side).then_some(640.0), None);
     let frame = col().key("story-strip").fill(p.bg_deep).radius(10.0).padding(8.0);
-    if side { frame.w(s.sidebar_w).h(240.0).child(strip) } else { frame.w(660.0).child(strip) }
+    if side { frame.w(*s.sidebar_w).h(240.0).child(strip) } else { frame.w(660.0).child(strip) }
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [

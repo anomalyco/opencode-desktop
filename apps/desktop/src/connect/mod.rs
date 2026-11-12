@@ -98,7 +98,7 @@ impl App {
 
     /// The folder a sign-in from the composer belongs to: the open session's, or the draft's.
     fn composer_dir(&self) -> String {
-        match &self.route {
+        match &*self.route {
             crate::Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()).unwrap_or_default(),
             _ => self.draft_dir().to_owned(),
         }

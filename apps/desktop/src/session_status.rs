@@ -91,7 +91,7 @@ impl App {
 
     /// Reads `id`'s open permissions and forms, once per connection.
     pub(crate) fn read_requests(&mut self, id: &str) {
-        let Source::Live { requests: Some(r), .. } = &self.source else { return };
+        let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         if self.request_reads.read.insert(id.to_owned()) {
             let _ = r.send(Request::Pending(id.to_owned()));
         }
@@ -109,19 +109,19 @@ impl App {
 
     /// The connection dropped: every session's requests read again when next shown.
     pub(crate) fn forget_request_reads(&mut self) {
-        self.request_reads = RequestReads::default();
+        *self.request_reads = RequestReads::default();
     }
 }
 
 /// Starts the reads the shown tabs and the Inbox's working roots are due. True on a change.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-    if !matches!(s.source, Source::Live { requests: Some(_), .. }) {
+    if !matches!(*s.source, Source::Live { requests: Some(_), .. }) {
         return false;
     }
     let layout = s.tab_layout();
     // The tab strip (top or side tabs): a tab other than the shown one, whose family runs.
     // The shown tab is its session on its server (one server listed twice has the same ids).
-    let shown = match &s.route {
+    let shown = match &*s.route {
         Route::Session { id, server } if server == crate::servers::runtime::active(s) => Some(s.root_of(id).to_owned()),
         _ => None,
     };
@@ -136,7 +136,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             .map(|(i, t)| (i, t.id.clone()))
             .collect()
     };
-    let reads = &mut s.request_reads;
+    let reads = &mut *s.request_reads;
     reads.due.retain(|id, _| tabs.iter().any(|(_, t)| t == id));
     for (index, id) in &tabs {
         reads.due.entry(id.clone()).or_insert(now + TAB_DELAY + TAB_STEP * *index as f64);

@@ -316,7 +316,7 @@ impl App {
         };
         // Focus stays in the timeline, as a link's click leaves it.
         self.side.focused = false;
-        self.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
+        *self.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
     }
 
     /// Opens Changes at `path`'s change, or Files at its line when Changes doesn't list it.

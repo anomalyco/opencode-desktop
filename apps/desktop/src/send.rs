@@ -11,7 +11,7 @@ impl App {
         // An undo of a queued prompt holds the submit; a queued prompt open in the composer goes
         // back to the queue (Return) or steers (the other delivery) instead of a new send
         // (`composer/model.ts:540-560`).
-        if let Route::Session { id, .. } = &self.route
+        if let Route::Session { id, .. } = &*self.route
             && let Some(q) = self.queue_ops.get(id)
         {
             if q.undoing() {
@@ -95,7 +95,7 @@ impl App {
             return self.send_command(prompt, alternate, tx);
         }
         let quotes = prompt.comments.clone();
-        if let Route::Session { id, .. } = self.route.clone()
+        if let Route::Session { id, .. } = (*self.route).clone()
             && (self.busy(&id) || self.steers_waiting(&id))
         {
             let local = prompt.id.clone().unwrap_or_default();
@@ -115,8 +115,8 @@ impl App {
             return;
         }
         // From the new-session page, the session shows at once under an id chosen here.
-        let starting = matches!(self.route, Route::Draft(_));
-        let id = match self.route.clone() {
+        let starting = matches!(*self.route, Route::Draft(_));
+        let id = match (*self.route).clone() {
             Route::Session { id, .. } => id,
             Route::Draft(_) => opencode_kit::client::session_id(),
             _ => {
@@ -126,12 +126,12 @@ impl App {
         };
         // The local copy shows the files it names by path as cards, as the server's will.
         let refs = prompt.attachments.clone();
-        let local = match &self.source {
+        let local = match &*self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
-                let journal = matches!(self.source, Source::Live {allow_send:true,..}) && self.stage.is_none();
+                let journal = matches!(*self.source, Source::Live {allow_send:true,..}) && self.stage.is_none();
                 if starting && journal {
                     // The start runs its phases and hands the prompt to the outbox (`new_session`).
                     let paths=sent.paths.clone();
@@ -169,16 +169,16 @@ impl App {
                 }
                 self.commit_staged_revert(&id);
                 let selection = self.selection();
-                self.sends += 1;
-                let reply = format!("msg_zzzzreply{:04}", self.sends);
-                let at = self.clock;
+                *self.sends += 1;
+                let reply = format!("msg_zzzzreply{:04}", *self.sends);
+                let at = *self.clock;
                 self.serve_choice(&id, &prompt, at);
                 for e in self.fixture["reply"].as_array().cloned().unwrap_or_default() {
                     let mut d = e["data"].clone();
                     d["sessionID"] = id.clone().into();
                     d["assistantMessageID"] = reply.clone().into();
                     if let Some(call) = d["id"].as_str() {
-                        d["id"] = format!("{call}-{:04}", self.sends).into();
+                        d["id"] = format!("{call}-{:04}", *self.sends).into();
                     }
                     if e["type"] == "session.step.started" {
                         d["agent"] = selection.agent.clone().into();
@@ -186,7 +186,7 @@ impl App {
                     }
                     self.schedule(at + e["t"].as_f64().unwrap_or(0.0), e["type"].as_str().unwrap_or(""), d);
                 }
-                let sent = format!("msg_zzzzsent{:04}", self.sends);
+                let sent = format!("msg_zzzzsent{:04}", *self.sends);
                 // A server admits every prompt to its inbox as a steer, then delivers it once
                 // the run takes it up, as a live one does.
                 let item = serde_json::json!({ "type": "user", "delivery": "steer", "payload": { "text": text, "metadata": { "displayText": wire.display } } });
@@ -222,7 +222,7 @@ impl App {
         let quote = self.quote.items.iter().find(|q| q.key == key)?.clone();
         let before = self.newest_send(None);
         // What the composer holds steps aside while the quote goes on its own.
-        let composer = std::mem::replace(&mut self.composer, TextEdit::new(""));
+        let composer = std::mem::replace(&mut *self.composer, TextEdit::new(""));
         let others: Vec<_> = self.quote.items.iter().filter(|q| q.key != key).cloned().collect();
         self.quote.items = vec![quote.clone()];
         let files = std::mem::take(&mut self.attach.files);
@@ -231,7 +231,7 @@ impl App {
         let comment = std::mem::take(&mut self.quote.comment);
         self.send_prompt(true, tx);
         let went = self.quote.items.is_empty();
-        self.composer = composer;
+        *self.composer = composer;
         self.attach.files = files;
         self.attach.paths = paths;
         self.attach.context = context;
@@ -254,10 +254,10 @@ impl App {
     pub fn write(&mut self, w: Write) -> bool {
         if self.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
-            self.status = "Storybook: not sent".into();
+            *self.status = "Storybook: not sent".into();
             return true;
         }
-        match &self.source {
+        match &*self.source {
             Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
             Source::Live { writes: Some(tx), .. } => {
                 // What a write asks the server for, the window has shown already: the server's

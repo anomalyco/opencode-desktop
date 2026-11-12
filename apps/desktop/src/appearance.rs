@@ -245,8 +245,8 @@ impl App {
                 ReduceMotion::On => true,
                 ReduceMotion::Off => false,
             };
-        let changed = on != self.reduced_motion;
-        self.reduced_motion = on;
+        let changed = on != *self.reduced_motion;
+        *self.reduced_motion = on;
         changed
     }
 

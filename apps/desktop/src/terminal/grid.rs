@@ -212,7 +212,7 @@ pub fn render_terminal_pane(
     }));
 
     // A bell flashes the pane's top edge in the accent.
-    let bell = s.clock < s.terminal.bell_until;
+    let bell = *s.clock < s.terminal.bell_until;
     col()
         .key("terminal-pane")
         .role("region")
@@ -293,7 +293,7 @@ fn render_viewport(
     // audits never see an element pop-in/pop-out on 500 ms blink edges).
     if snap.cursor.visible && snap.cursor.in_viewport {
         let lit = if focused && snap.cursor.blinking {
-            s.terminal.cursor_lit(s.clock)
+            s.terminal.cursor_lit(*s.clock)
         } else {
             true
         };

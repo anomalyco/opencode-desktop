@@ -216,9 +216,12 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let viewer = DiffViewer::new(
         format!("review-diff-{sid}"),
         move |s: &App| s.review.sessions.get(&get).map_or(&s.review.empty_diffs, |r| &r.diffs),
-        move |s: &mut App| match s.review.sessions.get_mut(&get_mut) {
-            Some(r) => &mut r.diffs,
-            None => &mut s.review.empty_diffs,
+        move |s: &mut App| {
+            let review = &mut *s.review;
+            match review.sessions.get_mut(&get_mut) {
+                Some(r) => &mut r.diffs,
+                None => &mut review.empty_diffs,
+            }
         },
     )
     .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))

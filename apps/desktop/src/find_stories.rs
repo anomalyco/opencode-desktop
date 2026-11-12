@@ -30,7 +30,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     s.open_find(tx);
     // Leave input unfocused on replay so single-letter story triggers (R, N, P, C) work;
     // clicking the field focuses it for live typing.
-    let q = match s.variant {
+    let q = match *s.variant {
         2 => "notpresent",
         3 => "interface change",
         _ => "stream",

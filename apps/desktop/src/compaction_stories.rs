@@ -57,7 +57,7 @@ const SUMMARY: &str = "## Goal\nMake reconnects survive a laptop sleeping mid-st
 
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let v = s.variant;
+    let v = *s.variant;
     if v == 0 {
         tx.after(0.3, |s, tx| emit(s, "session.inbox.enqueued", json!({ "inboxID": QUEUED, "item": { "type": "compaction" } }), tx));
         return;
@@ -134,7 +134,7 @@ fn settled_page(s: &mut App) {
 }
 
 fn end(s: &mut App, tx: &mut Tx) {
-    let v = s.variant;
+    let v = *s.variant;
     let tokens = tokens();
     let mut d = json!({ "reason": reason(s), "text": SUMMARY, "tokens": tokens });
     if v == 3 {
@@ -215,7 +215,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("long-summary", |s| {
         crate::open_scene(s);
         s.finish_stream();
-        if let crate::Route::Session { id, .. } = s.route.clone() {
+        if let crate::Route::Session { id, .. } = (*s.route).clone() {
             add_long_summary(s, &id);
         }
     }),

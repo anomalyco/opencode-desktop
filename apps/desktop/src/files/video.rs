@@ -148,6 +148,9 @@ fn apply(effect: Option<Effect>, tx: &mut Tx) {
 
 /// Folds each open video's playback into its overlay, and moves a playing one's time on.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    if s.files.sessions.values().all(|ws| ws.videos.is_empty()) {
+        return false;
+    }
     let now = tx.clock();
     let mut changed = false;
     let mut playing = false;

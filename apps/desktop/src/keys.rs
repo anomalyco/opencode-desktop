@@ -15,7 +15,7 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     match &ev.key {
         // Page Up and Page Down page the timeline wherever the pointer and focus are, as a chat
         // pages its messages from the composer; Rune's own fallback pages the first scroll view.
-        Key::PageUp | Key::PageDown if !(ev.mods.cmd || ev.mods.alt || ev.mods.ctrl) => match &s.route {
+        Key::PageUp | Key::PageDown if !(ev.mods.cmd || ev.mods.alt || ev.mods.ctrl) => match &*s.route {
             Route::Session { id, .. } => {
                 tx.scroll_page(format!("scroll-{id}"), if ev.key == Key::PageDown { 1 } else { -1 });
                 true

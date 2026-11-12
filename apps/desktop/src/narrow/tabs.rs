@@ -95,8 +95,8 @@ pub fn drawer(s: &App, p: &Pal) -> El {
         .min_w(0.0)
         .hover(p.layer2)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            let now = s.clock;
-            s.tabs_drawer(TabsEvent::SettingsRequested { now }, tx);
+            let now = *s.clock;
+            s.tabs_drawer(TabsEvent::SettingsRequested { now: now }, tx);
         });
     let help = button("narrow-tabs-help", None, &ic::HELP, 14.0, t!("sidebar.help"), p.faint, p.icon_faint)
         .hover(p.layer2)

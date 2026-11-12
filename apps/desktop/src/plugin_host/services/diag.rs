@@ -64,7 +64,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Set", move |lua, (name, value): (String, Value)| {
         let value = Data::from_lua(value, lua)?;
         if name == "memoryLog" {
-            memory_log(matches!(value, Data::Bool(true)), app_now("Diagnostics:Set")?.now_ms);
+            memory_log(matches!(value, Data::Bool(true)), *app_now("Diagnostics:Set")?.now_ms);
             crate::plugin_host::bump();
             return Ok(());
         }
@@ -211,7 +211,7 @@ fn append(file: &Path, now: i64) -> std::io::Result<()> {
 /// native, so its own process is measured rather than snapshotted.
 fn heap_snapshot(_: &Lua, _: MultiValue, done: Completer) -> mlua::Result<()> {
     let app = cx::app().ok_or_else(|| mlua::Error::runtime("Diagnostics:HeapSnapshotAsync needs a window"))?;
-    let (server, started) = (crate::servers::runtime::own_server(), app.now_ms);
+    let (server, started) = (crate::servers::runtime::own_server(), *app.now_ms);
     let failed = |e: String| map([("error", Data::String(e))]);
     let Some(directory) = crate::dirs::downloads().map(|d| d.join(format!("opencode-heap-{}", stamp(started)))) else {
         done.complete(failed("There is no downloads folder".into()));

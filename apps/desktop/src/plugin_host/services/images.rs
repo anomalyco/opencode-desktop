@@ -94,7 +94,7 @@ pub fn load_src(app: &App, plugin: &str, src: &str) -> u32 {
         let url = src.to_owned();
         (src.to_owned(), Box::new(move || Some(Source::Data(url))))
     } else if src.starts_with('/') && !src.starts_with("//") {
-        let server = match &app.source {
+        let server = match &*app.source {
             crate::Source::Live { server, .. } => Some(server.clone()),
             _ => None,
         };

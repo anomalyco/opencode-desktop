@@ -190,7 +190,7 @@ impl App {
         if self.slash_query().is_none() {
             return changed;
         }
-        let Source::Live { server, .. } = &self.source else { return changed };
+        let Source::Live { server, .. } = &*self.source else { return changed };
         let directory = self.composer_directory();
         if self.add.slash.dir.as_deref() == Some(directory.as_str()) {
             return changed;

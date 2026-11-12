@@ -78,7 +78,7 @@ const TOUR_GROUPS: &[&str] = &["c-call_list_tour", "c-call_webfetch_tour", "c-ca
 /// and `open` (tool rows, `tool:{id}`) open inside it. With no group, every group is open and
 /// the whole session shows.
 fn tour(s: &mut App, group: Option<&str>, open: &[&str]) {
-    s.route = crate::Route::here(crate::fixture_ids::TOUR.into());
+    *s.route = crate::Route::here(crate::fixture_ids::TOUR.into());
     let groups: Vec<&str> = group.map_or_else(|| TOUR_GROUPS.to_vec(), |g| vec![g]);
     s.expanded.extend(groups.iter().chain(open).map(|k| (*k).to_owned()));
     let Some(first) = group.and_then(|g| g.strip_prefix("c-")) else { return };

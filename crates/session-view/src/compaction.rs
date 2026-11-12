@@ -147,6 +147,12 @@ pub fn pieces(c: &Compaction) -> Vec<Piece> {
 pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
     let now_ms = s.now_ms();
     let clock = s.clock();
+    // Every poll comes here: with no compaction in the shown session and none seen, the state
+    // isn't written.
+    let any = s.active_session_id().and_then(|id| s.with_transcript(id, |t| t.messages.iter().any(|m| matches!(m, Message::Compaction(_))))).unwrap_or(false);
+    if !any && s.compactions_state().seen.is_empty() {
+        return false;
+    }
     let mut compactions = std::mem::take(s.compactions_state_mut());
     let mut changed = false;
     let s_ref: &S = &*s;

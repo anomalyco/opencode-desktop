@@ -191,7 +191,7 @@ pub fn kind(s: &App, server: &ServerKey) -> Kind {
 /// the open draft takes the server and folder in place; anywhere else the folder opens there
 /// with a new session.
 pub fn select(s: &mut App, server: &ServerKey, dir: String, tx: &mut Tx) {
-    if let Route::Draft(id) = &s.route
+    if let Route::Draft(id) = &*s.route
         && let Some(tab) = s.tabs.iter_mut().find(|t| t.id == *id)
     {
         tab.server = server.clone();
@@ -210,7 +210,7 @@ pub fn add(s: &mut App, server: &ServerKey, tx: &mut Tx) {
     s.close_project_switcher(false);
     let key = server.clone();
     crate::projects::remote_picker::pick(s, server, t!("command.project.open").to_owned(), tx, move |s: &mut App, dir: String, tx: &mut Tx| {
-        if matches!(s.route, Route::Draft(_)) {
+        if matches!(*s.route, Route::Draft(_)) {
             crate::servers::runtime::with_server(s, &key, |s| s.open_project_dir(&dir, false, tx));
             select(s, &key, dir, tx);
             return;

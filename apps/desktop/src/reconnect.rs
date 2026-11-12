@@ -176,7 +176,7 @@ fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
     let mut changed = false;
     for effect in s.server_links.step(server, event) {
         match effect {
-            LinkEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - s.clock).max(0.0))),
+            LinkEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
             LinkEffect::Repaint => {
                 tx.instant();
                 changed = true;
@@ -199,14 +199,14 @@ pub fn link_error(e: &str) -> bool {
 /// (`"events: …"`), which it claims; another call that failed on the link only marks it suspect.
 pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
     let Some(server) = server_of(s) else { return false };
-    let now = s.clock;
+    let now = *s.clock;
     if e.starts_with("events:") {
-        apply(s, &server, LinkEvent::StreamDropped { now }, tx);
-        s.status = e.to_owned();
+        apply(s, &server, LinkEvent::StreamDropped { now: now }, tx);
+        *s.status = e.to_owned();
         return true;
     }
     if link_error(e) {
-        apply(s, &server, LinkEvent::CallFailed { now }, tx);
+        apply(s, &server, LinkEvent::CallFailed { now: now }, tx);
     }
     false
 }
@@ -231,9 +231,9 @@ pub fn shown(s: &App) -> bool { s.server_links.get(crate::servers::runtime::acti
 
 /// Marks the header once trouble has lasted [`QUIET`], for every server in trouble.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let now = s.clock;
+    let now = *s.clock;
     let troubled: Vec<ServerId> = s.server_links.troubled().cloned().collect();
-    troubled.iter().fold(false, |changed, server| apply(s, server, LinkEvent::Tick { now }, tx) | changed)
+    troubled.iter().fold(false, |changed, server| apply(s, server, LinkEvent::Tick { now: now }, tx) | changed)
 }
 
 /// After a reconnect, reads again what the lost link may have hidden: the pages of the open
@@ -243,7 +243,7 @@ pub fn catch_up(s: &mut App) {
     let Some(server) = server_of(s) else { return };
     s.server_links.catch_up.insert(server.clone(), CatchUp::AwaitingActive);
     s.server_links.refreshing.remove(&server);
-    let Route::Session { id: open, .. } = &s.route else { return };
+    let Route::Session { id: open, .. } = &*s.route else { return };
     let root = s.root_of(open);
     let mut kids: Vec<String> = s.running.iter().filter(|id| id.as_str() != root && s.descends(id, root)).cloned().collect();
     for id in [root, open.as_str()] {
@@ -265,7 +265,7 @@ pub fn catch_up(s: &mut App) {
 }
 
 fn refresh(s: &mut App, server: &str, id: String) {
-    let Source::Live { requests: Some(r), .. } = &s.source else { return };
+    let Source::Live { requests: Some(r), .. } = &*s.source else { return };
     if s.server_links.refreshing.entry(server.to_owned()).or_default().insert(id.clone()) {
         let _ = r.send(Request::Session(id));
     }
@@ -309,15 +309,15 @@ mod story {
         crate::open_scene(s);
         s.finish_stream();
         let server = super::server_of(s).unwrap_or_default();
-        s.server_links.step(&server, LinkEvent::StreamDropped { now: s.clock - super::QUIET });
-        s.server_links.step(&server, LinkEvent::Tick { now: s.clock });
-        debug_assert_eq!(s.server_links.get(&server), Link::Down { since: s.clock - super::QUIET, notice: Notice::Shown });
+        s.server_links.step(&server, LinkEvent::StreamDropped { now: *s.clock - super::QUIET });
+        s.server_links.step(&server, LinkEvent::Tick { now: *s.clock });
+        debug_assert_eq!(s.server_links.get(&server), Link::Down { since: *s.clock - super::QUIET, notice: Notice::Shown });
     }
 
     const KEYS: &[Trigger] = &[
         replay(|s, _| {
             let server = super::server_of(s).unwrap_or_default();
-            s.server_links.step(&server, LinkEvent::StreamDropped { now: s.clock });
+            s.server_links.step(&server, LinkEvent::StreamDropped { now: *s.clock });
         }),
         Trigger { key: 'b', label: "Stream back", run: |s, _| super::back(s) },
     ];

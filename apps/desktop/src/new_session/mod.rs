@@ -189,8 +189,8 @@ impl App {
             directory: directory.to_owned(),
             agent: selection.agent,
             model: selection.model,
-            created: self.now_ms,
-            updated: self.now_ms,
+            created: *self.now_ms,
+            updated: *self.now_ms,
             ..Default::default()
         };
         info.project = self.project_for_session(&info).map(|p| p.id.clone()).unwrap_or_default();
@@ -235,8 +235,8 @@ impl App {
             return true;
         }
         let draft = self.show_start(id, &directory, tx);
-        let now = self.clock;
-        let effects = self.starts.step(id, Event::Begin { place, draft, held: Held { sent, prompt }, toggling, now });
+        let now = *self.clock;
+        let effects = self.starts.step(id, Event::Begin { place, draft, held: Held { sent, prompt }, toggling, now: now });
         self.start_effects(id, effects, tx);
         true
     }
@@ -252,11 +252,11 @@ impl App {
 
     /// Each frame: a phase past its time rolls its start back.
     pub(crate) fn start_timers(&mut self, tx: &mut Tx) {
-        let now = self.clock;
+        let now = *self.clock;
         if self.starts.due().is_some_and(|d| now + 1e-9 >= d) {
             let ids: Vec<String> = self.starts.starts.keys().cloned().collect();
             for id in ids {
-                let effects = self.starts.step(&id, Event::Tick { now });
+                let effects = self.starts.step(&id, Event::Tick { now: now });
                 self.start_effects(&id, effects, tx);
             }
         }
@@ -279,8 +279,8 @@ impl App {
                                 if result.is_ok() {
                                     s.apply_worktree_event("worktree.updated", &serde_json::json!({ "projectID": project }));
                                 }
-                                let now = s.clock;
-                                let effects = s.starts.step(&session, Event::WorktreeMade { attempt, result, now });
+                                let now = *s.clock;
+                                let effects = s.starts.step(&session, Event::WorktreeMade { attempt, result, now: now });
                                 s.start_effects(&session, effects, tx);
                             });
                         })
@@ -321,7 +321,7 @@ impl App {
             info.viewed = info.viewed.max(old.viewed);
             *old = info;
         }
-        if let Source::Live { requests: Some(r), .. } = &self.source {
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
             if !self.pages.has_pool() { let _ = r.send(Request::Session(id.clone())); }
             let _ = r.send(Request::Pending(id.clone()));
             let _ = r.send(Request::Inbox(id.clone()));
@@ -354,7 +354,7 @@ impl App {
         self.demote_session(session, &draft, &directory);
         self.forget_history(|_, id| id == session);
         if self.route == Route::here(session.into()) {
-            self.route = Route::Draft(draft);
+            *self.route = Route::Draft(draft);
             // The composer swaps to the draft's words now, so the prompt below lands in them.
             self.show_draft();
             if worktree {

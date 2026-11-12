@@ -65,7 +65,7 @@ impl App {
         if self.opening.is_none() {
             return false;
         }
-        let event = Event::Pressed { alternate, draft: self.composer.text.clone(), route: self.route.clone() };
+        let event = Event::Pressed { alternate, draft: self.composer.text.clone(), route: (*self.route).clone() };
         self.submit.step(event);
         true
     }
@@ -77,7 +77,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if s.submit.state == State::Idle {
         return false;
     }
-    let event = Event::Settled { draft: s.composer.text.clone(), route: s.route.clone(), opening: s.opening.is_some() };
+    let event = Event::Settled { draft: s.composer.text.clone(), route: (*s.route).clone(), opening: s.opening.is_some() };
     let mut sent = false;
     for effect in s.submit.step(event) {
         let Effect::Submit { alternate } = effect;
