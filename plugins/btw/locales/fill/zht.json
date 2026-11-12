@@ -1,0 +1,12 @@
+{
+  "command.description": "取得一次性回答，不會加入對話",
+  "command.title": "問一個附帶問題",
+  "copy": "複製回答",
+  "error": "無法回答該問題",
+  "error.empty": "模型的回覆中沒有任何文字。",
+  "error.timeout": "模型回覆逾時。",
+  "modelVariant": "{{model}}（{{variant}}）",
+  "question.required": "請在 /btw 後加入問題",
+  "retry": "重試",
+  "tab.title": "/btw"
+}

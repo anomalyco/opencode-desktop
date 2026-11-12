@@ -227,7 +227,7 @@ fn read_dirs(conn: &opencode_kit::client::Server, dir: &str) -> Option<Vec<Dir>>
             Some(Dir { name: opencode_kit::path::basename(&absolute).to_owned(), absolute })
         })
         .collect();
-    dirs.sort_by_key(|d| d.name.to_lowercase());
+    dirs.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     Some(dirs)
 }
 

@@ -1,0 +1,18 @@
+{
+  "action.reload": "重新加载以更新",
+  "action.reloading": "正在重新加载…",
+  "beta.added": "新增",
+  "beta.done": "知道了",
+  "beta.fixed": "修复",
+  "beta.github": "GitHub 上的历史记录",
+  "beta.page.description": "此版本中的所有更改。",
+  "beta.since.other": "自版本 {{build}} 起 · {{count}} 项更改",
+  "beta.title": "新功能",
+  "beta.viewAll": "查看全部",
+  "web.ready.message": "OpenCode 新版本已就绪。重新加载即可在所有打开的窗口中使用。",
+  "web.ready.title": "更新已就绪",
+  "web.reload": "重新加载",
+  "web.reset.action": "从服务器重新加载",
+  "web.reset.description": "清除应用的已保存副本，并加载服务器上的当前版本",
+  "web.reset.title": "从服务器重新加载"
+}

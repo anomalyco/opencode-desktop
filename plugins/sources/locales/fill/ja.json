@@ -1,0 +1,9 @@
+{
+  "noResults": "結果はありません",
+  "openFailed": "ページを開けませんでした",
+  "opened": "ページを開きました",
+  "searchFailed": "検索に失敗しました",
+  "searched": "Web を検索しました",
+  "tab.count": "ソース · {{count}}",
+  "title": "ソース"
+}

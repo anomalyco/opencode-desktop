@@ -1,0 +1,9 @@
+{
+  "noResults": "无结果",
+  "openFailed": "无法打开页面",
+  "opened": "已打开页面",
+  "searchFailed": "搜索失败",
+  "searched": "已搜索网络",
+  "tab.count": "来源 · {{count}}",
+  "title": "来源"
+}

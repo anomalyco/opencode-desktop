@@ -7,7 +7,10 @@
 //! and date patterns ICU gives each locale (`intl.percent`, `intl.date.*`, `intl.relative.*`),
 //! also written by `sync.ts`.
 //! `locales/rune/<id>.json` holds this app's strings Desktop doesn't have, under `rune.` keys,
-//! and wins over the other layers. The build turns both into one static catalog (`rune_i18n::codegen`), so lookups are a
+//! and wins over the other layers. `locales/fill/<id>.json` fills keys Desktop's own catalog for a
+//! locale lacks (`ja`, `zh`, `zht`, `ko`, `de`, `ar`, `he`): machine translations in official's
+//! terms, not yet reviewed, under every other layer, so an official translation of the same key
+//! wins as soon as `sync.ts` copies it. The build turns them all into one static catalog (`rune_i18n::codegen`), so lookups are a
 //! slice of an embedded blob and a key Desktop renames fails the build where it's used.
 //!
 //! - [`t!`]: a message, `t!("key")` as `&'static str` or `t!("key", name = value)` filled in.

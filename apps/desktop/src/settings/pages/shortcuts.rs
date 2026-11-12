@@ -93,7 +93,7 @@ pub fn view(s: &App, p: &Pal) -> El {
         }
         any = true;
         // By title (`localeCompare`); two of one title in Desktop's catalog order, which their ids keep.
-        rows.sort_by_key(|e| (e.title.to_lowercase(), e.id.clone()));
+        rows.sort_by(|a, b| rune::text::compare_names(&a.title, &b.title).then_with(|| a.id.cmp(&b.id)));
         let n = rows.len();
         let mut card = col().key(format!("settings-shortcuts-{}", section.title())).w_full().padding(20.0).radius(6.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
         for (i, e) in rows.into_iter().enumerate() {

@@ -309,7 +309,7 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
                 search::score(&pk.search.text, &fields).map(|score| (score, item(m, &m.provider, &m.group, false)))
             })
             .collect();
-        hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.label.to_lowercase().cmp(&b.1.label.to_lowercase())));
+        hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| rune::text::compare_names(&a.1.label, &b.1.label)));
         return grouped(hits.into_iter().map(|(_, item)| item).collect());
     }
     let prefs = &pk.prefs;
@@ -318,7 +318,7 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
     let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
     let mut rest: Vec<&Model> = pk.models.iter().filter(|m| pk.visible(m) && !lead(m)).collect();
-    rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));
     grouped(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true))
         .chain(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true)))
         .chain(rest.into_iter().map(|m| item(m, &m.provider, &m.group, false)))

@@ -95,7 +95,7 @@ pub fn sort_review_paths(paths: &[String]) -> Vec<String> {
         list.sort_by(|a, b| match (a.is_file, b.is_file) {
             (false, true) => std::cmp::Ordering::Less,
             (true, false) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
+            _ => rune::text::compare_names(&a.name, &b.name),
         });
     }
     let mut out = Vec::with_capacity(paths.len());

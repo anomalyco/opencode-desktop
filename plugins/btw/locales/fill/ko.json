@@ -1,0 +1,12 @@
+{
+  "command.description": "대화에 추가하지 않고 한 번만 답변받기",
+  "command.title": "곁가지 질문하기",
+  "copy": "답변 복사",
+  "error": "해당 질문에 답변할 수 없습니다",
+  "error.empty": "모델이 텍스트 없이 응답했습니다.",
+  "error.timeout": "모델 응답 시간이 너무 오래 걸렸습니다.",
+  "modelVariant": "{{model}} ({{variant}})",
+  "question.required": "/btw 뒤에 질문을 추가하세요",
+  "retry": "재시도",
+  "tab.title": "/btw"
+}

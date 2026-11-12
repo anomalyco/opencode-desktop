@@ -1,0 +1,12 @@
+{
+  "command.description": "会話に追加せずに 1 回だけの回答を得ます",
+  "command.title": "サイドの質問をする",
+  "copy": "回答をコピー",
+  "error": "その質問に回答できませんでした",
+  "error.empty": "モデルはテキストなしで応答しました。",
+  "error.timeout": "モデルの応答に時間がかかりすぎました。",
+  "modelVariant": "{{model}}（{{variant}}）",
+  "question.required": "/btw の後に質問を追加してください",
+  "retry": "再試行",
+  "tab.title": "/btw"
+}

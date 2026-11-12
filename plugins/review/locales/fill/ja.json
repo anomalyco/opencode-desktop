@@ -1,0 +1,9 @@
+{
+  "command.open": "レビューを開く",
+  "folder.failed": "変更を読み込めませんでした",
+  "folder.more": "{{count}} · 他は表示されていません",
+  "load.failed": "変更を読み込めませんでした",
+  "load.timeout": "サーバーの応答に時間がかかりすぎました",
+  "menu.count.other": "{{count}} 個のファイルを変更",
+  "offline": "このサーバーに接続できません"
+}

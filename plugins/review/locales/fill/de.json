@@ -1,0 +1,10 @@
+{
+  "command.open": "Überprüfung öffnen",
+  "folder.failed": "Änderungen konnten nicht geladen werden",
+  "folder.more": "{{count}} · weitere nicht angezeigt",
+  "load.failed": "Änderungen konnten nicht geladen werden",
+  "load.timeout": "Der Server hat zu lange nicht geantwortet",
+  "menu.count.one": "{{count}} Datei geändert",
+  "menu.count.other": "{{count}} Dateien geändert",
+  "offline": "Dieser Server ist nicht erreichbar"
+}

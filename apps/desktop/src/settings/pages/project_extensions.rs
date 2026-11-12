@@ -123,7 +123,7 @@ fn configured(v: &Value) -> (bool, Vec<Lsp>) {
             });
         }
     }
-    servers.sort_by(|a, b| a.name.cmp(&b.name));
+    servers.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     (disabled, servers)
 }
 

@@ -1,0 +1,18 @@
+{
+  "action.reload": "再読み込みして更新",
+  "action.reloading": "再読み込み中…",
+  "beta.added": "新機能",
+  "beta.done": "了解",
+  "beta.fixed": "修正",
+  "beta.github": "GitHub の履歴",
+  "beta.page.description": "このビルドのすべての変更。",
+  "beta.since.other": "ビルド {{build}} 以降 · {{count}} 件の変更",
+  "beta.title": "新着情報",
+  "beta.viewAll": "すべて表示",
+  "web.ready.message": "OpenCode の新しいバージョンの準備ができました。再読み込みすると、開いているすべてのウインドウで使用できます。",
+  "web.ready.title": "アップデートの準備完了",
+  "web.reload": "再読み込み",
+  "web.reset.action": "サーバーから再読み込み",
+  "web.reset.description": "保存されたアプリのコピーを消去し、サーバーの現在のバージョンを読み込みます",
+  "web.reset.title": "サーバーから再読み込み"
+}

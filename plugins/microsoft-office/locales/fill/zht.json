@@ -1,0 +1,20 @@
+{
+  "document.layoutFailed": "無法排版此文件的其餘部分",
+  "document.pageFailed": "無法顯示此頁",
+  "hiddenSlide": "隱藏的投影片",
+  "page": "第 {{number}} 頁",
+  "pages.other": "{{count}} 頁",
+  "problem.compound": "此檔案受密碼保護，或以較舊的 Office 格式儲存。",
+  "problem.format": "此檔案不是有效的 Office 文件。",
+  "sheet.copyFailed": "無法複製儲存格",
+  "sheet.copyTooLarge": "選取範圍過大，無法複製",
+  "sheet.openFailed": "無法開啟此工作表",
+  "sheet.paintFailed": "無法顯示工作表的這一部分",
+  "sheet.tabs": "工作表",
+  "sheets.other": "{{count}} 個工作表",
+  "slide": "投影片 {{number}}",
+  "slideFailed": "無法顯示此投影片",
+  "slides.other": "{{count}} 張投影片",
+  "speakerNotes": "演講者備忘稿",
+  "view.binary": "二進位檔案 · {{size}}"
+}

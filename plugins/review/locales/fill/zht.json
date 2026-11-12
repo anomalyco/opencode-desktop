@@ -1,0 +1,9 @@
+{
+  "command.open": "開啟檢閱",
+  "folder.failed": "無法載入變更",
+  "folder.more": "{{count}} · 其餘未顯示",
+  "load.failed": "無法載入變更",
+  "load.timeout": "伺服器回應逾時",
+  "menu.count.other": "已變更 {{count}} 個檔案",
+  "offline": "無法連線到此伺服器"
+}

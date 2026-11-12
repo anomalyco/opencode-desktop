@@ -99,7 +99,7 @@ fn extension_row(key: String, lead: El, name: El, trailing: Option<El>) -> El {
 
 fn mcps(s: &App, p: &Pal) -> Option<El> {
     let mut list: Vec<_> = s.mcp_servers("").unwrap_or_default().to_vec();
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     let rows: Vec<El> = list.iter().map(|m| {
         let disabled = m.status == opencode_kit::integration::McpStatus::Disabled;
         extension_row(format!("settings-mcp-{}", m.name), crate::widgets::status_dot(p, m.status.name()),

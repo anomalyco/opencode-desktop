@@ -1,0 +1,12 @@
+{
+  "command.description": "קבלת תשובה חד-פעמית בלי להוסיף אותה לשיחה",
+  "command.title": "שאלת צד",
+  "copy": "העתקת התשובה",
+  "error": "לא ניתן היה לענות על השאלה הזו",
+  "error.empty": "המודל השיב בלי טקסט.",
+  "error.timeout": "המודל לא השיב בזמן.",
+  "modelVariant": "⁨{{model}}⁩ (⁨{{variant}}⁩)",
+  "question.required": "הוסף שאלה אחרי /btw",
+  "retry": "ניסיון חוזר",
+  "tab.title": "/btw"
+}

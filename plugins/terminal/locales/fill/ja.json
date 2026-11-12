@@ -1,0 +1,20 @@
+{
+  "close.failed": "ターミナルを閉じられませんでした",
+  "connectionFailed": "ターミナルの接続に失敗しました",
+  "create.failed": "ターミナルを作成できませんでした",
+  "create.unsupported": "このサーバーはターミナルに対応するには古すぎます。このサーバーの OpenCode を更新してください。",
+  "disconnected": "ターミナルが切断されました",
+  "list.failed": "ターミナルを読み込めませんでした",
+  "location.open": "ターミナルで開く",
+  "quote.actions": "選択範囲を引用",
+  "quote.add": "引用",
+  "quote.addWithComment": "引用してコメント",
+  "quote.addWithoutComment": "コメントなしで引用",
+  "quote.label": "ターミナル",
+  "quote.tooLong": "選択範囲が長すぎます",
+  "rename.failed": "ターミナルの名前を変更できませんでした",
+  "rename.unsupported": "ターミナルの名前変更は、OpenCode のターミナルサービスの再起動後に利用できます",
+  "request.timedOut": "サーバーの応答に時間がかかりすぎました",
+  "serverOutdated": "このサーバーはターミナルに対応するには古すぎます。OpenCode を更新してください",
+  "unavailable": "このサーバーではターミナルを利用できません"
+}

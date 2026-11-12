@@ -1,0 +1,12 @@
+{
+  "command.description": "Eine einmalige Antwort erhalten, ohne sie der Unterhaltung hinzuzufügen",
+  "command.title": "Nebenfrage stellen",
+  "copy": "Antwort kopieren",
+  "error": "Diese Frage konnte nicht beantwortet werden",
+  "error.empty": "Das Modell hat ohne Text geantwortet.",
+  "error.timeout": "Das Modell hat zu lange für die Antwort gebraucht.",
+  "modelVariant": "{{model}} ({{variant}})",
+  "question.required": "Fügen Sie nach /btw eine Frage hinzu",
+  "retry": "Erneut versuchen",
+  "tab.title": "/btw"
+}

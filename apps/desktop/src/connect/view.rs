@@ -51,10 +51,10 @@ pub fn groups(s: &App) -> Vec<(&'static str, Vec<Row>)> {
         .collect();
     let connected = |r: &Row| r.account.is_some();
     let (mut connected_rows, rest): (Vec<Row>, Vec<Row>) = rows.into_iter().partition(connected);
-    connected_rows.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    connected_rows.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     let (mut popular, mut services): (Vec<Row>, Vec<Row>) = rest.into_iter().partition(|r| POPULAR.contains(&r.id.as_str()));
     popular.sort_by_key(|r| POPULAR.iter().position(|p| *p == r.id));
-    services.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    services.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     [(opencode_i18n::t!("dialog.provider.connected"), connected_rows), (opencode_i18n::t!("dialog.provider.group.popular"), popular), (opencode_i18n::t!("dialog.provider.group.services"), services)].into_iter().filter(|(_, r)| !r.is_empty()).collect()
 }
 

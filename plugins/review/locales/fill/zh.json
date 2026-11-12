@@ -1,0 +1,9 @@
+{
+  "command.open": "打开审查",
+  "folder.failed": "无法加载更改",
+  "folder.more": "{{count}} · 更多未显示",
+  "load.failed": "无法加载更改",
+  "load.timeout": "服务器响应超时",
+  "menu.count.other": "{{count}} 个文件已更改",
+  "offline": "无法连接到此服务器"
+}

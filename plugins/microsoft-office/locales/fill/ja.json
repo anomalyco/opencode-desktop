@@ -1,0 +1,20 @@
+{
+  "document.layoutFailed": "このドキュメントの残りをレイアウトできませんでした",
+  "document.pageFailed": "このページを表示できませんでした",
+  "hiddenSlide": "非表示のスライド",
+  "page": "{{number}} ページ",
+  "pages.other": "{{count}} ページ",
+  "problem.compound": "このファイルはパスワードで保護されているか、古い Office 形式で保存されています。",
+  "problem.format": "このファイルは有効な Office ドキュメントではありません。",
+  "sheet.copyFailed": "セルをコピーできませんでした",
+  "sheet.copyTooLarge": "選択範囲が大きすぎてコピーできません",
+  "sheet.openFailed": "このシートを開けませんでした",
+  "sheet.paintFailed": "シートのこの部分を表示できませんでした",
+  "sheet.tabs": "シート",
+  "sheets.other": "{{count}} シート",
+  "slide": "スライド {{number}}",
+  "slideFailed": "このスライドを表示できませんでした",
+  "slides.other": "{{count}} 枚のスライド",
+  "speakerNotes": "発表者ノート",
+  "view.binary": "バイナリファイル · {{size}}"
+}

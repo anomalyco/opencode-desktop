@@ -1,0 +1,12 @@
+{
+  "command.description": "获取一次性回答，不会添加到对话中",
+  "command.title": "问一个附带问题",
+  "copy": "复制回答",
+  "error": "无法回答该问题",
+  "error.empty": "模型的回复中没有任何文本。",
+  "error.timeout": "模型回复超时。",
+  "modelVariant": "{{model}}（{{variant}}）",
+  "question.required": "请在 /btw 后添加问题",
+  "retry": "重试",
+  "tab.title": "/btw"
+}

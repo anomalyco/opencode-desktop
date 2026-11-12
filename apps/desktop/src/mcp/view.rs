@@ -22,7 +22,7 @@ fn rows(s: &App) -> Vec<McpServer> {
     let Some(open) = &s.mcp.open else { return vec![] };
     let query = open.search.text.trim().to_lowercase();
     let mut list: Vec<McpServer> = s.mcp_servers(&open.dir).unwrap_or_default().to_vec();
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by(|a, b| rune::text::compare_names(&a.name, &b.name));
     list.retain(|m| query.is_empty() || subsequence(&query, &m.name.to_lowercase()) || subsequence(&query, m.status.name()));
     list
 }

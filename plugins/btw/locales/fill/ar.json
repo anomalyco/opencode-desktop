@@ -1,0 +1,12 @@
+{
+  "command.description": "احصل على إجابة لمرة واحدة دون إضافتها إلى المحادثة",
+  "command.title": "طرح سؤال جانبي",
+  "copy": "نسخ الإجابة",
+  "error": "تعذّرت الإجابة عن هذا السؤال",
+  "error.empty": "ردّ النموذج دون أي نص.",
+  "error.timeout": "استغرق النموذج وقتًا طويلاً للرد.",
+  "modelVariant": "⁨{{model}}⁩ (⁨{{variant}}⁩)",
+  "question.required": "أضف سؤالاً بعد /btw",
+  "retry": "إعادة المحاولة",
+  "tab.title": "/btw"
+}

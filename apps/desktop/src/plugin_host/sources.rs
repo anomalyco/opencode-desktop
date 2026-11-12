@@ -225,7 +225,8 @@ pub fn relative(root: &Path, path: &Path) -> Option<String> {
 }
 
 /// Whether a plugin runs from the file at `rel`: its manifest, Luau modules, `.luaurc`,
-/// `locales/*.json` catalogs and `icons/*.svg` icons, outside hidden folders.
+/// `locales/*.json` catalogs (and `locales/fill/*.json`, see [`Catalogs`]) and `icons/*.svg` icons,
+/// outside hidden folders.
 pub fn kept(rel: &str) -> bool {
     let mut parts: Vec<&str> = rel.split('/').collect();
     let Some(name) = parts.pop() else { return false };
@@ -233,7 +234,7 @@ pub fn kept(rel: &str) -> bool {
         return false;
     }
     let under = |dir: &str, ext: &str| parts.last() == Some(&dir) && name.ends_with(ext);
-    name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || under("locales", ".json") || under("icons", ".svg")
+    name.ends_with(".luau") || name == "plugin.toml" || name == ".luaurc" || under("locales", ".json") || (parts.ends_with(&["locales", "fill"]) && name.ends_with(".json")) || under("icons", ".svg")
 }
 
 /// Interns plugin `plugin`'s `icons/<name>.svg` files as its icons, by file name.
@@ -261,7 +262,9 @@ pub fn catalogs(files: &[(String, String)]) -> Catalogs {
 
 /// A plugin's catalogs (`locales/<lang>.json`): each language's file is parsed the first time a string
 /// is read in it, so a plugin parses the interface language and English, not all 63 (16 plugins x 63
-/// files were parsed before each plugin ran).
+/// files were parsed before each plugin ran). `locales/fill/<lang>.json`, where there is one, holds
+/// machine translations of the keys the plugin's own catalog for that language lacks, unreviewed;
+/// the plugin's own file is laid over it, so a translation the catalog gains wins.
 #[derive(Default)]
 pub struct Catalogs {
     texts: BTreeMap<String, String>,
@@ -274,8 +277,18 @@ impl Catalogs {
         if let Some(found) = self.parsed.lock().unwrap_or_else(|e| e.into_inner()).get(lang) {
             return Some(found.clone());
         }
-        let v: serde_json::Value = serde_json::from_str(self.texts.get(lang)?).ok()?;
-        let map: std::sync::Arc<BTreeMap<String, String>> = std::sync::Arc::new(v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect());
+        let parse = |text: &str| -> Option<BTreeMap<String, String>> {
+            let v: serde_json::Value = serde_json::from_str(text).ok()?;
+            Some(v.as_object()?.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+        };
+        let own = self.texts.get(lang).and_then(|t| parse(t));
+        let fill = self.texts.get(&format!("fill/{lang}")).and_then(|t| parse(t));
+        if own.is_none() && fill.is_none() {
+            return None;
+        }
+        let mut strings = fill.unwrap_or_default();
+        strings.extend(own.unwrap_or_default());
+        let map = std::sync::Arc::new(strings);
         self.parsed.lock().unwrap_or_else(|e| e.into_inner()).insert(lang.to_owned(), map.clone());
         Some(map)
     }

@@ -1,0 +1,20 @@
+{
+  "close.failed": "تعذّر إغلاق المحطة الطرفية",
+  "connectionFailed": "فشل اتصال المحطة الطرفية",
+  "create.failed": "تعذّر إنشاء محطة طرفية",
+  "create.unsupported": "هذا الخادم قديم جدًا لدعم المحطات الطرفية. حدّث OpenCode على هذا الخادم.",
+  "disconnected": "تم قطع اتصال المحطة الطرفية",
+  "list.failed": "تعذّر تحميل المحطات الطرفية",
+  "location.open": "فتح في المحطة الطرفية",
+  "quote.actions": "اقتباس التحديد",
+  "quote.add": "اقتباس",
+  "quote.addWithComment": "اقتباس مع تعليق",
+  "quote.addWithoutComment": "اقتباس بدون تعليق",
+  "quote.label": "المحطة الطرفية",
+  "quote.tooLong": "التحديد طويل جدًا",
+  "rename.failed": "تعذّرت إعادة تسمية المحطة الطرفية",
+  "rename.unsupported": "ستتوفر إعادة تسمية المحطات الطرفية بعد إعادة تشغيل خدمة المحطة الطرفية في OpenCode",
+  "request.timedOut": "استغرق الخادم وقتًا طويلاً للرد",
+  "serverOutdated": "هذا الخادم قديم جدًا لدعم المحطات الطرفية؛ حدّث OpenCode عليه",
+  "unavailable": "المحطات الطرفية غير متاحة على هذا الخادم"
+}

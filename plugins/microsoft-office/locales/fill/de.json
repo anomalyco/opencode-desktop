@@ -1,0 +1,23 @@
+{
+  "document.layoutFailed": "Der Rest dieses Dokuments konnte nicht gesetzt werden",
+  "document.pageFailed": "Diese Seite konnte nicht angezeigt werden",
+  "hiddenSlide": "Ausgeblendete Folie",
+  "page": "Seite {{number}}",
+  "pages.one": "{{count}} Seite",
+  "pages.other": "{{count}} Seiten",
+  "problem.compound": "Diese Datei ist kennwortgeschützt oder in einem älteren Office-Format gespeichert.",
+  "problem.format": "Diese Datei ist kein gültiges Office-Dokument.",
+  "sheet.copyFailed": "Die Zellen konnten nicht kopiert werden",
+  "sheet.copyTooLarge": "Die Auswahl ist zu groß zum Kopieren",
+  "sheet.openFailed": "Dieses Tabellenblatt konnte nicht geöffnet werden",
+  "sheet.paintFailed": "Dieser Teil des Tabellenblatts konnte nicht angezeigt werden",
+  "sheet.tabs": "Tabellenblätter",
+  "sheets.one": "{{count}} Tabellenblatt",
+  "sheets.other": "{{count}} Tabellenblätter",
+  "slide": "Folie {{number}}",
+  "slideFailed": "Diese Folie konnte nicht angezeigt werden",
+  "slides.one": "{{count}} Folie",
+  "slides.other": "{{count}} Folien",
+  "speakerNotes": "Sprechernotizen",
+  "view.binary": "Binärdatei · {{size}}"
+}

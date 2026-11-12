@@ -1,0 +1,9 @@
+{
+  "noResults": "결과 없음",
+  "openFailed": "페이지를 열 수 없음",
+  "opened": "페이지를 열었음",
+  "searchFailed": "검색 실패",
+  "searched": "웹 검색함",
+  "tab.count": "출처 · {{count}}",
+  "title": "출처"
+}

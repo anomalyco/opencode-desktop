@@ -1,0 +1,11 @@
+{
+  "command.open": "פתיחת הסקירה",
+  "folder.failed": "לא ניתן היה לטעון את השינויים",
+  "folder.more": "⁨{{count}}⁩ · לא מוצגים נוספים",
+  "load.failed": "לא ניתן היה לטעון את השינויים",
+  "load.timeout": "השרת לא הגיב בזמן",
+  "menu.count.one": "קובץ אחד השתנה",
+  "menu.count.other": "⁨{{count}}⁩ קבצים השתנו",
+  "menu.count.two": "שני קבצים השתנו",
+  "offline": "אין גישה לשרת זה"
+}

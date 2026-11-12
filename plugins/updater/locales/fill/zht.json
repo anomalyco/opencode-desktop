@@ -1,0 +1,18 @@
+{
+  "action.reload": "重新載入以更新",
+  "action.reloading": "正在重新載入…",
+  "beta.added": "新增",
+  "beta.done": "知道了",
+  "beta.fixed": "修正",
+  "beta.github": "GitHub 上的記錄",
+  "beta.page.description": "此組建中的所有變更。",
+  "beta.since.other": "自組建 {{build}} 起 · {{count}} 項變更",
+  "beta.title": "新功能",
+  "beta.viewAll": "檢視全部",
+  "web.ready.message": "OpenCode 新版本已就緒。重新載入即可在所有開啟的視窗中使用。",
+  "web.ready.title": "更新已就緒",
+  "web.reload": "重新載入",
+  "web.reset.action": "從伺服器重新載入",
+  "web.reset.description": "清除已儲存的應用程式副本，並載入伺服器目前的版本",
+  "web.reset.title": "從伺服器重新載入"
+}

@@ -514,7 +514,7 @@ fn accounts(s: &App, p: &Pal) -> El {
         _ => o.dialog.provider.as_ref().and_then(|p| p.accounts.active.clone()),
     };
     let mut list: Vec<_> = s.integration_of(s.connect_dir(), &id).map(|i| i.accounts().into_iter().cloned().collect()).unwrap_or_default();
-    list.sort_by(|a: &opencode_kit::integration::Connection, b| a.label.cmp(&b.label).then(a.id.cmp(&b.id)));
+    list.sort_by(|a: &opencode_kit::integration::Connection, b| rune::text::compare_names(&a.label, &b.label).then(a.id.cmp(&b.id)));
     let mut rows = col().key("provider-accounts").role("radiogroup").label(opencode_i18n::t!("dialog.provider.accounts.connected")).gap(2.0);
     for a in list {
         if *action == AccountAction::Confirming(a.id.clone()) {

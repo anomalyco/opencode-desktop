@@ -174,7 +174,7 @@ pub fn rank_file_query(paths: &[String], query: &str) -> Vec<String> {
         .iter()
         .filter_map(|p| score_path(p, &needle).map(|sc| (sc, p)))
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| rune::text::compare_names(a.1, b.1)));
     scored.into_iter().map(|(_, p)| p.clone()).collect()
 }
 

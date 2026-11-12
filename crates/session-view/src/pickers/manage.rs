@@ -42,7 +42,7 @@ impl super::Pickers {
         let mut models: Vec<&Model> = self.models.iter()
             .filter(|m| query.is_empty() || search::score(&query, &[m.group.as_str(), m.name.as_str(), m.id.as_str()]).is_some())
             .collect();
-        models.sort_by(|a, b| host::provider_rank(a).cmp(&host::provider_rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+        models.sort_by(|a, b| host::provider_rank(a).cmp(&host::provider_rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));
         let mut groups: Vec<(String, Vec<&Model>)> = Vec::new();
         for m in models {
             match groups.last_mut() {

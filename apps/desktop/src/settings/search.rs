@@ -332,7 +332,7 @@ pub fn rank(query: &str, items: Vec<Entry>) -> Vec<Entry> {
             (score > 0).then_some((item, score))
         })
         .collect();
-    scored.sort_by(|(a, sa), (b, sb)| b.top.cmp(&a.top).then(sb.cmp(sa)).then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase())));
+    scored.sort_by(|(a, sa), (b, sb)| b.top.cmp(&a.top).then(sb.cmp(sa)).then_with(|| rune::text::compare_names(&a.title, &b.title)));
     scored.into_iter().map(|(e, _)| e).collect()
 }
 

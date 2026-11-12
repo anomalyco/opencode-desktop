@@ -74,7 +74,7 @@ fn groups(s: &App) -> Vec<(String, Vec<&Model>)> {
         Some(at) => (at, String::new()),
         None => (POPULAR.len(), m.group.to_lowercase()),
     };
-    models.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    models.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));
     let mut out: Vec<(String, Vec<&Model>)> = Vec::new();
     for m in models {
         match out.last_mut() {

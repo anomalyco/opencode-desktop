@@ -75,7 +75,7 @@ const locales = ids.map((id) => ({
 }))
 await Bun.write(
   path.join(out, "locales.json"),
-  JSON.stringify({ layers: ["official", "intl", "rune"], locales }, null, 2) + "\n",
+  JSON.stringify({ layers: ["fill", "official", "intl", "rune"], locales }, null, 2) + "\n",
 )
 console.log(`${ids.length} locales, ${rtl.size} right to left`)
 
