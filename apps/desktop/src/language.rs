@@ -23,6 +23,7 @@ pub fn apply(s: &mut App) {
         None => opencode_i18n::detect(),
     };
     opencode_i18n::set_locale(id);
+    text_language();
     rune::set_labels(label);
     rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
     rune::labels::set_direction(crate::view::ui_direction());
@@ -35,11 +36,19 @@ pub fn set(s: &mut App, id: &str) {
     }
     let id = id.to_owned();
     opencode_i18n::set_locale(&id);
+    text_language();
     rune::labels::set_locale(opencode_i18n::t!("intl.names.locale"));
     // Rune's native menus (text fields', Windows' window menu, macOS's) read the language's way.
     rune::labels::set_direction(crate::view::ui_direction());
     crate::menubar::refresh();
     s.change_settings(|x| x.language = Some(id));
+}
+
+/// The interface language is the text's, as Desktop's `<html lang>` (`language.tsx:396`): Han
+/// characters take its forms and fonts (Yu Gothic UI's for Japanese, Microsoft JhengHei's for
+/// Traditional Chinese) where the text itself doesn't say (kana, Hangul and Bopomofo do).
+fn text_language() {
+    rune::text::set_language(Some(opencode_i18n::locale().tag()));
 }
 
 /// Rune's own words in the chosen language, as Desktop translates them: the text menu's Cut,
