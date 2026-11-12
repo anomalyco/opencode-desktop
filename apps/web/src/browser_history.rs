@@ -9,25 +9,41 @@ use wasm_bindgen::{JsCast, prelude::*};
 use crate::{App, Route};
 
 thread_local! {
-    /// The app's history index and the address of the browser entry that stands for it.
-    static SEEN: RefCell<Option<(usize, String)>> = const { RefCell::new(None) };
+    /// The app's history index, the place it showed (session, Settings open) and the address of
+    /// the browser entry that stands for it.
+    static SEEN: RefCell<Option<Seen>> = const { RefCell::new(None) };
+}
+
+struct Seen {
+    index: usize,
+    session: Option<String>,
+    settings: bool,
+    url: String,
 }
 
 /// After each poll: a move the app made since becomes the browser's too. A new place is a new
-/// entry; Back and Forward from the app's own keys move the browser's entry with them.
+/// entry; Back and Forward from the app's own keys move the browser's entry with them. A poll
+/// that finds the app where it was reads nothing of the page.
 pub(crate) fn sync(s: &App) {
     let index = s.nav.index();
-    let url = address(s);
-    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else { return };
+    let session = match &s.route {
+        Route::Session { id, .. } => Some(id.as_str()),
+        _ => None,
+    };
     SEEN.with_borrow_mut(|seen| {
+        if seen.as_ref().is_some_and(|v| v.index == index && v.session.as_deref() == session && v.settings == s.settings.open) {
+            return;
+        }
+        let url = address(s);
+        let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else { return };
         let state = JsValue::from(index as u32);
         match seen.as_ref() {
-            Some((i, u)) if *i == index && *u == url => return,
-            Some((i, _)) if index == i + 1 => drop(history.push_state_with_url(&state, "", Some(&url))),
-            Some((i, _)) if *i != index => drop(history.go_with_delta(index as i32 - *i as i32)),
+            Some(v) if v.url == url => {}
+            Some(v) if index == v.index + 1 => drop(history.push_state_with_url(&state, "", Some(&url))),
+            Some(v) if v.index != index => drop(history.go_with_delta(index as i32 - v.index as i32)),
             _ => drop(history.replace_state_with_url(&state, "", Some(&url))),
         }
-        *seen = Some((index, url));
+        *seen = Some(Seen { index, session: session.map(str::to_owned), settings: s.settings.open, url });
     });
 }
 
@@ -40,8 +56,12 @@ pub(crate) fn listen(handle: rune::AppHandle<App>) {
             let start = s.nav.index();
             while s.nav.index() != target && s.navigate(target > s.nav.index(), tx) {}
             // The browser is on that entry already.
-            let (index, url) = (s.nav.index(), address(s));
-            SEEN.with_borrow_mut(|seen| *seen = Some((index, url)));
+            let session = match &s.route {
+                Route::Session { id, .. } => Some(id.clone()),
+                _ => None,
+            };
+            let seen = Seen { index: s.nav.index(), session, settings: s.settings.open, url: address(s) };
+            SEEN.with_borrow_mut(|v| *v = Some(seen));
             s.nav.index() != start
         });
     });
