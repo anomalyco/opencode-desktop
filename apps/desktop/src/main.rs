@@ -1350,8 +1350,8 @@ const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
 ];
 /// In a browser, only the fonts the default appearance draws in: the page fetches Commit Mono once
-/// its first frame is up (`LATE_FONTS`). JetBrains Mono, the terminal's (4.8 MB), stays out until
-/// the terminal works in a browser.
+/// its first frame is up (`LATE_FONTS`), and JetBrains Mono, the terminal's (4.8 MB), when a
+/// terminal first attaches (`TERMINAL_FONTS`).
 #[cfg(target_arch = "wasm32")]
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/InterVariable.ttf"),
@@ -1367,6 +1367,9 @@ pub(crate) const LATE_FONTS: &[&str] = &[
     "fonts/CommitMono-400-Italic.otf",
     "fonts/CommitMono-700-Italic.otf",
 ];
+/// The terminal's face, which a page fetches when its first terminal attaches (`terminal::fetch_terminal_font`).
+#[cfg(target_arch = "wasm32")]
+pub(crate) const TERMINAL_FONTS: &[&str] = &["fonts/JetBrainsMonoNerdFontMono-Regular.ttf", "fonts/JetBrainsMonoNerdFontMono-Bold.ttf"];
 
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {

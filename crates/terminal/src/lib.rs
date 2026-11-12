@@ -5,8 +5,6 @@ mod connection;
 pub mod core;
 pub mod ffi;
 mod ffi_fns;
-#[cfg(target_arch = "wasm32")]
-mod ffi_web;
 mod find;
 mod grapheme;
 mod inbox;

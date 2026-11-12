@@ -90,7 +90,11 @@ pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
 /// One attachment's id; the server tells attachments apart by it when they take control.
 pub fn attachment_id() -> String {
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    #[cfg(not(target_arch = "wasm32"))]
     h.write_u32(std::process::id());
+    // A page has no process id, and its hasher's keys can be the same in every page.
+    #[cfg(target_arch = "wasm32")]
+    h.write_u64(js_sys::Math::random().to_bits());
     format!("rune-{:016x}", h.finish())
 }
 

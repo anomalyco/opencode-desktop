@@ -42,8 +42,8 @@ impl Inbox {
 
 /// A socket and the worker's wake, waited on together: the thread sleeps in the kernel until the
 /// socket can be read (or written, while a frame waits to go out), a command arrives, or a
-/// deadline passes. Natively it is `polling` (IOCP and AFD on Windows, epoll, kqueue); the web
-/// build has no sockets or threads for it.
+/// deadline passes. Natively it is `polling` (IOCP and AFD on Windows, epoll, kqueue); in a
+/// browser, a task's wake (below).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct SocketWait {
     poller: polling::Poller,
@@ -83,22 +83,59 @@ impl SocketWait {
     }
 }
 
+/// The web's: the page's socket and the worker's commands both wake one task on the page's event
+/// loop (`persistent_pty_web.rs`), which sleeps until one does or a deadline passes.
 #[cfg(target_arch = "wasm32")]
-pub(crate) struct SocketWait;
+#[derive(Default)]
+pub(crate) struct SocketWait {
+    woken: std::sync::atomic::AtomicBool,
+    task: std::sync::Mutex<Option<std::task::Waker>>,
+}
 
 #[cfg(target_arch = "wasm32")]
 impl SocketWait {
     pub(crate) fn new() -> std::io::Result<SocketWait> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no sockets in the browser build"))
+        Ok(SocketWait::default())
     }
 
-    pub(crate) fn notify(&self) {}
-
-    pub(crate) fn watch(&self, _: &std::net::TcpStream) -> std::io::Result<()> {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no sockets in the browser build"))
+    pub(crate) fn notify(&self) {
+        self.woken.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(task) = self.task.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            task.wake();
+        }
     }
 
-    pub(crate) fn forget(&self, _: &std::net::TcpStream) {}
+    /// Until a notify (a command, or the socket's listeners), or `timeout`.
+    pub(crate) async fn wait(&self, timeout: Option<std::time::Duration>) {
+        use std::sync::atomic::Ordering;
+        use std::task::Poll;
+        let mut timed = false;
+        let expired = std::rc::Rc::new(std::cell::Cell::new(false));
+        std::future::poll_fn(|cx| {
+            if self.woken.swap(false, Ordering::AcqRel) || expired.get() {
+                return Poll::Ready(());
+            }
+            *self.task.lock().unwrap_or_else(|e| e.into_inner()) = Some(cx.waker().clone());
+            if !timed && let Some(delay) = timeout {
+                timed = true;
+                let (expired, task) = (expired.clone(), cx.waker().clone());
+                set_timer(delay, move || {
+                    expired.set(true);
+                    task.wake();
+                });
+            }
+            Poll::Pending
+        })
+        .await;
+    }
+}
 
-    pub(crate) fn wait(&self, _: &std::net::TcpStream, _: bool, _: Option<std::time::Duration>) {}
+/// Runs `f` once `delay` has passed, from the page's timer (freed when it fires).
+#[cfg(target_arch = "wasm32")]
+fn set_timer(delay: std::time::Duration, f: impl FnOnce() + 'static) {
+    use wasm_bindgen::JsCast;
+    let callback = wasm_bindgen::closure::Closure::once_into_js(f);
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), delay.as_millis().min(i32::MAX as u128) as i32);
+    }
 }

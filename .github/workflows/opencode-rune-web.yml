@@ -89,6 +89,12 @@ jobs:
       - name: wasm-bindgen
         if: steps.bindgen-cache.outputs.cache-hit != 'true'
         run: cargo install wasm-bindgen-cli --version "${{ steps.bindgen.outputs.version }}" --locked
+      # The terminal's libghostty-vt for wasm32, and the Zig that builds it (crates/terminal/build.rs),
+      # outside target/: about 2.5 minutes when it isn't cached.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt
+          key: ghostty-vt-wasm32-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
       - name: Build
         shell: pwsh
         run: scripts/web.ps1 -NoServe -Out "$env:RUNNER_TEMP/web"

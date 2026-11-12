@@ -21,6 +21,13 @@ tungstenite = { version = "0.28", default-features = false, features = ["handsha
 # A persistent PTY's worker sleeps on its socket and its commands together (IOCP on Windows).
 polling = "3.11"
 
+# A page's attachment: its own WebSocket, on a task of its event loop.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Event", "MessageEvent", "WebSocket", "Window"] }
+
 [build-dependencies]
 sha2 = "0.10"
 ureq = { workspace = true, features = ["rustls"] }

@@ -17,6 +17,7 @@ use rune::Waker;
 
 use crate::core::VtCore;
 use crate::inbox::{Inbox, SocketWait};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::persistent_pty::run_persistent_worker;
 use crate::publish::{self, Handoff, Publish};
 use crate::theme::TerminalTheme;
@@ -194,6 +195,10 @@ pub struct SessionPersistHandle {
 
 impl SessionPersistHandle {
     pub fn capture(&self, timeout: Duration) -> Option<PersistedTerminal> {
+        // A page's worker runs on the thread that would wait for it.
+        if cfg!(target_arch = "wasm32") {
+            return None;
+        }
         let (tx, rx) = mpsc::channel();
         self.inbox.send(WorkerCmd::Persist(tx)).then_some(())?;
         rx.recv_timeout(timeout).ok()
@@ -255,10 +260,14 @@ impl TerminalSession {
         let blank = Arc::new(TerminalSnapshot::blank(config.cols.max(1), config.rows.max(1), &config.theme));
         let shared = Arc::new(SharedState::new(blank, SessionStatus::Connecting, 0, false));
         let worker_shared = shared.clone();
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::Builder::new()
             .name("terminal-persistent-pty".into())
             .spawn(move || run_persistent_worker(server, pty_id, config, observer, rx, wait, worker_shared, waker))
             .map_err(|e| format!("failed to spawn terminal PTY worker: {e}"))?;
+        // A page has no threads: a task of its event loop (`persistent_pty_web.rs`).
+        #[cfg(target_arch = "wasm32")]
+        crate::persistent_pty::web::start(server, pty_id, config, observer, rx, wait, worker_shared, waker);
         Ok(Self { shared, inbox })
     }
 
@@ -268,7 +277,8 @@ impl TerminalSession {
         let now = monotonic_ns();
         let last = self.shared.read_at.swap(now, Ordering::AcqRel);
         if self.shared.handoff.read() {
-            if now.saturating_sub(last) >= SHOWN_AGAIN.as_nanos() as u64 {
+            // A page can't wait for its own task: it takes the next screen on a later read.
+            if !cfg!(target_arch = "wasm32") && now.saturating_sub(last) >= SHOWN_AGAIN.as_nanos() as u64 {
                 let (tx, rx) = mpsc::channel();
                 if self.inbox.send(WorkerCmd::Show(tx)) {
                     let _ = rx.recv_timeout(SHOW_WAIT);

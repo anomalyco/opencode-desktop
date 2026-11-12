@@ -446,6 +446,11 @@ fn build(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>)
 
 /// The request as a `fetch` the task work waits on; `None` outside task work.
 fn fetch(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Option<Result<(u16, Vec<(String, String)>, Vec<u8>), JsValue>> {
+    // Outside task work nothing can wait for a fetch: it would go out, and the XMLHttpRequest
+    // after it too.
+    if !rune::task::can_wait() {
+        return None;
+    }
     let window = web_sys::window()?;
     let started = if method == "GET" && body.is_none() { take_started(url, headers) } else { None };
     let promise = match started {

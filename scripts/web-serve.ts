@@ -26,7 +26,7 @@ Bun.serve({
     if (!(await body.exists())) return new Response("not found", { status: 404 })
     const ext = file.slice(file.lastIndexOf("."))
     const headers: Record<string, string> = { "content-type": types[ext] ?? "application/octet-stream", "cache-control": "no-store" }
-    // A release's module has a Brotli copy beside it: sent to a browser that takes br, as a host would.
+    // A release's module and fonts have a Brotli copy beside them: sent to a browser that takes br, as a host would.
     const br = Bun.file(file + ".br")
     if (/\bbr\b/.test(request.headers.get("accept-encoding") ?? "") && (await br.exists())) {
       return new Response(br, { headers: { ...headers, "content-encoding": "br", vary: "accept-encoding" } })

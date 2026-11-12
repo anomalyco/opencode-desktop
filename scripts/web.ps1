@@ -104,15 +104,17 @@ if (-not $NoBuild) {
   # The page shows the module's download against its size (`data-wasm-bytes`).
   $wasmBytes = (Get-Item (Join-Path $next 'app_bg.wasm')).Length
   (Get-Content (Join-Path $root 'apps/web/index.html') -Raw).Replace('data-wasm-bytes="0"', "data-wasm-bytes=`"$wasmBytes`"") | Set-Content (Join-Path $next 'index.html') -NoNewline
-  # A release ships the module Brotli-compressed beside itself, as a static host serves it
-  # (`web-serve.ts` sends it to a browser that takes br): 35 MB on the wire becomes about 10.
+  # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
+  New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
+  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
+  # A release ships the module and the fonts Brotli-compressed beside themselves, as a static host
+  # serves them (`web-serve.ts` sends them to a browser that takes br): the module's 35 MB on the
+  # wire becomes about 10, the terminal's 4.8 MB face about 2.
   if (-not $Dev) {
-    & bun -e "const z = require('node:zlib'); const f = process.argv[1]; const b = require('node:fs').readFileSync(f); require('node:fs').writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } }))" (Join-Path $next 'app_bg.wasm')
+    $packed = @(Join-Path $next 'app_bg.wasm') + @(Get-ChildItem (Join-Path $next 'fonts') -File | ForEach-Object FullName)
+    & bun -e "const z = require('node:zlib'); const fs = require('node:fs'); for (const f of process.argv.slice(1)) { const b = fs.readFileSync(f); fs.writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } })); }" @packed
     if ($LASTEXITCODE) { throw "brotli failed ($LASTEXITCODE)" }
   }
-  # The fonts the page fetches after its first frame (main.rs's LATE_FONTS).
-  New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
-  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf'
   # The sound effects the page plays when they're asked for (sounds.rs).
   Copy-Item -Recurse (Join-Path $root 'apps/desktop/assets/sounds') (Join-Path $next 'sounds')
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue

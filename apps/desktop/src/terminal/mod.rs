@@ -403,7 +403,7 @@ impl App {
             && tab_id.starts_with("pty_")
         {
             let id = tab_id.to_owned();
-            std::thread::spawn(move || {
+            let _ = rune::task::spawn("terminal-remove", move || {
                 let _ = srv.terminal_remove(&id);
             });
         }
@@ -549,6 +549,7 @@ impl App {
             theme: theme_from_pal(pal(self.terminal_dark())),
             ..TerminalConfig::default()
         };
+        fetch_terminal_font();
         let session = TerminalSession::spawn_persistent_pty(srv, info.id.clone(), config, observer, self.terminal_waker())?;
         Ok(TerminalTab {
             title_number: persist::number_from_title(&info.title).unwrap_or(0),
@@ -658,6 +659,7 @@ impl App {
         let Some(tab) = self.terminal_tab_mut(wk, id) else { return };
         let snap = tab.session.snapshot();
         let config = TerminalConfig { cols: snap.cols.max(1), rows: snap.rows.max(1), theme, ..TerminalConfig::default() };
+        fetch_terminal_font();
         if let Ok(session) = TerminalSession::spawn_persistent_pty(srv, id.to_owned(), config, observer, waker) {
             tab.session = session;
             tab.fit.set(mount::Fit::Unmeasured);
@@ -802,5 +804,14 @@ impl App {
         }
 
         changed
+    }
+}
+
+/// A page fetches the terminal's face (`TERMINAL_FONTS`) when its first terminal attaches, not
+/// with every page; natively it's built in. Each loads once.
+fn fetch_terminal_font() {
+    #[cfg(target_arch = "wasm32")]
+    for url in crate::TERMINAL_FONTS {
+        rune::web::font_url_now(url);
     }
 }

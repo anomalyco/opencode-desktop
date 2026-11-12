@@ -37,10 +37,6 @@ fn main() {
 
     let target = std::env::var("TARGET").expect("TARGET");
     let host = std::env::var("HOST").expect("HOST");
-    // A browser build links no engine (`ffi_web.rs` answers for it).
-    if target.starts_with("wasm32") {
-        return;
-    }
 
     if let Some(raw) = std::env::var_os("GHOSTTY_VT_LIB").filter(|s| !s.is_empty()) {
         let lib = resolve_lib_override(Path::new(&raw)).unwrap_or_else(|e| fail_one_line(&e));
@@ -193,7 +189,8 @@ fn build_from_source(
         cmd.arg("build")
             .arg("-Demit-lib-vt=true")
             .arg("-Doptimize=ReleaseFast")
-            .arg("-Dsimd=true")
+            // Its SIMD paths are C++ (highway), which a page's module has no runtime for.
+            .arg(format!("-Dsimd={}", !target.starts_with("wasm32")))
             .arg(format!("-Dtarget={}", zig_target(target)?))
             .arg("-Dcpu=baseline")
             .arg(format!("-Dversion-string={GHOSTTY_VERSION}"))
@@ -471,6 +468,8 @@ fn zig_target(target: &str) -> Result<&'static str, String> {
         "aarch64-unknown-linux-musl" => Ok("aarch64-linux-musl"),
         "x86_64-pc-windows-msvc" => Ok("x86_64-windows-msvc"),
         "aarch64-pc-windows-msvc" => Ok("aarch64-windows-msvc"),
+        // The browser build: the engine as wasm objects, linked into the page's module.
+        "wasm32-unknown-unknown" => Ok("wasm32-freestanding"),
         "aarch64-apple-ios" => Ok("aarch64-ios"),
         "aarch64-apple-ios-sim" => Ok("aarch64-ios-simulator"),
         other => Err(format!(

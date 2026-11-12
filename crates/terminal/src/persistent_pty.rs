@@ -11,21 +11,29 @@
 //! commands together (`inbox.rs`): an idle terminal's thread never runs.
 
 use std::io::ErrorKind;
+#[cfg(not(target_arch = "wasm32"))]
 use std::net::TcpStream;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use rune::time::Instant;
 
 use opencode_kit::client::Server;
+use opencode_kit::persistent_pty::PersistentPtySnapshot;
+#[cfg(not(target_arch = "wasm32"))]
 use opencode_kit::persistent_pty::attachment_id;
 use rune::Waker;
 use rune::machine::Effects;
 use serde_json::Value;
+use tungstenite::Message;
+#[cfg(not(target_arch = "wasm32"))]
+use tungstenite::WebSocket;
+#[cfg(not(target_arch = "wasm32"))]
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{Message, WebSocket};
 
 use crate::connection::{Connection, Effect, Event, Failure, Size, Sizing};
 use crate::core::VtCore;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::inbox::SocketWait;
 use crate::pty::{
     COALESCE_BUDGET, COALESCE_MAX_BYTES, Screen, SessionStatus, SharedState, TerminalConfig, WorkerCmd,
@@ -33,7 +41,13 @@ use crate::pty::{
 };
 use crate::types::VtEvent;
 
+#[cfg(not(target_arch = "wasm32"))]
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
+
+// A page's attachment: its own WebSocket, on a task of the page's event loop.
+#[cfg(target_arch = "wasm32")]
+#[path = "persistent_pty_web.rs"]
+pub(crate) mod web;
 
 /// Desktop opens its terminals with a blinking bar (`cursorStyle: "bar"`); a program's own
 /// DECSCUSR in the checkpoint or stream still wins.
@@ -70,6 +84,7 @@ enum Flow {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn run_persistent_worker(
     server: Server,
     pty_id: String,
@@ -80,40 +95,18 @@ pub(crate) fn run_persistent_worker(
     shared: Arc<SharedState>,
     waker: Waker,
 ) {
-    let Ok(core) = build_core(&config, None) else {
-        return;
-    };
-    let mut screen = Screen::new(core, false);
     let id = attachment_id();
+    let (snapshot, url) = match fetch(&server, &pty_id, &id, observer) {
+        Ok(start) => start,
+        Err(status) => return finish(&shared, &waker, status),
+    };
+    let Some((mut screen, mut grid)) = restore(&config, &snapshot, &shared, &waker) else { return };
     let mut conn = Connection::new();
     let mut sizing = Sizing::Unmeasured;
-    let mut grid = Grid { cell_px: (config.cell_w_px.max(1), config.cell_h_px.max(1)), size: (config.cols.max(1), config.rows.max(1)) };
-
-    let snapshot = match server.terminal_snapshot(&pty_id) {
-        Ok(s) => s,
-        Err(e) => return finish(&shared, &waker, gone(&e)),
-    };
-    grid.resize(&mut screen.core, snapshot.info.size);
-    screen.core.feed(DEFAULT_CURSOR);
-    screen.core.feed(&snapshot.checkpoint);
-    let _ = screen.core.take_pty_writes();
-    screen.changed(&shared, &waker);
-
-    let url = match server.terminal_connect_url(&pty_id, snapshot.info.tail, &id, observer) {
-        Ok(u) => u,
-        Err(e) => return finish(&shared, &waker, gone(&e)),
-    };
     let mut ws = match tungstenite::connect(&url) {
         Ok((socket, _)) => socket,
         // Setting the socket up failed (`socket.errored`).
-        Err(_) => {
-            for effect in conn.step(Event::SocketErrored) {
-                if let Effect::Fail(failure) = effect {
-                    return finish(&shared, &waker, failed(failure));
-                }
-            }
-            return;
-        }
+        Err(_) => return errored(&mut conn, &shared, &waker),
     };
     if wait.watch(tcp(&ws)).is_err() {
         return finish(&shared, &waker, failed(Failure::Failed));
@@ -131,9 +124,7 @@ pub(crate) fn run_persistent_worker(
         }
         // Asleep in the kernel until the socket has data (or room, while a frame waits to go
         // out), a command or a read of the snapshot wakes it, or a deadline passes.
-        let now = Instant::now();
-        let deadline = [worker.screen.publish.deadline(), worker.sizing.deadline()].into_iter().flatten().min();
-        let timeout = if more { Some(std::time::Duration::ZERO) } else { deadline.map(|at| at.saturating_duration_since(now)) };
+        let timeout = if more { Some(std::time::Duration::ZERO) } else { worker.next_deadline() };
         wait.wait(tcp(&ws), worker.unflushed, timeout);
     };
     wait.forget(tcp(&ws));
@@ -144,6 +135,58 @@ pub(crate) fn run_persistent_worker(
             let _ = ws.close(None);
             let _ = ws.flush();
         }
+    }
+}
+
+/// The server's snapshot of the terminal and the address to attach at (a one-use ticket in it),
+/// or how the attachment ends before it starts.
+fn fetch(server: &Server, pty_id: &str, id: &str, observer: bool) -> Result<(PersistentPtySnapshot, String), SessionStatus> {
+    let snapshot = server.terminal_snapshot(pty_id).map_err(|e| gone(&e))?;
+    let url = server.terminal_connect_url(pty_id, snapshot.info.tail, id, observer).map_err(|e| gone(&e))?;
+    Ok((snapshot, url))
+}
+
+/// The emulator with the snapshot's checkpoint on it, at the server's size, published; `None`
+/// when the emulator can't start.
+fn restore(config: &TerminalConfig, snapshot: &PersistentPtySnapshot, shared: &SharedState, waker: &Waker) -> Option<(Screen, Grid)> {
+    let core = build_core(config, None).ok()?;
+    let mut screen = Screen::new(core, false);
+    let mut grid = Grid { cell_px: (config.cell_w_px.max(1), config.cell_h_px.max(1)), size: (config.cols.max(1), config.rows.max(1)) };
+    grid.resize(&mut screen.core, snapshot.info.size);
+    screen.core.feed(DEFAULT_CURSOR);
+    screen.core.feed(&snapshot.checkpoint);
+    let _ = screen.core.take_pty_writes();
+    screen.changed(shared, waker);
+    Some((screen, grid))
+}
+
+/// The socket couldn't be set up (`socket.errored`): the connection says how that ends.
+fn errored(conn: &mut Connection, shared: &SharedState, waker: &Waker) {
+    for effect in conn.step(Event::SocketErrored) {
+        if let Effect::Fail(failure) = effect {
+            return finish(shared, waker, failed(failure));
+        }
+    }
+}
+
+/// The socket a worker reads and writes: tungstenite's natively, the page's in a browser
+/// (`persistent_pty_web.rs`). A read with nothing waiting is `WouldBlock`.
+trait Link {
+    fn read(&mut self) -> tungstenite::Result<Message>;
+    fn send(&mut self, message: Message) -> tungstenite::Result<()>;
+    fn flush(&mut self) -> tungstenite::Result<()>;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Link for Socket {
+    fn read(&mut self) -> tungstenite::Result<Message> {
+        WebSocket::read(self)
+    }
+    fn send(&mut self, message: Message) -> tungstenite::Result<()> {
+        WebSocket::send(self, message)
+    }
+    fn flush(&mut self) -> tungstenite::Result<()> {
+        WebSocket::flush(self)
     }
 }
 
@@ -162,9 +205,15 @@ struct Worker<'a> {
 }
 
 impl Worker<'_> {
+    /// How long the worker may sleep: until its next publish or size is due.
+    fn next_deadline(&self) -> Option<std::time::Duration> {
+        let now = Instant::now();
+        [self.screen.publish.deadline(), self.sizing.deadline()].into_iter().flatten().min().map(|at| at.saturating_duration_since(now))
+    }
+
     /// Takes every command, then the socket's output up to the coalescing budget; `more` says
     /// the socket still had output when the budget ran out.
-    fn step(&mut self, cmd_rx: &Receiver<WorkerCmd>, ws: &mut Socket) -> (Flow, bool) {
+    fn step(&mut self, cmd_rx: &Receiver<WorkerCmd>, ws: &mut impl Link) -> (Flow, bool) {
         let mut dirty = false;
         let mut events = Vec::new();
         let mut show = Vec::new();
@@ -277,7 +326,7 @@ impl Worker<'_> {
     }
 
     /// Carries out the connection's effects; returns how a failure ends the worker.
-    fn carry_out(&mut self, effects: Effects<Effect>, ws: &mut Socket) -> Option<Flow> {
+    fn carry_out(&mut self, effects: Effects<Effect>, ws: &mut impl Link) -> Option<Flow> {
         for effect in effects {
             match effect {
                 Effect::Resize { size, checkpoint, reset } => {
@@ -311,10 +360,10 @@ impl Worker<'_> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn tcp(ws: &Socket) -> &TcpStream {
     match ws.get_ref() {
         MaybeTlsStream::Plain(tcp) => tcp,
-        #[cfg(not(target_arch = "wasm32"))]
         MaybeTlsStream::Rustls(tls) => tls.get_ref(),
         _ => unreachable!("tungstenite connects plain or rustls streams"),
     }
