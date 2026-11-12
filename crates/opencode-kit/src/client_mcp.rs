@@ -45,10 +45,9 @@ pub const RECONNECT_MAX: Duration = Duration::from_secs(10);
 pub const UNSUPPORTED_RETRY: Duration = Duration::from_secs(60);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a read waits for the rest of a frame once the socket said it has data.
 #[cfg(not(target_arch = "wasm32"))]
-const IDLE_READ_TIMEOUT: Duration = Duration::from_millis(200);
-#[cfg(not(target_arch = "wasm32"))]
-const BUSY_READ_TIMEOUT: Duration = Duration::from_millis(5);
+const READ_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// One tool advertised on `tools/list`.
 #[derive(Clone, Debug, PartialEq)]
@@ -176,6 +175,24 @@ enum Outbound {
     ToolsChanged,
 }
 
+/// Where replies and notices for the open socket go: the worker's queue and, natively, a nudge
+/// that wakes the worker from its wait on the socket, so it sleeps until there's something to do.
+#[derive(Clone)]
+struct Outbox {
+    tx: Sender<Outbound>,
+    #[cfg(not(target_arch = "wasm32"))]
+    wake: Arc<polling::Poller>,
+}
+
+impl Outbox {
+    fn send(&self, out: Outbound) {
+        if self.tx.send(out).is_ok() {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.wake.notify().ok();
+        }
+    }
+}
+
 /// An incoming `tools/call` invocation delivered to the host application.
 ///
 /// Call [`McpCall::respond`] once finished (immediately or asynchronously across frames). If dropped
@@ -185,7 +202,7 @@ pub struct McpCall {
     pub name: String,
     pub arguments: Value,
     pub session_id: Option<String>,
-    reply: Option<(Value, Sender<Outbound>)>,
+    reply: Option<(Value, Outbox)>,
 }
 
 impl std::fmt::Debug for McpCall {
@@ -202,7 +219,7 @@ impl std::fmt::Debug for McpCall {
 impl McpCall {
     pub fn respond(mut self, result: McpResult) {
         if let Some((id, tx)) = self.reply.take() {
-            tx.send(Outbound::Reply { id, result }).ok();
+            tx.send(Outbound::Reply { id, result });
         }
     }
 }
@@ -210,7 +227,7 @@ impl McpCall {
 impl Drop for McpCall {
     fn drop(&mut self) {
         if let Some((id, tx)) = self.reply.take() {
-            tx.send(Outbound::Reply { id, result: McpResult::error("Tool call cancelled") }).ok();
+            tx.send(Outbound::Reply { id, result: McpResult::error("Tool call cancelled") });
         }
     }
 }
@@ -234,7 +251,7 @@ enum Conn {
     /// Waiting out a backoff before the next dial; `unsupported`: the server lacks the route.
     Waiting { unsupported: bool },
     /// The socket is open; `ready` once `tools/list` was answered on it, since then.
-    Open { tcp: Option<TcpStream>, out: Sender<Outbound>, ready: Option<Instant> },
+    Open { tcp: Option<TcpStream>, out: Outbox, ready: Option<Instant> },
     /// Closed for good (`close`, or the call receiver went away).
     Closed,
 }
@@ -280,7 +297,7 @@ impl ClientMcp {
         let mut st = lock(&self.shared.state);
         st.tools = tools;
         if let Conn::Open { out, .. } = &st.conn {
-            out.send(Outbound::ToolsChanged).ok();
+            out.send(Outbound::ToolsChanged);
         }
     }
 
@@ -290,8 +307,15 @@ impl ClientMcp {
             let mut st = lock(&self.shared.state);
             // A dial in flight can take its whole timeout: don't wait for it.
             let dialing = matches!(st.conn, Conn::Dialing);
-            if let Conn::Open { tcp: Some(tcp), .. } = std::mem::replace(&mut st.conn, Conn::Closed) {
-                tcp.shutdown(Shutdown::Read).ok();
+            if let Conn::Open { tcp, out, .. } = std::mem::replace(&mut st.conn, Conn::Closed) {
+                if let Some(tcp) = tcp {
+                    tcp.shutdown(Shutdown::Read).ok();
+                }
+                // The worker may be asleep on the socket; it sees `Closed` once woken.
+                #[cfg(not(target_arch = "wasm32"))]
+                out.wake.notify().ok();
+                #[cfg(target_arch = "wasm32")]
+                drop(out);
             }
             !dialing
         };
@@ -519,16 +543,39 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
             }
         };
 
-        let (out_tx, out_rx) = channel::<Outbound>();
+        // The worker sleeps on the socket and on this poller's nudge: a reply or notice queued by
+        // the app wakes it, as data arriving does; nothing else does.
+        let Ok(wake) = polling::Poller::new() else {
+            send_normal_close(&mut ws);
+            if !wait_backoff(&shared, delay, false, &waker) {
+                return;
+            }
+            continue;
+        };
+        let wake = Arc::new(wake);
+        // SAFETY: the socket is removed from the poller (`delete` below) before `ws` closes it.
+        #[allow(unsafe_code)]
+        let added = unsafe { wake.add(tcp_ref(&ws), polling::Event::readable(0)) };
+        if added.is_err() {
+            send_normal_close(&mut ws);
+            if !wait_backoff(&shared, delay, false, &waker) {
+                return;
+            }
+            continue;
+        }
+        let (tx, out_rx) = channel::<Outbound>();
+        let out = Outbox { tx, wake: wake.clone() };
         let tcp = tcp_ref(&ws).try_clone().ok();
-        let out = out_tx.clone();
-        if !transition(&shared, move |_| Some(Conn::Open { tcp, out, ready: None }), &waker) {
+        let open = out.clone();
+        if !transition(&shared, move |_| Some(Conn::Open { tcp, out: open, ready: None }), &waker) {
+            wake.delete(tcp_ref(&ws)).ok();
             send_normal_close(&mut ws);
             return;
         }
 
         let mut initialized = false;
-        let disconnected = serve_socket(&mut ws, &options, &calls, &waker, &shared, &out_tx, &out_rx, &mut initialized);
+        let disconnected = serve_socket(&mut ws, &options, &calls, &waker, &shared, &out, &out_rx, &mut initialized);
+        wake.delete(tcp_ref(&ws)).ok();
         if initialized {
             delay = options.reconnect_min;
         }
@@ -562,34 +609,29 @@ fn serve_socket(
     calls: &Sender<McpCall>,
     waker: &Waker,
     shared: &Shared,
-    out_tx: &Sender<Outbound>,
+    out: &Outbox,
     out_rx: &Receiver<Outbound>,
     initialized: &mut bool,
 ) -> LoopExit {
     let mut in_flight: usize = 0;
-    let mut current_timeout = Duration::ZERO;
     tcp_ref(ws).set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
+    tcp_ref(ws).set_read_timeout(Some(READ_TIMEOUT)).ok();
+    let mut events = polling::Events::new();
 
     loop {
         if lock(&shared.state).conn.closed() || !drain_outbound(ws, out_rx, &mut in_flight) {
             return LoopExit::SocketClosed;
         }
 
-        let target_timeout = if in_flight > 0 { BUSY_READ_TIMEOUT } else { IDLE_READ_TIMEOUT };
-        if current_timeout != target_timeout {
-            tcp_ref(ws).set_read_timeout(Some(target_timeout)).ok();
-            current_timeout = target_timeout;
-        }
-
         match ws.read() {
             Ok(Message::Text(text)) => {
-                if !handle_frame(&mut |m| send_json(ws, m), text.as_str(), options, calls, waker, shared, out_tx, &mut in_flight, initialized) {
+                if !handle_frame(&mut |m| send_json(ws, m), text.as_str(), options, calls, waker, shared, out, &mut in_flight, initialized) {
                     return LoopExit::ReceiverDropped;
                 }
             }
             Ok(Message::Binary(bytes)) => {
                 if let Ok(text) = std::str::from_utf8(&bytes)
-                    && !handle_frame(&mut |m| send_json(ws, m), text, options, calls, waker, shared, out_tx, &mut in_flight, initialized)
+                    && !handle_frame(&mut |m| send_json(ws, m), text, options, calls, waker, shared, out, &mut in_flight, initialized)
                 {
                     return LoopExit::ReceiverDropped;
                 }
@@ -602,7 +644,15 @@ fn serve_socket(
             Ok(Message::Pong(_) | Message::Frame(_)) => {}
             Ok(Message::Close(_)) => return LoopExit::SocketClosed,
             Err(tungstenite::Error::Io(ref err))
-                if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted) => {}
+                if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted) =>
+            {
+                // Everything read: sleep until the socket has data or the app queued a reply.
+                // `modify` re-arms the one-shot interest; a nudge sent meanwhile is kept.
+                events.clear();
+                if out.wake.modify(tcp_ref(ws), polling::Event::readable(0)).is_err() || out.wake.wait(&mut events, None).is_err() {
+                    return LoopExit::SocketClosed;
+                }
+            }
             Err(_) => return LoopExit::SocketClosed,
         }
     }
@@ -643,7 +693,7 @@ fn handle_frame(
     calls: &Sender<McpCall>,
     waker: &Waker,
     shared: &Shared,
-    out_tx: &Sender<Outbound>,
+    out: &Outbox,
     in_flight: &mut usize,
     initialized: &mut bool,
 ) -> bool {
@@ -697,7 +747,7 @@ fn handle_frame(
                 name: name.to_owned(),
                 arguments,
                 session_id,
-                reply: Some((id, out_tx.clone())),
+                reply: Some((id, out.clone())),
             };
             if calls.send(call).is_err() {
                 return false;

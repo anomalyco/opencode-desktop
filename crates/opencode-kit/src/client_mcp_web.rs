@@ -16,7 +16,7 @@ use serde_json::Value;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 
-use super::{ClientMcpOptions, Conn, McpCall, Shared, handle_frame, lock, outbound_message, transition};
+use super::{ClientMcpOptions, Conn, McpCall, Outbox, Shared, handle_frame, lock, outbound_message, transition};
 use crate::client::{Server, encode_component};
 
 /// What the socket's listeners have handed the task since it last looked.
@@ -123,7 +123,8 @@ async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, options: &Cl
         }
         wait(events, 1000).await;
     }
-    let (out_tx, out_rx) = channel();
+    let (tx, out_rx) = channel();
+    let out_tx = Outbox { tx };
     let out = out_tx.clone();
     if !transition(shared, move |_| Some(Conn::Open { tcp: None, out, ready: None }), waker) {
         return (false, true);

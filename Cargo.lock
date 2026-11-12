@@ -3323,6 +3323,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "js-sys",
+ "polling",
  "rune",
  "serde",
  "serde_json",
