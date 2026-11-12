@@ -133,7 +133,9 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
         // `absolute right-0 top-[108px] z-20`: on the first group's line, staying while the list
         // scrolls, under the search's results (`z-30`), and after the search in Tab order, as in
         // Desktop's DOM. `right-0` is physical, so it stays on the right right to left as well.
-        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None).unmirrored().paint_order(-1));
+        // Pinned to the line's end, which mirrors: Desktop's `right-0` stays physical in a right-to-left
+        // interface and lands on the first group's name; this sits at the left, clear of it.
+        header = header.child(new_session_button(p).pin(None, Some(tier.header_top()), Some(0.0), None).paint_order(-1));
     }
 
     // The groups' `pt-1 md:pt-3 pb-16`; the empty state sits straight in the list.
@@ -443,7 +445,9 @@ impl Parts {
         // Each in its own direction (`view.tsx:908`, `:959`), so a Latin project name runs to the
         // row's far end right to left.
         let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
-        let project_el = show_project.then(|| text(name.clone()).key("project").font(UI).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0).dir(rune::Direction::Auto));
+        // The room after the title grows; the name keeps to its start, beside the title, whichever way it
+        // reads (a left-to-right name in a right-to-left row would otherwise sit at the row's far end).
+        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(UI).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
         if stacked && show_project {
             // The labels' column keeps to the row's top; the avatar stays centred.
             let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().child(title).children(project_el.clone());
