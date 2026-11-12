@@ -293,7 +293,11 @@ fn translate(catalogs: &crate::plugin_host::sources::Catalogs, key: &str, args: 
     let lang = opencode_i18n::locale().id();
     let count = args.and_then(|a| a.raw_get::<Option<f64>>("count").ok().flatten());
     let (own, en) = (catalogs.get(lang), catalogs.get("en"));
-    let lookup = |k: &str| own.as_ref().and_then(|c| c.get(k)).or_else(|| en.as_ref().and_then(|c| c.get(k))).cloned().or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
+    // In a right-to-left language a message the plugin has only in English reads as an English unit,
+    // its full stop and numbers in order, as the app's own untranslated messages do (rune-i18n).
+    let rtl = direction() == spec::TextDirection::Rtl;
+    let english = |t: &String| if rtl { format!("\u{2066}{t}\u{2069}") } else { t.clone() };
+    let lookup = |k: &str| own.as_ref().and_then(|c| c.get(k)).cloned().or_else(|| en.as_ref().and_then(|c| c.get(k)).map(english)).or_else(|| opencode_i18n::lookup(k).map(str::to_owned));
     let text = count
         .and_then(|n| lookup(&format!("{key}.{}", category(n))).or_else(|| lookup(&format!("{key}.other"))))
         .or_else(|| lookup(key))
