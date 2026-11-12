@@ -7,6 +7,9 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{App, appearance, launch, rune_app, spec, storage};
 
+#[path = "browser_history.rs"]
+mod browser_history;
+
 /// The page calls this once the module is in, with the server's password if it has one. A JSPI
 /// export, so the app's background work runs on fibers that wait on the network without holding
 /// the page (`rune::task`). The password lives only in the kit's memory, which sends it as the
@@ -26,8 +29,10 @@ pub fn start(password: Option<String>) {
     storage::start();
     // Reads wait for the first frame, as a window's do.
     launch::defer();
-    let app = crate::LATE_FONTS.iter().fold(rune_app(rune::AppSpec { families: appearance::launch_families(), ..spec(App::new) }).args(args), |app, url| app.font_url_later(url));
+    let app_spec = rune::AppSpec { families: appearance::launch_families(), poll: Some(poll), ..spec(App::new) };
+    let app = crate::LATE_FONTS.iter().fold(rune_app(app_spec).args(args), |app, url| app.font_url_later(url));
     let handle = app.handle();
+    browser_history::listen(handle.clone());
     app.on_ready(move |_| {
         storage::presented();
         let wake = launch::inbox_waker(handle.clone());
@@ -37,6 +42,13 @@ pub fn start(password: Option<String>) {
         });
     })
     .run();
+}
+
+/// The app's poll, then the browser's history catching up with where it went.
+fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
+    let changed = crate::poll(s, now, tx);
+    browser_history::sync(s);
+    changed
 }
 
 /// The query as the app's arguments: `?a=1&b` is `--a 1 --b`.

@@ -764,8 +764,9 @@ fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
-    // `--session <id or title words>` opens a session of the app's own server at start.
-    if let Some(raw) = arg("--session").filter(|_| crate::servers::runtime::active(s).is_sidecar()) {
+    // `--session <id or title words>` opens a session of the app's own server at start; in a
+    // browser, of the page's server (`?session=`, the address a session's page has).
+    if let Some(raw) = arg("--session").filter(|_| cfg!(target_arch = "wasm32") || crate::servers::runtime::active(s).is_sidecar()) {
         let q = raw.to_lowercase();
         let found = s.sessions.iter().find(|x| x.id == raw).or_else(|| s.sessions.iter().find(|x| x.title.to_lowercase().contains(&q))).map(|x| x.id.clone());
         if let Some(id) = found {

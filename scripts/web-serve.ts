@@ -1,5 +1,6 @@
 // Serves the browser build's folder on 127.0.0.1 (scripts/web.ps1 runs it): files only, never
-// cached, the wasm with its own type so the browser compiles it as it streams in.
+// cached, the wasm with its own type so the browser compiles it as it streams in, and Brotli-
+// compressed where the build left a copy (a release).
 // Usage: bun scripts/web-serve.ts <folder> <port>
 import { resolve, sep } from "node:path"
 
@@ -23,7 +24,13 @@ Bun.serve({
     const body = Bun.file(file)
     if (!(await body.exists())) return new Response("not found", { status: 404 })
     const ext = file.slice(file.lastIndexOf("."))
-    return new Response(body, { headers: { "content-type": types[ext] ?? "application/octet-stream", "cache-control": "no-store" } })
+    const headers: Record<string, string> = { "content-type": types[ext] ?? "application/octet-stream", "cache-control": "no-store" }
+    // A release's module has a Brotli copy beside it: sent to a browser that takes br, as a host would.
+    const br = Bun.file(file + ".br")
+    if (/\bbr\b/.test(request.headers.get("accept-encoding") ?? "") && (await br.exists())) {
+      return new Response(br, { headers: { ...headers, "content-encoding": "br", vary: "accept-encoding" } })
+    }
+    return new Response(body, { headers })
   },
 })
 console.log(`http://127.0.0.1:${port}/`)

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-wasm-bytes="0">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
@@ -20,12 +20,14 @@
   #notice { position: fixed; right: 12px; bottom: 12px; z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
   #notice button { margin-top: 8px; height: 24px; }
 </style>
-<form id="connect" class="box" autocomplete="off">
+<form id="connect" class="box" method="post" action="#">
   <h1>Connect to an OpenCode server</h1>
   <label for="server">Server URL</label>
-  <input id="server" placeholder="http://127.0.0.1:4096" required>
+  <input id="server" name="url" type="url" autocomplete="url" placeholder="http://127.0.0.1:4096" required>
+  <!-- The server's user is always opencode: here so a password manager saves and fills the pair. -->
+  <input name="username" autocomplete="username" value="opencode" hidden>
   <label for="password">Password (if it has one)</label>
-  <input id="password" type="password">
+  <input id="password" name="password" type="password" autocomplete="current-password">
   <p class="limits" id="limits-form"></p>
   <button type="submit">Connect</button>
 </form>
@@ -46,6 +48,26 @@
     params.delete('auth_token');
     history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : ''));
   }
+  // The module as it downloads (compiled as it streams in), with how much of it has come.
+  async function download(url) {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) return response;
+    // The module's own size (`scripts/web.ps1` writes it): a compressed reply's length isn't.
+    const total = Number(document.documentElement.dataset.wasmBytes) || Number(response.headers.get('content-length')) || 0;
+    let loaded = 0, shown = 0;
+    const mb = n => (n / 1048576).toFixed(1);
+    const counted = response.body.pipeThrough(new TransformStream({
+      transform(chunk, controller) {
+        loaded += chunk.byteLength;
+        if (loaded - shown > 524288) {
+          shown = loaded;
+          status.textContent = total >= loaded ? `Loading\u2026 ${mb(loaded)} of ${mb(total)} MB` : `Loading\u2026 ${mb(loaded)} MB`;
+        }
+        controller.enqueue(chunk);
+      },
+    }));
+    return new Response(counted, { headers: { 'content-type': 'application/wasm' } });
+  }
   async function boot() {
     status.textContent = 'Loading\u2026';
     try {
@@ -53,13 +75,16 @@
       // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.
       if (!('Suspending' in WebAssembly)) throw new Error('This page needs JS Promise Integration: use Chrome or Edge 137 or newer.');
       const app = await import('./app.js');
-      await app.default();
+      await app.default({ module_or_path: download(new URL('app_bg.wasm', import.meta.url)) });
+      // "Loading" stays until the first frame is on screen, and the notice comes with it.
+      document.addEventListener('runepresent', () => {
+        status.remove();
+        const notice = document.querySelector('#notice');
+        notice.style.display = 'block';
+        notice.querySelector('button').onclick = () => notice.remove();
+      }, { once: true });
       app.start(password ?? undefined);
       password = null;
-      status.remove();
-      const notice = document.querySelector('#notice');
-      notice.style.display = 'block';
-      notice.querySelector('button').onclick = () => notice.remove();
     } catch (error) {
       status.textContent = String(error);
       console.error(error);

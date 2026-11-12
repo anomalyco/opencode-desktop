@@ -98,10 +98,18 @@ if (-not $NoBuild) {
   if (-not $Dev) { $bindgen += '--remove-name-section' }
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
-  Copy-Item (Join-Path $root 'apps/web/index.html') $next
+  # The page shows the module's download against its size (`data-wasm-bytes`).
+  $wasmBytes = (Get-Item (Join-Path $next 'app_bg.wasm')).Length
+  (Get-Content (Join-Path $root 'apps/web/index.html') -Raw).Replace('data-wasm-bytes="0"', "data-wasm-bytes=`"$wasmBytes`"") | Set-Content (Join-Path $next 'index.html') -NoNewline
+  # A release ships the module Brotli-compressed beside itself, as a static host serves it
+  # (`web-serve.ts` sends it to a browser that takes br): 35 MB on the wire becomes about 10.
+  if (-not $Dev) {
+    & bun -e "const z = require('node:zlib'); const f = process.argv[1]; const b = require('node:fs').readFileSync(f); require('node:fs').writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } }))" (Join-Path $next 'app_bg.wasm')
+    if ($LASTEXITCODE) { throw "brotli failed ($LASTEXITCODE)" }
+  }
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
-  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
+  Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf'
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out
   $size = (Get-Item (Join-Path $Out 'app_bg.wasm')).Length
