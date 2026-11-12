@@ -179,6 +179,43 @@ impl DiffDocState {
         Some(r as u32)
     }
 
+    /// Whether row `r` is a line of code (not a file's header, a note or a fold).
+    pub(super) fn is_line(&self, r: usize) -> bool {
+        matches!(self.rows.get(r), Some(DiffRow::Line { .. } | DiffRow::Ctx { .. } | DiffRow::Pair { .. }))
+    }
+
+    /// The line row that is the diff's Tab stop: the cursor, else the first line.
+    pub(super) fn cursor_row(&self) -> Option<usize> {
+        self.cursor.map(|c| c as usize).filter(|&c| self.is_line(c)).or_else(|| (0..self.rows.len()).find(|&r| self.is_line(r)))
+    }
+
+    /// Up, Down, Home, End, Page Up and Page Down with focus on a line: the cursor moves to
+    /// the next line (past headers and folds), takes focus and comes into view. True when the
+    /// key was the cursor's.
+    pub fn line_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        if ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.shift {
+            return false;
+        }
+        let Some(at) = tx.focused().and_then(|k| self.keys.iter().position(|x| x == k)).filter(|&r| self.is_line(r)) else { return false };
+        let lines = |range: Box<dyn Iterator<Item = usize>>| range.filter(|&r| self.is_line(r)).collect::<Vec<_>>();
+        let to = match ev.key {
+            Key::Down => (at + 1..self.rows.len()).find(|&r| self.is_line(r)),
+            Key::Up => (0..at).rev().find(|&r| self.is_line(r)),
+            Key::Home => (0..self.rows.len()).find(|&r| self.is_line(r)),
+            Key::End => (0..self.rows.len()).rev().find(|&r| self.is_line(r)),
+            Key::PageDown => lines(Box::new(at + 1..self.rows.len())).into_iter().take(20).last(),
+            Key::PageUp => lines(Box::new((0..at).rev())).into_iter().take(20).last(),
+            _ => return false,
+        };
+        if let Some(to) = to {
+            tx.instant();
+            self.cursor = Some(to as u32);
+            tx.scroll_into_view(self.keys[to].clone());
+            tx.focus(self.keys[to].clone(), true);
+        }
+        true
+    }
+
     pub fn handle_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         match &ev.key {
             _ if tx.focused().is_some() && !crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => false,

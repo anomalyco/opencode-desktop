@@ -78,10 +78,12 @@ static PLUS: Icon = Icon { name: "line-comment-plus", view: 12.0, body: r#"<path
 /// the cell's right one, on `--icon-interactive-base` with `--shadow-xs`, shown while the cell's
 /// row is under the pointer.
 pub fn plus_button<S: 'static>(p: &Pal, cell_w: f32, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    // Out of the Tab order: the keyboard comments from the line itself (Return or C).
     let button = el()
         .key("comment-plus")
         .role("button")
         .label(label.to_owned())
+        .tab_index(-1)
         .absolute(cell_w + 10.0, 2.0)
         .size(20.0, 20.0)
         .radius(6.0)

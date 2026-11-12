@@ -300,14 +300,52 @@ impl<S: 'static> Inner<S> {
                 let commented = notes.map_or([false; 2], |(_, c)| c);
                 let quiet = self.d.notes.as_ref().is_some_and(|n| n.plus_quiet(s));
                 let get_mut = self.d.get_mut.clone();
-                let row = memo(key, version, || {
+                let cursor = st.cursor_row() == Some(i);
+                let row = memo(key, (version, cursor), || {
                     let line = self.line_row(st, i, commented, quiet);
-                    self.with_annotations(s, st, i, line)
+                    self.line_stop(st, i, cursor, self.with_annotations(s, st, i, line))
                 });
                 let key = key.to_owned();
                 super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
             }
         }
+    }
+
+    /// Line row `i` as the keyboard and a screen reader meet it: one Tab stop for the whole diff
+    /// (the cursor's line; the rest are reached by Up and Down, `DiffDocState::line_key`), named
+    /// by what it is and says (added, removed, or a line of context, its number and its code), and
+    /// Return or C opens a comment on it, as the `+` beside it does under the pointer.
+    fn line_stop(&self, st: &DiffDocState, i: usize, cursor: bool, el: El) -> El {
+        let r = st.rows[i];
+        let f = r.file();
+        let (a, b) = self.cells(st, r);
+        let said = |c: &CellData<'_>| {
+            let code = c.text.trim();
+            match (c.kind, c.old, c.new) {
+                (LineKind::Added, _, Some(n)) => opencode_i18n::t!("rune.a11y.diff.added", line = n, code = code),
+                (LineKind::Removed, Some(n), _) => opencode_i18n::t!("rune.a11y.diff.removed", line = n, code = code),
+                (_, _, n) => opencode_i18n::t!("rune.a11y.diff.line", line = n.or(c.old).unwrap_or(0), code = code),
+            }
+        };
+        let label = [a.as_ref().map(said), b.as_ref().map(said)].into_iter().flatten().collect::<Vec<_>>().join("; ");
+        // The line a comment goes on: the new side's, else the old one's.
+        let at = b.or(a).and_then(|c| if c.kind == LineKind::Removed { c.old.map(|n| (Side::Old, n)) } else { c.new.map(|n| (Side::New, n)) });
+        let get_mut = self.d.get_mut.clone();
+        let notes = self.d.notes.clone();
+        let path = st.files()[f].path().to_owned();
+        el.focusable(true)
+            .tab_index(if cursor { 0 } else { -1 })
+            .role("listitem")
+            .label(label)
+            .on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut Tx| {
+                let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
+                let comment = plain && (ev.key == rune::Key::Enter || matches!(&ev.key, rune::Key::Text(t) if t.eq_ignore_ascii_case("c")));
+                if comment && let (Some(notes), Some((side, n))) = (&notes, at) {
+                    notes.plus(s, &path, Some(side), n, tx);
+                    return true;
+                }
+                get_mut(s).line_key(ev, tx)
+            })
     }
 
     /// Row `i` with the annotations under its lines: one row across, or in a split diff a half
@@ -460,7 +498,6 @@ impl<S: 'static> Inner<S> {
             let copy = st.copy_side() == side;
             h = h
                 .fill(self.fill(kind, selected))
-                .role("listitem")
                 .child(self.number_cell(st, i, f, n, side, kind, selected, digits).key("n"))
                 .child(self.code_cell(st, f, &cell, copy, side, n.map(|n| LineRef::new(side, n))).key("code"));
             let h = self.plus(st, f, n, side, quiet, h);
@@ -628,7 +665,8 @@ impl<S: 'static> Inner<S> {
         // selection (`selection-machine.ts`, the `text` column).
         if let (Some(notes), Some(at)) = (self.d.notes.clone(), at) {
             let get_mut = self.d.get_mut.clone();
-            code = code.on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            // The pointer's click, not a control: the keyboard selects and comments by the line's row.
+            code = code.on_background_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 let st = get_mut(s);
                 let before = st.selection();

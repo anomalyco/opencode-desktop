@@ -1,4 +1,7 @@
 {
+  "rune.a11y.diff.added": "Added, line {{line}}: {{code}}",
+  "rune.a11y.diff.line": "Line {{line}}: {{code}}",
+  "rune.a11y.diff.removed": "Removed, line {{line}}: {{code}}",
   "rune.a11y.done": "Reply finished",
   "rune.a11y.failed": "Run failed: {{error}}",
   "rune.a11y.replied": "Reply finished: {{reply}}",

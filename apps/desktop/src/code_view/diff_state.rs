@@ -114,6 +114,9 @@ pub struct DiffDocState {
     pub(super) visible: usize,
     reported: Option<usize>,
     pub(super) nav: Option<u32>,
+    /// The line row the keyboard's line cursor is on: the diff's one Tab stop, which Up and Down
+    /// move (a roving tab index). None: the first line row.
+    pub(super) cursor: Option<u32>,
 }
 
 impl Default for DiffDocState {
@@ -165,6 +168,7 @@ impl DiffDocState {
             visible: 0,
             reported: None,
             nav: None,
+            cursor: None,
         };
         s.set_files(files);
         s

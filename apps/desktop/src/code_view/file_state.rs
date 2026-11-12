@@ -78,6 +78,9 @@ pub struct CodeDocState {
     pub(crate) keys_rev: u64,
     /// Why it couldn't be read, when that's what it shows: a headline and the reason in words.
     failure: Option<(String, String)>,
+    /// The line (1-based) the keyboard's line cursor is on: the view's one Tab stop, which Up
+    /// and Down move (a roving tab index).
+    pub(super) cursor: u32,
 }
 
 impl Default for CodeDocState {
@@ -117,6 +120,7 @@ impl CodeDocState {
             rev: 1,
             keys_rev: 1,
             failure: None,
+            cursor: 1,
         };
         if !content.is_empty() {
             s.set_text(content);
@@ -212,6 +216,30 @@ impl CodeDocState {
     /// The whole file.
     pub fn text(&self) -> &str {
         self.source.text()
+    }
+
+    /// Up, Down, Home, End, Page Up and Page Down on a focused line: the cursor moves, takes
+    /// focus and comes into view.
+    pub(super) fn line_key(&mut self, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+        if ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.shift {
+            return false;
+        }
+        let last = self.line_count().max(1) as u32;
+        let at = self.cursor.clamp(1, last);
+        let to = match ev.key {
+            rune::Key::Down => (at + 1).min(last),
+            rune::Key::Up => at.saturating_sub(1).max(1),
+            rune::Key::Home => 1,
+            rune::Key::End => last,
+            rune::Key::PageDown => (at + 20).min(last),
+            rune::Key::PageUp => at.saturating_sub(20).max(1),
+            _ => return false,
+        };
+        tx.instant();
+        self.cursor = to;
+        tx.scroll_into_view(format!("cl{to}"));
+        tx.focus(format!("cl{to}"), true);
+        true
     }
 
     pub fn line_count(&self) -> usize {

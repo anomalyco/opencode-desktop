@@ -162,6 +162,31 @@ struct Inner<S> {
 }
 
 impl<S: 'static> Inner<S> {
+    /// Line `n` as the keyboard and a screen reader meet it: the view's one Tab stop is the
+    /// cursor's line, Up and Down move it (`CodeDocState::line_key`), each line says its number
+    /// and its code, and Return or C opens a comment on it, as the `+` does under the pointer.
+    fn line_stop(&self, st: &CodeDocState, n: u32, cursor: bool, el: El) -> El {
+        let label = opencode_i18n::t!("rune.a11y.diff.line", line = n, code = st.line(n).unwrap_or("").trim());
+        let get_mut = self.v.get_mut.clone();
+        let notes = self.v.notes.clone();
+        let path = st.path().to_owned();
+        el.focusable(true)
+            .tab_index(if cursor { 0 } else { -1 })
+            .role("listitem")
+            .label(label)
+            .on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut Tx| {
+                let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt);
+                let comment = plain && (ev.key == rune::Key::Enter || matches!(&ev.key, rune::Key::Text(t) if t.eq_ignore_ascii_case("c")));
+                if comment && let Some(notes) = &notes {
+                    notes.plus(s, &path, None, n, tx);
+                    return true;
+                }
+                let st = get_mut(s);
+                st.cursor = n;
+                st.line_key(ev, tx)
+            })
+    }
+
     fn content_width(&self, st: &CodeDocState) -> f32 {
         self.look.number_w(st.digits()) + (st.columns() + 2) as f32 * self.look.adv
     }
@@ -178,18 +203,20 @@ impl<S: 'static> Inner<S> {
         let has_matches = !st.line_matches(n).is_empty();
         let key = format!("cl{n}");
         let get_mut = self.v.get_mut.clone();
+        let cursor = st.cursor == n;
         let row = memo(
             key.as_str(),
-            (self.look.version, st.rev, selected, has_matches, notes_version),
+            (self.look.version, st.rev, selected, has_matches, notes_version, cursor),
             || {
                 let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
                 let line = self.line_row(st, n, selected, quiet);
-                let Some(notes) = &self.v.notes else { return line };
-                let items = notes.annotations(s, &self.pal, st.path(), Side::New, n);
-                if items.is_empty() {
-                    return line;
-                }
-                col().w_full().child(line.key("line")).child(super::notes::annotation_row(&self.pal, self.look.number_w(st.digits()), items))
+                let items = self.v.notes.as_ref().map_or_else(Vec::new, |notes| notes.annotations(s, &self.pal, st.path(), Side::New, n));
+                let row = if items.is_empty() {
+                    line
+                } else {
+                    col().w_full().child(line.key("line")).child(super::notes::annotation_row(&self.pal, self.look.number_w(st.digits()), items))
+                };
+                self.line_stop(st, n, cursor, row)
             },
         );
         super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
@@ -280,7 +307,8 @@ impl<S: 'static> Inner<S> {
             .fill(fill)
             .role("listitem")
             .child(gutter)
-            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_press_tx({
+            // The pointer's click, not a control: the keyboard selects and comments by the line's row.
+            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_background_press_tx({
                 let get_mut = self.v.get_mut.clone();
                 let notes = self.v.notes.clone();
                 move |s: &mut S, tx: &mut Tx| {
