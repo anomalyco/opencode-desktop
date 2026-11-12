@@ -26,7 +26,7 @@ struct Seen {
 /// that finds the app where it was reads nothing of the page.
 pub(crate) fn sync(s: &App) {
     let index = s.nav.index();
-    let session = match &s.route {
+    let session = match &*s.route {
         Route::Session { id, .. } => Some(id.as_str()),
         _ => None,
     };
@@ -56,7 +56,7 @@ pub(crate) fn listen(handle: rune::AppHandle<App>) {
             let start = s.nav.index();
             while s.nav.index() != target && s.navigate(target > s.nav.index(), tx) {}
             // The browser is on that entry already.
-            let session = match &s.route {
+            let session = match &*s.route {
                 Route::Session { id, .. } => Some(id.clone()),
                 _ => None,
             };
@@ -76,7 +76,7 @@ fn address(s: &App) -> String {
     let Ok(params) = web_sys::UrlSearchParams::new_with_str(&location.search().unwrap_or_default()) else { return String::new() };
     params.delete("session");
     params.delete("settings");
-    if let Route::Session { id, .. } = &s.route {
+    if let Route::Session { id, .. } = &*s.route {
         params.set("session", id);
     }
     if s.settings.open {
