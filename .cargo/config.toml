@@ -6,8 +6,10 @@ git-fetch-with-cli = true
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
 
-# Bundled SQLite (opencode-storage) without what the store never uses: full-text search, R-tree,
+# Bundled SQLite (opencode-storage) without what the store never uses: FTS3, R-tree,
 # dbstat, stat4, sessions, column metadata, extension loading, soundex, shared cache, the
-# deprecated API and malloc statistics. Every build (the farm's, CI's) takes it from here.
+# deprecated API and malloc statistics. Every build (the farm's, CI's) takes it from here. FTS5
+# stays, for local search: it costs the exe about 255 KB and each open about 28 µs (it registers
+# its module), and nothing else until a table uses it.
 [env]
-LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_FTS5 -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_ENABLE_SESSION -USQLITE_ENABLE_PREUPDATE_HOOK -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -USQLITE_SOUNDEX -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_DQS=0 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_ALLOCA"
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_ENABLE_SESSION -USQLITE_ENABLE_PREUPDATE_HOOK -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -USQLITE_SOUNDEX -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_DQS=0 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_ALLOCA"

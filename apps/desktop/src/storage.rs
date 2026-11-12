@@ -247,6 +247,7 @@ pub fn take_notice() -> Option<Notice> {
 /// This process is the app's one instance: the open may take the database's lock now (the
 /// record's raw read ran beside the claim).
 pub fn claimed() {
+    rune::marks::mark("instance.claimed");
     if let Some(Phase::Opening { opening } | Phase::Booted { opening, .. }) = &*lock() {
         opening.proceed();
     }

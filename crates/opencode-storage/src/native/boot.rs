@@ -215,6 +215,14 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
             report.raw_miss = Some("another process holds the file");
             held = Some(BootPacket::held_empty());
         }
+        // A new profile with nothing to import or seed from: the first frame is a first run, so
+        // it needn't wait for the database to be made (its schema takes ~13,000 µs).
+        FastBoot::UseSqlite(why) if why == "no database file" && nothing_to_import(&config) => {
+            report.raw_miss = Some(why);
+            report.stage_a_ns = ns(t0);
+            packet = Some(BootPacket::default());
+            send(BootPacket::default());
+        }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
     // SQLite takes the file's lock: not before this process is the app's one instance.
@@ -322,6 +330,11 @@ fn shows_the_same(conn: &Connection, shown: &BootPacket) -> bool {
         Ok(Some(bytes)) => BootPacket::parse(bytes).is_some_and(|p| p.body() == shown.body()),
         _ => false,
     }
+}
+
+/// No legacy file to import and no Desktop profile to seed from (a profile's first launch).
+fn nothing_to_import(config: &StorageConfig) -> bool {
+    config.import.as_ref().is_none_or(|i| import::shapes::scan(i).is_empty()) && config.official.iter().all(|d| !d.join("drafts.sqlite").exists())
 }
 
 /// Another process has the file: SQLite's lock, or a handle that shares nothing.
