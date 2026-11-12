@@ -77,7 +77,12 @@ if (-not (Test-Path (Join-Path $cefDir 'archive.json'))) {
 if (-not $SkipBuild) {
   Write-Host "Building opencode-browser-engine $Version ($($T.Triple))"
   $cargoArgs = @('build', '--release', '--locked', '--manifest-path', (Join-Path $Engine 'Cargo.toml'), '--bins', '--target', $T.Triple)
-  if ($Cargo -like '*.ps1') { & pwsh -NoProfile $Cargo @cargoArgs } else { & $Cargo @cargoArgs }
+  # The C runtime linked in, as the app's, so the engine's executables need no Visual C++
+  # Redistributable. RUSTFLAGS replaces the repository's .cargo/config.toml flags, whose
+  # profile-guided ones are the app's.
+  $rustflags = $env:RUSTFLAGS
+  $env:RUSTFLAGS = '-C target-feature=+crt-static -C link-arg=/NODEFAULTLIB:libucrt.lib -C link-arg=/DEFAULTLIB:ucrt.lib'
+  try { if ($Cargo -like '*.ps1') { & pwsh -NoProfile $Cargo @cargoArgs } else { & $Cargo @cargoArgs } } finally { $env:RUSTFLAGS = $rustflags }
   if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 }
 $bin = Join-Path $Engine "target\$($T.Triple)\release"
