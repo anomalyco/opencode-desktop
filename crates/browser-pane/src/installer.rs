@@ -1,28 +1,20 @@
-//! The engine's release, its availability state, and failure messages, and, with the `engine`
-//! feature, resolving, verifying and installing the signed `OpenCode Browser Engine.app` sidecar
-//! bundle (on Windows, an `OpenCode Browser Engine` folder holding the executable and CEF's
-//! runtime files). `download` fetches the archive and `prefetch` runs the download job.
+//! The engine's availability state, its failure messages, and, with the `engine` feature, where
+//! installed engines live (`browser-engine\<version>\OpenCode Browser Engine`), which one runs,
+//! and the socket the app talks to it on. `source` says where a new one comes from and which
+//! ones this build accepts, `download` and `unpack` fetch and install it, `prefetch` runs the job.
 
 #[cfg(feature = "engine")]
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-    sync::{Arc, Mutex},
-};
+use std::path::{Path, PathBuf};
 use rune::time::Instant;
 
 #[cfg(feature = "engine")]
-use rune::Waker;
-#[cfg(feature = "engine")]
 use sha2::{Digest, Sha256};
 
-#[cfg(feature = "engine")]
-use crate::download::{self, Fetched, Pace};
-#[cfg(feature = "engine")]
-use crate::github_download::GithubAuth;
-
-pub const ENGINE_VERSION: &str = "156.0.14.1";
+/// The engine programs this build speaks to: an engine's version is CEF's (`156.0.26`) and this
+/// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
+/// protocol change); a release of a newer CEF with the same revision is an update for every app
+/// that accepts it.
+pub const ENGINE_REVISION: u32 = 1;
 #[cfg(not(windows))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(windows))]
@@ -31,69 +23,46 @@ pub const ENGINE_BIN_REL: &str = "Contents/MacOS/opencode-browser-engine";
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine";
 #[cfg(windows)]
 pub const ENGINE_BIN_REL: &str = "opencode-browser-engine.exe";
-/// Approximate archive size in decimal megabytes (`128_330_085` bytes), shown in the one-time download prompt.
+/// Approximate archive size in decimal megabytes, shown before the first download (the index
+/// gives the exact one once it's read): the 156.0.14.1 macOS zip is `128_330_085` bytes.
 #[cfg(not(windows))]
 pub const ENGINE_DOWNLOAD_MB: u64 = 128;
-/// Approximate archive size in decimal megabytes: a local `package-release.ps1` build is
-/// `178_461_776` bytes. Check it again with the release build.
+/// Approximate archive size in decimal megabytes: `package-windows.ps1`'s x64 archive of
+/// 156.0.26.1 is `141_657_795` bytes.
 #[cfg(windows)]
-pub const ENGINE_DOWNLOAD_MB: u64 = 178;
+pub const ENGINE_DOWNLOAD_MB: u64 = 142;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub const ENGINE_DEFAULT_URL: Option<&str> = Some(
-    "https://anoma.ly/release/opencode-rune/files/92291cae38cec0cf280e64ac3eb43cb77e0b44cdd3f304279a050fa8c69cfa18/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
-);
-// TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
-// It will live next to the macOS one:
-// https://anoma.ly/release/opencode-rune/files/<sha256>/OpenCode-Browser-Engine-156.0.14.1-windows-x64.zip
-// Until then the background download skips itself, and `install-local.ps1` installs a local build.
-#[cfg(all(windows, target_arch = "x86_64"))]
-pub const ENGINE_DEFAULT_URL: Option<&str> = None;
-#[cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), all(windows, target_arch = "x86_64"))))]
-pub const ENGINE_DEFAULT_URL: Option<&str> = None;
-
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = Some(
-    "https://github.com/anomalyco/rune-desktop/releases/download/browser-engine-156.0.14.1/OpenCode-Browser-Engine-156.0.14.1-macos-arm64.zip",
-);
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-pub const ENGINE_GITHUB_FALLBACK_URL: Option<&str> = None;
-
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub const ENGINE_DEFAULT_SHA256: Option<&str> =
-    Some("92291cae38cec0cf280e64ac3eb43cb77e0b44cdd3f304279a050fa8c69cfa18");
-// TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
-#[cfg(all(windows, target_arch = "x86_64"))]
-pub const ENGINE_DEFAULT_SHA256: Option<&str> = None;
-#[cfg(not(any(all(target_os = "macos", target_arch = "aarch64"), all(windows, target_arch = "x86_64"))))]
-pub const ENGINE_DEFAULT_SHA256: Option<&str> = None;
-
-pub const ERR_DOWNLOAD: &str =
-    "Couldn't download the browser. Check your connection and try again.";
-pub const ERR_SIGN_IN: &str =
-    "Sign in to GitHub to download the browser.\nRun gh auth login in Terminal, then retry.";
-pub(crate) const ERR_VERIFY: &str = "Download couldn't be verified. Try again.";
+pub const ERR_DOWNLOAD: &str = "Couldn't download the browser. Check your connection and try again.";
+pub(crate) const ERR_VERIFY: &str = "The browser download was damaged, so it wasn't installed. Try again.";
 pub(crate) const ERR_INSTALL: &str = "Couldn't install the browser. Check available disk space and try again.";
+pub(crate) const ERR_DISK_FULL: &str = "There isn't enough disk space to install the browser. Free some space and try again.";
 pub(crate) const ERR_NO_SOURCE: &str = "Browser isn't available for this platform yet.";
+pub const ERR_STOPPED: &str = "The browser stopped unexpectedly.";
 
-pub fn err_no_access(owner: &str, repo: &str) -> String {
-    format!("Your GitHub account can't see the browser download.\nAsk for access to {owner}/{repo}.")
+/// The download's server or the network in between refused it, with its HTTP status.
+pub(crate) fn err_blocked(status: u16) -> String {
+    format!("The browser download was blocked (HTTP {status}). Your network or administrator may not allow it.")
 }
 
-#[cfg(feature = "engine")]
-static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
+/// The archive isn't one this build trusts: `why` names the rule it failed.
+pub(crate) fn err_untrusted(why: &str) -> String {
+    format!("The browser download couldn't be verified ({why}), so it wasn't installed.")
+}
 
 /// The engine's availability, one state machine that the pane and Settings read:
 ///
 /// ```text
 /// NotInstalled ─► Downloading ─► Verifying ─► Installed ─► Connecting ─► Ready
-///                  │   ▲    │                     ▲
+///                  │   ▲    │                     ▲            │
 ///                  ▼   │    ▼                     └─ found on disk at launch
 ///             Paused(reason)  Failed(retry_at) ─► Downloading (at retry_at, or Retry)
+///                                  ▲
+///                                  └─ the engine process went away (Retry starts it again)
 /// ```
 ///
 /// `Downloading` is the same job whether the idle prefetch started it or the pane asked for it;
-/// opening the pane only lifts its throttle.
+/// opening the pane only lifts its throttle. An update downloads beside the running engine and
+/// never shows here.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineStatus {
     /// This build has no engine for its platform (it is built without the `engine` feature, or
@@ -106,7 +75,7 @@ pub enum EngineStatus {
     Checking,
     NotInstalled,
     Downloading { downloaded_bytes: u64, total_bytes: Option<u64> },
-    /// The archive is in; its SHA-256 is checked and it unpacks into place.
+    /// The archive is in; its hash and signatures are checked and it moves into place.
     Verifying,
     /// The background download waits for the OS to allow it. Opening the pane goes ahead anyway.
     Paused(PauseReason),
@@ -167,6 +136,34 @@ impl PauseReason {
     }
 }
 
+/// An engine's version: CEF's three numbers, then the engine revision (`ENGINE_REVISION`).
+/// Written `156.0.26.1` (its folder) or `156.0.26-1` (the index's release version).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version {
+    pub cef: [u32; 3],
+    pub revision: u32,
+}
+
+impl Version {
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut parts = s.trim().split(['.', '-']).map(|p| p.parse::<u32>().ok());
+        let v = Self { cef: [parts.next()??, parts.next()??, parts.next()??], revision: parts.next()?? };
+        parts.next().is_none().then_some(v)
+    }
+
+    /// Whether this build speaks to an engine of this version.
+    pub fn accepted(self) -> bool {
+        self.revision == ENGINE_REVISION
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [a, b, c] = self.cef;
+        write!(f, "{a}.{b}.{c}.{}", self.revision)
+    }
+}
+
 /// The engine's folders, shared by every app that shows a browser pane (`rune::dirs`): its
 /// state folder is `~/Library/Application Support/co.anomaly.opencode` on macOS and
 /// `%LOCALAPPDATA%\co.anomaly.opencode` on Windows; its cache folder holds the sockets.
@@ -175,76 +172,87 @@ pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     rune::dirs::AppDirs::new("co.anomaly.opencode")
 }
 
+/// The folder holding one folder per installed engine version.
 #[cfg(feature = "engine")]
-pub fn engine_cache_root() -> PathBuf {
+pub fn engines_root() -> PathBuf {
     engine_dirs()
         .map_or_else(|| std::env::temp_dir().join("co.anomaly.opencode"), |d| d.state().to_owned())
         .join("browser-engine")
-        .join(ENGINE_VERSION)
 }
 
-/// Where a download in progress keeps its bytes, beside the versioned folders, so a download cut
-/// short (the app quit, the connection dropped) resumes from where it stopped. The name carries
-/// the archive's SHA-256, so a new release never resumes into an old one's bytes.
+/// An installed engine: its version and its executable.
 #[cfg(feature = "engine")]
-pub(crate) fn partial_path(dest_root: &Path, url: &str, sha256: Option<&str>) -> PathBuf {
-    let tag: String = match sha256 {
-        Some(sha) => sha.chars().take(16).collect(),
-        None => Sha256::digest(url.as_bytes())[..8].iter().map(|b| format!("{b:02x}")).collect(),
-    };
-    let ext = archive_ext(url);
-    let parent = dest_root.parent().unwrap_or(dest_root);
-    parent.join(format!(".{ENGINE_VERSION}-{tag}.{ext}.part"))
+#[derive(Clone, Debug)]
+pub struct Installed {
+    pub version: Option<Version>,
+    pub bin: PathBuf,
 }
 
+/// The engine to start: `OPENCODE_BROWSER_ENGINE_BIN` (an executable) or
+/// `OPENCODE_BROWSER_ENGINE_APP` (its folder) when set, a development build's own, and otherwise
+/// the newest installed version this build accepts. Reads one folder; call it off the UI thread.
 #[cfg(feature = "engine")]
-pub fn resolve_installed_executable() -> Option<PathBuf> {
-    if let Ok(explicit) = std::env::var("OPENCODE_BROWSER_ENGINE_BIN") {
-        let p = PathBuf::from(explicit);
-        if p.is_file() {
-            return Some(p);
-        }
+pub fn installed() -> Option<Installed> {
+    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(Installed { version: None, bin });
     }
-    if let Ok(app) = std::env::var("OPENCODE_BROWSER_ENGINE_APP") {
-        let bin = PathBuf::from(app).join(ENGINE_BIN_REL);
-        if bin.is_file() {
-            return Some(bin);
-        }
+    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
+        return Some(Installed { version: None, bin });
     }
-    let cached = engine_cache_root().join(ENGINE_BUNDLE_NAME).join(ENGINE_BIN_REL);
-    if cached.is_file() {
-        return Some(cached);
-    }
-    None
+    installed_versions(&engines_root())
+        .into_iter()
+        .filter(|v| v.accepted())
+        .max()
+        .map(|version| Installed { version: Some(version), bin: bin_in(&engines_root().join(version.to_string())) })
+        .filter(|i| i.bin.is_file())
 }
 
-/// Resolves `(download_url, expected_sha256)` from env overrides or baked-in release constants.
-/// `OPENCODE_BROWSER_ENGINE_URL` and `OPENCODE_BROWSER_ENGINE_SHA256` point it at another
-/// archive, such as a local build served for testing.
+/// The versions with a folder in `root`, accepted by this build or not.
 #[cfg(feature = "engine")]
-pub fn resolve_download_source() -> Option<(String, Option<String>)> {
-    if let Ok(custom_url) = std::env::var("OPENCODE_BROWSER_ENGINE_URL") {
-        let trimmed = custom_url.trim();
-        if !trimmed.is_empty() {
-            let custom_sha = std::env::var("OPENCODE_BROWSER_ENGINE_SHA256")
-                .ok()
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty());
-            return Some((trimmed.to_owned(), custom_sha));
+pub(crate) fn installed_versions(root: &Path) -> Vec<Version> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    entries.flatten().filter_map(|e| e.file_name().to_str().and_then(Version::parse)).collect()
+}
+
+/// The executable inside a version's folder.
+#[cfg(feature = "engine")]
+pub(crate) fn bin_in(version_dir: &Path) -> PathBuf {
+    version_dir.join(ENGINE_BUNDLE_NAME).join(ENGINE_BIN_REL)
+}
+
+/// Removes every version folder but `keep` and the newest that each other app revision would
+/// start, and unpacking folders left by an app that quit mid-install (older than an hour, so
+/// another app's install in progress keeps its own). A folder an engine still runs from stays:
+/// it moves aside first, which Windows refuses while its files are open, so nothing in use is
+/// ever half deleted. Reads one folder; call it off the UI thread.
+#[cfg(feature = "engine")]
+pub(crate) fn remove_old(root: &Path, keep: Version) {
+    let versions = installed_versions(root);
+    let newest_of = |revision: u32| versions.iter().filter(|v| v.revision == revision).max().copied();
+    for v in &versions {
+        if *v == keep || (v.revision != keep.revision && newest_of(v.revision) == Some(*v)) || *v > keep {
+            continue;
+        }
+        let dir = root.join(v.to_string());
+        let trash = root.join(format!(".{v}.old-{}", std::process::id()));
+        if std::fs::rename(&dir, &trash).is_ok() {
+            let _ = std::fs::remove_dir_all(&trash);
         }
     }
-    let url = ENGINE_DEFAULT_URL?.to_owned();
-    let sha = std::env::var("OPENCODE_BROWSER_ENGINE_SHA256")
-        .ok()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .or_else(|| ENGINE_DEFAULT_SHA256.map(str::to_owned));
-    Some((url, sha))
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let ours = name.to_str().is_some_and(|n| n.starts_with('.') && (n.contains(".staging-") || n.contains(".old-")));
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|age| age.as_secs() > 3600));
+        if ours && stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 #[cfg(feature = "engine")]
 pub fn socket_path() -> PathBuf {
-    if let Ok(custom) = std::env::var("OPENCODE_BROWSER_SOCKET") {
+    if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
         return PathBuf::from(custom);
     }
     // Windows: the folder under `%LOCALAPPDATA%` is already the user's own.
@@ -283,148 +291,13 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Downloads `url` in one go, checks `expected_sha256`, extracts the bundle, and swaps `dest_root`
-/// atomically. A private GitHub release is fetched with the user's GitHub login.
+/// A failed write's message: no space left, or another install failure.
 #[cfg(feature = "engine")]
-pub fn download_and_install_to(
-    url: &str,
-    expected_sha256: Option<&str>,
-    dest_root: &Path,
-    state: &Arc<Mutex<EngineStatus>>,
-    waker: Option<&Waker>,
-) -> Result<PathBuf, String> {
-    download_and_install_with(url, expected_sha256, dest_root, state, waker, &GithubAuth::user())
-}
-
-#[cfg(feature = "engine")]
-pub(crate) fn download_and_install_with(
-    url: &str,
-    expected_sha256: Option<&str>,
-    dest_root: &Path,
-    state: &Arc<Mutex<EngineStatus>>,
-    waker: Option<&Waker>,
-    github: &GithubAuth,
-) -> Result<PathBuf, String> {
-    let parent = dest_root.parent().ok_or_else(|| ERR_INSTALL.to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| ERR_INSTALL.to_owned())?;
-    let staging = staging_dir(dest_root, "download");
-    std::fs::create_dir_all(&staging).map_err(|_| ERR_INSTALL.to_owned())?;
-    let archive = staging.join(format!("engine.{}", archive_ext(url)));
-    let notify = |downloaded_bytes, total_bytes| {
-        *state.lock().unwrap() = EngineStatus::Downloading { downloaded_bytes, total_bytes };
-        if let Some(w) = waker {
-            w();
-        }
-    };
-    let result = match download::fetch(url, &archive, github, notify, &mut || Pace::Full) {
-        Ok(Fetched::Done { sha256 }) => install_archive(url, &archive, expected_sha256, &sha256, dest_root),
-        Ok(Fetched::Stopped) => Err(ERR_DOWNLOAD.to_owned()),
-        Err(err) => Err(err),
-    };
-    let _ = std::fs::remove_dir_all(&staging);
-    result
-}
-
-/// `zip` or `tar.zst`, from the archive URL.
-#[cfg(feature = "engine")]
-pub(crate) fn archive_ext(url: &str) -> &'static str {
-    let clean_url = url.split('?').next().unwrap_or(url);
-    if clean_url.ends_with(".tar.zst") { "tar.zst" } else { "zip" }
-}
-
-#[cfg(feature = "engine")]
-fn staging_dir(dest_root: &Path, kind: &str) -> PathBuf {
-    let seq = STAGING_SEQ.fetch_add(1, Ordering::Relaxed);
-    let pid = std::process::id();
-    let dir_name = dest_root.file_name().and_then(|n| n.to_str()).unwrap_or(ENGINE_VERSION);
-    let staging = dest_root.parent().unwrap_or(dest_root).join(format!(".{dir_name}.{kind}-{pid}-{seq}"));
-    let _ = std::fs::remove_dir_all(&staging);
-    staging
-}
-
-/// Removes unpacking folders left by an app that quit mid-install (older than an hour, so another
-/// app's install in progress keeps its own).
-#[cfg(feature = "engine")]
-pub(crate) fn sweep_stale_staging(dest_root: &Path) {
-    let (Some(parent), Some(name)) = (dest_root.parent(), dest_root.file_name().and_then(|n| n.to_str())) else {
-        return;
-    };
-    let prefixes = [format!(".{name}.staging-"), format!(".{name}.download-")];
-    let Ok(entries) = std::fs::read_dir(parent) else { return };
-    for entry in entries.flatten() {
-        let stale = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > std::time::Duration::from_secs(3600)));
-        let file_name = entry.file_name();
-        let ours = file_name.to_str().is_some_and(|n| prefixes.iter().any(|p| n.starts_with(p.as_str())));
-        if ours && stale {
-            let _ = std::fs::remove_dir_all(entry.path());
-        }
-    }
-}
-
-/// Checks the downloaded `archive` (`actual_sha256`) against `expected_sha256`, unpacks it, and
-/// swaps it in as `dest_root` atomically: the old version stays until the new one is in place.
-#[cfg(feature = "engine")]
-pub(crate) fn install_archive(
-    url: &str,
-    archive: &Path,
-    expected_sha256: Option<&str>,
-    actual_sha256: &str,
-    dest_root: &Path,
-) -> Result<PathBuf, String> {
-    if let Some(expected) = expected_sha256
-        && !actual_sha256.eq_ignore_ascii_case(expected.trim())
-    {
-        return Err(ERR_VERIFY.into());
-    }
-    let parent = dest_root.parent().ok_or_else(|| ERR_INSTALL.to_owned())?;
-    std::fs::create_dir_all(parent).map_err(|_| ERR_INSTALL.to_owned())?;
-    let staging = staging_dir(dest_root, "staging");
-    let result = extract_and_swap(url, archive, &staging, dest_root);
-    let _ = std::fs::remove_dir_all(&staging);
-    result
-}
-
-#[cfg(feature = "engine")]
-fn extract_and_swap(url: &str, archive: &Path, staging: &Path, dest_root: &Path) -> Result<PathBuf, String> {
-    let extract_dir = staging.join("extracted");
-    std::fs::create_dir_all(&extract_dir).map_err(|_| ERR_INSTALL.to_owned())?;
-    let ext = archive_ext(url);
-    // Windows' own bsdtar reads zip archives too (a GNU tar earlier on PATH doesn't).
-    let status = if ext == "zip" && cfg!(windows) {
-        let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-        Command::new(system.join("System32").join("tar.exe"))
-            .arg("-xf")
-            .arg(archive)
-            .arg("-C")
-            .arg(&extract_dir)
-            .status()
-    } else if ext == "zip" {
-        Command::new("ditto").args(["-x", "-k"]).arg(archive).arg(&extract_dir).status()
-    } else {
-        Command::new("tar").args(["--zstd", "-xf"]).arg(archive).arg("-C").arg(&extract_dir).status()
-    };
-    if !status.is_ok_and(|s| s.success()) {
-        return Err(ERR_INSTALL.into());
-    }
-
-    // Confirm the extracted bundle actually contains the executable before touching `dest_root`.
-    if !extract_dir.join(ENGINE_BUNDLE_NAME).join(ENGINE_BIN_REL).is_file() {
-        return Err(ERR_INSTALL.into());
-    }
-
-    let backup = staging.join("old");
-    let had_existing = dest_root.exists();
-    if had_existing && std::fs::rename(dest_root, &backup).is_err() {
-        return Err(ERR_INSTALL.into());
-    }
-    if std::fs::rename(&extract_dir, dest_root).is_err() {
-        if had_existing {
-            let _ = std::fs::rename(&backup, dest_root);
-        }
-        return Err(ERR_INSTALL.into());
-    }
-    Ok(dest_root.join(ENGINE_BUNDLE_NAME).join(ENGINE_BIN_REL))
+pub(crate) fn err_write(err: &std::io::Error) -> String {
+    // ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL on Windows; ENOSPC, EDQUOT elsewhere.
+    #[cfg(windows)]
+    let full = matches!(err.raw_os_error(), Some(39 | 112));
+    #[cfg(unix)]
+    let full = matches!(err.raw_os_error(), Some(libc::ENOSPC | libc::EDQUOT));
+    if full || err.kind() == std::io::ErrorKind::StorageFull { ERR_DISK_FULL.into() } else { ERR_INSTALL.into() }
 }

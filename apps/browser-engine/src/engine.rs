@@ -40,8 +40,10 @@ pub struct CefRuntime {
 }
 
 impl CefRuntime {
-    /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on.
-    pub fn initialize(adapter_luid: Option<(i32, u32)>) -> Self {
+    /// `adapter_luid`: the app's GPU (`HighPart`, `LowPart`), for Chromium to render on;
+    /// `locale`: the app's language as Chromium names it; `pump`: where CEF's requests for its
+    /// next work call go.
+    pub fn initialize(adapter_luid: Option<(i32, u32)>, locale: Option<&str>, pump: Sender<crate::Event>) -> Self {
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
 
@@ -82,7 +84,7 @@ impl CefRuntime {
         #[cfg(target_os = "macos")]
         let browser_subprocess_path = CefString::default();
 
-        let mut app = SidecarCefApp::new(adapter_luid.map(|(high, low)| format!("{high},{low}")));
+        let mut app = SidecarCefApp::new(adapter_luid.map(|(high, low)| format!("{high},{low}")), pump);
         let settings = Settings {
             browser_subprocess_path,
             windowless_rendering_enabled: 1,
@@ -92,6 +94,15 @@ impl CefRuntime {
             cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
             persist_session_cookies: 1,
             log_severity: sys::cef_log_severity_t::LOGSEVERITY_WARNING.into(),
+            // In the profile, not beside the executable (CEF's default), whose folder is the install.
+            log_file: CefString::from(profile.root.join("debug.log").to_string_lossy().as_ref()),
+            // Without one, Chromium follows the system's language. Pages hear the same language
+            // first (Accept-Language, navigator.languages), then English.
+            locale: locale.map(CefString::from).unwrap_or_default(),
+            accept_language_list: locale
+                .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
+                .map(|list| CefString::from(list.as_str()))
+                .unwrap_or_default(),
             ..Default::default()
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
@@ -118,6 +129,7 @@ wrap_app! {
     struct SidecarCefApp {
         // Chromium's `use-adapter-luid` (`HIGH,LOW`): the GPU the app's frames open on.
         adapter_luid: Option<String>,
+        pump: Sender<crate::Event>,
     }
     impl App {
         fn on_before_command_line_processing(
@@ -137,14 +149,21 @@ wrap_app! {
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
-            Some(SidecarProcessHandler::new())
+            Some(SidecarProcessHandler::new(self.pump.clone()))
         }
     }
 }
 
 wrap_browser_process_handler! {
-    struct SidecarProcessHandler {}
-    impl BrowserProcessHandler {}
+    struct SidecarProcessHandler {
+        pump: Sender<crate::Event>,
+    }
+    impl BrowserProcessHandler {
+        // Any thread: the main loop wakes for it.
+        fn on_schedule_message_pump_work(&self, delay_ms: i64) {
+            let _ = self.pump.send(crate::Event::Pump(delay_ms));
+        }
+    }
 }
 
 wrap_client! {
@@ -214,6 +233,14 @@ impl EngineManager {
 
     pub fn is_empty(&self) -> bool {
         self.tabs.is_empty()
+    }
+
+    /// Whether a tab dropped a frame and waits for the app to free a texture (`poll_frames`).
+    pub fn waits_for_texture(&self) -> bool {
+        #[cfg(windows)]
+        return self.tabs.values().any(|t| t.frames.as_ref().is_some_and(|ring| ring.lock().unwrap().dropped));
+        #[cfg(not(windows))]
+        false
     }
 
     /// Windows: repaints each tab that dropped a frame while the app had every one unread,

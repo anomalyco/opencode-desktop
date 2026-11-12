@@ -1,5 +1,6 @@
 //! Windows' Authenticode check of a downloaded file (`WinVerifyTrust`, the same policy Explorer
 //! and SmartScreen apply), and the signer's name from its certificate.
+#![cfg(windows)]
 // Windows' trust API is unsafe by nature; each block says what it relies on.
 #![allow(unsafe_code)]
 

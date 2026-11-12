@@ -11,16 +11,19 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS
 # and Windows.
-engine = ["dep:libc", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows"]
+engine = ["dep:authenticode", "dep:libc", "dep:ruzstd", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows"]
 
 [dependencies]
 base64 = "0.22"
 opencode-i18n = { path = "../opencode-i18n" }
 rune.workspace = true
+# The engine archive unpacks as it downloads (zstd around ustar).
+ruzstd = { version = "0.9", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 sha2 = { version = "0.10", optional = true }
-ureq = { workspace = true, features = ["rustls"], optional = true }
+# The system's certificate store, so a network that inspects TLS with its own root still works.
+ureq = { workspace = true, features = ["rustls", "platform-verifier"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -28,6 +31,7 @@ libc = { version = "0.2", optional = true }
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
 # thread priority and its pause checks (power line, connection cost).
 [target.'cfg(windows)'.dependencies]
+authenticode = { path = "../authenticode", optional = true }
 uds_windows = { version = "1.1", optional = true }
 windows = { version = "0.62", optional = true, features = [
     "Networking_Connectivity",

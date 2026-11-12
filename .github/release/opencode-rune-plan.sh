@@ -23,14 +23,12 @@
 crate_version=$(awk '/^\[package\]/ { package = 1; next } /^\[/ { package = 0 } package && /^version = "/ { gsub(/^version = "|"$/, ""); print; exit }' apps/desktop/Cargo.toml)
 [[ "$crate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Expected X.Y.Z version in apps/desktop/Cargo.toml, found $crate_version."
 
-engine_version=$(sed -n 's/^pub const ENGINE_VERSION: &str = "\([^"]*\)";/\1/p' crates/browser-pane/src/installer.rs | head -1)
-engine_release_version=$(printf '%s' "$engine_version" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+)\.(.+)$/\1-\2/')
-# The macOS SHA-256 (the first after ENGINE_DEFAULT_SHA256).
-# TODO(IMPORTANT before release): build + sign (Authenticode) the Windows engine in CI with package-release.ps1, upload to the release CDN, then set ENGINE_DEFAULT_URL/SHA256 here.
-# (Then read the windows-x64 SHA-256 here too and publish it as its own target.)
-engine_sha256=$(awk '/ENGINE_DEFAULT_SHA256/ { want = 1 } want && match($0, /[0-9a-fA-F]{64}/) { print tolower(substr($0, RSTART, RLENGTH)); exit }' crates/browser-pane/src/installer.rs)
-[[ "$engine_version" =~ ^[0-9]+\.[0-9]+ ]] || die "Could not parse ENGINE_VERSION from crates/browser-pane/src/installer.rs."
-[[ "$engine_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Could not parse ENGINE_DEFAULT_SHA256 from crates/browser-pane/src/installer.rs."
+# TODO(IMPORTANT before release): the Browser Engine's delivery and trust root are decided when the
+# app moves into the opencode repo (crates/browser-pane/src/source.rs, SOURCE and TRUST). Until then
+# this workflow publishes no engine: the app has no pinned engine for it to sync.
+engine_version=""
+engine_release_version=""
+engine_sha256=""
 
 build_desktop=true
 publish_engine=false
@@ -43,8 +41,7 @@ if [ "$EVENT" = pull_request ]; then
   release_version="0.0.0-dev-$GITHUB_RUN_NUMBER"
   notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
 elif [ "$REF_TYPE" = tag ] && [[ "$REF_NAME" == browser-engine-* ]]; then
-  tag_ver=${REF_NAME#browser-engine-}
-  [ "$tag_ver" = "$engine_version" ] || die "Tag $REF_NAME does not match ENGINE_VERSION $engine_version."
+  die "Tag $REF_NAME: the Browser Engine isn't published from here (see the TODO above)."
   channel=engine
   release_channel=stable
   release_version="$crate_version"
@@ -119,16 +116,8 @@ if [ "$EVENT" = schedule ] && [ "$channel" = dev ]; then
   fi
 fi
 
-# The pinned engine is published once: when it's live already, neither engine job starts.
-if [ "$publish_engine" = true ]; then
-  engine_zip="OpenCode-Browser-Engine-$engine_version-macos-arm64.zip"
-  if manifest=$(curl -fsS "https://anoma.ly/release/opencode-rune/browser-engine/stable.json" 2>/dev/null) &&
-    [ "$(printf '%s' "$manifest" | jq -r '.release.version // empty')" = "$engine_release_version" ] &&
-    [ "$(printf '%s' "$manifest" | jq -r '.release.targets["macos-arm64"].sha256 // empty')" = "$engine_sha256" ] &&
-    curl -fsSI "https://anoma.ly/release/opencode-rune/files/$engine_sha256/$engine_zip" >/dev/null 2>&1; then
-    publish_engine=false
-  fi
-fi
+# No engine publishes from here (see the TODO above).
+publish_engine=false
 
 if [ "$scope" = all ]; then windows_arches='["x64","arm64"]' macos=true; else windows_arches='["x64"]' macos=false; fi
 # FEED: release, signing and publishing are deferred (the brief, 2026-11-12): Rune's desktop app

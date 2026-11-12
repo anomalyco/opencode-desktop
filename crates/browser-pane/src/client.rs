@@ -433,6 +433,16 @@ impl BrowserHost {
         self.start_install();
     }
 
+    /// The engine went away with pages open: they open again in the next one, where they were.
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn requeue_tabs(&mut self) {
+        for t in &self.tabs {
+            if !self.pending_opens.iter().any(|(id, _)| *id == t.id) {
+                self.pending_opens.push((t.id, t.url.clone()));
+            }
+        }
+    }
+
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
     /// Whether poll would find nothing to do: no message, no download to connect for, the
     /// status as last polled. Reads only, so a caller that polls every frame writes nothing.
@@ -457,6 +467,8 @@ impl BrowserHost {
                         0 => {}
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
                     }
+                    #[cfg(feature = "engine")]
+                    self.check_for_update();
                     for t in &mut self.tabs {
                         t.sent_resize = None;
                     }

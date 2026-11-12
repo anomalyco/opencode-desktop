@@ -19,8 +19,6 @@
 
 #[cfg(windows)]
 pub mod apply;
-#[cfg(windows)]
-mod authenticode;
 mod engine;
 mod feed;
 #[cfg(target_os = "macos")]

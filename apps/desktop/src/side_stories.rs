@@ -240,7 +240,8 @@ pub fn init_install(s: &mut App) {
         2 => EngineStatus::Failed(browser_pane::ERR_DOWNLOAD.into()),
         4 => EngineStatus::Verifying,
         5 => EngineStatus::Paused(browser_pane::PauseReason::OnBattery),
-        _ => EngineStatus::Failed(browser_pane::ERR_SIGN_IN.into()),
+        // The engine went away with a page open.
+        _ => EngineStatus::Failed(browser_pane::ERR_STOPPED.into()),
     };
     let id = s
         .browser

@@ -1,6 +1,7 @@
-//! Finding, downloading, starting and connecting to the engine over its Unix socket.
+//! Finding, downloading, starting and connecting to the engine over its Unix socket. The UI
+//! thread only hands the work to a thread: the socket, the install's folder and the spawn are
+//! touched there.
 
-use std::path::PathBuf;
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -8,8 +9,9 @@ use crate::client::BrowserHost;
 use crate::installer::{self, EngineStatus};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
+use crate::prefetch::Mode;
 use crate::profile;
-use crate::transport::{UnixStream, spawn_and_attach_bg, wire_stream};
+use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
 
 #[cfg(target_os = "macos")]
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
@@ -30,7 +32,7 @@ impl BrowserHost {
         *status = EngineStatus::Checking;
         let (shared, waker) = (self.status.clone(), self.waker.clone());
         let spawned = std::thread::Builder::new().name("opencode-browser-check".into()).spawn(move || {
-            let found = if installer::resolve_installed_executable().is_some() { EngineStatus::Installed } else { EngineStatus::NotInstalled };
+            let found = if installer::installed().is_some() { EngineStatus::Installed } else { EngineStatus::NotInstalled };
             let mut status = shared.lock().unwrap();
             if *status == EngineStatus::Checking {
                 *status = found;
@@ -46,30 +48,15 @@ impl BrowserHost {
         status.clone()
     }
 
-    /// Starts (or retries) downloading and installing the browser engine off the main thread; a
-    /// download already running (the background prefetch) goes on at full speed instead. Queued
-    /// tabs open once it lands (`poll`).
+    /// Starts (or retries) the engine: connects to this app's running one, starts the installed
+    /// one, or downloads it first (a download already running goes on at full speed instead).
+    /// Queued tabs open once it's ready (`poll`).
     pub fn start_install(&mut self) {
         if self.is_connected() || self.status() == EngineStatus::Connecting {
             return;
         }
-        let mach_service = self.ensure_mach_receiver();
-        let sock = self
-            .socket_override
-            .clone()
-            .unwrap_or_else(installer::socket_path);
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            self.attach_stream(stream, mach_service);
-            return;
-        }
-        if let Some(bin) = installer::resolve_installed_executable() {
-            self.spawn_and_connect(bin, sock, mach_service);
-            return;
-        }
-        if matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Checking) {
-            *self.status.lock().unwrap() = EngineStatus::NotInstalled;
-        }
-        self.prefetch.start(true, self.status.clone(), self.waker.clone());
+        self.requeue_tabs();
+        self.connect();
     }
 
     /// Downloads the engine in the background when it isn't installed, without starting it, so
@@ -81,12 +68,18 @@ impl BrowserHost {
         if !matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled) {
             return;
         }
-        self.prefetch.start(false, self.status.clone(), self.waker.clone());
+        self.prefetch.start(Mode::Background, self.status.clone(), self.waker.clone());
     }
 
     /// Stops the background download (its bytes stay for later); one the pane asked for goes on.
     pub fn stop_prefetch(&mut self) {
         self.prefetch.cancel_background();
+    }
+
+    /// An engine is up: a newer release the source offers downloads beside it, quietly, for its
+    /// next start.
+    pub(crate) fn check_for_update(&self) {
+        self.prefetch.start(Mode::Update, self.status.clone(), self.waker.clone());
     }
 
     fn ensure_mach_receiver(&mut self) -> Option<String> {
@@ -108,67 +101,46 @@ impl BrowserHost {
         if self.is_connected() {
             return;
         }
-        let cur_status = self.status();
-        if cur_status == EngineStatus::Connecting {
-            return;
-        }
-        // A tab waits for the download running in the background: let it finish, at full speed.
-        if matches!(cur_status, EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_)) {
-            self.prefetch.hurry();
-            return;
-        }
-
-        let sock = self
-            .socket_override
-            .clone()
-            .unwrap_or_else(installer::socket_path);
-
-        // 1. Reconnect to an already-running sidecar first (survives UI hot-reloads).
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            let mach_service = self.ensure_mach_receiver();
-            self.attach_stream(stream, mach_service);
-            return;
-        }
-
-        // 2. Spawn installed sidecar binary if present on disk.
-        if let Some(bin) = installer::resolve_installed_executable() {
-            let mach_service = self.ensure_mach_receiver();
-            self.spawn_and_connect(bin, sock, mach_service);
-            return;
-        }
-
-        // 3. Otherwise download it, then start it; a failed download waits for Retry.
-        if !matches!(cur_status, EngineStatus::Failed(_)) {
-            self.start_install();
+        match self.status() {
+            EngineStatus::Connecting | EngineStatus::Failed(_) => {}
+            // A tab waits for the download running in the background: let it finish, at full speed.
+            EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_) => self.prefetch.hurry(),
+            _ => self.connect(),
         }
     }
 
-    fn spawn_and_connect(&mut self, bin: PathBuf, sock: PathBuf, mach_service: Option<String>) {
-        rune::marks::mark("browser.engine.spawn");
+    /// Hands the connect to a thread: this app's running engine (a UI hot reload), else the
+    /// installed one, started, else a download that a page waits for.
+    fn connect(&mut self) {
         *self.status.lock().unwrap() = EngineStatus::Connecting;
-        let status = self.status.clone();
-        let outbox = self.outbox.clone();
-        let inbox_tx = self.inbox_tx.clone();
-        let surfaces = self.surfaces.clone();
-        let waker = self.waker.clone();
+        let mach_service = self.ensure_mach_receiver();
+        let sock = self.socket_override.clone().unwrap_or_else(installer::socket_path);
         let profile = profile::for_spawn(self.profile_dir.as_deref());
-        std::thread::Builder::new()
-            .name("opencode-browser-connect".into())
-            .spawn(move || {
-                spawn_and_attach_bg(bin, sock, profile, mach_service, status, outbox, inbox_tx, surfaces, waker);
-            })
-            .ok();
-    }
-
-    fn attach_stream(&mut self, stream: UnixStream, mach_service: Option<String>) {
-        wire_stream(
-            stream,
-            mach_service,
-            &self.status,
-            &self.outbox,
-            self.inbox_tx.clone(),
-            self.surfaces.clone(),
-            self.waker.clone(),
-        );
+        let link = Link {
+            status: self.status.clone(),
+            outbox: self.outbox.clone(),
+            inbox_tx: self.inbox_tx.clone(),
+            surfaces: self.surfaces.clone(),
+            waker: self.waker.clone(),
+        };
+        let prefetch = self.prefetch.clone();
+        let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {
+            if let Ok(stream) = UnixStream::connect(&sock) {
+                return wire_stream(stream, mach_service, &link);
+            }
+            let Some(engine) = installer::installed() else {
+                *link.status.lock().unwrap() = EngineStatus::NotInstalled;
+                return prefetch.start(Mode::Urgent, link.status.clone(), link.waker.clone());
+            };
+            rune::marks::mark("browser.engine.spawn");
+            spawn_and_attach(&engine.bin, &sock, &profile, mach_service, &link);
+            // Earlier versions this one replaces, now nothing starts them.
+            if let Some(version) = engine.version {
+                installer::remove_old(&installer::engines_root(), version);
+            }
+        });
+        if spawned.is_err() {
+            *self.status.lock().unwrap() = EngineStatus::Failed(installer::ERR_STOPPED.into());
+        }
     }
 }

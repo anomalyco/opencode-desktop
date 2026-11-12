@@ -1,10 +1,13 @@
-//! The one engine download job: started quietly by the idle prefetch, or by the pane, and never
-//! twice. In the background it runs at low priority, throttled, waits while the OS reports a
-//! metered connection or battery power, and retries with backoff; when the pane asks (`hurry`)
-//! the same download goes on at full speed and normal priority. The bytes land in a partial file
-//! that later tries resume, are checked against the pinned SHA-256, and install atomically.
+//! The one engine download job: started quietly by the idle prefetch, by the pane, or after an
+//! engine starts to fetch a newer release, and never twice. In the background it runs at low
+//! priority, throttled, waits while the OS reports a metered connection or battery power, and
+//! retries with backoff; when the pane asks (`hurry`) the same download goes on at full speed and
+//! normal priority. It reads the source's index, then streams the archive into place: the bytes
+//! land in a partial file that a later try resumes, unpack as they arrive, and the folder moves
+//! into place only once the archive's hash and the trust rule pass.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use rune::time::Instant;
@@ -12,9 +15,11 @@ use rune::time::Instant;
 use rune::Waker;
 
 use crate::background;
-use crate::download::{self, Fetched, Pace};
-use crate::github_download::GithubAuth;
-use crate::installer::{self, ERR_VERIFY, EngineStatus, Failure};
+use crate::download::{Body, Cut, Pace};
+use crate::installer::{self, ENGINE_BUNDLE_NAME, ERR_INSTALL, ERR_VERIFY, EngineStatus, Failure, err_write};
+use crate::source::{self, Release};
+use crate::trust::Verifier;
+use crate::unpack;
 
 /// The background download's bandwidth: 2 MB/s, about a minute for the whole engine.
 const BACKGROUND_RATE: u64 = 2_000_000;
@@ -27,188 +32,250 @@ const MAX_ATTEMPTS: u32 = 6;
 /// The background progress wakes the UI at most this often (the pane, when open, every 256 KB).
 const QUIET_WAKE: Duration = Duration::from_secs(2);
 
-/// Whether a download job runs, and what it should do next. One per `BrowserHost`.
-#[derive(Default)]
+static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// What a job is for, which sets its pace and what it reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// The idle prefetch: no engine yet, nobody waiting.
+    Background,
+    /// A page waits for the engine: full speed, normal priority, no pausing, one try.
+    Urgent,
+    /// An engine runs; a newer release installs beside it for its next start, at background
+    /// pace, without touching the engine's status.
+    Update,
+}
+
+/// The job's state (one per `BrowserHost`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum State {
+    Idle,
+    Running(Mode),
+    /// A background download was turned off: it stops at its next read, keeping its bytes.
+    Cancelling,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Event {
+    Start(Mode),
+    Hurry,
+    CancelBackground,
+    Finished,
+}
+
+#[derive(Debug, PartialEq)]
+enum Effect {
+    Spawn(Mode),
+    /// Wake the running job's waits.
+    Nudge,
+}
+
+fn step(state: State, event: Event) -> (State, Option<Effect>) {
+    match (state, event) {
+        (State::Idle, Event::Start(mode)) => (State::Running(mode), Some(Effect::Spawn(mode))),
+        (State::Idle, _) => (State::Idle, None),
+        (State::Running(_) | State::Cancelling, Event::Start(Mode::Urgent) | Event::Hurry) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
+        (State::Cancelling, Event::Start(Mode::Background)) => (State::Running(Mode::Background), None),
+        (State::Running(Mode::Background), Event::CancelBackground) => (State::Cancelling, Some(Effect::Nudge)),
+        (_, Event::Finished) => (State::Idle, None),
+        (other, _) => (other, None),
+    }
+}
+
 pub(crate) struct Prefetch {
-    flags: Mutex<Flags>,
-    /// Wakes the job's waits early (`start` while it runs, `cancel_background`).
+    state: Mutex<State>,
+    /// Wakes the job's waits early (it hurries, or it's cancelled).
     nudge: Condvar,
 }
 
-#[derive(Default)]
-struct Flags {
-    running: bool,
-    /// Someone is waiting for the browser: full speed, normal priority, no pausing, one try.
-    urgent: bool,
-    cancelled: bool,
+impl Default for Prefetch {
+    fn default() -> Self {
+        Self { state: Mutex::new(State::Idle), nudge: Condvar::new() }
+    }
 }
 
 impl Prefetch {
-    /// Starts the download job, or, when one runs, makes it hurry (`urgent`). Without a download
-    /// source a background start does nothing; an urgent one says the browser isn't available.
-    pub(crate) fn start(self: &Arc<Self>, urgent: bool, status: Arc<Mutex<EngineStatus>>, waker: Option<Waker>) {
-        let source = installer::resolve_download_source();
-        let mut flags = self.flags.lock().unwrap();
-        if urgent {
-            flags.urgent = true;
-            flags.cancelled = false;
-        }
-        if flags.running {
-            self.nudge.notify_all();
-            return;
-        }
-        let Some((url, sha256)) = source else {
-            flags.urgent = false;
-            drop(flags);
-            if urgent {
+    /// Starts a job for `mode`, or makes a running one hurry when a page waits. Without a source,
+    /// a page waiting hears the browser isn't available, and nothing else starts.
+    pub(crate) fn start(self: &Arc<Self>, mode: Mode, status: Arc<Mutex<EngineStatus>>, waker: Option<Waker>) {
+        if !source::configured() {
+            if mode == Mode::Urgent {
                 set(&status, waker.as_ref(), EngineStatus::Failed(installer::ERR_NO_SOURCE.into()));
             }
             return;
-        };
-        flags.running = true;
-        let job = Job { ctl: self.clone(), url, sha256, dest_root: installer::engine_cache_root(), status, waker };
-        if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run()).is_err() {
-            *flags = Flags::default();
+        }
+        let effect = self.event(Event::Start(mode));
+        if effect == Some(Effect::Spawn(mode)) {
+            let job = Job { ctl: self.clone(), status, waker };
+            if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run()).is_err() {
+                self.event(Event::Finished);
+            }
         }
     }
 
     /// Makes a running job go on at full speed: someone waits for it now.
     pub(crate) fn hurry(&self) {
-        let mut flags = self.flags.lock().unwrap();
-        if flags.running {
-            flags.urgent = true;
-            flags.cancelled = false;
-            self.nudge.notify_all();
-        }
+        self.event(Event::Hurry);
     }
 
     /// Stops a background download, keeping its bytes for later. A download the pane asked for
     /// goes on.
     pub(crate) fn cancel_background(&self) {
-        let mut flags = self.flags.lock().unwrap();
-        if flags.running && !flags.urgent {
-            flags.cancelled = true;
+        self.event(Event::CancelBackground);
+    }
+
+    fn event(&self, event: Event) -> Option<Effect> {
+        let mut state = self.state.lock().unwrap();
+        let (next, effect) = step(*state, event);
+        *state = next;
+        if effect == Some(Effect::Nudge) {
             self.nudge.notify_all();
         }
+        effect
     }
 
-    fn urgent(&self) -> bool {
-        self.flags.lock().unwrap().urgent
+    fn state(&self) -> State {
+        *self.state.lock().unwrap()
     }
 
-    fn cancelled(&self) -> bool {
-        let flags = self.flags.lock().unwrap();
-        flags.cancelled && !flags.urgent
-    }
-
-    /// Waits `for_`, or until the job should hurry or stop.
+    /// Waits `for_`, or until the job hurries or stops.
     fn wait(&self, for_: Duration) {
-        let flags = self.flags.lock().unwrap();
-        let _ = self.nudge.wait_timeout_while(flags, for_, |f| !f.urgent && !f.cancelled);
-    }
-
-    fn finish(&self) {
-        *self.flags.lock().unwrap() = Flags::default();
+        let state = self.state.lock().unwrap();
+        let _ = self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Background | Mode::Update)));
     }
 }
 
 struct Job {
     ctl: Arc<Prefetch>,
-    url: String,
-    sha256: Option<String>,
-    dest_root: PathBuf,
     status: Arc<Mutex<EngineStatus>>,
     waker: Option<Waker>,
 }
 
 impl Job {
     fn run(self) {
-        let partial = installer::partial_path(&self.dest_root, &self.url, self.sha256.as_deref());
-        installer::sweep_stale_staging(&self.dest_root);
-        let github = GithubAuth::user();
         let mut attempts = 0;
-        let mut low = !self.ctl.urgent();
+        let mut low = !self.urgent();
         background::set_background_priority(low);
         loop {
-            if self.ctl.cancelled() {
-                self.set(EngineStatus::NotInstalled);
-                break;
-            }
-            if !self.ctl.urgent()
+            let mode = match self.ctl.state() {
+                State::Running(mode) => mode,
+                State::Idle | State::Cancelling => {
+                    self.report(EngineStatus::NotInstalled);
+                    break;
+                }
+            };
+            if mode != Mode::Urgent
                 && let Some(reason) = background::pause_reason()
             {
-                self.set(EngineStatus::Paused(reason));
+                self.report(EngineStatus::Paused(reason));
                 self.ctl.wait(PAUSED_RECHECK);
                 continue;
             }
-            // Another app sharing the engine folder may have installed it meanwhile.
-            if installer::resolve_installed_executable().is_some() {
-                self.set(EngineStatus::Installed);
-                break;
-            }
-            let have = std::fs::metadata(&partial).map_or(0, |m| m.len());
-            self.set(EngineStatus::Downloading { downloaded_bytes: have, total_bytes: None });
-            // A download that ended before it installed (the app quit while unpacking) is whole.
-            let whole = self
-                .sha256
-                .as_deref()
-                .filter(|_| have > 0)
-                .and_then(|want| download::sha256_file(&partial).ok().filter(|got| got.eq_ignore_ascii_case(want)));
-            let fetched = match whole {
-                Some(sha256) => Ok(Fetched::Done { sha256 }),
-                None => self.fetch(&partial, &github, &mut low),
-            };
-            let err = match fetched {
-                Ok(Fetched::Stopped) => continue,
-                Ok(Fetched::Done { sha256 }) => {
-                    self.set(EngineStatus::Verifying);
-                    match installer::install_archive(&self.url, &partial, self.sha256.as_deref(), &sha256, &self.dest_root) {
-                        Ok(_) => {
-                            let _ = std::fs::remove_file(&partial);
-                            self.set(EngineStatus::Installed);
-                            break;
-                        }
-                        Err(err) => {
-                            // Bad bytes never resume: the next try starts over.
-                            if err == ERR_VERIFY {
-                                let _ = std::fs::remove_file(&partial);
-                            }
-                            err
-                        }
-                    }
+            let installed = installer::installed();
+            let release = match source::latest() {
+                // A page waits and the source is out of reach, but an engine is here: use it.
+                Err(_) if installed.is_some() && mode != Mode::Update => {
+                    self.report(EngineStatus::Installed);
+                    break;
                 }
-                Err(err) => err,
+                Err(err) => {
+                    if self.failed(err, &mut attempts) {
+                        break;
+                    }
+                    continue;
+                }
+                Ok(release) => release,
             };
-            attempts += 1;
-            if self.ctl.urgent() || attempts >= MAX_ATTEMPTS {
-                self.set(EngineStatus::Failed(err.into()));
+            rune::marks::mark("browser.engine.index");
+            // Up to date, or another app sharing the engine folder installed it meanwhile.
+            if installed.as_ref().is_some_and(|i| i.version.is_none_or(|v| v >= release.version)) {
+                self.report(EngineStatus::Installed);
                 break;
             }
-            let backoff = Duration::from_secs(15 << attempts.min(6)).min(Duration::from_secs(15 * 60));
-            self.set(EngineStatus::Failed(Failure::retrying(err, Instant::now() + backoff)));
-            self.ctl.wait(backoff);
+            let started = Instant::now();
+            let err = match self.install(&release, &mut low) {
+                Ok(()) => {
+                    rune::marks::mark("browser.engine.installed");
+                    log(&format!("browser engine {} installed in {} µs", release.version, started.elapsed().as_micros()));
+                    installer::remove_old(&installer::engines_root(), release.version);
+                    self.report(EngineStatus::Installed);
+                    break;
+                }
+                Err(Cut::Stopped) => continue,
+                Err(Cut::Failed(err) | Cut::Rejected(err)) => err,
+            };
+            if self.failed(err, &mut attempts) {
+                break;
+            }
         }
-        self.ctl.finish();
+        self.ctl.event(Event::Finished);
         self.wake();
     }
 
-    /// One try: the rest of the archive into `partial`, paced by the job's mode, which can
-    /// change mid-download (the pane opened, the OS asked to pause, the setting went off).
-    fn fetch(&self, partial: &Path, github: &GithubAuth, low: &mut bool) -> Result<Fetched, String> {
+    /// A try failed: true when the job gives up (a page waits, or it has tried enough), else it
+    /// waits out its backoff.
+    fn failed(&self, err: String, attempts: &mut u32) -> bool {
+        log(&format!("browser engine: {err}"));
+        *attempts += 1;
+        if self.urgent() || *attempts >= MAX_ATTEMPTS {
+            self.report(EngineStatus::Failed(err.into()));
+            return true;
+        }
+        let backoff = Duration::from_secs(15 << (*attempts).min(6)).min(Duration::from_secs(15 * 60));
+        self.report(EngineStatus::Failed(Failure::retrying(err, Instant::now() + backoff)));
+        self.ctl.wait(backoff);
+        false
+    }
+
+    /// One try: the rest of the archive, unpacked as it arrives into a staging folder, checked,
+    /// and moved into place as `<root>\<version>`.
+    fn install(&self, release: &Release, low: &mut bool) -> Result<(), Cut> {
+        let root = installer::engines_root();
+        std::fs::create_dir_all(&root).map_err(|e| Cut::Failed(err_write(&e)))?;
+        let partial = root.join(format!(".{}-{}.part", release.version, &release.sha256[..16]));
+        let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|e| Cut::Failed(err_write(&e)))?;
+        let result = self.fetch_into(release, &partial, &staging, low);
+        if matches!(result, Err(Cut::Rejected(_))) {
+            // Bytes that don't check out never resume: the next try starts over.
+            let _ = std::fs::remove_file(&partial);
+        }
+        let done = result.and_then(|()| {
+            let dest = root.join(release.version.to_string());
+            match std::fs::rename(&staging, &dest) {
+                Ok(()) => Ok(()),
+                // Another app installed the same version meanwhile.
+                Err(_) if installer::bin_in(&dest).is_file() => Ok(()),
+                Err(e) => Err(Cut::Failed(err_write(&e))),
+            }
+        });
+        if done.is_ok() {
+            let _ = std::fs::remove_file(&partial);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        done
+    }
+
+    fn fetch_into(&self, release: &Release, partial: &Path, staging: &Path, low: &mut bool) -> Result<(), Cut> {
+        let update = self.ctl.state() == State::Running(Mode::Update);
         let mut last_wake = Instant::now();
-        let progress = |downloaded_bytes, total_bytes| {
-            *self.status.lock().unwrap() = EngineStatus::Downloading { downloaded_bytes, total_bytes };
-            if self.ctl.urgent() || last_wake.elapsed() >= QUIET_WAKE || total_bytes == Some(downloaded_bytes) {
+        let mut progress = |downloaded_bytes: u64, total: u64| {
+            if update {
+                return;
+            }
+            *self.status.lock().unwrap() = EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) };
+            if self.urgent() || last_wake.elapsed() >= QUIET_WAKE || downloaded_bytes == total {
                 last_wake = Instant::now();
                 self.wake();
             }
         };
         let mut checked = Instant::now();
         let mut pace = || {
-            if self.ctl.cancelled() {
-                return Pace::Stop;
-            }
-            let urgent = self.ctl.urgent();
+            let urgent = match self.ctl.state() {
+                State::Cancelling | State::Idle => return Pace::Stop,
+                State::Running(mode) => mode == Mode::Urgent,
+            };
             if *low == urgent {
                 *low = !urgent;
                 background::set_background_priority(*low);
@@ -224,11 +291,45 @@ impl Job {
             }
             Pace::Limit(BACKGROUND_RATE)
         };
-        download::fetch(&self.url, partial, github, progress, &mut pace)
+        let verifier = Verifier::new(&release.trust);
+        let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
+        let tar_zst = release.url.split('?').next().is_some_and(|u| u.ends_with(".tar.zst"));
+        let streamed = if tar_zst {
+            unpack::tar_zst(&mut body, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)
+        } else {
+            std::io::copy(&mut body, &mut std::io::sink()).map(|_| ()).map_err(|_| Cut::Failed(installer::ERR_DOWNLOAD.into()))
+        };
+        if let Err(cut) = streamed {
+            return Err(body.cut().cloned().unwrap_or(cut));
+        }
+        let sha256 = body.finish()?;
+        rune::marks::mark("browser.engine.downloaded");
+        if !update {
+            self.report(EngineStatus::Verifying);
+        }
+        if sha256 != release.sha256 {
+            return Err(Cut::Rejected(ERR_VERIFY.into()));
+        }
+        if !tar_zst {
+            unzip(partial, staging)?;
+        }
+        verifier.finish(&staging.join(ENGINE_BUNDLE_NAME)).map_err(Cut::Rejected)?;
+        rune::marks::mark("browser.engine.verified");
+        if !installer::bin_in(staging).is_file() {
+            return Err(Cut::Failed(ERR_INSTALL.into()));
+        }
+        Ok(())
     }
 
-    fn set(&self, next: EngineStatus) {
-        set(&self.status, self.waker.as_ref(), next);
+    fn urgent(&self) -> bool {
+        self.ctl.state() == State::Running(Mode::Urgent)
+    }
+
+    /// Sets the engine's status, unless this job is an update (an engine runs).
+    fn report(&self, next: EngineStatus) {
+        if self.ctl.state() != State::Running(Mode::Update) {
+            set(&self.status, self.waker.as_ref(), next);
+        }
     }
 
     fn wake(&self) {
@@ -238,9 +339,20 @@ impl Job {
     }
 }
 
+/// macOS's bundle zip, with its links and attributes (`ditto`), into `staging`.
+fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
+    let ok = std::process::Command::new("ditto").args(["-x", "-k"]).arg(archive).arg(staging).status().is_ok_and(|s| s.success());
+    if ok { Ok(()) } else { Err(Cut::Failed(ERR_INSTALL.into())) }
+}
+
 fn set(status: &Mutex<EngineStatus>, waker: Option<&Waker>, next: EngineStatus) {
     *status.lock().unwrap() = next;
     if let Some(w) = waker {
         w();
     }
 }
+
+fn log(line: &str) {
+    eprintln!("{line}");
+}
+

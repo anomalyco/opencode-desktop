@@ -2,15 +2,15 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rune::{NativeSurface, Waker};
 
-use crate::installer::EngineStatus;
+use crate::installer::{ERR_STOPPED, EngineStatus};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
 
@@ -22,11 +22,41 @@ pub(crate) use uds_windows::UnixStream;
 /// Each tab's surface by tab id, which frames are pushed to off the UI thread.
 pub(crate) type Surfaces = Arc<Mutex<HashMap<u64, NativeSurface>>>;
 
-/// The engine at `bin`, serving `sock` and keeping its sign-ins in `profile`. On Windows it
-/// renders on the GPU Rune draws this app's windows with, so its frames open there.
+/// How long a new engine may take to open its socket: the first start after an install can take
+/// several seconds while the OS scans the freshly unpacked files (Windows Defender does, for
+/// each new DLL).
+const LISTEN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What the app shares with the threads that talk to its engine.
+#[derive(Clone)]
+pub(crate) struct Link {
+    pub status: Arc<Mutex<EngineStatus>>,
+    pub outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
+    pub inbox_tx: Sender<EngineMsg>,
+    pub surfaces: Surfaces,
+    pub waker: Option<Waker>,
+}
+
+impl Link {
+    pub(crate) fn set(&self, status: EngineStatus) {
+        *self.status.lock().unwrap() = status;
+        self.wake();
+    }
+
+    fn wake(&self) {
+        if let Some(w) = &self.waker {
+            w();
+        }
+    }
+}
+
+/// The engine at `bin`, serving `sock` and keeping its sign-ins in `profile`, in the app's
+/// language. On Windows it renders on the GPU Rune draws this app's windows with, so its frames
+/// open there.
 pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command {
     let mut cmd = Command::new(bin);
-    cmd.arg("--socket").arg(sock).env(profile::PROFILE_ENV, profile);
+    cmd.arg("--socket").arg(sock).arg("--lang").arg(chromium_locale(opencode_i18n::locale().id())).env(profile::PROFILE_ENV, profile);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(windows)]
     if let Some((high, low)) = rune::native_surface::windows::adapter_luid() {
         cmd.arg("--adapter-luid").arg(format!("{high},{low}"));
@@ -34,64 +64,59 @@ pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command
     cmd
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn spawn_and_attach_bg(
-    bin: PathBuf,
-    sock: PathBuf,
-    profile: PathBuf,
-    mach_service: Option<String>,
-    status: Arc<Mutex<EngineStatus>>,
-    outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
-    inbox_tx: Sender<EngineMsg>,
-    surfaces: Surfaces,
-    waker: Option<Waker>,
-) {
-    let _ = std::fs::remove_file(&sock);
-    // This app has no engine running (its socket didn't answer), so a held profile is an
-    // engine on its way out, most likely the shared one from before per-app engines.
-    profile::wait_until_free(&profile, profile::UNLOCK_WAIT);
-    if let Err(e) = engine_command(&bin, &sock, &profile).spawn() {
-        *status.lock().unwrap() =
-            EngineStatus::Failed(format!("failed to start {}: {e}", bin.display()).into());
-        if let Some(w) = waker {
-            w();
-        }
-        return;
-    }
-    // Up to 20 s: the first start after an install can take several, while the OS scans the
-    // engine's freshly unpacked files (Windows Defender does, for each new DLL).
-    for _ in 0..400 {
-        if let Ok(stream) = UnixStream::connect(&sock) {
-            wire_stream(stream, mach_service, &status, &outbox, inbox_tx, surfaces, waker);
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    *status.lock().unwrap() =
-        EngineStatus::Failed(format!("timed out waiting for {}", Path::display(&sock)).into());
-    if let Some(w) = waker {
-        w();
+/// Chromium's name for the app's language id, where they differ (package-windows.ps1 ships the
+/// locales by the same names).
+fn chromium_locale(id: &str) -> &str {
+    match id {
+        "en" => "en-US",
+        "zh" => "zh-CN",
+        "zht" => "zh-TW",
+        "no" => "nb",
+        other => other,
     }
 }
 
-pub(crate) fn wire_stream(
-    stream: UnixStream,
-    mach_service: Option<String>,
-    status: &Arc<Mutex<EngineStatus>>,
-    outbox: &Arc<Mutex<Option<Sender<HostMsg>>>>,
-    inbox_tx: Sender<EngineMsg>,
-    surfaces: Surfaces,
-    waker: Option<Waker>,
-) {
+/// Starts the engine and connects to it as soon as it listens (it says so on its output), on
+/// the calling thread.
+pub(crate) fn spawn_and_attach(bin: &Path, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
+    let _ = std::fs::remove_file(sock);
+    // This app has no engine running (its socket didn't answer), so a held profile is an
+    // engine on its way out, most likely the shared one from before per-app engines.
+    profile::wait_until_free(profile, profile::UNLOCK_WAIT);
+    let mut child = match engine_command(bin, sock, profile).spawn() {
+        Ok(child) => child,
+        Err(e) => return link.set(EngineStatus::Failed(format!("Couldn't start the browser: {e}").into())),
+    };
+    let Some(stdout) = child.stdout.take() else { return link.set(EngineStatus::Failed(ERR_STOPPED.into())) };
+    let (said, heard) = mpsc::channel();
+    let _ = std::thread::Builder::new().name("opencode-browser-listen".into()).spawn(move || {
+        let mut line = String::new();
+        let _ = said.send(BufReader::new(stdout).read_line(&mut line).is_ok_and(|n| n > 0) && line.trim() == "listening");
+    });
+    match heard.recv_timeout(LISTEN_TIMEOUT) {
+        Ok(true) => {}
+        // It exited (or hung) before it listened.
+        _ => {
+            let _ = child.kill();
+            return link.set(EngineStatus::Failed(ERR_STOPPED.into()));
+        }
+    }
+    rune::marks::mark("browser.engine.listening");
+    match UnixStream::connect(sock) {
+        Ok(stream) => wire_stream(stream, mach_service, link),
+        Err(_) => link.set(EngineStatus::Failed(ERR_STOPPED.into())),
+    }
+}
+
+pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link: &Link) {
     let Ok(reader_stream) = stream.try_clone() else {
         return;
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
     let _ = tx.send(HostMsg::Hello { mach_service, pid: std::process::id() });
-    *outbox.lock().unwrap() = Some(tx);
-    *status.lock().unwrap() = EngineStatus::Connecting;
+    *link.outbox.lock().unwrap() = Some(tx);
+    *link.status.lock().unwrap() = EngineStatus::Connecting;
 
-    let outbox_writer = outbox.clone();
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
         .spawn(move || {
@@ -109,11 +134,10 @@ pub(crate) fn wire_stream(
                     break;
                 }
             }
-            *outbox_writer.lock().unwrap() = None;
         })
         .ok();
 
-    let outbox_reader = outbox.clone();
+    let link = link.clone();
     std::thread::Builder::new()
         .name("rune-browser-rx".into())
         .spawn(move || {
@@ -129,18 +153,20 @@ pub(crate) fn wire_stream(
                     rune::marks::mark("browser.page.first_frame");
                 }
                 if let EngineMsg::SharedFrame { tab_id, frame_id, width, height, texture, release_fence } = msg {
-                    push_shared(&surfaces, tab_id, frame_id, width, height, texture, release_fence);
+                    push_shared(&link.surfaces, tab_id, frame_id, width, height, texture, release_fence);
                     continue;
                 }
                 let is_frame = matches!(msg, EngineMsg::CpuFrame { .. });
-                let _ = inbox_tx.send(msg);
-                if !is_frame
-                    && let Some(w) = &waker
-                {
-                    w();
+                let _ = link.inbox_tx.send(msg);
+                if !is_frame {
+                    link.wake();
                 }
             }
-            *outbox_reader.lock().unwrap() = None;
+            // The app shut the engine down (`shutdown_sidecar` empties the outbox first), or the
+            // engine went away on its own: then the pane says so, and Retry starts it again.
+            if link.outbox.lock().unwrap().take().is_some() {
+                link.set(EngineStatus::Failed(ERR_STOPPED.into()));
+            }
         })
         .ok();
 }

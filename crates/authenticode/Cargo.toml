@@ -1,0 +1,12 @@
+[package]
+name = "authenticode"
+version = "0.0.1"
+description = "Windows' Authenticode check of a file (WinVerifyTrust) and its signer's name: the updater's and the browser engine's trust rule"
+edition.workspace = true
+license.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust"] }
+
+[lints]
+workspace = true

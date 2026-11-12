@@ -4,6 +4,7 @@ members = [
     "apps/desktop",
     "apps/installer",
     "apps/web",
+    "crates/authenticode",
     "crates/browser-pane",
     "crates/hex-client",
     "crates/office-preview",

@@ -1,6 +1,8 @@
-//! Fetches the engine archive into a partial file that survives an interruption: the next fetch
-//! asks for the rest with an HTTP `Range` and hashes the bytes already there, so the SHA-256
-//! covers the whole archive however many tries it took.
+//! The engine archive as one stream of bytes, read once: first whatever an earlier try left in
+//! the partial file, then the rest from the source (an HTTP `Range` from where it ended), each
+//! new byte written to the partial file as it passes, so a cut-short download resumes. The
+//! reader hashes everything it hands on, so the SHA-256 covers the whole archive however many
+//! tries it took, and the archive unpacks while it downloads.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -10,10 +12,10 @@ use rune::time::Instant;
 
 use sha2::{Digest, Sha256};
 
-use crate::github_download::{self, ERR_RANGE, GithubAuth};
-use crate::installer::{ENGINE_DEFAULT_URL, ENGINE_GITHUB_FALLBACK_URL, ERR_DOWNLOAD, ERR_INSTALL};
+use crate::installer::{ERR_DOWNLOAD, ERR_VERIFY, err_blocked, err_write};
+use crate::source;
 
-/// How fast the next bytes may come, asked before each read.
+/// How fast the next bytes may come, asked before each read from the source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Pace {
     Full,
@@ -23,73 +25,144 @@ pub(crate) enum Pace {
     Stop,
 }
 
-pub(crate) enum Fetched {
-    /// The whole archive is in `partial`, with this SHA-256 (lowercase hex).
-    Done { sha256: String },
-    /// `pace` said stop; `partial` holds what came so far.
+/// Why the stream ended before the archive did.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Cut {
+    /// `pace` said stop; the partial file keeps what came.
     Stopped,
+    /// The network or the disk failed: the message the pane shows. The bytes so far stay.
+    Failed(String),
+    /// The bytes don't check out (size, hash, archive, trust rule): the message the pane shows.
+    /// The partial file goes, so the next try starts over.
+    Rejected(String),
 }
 
-/// Fetches `url` into `partial`, resuming after the bytes already there. `progress` hears
-/// `(downloaded, total)` as bytes arrive (every 256 KB, and at the start and end). A failed read
-/// keeps the partial file, so the next fetch resumes; the caller deletes it once it is used.
-pub(crate) fn fetch(
-    url: &str,
-    partial: &Path,
-    github: &GithubAuth,
-    mut progress: impl FnMut(u64, Option<u64>),
-    pace: &mut dyn FnMut() -> Pace,
-) -> Result<Fetched, String> {
-    let mut have = std::fs::metadata(partial).map_or(0, |m| m.len());
-    let mut resp = match open(url, github, have) {
-        // The partial file is already whole, or the server lost track of it: start over.
-        Err(err) if err == ERR_RANGE => {
-            have = 0;
-            open(url, github, 0)?
+/// HTTP statuses that mean someone refused the download (a proxy, a filter, the server), not
+/// that it broke.
+pub(crate) fn blocked(code: u16) -> bool {
+    matches!(code, 401 | 403 | 407 | 451)
+}
+
+/// The agent every engine request goes through: the system's certificate store (so a network
+/// that inspects TLS with its own root, as companies' do, still works) and the proxy the
+/// environment names.
+pub(crate) fn agent(timeout: Duration) -> ureq::Agent {
+    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+    ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_connect(Some(timeout))
+        .timeout_recv_response(Some(timeout))
+        .build()
+        .new_agent()
+}
+
+pub(crate) struct Body<'a> {
+    partial: File,
+    /// Bytes of the partial file not yet handed on.
+    replay: u64,
+    source: Option<Box<dyn Read + Send>>,
+    hasher: Sha256,
+    have: u64,
+    total: u64,
+    progress: &'a mut dyn FnMut(u64, u64),
+    pace: &'a mut dyn FnMut() -> Pace,
+    window: (Instant, u64, Pace),
+    last_notify: u64,
+    cut: Option<Cut>,
+}
+
+impl<'a> Body<'a> {
+    /// Opens `url` (`total` bytes, as the index says) after what `partial` already holds.
+    /// `progress` hears `(downloaded, total)` every 256 KB of new bytes.
+    pub(crate) fn open(
+        url: &str,
+        partial: &Path,
+        total: u64,
+        progress: &'a mut dyn FnMut(u64, u64),
+        pace: &'a mut dyn FnMut() -> Pace,
+    ) -> Result<Self, String> {
+        if let Some(dir) = partial.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| err_write(&e))?;
         }
-        other => other?,
-    };
-    let resumed = have > 0 && resp.status().as_u16() == 206;
-    if !resumed {
-        have = 0;
-    }
-    // `bytes <start>-<end>/<total>`: the rest must start where the partial file ends.
-    let range = header(&resp, "content-range");
-    let start = range.as_deref().and_then(|r| r.strip_prefix("bytes ")?.split('-').next()?.parse::<u64>().ok());
-    if resumed && start != Some(have) {
-        let _ = std::fs::remove_file(partial);
-        return Err(ERR_DOWNLOAD.into());
-    }
-    let total_bytes = if resumed {
-        range.and_then(|r| r.rsplit('/').next()?.parse::<u64>().ok())
-    } else {
-        header(&resp, "content-length").and_then(|v| v.parse::<u64>().ok())
-    };
-
-    let mut hasher = Sha256::new();
-    let mut file = open_partial(partial, resumed, &mut hasher).map_err(|_| ERR_INSTALL.to_owned())?;
-    progress(have, total_bytes);
-
-    let mut reader = resp.body_mut().as_reader();
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut downloaded = have;
-    let mut last_notify = have;
-    let mut window = (Instant::now(), 0u64, Pace::Full);
-    loop {
-        let limit = match pace() {
-            Pace::Stop => {
-                file.flush().map_err(|_| ERR_INSTALL.to_owned())?;
-                return Ok(Fetched::Stopped);
+        let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(partial).map_err(|e| err_write(&e))?;
+        // Locked while open, so two apps sharing the engine folder never write it at once.
+        file.try_lock().map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        let mut have = file.metadata().map_or(0, |m| m.len());
+        if have > total {
+            file.set_len(0).map_err(|e| err_write(&e))?;
+            have = 0;
+        }
+        let source = if have == total {
+            None
+        } else {
+            match open_source(url, have)? {
+                Opened::From(reader) => Some(reader),
+                Opened::Whole(reader) => {
+                    file.set_len(0).map_err(|e| err_write(&e))?;
+                    have = 0;
+                    Some(reader)
+                }
             }
+        };
+        file.seek(SeekFrom::Start(0)).map_err(|e| err_write(&e))?;
+        progress(have, total);
+        Ok(Self {
+            partial: file,
+            replay: have,
+            source,
+            hasher: Sha256::new(),
+            have,
+            total,
+            progress,
+            pace,
+            window: (Instant::now(), 0, Pace::Full),
+            last_notify: have,
+            cut: None,
+        })
+    }
+
+    /// Why the stream stopped early, once a read failed.
+    pub(crate) fn cut(&self) -> Option<&Cut> {
+        self.cut.as_ref()
+    }
+
+    /// Reads whatever the consumer left (an archive's zero padding), checks the size, and
+    /// returns the SHA-256 (lowercase hex).
+    pub(crate) fn finish(mut self) -> Result<String, Cut> {
+        let mut rest = [0u8; 64 * 1024];
+        loop {
+            match self.read(&mut rest) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => return Err(self.cut.take().unwrap_or_else(|| Cut::Failed(ERR_DOWNLOAD.into()))),
+            }
+        }
+        let _ = self.partial.flush();
+        if self.have != self.total {
+            return Err(Cut::Rejected(ERR_VERIFY.into()));
+        }
+        (self.progress)(self.have, self.total);
+        Ok(format!("{:x}", self.hasher.finalize()))
+    }
+
+    fn fail(&mut self, cut: Cut) -> std::io::Error {
+        let _ = self.partial.flush();
+        self.cut = Some(cut);
+        std::io::Error::other("engine download cut short")
+    }
+
+    fn read_source(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let limit = match (self.pace)() {
+            Pace::Stop => return Err(self.fail(Cut::Stopped)),
             p => p,
         };
-        if limit != window.2 {
-            window = (Instant::now(), 0, limit);
+        if limit != self.window.2 {
+            self.window = (Instant::now(), 0, limit);
         }
         if let Pace::Limit(rate) = limit {
             // Hold the window's average at `rate`: sleep until its bytes are due.
-            let due = Duration::from_secs_f64(window.1 as f64 / rate.max(1) as f64);
-            if let Some(wait) = due.checked_sub(window.0.elapsed()) {
+            let due = Duration::from_secs_f64(self.window.1 as f64 / rate.max(1) as f64);
+            if let Some(wait) = due.checked_sub(self.window.0.elapsed()) {
                 std::thread::sleep(wait);
             }
         }
@@ -97,72 +170,87 @@ pub(crate) fn fetch(
             Pace::Limit(rate) => buf.len().min((rate / 8).max(4096) as usize),
             _ => buf.len(),
         };
-        let n = reader.read(&mut buf[..chunk]).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        let Some(source) = self.source.as_mut() else { return Ok(0) };
+        let n = match source.read(&mut buf[..chunk]) {
+            Ok(n) => n,
+            Err(_) => return Err(self.fail(Cut::Failed(ERR_DOWNLOAD.into()))),
+        };
         if n == 0 {
-            break;
+            return Ok(0);
         }
-        file.write_all(&buf[..n]).map_err(|_| ERR_INSTALL.to_owned())?;
-        hasher.update(&buf[..n]);
-        downloaded += n as u64;
-        window.1 += n as u64;
-        if downloaded - last_notify >= 256 * 1024 {
-            last_notify = downloaded;
-            progress(downloaded, total_bytes);
+        if let Err(e) = self.partial.write_all(&buf[..n]) {
+            let msg = err_write(&e);
+            return Err(self.fail(Cut::Failed(msg)));
         }
+        self.window.1 += n as u64;
+        Ok(n)
     }
-    file.flush().map_err(|_| ERR_INSTALL.to_owned())?;
-    if total_bytes.is_some_and(|t| t != downloaded) {
-        return Err(ERR_DOWNLOAD.into());
-    }
-    progress(downloaded, total_bytes.or(Some(downloaded)));
-    Ok(Fetched::Done { sha256: format!("{:x}", hasher.finalize()) })
 }
 
-/// Opens the archive, falling back to the GitHub release mirror when the release CDN fails.
-fn open(url: &str, github: &GithubAuth, from: u64) -> Result<ureq::http::Response<ureq::Body>, String> {
-    github_download::open(url, github, from).or_else(|primary_err| {
-        match ENGINE_GITHUB_FALLBACK_URL.filter(|_| Some(url) == ENGINE_DEFAULT_URL && primary_err != ERR_RANGE) {
-            Some(fallback) => github_download::open(fallback, github, from).map_err(|_| primary_err),
-            None => Err(primary_err),
+impl Read for Body<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.cut.is_some() || buf.is_empty() {
+            return Err(std::io::Error::other("engine download cut short"));
         }
-    })
-}
-
-fn header(resp: &ureq::http::Response<ureq::Body>, name: &str) -> Option<String> {
-    resp.headers().get(name)?.to_str().ok().map(str::to_owned)
-}
-
-/// Opens `partial` to append to after hashing what it holds, or emptied when not `resuming`. It
-/// stays locked while open, so two apps sharing the engine folder never write it at once.
-fn open_partial(partial: &Path, resuming: bool, hasher: &mut Sha256) -> std::io::Result<File> {
-    if let Some(dir) = partial.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(partial)?;
-    file.try_lock().map_err(std::io::Error::other)?;
-    if resuming {
-        hash_into(&mut file, hasher)?;
-    } else {
-        file.set_len(0)?;
-    }
-    file.seek(SeekFrom::End(0))?;
-    Ok(file)
-}
-
-/// The SHA-256 of a whole file (lowercase hex).
-pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
-    let mut hasher = Sha256::new();
-    hash_into(&mut File::open(path)?, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn hash_into(file: &mut File, hasher: &mut Sha256) -> std::io::Result<()> {
-    let mut buf = vec![0u8; 256 * 1024];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
+        let n = if self.replay > 0 {
+            let want = buf.len().min(self.replay.min(usize::MAX as u64) as usize);
+            match self.partial.read(&mut buf[..want]) {
+                Ok(0) | Err(_) => return Err(self.fail(Cut::Failed(ERR_DOWNLOAD.into()))),
+                Ok(n) => {
+                    self.replay -= n as u64;
+                    n
+                }
+            }
+        } else {
+            self.read_source(buf)?
+        };
+        if self.have + n as u64 > self.total {
+            return Err(self.fail(Cut::Rejected(ERR_VERIFY.into())));
         }
-        hasher.update(&buf[..n]);
+        self.hasher.update(&buf[..n]);
+        self.have += n as u64;
+        if self.have - self.last_notify >= 256 * 1024 {
+            self.last_notify = self.have;
+            (self.progress)(self.have, self.total);
+        }
+        Ok(n)
+    }
+}
+
+enum Opened {
+    /// The source answers from the requested offset.
+    From(Box<dyn Read + Send>),
+    /// The source sends the whole archive again.
+    Whole(Box<dyn Read + Send>),
+}
+
+fn open_source(url: &str, from: u64) -> Result<Opened, String> {
+    if let Some(path) = source::file_path(url) {
+        let mut file = File::open(path).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        file.seek(SeekFrom::Start(from)).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        return Ok(Opened::From(Box::new(file)));
+    }
+    let agent = agent(Duration::from_secs(30));
+    let mut req = agent.get(url);
+    if from > 0 {
+        req = req.header("Range", format!("bytes={from}-"));
+    }
+    match req.call() {
+        Ok(resp) => {
+            let resumed = from > 0 && resp.status().as_u16() == 206;
+            // `bytes <start>-<end>/<total>`: the rest must start where the partial file ends.
+            let start = resp.headers().get("content-range").and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes ")?.split('-').next()?.parse::<u64>().ok());
+            if resumed && start != Some(from) {
+                return Err(ERR_DOWNLOAD.into());
+            }
+            let reader: Box<dyn Read + Send> = Box::new(resp.into_body().into_reader());
+            Ok(if resumed || from == 0 { Opened::From(reader) } else { Opened::Whole(reader) })
+        }
+        // The server lost track of the partial file: start over.
+        Err(ureq::Error::StatusCode(416)) if from > 0 => open_source(url, 0).map(|o| match o {
+            Opened::From(r) | Opened::Whole(r) => Opened::Whole(r),
+        }),
+        Err(ureq::Error::StatusCode(code)) if blocked(code) => Err(err_blocked(code)),
+        Err(_) => Err(ERR_DOWNLOAD.into()),
     }
 }

@@ -1,4 +1,6 @@
-//! macOS CEF helper process executable (`Helper`, `Helper (GPU)`, `Helper (Renderer)`, etc.).
+//! CEF's helper process executable (on macOS `Helper`, `Helper (GPU)`, `Helper (Renderer)`, etc.;
+//! elsewhere the one program for every subprocess).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 use cef::args::Args;
 
 fn main() {

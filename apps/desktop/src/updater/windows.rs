@@ -32,7 +32,6 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::authenticode;
 use super::engine::{Engine, Facts};
 use super::feed;
 use super::platform::Platform;

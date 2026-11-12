@@ -1,8 +1,9 @@
 //! Pure-Rust Rune client for the on-demand `OpenCode Browser Engine` CEF sidecar.
 //!
 //! Keeps `OpenCode (Rune).app` small (~8 MB) and free of C++/CEF dependencies:
-//! - Resolves or downloads the signed `OpenCode Browser Engine.app` into Application Support: in the
-//!   background when the app asks (`BrowserHost::prefetch`, resumable and throttled), or on first use.
+//! - Finds the installed engine, or fetches it from the build's source (`source.rs`) and checks it against
+//!   the build's trust rule before anything of it runs: in the background when the app asks
+//!   (`BrowserHost::prefetch`, resumable and throttled), on first use, or as an update beside a running one.
 //! - Speaks line-delimited JSON over a private Unix domain socket (AF_UNIX on Windows too) for tabs,
 //!   input, resize, and CDP.
 //! - Receives zero-copy 2x Retina `IOSurface` frames over a Mach port pipe on macOS, and named D3D
@@ -17,8 +18,6 @@ mod background;
 mod client;
 #[cfg(feature = "engine")]
 mod download;
-#[cfg(feature = "engine")]
-mod github_download;
 pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -31,17 +30,20 @@ pub mod protocol;
 #[cfg(feature = "engine")]
 mod sidecar;
 mod site_zoom;
+#[cfg(feature = "engine")]
+mod source;
 mod surface;
 #[cfg(feature = "engine")]
 mod transport;
+#[cfg(feature = "engine")]
+mod trust;
+#[cfg(feature = "engine")]
+mod unpack;
 
 pub use address::{bare_url, host_of, resolve_address};
 pub use client::BrowserHost;
 pub use client::BrowserTab;
-pub use installer::{
-    ENGINE_DEFAULT_SHA256, ENGINE_DEFAULT_URL, ENGINE_DOWNLOAD_MB, ENGINE_VERSION, ERR_DOWNLOAD, ERR_SIGN_IN,
-    EngineStatus, Failure, PauseReason, err_no_access,
-};
+pub use installer::{ENGINE_DOWNLOAD_MB, ENGINE_REVISION, ERR_DOWNLOAD, ERR_STOPPED, EngineStatus, Failure, PauseReason, Version};
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
