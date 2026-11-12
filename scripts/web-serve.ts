@@ -12,6 +12,7 @@ const types: Record<string, string> = {
   ".wasm": "application/wasm",
   ".ttf": "font/ttf",
   ".otf": "font/otf",
+  ".wav": "audio/wav",
 }
 
 Bun.serve({

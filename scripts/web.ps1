@@ -110,6 +110,8 @@ if (-not $NoBuild) {
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
   Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf'
+  # The sound effects the page plays when they're asked for (sounds.rs).
+  Copy-Item -Recurse (Join-Path $root 'apps/desktop/assets/sounds') (Join-Path $next 'sounds')
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out
   $size = (Get-Item (Join-Path $Out 'app_bg.wasm')).Length

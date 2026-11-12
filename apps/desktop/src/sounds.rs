@@ -2,14 +2,23 @@
 //! sound Settings › Notifications › Sound effects picks for each event, played when the agent
 //! finishes or fails in a session with an open tab, or asks a permission or a question, and as
 //! a preview when picked. The clips ship as 22 kHz mono WAV (`assets/sounds`, converted from
-//! Desktop's MP3s). Only a window with a person at it plays (`App::persists`).
+//! Desktop's MP3s). Only a window with a person at it plays (`App::persists`). In a browser the
+//! clips aren't in the module: the page plays them from `sounds/` beside it (`scripts/web.ps1`).
 
 
 use crate::App;
 
+#[cfg(not(target_arch = "wasm32"))]
 macro_rules! clips {
     ($($id:literal),+ $(,)?) => {
         &[$(($id, include_bytes!(concat!("../assets/sounds/", $id, ".wav")))),+]
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+macro_rules! clips {
+    ($($id:literal),+ $(,)?) => {
+        &[$(($id, &[])),+]
     };
 }
 
@@ -79,7 +88,30 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+/// The page's own audio, from the clip served beside it.
+#[cfg(target_arch = "wasm32")]
+mod platform {
+    use std::cell::RefCell;
+
+    thread_local! {
+        /// The clip playing, which the next one stops, as `PlaySound` replaces.
+        static PLAYING: RefCell<Option<web_sys::HtmlAudioElement>> = const { RefCell::new(None) };
+    }
+
+    pub fn play(id: &str, _: &'static [u8]) {
+        let Ok(audio) = web_sys::HtmlAudioElement::new_with_src(&format!("sounds/{id}.wav")) else { return };
+        // A page may play sound only after the person has used it; until then the browser refuses,
+        // and the refusal is no error of ours.
+        if let Ok(playing) = audio.play() {
+            wasm_bindgen_futures::spawn_local(async move { let _ = wasm_bindgen_futures::JsFuture::from(playing).await; });
+        }
+        if let Some(last) = PLAYING.replace(Some(audio)) {
+            let _ = last.pause();
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
 mod platform {
     /// The clip from the app's cache folder through the system's player: `afplay` on macOS,
     /// PulseAudio's `paplay` (or ALSA's `aplay`) elsewhere.
