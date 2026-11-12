@@ -6,7 +6,7 @@
 //! executable named like the command beside it; failing those, the folder its installer puts it
 //! in. File Explorer shows a folder or opens a file in its default app, and reveals a file with it
 //! selected (`SHOpenFolderAndSelectItems`, no new `explorer.exe`); PowerShell (5 or 7) opens in its
-//! own console in the folder, Windows Terminal in a new tab there.
+//! own console in the folder, Windows Terminal in a new window there.
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -36,8 +36,9 @@ impl Launcher for Win {
                     return powershell(&exe, &path);
                 }
                 if is_terminal(&exe) {
-                    // Windows Terminal opens a new tab in the folder (`-d`), not the path.
-                    return start(Command::new(exe).arg("-d").arg(folder(&path)));
+                    // Windows Terminal opens in a window of its own (`-w new`, never a tab in one
+                    // the person already has open) in the folder (`-d`), not the path.
+                    return start(Command::new(exe).args(["-w", "new", "-d"]).arg(folder(&path)));
                 }
                 start(Command::new(exe).arg(&path))
             }
