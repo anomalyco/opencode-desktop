@@ -1,3 +1,5 @@
 * text=auto eol=lf
 # Vendored license text, kept byte for byte.
 apps/desktop/assets/fonts/IBMPlexMono-LICENSE.txt -text
+# LLVM's profile-guided optimisation profiles.
+apps/desktop/pgo/*.profdata binary

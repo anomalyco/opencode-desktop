@@ -24,6 +24,12 @@ apps/desktop/scripts/dev.sh            # dev profile (optimized dependencies)
 apps/desktop/scripts/dev.sh --release  # release profile
 ```
 
+A release build is what ships: the whole program optimised as one (fat LTO, one codegen unit) and, on
+Windows x64, with the profile-guided optimisation profile in `apps/desktop/pgo/`. Build and time it
+with `pwsh apps/desktop/scripts/release.ps1` (a plain `cargo build --release` leaves the profile out;
+it takes 25 to 60 minutes and about 10 GB for one rustc). `--profile release-quick` builds in minutes
+for iterating.
+
 For prebuilt `main` and side-by-side pull-request `.dmg` builds, see [docs/trying-opencode-rune.md](docs/trying-opencode-rune.md).
 
 ## Workspace layout

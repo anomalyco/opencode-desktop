@@ -58,8 +58,17 @@ function Invoke-Cargo([string[]] $Arguments) {
 if ($Payload) {
     $zip = (Resolve-Path $Payload).Path
 } else {
-    Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
-    $exe = Join-Path $bin 'opencode-desktop.exe'
+    # A release app is the shipped build: its profile-guided optimisation profile comes with it.
+    if ($Profile -eq 'release') {
+        & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple
+        if ($LASTEXITCODE -ne 0) { throw 'the release build failed' }
+        # release.ps1 always names the target, so the app is under target/<triple>/ even when native.
+        $appBin = if ($cross) { $bin } else { Join-Path $target "$triple/release" }
+    } else {
+        Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
+        $appBin = $bin
+    }
+    $exe = Join-Path $appBin 'opencode-desktop.exe'
     if (-not $cross) {
         $reported = (& $exe --version | Out-String).Trim()
         if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }

@@ -1,0 +1,23 @@
+# Profile-guided optimisation
+
+`<target>.profdata` is what LLVM optimises the release build with: how often each function and
+branch of the app ran in a training run of the app as it ships. `<target>.txt` says what it was
+trained on (commit, Rune rev, rustc, processes, functions that ran).
+
+- **What uses it:** `apps/desktop/scripts/release.ps1` (and through it `apps/installer/scripts/package.ps1`,
+  so the release workflow) adds `-Cprofile-use` for the target's file when there is one. A plain
+  `cargo build --release` doesn't: time the app with a build from `release.ps1`.
+- **What it's worth (Windows x64, fat LTO, measured per frame on the same scripted typing, hover,
+  scroll and palette):** 14–22 % less CPU per frame than the same build without it. The exe grows
+  (hot paths inlined), and functions that never ran in training are optimised for size.
+- **What the training covers:** an agent turn streaming (markdown, code, tools, a subagent, a
+  question), typing in short and long drafts, hovering and switching and dragging tabs, the command
+  palette, scrolling and panning, side panels, menus, popovers, the sidebar, resizing, Home,
+  Settings, a German run, and a launch and quit in every part. Office previews and the terminal
+  aren't in it yet, so they build as cold code.
+- **Refresh it** when the app or Rune changed a lot since `<target>.txt`'s commit (`release.ps1`
+  prints how many app commits there have been), or after a Rust toolchain bump (the file format
+  follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
+  files. A stale profile is never wrong: a function whose code changed since loses its counts and
+  builds as it would without a profile.
+- **macOS and Linux** have no profile yet, so they build without one.
