@@ -67,8 +67,8 @@ impl Io {
 static QUIT_SENT: AtomicBool = AtomicBool::new(false);
 /// The last frame drawn after `content.live`, until the window has been still for [`STILL`].
 static LAST_DRAWN: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
-/// What the last frame showed, hashed (`drawn`).
-static SHOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// What each window's last frame showed, hashed (`drawn`), by window id.
+static SHOWN: std::sync::Mutex<Option<std::collections::HashMap<String, u64>>> = std::sync::Mutex::new(None);
 /// When it was: `pixels.stable`.
 static STABLE: OnceLock<Instant> = OnceLock::new();
 /// How long the window draws nothing before its last frame counts as the stable one.
@@ -186,21 +186,24 @@ pub fn drawn(rt: &rune::Runtime<App>) {
                 each.insert(e.path.clone(), (one, e.rect, e.opacity, e.text.clone()));
             }
         }
-        if SHOWN.swap(h.finish(), Ordering::Relaxed) != h.finish() {
+        let changed = SHOWN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(s.window.id.to_string(), h.finish()) != Some(h.finish());
+        if changed {
             *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
             // `--launch-trace-why`: which elements changed, to stderr, so a change no one sees can be named.
             if why {
-                static PREV: std::sync::Mutex<Option<std::collections::HashMap<String, (u64, [f32; 4], f32, Option<String>)>>> = std::sync::Mutex::new(None);
+                type Seen = std::collections::HashMap<String, (u64, [f32; 4], f32, Option<String>)>;
+                static PREV: std::sync::Mutex<Option<std::collections::HashMap<String, Seen>>> = std::sync::Mutex::new(None);
                 let mut prev = PREV.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(old) = prev.as_ref() {
+                let prev = prev.get_or_insert_with(Default::default);
+                if let Some(old) = prev.get(&s.window.id.to_string()) {
                     let mut lines: Vec<String> = each.iter().filter(|(p, v)| old.get(*p).is_none_or(|o| o.0 != v.0)).map(|(p, v)| format!("  {} {p} rect {:?} opacity {} text {:?}", if old.contains_key(p) { "changed" } else { "added" }, v.1, v.2, v.3.as_deref().map(|t| t.chars().take(40).collect::<String>()))).collect();
                     lines.extend(old.keys().filter(|p| !each.contains_key(*p)).map(|p| format!("  removed {p}")));
                     lines.sort();
                     let n = lines.len();
-                    eprintln!("launch-why {} ms after main: {n} elements differ", BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()));
+                    eprintln!("launch-why {} ms after main, window {}: {n} elements differ", BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()), s.window.id);
                     for l in lines.into_iter().take(12) { eprintln!("{l}"); }
                 }
-                *prev = Some(each);
+                prev.insert(s.window.id.to_string(), each);
             }
         }
     }

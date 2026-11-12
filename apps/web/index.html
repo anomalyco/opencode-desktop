@@ -88,7 +88,6 @@
     // Only a head start: the app reads for itself when this can't.
     try { startFirstReads(); } catch {}
     try {
-      if (!navigator.gpu) throw new Error('This page needs WebGPU: use a current Chrome or Edge.');
       // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.
       if (!('Suspending' in WebAssembly)) throw new Error('This page needs JS Promise Integration: use Chrome or Edge 137 or newer.');
       const app = await import('./app.js');
