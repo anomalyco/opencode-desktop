@@ -20,6 +20,7 @@
   pwsh scripts/web.ps1 -NoServe             # build only (CI)
   pwsh scripts/web.ps1 -NoBuild             # serve the last build
   pwsh scripts/web.ps1 -SkipCargo           # package what cargo last built (a build run elsewhere)
+  pwsh scripts/web.ps1 -SkipCargo -Names -Out <dir>   # the same, keeping function names for a profile
   pwsh scripts/web.ps1 -Check               # cargo check the app for the web, and that it names no std clock (before a push)
   pwsh scripts/web.ps1 -Check -Cargo <wrapper.ps1>   # the same through a cargo wrapper script
 #>
@@ -30,6 +31,8 @@ param(
   [switch]$SkipCargo,
   [switch]$NoServe,
   [switch]$Check,
+  # Keep the module's function names (a release build drops them), for a CPU profile that names them.
+  [switch]$Names,
   [string]$Cargo = $env:CARGO,
   [string]$WasiSdk = $env:WASI_SDK_PATH,
   [string]$Out
@@ -95,7 +98,7 @@ if (-not $NoBuild) {
   Remove-Item -Recurse -Force $next -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force $next | Out-Null
   $bindgen = @('--target', 'web', '--out-dir', $next, '--out-name', 'app')
-  if (-not $Dev) { $bindgen += '--remove-name-section' }
+  if (-not $Dev -and -not $Names) { $bindgen += '--remove-name-section' }
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
   # The page shows the module's download against its size (`data-wasm-bytes`).

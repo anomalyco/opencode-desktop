@@ -20,6 +20,20 @@ impl Server {
     pub fn reachable(&self) -> bool {
         true
     }
+
+    /// Starts GETs of `paths` now, all at once, for this server's `get`s from task work to take
+    /// up (`ureq_web::start_get`): a page's reads otherwise go one after another.
+    pub fn start_gets(&self, paths: &[&str]) {
+        let auth = self.auth.as_deref().map(|a| ("Authorization", a));
+        for path in paths {
+            ureq_web::start_get(&format!("{}{path}", self.base), auth.as_slice());
+        }
+    }
+
+    /// Drops what [`Server::start_gets`] began that no `get` took up.
+    pub fn forget_gets(&self) {
+        ureq_web::forget_started();
+    }
 }
 
 static RETRY: AtomicU64 = AtomicU64::new(0);

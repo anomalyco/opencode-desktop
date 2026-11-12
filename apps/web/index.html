@@ -68,8 +68,25 @@
     }));
     return new Response(counted, { headers: { 'content-type': 'application/wasm' } });
   }
+  // The app's first reads (`launch.rs`'s FIRST_READS), asked for now, so the server answers while
+  // the module downloads; the app takes the answers up when it reads them with the same
+  // credential (`ureq_web::start_get`), and reads again otherwise.
+  function startFirstReads() {
+    const base = params.get('server').trim().replace(/\/+$/, '');
+    const auth = password?.trim() ? `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`opencode:${password.trim()}`)))}` : '';
+    const headers = auth ? { Authorization: auth } : {};
+    const paths = ['/api/project', '/api/session?limit=120', '/api/model', '/api/agent', '/api/provider', '/api/session/active', '/api/config'];
+    window.opencodeStarted = new Map(paths.map(path => {
+      const promise = fetch(base + path, { headers });
+      // Seen here so one nobody takes up isn't an unhandled rejection; the app's read still sees it fail.
+      promise.catch(() => {});
+      return [base + path, { auth, promise }];
+    }));
+  }
   async function boot() {
     status.textContent = 'Loading\u2026';
+    // Only a head start: the app reads for itself when this can't.
+    try { startFirstReads(); } catch {}
     try {
       if (!navigator.gpu) throw new Error('This page needs WebGPU: use a current Chrome or Edge.');
       // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.

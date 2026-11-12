@@ -1,4 +1,5 @@
-//! The part of ureq's API the app and its crates use, over a page's synchronous`n//! `XMLHttpRequest`: the same request code runs natively and in a browser. A file that makes
+//! The part of ureq's API the app and its crates use, over a page's `fetch` or synchronous
+//! `XMLHttpRequest`: the same request code runs natively and in a browser. A file that makes
 //! requests names it `ureq` on the web (`#[cfg(target_arch = "wasm32")] use ureq_web as ureq;`).
 //! The app makes its requests from `rune::task` work, where they're a `fetch` the work waits
 //! on without holding the page.
@@ -8,12 +9,14 @@
 
 #![cfg(target_arch = "wasm32")]
 
+use std::cell::RefCell;
 use std::fmt;
 use std::io::{Cursor, Read};
 use std::marker::PhantomData;
 use std::time::Duration;
 
 pub use http;
+use rune::time::Instant;
 use wasm_bindgen::{JsCast, JsValue};
 
 /// A request's failure, worded as ureq words it, so callers' checks on the text read the same.
@@ -354,27 +357,105 @@ pub fn request_with_headers(method: &str, url: &str, headers: &[(&str, &str)], b
     Ok((status, list, body_bytes(&xhr)))
 }
 
+/// A GET [`start_get`] began, for the next GET of `url` with `auth` from task work to take up.
+struct Started {
+    url: String,
+    /// Its `Authorization`, empty for none.
+    auth: String,
+    at: Instant,
+    promise: js_sys::Promise,
+}
+
+thread_local! {
+    static STARTED: RefCell<Vec<Started>> = const { RefCell::new(Vec::new()) };
+}
+
+/// How long a started GET waits to be taken up before it's dropped, so a later read never gets
+/// an old answer.
+const STARTED_KEEP: Duration = Duration::from_secs(10);
+
+/// Starts a GET of `url` now, with the headers the request that wants it will send: the browser
+/// makes it while the page does other work (loads, draws its first frame, or waits on another
+/// request), and the next GET of `url` from task work waits on this one instead of asking again.
+/// Several started at once are answered at once, where task work asks one after another. Not
+/// again while one for `url` is waiting to be taken up.
+///
+/// The page may have asked before the module loaded (`window.opencodeStarted`, a `Map` of URL to
+/// `{ auth, promise }`): the first call takes all of those over, from then on as if started here.
+pub fn start_get(url: &str, headers: &[(&str, &str)]) {
+    let Some(window) = web_sys::window() else { return };
+    let auth = authorization(headers).to_owned();
+    STARTED.with_borrow_mut(|started| {
+        started.extend(page_started(&window));
+        started.retain(|s| s.at.elapsed() < STARTED_KEEP);
+        if started.iter().any(|s| s.url == url && s.auth == auth) {
+            return;
+        }
+        if let Ok(request) = build("GET", url, headers, None) {
+            started.push(Started { url: url.to_owned(), auth, at: Instant::now(), promise: window.fetch_with_request(&request) });
+        }
+    });
+}
+
+/// What the page started before the module loaded, taken out of the page.
+fn page_started(window: &web_sys::Window) -> Vec<Started> {
+    let name = JsValue::from_str("opencodeStarted");
+    let Some(map) = js_sys::Reflect::get(window, &name).ok().and_then(|m| m.dyn_into::<js_sys::Map>().ok()) else { return Vec::new() };
+    let _ = js_sys::Reflect::delete_property(window, &name);
+    let field = |entry: &JsValue, name: &str| js_sys::Reflect::get(entry, &JsValue::from_str(name)).ok();
+    let mut out = Vec::new();
+    map.for_each(&mut |entry, url| {
+        let (Some(url), Some(auth), Some(promise)) = (url.as_string(), field(&entry, "auth").and_then(|a| a.as_string()), field(&entry, "promise").and_then(|p| p.dyn_into::<js_sys::Promise>().ok())) else { return };
+        out.push(Started { url, auth, at: Instant::now(), promise });
+    });
+    out
+}
+
+fn authorization<'a>(headers: &[(&str, &'a str)]) -> &'a str {
+    headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("authorization")).map_or("", |(_, v)| *v)
+}
+
+/// Drops the GETs [`start_get`] began that nothing took up: what they'd answer is no longer
+/// wanted (the first of them failed, say).
+pub fn forget_started() {
+    STARTED.with_borrow_mut(Vec::clear);
+}
+
+fn take_started(url: &str, headers: &[(&str, &str)]) -> Option<js_sys::Promise> {
+    let auth = authorization(headers);
+    STARTED.with_borrow_mut(|started| {
+        started.retain(|s| s.at.elapsed() < STARTED_KEEP);
+        let i = started.iter().position(|s| s.url == url && s.auth == auth)?;
+        Some(started.swap_remove(i).promise)
+    })
+}
+
+fn build(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<web_sys::Request, JsValue> {
+    let init = web_sys::RequestInit::new();
+    init.set_method(method);
+    let h = web_sys::Headers::new()?;
+    for (name, value) in headers {
+        h.append(name, value)?;
+    }
+    init.set_headers(&h);
+    if let Some(bytes) = body {
+        init.set_body(&js_sys::Uint8Array::from(bytes));
+    }
+    web_sys::Request::new_with_str_and_init(url, &init)
+}
+
 /// The request as a `fetch` the task work waits on; `None` outside task work.
 fn fetch(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Option<Result<(u16, Vec<(String, String)>, Vec<u8>), JsValue>> {
     let window = web_sys::window()?;
-    let request = (|| {
-        let init = web_sys::RequestInit::new();
-        init.set_method(method);
-        let h = web_sys::Headers::new()?;
-        for (name, value) in headers {
-            h.append(name, value)?;
-        }
-        init.set_headers(&h);
-        if let Some(bytes) = body {
-            init.set_body(&js_sys::Uint8Array::from(bytes));
-        }
-        web_sys::Request::new_with_str_and_init(url, &init)
-    })();
-    let request = match request {
-        Ok(r) => r,
-        Err(e) => return Some(Err(e)),
+    let started = if method == "GET" && body.is_none() { take_started(url, headers) } else { None };
+    let promise = match started {
+        Some(promise) => promise,
+        None => match build(method, url, headers, body) {
+            Ok(request) => window.fetch_with_request(&request),
+            Err(e) => return Some(Err(e)),
+        },
     };
-    let response = match rune::task::wait(&window.fetch_with_request(&request))? {
+    let response = match rune::task::wait(&promise)? {
         Ok(r) => r.unchecked_into::<web_sys::Response>(),
         Err(e) => return Some(Err(e)),
     };

@@ -27,8 +27,9 @@ pub fn start(password: Option<String>) {
     }
     // The app's state: the browser's storage, as the database is natively.
     storage::start();
-    // Reads wait for the first frame, as a window's do.
+    // Reads wait for the first frame, as a window's do, but the browser asks the server now.
     launch::defer();
+    launch::start_first_reads();
     let app_spec = rune::AppSpec { families: appearance::launch_families(), poll: Some(poll), ..spec(App::new) };
     let app = crate::LATE_FONTS.iter().fold(rune_app(app_spec).args(args), |app, url| app.font_url_later(url));
     let handle = app.handle();

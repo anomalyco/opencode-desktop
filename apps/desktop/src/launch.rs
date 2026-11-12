@@ -200,6 +200,17 @@ pub fn deferred() -> bool {
     DEFERRED.load(Ordering::Relaxed)
 }
 
+/// What [`First::fetch`] reads, the projects first.
+const FIRST_READS: [&str; 7] =
+    ["/api/project", "/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
+
+/// The page, as it starts: the browser asks for the first reads while the module starts and
+/// draws its first frame, and `on_ready`'s reads take up the answers.
+#[cfg(target_arch = "wasm32")]
+pub fn start_first_reads() {
+    initial_server().start_gets(&FIRST_READS);
+}
+
 /// The first reads: projects, sessions, models and agents, providers, and what's running.
 pub struct First {
     projects: Value,
@@ -219,9 +230,16 @@ impl First {
             crate::telemetry::launch_read(path, start);
             r
         };
-        let projects = get("/api/project")?;
-        let paths = ["/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
-        // A page has no threads: one read after another.
+        // A page started them with itself (`start_first_reads`); a retry starts them here.
+        #[cfg(target_arch = "wasm32")]
+        server.start_gets(&FIRST_READS);
+        let [projects, paths @ ..] = FIRST_READS;
+        let projects = get(projects).inspect_err(|_| {
+            #[cfg(target_arch = "wasm32")]
+            server.forget_gets();
+        })?;
+        // A page has no threads: its fiber takes up the answers one after another, but the
+        // browser asked for them all at once.
         #[cfg(target_arch = "wasm32")]
         let [sessions, models, agents, providers, active, config] = paths.map(|path| get(path).ok());
         // Once the project probe succeeds these reads are independent. A slow catalog
