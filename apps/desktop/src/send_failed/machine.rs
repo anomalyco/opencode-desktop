@@ -36,6 +36,10 @@ pub enum Phase {
     Failed { why: String, restored: bool },
     /// The server has it.
     Accepted,
+    /// Kept, not to be sent yet: a new session's first prompt while its worktree is made or its
+    /// folder's MCP servers settle (`new_session`). Its row is durable from Enter, so a kill
+    /// loses nothing; read back at launch it's Waiting, and its write makes what's missing.
+    Preparing,
 }
 
 /// How a failed write ended, as far as its error proves.
@@ -88,6 +92,8 @@ pub enum Event {
     Parked,
     /// Its words went back into an empty composer.
     Restored,
+    /// A Preparing prompt's session phase began: it may go now.
+    Prepared,
 }
 
 #[derive(Debug, PartialEq)]
@@ -115,6 +121,11 @@ pub fn step(s: &mut Sent, event: Event) -> Effects<Effect> {
     let journaled = s.journaled;
     match (&mut s.phase, event) {
         (Phase::Accepted, _) => Effects::none(),
+        (Phase::Preparing, Event::Prepared) => {
+            s.phase = Phase::Waiting { why: String::new() };
+            Effects::one(Effect::Save)
+        }
+        (Phase::Preparing, _) => Effects::none(),
         (_, Event::Admitted) => {
             let late = matches!(&s.phase, Phase::Sending { then: Some(_), .. } | Phase::Unconfirmed { then: Some(_), .. });
             s.phase = Phase::Accepted;

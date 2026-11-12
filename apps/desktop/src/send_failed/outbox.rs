@@ -163,7 +163,30 @@ impl App {
     /// Takes `sent`, to go out as `write`: its row is committed on the storage thread and, when
     /// it's next in line, the write leaves from there once the row is durable. The UI thread
     /// writes nothing. False only for a write the outbox doesn't keep.
-    pub(crate) fn enqueue_prompt(&mut self, mut sent: Sent, write: Write) -> bool {
+    /// A new session's first prompt that must wait for its worktree or its folder's MCP servers
+    /// (`new_session`): its row is written now, Preparing, so a kill while it waits loses
+    /// nothing, and it goes once [`Self::release_prepared`] says so. False when the outbox can't
+    /// take it (a read-only window, the storage in memory still takes it for the run).
+    pub(crate) fn enqueue_prepared(&mut self, sent: Sent, write: Write) -> bool {
+        self.enqueue_prompt_as(sent, write, true)
+    }
+
+    /// Prompt `id`, Preparing, may go: on to `directory` (its new worktree, made now) when given.
+    pub(crate) fn release_prepared(&mut self, id: &str, directory: Option<String>) {
+        if let Some(dir) = directory
+            && let Some(s) = self.unsent.sent.iter_mut().find(|s| s.id == id)
+        {
+            s.operation = Operation::Start(dir);
+        }
+        self.step_send(id, Event::Prepared);
+        self.pump_outbox();
+    }
+
+    pub(crate) fn enqueue_prompt(&mut self, sent: Sent, write: Write) -> bool {
+        self.enqueue_prompt_as(sent, write, false)
+    }
+
+    fn enqueue_prompt_as(&mut self, mut sent: Sent, write: Write, preparing: bool) -> bool {
         sent.operation = match write {
             Write::Send { .. } => Operation::Send,
             Write::SendMovingHome { .. } => Operation::MovingHome,
@@ -182,7 +205,7 @@ impl App {
             }
         }
         let offline = crate::reconnect::down(self) || matches!(*self.source, Source::Live { writes: None, .. });
-        sent.phase = Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } };
+        sent.phase = if preparing { Phase::Preparing } else { Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } } };
         let (id, session) = (sent.id.clone(), sent.session.clone());
         self.unsent.note(sent);
         crate::telemetry::send_receipt(&session, &id, "saved", 0);
@@ -235,7 +258,7 @@ impl App {
             return false;
         };
         let writer = writer.clone();
-        let Some(s) = self.unsent.sent.iter().find(|s| s.journaled && !matches!(s.phase, Phase::Accepted | Phase::Failed { .. })) else {
+        let Some(s) = self.unsent.sent.iter().find(|s| s.journaled && !matches!(s.phase, Phase::Accepted | Phase::Failed { .. } | Phase::Preparing)) else {
             return false;
         };
         let (id, session) = (s.id.clone(), s.session.clone());

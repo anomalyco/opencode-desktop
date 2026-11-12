@@ -15,7 +15,8 @@ pub fn footer(s: &App, p: &Pal, id: &str) -> Option<El> {
             Phase::Unconfirmed { why, .. } if why.is_empty() => "Checking delivery…".into(),
             Phase::Unconfirmed { why, .. } => format!("Checking delivery · {why}"),
             Phase::Failed { why, .. } => format!("Not sent · {why}"),
-            Phase::Accepted => return None,
+            // The session's own status line says what it waits for.
+            Phase::Accepted | Phase::Preparing => return None,
         };
         let mut line = row().key("send-status").h(20.0).gap(8.0).center_y().child(text(label).font(UI_SMALL).color(p.faint));
         if state == State::Failed {

@@ -22,11 +22,11 @@ const WORKTREE_SECS: f64 = 11.0 * 60.0;
 /// Waiting for the folder's MCP toggles (60 s each) to settle (`NEW_SESSION_MCP_TIMEOUT_MS`).
 const MCP_SECS: f64 = 2.0 * 60.0;
 
-/// The prompt a start holds until its session phase hands it to the outbox.
+/// The prompt a start waits to send: its outbox row (Preparing from Enter, so a kill while the
+/// worktree is made or the MCP servers settle loses nothing; Desktop holds it in memory).
 #[derive(Clone)]
 struct Held {
-    sent: Sent,
-    prompt: Prompt,
+    id: String,
 }
 
 /// A session on screen that the server may not have yet (`NewSessionStartState`). It shows
@@ -234,9 +234,18 @@ impl App {
             self.starts.starts.insert(id.to_owned(), Start::Creating { directory, draft, created: false });
             return true;
         }
+        // Its row first: a start that has to wait keeps its words in the outbox from now on.
+        let held = Held { id: sent.id.clone() };
+        let write = match &place {
+            Place::New { project, from, branch } => Write::StartInNewWorktree { session: id.to_owned(), project: project.clone(), from: from.clone(), branch: branch.clone(), prompt },
+            Place::Existing(d) => Write::StartAs { session: id.to_owned(), directory: d.clone(), prompt },
+        };
+        if !self.enqueue_prepared(sent, write) {
+            return false;
+        }
         let draft = self.show_start(id, &directory, tx);
         let now = *self.clock;
-        let effects = self.starts.step(id, Event::Begin { place, draft, held: Held { sent, prompt }, toggling, now: now });
+        let effects = self.starts.step(id, Event::Begin { place, draft, held, toggling, now: now });
         self.start_effects(id, effects, tx);
         true
     }
@@ -290,11 +299,8 @@ impl App {
                     if let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) {
                         info.directory.clone_from(&directory);
                     }
-                    let write = Write::StartAs { session: id.to_owned(), directory, prompt: held.prompt };
-                    if !self.enqueue_prompt(held.sent, write) {
-                        let effects = self.starts.step(id, Event::Failed);
-                        self.start_effects(id, effects, tx);
-                    }
+                    // Its row goes from Preparing to Waiting, on to the folder the session runs in.
+                    self.release_prepared(&held.id, Some(directory));
                 }
                 Effect::Promote => {}
                 Effect::Rollback { directory, draft, held, worktree, why } => self.roll_back_start(id, directory, draft, held, worktree, why, tx),
@@ -335,7 +341,7 @@ impl App {
     pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &str, tx: &mut Tx) -> bool {
         let effects = self.starts.step(session, Event::Failed);
         let Some(Effect::Rollback { directory, draft, worktree, .. }) = effects.into_iter().next() else { return false };
-        let held = self.unsent.take(prompt).map(|sent| Held { sent, prompt: Prompt::default() });
+        let held = Some(Held { id: prompt.to_owned() });
         let why = Why::Failed { title: FAILED, message: error.split_once(": ").map_or(error, |(_, why)| why).to_owned() };
         self.roll_back_start(session, directory, draft, held, worktree, why, tx);
         true
@@ -363,8 +369,8 @@ impl App {
             self.composer.focused = true;
             tx.settle();
         }
-        if let Some(held) = held {
-            self.restore_draft(held.sent);
+        if let Some(sent) = held.and_then(|h| self.unsent.take(&h.id)) {
+            self.restore_draft(sent);
         }
         match why {
             Why::Quiet => {}

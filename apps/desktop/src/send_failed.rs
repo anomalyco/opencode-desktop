@@ -181,7 +181,7 @@ impl Sent {
 
     pub fn state(&self) -> State {
         match self.phase {
-            Phase::Waiting { .. } => State::Waiting,
+            Phase::Waiting { .. } | Phase::Preparing => State::Waiting,
             Phase::Sending { .. } => State::Sending,
             Phase::Unconfirmed { .. } => State::Unconfirmed,
             Phase::Failed { .. } => State::Failed,
@@ -193,7 +193,7 @@ impl Sent {
     pub fn why(&self) -> &str {
         match &self.phase {
             Phase::Waiting { why } | Phase::Unconfirmed { why, .. } | Phase::Failed { why, .. } => why,
-            Phase::Sending { .. } | Phase::Accepted => "",
+            Phase::Sending { .. } | Phase::Accepted | Phase::Preparing => "",
         }
     }
 
@@ -204,7 +204,7 @@ impl Sent {
             Phase::Failed { .. } => Some(SendResult::Failed),
             Phase::Unconfirmed { .. } => Some(SendResult::Queued),
             Phase::Waiting { why } if !why.is_empty() => Some(SendResult::Queued),
-            Phase::Waiting { .. } | Phase::Sending { .. } => None,
+            Phase::Waiting { .. } | Phase::Sending { .. } | Phase::Preparing => None,
         }
     }
 
