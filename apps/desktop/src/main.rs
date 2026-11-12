@@ -11,6 +11,28 @@
 #[global_allocator]
 static ALLOC: procwatch::alloc::Counting<mimalloc::MiMalloc> = procwatch::alloc::Counting::new(mimalloc::MiMalloc);
 
+/// mimalloc commits each medium and large page whole when a thread heap takes it; on demand it
+/// commits a page only as blocks are carved from it. Every thread that allocates holds such pages
+/// for its size classes, mostly untouched: on Home this is 60-75 MB of commit charge that is never
+/// written (private bytes ~205 MB to ~145 MB, the private working set unchanged).
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unsafe_code)]
+fn commit_pages_on_demand() {
+    unsafe extern "C" {
+        fn mi_version() -> std::ffi::c_int;
+        fn mi_option_set(option: std::ffi::c_int, value: std::ffi::c_long);
+    }
+    // `mi_option_page_commit_on_demand` is 40 in mimalloc 3.3's `mi_option_t` (mimalloc.h); a
+    // later mimalloc may number it otherwise, so it's only set on the version it was read from.
+    // SAFETY: plain calls into the linked mimalloc; an option set after start applies to the
+    // pages taken from then on.
+    unsafe {
+        if mi_version() / 100 == 303 {
+            mi_option_set(40, 1);
+        }
+    }
+}
+
 // A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
 #[cfg(target_arch = "wasm32")]
 extern crate ureq_web as ureq;
@@ -1431,6 +1453,7 @@ fn quit_last() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    commit_pages_on_demand();
     // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose
     // command line is fixed in the registry and whose environment is the user's) takes its
     // scratch root from the command line: it never runs without one. Release builds ignore it.
