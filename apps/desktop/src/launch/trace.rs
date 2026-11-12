@@ -9,8 +9,10 @@
 //! `pixels.stable` is the last frame after `content.live` that changed what the window shows, once
 //! nothing has changed for [`STILL`]: a fade still running keeps it back. "What it shows" is every
 //! element's place, opacity, scale, text and loop phase, hashed per frame (a frame drawn again
-//! with the same picture doesn't count). A launch whose window keeps moving (a spinner waiting on
-//! a server) has none.
+//! with the same picture doesn't count), and the GPU taking the window over from the CPU's first
+//! frame counts as a change (it re-renders). A launch whose window keeps moving (a spinner waiting
+//! on a server) has none. `--launch-trace-why` prints, for each such frame, the elements that
+//! changed (stderr), so a change nobody sees can be named.
 //!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
@@ -71,6 +73,8 @@ static SHOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0
 static STABLE: OnceLock<Instant> = OnceLock::new();
 /// How long the window draws nothing before its last frame counts as the stable one.
 const STILL: Duration = Duration::from_millis(500);
+/// How long after content went live `pixels.stable` waits for the GPU to take over the window.
+const HANDOVER_WAIT: Duration = Duration::from_secs(5);
 
 /// First thing in `main`.
 pub fn begin() {
@@ -167,15 +171,37 @@ pub fn drawn(rt: &rune::Runtime<App>) {
     if STABLE.get().is_none() && rune::marks::marks().iter().any(|(n, _)| *n == "content.live") {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        let why = crate::flag("--launch-trace-why");
+        let mut each = std::collections::HashMap::new();
         for e in rt.elements() {
+            let mut one = std::collections::hash_map::DefaultHasher::new();
+            e.text.hash(&mut one);
+            e.exiting.hash(&mut one);
+            e.loop_phase.map(f64::to_bits).hash(&mut one);
+            e.rect.iter().chain([e.opacity, e.scale].iter()).for_each(|v| v.to_bits().hash(&mut one));
+            let one = one.finish();
             e.path.hash(&mut h);
-            e.text.hash(&mut h);
-            e.exiting.hash(&mut h);
-            e.loop_phase.map(f64::to_bits).hash(&mut h);
-            e.rect.iter().chain([e.opacity, e.scale].iter()).for_each(|v| v.to_bits().hash(&mut h));
+            one.hash(&mut h);
+            if why {
+                each.insert(e.path.clone(), (one, e.rect, e.opacity, e.text.clone()));
+            }
         }
         if SHOWN.swap(h.finish(), Ordering::Relaxed) != h.finish() {
             *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+            // `--launch-trace-why`: which elements changed, to stderr, so a change no one sees can be named.
+            if why {
+                static PREV: std::sync::Mutex<Option<std::collections::HashMap<String, (u64, [f32; 4], f32, Option<String>)>>> = std::sync::Mutex::new(None);
+                let mut prev = PREV.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(old) = prev.as_ref() {
+                    let mut lines: Vec<String> = each.iter().filter(|(p, v)| old.get(*p).is_none_or(|o| o.0 != v.0)).map(|(p, v)| format!("  {} {p} rect {:?} opacity {} text {:?}", if old.contains_key(p) { "changed" } else { "added" }, v.1, v.2, v.3.as_deref().map(|t| t.chars().take(40).collect::<String>()))).collect();
+                    lines.extend(old.keys().filter(|p| !each.contains_key(*p)).map(|p| format!("  removed {p}")));
+                    lines.sort();
+                    let n = lines.len();
+                    eprintln!("launch-why {} ms after main: {n} elements differ", BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()));
+                    for l in lines.into_iter().take(12) { eprintln!("{l}"); }
+                }
+                *prev = Some(each);
+            }
         }
     }
     echo();
@@ -187,7 +213,19 @@ fn settle(tx: &mut Tx) {
     if STABLE.get().is_some() {
         return;
     }
-    let Some(last) = *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+    let Some(drawn) = *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+    // The GPU's first frame replaces the CPU's: a re-render that can change pixels the element
+    // tree doesn't see. Until it has come (at most HANDOVER_WAIT after content went live), the
+    // window isn't stable; once it has, it counts as a change.
+    let marks = rune::marks::marks();
+    let at = |name: &str| marks.iter().find(|(n, _)| *n == name).map(|(_, t)| *t);
+    let handed = at("gpu.window.handed");
+    let waited = at("content.live").is_some_and(|live| Instant::now().checked_duration_since(live).unwrap_or_default() >= HANDOVER_WAIT);
+    if handed.is_none() && !waited {
+        tx.wake_after(STILL);
+        return;
+    }
+    let last = handed.map_or(drawn, |h| h.max(drawn));
     let quiet = Instant::now().checked_duration_since(last).unwrap_or_default();
     if quiet >= STILL {
         let _ = STABLE.set(last);
