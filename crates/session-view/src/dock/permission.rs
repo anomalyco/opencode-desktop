@@ -51,6 +51,9 @@ pub fn description(action: &str) -> Option<&'static str> {
     })
 }
 
+/// The key of the permission's card, which takes focus when the request arrives.
+pub const PERMISSION_FOCUS: &str = "permission-card";
+
 /// The permission the open page shows: none while a question stands in the composer's place or
 /// auto-accept answers them. A subagent's page shows its own and its subagents'.
 pub fn asked<S: DockHost>(s: &S) -> Option<Pending> {
@@ -91,6 +94,11 @@ pub fn decide<S: DockHost>(s: &mut S, id: &str, decision: &str, tx: &mut Tx) {
 /// The permission's face of the composer surface: header and patterns, then the answers.
 pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let Pending::Permission { id, action, resources, message, input, .. } = asked(s)? else { return None };
+    // What a reader hears on the card that takes focus when the request arrives (`speech.rs`):
+    // what the tool does, then on what.
+    let said = [description(&action).unwrap_or(action.as_str()), message.as_str()].into_iter()
+        .chain(input.iter().map(String::as_str)).chain(resources.iter().map(String::as_str))
+        .filter(|w| !w.trim().is_empty()).collect::<Vec<_>>().join(". ");
     let fade = || face_transition(s.knobs());
     let header = row()
         .key("permission-header")
@@ -153,8 +161,14 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     // its hairline inside.
     let raised = p.raised;
     let ring = Shadow { spread: 0.5, color: super::flat(raised[2].color, p.bg_base), ..Shadow::default() };
+    // Out of the Tab order; its buttons follow it.
     let card = col()
-        .key("permission-card")
+        .key(PERMISSION_FOCUS)
+        .role("region")
+        .labelled_by("permission-title")
+        .description(said)
+        .focusable(true)
+        .tab_index(-1)
         .w_full()
         .radius(12.0)
         .fill(crate::composer::composer_fill(p))

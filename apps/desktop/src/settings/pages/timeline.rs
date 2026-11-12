@@ -105,7 +105,7 @@ fn scale(p: &Pal, at: usize) -> El {
         let x = ((g.x - 8.0) / (g.w - 16.0).max(1.0)).clamp(0.0, 1.0);
         set_stop(s, (x * (STOPS - 1) as f32).round() as usize);
     };
-    el().key("settings-timeline-detail").role("slider").label(t!("settings.timeline.detail")).focusable(true).w_full().h(28.0)
+    el().key("settings-timeline-detail").role("slider").label(t!("settings.timeline.detail")).range_value(at as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
         .on_drag(pick)
         .on_key(|s: &mut App, ev, tx| {
             let at = stop(&s.settings.timeline_detail);

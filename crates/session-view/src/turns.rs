@@ -441,6 +441,8 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .key("trigger")
         .role("button")
         .label(l.text())
+        .expanded(open)
+        .busy(busy && live)
         .h(28.0)
         .gap(4.0)
         .center_y()

@@ -66,7 +66,7 @@ pub fn view(s: &App, p: &Pal) -> El {
 fn placement(s: &App, p: &Pal) -> El {
     use crate::panels::DockPlacement;
     // A segmented radio group, one Tab stop whose arrows pick, as the official segmented control.
-    let mut r = row().key("terminal-placement-control").role("radiogroup").focus_group().gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
+    let mut r = row().key("terminal-placement-control").role("radiogroup").labelled_by("title").focus_group().gap(2.0).padding(2.0).radius(6.0).fill(p.layer2);
     for (pl, label) in [(DockPlacement::Side, t!("rune.settings.general.row.terminalPlacement.side")), (DockPlacement::Bottom, t!("rune.settings.general.row.terminalPlacement.bottom"))] {
         let on = s.settings.terminal_placement == pl;
         r = r.child(

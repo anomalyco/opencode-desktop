@@ -176,6 +176,8 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         .key("trigger")
         .role("button")
         .label(if streaming { opencode_i18n::t!("ui.sessionTurn.status.thinking") } else { opencode_i18n::t!("ui.message.thought") })
+        .expanded(open)
+        .busy(streaming)
         .h(28.0)
         .gap(6.0)
         .center_y()

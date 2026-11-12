@@ -243,6 +243,11 @@ pub trait ComposerHost: TimelineHost {
         false
     }
 
+    /// The key of the suggestion row the composer's popover highlights (`@`, `/`), which the
+    /// prompt names as its active descendant while focus stays in it.
+    fn composer_active_option(&self) -> Option<String> {
+        None
+    }
     fn composer_placeholder(&self) -> String {
         opencode_i18n::t!("ui.promptInput.placeholder.normal", slash = "/", at = "@")
     }
@@ -408,8 +413,11 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     let face = s.composer_face(p);
     // A hover group: the default effort shows only while the pointer is over the composer
     // (`editor.css:75-80`), at once both ways.
+    // A landmark F6 lands on (the prompt, or the request standing in its place).
     let box_el = col()
         .key(key)
+        .role("form")
+        .label(opencode_i18n::t!("ui.promptInput.label"))
         .w_full()
         .max_w(crate::style::dock_w())
         .min_h(88.0)
@@ -467,6 +475,9 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                         s.composer_shell_mode(),
                                     )
                                     .key("prompt")
+                                    .label(opencode_i18n::t!("ui.promptInput.label"))
+                                    // Nothing highlighted names no row.
+                                    .active_descendant(s.composer_active_option().unwrap_or_default())
                                     // `ps-4 pt-4`, and 12 less the gutter at the end
                                     // (`editor.css:29-34`), on the editor itself, so they follow
                                     // its own direction as Desktop's `#editor` padding does.

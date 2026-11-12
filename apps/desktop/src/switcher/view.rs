@@ -75,6 +75,25 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 
     // `text-input-v2` in the compact palette: 28 tall and transparent, the glyph 6 in and 6 from
     // the text, the text in `text-base` and the placeholder in it at half strength.
+    // The highlighted row is the field's active descendant: arrows keep focus in the field, and
+    // a reader says each row they land on (`SearchList`'s `aria-activedescendant`).
+    let input = text_input(&s.switcher.search, UI)
+        .key("switcher-input")
+        .single_line()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .color(p.text)
+        .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
+        .caret(p.text, p.selection).selection_style(p.field_selection)
+        .on_edit(|s: &mut App| &mut s.switcher.search)
+        .on_input_change(|s: &mut App, _: &mut Tx| s.switcher.query_changed())
+        .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx))
+        .label(placeholder);
+    let input = match active.as_deref() {
+        Some(k) => input.active_descendant(format!("sw-{k}")),
+        None => input,
+    };
     let search = row()
         .key("switcher-field")
         .h(28.0)
@@ -83,20 +102,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         .gap(6.0)
         .center_y()
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-        .child(
-            text_input(&s.switcher.search, UI)
-                .key("switcher-input")
-                .single_line()
-                .grow(1.0)
-                .shrink()
-                .min_w(0.0)
-                .color(p.text)
-                .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
-                .caret(p.text, p.selection).selection_style(p.field_selection)
-                .on_edit(|s: &mut App| &mut s.switcher.search)
-                .on_input_change(|s: &mut App, _: &mut Tx| s.switcher.query_changed())
-                .on_input_key(|s: &mut App, ev, tx| s.switcher_nav(ev, tx) || s.shortcut(ev, tx)),
-        );
+        .child(input);
 
     let mut results = col().key("switcher-results").w_full().px(6.0).pb(6.0);
     let mut content_h = 0.0_f32;

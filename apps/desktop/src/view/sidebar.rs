@@ -83,7 +83,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // The aside reaches into the gap before the panel, taking it back with its end margin so the
     // panel keeps its place: the organized list's thumb runs there, past the sidebar's end, inside
     // the aside's clip (`sidebar-organized.tsx:111-117`).
-    let aside = el().key("sidebar").role("navigation").h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
+    let aside = el().key("sidebar").role("navigation").label(opencode_i18n::t!("rune.a11y.sidebar")).h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.shows_sidebar() {
         return aside.w(GAP_ROOM).clip_soft(0.0);
     }
@@ -123,6 +123,11 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         .box_shadow(Shadow { x: blur / 3.0, blur, color: tint(p.shadow), ..Shadow::default() })
         .box_shadow(Shadow { x: 1.0, blur: 4.0, color: tint(p.shadow), ..Shadow::default() })
         .box_shadow(Shadow { color: tint(p.floating[2].color), ..p.floating[2] });
+    // Out of sight it's out of reach: no Tab stops past the window's edge, nothing a reader
+    // reads as on screen (Desktop's `guardClosingFocus` hides the closed panel the same way).
+    if away && !peek.shown() {
+        inner = inner.inert().a11y_hidden();
+    }
     let aside = aside.w(if open { w } else { 0.0 } + GAP_ROOM);
     if peek.shown() {
         // Over the panel, which comes after it; the aside's clip would hide it.

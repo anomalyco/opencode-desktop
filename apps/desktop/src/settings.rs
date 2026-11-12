@@ -453,9 +453,9 @@ pub(crate) fn setting_with(p: &Pal, key: &str, title: &str, about: El, control: 
         .shrink()
         .min_w(0.0)
         .gap(8.0)
-        .child(text(title.to_owned()).font(ROW_TITLE).color(p.text).wrap())
+        .child(text(title.to_owned()).key("title").font(ROW_TITLE).color(p.text).wrap())
         // `margin-block: -3.5px` keeps its 20 pt lines on the title's 16 pt rhythm.
-        .child(about.my(-3.5));
+        .child(about.key("about").my(-3.5));
     if ROWS_WRAP.get() {
         return col().key(format!("setting-{key}")).w_full().gap(16.0).py(20.0).child(copy.w_full()).child(row().key("control").w_full().justify_end().child(control));
     }
@@ -481,8 +481,10 @@ pub(crate) fn link(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
 
 /// Desktop's switch in a settings row (`switch.css`, compact, as the web draws it), with the 4 pt
 /// padding a row gives it. It flips in the press's frame.
+/// A setting row's switch, named by the row's title and described by its explanation
+/// (`setting_with`'s `title` and `about`), so a reader says which setting it turns.
 pub(crate) fn switch(p: &Pal, key: &str, on: bool) -> El {
-    Switch::new(on).web().build(kit(p)).key(key.to_owned()).padding(4.0)
+    Switch::new(on).web().build(kit(p)).key(key.to_owned()).padding(4.0).labelled_by("title").described_by("about")
 }
 
 mod interface_mode;

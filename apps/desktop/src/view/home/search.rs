@@ -25,6 +25,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
             // The input's 24 line (13/24, `home-sessions`), which its selection fills.
             text_input(&s.search, UI.lh(24.0))
                 .key("search-input")
+                // Named by its placeholder, which goes once a letter is typed.
+                .label(placeholder.to_owned())
                 .spellcheck(s.settings.spellcheck)
                 .single_line()
                 .grow(1.0)

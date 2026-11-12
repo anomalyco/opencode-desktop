@@ -66,6 +66,7 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
         .key("trigger")
         .role("button")
         .label(format!("{} {subtitle}", opencode_i18n::t!("ui.tool.questions")).trim().to_owned())
+        .expanded(open)
         .h(28.0)
         .gap(8.0)
         .center_y()

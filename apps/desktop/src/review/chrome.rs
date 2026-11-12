@@ -116,6 +116,8 @@ pub fn filter_field(
         .child(
             text_input(edit, UI)
                 .key(key.to_owned())
+                // Named by its placeholder, which goes once a letter is typed.
+                .label(placeholder.to_owned())
                 .spellcheck(spellcheck)
                 .placeholder(placeholder.to_owned(), p.faint)
                 .selection_style(p.field_selection)
@@ -161,7 +163,11 @@ pub fn tree_row_in(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file
         (None, Some(t)) => icon(t.icon(), 16.0).color(if selected { t.color(p.dark) } else { p.icon_muted }),
         (None, None) => el().size(16.0, 16.0),
     };
-    row()
+    let base = match expanded {
+        Some(open) => row().expanded(open),
+        None => row(),
+    };
+    base
         .w_full()
         .h(ROW_H)
         .pl(8.0 + depth as f32 * INDENT)
@@ -175,6 +181,8 @@ pub fn tree_row_in(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file
         .cursor(Cursor::Pointer)
         .role("treeitem")
         .label(name.to_owned())
+        .level(depth + 1)
+        .focus_selected(selected)
         .child(lead)
         .child(
             text(name.to_owned())

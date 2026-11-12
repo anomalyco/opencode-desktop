@@ -166,7 +166,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         .grow(1.0)
         .min_h(0.0)
         .clip_rounded(10.0)
-        .on_press(|s: &mut App| {
+        .on_background_press(|s: &mut App| {
             s.side.focused = true;
             s.composer.focused = false;
             s.side.tab_menu = None;
@@ -317,7 +317,7 @@ pub(super) fn pane_box(
         .w_full()
         .min_w(0.0)
         .min_h(0.0)
-        .on_press(move |s: &mut App| {
+        .on_background_press(move |s: &mut App| {
             s.side.focused = true;
             s.side.active_pane_focus = pane;
             s.composer.focused = false;

@@ -198,6 +198,7 @@ mod shortcuts;
 mod side_stories;
 mod slash;
 mod sounds;
+mod speech;
 mod reconnect;
 mod status_toast;
 mod stop;
@@ -402,6 +403,8 @@ pub struct App {
     jobs: rune::Tracked<jobs::Jobs>,
     /// System notifications for finished runs, permission requests and errors.
     pub notify: rune::Tracked<notifications::Notifier>,
+    /// What a screen reader hears of the agent's work (`speech.rs`).
+    pub speech: speech::Speech,
     /// Links the system handed the app, until they open (`deep_links`).
     pub deep_links: rune::Tracked<deep_links::DeepLinks>,
     /// Every server's link: live, in doubt or down (`reconnect`).
@@ -1182,6 +1185,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= settings::search::poll(s, tx);
     settings::pages::servers::unavailable::poll(s, tx);
     changed |= notifications::poll(s, tx);
+    speech::poll(s, tx);
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= line_comments::poll(s, tx);

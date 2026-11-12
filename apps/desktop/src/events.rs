@@ -267,6 +267,7 @@ impl App {
         }
         crate::notifications::event(self, e, &sid);
         crate::sounds::event(self, e, &sid);
+        crate::speech::event(self, ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
             changed |= self.inbox_landed(ty, data, &sid, &done.inbox);
             crate::background::admitted(self, ty, data, &sid);

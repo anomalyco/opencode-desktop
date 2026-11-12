@@ -109,6 +109,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key(format!("q-opt-{i}"))
                 .role(if multi { "checkbox" } else { "radio" })
                 .label(label.clone())
+                .checked(picked)
                 .w_full()
                 .padding(10.0)
                 .gap(8.0)

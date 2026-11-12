@@ -481,7 +481,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
             .absolute(0.0, 0.0)
             .w_full()
             .h_full()
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.close_add_menu(Close::Outside, tx);
             })

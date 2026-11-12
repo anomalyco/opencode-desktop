@@ -112,6 +112,13 @@ pub(crate) fn workspace_tree_view(
         .growth(GrowthSpec::default())
         .role("tree")
         .label(opencode_i18n::t!("rune.files.tree"))
+        // One Tab stop; Up and Down move through the rows, Right and Left open and close a folder
+        // or step into and out of it, as a native tree does.
+        .focus_group()
+        .on_key({
+            let sid = session_id.to_owned();
+            move |s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| tree_key(s, &sid, ev, tx)
+        })
         .virtual_rows(
             count,
             TREE_ROW_H,
@@ -164,6 +171,30 @@ pub(crate) fn workspace_tree_view(
     // Desktop's Pierre tree scrolls itself, with its own bar (`--trees-fg` muted on `bg-base`,
     // `gui-plugins/src/file/pierre-tree.tsx:36-38`).
     tree_scroll(p, "files-tree", list)
+}
+
+/// Right on a closed folder opens it and on an open one steps into its first child; Left on an
+/// open folder closes it and elsewhere steps out to the parent folder.
+fn tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    let right = matches!(ev.key, rune::Key::Right);
+    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
+    let Some(id) = tx.focused().and_then(|k| k.strip_prefix("ft:")).map(str::to_owned) else { return false };
+    let Some(ws) = s.files.sessions.get(sid) else { return false };
+    let dir = ws.tree.get(&id).is_some_and(|n| n.dir);
+    let open = ws.expanded_dirs.contains(&id);
+    match (right, dir, open) {
+        (true, true, false) | (false, true, true) => s.toggle_workspace_dir(&id),
+        (true, true, true) => match ws.tree.children(Some(&id)).next() {
+            Some(child) => tx.focus(format!("ft:{child}"), true),
+            None => return false,
+        },
+        (false, _, _) => match ws.tree.parent(&id) {
+            Some(parent) => tx.focus(format!("ft:{parent}"), true),
+            None => return false,
+        },
+        (true, false, _) => return false,
+    }
+    true
 }
 
 /// The files whose path holds `query`, flat, best first; the highlighted one (else the first)

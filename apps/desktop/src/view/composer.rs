@@ -88,6 +88,9 @@ impl session_view::dock::DockHost for App {
 }
 
 impl ComposerHost for App {
+    fn composer_active_option(&self) -> Option<String> {
+        self.mention_active().map(|k| format!("mention-{k}")).or_else(|| self.slash_active().map(|id| format!("command-{id}")))
+    }
     fn composer_edit(&self) -> &TextEdit {
         &self.composer
     }

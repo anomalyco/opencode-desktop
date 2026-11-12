@@ -560,7 +560,6 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         .w_full()
         .h_full()
         .transition(Transition::none())
-        .focusable(false)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_branch_picker_for(Close::Outside, tx));
+        .on_background_press_tx(|s: &mut App, tx: &mut Tx| s.close_branch_picker_for(Close::Outside, tx));
     Some([scrim, surface.anchored_fit(TRIGGER.to_owned(), Side::Bottom, Align::Start, 4.0)])
 }

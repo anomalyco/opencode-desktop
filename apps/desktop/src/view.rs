@@ -112,7 +112,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         && let Some(panel) = crate::subagents::panel(s, p, id)
     {
         inner = inner.child(el().key("activity-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 crate::subagents::shells::set_open(s, false);
             }))
@@ -122,7 +122,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         && let Some(panel) = crate::todos::panel(s, p, id)
     {
         inner = inner.child(el().key("todo-dismiss").absolute(0.0, 0.0).w_full().h_full().transition(rune::Transition::none())
-            .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 *s.todo_open = false;
             }))
@@ -239,7 +239,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
         .map(|bar| {
             // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
-            let band = el().key("titlebar-band").h(chrome().row_h).transition(rune::Transition::none()).child(bar);
+            let band = el().key("titlebar-band").role("banner").h(chrome().row_h).transition(rune::Transition::none()).child(bar);
             if chrome().bottom { band.pin(Some(0.0), None, Some(0.0), Some(0.0)) } else { band.pin(Some(0.0), Some(0.0), Some(0.0), None) }
         });
     let (band_below, band) = if switching { (band, None) } else { (None, band) };
@@ -275,8 +275,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .child(
             // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
             panel
-                .focusable(false)
-                .on_press(|s: &mut App| {
+                .role("main")
+                .on_background_press(|s: &mut App| {
                     s.side.focused = false;
                     s.side.tab_menu = None;
                     s.side.add_menu = None;

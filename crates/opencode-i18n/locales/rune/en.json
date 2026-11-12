@@ -1,4 +1,12 @@
 {
+  "rune.a11y.done": "Reply finished",
+  "rune.a11y.failed": "Run failed: {{error}}",
+  "rune.a11y.replied": "Reply finished: {{reply}}",
+  "rune.a11y.sidebar": "Sessions",
+  "rune.a11y.stopped": "Stopped",
+  "rune.a11y.terminal": "Terminal: {{title}}",
+  "rune.a11y.terminal.leave": "F6 moves to the next pane. Ctrl+F6 sends F6 to the terminal.",
+  "rune.a11y.working": "Working",
   "rune.attach.failed": "Couldn't attach a file",
   "rune.attach.folder": "{{name}} is a folder. Only files can be attached.",
   "rune.attach.pickerTitle": "Attach images and files",

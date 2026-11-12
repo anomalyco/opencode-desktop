@@ -572,5 +572,6 @@ pub fn reveal_focus<S: DockHost>(s: &S, tx: &mut Tx) {
         tx.scroll_into_view_in(scope.clone(), format!("q-details-{tab}"));
     }
     let key = if focus >= rows(field).len() && has_custom(field) { "q-custom".to_owned() } else { format!("q-opt-{focus}") };
+    tx.focus(key.clone(), true);
     tx.scroll_into_view_in(scope, key);
 }

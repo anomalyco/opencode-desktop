@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, Family, LineCap, Phase, PointerButton, PointerEvent, Shape, Span, TextStyle, Tx, WheelEvent,
+    Anim, Color, Cursor, Drag, El, Family, KeyEvent, LineCap, Phase, PointerButton, PointerEvent, Shape, Span, TextStyle, Tx, WheelEvent,
     canvas, col, el, memo, rich, row, spacer, text,
 };
 use rune_knobs::Knobs;
@@ -22,6 +22,9 @@ use super::{TERM_FONT, TERM_SIZE, TerminalTab};
 use crate::App;
 use crate::palette::Pal;
 use crate::view::{UI, UI_SMALL};
+
+/// The terminal's screen: its Tab stop and the key that tells the terminal it has the keyboard.
+pub(crate) const VIEWPORT_KEY: &str = "terminal-viewport";
 
 const INSTANT: Anim = Anim::INSTANT;
 /// Desktop's panel strip (`--tabs-bar-height`).
@@ -366,9 +369,20 @@ fn render_viewport(
     let (wk_move, tid_move) = (ws_key.to_owned(), tab.id.clone());
     let (wk_menu, tid_menu) = (ws_key.to_owned(), tab.id.clone());
 
+    let title = tab.title.clone();
     let mut outer = row()
-        .key("terminal-viewport")
+        .key(VIEWPORT_KEY)
         .role("document")
+        // A Tab stop that owns its keys while focused (Tab included); F6 leaves it.
+        .focusable(true)
+        .label(opencode_i18n::t!("rune.a11y.terminal", title = title))
+        .description(opencode_i18n::t!("rune.a11y.terminal.leave"))
+        .on_key(|app: &mut App, ev: &KeyEvent, tx: &mut Tx| {
+            if app.terminal_focus().is_none() {
+                app.focus_terminal_surface();
+            }
+            super::key_terminal(app, ev, tx)
+        })
         .w_full()
         .grow(1.0)
         .min_h(0.0)

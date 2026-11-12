@@ -30,6 +30,16 @@ pub fn dispatch_key(
 ) -> KeyOutcome {
     let m = ev.mods;
 
+    // F6 and Shift+F6 leave the terminal for the next or previous pane (the app's F6 cycle), so
+    // Tab and every other key stay the shell's and the keyboard is never trapped here; Ctrl+F6
+    // gives the shell its F6.
+    if ev.key == Key::Function(6) {
+        if !m.ctrl {
+            return KeyOutcome::Ignored;
+        }
+        session.send_key(KeyInput::press(GhosttyKey::F6));
+        return KeyOutcome::ConsumedResetBlink;
+    }
     // ⌘C, and Ctrl+Shift+C everywhere (Desktop `terminal.tsx:477`), copy the selection; ⌘C with
     // none leaves the key to the app. Off macOS Ctrl+C stays the shell's interrupt.
     if Bind::TerminalCopy.matches_tx(ev, tx) {

@@ -221,7 +221,7 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
 fn layer(s: &App, (x, y): (f32, f32), menu: El, close: fn(&mut App)) -> El {
     el().key("side-menu-backdrop")
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .on_background_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             close(s);
         })

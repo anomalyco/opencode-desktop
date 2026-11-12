@@ -91,14 +91,17 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key(format!("q-opt-{i}"))
                 .role(if multi { "checkbox" } else { "radio" })
                 .label(label.clone())
+                .checked(picked)
+                // The card draws its own keyboard ring (`ring`), which follows Rune's focus.
+                .no_focus_ring()
                 .items_start()
                 .padding(10.0)
-                .on_press_tx(move |s: &mut S, _: &mut Tx| {
+                .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
                     let (tab, _) = place(s, &f);
                     select(s, &f, tab, i);
                     let d = dock(s, &f);
-                    (d.focus, d.keyboard) = (i, false);
+                    (d.focus, d.keyboard) = (i, tx.focus_visible());
                 })
                 .child(mark(p, multi, picked, d.keyboard))
                 .child(
@@ -348,6 +351,10 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     let keyboard = s.dock().keyboard;
     card(p, on, ring, keyboard)
         .key("q-custom")
+        .role(if multi { "checkbox" } else { "radio" })
+        .label(custom_label())
+        .checked(on)
+        .no_focus_ring()
         .h(40.0)
         .px(10.0)
         .center_y()
@@ -480,5 +487,7 @@ fn reveal<S: DockHost>(s: &S, tx: &mut Tx) {
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];
     let key = if focus >= rows(field).len() && has_custom(field) { "q-custom".to_owned() } else { format!("q-opt-{focus}") };
+    // Keyboard focus goes with the dock's own, so a reader says the answer moved to.
+    tx.focus(key.clone(), true);
     tx.scroll_into_view_in(format!("q-scroll-{tab}"), key);
 }

@@ -75,6 +75,12 @@ pub(crate) fn poll_panel(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    // The terminal has the keys only while keyboard focus is on its viewport (which a click, a
+    // toggle or Tab puts there): anywhere else, Tab, F6 and typing are that control's, so the
+    // keyboard is never trapped in the shell.
+    if tx.focused() != Some(super::grid::VIEWPORT_KEY) {
+        return false;
+    }
     let Some((wk, id)) = s.terminal_focus() else { return false };
 
     // ⌘W closes the terminal (Desktop's scoped `terminal.close`); the strip's tab keys stay the strip's.

@@ -185,6 +185,12 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         .growth(GrowthSpec::default())
         .role("tree")
         .label(opencode_i18n::t!("settings.timeline.row.turnDiffs.title"))
+        // One Tab stop; Up and Down move through the rows, Right and Left open, close, step in and out.
+        .focus_group()
+        .on_key({
+            let sid = sid.to_owned();
+            move |s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| change_tree_key(s, &sid, ev, tx)
+        })
         .virtual_rows(
             count,
             ROW_H,
@@ -213,6 +219,32 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
     // Desktop's Pierre tree scrolls itself, with its own bar (`session-review-v2.css:213-220`;
     // `--trees-fg` muted on `bg-base`, `gui-plugins/src/file/pierre-tree.tsx:36-38`).
     crate::files::view::tree_scroll(p, "review-tree", list)
+}
+
+/// The change tree's Right and Left, as the Files tree's (`files::view::tree_key`).
+fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    let right = matches!(ev.key, rune::Key::Right);
+    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
+    let Some(id) = tx.focused().and_then(|k| k.strip_prefix("rt:")).map(str::to_owned) else { return false };
+    let Some(sr) = s.review.sessions.get_mut(sid) else { return false };
+    let dir = sr.tree.has_children(&id);
+    let open = sr.tree.is_expanded(&id);
+    match (right, dir, open) {
+        (true, true, false) | (false, true, true) => {
+            sr.tree.toggle(&id);
+            sr.stamp += 1;
+        }
+        (true, true, true) => match sr.tree.children(Some(&id)).next() {
+            Some(child) => tx.focus(format!("rt:{child}"), true),
+            None => return false,
+        },
+        (false, _, _) => match sr.tree.parent(&id) {
+            Some(parent) => tx.focus(format!("rt:{parent}"), true),
+            None => return false,
+        },
+        (true, false, _) => return false,
+    }
+    true
 }
 
 #[allow(clippy::too_many_arguments)]

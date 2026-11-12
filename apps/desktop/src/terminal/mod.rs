@@ -163,6 +163,9 @@ pub struct TerminalPane {
     pub connections: u32,
     /// Takes an edit that lands after its find bar closed: a field's `on_edit` needs somewhere to write.
     pub spare_field: rune::TextEdit,
+    /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
+    /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
+    pub claim_focus: bool,
 }
 
 impl Default for TerminalPane {
@@ -183,6 +186,7 @@ impl Default for TerminalPane {
             renaming: rename::Renames::default(),
             connections: 0,
             spare_field: rune::TextEdit::default(),
+            claim_focus: false,
         }
     }
 }
@@ -340,6 +344,7 @@ impl App {
             self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&self.session_side_mut(&sid).tab_state.tabs, &key);
         }
         self.terminal.story_focused = true;
+        self.terminal.claim_focus = true;
         self.terminal.reset_blink(*self.clock);
     }
 
@@ -670,6 +675,9 @@ impl App {
     /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
     /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
     pub fn poll_terminal(&mut self, tx: &mut Tx) -> bool {
+        if std::mem::take(&mut self.terminal.claim_focus) && tx.focused() != Some(grid::VIEWPORT_KEY) {
+            tx.focus(grid::VIEWPORT_KEY, tx.focus_visible());
+        }
         if self.stage.is_some()
             && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)
         {

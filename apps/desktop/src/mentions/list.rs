@@ -130,6 +130,7 @@ pub fn popup(
                 .key(r.key)
                 .role("option")
                 .label(r.label)
+                .focus_selected(active == Some(id.as_str()))
                 .w_full()
                 .h(ROW_H)
                 .px(8.0)

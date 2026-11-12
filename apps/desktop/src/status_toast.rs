@@ -220,6 +220,8 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
     });
     let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, entry.description.as_deref().unwrap_or(""));
     let now = *s.clock;
+    let words = [entry.title.as_str(), entry.description.as_deref().unwrap_or("")].into_iter().filter(|w| !w.trim().is_empty()).collect::<Vec<_>>().join(". ");
+    s.speech.say(words, rune::LiveRegion::Polite);
     step(s, ToastEvent::Shown { key, options: Shown::Status(entry), secs, now: now }, None);
     // A toast shown from a handler or a poll times out on the next poll's wake.
     let Some(front) = s.toast.stack.front().map(|f| f.id) else { return 0 };
@@ -311,6 +313,8 @@ pub fn waiting(s: &mut App, title: &str) -> u64 {
 pub fn fail(s: &mut App, title: impl Into<String>, description: impl Into<String>) {
     let (title, description) = noted(s, title.into(), description.into());
     show(s, entry(title, description, true), None);
+    // A failure interrupts what a reader is saying (`role="alert"`).
+    s.speech.urgent();
 }
 
 /// Records a toast's words on `s.status`; its title and its description, trimmed and cut at
@@ -374,6 +378,12 @@ pub fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
 }
 
 fn toast_timers(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    // Keyboard focus on a toast spreads the stack and holds its timers, as the hotkey does, so
+    // a toast never closes under the control a keyboard user is about to press.
+    if !s.toast.stack.stack().expanded() && !s.toast.stack.entries().is_empty() && tx.focused().is_some_and(|k| k.starts_with("toast-")) {
+        step(s, ToastEvent::Hotkey { now }, Some(tx));
+        tx.motion_curve(MOVE);
+    }
     let uploads = s.toast.stack.entries().iter().find(|e| matches!(e.options, Shown::Uploads)).map(|e| e.id);
     if let Some(id) = uploads.filter(|_| s.attach.uploads.is_empty()) {
         tx.instant();
@@ -579,8 +589,11 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .child(content)
         .child(close);
 
+    // A group named by its title: what it says reaches a reader once, through the announcement
+    // `show` makes, not as a live region that also reads its buttons as part of the message.
     col()
-        .role("status")
+        .role("group")
+        .label(entry.title.clone())
         .padding(12.0)
         .radius(8.0)
         .fill(p.layer1)
