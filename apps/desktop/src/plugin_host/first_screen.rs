@@ -4,12 +4,18 @@
 //! its source at build time (`sources::contributions`).
 //!
 //! - **Every route:** a server source whose servers were listed at the last run (the sidebar and
-//!   Home show their rows; the plugin's state for them would change after the frame otherwise).
+//!   Home show their rows; the plugin's state for them would change after the frame otherwise),
+//!   and the debug plugin while its bar (a `window.bottom` slot) is shown.
+//! - **Not before the frame on any route:** the updater's titlebar pill shows only once the
+//!   updater's worker, started after the first frame, has an update ready, so it's hidden in the
+//!   first frame and the second either way.
 //! - **A session:** the slots in its header and debug bar, the composer's pills; with a cached
 //!   transcript on screen, the code blocks and link handlers its messages draw with; and every
 //!   plugin with a tab in the session's open side or bottom pane (the tab strip shows each one's
 //!   title), plus the file viewers when the Files plugin has one.
 //! - **Home and a draft:** nothing else.
+
+use opencode_storage::Lookup;
 
 use crate::App;
 use crate::panels::SessionPane;
@@ -21,6 +27,9 @@ use super::sources;
 pub fn plugins(app: &App) -> Vec<&'static str> {
     let has = |id: &str, kinds: &[&str]| sources::contributions(id).iter().any(|k| kinds.contains(k));
     let mut out: Vec<&'static str> = sources::builtin_ids().filter(|id| has(id, &["ServerSource"]) && super::server_sources::remembers(id)).collect();
+    if debug_bar_shown() {
+        out.push("debug");
+    }
     let Route::Session { id: session, .. } = &app.route else { return out };
     let transcript = app.launch.cold_transcript.is_some();
     out.extend(sources::builtin_ids().filter(|id| has(id, &["Slot", "ComposerPill"]) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
@@ -37,4 +46,18 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     out.sort_unstable();
     out.dedup();
     out
+}
+
+/// Whether the debug bar is up at launch: the debug plugin's `bar` value says so, or it isn't in
+/// memory to say otherwise.
+fn debug_bar_shown() -> bool {
+    let ns = opencode_storage::plugin_namespace("debug");
+    let value = match crate::storage::plugin_value(&ns, "bar") {
+        Lookup::Pending => crate::storage::boot_packet().map_or(Lookup::Pending, |boot| boot.plugin_value(&ns, "bar")),
+        ready => ready,
+    };
+    match value {
+        Lookup::Pending => true,
+        Lookup::Ready(v) => v.and_then(|v| serde_json::from_str::<serde_json::Value>(&v).ok()).and_then(|v| v.get("visible")?.as_bool()).unwrap_or(false),
+    }
 }
