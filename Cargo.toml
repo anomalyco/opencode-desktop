@@ -50,6 +50,10 @@ ureq = { version = "3.4", default-features = false }
 # Rune repo), at the Rune rev pinned above: a window's GPU is then the one adapter Rune picks through
 # DXGI, with no device made on the others. Keep the rev equal to the `rune` rev.
 wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "0f7adacf0a2121df61db3a5839e0aca7dd70dd68" }
+# Rune's winit (winit 0.30 as published plus `vendor/winit.patch`: a new Windows window isn't added again
+# to the taskbar it's already on, which cost CoInitializeEx and a TaskbarList COM object on the UI
+# thread before the first frame). Keep the rev equal to the `rune` rev.
+winit = { git = "https://github.com/anomalyco/rune", rev = "0f7adacf0a2121df61db3a5839e0aca7dd70dd68" }
 yrs = { git = "https://github.com/openooxml/y-crdt.git", rev = "e785c00611ebce79ece115defa25295982cac165" }
 
 [profile.dev.package."*"]

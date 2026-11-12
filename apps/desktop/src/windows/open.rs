@@ -87,12 +87,18 @@ impl App {
     }
 }
 
+/// How many windows the launch opened (`launch`), for the launch trace at quit.
+static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn opened() -> usize {
+    OPENED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Opens every window saved at the last quit, or one for a new profile, each where it was. The
 /// list and the frames come from the boot packet, taken once the event loop is up (so the
-/// storage's read runs under it); a list that didn't change isn't written again.
-pub fn launch(diagnostics: crate::diagnostics::Diagnostics) -> usize {
-    let opened = std::rc::Rc::new(std::cell::Cell::new(0));
-    let count = opened.clone();
+/// storage's read runs under it); a list that didn't change isn't written again. Returns when
+/// the app quits, unless it ends at once (`rune::fast_exit`).
+pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
         let saved = store::saved_ids();
         let mut ids = saved.clone().unwrap_or_default();
@@ -102,7 +108,7 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) -> usize {
         if saved.as_ref() != Some(&ids) {
             store::save_ids(&ids);
         }
-        count.set(ids.len());
+        OPENED.store(ids.len(), std::sync::atomic::Ordering::Relaxed);
         let fresh = saved.is_none();
         ids.iter()
             .enumerate()
@@ -112,7 +118,6 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) -> usize {
             })
             .collect::<Vec<_>>()
     });
-    opened.get()
 }
 
 /// New Window: another window of this app, on the same server, showing Home (Desktop's
@@ -193,6 +198,10 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             s.save_on_close();
         });
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
+    // A harness's launch on the visible desktop: a process the user didn't start can't come to
+    // the front, so its window would open behind theirs, covered, and stop drawing. Above every
+    // window instead, without taking the focus.
+    spec.options.always_on_top = crate::flag("--launch-trace-on-top");
     if let Some(f) = frame {
         spec.options.position = f.x.zip(f.y);
         spec.options.physical_size = Some((f.width, f.height));
