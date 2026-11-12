@@ -1454,6 +1454,9 @@ fn quit_last() {
     // Landed and closed: the file's lock goes before the update helper takes over.
     storage::close();
     rune::marks::mark("storage.flushed");
+    // Nothing of the app's is left to lose: whatever the rest waits on, the process ends within
+    // 2 s, saying what it waited for.
+    rune::exit_deadline(std::time::Duration::from_secs(2));
     // A launch handed on while the app quit claims it now, unless an update replaces it.
     if !updater::installs_on_quit() {
         rune::release_instance();
