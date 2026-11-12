@@ -162,6 +162,8 @@ pub struct TerminalSnapshot {
     pub bell_count: u64,
     /// The find bar's matches, while it finds.
     pub find: Option<FindView>,
+    /// Finished commands on the rows in view (OSC 133): each its prompt's row and how it ended.
+    pub marks: Vec<(u16, crate::CommandMark)>,
 }
 
 /// What finding shows: the matches in all, which one is selected (0 is the newest), and the
@@ -204,6 +206,7 @@ impl TerminalSnapshot {
             pwd: String::new(),
             bell_count: 0,
             find: None,
+            marks: Vec::new(),
         }
     }
 

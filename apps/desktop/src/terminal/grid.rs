@@ -325,6 +325,15 @@ fn render_viewport(
         canvas_layer = canvas_layer.child(render_cursor(p, snap, cell_w, cell_h, focused, lit));
     }
 
+    // The link under the pointer, underlined in its own colour (Windows Terminal and Ghostty do);
+    // with Ctrl (⌘ on macOS) held the pointer says a click follows it.
+    let hovered = if snap.mouse_tracking { Vec::new() } else { tab.hover.map(|(c, r, _)| super::links::span(snap, c, r)).unwrap_or_default() };
+    let follows = !hovered.is_empty() && tab.hover.is_some_and(|h| h.2);
+    canvas_layer = canvas_layer.children(hovered.iter().map(|&(r, a, b)| {
+        let color = snap.screen_rows.get(usize::from(r)).and_then(|row| row.cells.get(usize::from(a))).map_or(p.text, cell_fg_color);
+        let y = f32::from(r + 1) * cell_h - 2.0;
+        el().key(format!("terminal-link-{r}")).absolute(f32::from(a) * cell_w, y).size(f32::from(b - a) * cell_w, 1.0).fill(color).inert()
+    }));
 
     // Quote: a settled selection offers to go into the composer, under its last line (above
     // when that's the screen's bottom), as Desktop's `TerminalQuote` does.
@@ -397,7 +406,7 @@ fn render_viewport(
         .pr(PAD_X - SCROLLBAR_W)
         .pt(PAD_Y)
         .pb(PAD_Y)
-        .cursor(Cursor::Text)
+        .cursor(if follows { Cursor::Pointer } else { Cursor::Text })
         .pointer_buttons([PointerButton::Middle])
         .on_drag(move |app: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
@@ -509,21 +518,56 @@ fn render_viewport(
             }
             super::menu::open(app, &wk_menu, &tid_menu, p.window(), tx);
         });
-    // Pointer motion with no button held, for a program that asked for every move (`?1003`):
-    // the encoder sends it only in that mode.
-    if reports {
-        outer = outer.on_pointer_move_local(move |app: &mut App, p: PointerEvent, tx: &mut Tx| {
-            let (lx, ly, _, _) = cell(p.x, p.y);
+    // Pointer motion with no button held: for a program that asked for every move (`?1003`; the
+    // encoder sends it only in that mode), else the link under the pointer, which the view
+    // underlines. A move that leaves the same link (or none) under it draws nothing new.
+    let (wk_leave, tid_leave) = (ws_key.to_owned(), tab.id.clone());
+    outer = outer
+        .on_pointer_move_local(move |app: &mut App, p: PointerEvent, tx: &mut Tx| {
+            let (lx, ly, col, row) = cell(p.x, p.y);
             let mods = tx.mods();
-            if let Some(t) = app.terminal_tab_mut(&wk_move, &tid_move)
-                && !mods.shift
-            {
+            let Some(t) = app.terminal_tab_mut(&wk_move, &tid_move) else { return };
+            if reports && !mods.shift {
                 t.session.send_mouse(MouseInput { kind: MouseKind::Move, button: MouseBtn::None, x_px: lx, y_px: ly, shift: false, ctrl: mods.ctrl, alt: mods.alt, cmd: false });
+                tx.live_only();
+                return;
             }
-            tx.live_only();
+            let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
+            let snap = t.session.peek();
+            let now = super::links::span(&snap, col, row);
+            let was = t.hover.map(|(c, r, _)| super::links::span(&snap, c, r)).unwrap_or_default();
+            let drawn_same = now == was && (now.is_empty() || t.hover.is_some_and(|h| h.2 == follow));
+            t.hover = Some((col, row, follow));
+            if drawn_same {
+                tx.live_only();
+            }
+        })
+        .on_hover_change(move |app: &mut App, inside: bool, _tx: &mut Tx| {
+            if !inside && let Some(t) = app.terminal_tab_mut(&wk_leave, &tid_leave) {
+                t.hover = None;
+            }
         });
-    }
+    // Finished commands (the shell's OSC 133 marks): a dot in the margin beside each one's prompt,
+    // the success colour for exit 0 and the danger colour for any other, saying how it ended.
+    let dot = 6.0;
+    let marks = snap.marks.iter().map(|&(row, mark)| {
+        let took = took(mark.ms);
+        let (color, said) = match mark.exit {
+            Some(0) => (p.success, opencode_i18n::t!("rune.terminal.mark.ok", duration = took)),
+            Some(code) => (p.danger, opencode_i18n::t!("rune.terminal.mark.failed", code = code.to_string(), duration = took)),
+            None => (p.muted, opencode_i18n::t!("rune.terminal.mark.finished", duration = took)),
+        };
+        el().key(format!("terminal-mark-{row}"))
+            .absolute((PAD_X - dot) / 2.0, PAD_Y + f32::from(row) * cell_h + (cell_h - dot) / 2.0)
+            .size(dot, dot)
+            .radius(dot / 2.0)
+            .fill(color)
+            .role("image")
+            .label(said.clone())
+            .help(said)
+    });
     let mut outer = outer
+        .children(marks)
         .child(canvas_layer)
         .child(spacer());
 
@@ -540,6 +584,15 @@ fn render_viewport(
     }
 
     outer
+}
+
+/// A command's run time as the mark says it: `340 ms`, `2.4 s`, `3 min 5 s`.
+fn took(ms: u32) -> String {
+    match ms {
+        0..1_000 => format!("{ms} ms"),
+        1_000..60_000 => format!("{:.1} s", f64::from(ms) / 1_000.0),
+        _ => format!("{} min {} s", ms / 60_000, ms / 1_000 % 60),
+    }
 }
 
 fn render_cursor(

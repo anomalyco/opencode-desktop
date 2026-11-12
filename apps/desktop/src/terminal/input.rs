@@ -26,8 +26,14 @@ pub fn dispatch_key(
     tab_id: Option<String>,
     ev: &KeyEvent,
     viewport_rows: u16,
+    option_meta: bool,
     tx: &mut Tx,
 ) -> KeyOutcome {
+    // macOS Option as Meta (a setting): the chord is the key it's on, unmodified, with Alt, which
+    // the key encoder sends as Esc and the key. A key that types no single character keeps Option.
+    let meta = meta_key(ev, option_meta, tx);
+    let ev = meta.as_ref().unwrap_or(ev);
+
     let m = ev.mods;
 
     // F6 and Shift+F6 leave the terminal for the next or previous pane (the app's F6 cycle), so
@@ -54,7 +60,7 @@ pub fn dispatch_key(
 
     // A character the layout made with AltGr or Option is text, even where its chord is also an
     // app command's (Ctrl+Alt+[ is MessagePrev, and AltGr+8 types "[" on a German layout).
-    if let Some(text) = layout_text(ev) {
+    if meta.is_none() && let Some(text) = layout_text(ev) {
         session.select(SelectionOp::Clear);
         if !session.snapshot().scrollbar.at_bottom {
             session.scroll(ScrollOp::Bottom);
@@ -255,6 +261,17 @@ pub fn dispatch_ime(tab: &mut super::TerminalTab, ime: &Ime) -> bool {
         }
         _ => false,
     }
+}
+
+/// `ev` as Meta and the key Option is on, when `on` and `ev` is an Option chord on macOS.
+fn meta_key(ev: &KeyEvent, on: bool, tx: &Tx) -> Option<KeyEvent> {
+    let m = ev.mods;
+    if !(on && cfg!(target_os = "macos") && m.alt && !m.ctrl && !m.cmd && matches!(ev.key, Key::Text(_))) {
+        return None;
+    }
+    let base = tx.key_base().filter(|c| !c.is_control())?;
+    let base = if m.shift { base.to_uppercase().collect() } else { base.to_string() };
+    Some(KeyEvent { key: Key::Text(base), mods: m })
 }
 
 /// A character the keyboard layout typed with AltGr (Ctrl+Alt on Windows, where Rune hands a

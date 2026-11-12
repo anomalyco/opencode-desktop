@@ -9,6 +9,7 @@ mod find;
 mod grapheme;
 mod inbox;
 mod input;
+mod marks;
 pub mod persistent_pty;
 mod publish;
 pub mod pty;
@@ -19,6 +20,7 @@ pub mod types;
 pub use core::VtCore;
 pub use ffi::GhosttyKey;
 pub use grapheme::Grapheme;
+pub use marks::CommandMark;
 pub use pty::{
     MAX_PERSIST_SCROLLBACK, PersistedTerminal, RestoreState, SessionPersistHandle, SessionStatus,
     StreamHandle, TerminalConfig, TerminalSession,

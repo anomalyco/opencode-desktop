@@ -49,6 +49,11 @@ pub fn view(s: &App, p: &Pal) -> El {
     rows.extend([
         ("terminal-placement", setting(p, "terminal-placement", t!("rune.settings.general.row.terminalPlacement.title"), t!("rune.settings.general.row.terminalPlacement.description"), placement(s, p))),
     ]);
+    // Only a Mac has Option; Alt elsewhere is already Meta in the terminal.
+    if cfg!(target_os = "macos") {
+        let control = switch(p, "terminal-option-meta-switch", st.terminal_option_meta).on_press(|s: &mut App| s.change_settings(|x| x.terminal_option_meta = !x.terminal_option_meta));
+        rows.push(("terminal-option-meta", setting(p, "terminal-option-meta", t!("rune.settings.general.row.terminalOptionMeta.title"), t!("rune.settings.general.row.terminalOptionMeta.description"), control)));
+    }
     if !s.browser_unsupported() {
         let control = switch(p, "prefetch-browser-switch", st.prefetch_browser).on_press(|s: &mut App| s.set_prefetch_browser(!s.settings.prefetch_browser));
         rows.push(("prefetch-browser", setting(p, "prefetch-browser", t!("rune.settings.general.row.prefetchBrowser.title"), &crate::browser::prefetch::describe(&s.browser.host.status_checked()), control)));

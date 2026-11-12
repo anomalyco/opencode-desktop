@@ -148,6 +148,7 @@ impl VtCore {
         self.selection_changed = false;
 
         let find = self.find_view(cols, rows);
+        let marks = screen_rows.iter().enumerate().filter_map(|(i, r)| self.marks.on_row(r.id, r.content_hash).map(|m| (i as u16, m))).collect();
         let cursor_color = if colors.cursor_has_value {
             Rgb::from_ffi(colors.cursor)
         } else {
@@ -187,6 +188,7 @@ impl VtCore {
             pwd: self.pwd.clone(),
             bell_count: self.cb.bell_count,
             find,
+            marks,
         })
     }
 

@@ -119,6 +119,8 @@ pub struct VtCore {
     /// The find bar's search, made the first time it opens (`find.rs`).
     pub(crate) search: GhosttySearch,
     pub(crate) finding: bool,
+    /// Finished commands, from the shell's OSC 133 marks (`marks.rs`).
+    pub(crate) marks: crate::marks::Marks,
 }
 
 impl VtCore {
@@ -308,6 +310,7 @@ impl VtCore {
             last_viewport_rows: Vec::new(),
             search: std::ptr::null_mut(),
             finding: false,
+            marks: Default::default(),
         };
         core.apply_theme_colors(&theme);
         Ok(core)
@@ -377,7 +380,44 @@ impl VtCore {
         (rc == GHOSTTY_SUCCESS && written > 0).then(|| buf[..written].to_vec())
     }
 
+    /// Feeds a program's output, stopping at each OSC 133 mark to note it where the cursor is.
     pub fn feed(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while let Some((end, body)) = self.marks.next(rest) {
+            self.feed_vt(&rest[..end]);
+            let prompt_row = if body.first() == Some(&b'A') { self.cursor_row_id() } else { None };
+            self.marks.step(&body, prompt_row);
+            rest = &rest[end..];
+        }
+        self.feed_vt(rest);
+    }
+
+    /// The emulator's id for the row the cursor is on, while it's in view.
+    fn cursor_row_id(&mut self) -> Option<u128> {
+        let mut cursor = GhosttyRenderStateCursor::default();
+        unsafe {
+            let _ = ffi::ghostty_render_state_update(self.render_state, self.term);
+            let _ = ffi::ghostty_render_state_get(self.render_state, GHOSTTY_RENDER_STATE_DATA_CURSOR, (&mut cursor as *mut GhosttyRenderStateCursor).cast());
+            let _ = ffi::ghostty_render_state_get(self.render_state, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, (&mut self.row_iter as *mut GhosttyRenderStateRowIterator).cast());
+        }
+        if !cursor.viewport_has_value {
+            return None;
+        }
+        let mut row = 0;
+        while unsafe { ffi::ghostty_render_state_row_iterator_next(self.row_iter) } {
+            if row == cursor.viewport_y {
+                let mut id = GhosttyRenderStateRowId::default();
+                unsafe {
+                    let _ = ffi::ghostty_render_state_row_get(self.row_iter, GHOSTTY_RENDER_STATE_ROW_DATA_ID, (&mut id as *mut GhosttyRenderStateRowId).cast());
+                }
+                return Some(id.as_u128());
+            }
+            row += 1;
+        }
+        None
+    }
+
+    fn feed_vt(&mut self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
         }

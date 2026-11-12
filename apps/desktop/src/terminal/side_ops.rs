@@ -104,6 +104,7 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             Some(tab.id.clone()),
             ev,
             rows,
+            s.settings.terminal_option_meta,
             tx,
         )
     };

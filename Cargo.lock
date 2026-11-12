@@ -5172,6 +5172,7 @@ version = "0.0.1"
 dependencies = [
  "js-sys",
  "libc",
+ "memchr",
  "opencode-kit",
  "parking_lot",
  "polling",

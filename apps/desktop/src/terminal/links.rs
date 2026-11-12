@@ -74,6 +74,44 @@ pub fn at(snap: &TerminalSnapshot, col: u16, row: u16) -> Option<Target> {
     file(&word, &rest)
 }
 
+/// The cells of the link under (`col`, `row`), a run per row (row, first column, the column past
+/// its last): the cell's OSC 8 run, else the address or file reference [`at`] reads there. Empty
+/// off a link.
+pub fn span(snap: &TerminalSnapshot, col: u16, row: u16) -> Vec<(u16, u16, u16)> {
+    let Some(cells) = snap.screen_rows.get(usize::from(row)).map(|r| &r.cells) else { return Vec::new() };
+    let linked = |i: usize| cells.get(i).is_some_and(|c| c.flags.contains(CellFlags::HYPERLINK));
+    if linked(usize::from(col)) {
+        let (mut a, mut b) = (usize::from(col), usize::from(col) + 1);
+        while a > 0 && linked(a - 1) {
+            a -= 1;
+        }
+        while linked(b) {
+            b += 1;
+        }
+        return vec![(row, a as u16, b as u16)];
+    }
+    let Some(line) = line_at(snap, col, row) else { return Vec::new() };
+    let Some((start, end)) = token(&line.chars, line.at) else { return Vec::new() };
+    let word: String = line.chars[start..end].iter().collect();
+    let rest: String = line.chars[end..].iter().collect();
+    // The characters of `word` the link covers: an address within it, or the reference's path
+    // and position without the punctuation after it.
+    let (from, len) = match url(&word) {
+        Some(u) => (word[..word.find(&u).unwrap_or(0)].chars().count(), u.chars().count()),
+        None if file(&word, &rest).is_some() => (0, word.trim_end_matches(['.', ',', ';', ':', ')', ']']).chars().count()),
+        None => return Vec::new(),
+    };
+    let mut runs: Vec<(u16, u16, u16)> = Vec::new();
+    for &(c, r) in &line.cells[start + from..(start + from + len).min(line.cells.len())] {
+        let width = snap.screen_rows.get(usize::from(r)).and_then(|row| row.cells.get(usize::from(c))).map_or(1, |cell| u16::from(cell.width.max(1)));
+        match runs.last_mut() {
+            Some(run) if run.0 == r && c < run.2 + 1 => run.2 = run.2.max(c + width),
+            _ => runs.push((r, c, c + width)),
+        }
+    }
+    runs
+}
+
 /// The run of non-space characters around `at`, without the quotes and brackets that wrap it.
 fn token(chars: &[char], at: usize) -> Option<(usize, usize)> {
     let stop = |c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | '|');

@@ -91,6 +91,9 @@ pub struct TerminalTab {
     pub find: Option<rune::TextEdit>,
     /// Whether it had the keyboard at the last poll, for focus reports (`?1004`).
     pub(crate) focused: Cell<bool>,
+    /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
+    /// the link there (`links::span`) is underlined, and followable with the modifier.
+    pub(crate) hover: Option<(u16, u16, bool)>,
 }
 
 impl TerminalTab {
@@ -572,6 +575,7 @@ impl App {
             cwd: info.cwd.clone(),
             find: None,
             focused: Cell::new(false),
+            hover: None,
         })
     }
 
@@ -615,6 +619,7 @@ impl App {
             cwd: directory,
             find: None,
             focused: Cell::new(false),
+            hover: None,
         });
         ws.active = Some(id.to_owned());
         Some(id.to_owned())

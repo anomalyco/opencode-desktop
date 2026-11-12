@@ -85,6 +85,10 @@ pub struct Settings {
     pub new_question_ui: bool,
     /// Download the browser engine while the app is idle (`browser::prefetch`); on by default.
     pub prefetch_browser: bool,
+    /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
+    /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
+    /// on the Mac; Desktop's terminal (ghostty-web) treats Option as Meta.
+    pub terminal_option_meta: bool,
     /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
     /// locale id; `None` follows the system's languages (`language::apply`).
     pub language: Option<String>,
@@ -151,6 +155,7 @@ impl Default for Settings {
             tab_layout: Default::default(),
             new_question_ui: false,
             prefetch_browser: true,
+            terminal_option_meta: false,
             language: None,
             default_destination: Destination::default(),
             last_used: BTreeMap::new(),
@@ -195,6 +200,7 @@ impl Settings {
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
             "browser": { "prefetch": self.prefetch_browser },
+            "terminal": { "optionAsMeta": self.terminal_option_meta },
             "language": self.language,
             "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
@@ -242,6 +248,7 @@ impl Settings {
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
+            terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),
             default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
             last_used: v["workspaces"]["lastUsed"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned()))).collect()).unwrap_or_default(),

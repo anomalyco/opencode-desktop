@@ -155,6 +155,9 @@ pub fn index(s: &App) -> Vec<Entry> {
         }
         add(page.clone(), target, *title, *section, *description, keywords);
     }
+    if cfg!(target_os = "macos") {
+        add(Page::General, "terminal-option-meta", key!("rune.settings.general.row.terminalOptionMeta.title"), None, None, "terminal option alt meta esc keyboard");
+    }
     if !s.browser_unsupported() {
         add(Page::General, "prefetch-browser", key!("rune.settings.general.row.prefetchBrowser.title"), None, None, "browser engine download cef");
     }

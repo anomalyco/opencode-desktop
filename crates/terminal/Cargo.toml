@@ -8,6 +8,7 @@ build = "build.rs"
 
 [dependencies]
 libc = "0.2"
+memchr = "2"
 opencode-kit = { path = "../opencode-kit" }
 parking_lot = "0.12"
 rune.workspace = true

@@ -454,6 +454,7 @@ impl App {
                     cwd: directory.clone(),
                     find: None,
                     focused: std::cell::Cell::new(false),
+                    hover: None,
                 })
             })
             .collect();
