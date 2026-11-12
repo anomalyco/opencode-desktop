@@ -214,6 +214,11 @@ pub fn status(s: &App, p: &Pal) -> Option<El> {
         Some(Cover::Incompatible) => return Some(small(opencode_i18n::t!("session.error.incompatible"))),
         None => {}
     }
+    // Something on the network answers in the server's place (a sign-in page): the stream's
+    // own error said so (`opencode_kit::servers::link`).
+    if matches!(crate::reconnect::link_of(s, key.as_str()), opencode_kit::servers::link::Link::Intercepted { .. }) {
+        return Some(small(opencode_i18n::t!("rune.session.interceptedCopy")));
+    }
     if offline(s) {
         return Some(small(opencode_i18n::t!("rune.session.offlineCopy")));
     }

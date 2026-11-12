@@ -137,6 +137,8 @@ pub enum CatchUp {
 #[derive(Default)]
 pub struct Links {
     links: HashMap<ServerId, Link>,
+    /// Each server's link as the header tells it (`opencode_kit::servers::link`).
+    states: HashMap<ServerId, opencode_kit::servers::link::Link>,
     catch_up: HashMap<ServerId, CatchUp>,
     /// Subagents whose pages were asked for again after a reconnect, by server.
     refreshing: HashMap<ServerId, HashSet<String>>,
@@ -153,12 +155,18 @@ impl Links {
         effects
     }
 
+    /// Server `server`'s link as the header tells it.
+    pub fn state(&self, server: &str) -> opencode_kit::servers::link::Link {
+        self.states.get(server).cloned().unwrap_or_default()
+    }
+
     /// Every server whose link is down or in doubt.
     pub fn troubled(&self) -> impl Iterator<Item = &ServerId> + '_ { self.links.keys() }
 
     /// A server that leaves this window forgets its link.
     pub fn forget(&mut self, server: &str) {
         self.links.remove(server);
+        self.states.remove(server);
         self.catch_up.remove(server);
         self.refreshing.remove(server);
     }
@@ -190,6 +198,43 @@ fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
     changed
 }
 
+/// Steps server `server`'s link (`opencode_kit::servers::link`) and carries out what it asks.
+pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::Event, tx: &mut Tx) -> bool {
+    use opencode_kit::servers::link::Effect;
+    let mut state = s.server_links.state(server);
+    let effects = state.step(event);
+    if state == opencode_kit::servers::link::Link::Online {
+        s.server_links.states.remove(server);
+    } else {
+        s.server_links.states.insert(server.to_owned(), state);
+    }
+    let mut changed = false;
+    for effect in effects {
+        match effect {
+            Effect::Repaint => {
+                tx.instant();
+                changed = true;
+            }
+            Effect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
+            Effect::Reconnect => {
+                opencode_kit::client::Server::wake_reconnects();
+                crate::servers::health::nudge(s, &opencode_kit::servers::ServerKey::new(server), tx);
+            }
+        }
+    }
+    changed
+}
+
+/// Server `server`'s link as the header tells it.
+pub fn link_of(s: &App, server: &str) -> opencode_kit::servers::link::Link {
+    s.server_links.state(server)
+}
+
+/// An `events: <why>` line's typed error, when the client wrote one.
+fn stream_error(e: &str) -> Option<opencode_kit::wire_error::WireError> {
+    opencode_kit::wire_error::WireError::parse(&format!("GET /api/event: {}", e.strip_prefix("events: ")?))
+}
+
 /// A failure of the link itself, not the server's answer (a 5xx is a busy server, not a drop).
 pub fn link_error(e: &str) -> bool {
     !e.contains("http status") && (opencode_kit::plain_error::is_transient(e) || opencode_kit::plain_error::failed_for_sure(e))
@@ -202,6 +247,7 @@ pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
     let now = *s.clock;
     if e.starts_with("events:") {
         apply(s, &server, LinkEvent::StreamDropped { now: now }, tx);
+        step_link(s, &server, opencode_kit::servers::link::Event::StreamDown { now, error: stream_error(e) }, tx);
         *s.status = e.to_owned();
         return true;
     }
@@ -215,6 +261,7 @@ pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
 pub fn back(s: &mut App) {
     let Some(server) = server_of(s) else { return };
     apply(s, &server, LinkEvent::StreamBack, &mut Tx::default());
+    step_link(s, &server, opencode_kit::servers::link::Event::StreamUp, &mut Tx::default());
 }
 
 /// The server answered something: a suspect link is fine. True when the header changed.
@@ -232,8 +279,13 @@ pub fn shown(s: &App) -> bool { s.server_links.get(crate::servers::runtime::acti
 /// Marks the header once trouble has lasted [`QUIET`], for every server in trouble.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let now = *s.clock;
+    let reopening: Vec<ServerId> = s.server_links.states.iter().filter(|(_, l)| matches!(l, opencode_kit::servers::link::Link::Reopening { shown: false, .. })).map(|(k, _)| k.clone()).collect();
+    let mut shown = false;
+    for server in reopening {
+        shown |= step_link(s, &server, opencode_kit::servers::link::Event::Tick { now }, tx);
+    }
     let troubled: Vec<ServerId> = s.server_links.troubled().cloned().collect();
-    troubled.iter().fold(false, |changed, server| apply(s, server, LinkEvent::Tick { now: now }, tx) | changed)
+    troubled.iter().fold(shown, |changed, server| apply(s, server, LinkEvent::Tick { now: now }, tx) | changed)
 }
 
 /// After a reconnect, reads again what the lost link may have hidden: the pages of the open

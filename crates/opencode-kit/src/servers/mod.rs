@@ -27,6 +27,7 @@ pub mod health;
 pub mod home;
 pub mod home_load;
 pub mod key;
+pub mod link;
 pub mod migration;
 pub mod plugin_server;
 pub mod probe;

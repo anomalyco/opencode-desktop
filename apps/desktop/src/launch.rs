@@ -436,6 +436,9 @@ pub mod trace;
 pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
     if !s.live() { return; }
     Server::wake_reconnects();
+    if let Some(server) = window_server(s) {
+        crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::NetworkChanged, tx);
+    }
     step(s, LaunchEvent::NetworkUp, tx);
     s.pump_outbox();
 }
@@ -553,7 +556,11 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
                 s.launch.set_phase(&server, Phase::Probing { rx, again });
             }
             LaunchEffect::Connect => connect(s, tx),
-            LaunchEffect::Unreachable | LaunchEffect::Fixture => {}
+            LaunchEffect::Unreachable => {
+                let now = *s.clock;
+                changed |= crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::Unreachable { now }, tx);
+            }
+            LaunchEffect::Fixture => {}
             LaunchEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
             LaunchEffect::Repaint => {
                 tx.instant();

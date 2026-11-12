@@ -132,6 +132,7 @@
   "rune.command.window.reopenClosed": "Reopen closed window",
   "rune.error.copyDetails": "Copy details",
   "rune.file.readFailed": "Couldn't read {{path}}",
+  "rune.session.interceptedCopy": "The network is answering instead of this server (a sign-in page?) · showing what was loaded",
   "rune.session.offlineCopy": "Can't reach this server · showing what was loaded",
   "rune.session.mention.open": "Open session {{id}}",
   "rune.session.mention.openTitled": "Open session “{{title}}”\n{{id}}",
