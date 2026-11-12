@@ -1454,6 +1454,8 @@ fn quit_last() {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     commit_pages_on_demand();
+    #[cfg(feature = "alloc-sites")]
+    plugin_host::memory::register_reports();
     // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose
     // command line is fixed in the registry and whose environment is the user's) takes its
     // scratch root from the command line: it never runs without one. Release builds ignore it.

@@ -38,7 +38,7 @@ mod hot;
 pub(crate) mod icons;
 mod images;
 pub mod machines;
-mod memory;
+pub(crate) mod memory;
 pub mod native;
 mod nodes;
 #[cfg(feature = "office")]
@@ -697,6 +697,8 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         app.plugins.asked = false;
     }
     changed |= app_half::poll(app, now, tx);
+    #[cfg(feature = "alloc-sites")]
+    memory::publish_vms(app);
     project_request::poll(app, tx);
     // Images that landed or settled: the surfaces that drew them read them again.
     changed |= app.plugins.shared.images.borrow_mut().poll();

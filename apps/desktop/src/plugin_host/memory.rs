@@ -18,3 +18,28 @@ pub fn report() -> String {
     })
     .to_string()
 }
+
+/// What each plugin's Luau VMs hold, as of the last poll, for a measuring build's heap dumps.
+#[cfg(feature = "alloc-sites")]
+static VMS: std::sync::Mutex<Vec<(String, usize)>> = std::sync::Mutex::new(Vec::new());
+
+/// Notes each running VM's Luau heap (window halves and app halves), for [`register_reports`].
+#[cfg(feature = "alloc-sites")]
+pub fn publish_vms(app: &crate::App) {
+    let mut vms: Vec<(String, usize)> = app.plugins.list.iter().filter_map(|p| p.script().map(|s| (p.half.id.to_string(), s.memory()))).collect();
+    vms.extend(super::app_half::each(|a| Some((format!("{}@app", a.half.id), a.script.memory()))));
+    if let Ok(mut v) = VMS.lock() {
+        *v = vms;
+    }
+}
+
+/// A measuring build's heap dumps (procwatch `alloc-sites`) also list each plugin VM's Luau heap
+/// and SQLite's own heap, which the allocator sites can't name by plugin or see at all.
+#[cfg(feature = "alloc-sites")]
+pub fn register_reports() {
+    procwatch::alloc::sites::contribute("luau-vms", || VMS.lock().map(|v| v.iter().map(|(id, bytes)| format!("vm {bytes} {id}\n")).collect()).unwrap_or_default());
+    procwatch::alloc::sites::contribute("sqlite", || {
+        let (used, high) = opencode_storage::sqlite_memory();
+        format!("sqlite {used} {high}\n")
+    });
+}

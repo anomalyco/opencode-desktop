@@ -292,3 +292,13 @@ pub fn desktop_recent_tabs(dirs: &[PathBuf]) -> Option<(serde_json::Value, serde
     let (dir, _) = seed::pick(dirs)?;
     seed::recent_tabs(&dir.join("drafts.sqlite"))
 }
+/// SQLite's own heap now and at its highest, in bytes (`sqlite3_memory_used`,
+/// `sqlite3_memory_highwater`): its page caches and statements, which live outside the app's
+/// allocator.
+pub fn sqlite_memory() -> (i64, i64) {
+    // SAFETY: both are thread-safe reads of SQLite's global counters.
+    #[allow(unsafe_code)]
+    unsafe {
+        (rusqlite::ffi::sqlite3_memory_used(), rusqlite::ffi::sqlite3_memory_highwater(0))
+    }
+}

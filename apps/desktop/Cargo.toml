@@ -14,6 +14,9 @@ office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
 hot = ["rune/hot"]
+# Measuring builds: heap dumps by allocation site, with the GPU's allocations, each plugin VM's
+# Luau heap and SQLite's (procwatch `alloc-sites`).
+alloc-sites = ["procwatch/alloc-sites", "rune/alloc-sites"]
 # Per-frame stage timings for a live window, written to RUNE_FRAME_LOG (a diagnostic build).
 frame-profile = ["rune/frame-profile"]
 # The ⌘⇧K tuning layer.
