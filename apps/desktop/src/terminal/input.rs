@@ -224,7 +224,7 @@ pub struct Preedit {
 /// as a paste so a shell that asked for bracketed paste doesn't run it line by line.
 pub fn dispatch_ime(tab: &mut super::TerminalTab, ime: &Ime) -> bool {
     match ime {
-        Ime::Preedit(text, cursor) => {
+        Ime::Preedit(text, cursor, ..) => {
             let next = (!text.is_empty()).then(|| Preedit { text: text.clone(), cursor: *cursor });
             let changed = tab.preedit != next;
             tab.preedit = next;

@@ -586,7 +586,7 @@ impl BrowserHost {
                 self.send(HostMsg::Ime { tab_id, commit: Some(s.clone()), preedit: None });
                 true
             }
-            Ime::Preedit(s, _) => {
+            Ime::Preedit(s, ..) => {
                 self.send(HostMsg::Ime { tab_id, commit: None, preedit: Some(s.clone()) });
                 true
             }
