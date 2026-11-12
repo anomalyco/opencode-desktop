@@ -790,6 +790,9 @@ impl<S: 'static> Inner<S> {
         if let Some(actions) = &self.d.header_actions {
             inner = inner.child(actions(s, f).key("actions"));
         }
+        // The header drags the file's changes out as a `.patch` (a chat, an issue, `git apply`).
+        let get = self.d.get.clone();
+        inner = inner.drag_out(move |s: &S| get(s).files().get(f).and_then(patch_drag));
         let mut h = col()
             .w_full()
             .h(HEADER_H)
@@ -804,4 +807,16 @@ impl<S: 'static> Inner<S> {
         }
         h.child(inner)
     }
+}
+
+/// A drag of `file`'s changes: a `<name>.patch` written to the app's drag folder, and the patch
+/// as text for a target that takes words.
+fn patch_drag(file: &rune_kit::diff::FileDiff) -> Option<rune::DragItem> {
+    let patch = file.patch();
+    let name = std::path::Path::new(file.path()).file_name()?.to_string_lossy().into_owned();
+    let dir = std::env::temp_dir().join("opencode-drag");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(format!("{name}.patch"));
+    std::fs::write(&path, patch.as_bytes()).ok()?;
+    Some(rune::DragItem::new().file(path).text(patch))
 }

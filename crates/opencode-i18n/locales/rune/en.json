@@ -78,6 +78,8 @@
   "rune.files.link.nowhere": "This link doesn't point anywhere",
   "rune.files.link.outside": "Can't open files outside this session's folder",
   "rune.files.noMatches": "No matching files",
+  "rune.openIn.windowsTerminal": "Windows Terminal",
+  "rune.openIn.powershell7": "PowerShell 7",
   "rune.files.tree": "Workspace files",
   "rune.files.workspace": "Workspace",
   "rune.find.close": "Close find",

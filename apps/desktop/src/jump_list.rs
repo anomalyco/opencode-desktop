@@ -23,7 +23,24 @@ pub fn poll(s: &mut App) {
         return;
     }
     s.jump_list_at = *s.clock;
-    rune::set_jump_list(list(s));
+    // A run under a scratch root (`RUNE_DIRS_ROOT`) shares the installed app's identity unless it
+    // took its own (`--app-id`), and leaves that list alone. Under its own, a pick carries the
+    // root back (`--dirs-root`, which only debug builds read) so it reaches this run, not the
+    // usual profile; a release build's scratch run has no list.
+    if !crate::dirs::rooted() {
+        return rune::set_jump_list(list(s));
+    }
+    if let Some(lead) = scratch_lead() {
+        rune::set_jump_list(list(s).lead(lead));
+    }
+}
+
+/// What brings a scratch run's picks back to it, when they can come back: it has an identity of
+/// its own and is a debug build.
+fn scratch_lead() -> Option<String> {
+    let own_identity = rune::extra_args().iter().any(|a| a.starts_with("--app-id="));
+    let root = std::env::var("RUNE_DIRS_ROOT").ok()?;
+    (own_identity && cfg!(debug_assertions)).then(|| format!("--dirs-root={root}"))
 }
 
 fn list(s: &App) -> JumpList {

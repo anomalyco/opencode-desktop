@@ -5,7 +5,8 @@
 //! wins and a `.cmd` or `.bat` shim (VS Code's `code.cmd`) leads to the `.exe` it starts, then an
 //! executable named like the command beside it; failing those, the folder its installer puts it
 //! in. File Explorer shows a folder or opens a file in its default app, and reveals a file with it
-//! selected; PowerShell opens in its own console in the folder.
+//! selected (`SHOpenFolderAndSelectItems`, no new `explorer.exe`); PowerShell (5 or 7) opens in its
+//! own console in the folder, Windows Terminal in a new tab there.
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -34,6 +35,10 @@ impl Launcher for Win {
                 if is_powershell(&exe) {
                     return powershell(&exe, &path);
                 }
+                if is_terminal(&exe) {
+                    // Windows Terminal opens a new tab in the folder (`-d`), not the path.
+                    return start(Command::new(exe).arg("-d").arg(folder(&path)));
+                }
                 start(Command::new(exe).arg(&path))
             }
         }
@@ -44,9 +49,45 @@ impl Launcher for Win {
         if !Path::new(&path).exists() {
             return Err(format!("{path} doesn't exist"));
         }
+        // The shell selects it in a File Explorer window (an open one on its folder when there is
+        // one) without a new explorer.exe; only if it can't does that start.
+        if shell_select(&path) {
+            return Ok(());
+        }
         // Explorer reads `/select,` and the quoted path itself, so they go as written.
         start(Command::new("explorer.exe").raw_arg(format!("/select,\"{path}\"")))
     }
+}
+
+/// `SHOpenFolderAndSelectItems` on `path`, in this thread's own apartment (the launcher's worker).
+#[allow(unsafe_code)]
+fn shell_select(path: &str) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+    use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+    let wide: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().chain([0]).collect();
+    // SAFETY: COM for this thread, then an ID list made from a NUL-terminated path and freed
+    // after the call that reads it.
+    unsafe {
+        let _ = CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+        let pidl = ILCreateFromPathW(wide.as_ptr());
+        if pidl.is_null() {
+            return false;
+        }
+        let ok = SHOpenFolderAndSelectItems(pidl, 0, std::ptr::null(), 0) >= 0;
+        ILFree(pidl);
+        ok
+    }
+}
+
+/// The folder `path` is, or is in.
+fn folder(path: &str) -> PathBuf {
+    let at = Path::new(path);
+    if at.is_dir() { at.to_path_buf() } else { at.parent().unwrap_or(at).to_path_buf() }
+}
+
+fn is_terminal(exe: &Path) -> bool {
+    exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("wt"))
 }
 
 /// `path` with Windows separators, which Explorer needs.
@@ -59,20 +100,20 @@ fn start(cmd: &mut Command) -> Result<(), String> {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Windows PowerShell or PowerShell 7.
 fn is_powershell(exe: &Path) -> bool {
-    exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("powershell"))
+    exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("powershell") || s.eq_ignore_ascii_case("pwsh"))
 }
 
 /// PowerShell takes its working directory rather than a path, and needs a console of its own:
 /// `start` opens one, as Desktop's `openPath` does.
 fn powershell(exe: &Path, path: &str) -> Result<(), String> {
-    let at = Path::new(path);
-    let dir = if at.is_dir() { at } else { at.parent().unwrap_or(at) };
+    let dir = folder(path);
     let status = Command::new("cmd.exe")
         .args(["/d", "/c", "start", ""])
         .arg(exe)
         .arg("-NoExit")
-        .current_dir(dir)
+        .current_dir(&dir)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -199,6 +240,9 @@ fn installed_at(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<Pat
         "cursor" => vec![under("LOCALAPPDATA", r"Programs\cursor\Cursor.exe"), under("ProgramFiles", r"Cursor\Cursor.exe")],
         "zed" => vec![under("LOCALAPPDATA", r"Programs\Zed\Zed.exe"), under("ProgramFiles", r"Zed\Zed.exe")],
         "powershell" => vec![under("SystemRoot", r"System32\WindowsPowerShell\v1.0\powershell.exe")],
+        "pwsh" => vec![under("ProgramFiles", r"PowerShell\7\pwsh.exe"), under("LOCALAPPDATA", r"Microsoft\powershell\pwsh.exe")],
+        // The Store's execution alias: a zero-byte reparse point, so it's found by name, not size.
+        "wt" => vec![under("LOCALAPPDATA", r"Microsoft\WindowsApps\wt.exe")],
         "Sublime Text" => vec![under("ProgramFiles", r"Sublime Text\sublime_text.exe"), under("ProgramFiles", r"Sublime Text 3\sublime_text.exe")],
         _ => vec![],
     };
