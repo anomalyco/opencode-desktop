@@ -68,6 +68,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
+    session_view::scroller::set_device_scale(cx.env().scale);
     set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
     // Timeline width sets the session column for everything this frame builds.
@@ -300,9 +301,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         );
     }
     // A plugin's cover over a tab whose server isn't ready (`PluginServerCover`): the whole main
-    // area, the page and its panels mounted under it.
+    // area from under the titlebar row (`<main>`, not the panels' inset in it), the page and its
+    // panels mounted under it.
     if let Some(cover) = (!s.settings.open).then(|| crate::plugin_host::server_cover(s, p)).flatten() {
-        root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().top()), Some(0.0), Some(chrome().foot())));
+        root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().main_top()), Some(0.0), Some(chrome().foot())));
     }
     if open {
         root = root.child(resize_handle(s, p, w));

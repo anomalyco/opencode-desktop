@@ -456,7 +456,7 @@ pub mod view {
             .min_w(0.0)
             .gap(8.0)
             .child(text(o.title.clone()).font(rune::TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04)).color(p.text))
-            .child(text(o.subtitle.clone()).font(rune::TextStyle::new(11.0, 440.0).lh(13.0).tracking(0.05)).color(p.muted).truncate().dir(rune::Direction::Ltr));
+            .child(text(o.subtitle.clone()).font(rune::TextStyle::new(11.0, 440.0).lh(12.0).tracking(0.05)).color(p.muted).truncate().dir(rune::Direction::Ltr));
         let close = row()
             .key("directory-picker-close")
             .role("button")
@@ -561,17 +561,19 @@ pub mod view {
             .elevate(p.overlay)
             .clip_rounded(6.0)
             .child(header)
-            .child(el().w_full().h(0.5).fill(p.q.border_strong))
+            // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
+            .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
             .child(body)
             .child(footer);
         let card = col().key("directory-picker").role("dialog").label(o.title.clone()).modal(true, |s: &mut App| super::close(s, &mut Tx::default())).child(card);
         crate::widgets::modal("directory-picker-modal", p, card, None)
     }
 
-    /// `directory-picker-browser`: 280 tall, 6 in, a 0.5 pt border, 6 pt corners on bg-base; the
-    /// root's folders as a tree, or Loading, or why it can't be read.
+    /// `directory-picker-browser`: 280 tall, 6 in, a 0.5 pt border (a whole device pixel that
+    /// takes its room, as a CSS border does), 6 pt corners on bg-base; the root's folders as a
+    /// tree, or Loading, or why it can't be read.
     fn browser(o: &Open, p: &Pal) -> El {
-        let frame = col().key("directory-picker-browser").w_full().grow(1.0).min_h(0.0).padding(6.0).radius(6.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border));
+        let frame = col().key("directory-picker-browser").w_full().grow(1.0).min_h(0.0).padding(6.0).radius(6.0).fill(p.bg_base).border(0.5, p.border).border_layout();
         let state = |words: &str| frame.clone().center().child(text(words.to_owned()).font(UI).color(p.muted));
         let Tree::Browsing { root, nodes, expanded, selected } = &o.tree else {
             return if o.tree == Tree::Failed { state(t!("dialog.directory.readError")) } else { state(t!("common.loading")) };
@@ -614,9 +616,10 @@ pub mod view {
             }
             rows.push(r);
         }
-        // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
-        // reach (`workspaces/selection/dialog.tsx:533`): not matched yet, no bar.
-        frame.child(session_view::scroller::scroller("directory-picker-tree").hidden(col().role("tree").w_full().grow(1.0).min_h(0.0), col().w_full().children(rows)))
+        // Desktop's Pierre tree scrolls itself with its own bar (`workspaces/selection/dialog.tsx:533`),
+        // its `--trees-fg` left at the tree's default, text-base on bg-base.
+        let bar = session_view::scroller::Bar::Tree { fg: p.text, bg: p.bg_base };
+        frame.child(session_view::scroller::scroller("directory-picker-tree").bar(bar).build::<App>(p, col().role("tree").w_full().grow(1.0).min_h(0.0), col().w_full().children(rows)))
     }
 
     /// The open folders' rows, each folder's children right under it.

@@ -14,7 +14,6 @@ use rune::{
     Color, El, Key, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
     Transition, Tx, col, el, icon, row, spacer, text, text_input,
 };
-use rune_kit::ScrollBarStyle;
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
@@ -446,7 +445,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .pb(8.0)
                     // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
                     // the room `editor-pad` keeps for it.
-                    .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside())).build::<S>(
+                    .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(crate::scroller::native_bar(p))).build::<S>(
                         p,
                         col()
                             .w_full()

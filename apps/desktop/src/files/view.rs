@@ -108,7 +108,7 @@ pub(crate) fn workspace_tree_view(
         .key("files-tree-rows")
         .w_full()
         .px(8.0)
-        .pb(12.0)
+        .pb(8.0)
         .growth(GrowthSpec::default())
         .role("tree")
         .label(opencode_i18n::t!("rune.files.tree"))
@@ -161,9 +161,9 @@ pub(crate) fn workspace_tree_view(
                 crate::open_in::context(r, id_ctx)
             },
         );
-    // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
-    // reach (`gui-plugins/src/file/pierre-tree.tsx:32-50`): not matched yet, no bar.
-    session_view::scroller::scroller("files-tree").hidden(col().w_full().grow(1.0).min_h(0.0), list)
+    // Desktop's Pierre tree scrolls itself, with its own bar (`--trees-fg` muted on `bg-base`,
+    // `gui-plugins/src/file/pierre-tree.tsx:36-38`).
+    tree_scroll(p, "files-tree", list)
 }
 
 /// The files whose path holds `query`, flat, best first; the highlighted one (else the first)
@@ -245,8 +245,16 @@ pub(crate) fn filtered_files_view(
                 crate::open_in::context(r, path.clone())
             },
         );
-    // The filter's rows in the same Pierre tree as the folders (see `tree`): no bar yet.
-    session_view::scroller::scroller("files-filter-scroll").hidden(col().w_full().grow(1.0).min_h(0.0), list)
+    // The filter's rows in the same Pierre tree as the folders, with its bar.
+    tree_scroll(p, "files-filter-scroll", list)
+}
+
+/// A Pierre tree's scroller keyed `key` with the tree's bar, in a box that takes the padding a
+/// caller gives it: Desktop pads above the scroller (`[data-file-tree-virtualized-root]`'s
+/// `padding-block-start: 4px`), so the bar's track starts with the rows.
+pub(crate) fn tree_scroll(p: &Pal, key: &str, rows: El) -> El {
+    let scroll = session_view::scroller::scroller(key).bar(session_view::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base }).build::<App>(p, col().w_full().grow(1.0).min_h(0.0), rows);
+    col().w_full().grow(1.0).min_h(0.0).child(scroll)
 }
 
 /// The change letter a `review.changes` kind (`add`, `del`, `mix`) ends a row with.

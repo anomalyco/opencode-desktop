@@ -181,7 +181,7 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         .key("review-tree-rows")
         .w_full()
         .px(8.0)
-        .pb(12.0)
+        .pb(8.0)
         .growth(GrowthSpec::default())
         .role("tree")
         .label(opencode_i18n::t!("settings.timeline.row.turnDiffs.title"))
@@ -210,9 +210,9 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 crate::open_in::context(row, tr.id.to_owned())
             },
         );
-    // Desktop's Pierre tree scrolls itself in its shadow root, where `scrollbar.css` doesn't
-    // reach (`session-review-v2.css:206-210`): not matched yet, no bar.
-    session_view::scroller::scroller("review-tree").hidden(col().w_full().grow(1.0).min_h(0.0), list)
+    // Desktop's Pierre tree scrolls itself, with its own bar (`session-review-v2.css:213-220`;
+    // `--trees-fg` muted on `bg-base`, `gui-plugins/src/file/pierre-tree.tsx:36-38`).
+    crate::files::view::tree_scroll(p, "review-tree", list)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,8 +259,8 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
             crate::open_in::context(picked(r, &pick, path), path.clone())
         },
     );
-    // The filter's rows in the same Pierre tree (see `tree`): no bar yet.
-    session_view::scroller::scroller("review-filter-scroll").hidden(col().w_full().grow(1.0).min_h(0.0), list)
+    // The filter's rows in the same Pierre tree as the folders, with its bar.
+    crate::files::view::tree_scroll(p, "review-filter-scroll", list)
 }
 
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {

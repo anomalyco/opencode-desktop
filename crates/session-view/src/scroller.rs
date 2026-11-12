@@ -6,11 +6,11 @@
 //! scrolls. Build a scroll container here, not with `El::scroll`, so a new one gets Desktop's bar
 //! by default and one without it says why.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rune::{El, ScrollSpec, Tx, col};
+use rune::{Color, El, ScrollSpec, Tx, col};
 use rune_kit::{ScrollBar, ScrollBarStyle};
 
 use crate::palette::{Pal, kit};
@@ -34,6 +34,12 @@ pub enum Bar {
     /// [`ScrollBarStyle::scroll_view`] with its [`ScrollBarStyle::track_offset`] and
     /// [`ScrollBarStyle::hover_target`].
     Styled(ScrollBarStyle),
+    /// `@pierre/trees`' own bar (its `style.js`: a file tree scrolls itself in its shadow root,
+    /// where `scrollbar.css` doesn't reach): a [`TREE_GUTTER`] kept whether or not the rows
+    /// overflow (`scrollbar-gutter: stable`), a 4 point pill inside a 1 point clear border with no
+    /// track margin, 17 long at least, in `color-mix(in lab, fg 25%, bg)` (`--trees-scrollbar-thumb`
+    /// from the tree's `--trees-fg` and `--trees-bg`), shown only while the pointer is over the tree.
+    Tree { fg: Color, bg: Color },
     /// No bar, as Desktop hides it.
     Hidden,
 }
@@ -41,9 +47,26 @@ pub enum Bar {
 /// The width `scrollbar.css`'s bar takes from layout while the content overflows (`--scrollbar-size`).
 pub const GUTTER: f32 = 8.0;
 
+/// The width [`Bar::Tree`]'s bar keeps at the tree's end (`--trees-scrollbar-gutter`).
+pub const TREE_GUTTER: f32 = 6.0;
+
 thread_local! {
     /// Each [`Bar::Native`] container's last measured viewport and content heights, by key.
     static FITS: RefCell<HashMap<Rc<str>, [f32; 2]>> = RefCell::default();
+    /// The view's device pixels to a point, as of [`set_device_scale`].
+    static SCALE: Cell<f32> = const { Cell::new(0.0) };
+}
+
+/// The device pixels to a point of the view being built (its `Env::scale`), set once per view:
+/// [`native_bar`]'s thumb lands on whole ones, as Chromium places a native thumb.
+pub fn set_device_scale(scale: f32) {
+    SCALE.set(scale);
+}
+
+/// `scrollbar.css`'s bar, in the room its box keeps for it: its thumb's length rounded and its
+/// place truncated to the device pixels, as Chromium's (`ScrollbarTheme::ThumbPosition`).
+pub fn native_bar(p: &Pal) -> ScrollBarStyle {
+    ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside().device_pixels(SCALE.get())
 }
 
 /// The gutter [`Bar::Native`] container `key` takes from its content's width now ([`GUTTER`] while it
@@ -101,15 +124,22 @@ impl Scroller {
             Bar::ScrollView => viewport.child(content).scroll_bar_styled(ScrollBarStyle::scroll_view(kit(p))),
             Bar::MenuScroll => viewport.child(content).scroll_bar_styled(ScrollBarStyle::menu_scroll(p.border_muted, p.q.border_strong)),
             Bar::Styled(style) => viewport.child(content).scroll_bar_styled(style),
+            Bar::Tree { fg, bg } => viewport.child(col().w_full().pr(TREE_GUTTER).child(content)).scroll_bar_styled(tree_bar(fg, bg)),
             Bar::Hidden => viewport.child(content),
         }
     }
 }
 
+/// [`Bar::Tree`]'s look. Its least thumb is Chromium's for that bar, as measured in Desktop.
+fn tree_bar(fg: Color, bg: Color) -> ScrollBarStyle {
+    let thumb = crate::palette::mix_lab(bg, fg, 0.25);
+    ScrollBarStyle::native(thumb, thumb).inside().webkit_parts(TREE_GUTTER, 1.0, 0.0).min_thumb(17.0).device_pixels(SCALE.get())
+}
+
 /// `scrollbar.css`'s bar: the content's 8 point gutter while it overflows, measured from both
 /// heights, and the bar in it. Only a change in whether it overflows runs the view again.
 fn native<S: 'static>(p: &Pal, key: Rc<str>, stable: bool, viewport: El, content: El) -> El {
-    let bar = ScrollBarStyle::native(p.border_muted, p.q.border_strong).inside();
+    let bar = native_bar(p);
     if stable {
         return viewport.child(col().w_full().pr(GUTTER).child(content)).scroll_bar_styled(bar);
     }

@@ -109,6 +109,12 @@ impl WindowChrome {
         }
     }
 
+    /// Where the main area starts (`<main>`, `shell.tsx`): right under the titlebar row, above
+    /// the inset the panels keep in it. A plugin's server cover fills it from there.
+    pub fn main_top(&self) -> f32 {
+        if self.bottom { 0.0 } else { self.row_h }
+    }
+
     /// Whether the sidebar opens with its own header line (traffic lights, the toggle's slot).
     /// Room the shell keeps along its foot for a titlebar there.
     pub fn foot(&self) -> f32 {

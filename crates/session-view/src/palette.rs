@@ -573,7 +573,7 @@ pub fn over(bg: Color, c: Color, a: f32) -> Color {
 
 /// `t` of the way from `a` to `b` in CIE Lab, as CSS `color-mix(in lab, a, b t)` mixes:
 /// session-ui's `--diffs-bg-separator-override`.
-fn mix_lab(a: Color, b: Color, t: f32) -> Color {
+pub(crate) fn mix_lab(a: Color, b: Color, t: f32) -> Color {
     const M: [[f32; 3]; 3] = [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]];
     const INV: [[f32; 3]; 3] = [[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]];
     const WHITE: [f32; 3] = [0.9505, 1.0, 1.089];

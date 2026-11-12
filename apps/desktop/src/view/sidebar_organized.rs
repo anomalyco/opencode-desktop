@@ -38,7 +38,11 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
         if !st.organize_collapsed {
             tabs = tabs.child(el().key("organize-divider").mx(8.0).h(1.0).fill(p.border_muted));
         }
-        content = content.child(tabs.child(col().key("organize-tabs").w_full().child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None))));
+        // Desktop's strip here is as tall as its tabs (its section has no height of its own), so
+        // this one list scrolls them. The strip scrolls itself and, with no height given, lays
+        // out at none: it takes its tabs' height (`tabs-list`, as of their last layout).
+        let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(0.0);
+        content = content.child(tabs.child(col().key("organize-tabs").w_full().h(tabs_h).child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None))));
     }
     // Its thumb runs in a 12 pt track past the list's end edge, across the sidebar's end inset and
     // the gap to the panel (`inset-inline-end: calc(-1 * (3px + 8px))`), and the pointer anywhere

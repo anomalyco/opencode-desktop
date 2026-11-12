@@ -133,8 +133,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let w = st.width.unwrap_or(default).clamp(min, max);
     let mut body = row().key(format!("{id}-body")).w_full().grow(1.0).min_h(0.0);
     if opened {
-        // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` end edge.
-        body = body.child(col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides([0.0, 1.0, 0.0, 0.0], pal.border).child(side));
+        // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` end edge, which takes
+        // its room from the contents (`border-right`, border-box), so the tree ends inside it.
+        body = body.child(col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides([0.0, 1.0, 0.0, 0.0], pal.border).border_layout().child(side));
     }
     body = body.child(col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main));
     // The resize handle lies over the edge, above the content beside it.
