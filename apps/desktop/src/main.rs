@@ -1539,8 +1539,8 @@ fn main() {
             return;
         }
         // The harness's `--realtime` probes launch as a window does: the server's first reads
-        // wait for `on_ready`, which a realtime run calls after its first frame.
-        if harness_writes() {
+        // wait for `on_ready`, which only a realtime run calls (after its first frame).
+        if harness_writes() && std::env::args().any(|a| a == "--realtime") {
             launch::defer();
         }
         let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });
