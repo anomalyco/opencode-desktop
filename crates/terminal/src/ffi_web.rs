@@ -22,9 +22,6 @@ pub unsafe extern "C" fn ghostty_free(_: *const GhosttyAllocator, _: *mut u8, _:
 pub unsafe extern "C" fn ghostty_color_palette_default(_: *mut GhosttyColorRgb) {
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ghostty_color_palette_generate(_: *const GhosttyColorRgb, _: *const GhosttyColorPaletteMask, _: *const GhosttyColorRgb, _: *const GhosttyColorRgb, _: bool, _: *mut GhosttyColorRgb) {
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ghostty_color_scheme_report_encode(_: c_int, _: *mut c_char, _: usize, _: *mut usize) -> GhosttyResult {

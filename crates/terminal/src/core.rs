@@ -252,18 +252,17 @@ impl VtCore {
             );
             // Apply DECSCUSR 0 so the initial screen cursor picks up default Bar + blink immediately.
             ffi::ghostty_terminal_vt_write(term, b"\x1b[0 q".as_ptr(), 5);
-            let max_lines = scrollback_lines;
-            let max_bytes = scrollback_lines.saturating_mul(2048).max(32 * 1024 * 1024);
+            // Scrollback is capped by bytes only: about 1 KB a 120-column line, so this keeps at
+            // least scrollback_lines up to ~240 columns. A line cap makes Ghostty free and zero
+            // a page each time the oldest one ages out, which was 59% of feeding plain output
+            // (69 MB/s against 306 MB/s with the byte cap alone); the byte cap reuses the page.
+            let max_bytes = scrollback_lines.saturating_mul(2048);
             let _ = ffi::ghostty_terminal_set(
                 term,
                 GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
                 (&max_bytes as *const usize).cast(),
             );
-            let _ = ffi::ghostty_terminal_set(
-                term,
-                GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
-                (&max_lines as *const usize).cast(),
-            );
+
             // Enable cursor blinking (mode 12) and Unicode grapheme clustering (mode 2027) by default.
             for mode in [GHOSTTY_MODE_CURSOR_BLINKING, GHOSTTY_MODE_GRAPHEME_CLUSTER] {
                 let m = GhosttyTerminalModeQuery { mode, value: true };

@@ -79,12 +79,6 @@ pub struct GhosttyColorRgb {
     pub b: u8,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GhosttyColorPaletteMask {
-    pub bits: [u64; 4],
-}
-
 pub const GHOSTTY_STYLE_COLOR_NONE: c_int = 0;
 pub const GHOSTTY_STYLE_COLOR_PALETTE: c_int = 1;
 pub const GHOSTTY_STYLE_COLOR_RGB: c_int = 2;

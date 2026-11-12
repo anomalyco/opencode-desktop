@@ -2,7 +2,7 @@
 
 use rune::color::{srgb_decode, srgb_encode};
 
-use crate::ffi::{self, GhosttyColorPaletteMask, GhosttyColorRgb};
+use crate::ffi::{self, GhosttyColorRgb};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rgb {
@@ -120,26 +120,14 @@ impl TerminalTheme {
         }
     }
 
-    /// Generates the full 256-color table via Ghostty's `ghostty_color_palette_generate`.
+    /// The 256-colour table: the theme's 16 colours, then xterm's 6x6x6 cube and grey ramp, as
+    /// Desktop's terminal (ghostty-web) and every xterm-compatible terminal have them, so a
+    /// program's `38;5;196` is the red it asked for.
     pub(crate) fn full_palette_ffi(&self) -> [GhosttyColorRgb; 256] {
         let mut out = [GhosttyColorRgb::default(); 256];
-        let mut base = [GhosttyColorRgb::default(); 256];
-        unsafe {
-            ffi::ghostty_color_palette_default(base.as_mut_ptr());
-            for (i, c) in self.ansi_base.iter().enumerate() {
-                base[i] = c.to_ffi();
-            }
-            let skip = GhosttyColorPaletteMask::default();
-            let bg = self.bg.to_ffi();
-            let fg = self.fg.to_ffi();
-            ffi::ghostty_color_palette_generate(
-                base.as_ptr(),
-                &skip,
-                &bg,
-                &fg,
-                false,
-                out.as_mut_ptr(),
-            );
+        unsafe { ffi::ghostty_color_palette_default(out.as_mut_ptr()) };
+        for (i, c) in self.ansi_base.iter().enumerate() {
+            out[i] = c.to_ffi();
         }
         out
     }
