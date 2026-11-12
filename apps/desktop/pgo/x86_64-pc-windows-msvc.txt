@@ -1,5 +1,5 @@
-commit 3c1530fe35cb050d8bba89e45d2c0d8726ec9d34
-rune bf8a59820541d79dab331667e3cc1da46e03e7cf
+commit cabe98283a8beea6e424a2427bba75def3df4204
+rune 6364c04b282ad50c3f2466c4b88bb2293ebd095e
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
 processes 21
-Total functions: 11046
+Total functions: 11713

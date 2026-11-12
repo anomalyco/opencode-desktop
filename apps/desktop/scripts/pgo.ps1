@@ -57,11 +57,13 @@ if ($LASTEXITCODE -ne 0) { throw 'llvm-profdata merge failed' }
 $summary = & $profdata show $out | Select-String 'Total functions'
 if ("$summary" -notmatch 'Total functions: [1-9]') { throw "the profile holds no function: $summary" }
 $rune = (Select-String -Path (Join-Path $root 'Cargo.toml') -Pattern '^rune = .*rev = "([0-9a-f]+)"').Matches[0].Groups[1].Value
-@(
+$lines = @(
     "commit $(git -C $root rev-parse HEAD)"
     "rune $rune"
     "rustc $((rustc -V).Trim())"
     "processes $($files.Count)"
     "$summary".Trim()
-) | Set-Content (Join-Path $root "apps/desktop/pgo/$triple.txt")
+)
+$stamp = Join-Path $root "apps/desktop/pgo/$triple.txt"
+[IO.File]::WriteAllText($stamp, ($lines -join "`n") + "`n")
 '{0}: {1:N0} bytes, {2} processes, {3}' -f $out, (Get-Item $out).Length, $files.Count, "$summary".Trim()
