@@ -122,3 +122,53 @@ pub fn json(i: usize, base: &str) -> Option<String> {
     Some(v.to_string())
 }
 
+
+/// The id [`contrast`] registers.
+pub const CONTRAST: &str = "rune-system-contrast";
+
+/// A theme painted only in the system contrast theme's colours (Windows' Contrast themes, CSS
+/// `forced-colors: active`), registered or brought up to date for `c`; its id. Every colour
+/// OpenCode's theme names becomes one of them, by what it paints: grounds, layers and their
+/// washes the window colour; text, icons, borders and code the text colour (borders solid);
+/// accents, selections and state colours the highlight; what sits on an accent the highlight's
+/// text. The same colours set on a theme again register nothing.
+pub fn contrast(c: &rune::SystemContrast) -> &'static str {
+    static LAST: std::sync::Mutex<Option<rune::SystemContrast>> = std::sync::Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last.as_ref() == Some(c) {
+        return CONTRAST;
+    }
+    // OpenCode's theme as it paints: `theme.json` with Desktop's own tokens over it (its code
+    // colours among them).
+    let src = json(0, crate::palette::THEME).unwrap_or_else(|| crate::palette::THEME.to_owned());
+    let base: Value = serde_json::from_str(&src).unwrap_or_default();
+    let mut names: Vec<String> = ["light", "dark", "palette"].iter().filter_map(|k| base[*k].as_object()).flat_map(|m| m.keys().cloned()).collect();
+    names.sort();
+    names.dedup();
+    let mode = |dark: bool| -> Map<String, Value> {
+        let Ok(t) = rune::Theme::from_json(&src, dark) else { return Map::new() };
+        let (bg, fg) = (t.try_color("background-bg-base").unwrap_or(c.window), t.try_color("text-text-base").unwrap_or(c.text));
+        names.iter().filter_map(|n| t.try_color(n).map(|col| (n.clone(), Value::String(forced(n, col, bg, fg, c).hex())))).collect()
+    };
+    register(CONTRAST, "Contrast", [mode(false), mode(true)]);
+    *last = Some(*c);
+    CONTRAST
+}
+
+/// What `col`, token `name` of OpenCode's theme over ground `bg` with text `fg`, paints as in
+/// contrast theme `c`.
+fn forced(name: &str, col: rune::Color, bg: rune::Color, fg: rune::Color, c: &rune::SystemContrast) -> rune::Color {
+    let ink = name.starts_with("text") || name.starts_with("icon") || name.starts_with("syntax") || name.starts_with("border");
+    let (r, g, b) = (rune::color::srgb_encode(col.r), rune::color::srgb_encode(col.g), rune::color::srgb_encode(col.b));
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let saturated = max > 0.2 && (max - min) / max > 0.35;
+    let pick = match () {
+        _ if ink && name.contains("contrast") => c.highlight_text,
+        _ if ink => c.text,
+        _ if name.contains("contrast") || saturated => c.highlight,
+        _ if (col.luminance() - bg.luminance()).abs() <= (col.luminance() - fg.luminance()).abs() => c.window,
+        _ => c.text,
+    };
+    // Borders draw solid: a contrast theme's lines are what separates its surfaces.
+    rune::Color { a: if name.starts_with("border") { 1.0 } else { col.a }, ..pick }
+}

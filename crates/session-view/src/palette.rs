@@ -284,7 +284,8 @@ pub struct Question {
     pub dot: Color,
 }
 
-const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
+/// OpenCode's default theme, which every other lays its tokens over.
+pub(crate) const THEME: &str = include_str!("../../../apps/desktop/assets/theme.json");
 
 /// Token `name` of the active theme in this appearance (a Desktop CSS variable without its
 /// `--`: `text-strong`, `background-bg-layer-04`), for what draws by name rather than through

@@ -58,7 +58,11 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     s.view_runs.set(s.view_runs.get().wrapping_add(1));
     cx.zoom(*s.zoom);
-    crate::themes::set_active(&s.settings.theme);
+    // A system contrast theme paints the app in its colours alone, whatever theme is picked.
+    match cx.system_contrast() {
+        Some(c) => crate::themes::set_active(crate::themes::contrast(&c)),
+        None => crate::themes::set_active(&s.settings.theme),
+    }
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     // Pages draw in the app's scheme, as Desktop's follow its `nativeTheme.themeSource`.

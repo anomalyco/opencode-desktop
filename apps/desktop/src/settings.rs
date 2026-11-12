@@ -294,6 +294,10 @@ fn save(settings: &Settings) {
 
 impl App {
     pub fn dark(&self, cx: &rune::Cx<App>) -> bool {
+        // A contrast theme says light or dark itself, by its window colour.
+        if let Some(c) = cx.system_contrast() {
+            return c.window.luminance() < 0.5;
+        }
         match self.settings.scheme {
             Scheme::System => cx.system_dark(),
             Scheme::Light => false,
