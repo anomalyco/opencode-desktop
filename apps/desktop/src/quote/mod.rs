@@ -138,6 +138,12 @@ impl Quotes {
     pub fn any(&self) -> bool {
         !self.items.is_empty()
     }
+
+    /// Changes when the cards change: one added or removed, or a comment saved (its editor
+    /// closes), for the draft's saved copy (`restore::draft_doc`).
+    pub fn revision(&self) -> (usize, u64, Option<u64>) {
+        (self.items.len(), self.next, self.comment.key())
+    }
 }
 
 /// The session the composer can take a quote into: not a subagent's (it has no composer), and

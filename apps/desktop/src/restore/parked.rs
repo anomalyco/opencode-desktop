@@ -3,8 +3,9 @@
 //! stay in `Restore::drafts`, which every other draft writer already uses; the shown draft's
 //! pieces live in the composer, `App::attach` and `App::quote`.
 //!
-//! Only the words outlive a relaunch: an inline image is up to `attachments::MAX_BYTES` of
-//! base64, and the window's draft file is rewritten on every change.
+//! All of it outlives a relaunch, in the draft's document (`draft_doc`): images and files by
+//! content hash, their bytes stored once. While another draft shows, the composer's own editor
+//! is kept too (`Restore::edits`), so its undo history is there when it shows again.
 
 use std::ops::Range;
 
@@ -33,7 +34,7 @@ impl Parked {
     }
 
     /// Whether to keep it beside `text`: pills and a caret only mean something with words.
-    fn worth_keeping(&self, text: &str) -> bool {
+    pub(super) fn worth_keeping(&self, text: &str) -> bool {
         !self.is_empty() || (!text.trim().is_empty() && (!self.pills.is_empty() || self.caret.is_some_and(|c| c != text.len())))
     }
 
@@ -72,7 +73,7 @@ impl App {
     }
 
     /// The composer's pieces besides its words, left as they are.
-    fn composer_parked(&self) -> Parked {
+    pub(super) fn composer_parked(&self) -> Parked {
         Parked {
             pills: self.composer.pills().map(|(r, id)| (r, id.to_owned())).collect(),
             caret: Some(self.composer.range().1.min(self.composer.text.len())),
@@ -81,6 +82,23 @@ impl App {
             context: self.attach.context.clone(),
             quotes: self.quote.quotes(),
         }
+    }
+
+    /// The shown draft's pieces as they stand in the composer, borrowed (`draft_doc`).
+    pub(super) fn composer_parts(&self) -> Option<super::draft_doc::Parts<'_>> {
+        let caret = self.composer.range().1.min(self.composer.text.len());
+        // Words typed at their end, nothing else: the common keystroke builds nothing more.
+        if caret == self.composer.text.len() && !self.attach.any() && self.attach.context.is_empty() && !self.quote.any() && self.composer.pills().next().is_none() {
+            return None;
+        }
+        Some(super::draft_doc::Parts {
+            pills: self.composer.pills().map(|(r, id)| (r.start, r.end, id)).collect(),
+            caret: Some(caret),
+            files: &self.attach.files,
+            paths: &self.attach.paths,
+            context: &self.attach.context,
+            quotes: self.quote.items.iter().map(|q| &q.comment).collect(),
+        })
     }
 
     /// Draft `key`'s pieces besides its words (the composer's when it holds them), or None.
@@ -120,7 +138,9 @@ impl App {
         let text = key.and_then(|k| self.restore.drafts.get(k).cloned()).unwrap_or_default();
         let parked = key.and_then(|k| self.restore.parked.remove(k)).unwrap_or_default();
         let focused = self.composer.focused;
-        *self.composer = parked.edit(&text);
+        // Its own editor, undo history and all, when its words are as it left them.
+        let kept = key.and_then(|k| self.restore.edits.remove(k)).filter(|e| e.text == text);
+        *self.composer = kept.unwrap_or_else(|| parked.edit(&text));
         self.composer.focused = focused;
         self.attach.files = parked.files;
         self.attach.paths = parked.paths;

@@ -69,10 +69,10 @@ impl Window {
     }
 }
 
-/// A hot build's window: the profile's first saved window (a new one when none was saved), so
-/// it reads and writes the rows the app's first window keeps (`opencode.window.<id>.dat`).
-#[cfg(feature = "hot")]
-pub fn hot() -> Window {
+/// The profile's first saved window (a new one when none was saved), so a hot build's window,
+/// or a headless harness run that writes (`--harness-writes`), reads and writes the rows the
+/// app's first window keeps (`opencode.window.<id>.dat`): its tabs, page and drafts.
+pub fn first_saved() -> Window {
     let saved = store::saved_ids();
     let mut ids = saved.clone().unwrap_or_default();
     if ids.is_empty() {

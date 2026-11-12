@@ -10,6 +10,7 @@
 
 mod copies;
 mod doc;
+mod draft_doc;
 mod parked;
 mod preview;
 
@@ -80,6 +81,10 @@ pub struct Restore {
     hydration: Hydration,
     previews: preview::Previews,
     copies: copies::Copies,
+    /// Which blob holds each draft file's bytes (`draft_doc`).
+    blobs: draft_doc::Blobs,
+    /// Each draft's own editor while another shows: its undo history comes back with it.
+    edits: HashMap<String, rune::TextEdit>,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.
@@ -227,14 +232,18 @@ impl App {
                 TabKey::Session { session_id, .. } => session_id.clone(),
             };
             self.restore.written.drafts.insert(key.encode(), d.to_string());
-            if self.restore.drafts.contains_key(&k) || self.restore.shown.as_deref() == Some(k.as_str()) {
+            if self.restore.drafts.contains_key(&k) || self.restore.parked.contains_key(&k) || self.restore.shown.as_deref() == Some(k.as_str()) {
                 continue;
             }
-            let text = d.as_str().or(d["text"].as_str()).unwrap_or_default();
-            if !text.is_empty() {
-                self.restore.drafts.insert(k.clone(), text.to_owned());
+            let draft = draft_doc::decode(d);
+            if !draft.text.is_empty() {
+                self.restore.drafts.insert(k.clone(), draft.text.clone());
             }
-            if d["mode"].as_str() == Some("shell") {
+            if draft.parked.worth_keeping(&draft.text) {
+                self.restore.parked.insert(k.clone(), draft.parked);
+            }
+            self.read_draft_files(&k, draft.stored);
+            if draft.shell {
                 self.add.park(k, session_view::composer::mode::Mode::Shell);
             }
         }
@@ -337,8 +346,11 @@ impl App {
         }
         self.leave_queue_edits();
         self.add.swap_draft(self.restore.shown.as_deref(), key.as_deref());
+        // The field itself (its undo history) waits for the draft to show again.
+        let edit = (*self.composer).clone();
         let (text, parked) = self.take_composer_draft();
         if let Some(old) = self.restore.shown.take() {
+            self.restore.edits.insert(old.clone(), edit);
             self.park_draft(old, text, parked);
         }
         // Another draft replaces this one: no list or recalled prompt applies to it (`history.reset`).
@@ -361,11 +373,14 @@ impl App {
     }
 
     /// Each draft's document under its tab's key (`draft:<id>`, or the session's server and
-    /// route): its text, and its mode when it is shell (`{ text, mode: "shell" }`), so a draft
-    /// left in shell mode comes back in it, empty or not. An empty normal draft has none.
+    /// route): its text, its mode when it is shell, and the rest of it (`draft_doc`), so a draft
+    /// comes back as it was left, empty or not. A draft with nothing in it has none.
     fn drafts_now(&self) -> HashMap<String, String> {
         use session_view::composer::mode::Mode;
         let mut drafts: HashMap<&str, (&str, Mode)> = self.restore.drafts.iter().map(|(k, t)| (k.as_str(), (t.as_str(), Mode::Normal))).collect();
+        for k in self.restore.parked.keys().chain(self.restore.blobs_pending()) {
+            drafts.entry(k.as_str()).or_insert(("", Mode::Normal));
+        }
         for (k, mode) in self.add.parked() {
             drafts.entry(k).or_insert(("", Mode::Normal)).1 = mode;
         }
@@ -375,12 +390,9 @@ impl App {
         drafts
             .into_iter()
             .filter_map(|(k, (text, mode))| {
-                let v = match mode {
-                    Mode::Shell => json!({ "text": text, "mode": "shell" }),
-                    Mode::Normal if text.trim().is_empty() => return None,
-                    Mode::Normal => json!(text),
-                };
-                Some((self.draft_tab_key(k).encode(), v.to_string()))
+                let parts = if self.restore.shown.as_deref() == Some(k) { self.composer_parts() } else { self.restore.parked.get(k).map(draft_doc::Parts::of) };
+                let v = draft_doc::encode(text, mode == Mode::Shell, parts, &self.restore.blobs, self.pending_files(k))?;
+                Some((self.draft_tab_key(k).encode(), v))
             })
             .collect()
     }
@@ -418,6 +430,9 @@ impl App {
         let mut h = DefaultHasher::new();
         (&*self.route, *self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
         (self.restore.drafts.len(), self.restore.shown.as_deref()).hash(&mut h);
+        // The rest of the shown draft and what the parked ones hold (`draft_doc`).
+        (self.composer.range(), self.attach.files.len(), self.attach.paths.len(), self.attach.context.len(), self.quote.revision()).hash(&mut h);
+        (self.restore.parked.len(), self.restore.blobs.revision).hash(&mut h);
         self.settings.open.then(|| self.settings_pages.page.id().to_owned()).hash(&mut h);
         self.side.stamp_hash(&mut h);
         let st = &self.project_state;
@@ -430,6 +445,9 @@ impl App {
     /// document; a sidebar drag step the shared `layout`.
     pub fn poll_restore(&mut self) {
         let _ = self.show_draft();
+        if self.persists() {
+            self.poll_draft_files();
+        }
         self.freeze_organize_order();
         self.hydrate_restore();
         let stamp = self.restore_stamp();

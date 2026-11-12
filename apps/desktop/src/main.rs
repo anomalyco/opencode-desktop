@@ -883,14 +883,15 @@ impl App {
     }
 
     fn new() -> App {
-        Self::new_window(windows::Window::unsaved())
+        // A harness run that writes keeps a real window's rows, so its tabs and drafts come back.
+        Self::new_window(if harness_writes() { windows::first_saved() } else { windows::Window::unsaved() })
     }
 
     /// A hot build's one window: the profile's first window, whose tabs and page it reads and
     /// saves as the app's own first window does.
     #[cfg(feature = "hot")]
     fn hot() -> App {
-        Self::new_window(windows::hot())
+        Self::new_window(windows::first_saved())
     }
 
     /// `new`, for window `window`: its own tabs and page.
@@ -1282,6 +1283,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.poll_restore();
         s.poll_preview(false);
         changed |= s.poll_copies(tx);
+        changed |= s.poll_line_comments();
         s.prompts.hydrate((*s.waker).clone());
         s.poll_window();
         s.poll_taskbar();

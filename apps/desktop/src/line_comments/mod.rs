@@ -13,6 +13,7 @@
 pub mod focus;
 pub mod host;
 pub mod machine;
+pub mod saved;
 pub mod view;
 
 use std::collections::HashMap;
@@ -99,6 +100,8 @@ pub struct LineComments {
     /// A box opened or closed under a pointer that hasn't moved since: the gutter's `+` hides
     /// until it does (`LineNotes::plus_quiet`).
     pub plus_quiet: bool,
+    /// What the database keeps of every session's list (`saved`).
+    pub(crate) saved: saved::Saved,
 }
 
 impl LineComments {
@@ -254,6 +257,7 @@ impl App {
         let lc = &mut *self.line_comments;
         let session = lc.sessions.entry(spot.session.clone()).or_default();
         session.list.push(LineComment { id: id.clone(), file: spot.path.clone(), selection, comment: comment.clone(), time: time });
+        lc.saved.touch(&spot.session);
         let target = focus::Target { file: spot.path.clone(), id: id.clone() };
         for effect in focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Set(Some(target), tx.clock())) {
             let focus::Effect::WakeAt(due) = effect;
@@ -267,6 +271,7 @@ impl App {
         let preview = self.line_preview(spot, selection);
         if let Some(c) = self.line_comments.sessions.get_mut(&spot.session).and_then(|s| s.list.iter_mut().find(|c| c.id == id)) {
             c.comment = comment.clone();
+            self.line_comments.saved.touch(&spot.session);
         }
         for item in &mut self.quote.items {
             if let PromptComment::File(f) = &mut item.comment
@@ -286,6 +291,7 @@ impl App {
         let Some(session) = lc.sessions.get_mut(sid) else { return };
         if let Some(gone) = session.list.iter().position(|c| c.id == id).map(|i| session.list.remove(i)) {
             let _ = focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Removed(focus::Target { file: gone.file, id: gone.id }));
+            lc.saved.touch(sid);
         }
         self.quote.items.retain(|q| q.comment.file().is_none_or(|f| f.id.as_deref() != Some(id)));
     }
@@ -296,6 +302,7 @@ impl App {
         if let Some(session) = lc.sessions.get_mut(sid) {
             session.list.clear();
             let _ = focus::step(&mut lc.focus_seq, &mut session.focus, focus::Event::Reset);
+            lc.saved.touch(sid);
         }
     }
 
