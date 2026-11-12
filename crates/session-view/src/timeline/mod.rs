@@ -108,7 +108,8 @@ impl RowSpec {
     #[allow(clippy::too_many_arguments)]
     fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool) -> El {
         let message = t.messages[mi].id();
-        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message));
+        let prompt = prompt_dir(t, mi);
+        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
         // A burst paces in a slice at a time (`line_reveal::Paced`).
         let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
@@ -274,7 +275,7 @@ impl RowSpec {
                     Some(Block::Text { key, body, live, msg, part }) => {
                         // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
-                        let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message));
+                        let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg)));
                         if !*live && turn_footer_text(t, start + msg, *part) {
                             return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
                         }
@@ -741,4 +742,14 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
 pub fn interrupted(kind: &str) -> bool {
     let k = kind.to_lowercase();
     k.contains("abort") || k.contains("interrupt")
+}
+
+/// The direction of the prompt message `mi` answers (the last prompt at or before it), which its
+/// reply reads in until its own words arrive.
+fn prompt_dir(t: &Transcript, mi: usize) -> Option<rune::Direction> {
+    let upto = (mi + 1).min(t.messages.len());
+    t.messages[..upto].iter().rev().find_map(|m| match m {
+        Message::User { text, .. } => Some(rune::Direction::of(text)),
+        _ => None,
+    })?
 }

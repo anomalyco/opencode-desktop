@@ -191,7 +191,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     let mut c = col().w_full().child(trigger);
     if open {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
-        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[]);
+        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None);
         c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }
     c
@@ -329,6 +329,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     copied: Vec<String>,
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
+    tentative: Option<rune::Direction>,
 ) -> El {
     use crate::user_parts::session_of_link;
     // Its texts join the timeline's selection group rather than forming one of their own, so
@@ -363,8 +364,13 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         Some(m) => crate::images::markdown_pictures::<S>(md, m),
         None => md,
     };
-    // The reply takes the direction of its own words (`markdown.tsx:1143`'s `dir="auto"`).
-    md.build(crate::palette::kit(p)).selection_group(false).dir(rune::Direction::Auto)
+    // Each block reads the way its own words do, code always left to right; until a reply's
+    // first words arrive it reads the way its prompt does.
+    let md = match tentative {
+        Some(d) => md.dir_tentative(d),
+        None => md,
+    };
+    md.build(crate::palette::kit(p)).selection_group(false)
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
@@ -424,7 +430,7 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), Vec::new(), None, &[])
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), Vec::new(), None, &[], None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -439,8 +445,9 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     copied: Vec<String>,
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
+    tentative: Option<rune::Direction>,
 ) -> El {
-    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media, chips)
+    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media, chips, tentative)
 }
 
 /// Desktop's activity spinner, Soft Radar (`ActivityRing`, `spinner-radar.ts`): 14px, icon-muted.

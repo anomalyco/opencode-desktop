@@ -29,7 +29,8 @@ pub fn view(p: &Pal, fd: &FileDiff) -> El {
     let most = fd.hunks.iter().map(|h| (h.old_start + h.old_count).max(h.new_start + h.new_count)).max().unwrap_or(1);
     // Numbers sit 2ch in (room for the bar), right-aligned in at least 3ch; code starts 2ch on.
     let numbers = ch * (2.0 + most.to_string().len().max(3) as f32);
-    let mut out = col().key("diff").w_full().fill(p.code_bg);
+    // Code reads left to right in any window: numbers and bars at the left.
+    let mut out = col().key("diff").dir(rune::Direction::Ltr).w_full().fill(p.code_bg);
     for (hi, h) in fd.hunks.iter().enumerate() {
         if hi > 0 {
             out = out.child(el().key(format!("sep-{hi}")).w_full().h(ROW).fill(p.diff.separator));
@@ -148,7 +149,7 @@ pub fn code(p: &Pal, content: &str, lang: Option<&str>, digits: usize) -> El {
     let ch = rune::text::measure("0", &[], font, None).0;
     let numbers = 12.0 + ch * digits.max(1) as f32;
     let paint = Side(rune_kit::syntax::highlight(lang, content));
-    let mut out = col().key("code").w_full().py(4.0).fill(p.code_bg);
+    let mut out = col().key("code").dir(rune::Direction::Ltr).w_full().py(4.0).fill(p.code_bg);
     let mut at = 0;
     for (n, l) in content.split('\n').enumerate() {
         let spans = theme.spans(&paint.within(at..at + l.len()), 0);

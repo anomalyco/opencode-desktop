@@ -150,7 +150,7 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
         let (el, (top, bottom)) = match seg {
             Seg::Md(r) => {
                 let marks = hits_in(hits, &r).into_iter().map(|(i, m, on)| (m, markdown_mark(p, i, on))).collect();
-                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)), chips);
+                let el = markdown_styled::<S, _>(p, &src[r.clone()], fade, streaming && i + 1 == count, markdown_style(p, p.text, width), marks, crate::copied::current(s), Some(crate::images::md_media(s)), chips, None);
                 // The first run is the root and keeps its blocks' keys from before any fence.
                 let el = if i == 0 { el } else { el.key(format!("md-{}", r.start)) };
                 (el, md_edges(&src[r]))
@@ -167,7 +167,7 @@ pub fn reply<S: TimelineHost>(s: &S, p: &Pal, src: &str, fade: f32, streaming: b
                 };
                 let outline = rune::memo(format!("outline-{line}"), ver, || inline::outline::<S>(p, src, src_at, &nodes, width, fade, marks.clone()));
                 // The plugin that renders `ui` blocks places the outline (`ui.genUi`), or keeps the code.
-                let outline = s.code_block(p, "ui", &format!("outline-{line}"), &src[code], streaming && open, version, outline).unwrap_or_else(|| markdown_styled::<S, _>(p, &src[at.clone()], fade, false, markdown_style(p, p.text, width), Vec::<(Vec<Range<usize>>, rune_kit::Highlight)>::new(), crate::copied::current(s), None, chips));
+                let outline = s.code_block(p, "ui", &format!("outline-{line}"), &src[code], streaming && open, version, outline).unwrap_or_else(|| markdown_styled::<S, _>(p, &src[at.clone()], fade, false, markdown_style(p, p.text, width), Vec::<(Vec<Range<usize>>, rune_kit::Highlight)>::new(), crate::copied::current(s), None, chips, None));
                 // A pane that gains a sibling while it streams springs to its new width.
                 (col().key(format!("ui-{line}")).w_full().animate_layout().child(outline), UI_EDGES)
             }

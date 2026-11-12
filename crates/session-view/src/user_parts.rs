@@ -187,8 +187,10 @@ pub fn session_of_link(link: &str) -> Option<&str> {
 }
 
 /// Message `id`'s bubble text and its mention badges: pills styled by kind, a session's with
-/// its icon, and a link per session badge (opening it when the host can).
-pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>) {
+/// its icon, and a link per session badge (opening it when the host can). A badge keeps its own
+/// order in the line around it: a file's or folder's reads left to right as a path does, any
+/// other's the way its own name does.
+pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>, Vec<Range<usize>>) {
     let title = |sid: &str| s.session_ref(sid).map(|r| r.title).filter(|t| !t.trim().is_empty()).or_else(|| s.session_title(sid));
     let (text, marks) = bubble_marks(body, &mention::user_mentions(id), title);
     let links = marks
@@ -200,6 +202,7 @@ pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (
             Some(link)
         })
         .collect();
+    let paths = marks.iter().filter(|m| matches!(m.kind, MentionKind::File | MentionKind::Directory)).map(|m| m.range.clone()).collect();
     let pills = marks
         .into_iter()
         .map(|m| {
@@ -207,7 +210,7 @@ pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (
             (m.range, if m.session.is_some() { style.icon(&SESSION) } else { style })
         })
         .collect();
-    (text, pills, links)
+    (text, pills, links, paths)
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -125,10 +125,9 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         .corners([10.0, top, end, 10.0])
         .fill(fill)
         .hover_group()
-        .hover_motion(INSTANT, INSTANT)
-        // The prompt's own direction, its trailing corners and menu with it
-        // (`message-content.tsx:683`'s `dir="auto"`).
-        .dir(rune::Direction::Auto);
+        // The bubble stays in the timeline's direction, so its tightened corners always face the
+        // timeline's outer wall; its lines read their own way inside it (`dir_by_paragraph`).
+        .hover_motion(INSTANT, INSTANT);
     if glow > 0.0 {
         // A quiet surface lift under the text, with no glow rim.
         let lift = p.lift;
@@ -141,9 +140,15 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     }
     let ink = if pending { p.muted } else { p.text };
     // Mentions read as badges; a badge copies as its text.
-    let (shown, badges, links) = crate::user_parts::bubble_badges(s, p, id, body);
+    let (shown, badges, links, paths) = crate::user_parts::bubble_badges(s, p, id, body);
     let highlights = if !pending { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
+    // File and folder badges, and the paths, calls, flags and file names typed around them, each
+    // keep their own left-to-right order in the line.
+    let units: Vec<_> = rune::text::ltr_units(&shown).into_iter().filter(|u| !badges.iter().any(|(r, _)| r.start < u.end && u.start < r.end)).collect();
     let mut words = text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights);
+    for r in paths.into_iter().chain(units) {
+        words = words.isolate(r, rune::Direction::Ltr);
+    }
     if !links.is_empty() {
         for link in links {
             words = words.link(link);
@@ -172,10 +177,14 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     if let Some(button) = menu {
         // The bubble's colour fades in over 16 pt behind the chevron, so words under the corner
         // never compete with it (`message-part.css:499-525`).
-        let fade = el().key("menu-fade").w(16.0).h(20.0).linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, fill.alpha(0.0)), (1.0, fill)]);
-        let corner = row().key("menu").pin(None, Some(MENU_INSET), Some(MENU_INSET), None).h(20.0).corners([4.0; 4])
-            .child(fade)
-            .child(el().key("menu-under").size(20.0, 20.0).fill(fill).child(button));
+        // It stands at the end of the first line, on its right when that line reads left to right
+        // and on its left when it reads right to left, so it never covers the prompt's first word.
+        let rtl = shown.lines().next().and_then(rune::Direction::of) == Some(rune::Direction::Rtl);
+        let (from, to) = if rtl { (fill, fill.alpha(0.0)) } else { (fill.alpha(0.0), fill) };
+        let fade = el().key("menu-fade").w(16.0).h(20.0).linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, from), (1.0, to)]);
+        let under = el().key("menu-under").size(20.0, 20.0).fill(fill).child(button);
+        let corner = if rtl { row().pin(Some(MENU_INSET), Some(MENU_INSET), None, None).child(under).child(fade) } else { row().pin(None, Some(MENU_INSET), Some(MENU_INSET), None).child(fade).child(under) };
+        let corner = corner.key("menu").unmirrored().dir(rune::Direction::Ltr).h(20.0).corners([4.0; 4]);
         face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
     // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
@@ -472,7 +481,9 @@ pub fn markdown_view<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: 
 
 /// A reply's markdown, `message` being the reply it is: a right-click on it (or on one of its
 /// images) opens the reply's menu.
-pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, message: Option<&str>) -> El {
+/// `prompt` is the direction of the prompt the reply answers, which it reads in until its own
+/// words arrive.
+pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &str, fade: f32, streaming: bool, message: Option<&str>, prompt: Option<rune::Direction>) -> El {
     // Session ids read as chips, except while Find marks the text as written.
     let hits = s.find_row_hits(row_key);
     let chips = if hits.is_none() { crate::session_chips::chips(s, src) } else { None };
@@ -481,7 +492,7 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
     let el = crate::genui::reply(s, p, src, fade, streaming, hits, &tips).unwrap_or_else(|| {
         let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), scope: Some(std::rc::Rc::from(row_key)), ..crate::images::md_media(s) };
-        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media), &tips)
+        markdown_with_highlights::<S>(p, src, fade, streaming, p.text, crate::genui::width(s), s.find_markdown_highlights(p, row_key), crate::copied::current(s), Some(media), &tips, prompt)
     });
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),
