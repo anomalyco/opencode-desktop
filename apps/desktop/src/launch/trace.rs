@@ -6,10 +6,11 @@
 //! `plugins.started`, `server.answered`, `content.live`, `quit.saved`, `storage.flushed`, …)
 //! share one list.
 //!
-//! `pixels.stable` is the last frame drawn after `content.live` once no frame has come for
-//! [`STILL`]: when the window stopped changing (a fade still running keeps it back). Rune draws
-//! only when something changed, so a drawn frame is a changed picture. A launch whose window
-//! keeps drawing (a spinner waiting on a server) has none.
+//! `pixels.stable` is the last frame after `content.live` that changed what the window shows, once
+//! nothing has changed for [`STILL`]: a fade still running keeps it back. "What it shows" is every
+//! element's place, opacity, scale, text and loop phase, hashed per frame (a frame drawn again
+//! with the same picture doesn't count). A launch whose window keeps moving (a spinner waiting on
+//! a server) has none.
 //!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
@@ -64,6 +65,8 @@ impl Io {
 static QUIT_SENT: AtomicBool = AtomicBool::new(false);
 /// The last frame drawn after `content.live`, until the window has been still for [`STILL`].
 static LAST_DRAWN: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+/// What the last frame showed, hashed (`drawn`).
+static SHOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// When it was: `pixels.stable`.
 static STABLE: OnceLock<Instant> = OnceLock::new();
 /// How long the window draws nothing before its last frame counts as the stable one.
@@ -145,11 +148,13 @@ fn ns(t: Instant) -> u64 {
 }
 
 /// After a frame drew: the first with the session's messages, and the first with live content
-/// (the window's server answered and Home, a draft or the session with messages shows).
-pub fn drawn(s: &App) {
+/// (the window's server answered and Home, a draft or the session with messages shows), then
+/// each frame that changed what the window shows, until `pixels.stable`.
+pub fn drawn(rt: &rune::Runtime<App>) {
     if !on() {
         return;
     }
+    let s = &rt.state;
     let _ = FIRST_IO.get_or_init(|| (io_counters(), crate::flag("--launch-trace-threads").then(threads).unwrap_or_default()));
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
     if rows > 0 {
@@ -160,7 +165,18 @@ pub fn drawn(s: &App) {
         mark("content.live");
     }
     if STABLE.get().is_none() && rune::marks::marks().iter().any(|(n, _)| *n == "content.live") {
-        *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for e in rt.elements() {
+            e.path.hash(&mut h);
+            e.text.hash(&mut h);
+            e.exiting.hash(&mut h);
+            e.loop_phase.map(f64::to_bits).hash(&mut h);
+            e.rect.iter().chain([e.opacity, e.scale].iter()).for_each(|v| v.to_bits().hash(&mut h));
+        }
+        if SHOWN.swap(h.finish(), Ordering::Relaxed) != h.finish() {
+            *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        }
     }
     echo();
 }

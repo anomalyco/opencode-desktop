@@ -175,7 +175,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
                 crate::telemetry::drawn(rt.state.painted_session(), frame);
                 crate::telemetry::stream_drawn(&rt.state.window.id, frame.0);
             }
-            crate::launch::trace::drawn(&rt.state);
+            crate::launch::trace::drawn(rt);
             motion_log.frame(rt);
         })
         // Back on screen (the Dock icon, the Window menu): no longer the hidden last window.
