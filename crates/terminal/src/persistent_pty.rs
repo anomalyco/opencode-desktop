@@ -83,7 +83,7 @@ pub(crate) fn run_persistent_worker(
     let Ok(core) = build_core(&config, None) else {
         return;
     };
-    let mut screen = Screen::new(core);
+    let mut screen = Screen::new(core, false);
     let id = attachment_id();
     let mut conn = Connection::new();
     let mut sizing = Sizing::Unmeasured;
@@ -97,7 +97,7 @@ pub(crate) fn run_persistent_worker(
     screen.core.feed(DEFAULT_CURSOR);
     screen.core.feed(&snapshot.checkpoint);
     let _ = screen.core.take_pty_writes();
-    publish(&mut screen, &shared, &waker);
+    screen.changed(&shared, &waker);
 
     let url = match server.terminal_connect_url(&pty_id, snapshot.info.tail, &id, observer) {
         Ok(u) => u,
@@ -218,7 +218,7 @@ impl Worker<'_> {
             let event = match ws.read() {
                 Ok(Message::Binary(bytes)) if self.conn.accepts_output() => {
                     fed += bytes.len();
-                    self.screen.core.feed(&bytes);
+                    self.screen.feed(&bytes, self.shared, self.waker);
                     let _ = self.screen.core.take_pty_writes();
                     dirty = true;
                     continue;
@@ -252,7 +252,7 @@ impl Worker<'_> {
             }
             if let (true, Connection::Exited { code }) = (ended, &*self.conn) {
                 let code = *code;
-                publish_last(self.screen, self.shared, self.waker);
+                self.screen.last(self.shared, self.waker);
                 return (Flow::End(Some(SessionStatus::Exited { code })), false);
             }
         }
@@ -266,11 +266,6 @@ impl Worker<'_> {
         }
 
         if dirty {
-            let events: Vec<VtEvent> =
-                self.screen.core.take_events().into_iter().filter(|e| !matches!(e, VtEvent::TitleChanged(_))).collect();
-            if !events.is_empty() {
-                self.shared.events.lock().extend(events);
-            }
             self.screen.changed(self.shared, self.waker);
         } else {
             self.screen.woke(self.shared, self.waker);
@@ -302,12 +297,12 @@ impl Worker<'_> {
                     // Queued in the socket; it goes out once there's room.
                     Err(tungstenite::Error::Io(e)) if e.kind() == ErrorKind::WouldBlock => self.unflushed = true,
                     Err(_) => {
-                        publish_last(self.screen, self.shared, self.waker);
+                        self.screen.last(self.shared, self.waker);
                         return Some(Flow::End(Some(failed(Failure::Disconnected))));
                     }
                 },
                 Effect::Fail(failure) => {
-                    publish_last(self.screen, self.shared, self.waker);
+                    self.screen.last(self.shared, self.waker);
                     return Some(Flow::End(Some(failed(failure))));
                 }
             }
@@ -370,23 +365,6 @@ fn frame(size: Size, data: Option<&[u8]>) -> Vec<u8> {
 fn size_of(v: &Value) -> Option<Size> {
     let dim = |k: &str| v[k].as_u64().and_then(|n| u16::try_from(n).ok()).filter(|&n| n > 0);
     Some((dim("cols")?, dim("rows")?))
-}
-
-/// Publishes the screen as it is (the restored checkpoint, a final screen); the server's
-/// `title_changed` names the tab, so the emulator's own title events are dropped.
-fn publish(screen: &mut Screen, shared: &SharedState, waker: &Waker) {
-    let events: Vec<VtEvent> =
-        screen.core.take_events().into_iter().filter(|e| !matches!(e, VtEvent::TitleChanged(_))).collect();
-    if !events.is_empty() {
-        shared.events.lock().extend(events);
-    }
-    screen.changed(shared, waker);
-}
-
-/// [publish] for a worker that is ending: its last screen goes whatever the UI had read.
-fn publish_last(screen: &mut Screen, shared: &SharedState, waker: &Waker) {
-    screen.core.take_events().into_iter().filter(|e| !matches!(e, VtEvent::TitleChanged(_))).for_each(|e| shared.events.lock().push(e));
-    screen.last(shared, waker);
 }
 
 fn gone(err: &str) -> SessionStatus {

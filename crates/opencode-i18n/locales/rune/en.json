@@ -151,6 +151,7 @@
   "rune.subagent.starting": "Starting",
   "rune.subagent.steered": "Steered",
   "rune.tabs.reopen": "Reopen {{title}}",
+  "rune.terminal.find": "Find",
   "rune.textRendering.chromium": "Chromium-like (hinted grayscale)",
   "rune.textRendering.chromium.windows": "Chromium-like (DirectWrite grayscale)",
   "rune.textRendering.cleartype": "ClearType",

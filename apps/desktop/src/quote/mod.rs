@@ -342,6 +342,11 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 }
 
 fn bar(p: &Pal, truncated: bool) -> El {
+    bar_with(p, truncated, |s: &mut App, tx: &mut Tx| add(s, !tx.mods().alt, tx))
+}
+
+/// The Quote toolbar with `on` as its button's press: the timeline's, or a terminal's.
+pub(crate) fn bar_with(p: &Pal, truncated: bool, on: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     let mut button = row()
         .key("quote-add")
         .role("button")
@@ -357,7 +362,7 @@ fn bar(p: &Pal, truncated: bool) -> El {
     button = if truncated {
         button.opacity(0.5)
     } else {
-        button.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add(s, !tx.mods().alt, tx))
+        button.hover(p.hover).press(p.pressed).on_press_tx(on)
     };
     row()
         .key("quote-toolbar")

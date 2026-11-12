@@ -124,26 +124,3 @@ pub fn draw_box_or_block(
     }
     true
 }
-
-pub fn detect_url_in_row(snap: &terminal::TerminalSnapshot, col: u16, row: u16) -> Option<String> {
-    let line = &snap.screen_rows.get(usize::from(row))?.text;
-    let idx = usize::from(col);
-    for prefix in ["https://", "http://"] {
-        let mut search_from = 0usize;
-        while let Some(rel) = line[search_from..].find(prefix) {
-            let start = search_from + rel;
-            let rest = &line[start..];
-            let end_rel = rest
-                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | ')' | ']'))
-                .unwrap_or(rest.len());
-            let trimmed = rest[..end_rel].trim_end_matches(['.', ',', ';', ':']);
-            let char_start = line[..start].chars().count();
-            let char_end = char_start + trimmed.chars().count();
-            if idx >= char_start && idx < char_end {
-                return Some(trimmed.to_owned());
-            }
-            search_from = start + prefix.len();
-        }
-    }
-    None
-}

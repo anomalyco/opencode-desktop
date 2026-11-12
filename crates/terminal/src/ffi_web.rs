@@ -299,3 +299,31 @@ pub unsafe extern "C" fn ghostty_paste_is_safe(_: *const c_char, _: usize) -> bo
 pub unsafe extern "C" fn ghostty_paste_encode(_: *mut c_char, _: usize, _: bool, _: *mut c_char, _: usize, _: *mut usize) -> GhosttyResult {
     GHOSTTY_INVALID_VALUE
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_search_new(_: *const GhosttyAllocator, _: *mut GhosttySearch, _: GhosttyTerminal) -> GhosttyResult {
+    GHOSTTY_INVALID_VALUE
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_search_free(_: GhosttySearch) {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_search_run(_: GhosttySearch) -> GhosttyResult {
+    GHOSTTY_INVALID_VALUE
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_search_set(_: GhosttySearch, _: c_int, _: *const c_void) -> GhosttyResult {
+    GHOSTTY_INVALID_VALUE
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_search_get(_: GhosttySearch, _: c_int, _: *mut c_void) -> GhosttyResult {
+    GHOSTTY_INVALID_VALUE
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ghostty_terminal_point_from_grid_ref(_: GhosttyTerminal, _: *const GhosttyGridRef, _: c_int, _: *mut GhosttyPointCoordinate) -> GhosttyResult {
+    GHOSTTY_INVALID_VALUE
+}

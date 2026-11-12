@@ -13,6 +13,8 @@ pub enum KeyOutcome {
     Ignored,
     Consumed,
     ConsumedResetBlink,
+    /// Open the terminal's find bar.
+    OpenFind,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -31,8 +33,8 @@ pub fn dispatch_key(
     // ⌘C, and Ctrl+Shift+C everywhere (Desktop `terminal.tsx:477`), copy the selection; ⌘C with
     // none leaves the key to the app. Off macOS Ctrl+C stays the shell's interrupt.
     if Bind::TerminalCopy.matches_tx(ev, tx) {
-        if let Some(sel) = session.selected_text() {
-            tx.copy(sel);
+        if session.selected_text().is_some() {
+            copy_selection(session, tx);
             return KeyOutcome::Consumed;
         }
         if crate::keymap::logo_held(m) {
@@ -72,8 +74,22 @@ pub fn dispatch_key(
         return KeyOutcome::ConsumedResetBlink;
     }
 
+    // Find: Ctrl+F (⌘F); a program on the alternate screen keeps Ctrl+F (vim, less page with it),
+    // and Ctrl+Shift+F opens it there.
+    let primary = if cfg!(target_os = "macos") { m.cmd } else { m.ctrl };
+    if primary && !m.alt && ev.is_command('f') && (m.shift || !session.snapshot().alt_screen) {
+        tx.instant();
+        return KeyOutcome::OpenFind;
+    }
+
+    // Ctrl+Up / Ctrl+Down (⌘ on macOS) jump between the shell's prompts (OSC 133 marks).
+    if primary && !m.alt && !m.shift && matches!(ev.key, Key::Up | Key::Down) && !session.snapshot().alt_screen {
+        session.scroll(ScrollOp::Prompt(if ev.key == Key::Up { -1 } else { 1 }));
+        return KeyOutcome::Consumed;
+    }
+
     if Bind::TerminalPaste.matches_tx(ev, tx) {
-        paste_clipboard(ws_key, tab_id, tx);
+        paste_into(ws_key, tab_id, tx);
         return KeyOutcome::Consumed;
     }
 
@@ -151,7 +167,17 @@ pub fn dispatch_key(
     KeyOutcome::ConsumedResetBlink
 }
 
-fn paste_clipboard(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) {
+/// Copies the selection as text, with an HTML version beside it (colours and styles inline) for
+/// documents and mail.
+pub(super) fn copy_selection(session: &TerminalSession, tx: &mut Tx) {
+    let Some(text) = session.selected_text() else { return };
+    match session.selected_html() {
+        Some(html) => tx.copy_rich(rune::ClipboardContent::new(text).with_html(html)),
+        None => tx.copy(text),
+    }
+}
+
+pub(super) fn paste_into(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) {
     tx.read_clipboard(move |app: &mut App, content, _tx| {
         let text = content.text();
         if text.is_empty() {

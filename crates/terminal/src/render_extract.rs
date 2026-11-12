@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::core::VtCore;
 use crate::ffi::{self, *};
 use crate::theme::Rgb;
+use crate::grapheme::Grapheme;
 use crate::types::*;
 
 const ROW_CACHE_CAP: usize = 512;
@@ -146,6 +147,7 @@ impl VtCore {
         self.mutated_since_snapshot = false;
         self.selection_changed = false;
 
+        let find = self.find_view(cols, rows);
         let cursor_color = if colors.cursor_has_value {
             Rgb::from_ffi(colors.cursor)
         } else {
@@ -184,6 +186,7 @@ impl VtCore {
             title: self.title.clone(),
             pwd: self.pwd.clone(),
             bell_count: self.cb.bell_count,
+            find,
         })
     }
 
@@ -354,31 +357,43 @@ impl VtCore {
                 fg = resolved_bg;
             }
 
-            let mut grapheme = String::new();
-            if grapheme_len > 0 && !flags.contains(CellFlags::WIDE_SPACER_TAIL) {
-                let n = grapheme_len as usize;
-                if self.codepoint_scratch.len() < n {
-                    self.codepoint_scratch.resize(n, 0);
-                }
-                unsafe {
-                    let _ = ffi::ghostty_render_state_row_cells_get(
+            // The cell's text straight as UTF-8, inline for nearly every cell (`Grapheme`).
+            let grapheme = if grapheme_len > 0 && !flags.contains(CellFlags::WIDE_SPACER_TAIL) {
+                let mut small = [0u8; 15];
+                let mut buf = GhosttyBuffer { ptr: small.as_mut_ptr(), cap: small.len(), len: 0 };
+                let mut rc = unsafe {
+                    ffi::ghostty_render_state_row_cells_get(
                         self.row_cells,
-                        GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-                        self.codepoint_scratch.as_mut_ptr().cast(),
-                    );
+                        GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
+                        (&mut buf as *mut GhosttyBuffer).cast(),
+                    )
+                };
+                let mut big = Vec::new();
+                if rc == GHOSTTY_OUT_OF_SPACE {
+                    big.resize(buf.len, 0);
+                    buf = GhosttyBuffer { ptr: big.as_mut_ptr(), cap: big.len(), len: 0 };
+                    rc = unsafe {
+                        ffi::ghostty_render_state_row_cells_get(
+                            self.row_cells,
+                            GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
+                            (&mut buf as *mut GhosttyBuffer).cast(),
+                        )
+                    };
                 }
-                for &cp in &self.codepoint_scratch[..n] {
-                    if let Some(ch) = char::from_u32(cp) {
-                        grapheme.push(ch);
-                    }
-                    mix(&mut hash, u64::from(cp));
+                let bytes = if big.is_empty() { &small[..buf.len.min(small.len())] } else { &big[..buf.len.min(big.len())] };
+                let s = if rc == GHOSTTY_SUCCESS { std::str::from_utf8(bytes).unwrap_or_default() } else { "" };
+                for &b in s.as_bytes() {
+                    mix(&mut hash, u64::from(b));
                 }
-                text.push_str(&grapheme);
-            } else if !flags.contains(CellFlags::WIDE_SPACER_TAIL) {
-                text.push(' ');
-                mix(&mut hash, 0x20);
-            }
-
+                text.push_str(s);
+                Grapheme::from(s)
+            } else {
+                if !flags.contains(CellFlags::WIDE_SPACER_TAIL) {
+                    text.push(' ');
+                    mix(&mut hash, 0x20);
+                }
+                Grapheme::EMPTY
+            };
             let width = if flags.contains(CellFlags::WIDE) {
                 2
             } else if flags.contains(CellFlags::WIDE_SPACER_TAIL) {

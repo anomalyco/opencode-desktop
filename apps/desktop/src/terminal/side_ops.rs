@@ -104,6 +104,10 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     match blink {
         input::KeyOutcome::Ignored => false,
         input::KeyOutcome::Consumed => true,
+        input::KeyOutcome::OpenFind => {
+            super::find::open(s, &wk, &id);
+            true
+        }
         input::KeyOutcome::ConsumedResetBlink => {
             s.terminal.reset_blink(*s.clock);
             true

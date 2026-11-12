@@ -116,7 +116,9 @@ pub struct VtCore {
     pub(crate) row_cache: HashMap<u128, Arc<TerminalRow>>,
     pub(crate) row_lru: VecDeque<u128>,
     pub(crate) last_viewport_rows: Vec<Arc<TerminalRow>>,
-    pub(crate) codepoint_scratch: Vec<u32>,
+    /// The find bar's search, made the first time it opens (`find.rs`).
+    pub(crate) search: GhosttySearch,
+    pub(crate) finding: bool,
 }
 
 impl VtCore {
@@ -304,7 +306,8 @@ impl VtCore {
             row_cache: HashMap::with_capacity(128),
             row_lru: VecDeque::with_capacity(128),
             last_viewport_rows: Vec::new(),
-            codepoint_scratch: Vec::with_capacity(16),
+            search: std::ptr::null_mut(),
+            finding: false,
         };
         core.apply_theme_colors(&theme);
         Ok(core)
@@ -439,6 +442,10 @@ impl VtCore {
                 sv.tag = GHOSTTY_SCROLL_VIEWPORT_ROW;
                 sv.value.row = row;
             }
+            ScrollOp::Prompt(delta) => {
+                sv.tag = GHOSTTY_SCROLL_VIEWPORT_DELTA_PROMPT;
+                sv.value.delta_prompt = delta;
+            }
         }
         unsafe {
             ffi::ghostty_terminal_scroll_viewport(self.term, sv);
@@ -549,6 +556,15 @@ impl VtCore {
     }
 
     pub fn selected_text(&self) -> Option<String> {
+        self.selection_as(GHOSTTY_FORMATTER_FORMAT_PLAIN)
+    }
+
+    /// The selection as HTML, its colours and styles inline, for pasting into documents.
+    pub fn selected_html(&self) -> Option<String> {
+        self.selection_as(GHOSTTY_FORMATTER_FORMAT_HTML)
+    }
+
+    fn selection_as(&self, emit: c_int) -> Option<String> {
         if !self.has_selection {
             return None;
         }
@@ -565,8 +581,9 @@ impl VtCore {
         }
         let opts = GhosttyTerminalSelectionFormatOptions {
             size: std::mem::size_of::<GhosttyTerminalSelectionFormatOptions>(),
-            emit: GHOSTTY_FORMATTER_FORMAT_PLAIN,
-            unwrap: false,
+            emit,
+            // A line the terminal wrapped copies as the one line the program wrote.
+            unwrap: true,
             trim: true,
             selection: &sel,
         };
@@ -645,6 +662,7 @@ impl VtCore {
 impl Drop for VtCore {
     fn drop(&mut self) {
         unsafe {
+            ffi::ghostty_search_free(self.search);
             ffi::ghostty_mouse_event_free(self.mouse_event);
             ffi::ghostty_mouse_encoder_free(self.mouse_encoder);
             ffi::ghostty_key_event_free(self.key_event);

@@ -107,7 +107,7 @@ impl CellFlags {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderedCell {
-    pub grapheme: String,
+    pub grapheme: crate::grapheme::Grapheme,
     pub width: u8,
     pub fg: Rgb,
     pub bg: Option<Rgb>,
@@ -160,6 +160,26 @@ pub struct TerminalSnapshot {
     pub title: String,
     pub pwd: String,
     pub bell_count: u64,
+    /// The find bar's matches, while it finds.
+    pub find: Option<FindView>,
+}
+
+/// What finding shows: the matches in all, which one is selected (0 is the newest), and the
+/// cells of those in view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FindView {
+    pub total: usize,
+    pub selected: Option<usize>,
+    pub hits: Vec<FindHit>,
+}
+
+/// One row's run of a match in view: columns `start..=end`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FindHit {
+    pub row: u16,
+    pub start: u16,
+    pub end: u16,
+    pub selected: bool,
 }
 
 impl TerminalSnapshot {
@@ -183,6 +203,7 @@ impl TerminalSnapshot {
             title: String::new(),
             pwd: String::new(),
             bell_count: 0,
+            find: None,
         }
     }
 
@@ -205,6 +226,8 @@ pub enum ScrollOp {
     Top,
     Bottom,
     Row(usize),
+    /// To the `n`th shell prompt above (negative) or below, from the shell's OSC 133 marks.
+    Prompt(isize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

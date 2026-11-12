@@ -6,17 +6,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, Family, LineCap, Phase, Shape, Span, TextStyle, Tx, WheelEvent,
+    Anim, Color, Cursor, Drag, El, Family, LineCap, Phase, PointerButton, PointerEvent, Shape, Span, TextStyle, Tx, WheelEvent,
     canvas, col, el, memo, rich, row, spacer, text,
 };
 use rune_knobs::Knobs;
 use terminal::{
-    CellFlags, CursorShape, GridPoint, MouseBtn, MouseInput, MouseKind, RenderedCell, ScrollOp,
+    CellFlags, CursorShape, GhosttyKey, GridPoint, KeyInput, MouseBtn, MouseInput, MouseKind, RenderedCell, ScrollOp,
     SelectionOp, TerminalRow, UnderlineKind,
 };
 
+use super::find;
 use super::mount::TextDrag;
-use super::draw::{detect_url_in_row, draw_box_or_block, draw_special_underline};
+use super::draw::{draw_box_or_block, draw_special_underline};
 use super::{TERM_FONT, TERM_SIZE, TerminalTab};
 use crate::App;
 use crate::palette::Pal;
@@ -201,7 +202,8 @@ pub fn render_terminal_pane(
         terminal::SessionStatus::Failed(why) => Some(why),
         _ => None,
     };
-    let body = col().key("terminal-body").w_full().grow(1.0).min_h(0.0).child(viewport).children(failure.map(|why| {
+    let find = find::bar(p, ws_key, tab, &snap);
+    let body = col().key("terminal-body").w_full().grow(1.0).min_h(0.0).child(viewport).children(find).children(failure.map(|why| {
         el().key("terminal-failure")
             .absolute(0.0, 0.0)
             .w_full()
@@ -290,6 +292,14 @@ fn render_viewport(
         .w(clip_w)
         .h(avail_h)
         .clip_soft(0.0)
+        // Find's matches in view, under the text: the session's Find marks (`hit_bg`'s accent at 0.28), the
+        // selected one in the accent at half strength so the terminal's text stays readable.
+        .children(snap.find.iter().flat_map(|f| f.hits.iter()).enumerate().map(|(i, hit)| {
+            let (x, y) = (f32::from(hit.start) * cell_w, f32::from(hit.row) * cell_h);
+            let w = f32::from(hit.end.saturating_sub(hit.start) + 1) * cell_w;
+            let fill = if hit.selected { p.accent.alpha(0.5) } else { p.accent.alpha(0.28) };
+            el().key(format!("terminal-find-hit-{i}")).absolute(x, y).size(w, cell_h).fill(fill).inert()
+        }))
         .child(rows_col);
 
     // Phase-locked cursor overlay (kept mounted with transparent fill during off-half so motion
@@ -301,6 +311,28 @@ fn render_viewport(
             true
         };
         canvas_layer = canvas_layer.child(render_cursor(p, snap, cell_w, cell_h, focused, lit));
+    }
+
+
+    // Quote: a settled selection offers to go into the composer, under its last line (above
+    // when that's the screen's bottom), as Desktop's `TerminalQuote` does.
+    if matches!(tab.drag, TextDrag::Idle)
+        && let Some(text) = tab.session.selected_text()
+        && crate::quote::can_quote(s, &text)
+        && let Some((left, last)) = selection_corner(snap)
+    {
+        let below = f32::from(last + 1) * cell_h + 6.0;
+        let y = if below + 28.0 > avail_h { (f32::from(last) * cell_h - 34.0).max(0.0) } else { below };
+        let x = (f32::from(left) * cell_w).min((clip_w - 90.0).max(0.0));
+        let (wk, tid) = (ws_key.to_owned(), tab.id.clone());
+        canvas_layer = canvas_layer.child(
+            el().key("terminal-quote").absolute(x, y).child(crate::quote::bar_with(p, false, move |app: &mut App, tx: &mut Tx| {
+                let Some(t) = app.terminal_tab_mut(&wk, &tid) else { return };
+                let Some(text) = t.session.selected_text() else { return };
+                t.session.select(SelectionOp::Clear);
+                crate::quote::quote_selected(app, &text, tx);
+            })),
+        );
     }
 
     // The input method's caret (dead keys, CJK, the emoji panel, dictation) at the cursor's cell,
@@ -317,10 +349,20 @@ fn render_viewport(
     let tid_drag = tab.id.clone();
     let cols_cap = snap.cols.max(1);
     let rows_cap = snap.rows.max(1);
-    let alt_mouse = snap.alt_screen && snap.mouse_tracking;
+    let cell = move |x: f32, y: f32| {
+        let (lx, ly) = ((x - PAD_X).max(0.0), (y - PAD_Y).max(0.0));
+        let col = ((lx / cell_w).floor() as u16).min(cols_cap.saturating_sub(1));
+        let row = ((ly / cell_h).floor() as u16).min(rows_cap.saturating_sub(1));
+        (lx, ly, col, row)
+    };
+    // A program that asked for the mouse (`?1000`-`?1003`, on either screen: tmux, fzf --height,
+    // vim) gets it; Shift keeps the pointer for selecting, as in xterm and every terminal since.
+    let reports = snap.mouse_tracking;
 
     let wk_wheel = ws_key.to_owned();
     let tid_wheel = tab.id.clone();
+    let (wk_move, tid_move) = (ws_key.to_owned(), tab.id.clone());
+    let (wk_menu, tid_menu) = (ws_key.to_owned(), tab.id.clone());
 
     let mut outer = row()
         .key("terminal-viewport")
@@ -333,14 +375,13 @@ fn render_viewport(
         .pt(PAD_Y)
         .pb(PAD_Y)
         .cursor(Cursor::Text)
+        .pointer_buttons([PointerButton::Middle])
         .on_drag(move |app: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             app.focus_terminal_surface();
-            let lx = (d.x - PAD_X).max(0.0);
-            let ly = (d.y - PAD_Y).max(0.0);
-            let col = ((lx / cell_w).floor() as u16).min(cols_cap.saturating_sub(1));
-            let row = ((ly / cell_h).floor() as u16).min(rows_cap.saturating_sub(1));
-
+            let (lx, ly, col, row) = cell(d.x, d.y);
+            let mods = tx.mods();
+            let button = tx.button();
             let Some(t) = app.terminal_tab_mut(&wk_drag, &tid_drag) else {
                 return;
             };
@@ -348,25 +389,19 @@ fn render_viewport(
             if matches!(d.phase, Phase::Down) {
                 t.session.interact();
             }
-            if alt_mouse {
+            if reports && !mods.shift {
                 let kind = match d.phase {
                     Phase::Down => MouseKind::Press,
                     Phase::Move => MouseKind::Move,
                     Phase::Up => MouseKind::Release,
                 };
-                t.session.send_mouse(MouseInput {
-                    kind,
-                    button: MouseBtn::Left,
-                    x_px: lx,
-                    y_px: ly,
-                    shift: false,
-                    ctrl: false,
-                    alt: false,
-                    cmd: false,
-                });
+                let button = if button == PointerButton::Middle { MouseBtn::Middle } else { MouseBtn::Left };
+                t.session.send_mouse(MouseInput { kind, button, x_px: lx, y_px: ly, shift: false, ctrl: mods.ctrl, alt: mods.alt, cmd: crate::keymap::logo_held(mods) });
                 return;
             }
-
+            if button != PointerButton::Primary {
+                return;
+            }
             match d.phase {
                 Phase::Down => {
                     t.drag = TextDrag::Selecting { anchor: (col, row) };
@@ -380,18 +415,18 @@ fn render_viewport(
                     if (d.dx.hypot(d.dy)) > 3.0
                         && let TextDrag::Selecting { anchor: start } = t.drag
                     {
-                        t.session.select_range_viewport(start, (col, row), false);
+                        // Alt drags a block, as in Windows Terminal, iTerm2 and Ghostty.
+                        t.session.select_range_viewport(start, (col, row), mods.alt);
                     }
                 }
                 Phase::Up => {
-                    if d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 {
-                        if let Some(url) = detect_url_in_row(&t.session.snapshot(), col, row)
-                            && tx.mods().cmd
-                        {
-                            let _ = tx.open_url(&url);
-                        }
-                    }
                     t.drag = TextDrag::Idle;
+                    // Ctrl+click (⌘-click on macOS) follows a link: the cell's OSC 8 target, else
+                    // an address or a file reference in the line under the pointer.
+                    let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
+                    if d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
+                        super::links::follow(app, &wk_drag, &tid_drag, col, row, tx);
+                    }
                 }
             }
         })
@@ -401,15 +436,12 @@ fn render_viewport(
                 return false;
             };
             let snap = t.session.snapshot();
-            if snap.alt_screen && snap.mouse_tracking {
+            let step = if ev.precise { cell_h } else { cell_h * 0.5 }.max(4.0);
+            if snap.mouse_tracking && !ev.mods.shift {
                 if ev.dy.abs() < 0.5 {
                     return true;
                 }
-                let btn = if ev.dy > 0.0 {
-                    MouseBtn::WheelUp
-                } else {
-                    MouseBtn::WheelDown
-                };
+                let btn = if ev.dy > 0.0 { MouseBtn::WheelUp } else { MouseBtn::WheelDown };
                 t.session.send_mouse(MouseInput {
                     kind: MouseKind::Press,
                     button: btn,
@@ -422,17 +454,53 @@ fn render_viewport(
                 });
                 return true;
             }
-
-            let step = if ev.precise { cell_h } else { cell_h * 0.5 }.max(4.0);
             t.scroll_px_accum += ev.dy;
             let lines = (t.scroll_px_accum / step).trunc() as isize;
-            if lines != 0 {
-                t.scroll_px_accum -= (lines as f32) * step;
-                // Natural scrolling: positive `dy` moves content down, revealing older lines (`-lines`).
-                t.session.scroll(ScrollOp::Delta(-lines));
+            if lines == 0 {
+                return true;
             }
+            t.scroll_px_accum -= (lines as f32) * step;
+            // The alternate screen has no scrollback: a pager or editor that didn't ask for the
+            // mouse scrolls by arrow keys (xterm's alternate scroll, `?1007`), as every terminal does.
+            if snap.alt_screen {
+                let key = if lines > 0 { GhosttyKey::ArrowUp } else { GhosttyKey::ArrowDown };
+                for _ in 0..lines.unsigned_abs().min(50) {
+                    t.session.send_key(KeyInput::press(key));
+                }
+                return true;
+            }
+            // Natural scrolling: positive `dy` moves content down, revealing older lines (`-lines`).
+            t.session.scroll(ScrollOp::Delta(-lines));
             true
         })
+        .on_secondary_press_local(move |app: &mut App, p: PointerEvent, tx: &mut Tx| {
+            let (lx, ly, _, _) = cell(p.x, p.y);
+            let Some(t) = app.terminal_tab_mut(&wk_menu, &tid_menu) else { return };
+            // A program reading the mouse gets the right button (press and release together: the
+            // release isn't heard apart); otherwise the terminal's menu.
+            if t.session.snapshot().mouse_tracking && !tx.mods().shift {
+                for kind in [MouseKind::Press, MouseKind::Release] {
+                    t.session.send_mouse(MouseInput { kind, button: MouseBtn::Right, x_px: lx, y_px: ly, shift: false, ctrl: false, alt: false, cmd: false });
+                }
+                return;
+            }
+            super::menu::open(app, &wk_menu, &tid_menu, p.window(), tx);
+        });
+    // Pointer motion with no button held, for a program that asked for every move (`?1003`):
+    // the encoder sends it only in that mode.
+    if reports {
+        outer = outer.on_pointer_move_local(move |app: &mut App, p: PointerEvent, tx: &mut Tx| {
+            let (lx, ly, _, _) = cell(p.x, p.y);
+            let mods = tx.mods();
+            if let Some(t) = app.terminal_tab_mut(&wk_move, &tid_move)
+                && !mods.shift
+            {
+                t.session.send_mouse(MouseInput { kind: MouseKind::Move, button: MouseBtn::None, x_px: lx, y_px: ly, shift: false, ctrl: mods.ctrl, alt: mods.alt, cmd: false });
+            }
+            tx.live_only();
+        });
+    }
+    let mut outer = outer
         .child(canvas_layer)
         .child(spacer());
 
@@ -512,6 +580,11 @@ fn render_cursor(
         .instant_changes()
         .transition(rune::Transition::none())
         .inert()
+}
+
+/// The selection's last row and the first selected column on it.
+fn selection_corner(snap: &terminal::TerminalSnapshot) -> Option<(u16, u16)> {
+    snap.screen_rows.iter().enumerate().rev().find_map(|(r, row)| row.bg_spans.iter().find(|s| s.selected).map(|s| (s.start_col, r as u16)))
 }
 
 /// The composition over the cells from the cursor on, on the terminal's background so the cells
@@ -662,7 +735,7 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
                     el().key(format!("g-{col_idx}"))
                         .absolute(f32::from(col_idx) * cell_w, 0.0)
                         .size(w, cell_h)
-                        .child(text(cell.grapheme.clone()).font(cell_style).color(fg)),
+                        .child(text(cell.grapheme.to_string()).font(cell_style).color(fg)),
                 );
             }
             continue;

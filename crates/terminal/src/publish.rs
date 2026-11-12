@@ -110,9 +110,10 @@ impl Publish {
                 (self, Action::Nothing)
             }
             (Publish::Held { .. }, _) => show(),
-            (_, Event::Changed { held: true }) => (Publish::Held { since: now }, Action::Nothing),
+            // Mid-frame: the screen shows once the program finishes the frame.
+            (_, Event::Changed { held: true }) | (Publish::Behind, Event::Woke { held: true }) => (Publish::Held { since: now }, Action::Nothing),
             (_, Event::Changed { held: false }) => show(),
-            (Publish::Behind, Event::Woke { .. }) => show(),
+            (Publish::Behind, Event::Woke { held: false }) => show(),
             (Publish::Current, Event::Woke { .. }) => (self, Action::Nothing),
         }
     }

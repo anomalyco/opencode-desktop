@@ -341,6 +341,7 @@ pub const GHOSTTY_SCROLL_VIEWPORT_TOP: c_int = 0;
 pub const GHOSTTY_SCROLL_VIEWPORT_BOTTOM: c_int = 1;
 pub const GHOSTTY_SCROLL_VIEWPORT_DELTA: c_int = 2;
 pub const GHOSTTY_SCROLL_VIEWPORT_ROW: c_int = 3;
+pub const GHOSTTY_SCROLL_VIEWPORT_DELTA_PROMPT: c_int = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -459,6 +460,7 @@ pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW: c_int = 1;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE: c_int = 2;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN: c_int = 3;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF: c_int = 4;
+pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8: c_int = 9;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR: c_int = 5;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR: c_int = 6;
 pub const GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED: c_int = 7;
@@ -662,4 +664,23 @@ pub struct GhosttyMouseEncoderSize {
     pub padding_bottom: u32,
     pub padding_right: u32,
     pub padding_left: u32,
+}
+
+/// A search over a terminal's screens and scrollback (`vt/search.h`).
+pub type GhosttySearch = *mut c_void;
+
+pub const GHOSTTY_SEARCH_DATA_TOTAL_MATCHES: c_int = 2;
+pub const GHOSTTY_SEARCH_DATA_SELECTED_INDEX: c_int = 3;
+pub const GHOSTTY_SEARCH_DATA_SELECTED_MATCH: c_int = 4;
+pub const GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES: c_int = 6;
+pub const GHOSTTY_SEARCH_OPT_NEEDLE: c_int = 0;
+pub const GHOSTTY_SEARCH_OPT_SELECT_NEXT: c_int = 1;
+pub const GHOSTTY_SEARCH_OPT_SELECT_PREV: c_int = 2;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct GhosttySelectionBuffer {
+    pub ptr: *mut GhosttySelection,
+    pub cap: usize,
+    pub len: usize,
 }

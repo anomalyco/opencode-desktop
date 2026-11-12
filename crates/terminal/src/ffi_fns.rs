@@ -26,6 +26,12 @@ pub type GhosttyTerminalRenderHoldFn =
 
 unsafe extern "C" {
     pub fn ghostty_type_json() -> *const c_char;
+    pub fn ghostty_search_new(allocator: *const GhosttyAllocator, out_search: *mut GhosttySearch, terminal: GhosttyTerminal) -> GhosttyResult;
+    pub fn ghostty_search_free(search: GhosttySearch);
+    pub fn ghostty_search_run(search: GhosttySearch) -> GhosttyResult;
+    pub fn ghostty_search_set(search: GhosttySearch, option: c_int, value: *const c_void) -> GhosttyResult;
+    pub fn ghostty_search_get(search: GhosttySearch, data: c_int, out: *mut c_void) -> GhosttyResult;
+    pub fn ghostty_terminal_point_from_grid_ref(terminal: GhosttyTerminal, grid_ref: *const GhosttyGridRef, tag: c_int, out: *mut GhosttyPointCoordinate) -> GhosttyResult;
     pub fn ghostty_free(allocator: *const GhosttyAllocator, ptr: *mut u8, len: usize);
 
     pub fn ghostty_color_palette_default(out: *mut GhosttyColorRgb);

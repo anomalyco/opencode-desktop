@@ -451,6 +451,9 @@ impl App {
                     mount: super::mount::Mount::Live { connection: 0 },
                     fit: std::cell::Cell::new(super::mount::Fit::Unmeasured),
                     preedit: None,
+                    cwd: directory.clone(),
+                    find: None,
+                    focused: std::cell::Cell::new(false),
                 })
             })
             .collect();

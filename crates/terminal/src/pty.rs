@@ -102,6 +102,16 @@ pub(crate) enum WorkerCmd {
     Interact,
     /// Ctrl+Break, for a Windows console.
     Break,
+    /// Find this in the screen and scrollback (`None`: stop).
+    Find(Option<String>),
+    /// Select the next match, toward older output when true.
+    FindStep(bool),
+    /// The OSC 8 link at a viewport cell.
+    LinkAt { col: u16, row: u16, reply: Sender<Option<String>> },
+    /// The selection as HTML.
+    SelectionHtml(Sender<Option<String>>),
+    /// Drop the scrollback, keeping the screen.
+    ClearScrollback,
     /// A stream's program wrote this.
     Output(Vec<u8>),
     /// A stream's program exited.
@@ -348,6 +358,36 @@ impl TerminalSession {
         self.inbox.send(WorkerCmd::Break);
     }
 
+    /// Finds `needle` in the screen and scrollback, `None` or "" to stop; the snapshot's `find`
+    /// shows the matches.
+    pub fn find(&self, needle: Option<String>) {
+        self.inbox.send(WorkerCmd::Find(needle));
+    }
+
+    /// The next match toward older output (`older`) or newer, scrolled into view.
+    pub fn find_step(&self, older: bool) {
+        self.inbox.send(WorkerCmd::FindStep(older));
+    }
+
+    /// The OSC 8 link of a viewport cell, asked of the worker (a click's wait: microseconds).
+    pub fn hyperlink_at(&self, col: u16, row: u16) -> Option<String> {
+        let (tx, rx) = mpsc::channel();
+        self.inbox.send(WorkerCmd::LinkAt { col, row, reply: tx }).then_some(())?;
+        rx.recv_timeout(SHOW_WAIT).ok().flatten()
+    }
+
+    /// Drops the scrollback in this window's view, keeping the screen (ED 3).
+    pub fn clear_scrollback(&self) {
+        self.inbox.send(WorkerCmd::ClearScrollback);
+    }
+
+    /// The selection as HTML, its colours inline.
+    pub fn selected_html(&self) -> Option<String> {
+        let (tx, rx) = mpsc::channel();
+        self.inbox.send(WorkerCmd::SelectionHtml(tx)).then_some(())?;
+        rx.recv_timeout(SHOW_WAIT).ok().flatten()
+    }
+
     pub fn select_range_viewport(&self, start: (u16, u16), end: (u16, u16), rectangular: bool) {
         self.select(SelectionOp::Range {
             start: GridPoint::Viewport {
@@ -439,11 +479,23 @@ pub(crate) fn build_core(
 pub(crate) struct Screen {
     pub(crate) core: VtCore,
     pub(crate) publish: Publish,
+    /// Whether the emulator's own title changes name the tab; a session terminal's come from
+    /// the server (`title_changed`).
+    titles: bool,
 }
 
 impl Screen {
-    pub(crate) fn new(core: VtCore) -> Screen {
-        Screen { core, publish: Publish::Current }
+    pub(crate) fn new(core: VtCore, titles: bool) -> Screen {
+        Screen { core, publish: Publish::Current, titles }
+    }
+
+    /// The emulator's events the UI hears (`titles` decides the title's).
+    fn take_events(&mut self) -> Vec<VtEvent> {
+        let mut events = self.core.take_events();
+        if !self.titles {
+            events.retain(|e| !matches!(e, VtEvent::TitleChanged(_)));
+        }
+        events
     }
 
     /// Steps the publish machine and carries out its action. Events the UI needs whatever it
@@ -451,7 +503,7 @@ impl Screen {
     pub(crate) fn step(&mut self, event: publish::Event, shared: &SharedState, waker: &Waker) {
         let (next, action) = self.publish.step(event, Instant::now(), &shared.handoff);
         self.publish = next;
-        let events = self.core.take_events();
+        let events = self.take_events();
         let has_events = !events.is_empty();
         if has_events {
             shared.events.lock().extend(events);
@@ -476,13 +528,30 @@ impl Screen {
 
     /// Publishes the final screen of a worker that is ending, read or not.
     pub(crate) fn last(&mut self, shared: &SharedState, waker: &Waker) {
-        let events = self.core.take_events();
+        let events = self.take_events();
         if !events.is_empty() {
             shared.events.lock().extend(events);
         }
         shared.handoff.published();
         self.publish = Publish::Current;
         self.extract(shared, waker);
+    }
+
+    /// Feeds a program's output, stepping the publish machine at the end of each synchronized
+    /// frame (`?2026l`) inside it: a batch that ends mid-way through the next frame would
+    /// otherwise leave the screen held, and a program drawing back to back showed nothing until
+    /// the hold timed out (1 s stalls redrawing a full screen at 60 Hz).
+    pub(crate) fn feed(&mut self, mut bytes: &[u8], shared: &SharedState, waker: &Waker) {
+        const END: &[u8] = b"\x1b[?2026l";
+        while let Some(at) = find_frame_end(bytes, END) {
+            let (frame, rest) = bytes.split_at(at + END.len());
+            self.core.feed(frame);
+            if !self.core.render_held() {
+                self.changed(shared, waker);
+            }
+            bytes = rest;
+        }
+        self.core.feed(bytes);
     }
 
     /// The screen changed.
@@ -504,6 +573,18 @@ impl Screen {
         }
         let _ = reply.send(());
     }
+}
+
+fn find_frame_end(bytes: &[u8], end: &[u8]) -> Option<usize> {
+    let mut from = 0;
+    while let Some(i) = bytes[from..].iter().position(|&b| b == 0x1b) {
+        let at = from + i;
+        if bytes[at..].starts_with(end) {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
 }
 
 /// Applies a command that changes the emulator; `false` ends the worker. Encoded input goes to
@@ -565,6 +646,24 @@ pub(crate) fn apply_worker_cmd(
             shared.set_status(SessionStatus::Exited { code });
             *dirty = true;
         }
+        WorkerCmd::Find(needle) => {
+            core.find(needle.as_deref());
+            *dirty = true;
+        }
+        WorkerCmd::FindStep(older) => {
+            core.find_step(older);
+            *dirty = true;
+        }
+        WorkerCmd::LinkAt { col, row, reply } => {
+            let _ = reply.send(core.hyperlink_at(col, row));
+        }
+        WorkerCmd::SelectionHtml(reply) => {
+            let _ = reply.send(core.selected_html());
+        }
+        WorkerCmd::ClearScrollback => {
+            core.feed(b"\x1b[3J");
+            *dirty = true;
+        }
         WorkerCmd::Interact | WorkerCmd::Break | WorkerCmd::Nudge | WorkerCmd::Show(_) => {}
         WorkerCmd::Shutdown => return false,
     }
@@ -583,7 +682,7 @@ fn run_stream_worker(
     let Ok(core) = build_core(&config, restore.as_ref()) else {
         return;
     };
-    let mut screen = Screen::new(core);
+    let mut screen = Screen::new(core, true);
 
     loop {
         // Asleep until a command, output, or the end of a program's frame hold.
@@ -612,6 +711,12 @@ fn run_stream_worker(
             }
             match cmd {
                 WorkerCmd::Show(reply) => show = Some(reply),
+                WorkerCmd::Output(chunk) => {
+                    shared.cursor.fetch_add(chunk.len() as i64, Ordering::AcqRel);
+                    screen.feed(&chunk, &shared, &waker);
+                    out_bytes.extend_from_slice(&screen.core.take_pty_writes());
+                    dirty = true;
+                }
                 cmd => {
                     if !apply_worker_cmd(cmd, &mut screen.core, &shared, &mut out_bytes, &mut resized, &mut dirty) {
                         return;

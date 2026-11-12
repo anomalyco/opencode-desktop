@@ -2,8 +2,11 @@
 //! theme sync, and knobs (`apps/desktop/src/terminal/`).
 
 mod draw;
+mod find;
 pub mod grid;
 pub mod input;
+mod links;
+mod menu;
 pub mod narrow;
 pub mod persist;
 mod rename;
@@ -82,6 +85,12 @@ pub struct TerminalTab {
     pub(crate) fit: Cell<mount::Fit>,
     /// What the input method composes at the cursor, while it composes.
     pub preedit: Option<input::Preedit>,
+    /// The folder the shell started in (the server's `cwd`), for links before it reports one.
+    pub cwd: String,
+    /// The find bar's field, while it's open.
+    pub find: Option<rune::TextEdit>,
+    /// Whether it had the keyboard at the last poll, for focus reports (`?1004`).
+    pub(crate) focused: Cell<bool>,
 }
 
 impl TerminalTab {
@@ -152,6 +161,8 @@ pub struct TerminalPane {
     pub renaming: rename::Renames,
     /// The server's connections so far: each reconnect starts the next (`machine.ts` `connections`).
     pub connections: u32,
+    /// Takes an edit that lands after its find bar closed: a field's `on_edit` needs somewhere to write.
+    pub spare_field: rune::TextEdit,
 }
 
 impl Default for TerminalPane {
@@ -171,6 +182,7 @@ impl Default for TerminalPane {
             story_built_variant: None,
             renaming: rename::Renames::default(),
             connections: 0,
+            spare_field: rune::TextEdit::default(),
         }
     }
 }
@@ -419,6 +431,10 @@ impl App {
             if observer {
                 return None;
             }
+            // A new terminal starts where the shown one's shell is (its OSC 7 folder), as a new tab
+            // does in every native terminal; the session's folder when it hasn't said.
+            let shown = self.terminal.workspaces.get(ws_key).and_then(|ws| ws.active.as_deref().and_then(|id| ws.tabs.iter().find(|t| t.id == id)));
+            let directory = shown.map_or_else(|| directory.clone(), |t| links::shell_folder(&t.session.peek(), &directory));
             let created = srv.terminal_create(
                 &session_id,
                 &TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))),
@@ -547,6 +563,9 @@ impl App {
             mount: mount::Mount::Live { connection: self.terminal.connections },
             fit: Cell::new(mount::Fit::Unmeasured),
             preedit: None,
+            cwd: info.cwd.clone(),
+            find: None,
+            focused: Cell::new(false),
         })
     }
 
@@ -573,7 +592,7 @@ impl App {
             .terminal
             .workspaces
             .entry(ws_key.to_owned())
-            .or_insert_with(|| TerminalWorkspace { directory, ..TerminalWorkspace::default() });
+            .or_insert_with(|| TerminalWorkspace { directory: directory.clone(), ..TerminalWorkspace::default() });
         ws.tabs.push(TerminalTab {
             id: id.to_owned(),
             title: title.to_owned(),
@@ -587,6 +606,9 @@ impl App {
             mount: mount::Mount::Live { connection },
             fit: Cell::new(mount::Fit::Unmeasured),
             preedit: None,
+            cwd: directory,
+            find: None,
+            focused: Cell::new(false),
         });
         ws.active = Some(id.to_owned());
         Some(id.to_owned())
@@ -724,6 +746,20 @@ impl App {
         }
 
         changed |= self.sync_terminal_mounts();
+
+        // Focus reports (`?1004`): the program hears its terminal gain and lose the keyboard, the
+        // window's included (vim's FocusGained reloads a file the agent changed).
+        if !self.terminal.workspaces.is_empty() {
+            let focus = if self.plugins.window_blurred.get() { None } else { self.terminal_focus() };
+            for (wk, ws) in &self.terminal.workspaces {
+                for tab in &ws.tabs {
+                    let has = focus.as_ref().is_some_and(|(fw, fid)| fw == wk && *fid == tab.id);
+                    if tab.focused.replace(has) != has && tab.session.peek().focus_reporting {
+                        tab.session.write_bytes(if has { b"\x1b[I".to_vec() } else { b"\x1b[O".to_vec() });
+                    }
+                }
+            }
+        }
 
         if self.terminal.bell_until > 0.0 && *self.clock >= self.terminal.bell_until {
             self.terminal.bell_until = 0.0;
