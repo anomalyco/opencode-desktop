@@ -274,14 +274,15 @@ fn theme_id(id: &str) -> String {
     crate::themes::all()[crate::themes::index(id)].id.clone()
 }
 
-/// The preferences, from memory (the boot packet before the first frame).
+/// The preferences, from memory (the boot packet before the first frame): Desktop's
+/// `settings.v3` and `language`, and Rune's own `rune.settings` (`stored`).
 pub fn load() -> Settings {
-    crate::storage::json("opencode.global.dat", "rune.settings").map_or_else(Settings::default, |v| Settings::from_json(&v))
+    stored::load()
 }
 
 /// Written behind; an unchanged set writes nothing.
 fn save(settings: &Settings) {
-    crate::storage::set_json("opencode.global.dat", "rune.settings", &settings.to_json());
+    stored::save(settings);
 }
 
 impl App {
@@ -489,5 +490,6 @@ pub mod pages;
 pub mod prefs;
 pub mod search;
 mod shell;
+mod stored;
 mod stories;
 
