@@ -70,15 +70,26 @@ fn pane_slug(pane: SessionPane) -> &'static str {
 }
 
 /// Right-hand column of `Side` tabs, animated on `SIDE_SPRING`.
+///
+/// A region: a keystroke elsewhere builds none of it, nor resolves its tabs (each panel's `list`).
+/// What isn't `Tracked` is its inputs: the palette, the chrome, the laid width, the reserve, the
+/// plugins' versions and whether the composer has the keyboard.
 pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
-    let on_session = matches!(*s.route, Route::Session { .. }) && !s.settings.open;
-    let reg = if on_session { s.resolve_side_region() } else { None };
+    // A drag's drop zones are read from the last layout every build, region or not.
     super::drag::note_zones(s);
     // Until the window is first measured, the last width it had.
     if zoomed_w > 0.0 {
         s.side.laid_w.set(zoomed_w);
     }
-    let w = s.side_width(s.side.laid_w.get());
+    let laid_w = s.side.laid_w.get();
+    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", crate::view::chrome()), laid_w.to_bits(), bottom_reserve.to_bits(), crate::plugin_host::surfaces_version(s), s.composer.focused);
+    rune::region_with("side-region", inputs, || side_region_in(s, p, laid_w, bottom_reserve, cx))
+}
+
+fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
+    let on_session = matches!(*s.route, Route::Session { .. }) && !s.settings.open;
+    let reg = if on_session { s.resolve_side_region() } else { None };
+    let w = s.side_width(laid_w);
 
     let col_open = on_session && s.side_open();
     let slot_w = if col_open { w + 8.0 } else { 0.0 };
@@ -360,7 +371,10 @@ fn tab_bar(
         .iter()
         .find(|e| pane_active == Some(e.key.as_str()))
         .is_some_and(|e| crate::plugin_host::editors::plugin_focused(s, e.plugin));
-    let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !s.composer.focused && !s.popup.holds_focus();
+    // The composer's focus is the side region's input: reading the composer would rebuild the
+    // region on every keystroke in it.
+    let composing = rune::Tracked::untracked(&s.composer).focused;
+    let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !composing && !s.popup.holds_focus();
     for entry in entries {
         let key = entry.key.clone();
         let active = shown_new_id.is_none() && pane_active == Some(key.as_str());

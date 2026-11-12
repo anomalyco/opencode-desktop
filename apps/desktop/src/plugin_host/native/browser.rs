@@ -348,7 +348,9 @@ pub fn version(app: &App) -> u64 {
     let mut sessions: Vec<_> = app.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);
-    (app.composer.focused, app.side.focused, format!("{:?}", app.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
+    // Only the composer's focus: a region reading the composer would build again per keystroke.
+    // The side region passes it in (`panels::view::side_region`).
+    (rune::Tracked::untracked(&app.composer).focused, app.side.focused, format!("{:?}", app.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
     app.active_session_id().and_then(|sid| app.side.sessions.get(sid)).map(|st| st.open).hash(&mut h);
     h.finish()
 }

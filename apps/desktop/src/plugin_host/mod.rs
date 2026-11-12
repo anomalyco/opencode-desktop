@@ -98,6 +98,19 @@ pub fn epoch() -> u64 {
     EPOCH.get()
 }
 
+/// What every plugin surface shows outside `Tracked`: the epoch, and each plugin's script and
+/// half versions, as the surfaces' own memos key on them (`surfaces::render`). A region showing
+/// plugin surfaces takes it as an input, so a plugin that changed what it draws between polls
+/// builds that region again.
+pub fn surfaces_version(app: &App) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    epoch().hash(&mut h);
+    for p in app.plugins.list.iter() {
+        (p.script().map(|s| s.version()), p.half.epoch.get()).hash(&mut h);
+    }
+    h.finish()
+}
 /// One plugin in this window.
 pub struct Plugin {
     pub manifest: Manifest,

@@ -219,7 +219,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         (0.0, 0.0)
     };
     let settings_sz = if s.settings.open { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
-    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, cx);
+    // The bottom pane's reserve and the pane itself read the side region's tabs, which ask every
+    // panel's plugin: once per view.
+    let side_reg = (matches!(*s.route, Route::Session { .. }) && !s.settings.open).then(|| s.resolve_side_region()).flatten();
+    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_ref(), cx);
     // A layout switch moves the panel, the sidebar and every tab on GLIDE, with the panel on top:
     // the tabs slide under its edges between the titlebar and the sidebar rather than over the
     // page. The titlebar row comes and goes at once, and below the panel while it does.
@@ -234,6 +237,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         s.zoom.to_bits(),
         *s.sidebar_open,
         s.can_tear(),
+        crate::plugin_host::surfaces_version(s),
     );
     let band = (chrome().row_h > 0.0)
         .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
@@ -294,7 +298,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx));
-    if let Some(dock) = crate::panels::view::bottom_dock(s, p, cx) {
+    if let Some(dock) = crate::panels::view::bottom_dock(s, side_reg.as_ref(), p, cx) {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
                 .motion(crate::panels::view::SIDE_SPRING),

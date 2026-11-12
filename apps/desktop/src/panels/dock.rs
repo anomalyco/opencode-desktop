@@ -4,18 +4,19 @@ use rune::{Cursor, Cx, Drag, El, Phase, Tx, col};
 
 use super::SessionPane;
 use super::resize::{ResizeEffect, ResizeEvent};
-use super::state::BOTTOM_MIN_H;
+use super::state::{BOTTOM_MIN_H, ResolvedRegion};
 use super::view::pane_box;
 use crate::palette::{Elevate as _, Pal};
 use crate::{App, Route};
 
 /// Extra bottom inset reserved inside `window` when the bottom pane is open, so `panel` and
-/// `side-column` sit cleanly above it without changing `window/panel`'s element path.
-pub fn bottom_reserve_height(s: &App, cx: &mut Cx<App>) -> f32 {
+/// `side-column` sit cleanly above it without changing `window/panel`'s element path. `reg` is the
+/// routed session's side region, resolved once per view for this and `bottom_dock`.
+pub fn bottom_reserve_height(s: &App, reg: Option<&ResolvedRegion>, cx: &mut Cx<App>) -> f32 {
     if !matches!(*s.route, Route::Session { .. }) || s.settings.open {
         return 0.0;
     }
-    if let Some(reg) = s.resolve_side_region() {
+    if let Some(reg) = reg {
         let has_bottom = !reg.pane_entries(SessionPane::Bottom).is_empty()
             || s.side
                 .adding
@@ -39,12 +40,12 @@ fn bottom_pane_max(s: &App, cx: &mut Cx<App>) -> f32 {
 }
 
 /// The bottom pane across the session screen, while any tab is in it.
-pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
+pub fn bottom_dock(s: &App, reg: Option<&ResolvedRegion>, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     if !matches!(*s.route, Route::Session { .. }) || s.settings.open {
         return None;
     }
 
-    let reg = s.resolve_side_region()?;
+    let reg = reg?;
     let has_bottom = !reg.pane_entries(SessionPane::Bottom).is_empty()
         || s.side
             .adding
@@ -90,7 +91,7 @@ pub fn bottom_dock(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
                 .grow(1.0)
                 .min_h(0.0)
                 .clip_rounded(10.0)
-                .child(pane_box(s, p, &reg, SessionPane::Bottom, (800.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
+                .child(pane_box(s, p, reg, SessionPane::Bottom, (800.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
         );
 
     // Hidden rather than unmounted, so its terminals keep their screens (`screen.tsx:544`); its
