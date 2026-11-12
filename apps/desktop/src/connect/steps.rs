@@ -527,7 +527,8 @@ fn accounts(s: &App, p: &Pal) -> El {
         }
         if *action == AccountAction::Renaming(a.id.clone()) {
             let credential = a.id.clone();
-            let field = TextInput::new(&o.rename).label(opencode_i18n::t!("settings.providers.account.name")).width(None).plain().spellcheck(s.settings.spellcheck)
+            // `account-name.tsx`'s InlineInput is `dir="auto"`.
+            let field = TextInput::new(&o.rename).label(opencode_i18n::t!("settings.providers.account.name")).width(None).plain().spellcheck(s.settings.spellcheck).dir(rune::Direction::Auto)
                 .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").rename)
                 .on_submit(move |s: &mut App, tx: &mut Tx| rename_account(s, &credential, tx))
                 .on_key(|s: &mut App, ev, tx| {
