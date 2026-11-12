@@ -150,19 +150,21 @@ impl App {
         self.fixture["stream"]["played"] = true.into();
     }
 
-    /// Windowed runs sleep between frames; a timer thread wakes the window for each event.
+    /// Windowed runs sleep between frames; a timer wakes the window for each event.
     pub(crate) fn wake_at_playback(&self) {
         let Some(w) = (*self.waker).clone() else { return };
         let times: Vec<f64> = self.playback.iter().map(|e| e.0 - *self.clock).collect();
-        std::thread::spawn(move || {
-            let start = rune::time::Instant::now();
-            for t in times {
-                let d = std::time::Duration::from_secs_f64(t.max(0.0));
-                if let Some(rest) = d.checked_sub(start.elapsed()) {
-                    std::thread::sleep(rest);
-                }
-                w();
-            }
-        });
+        wake_each(w, times.into_iter(), rune::time::Instant::now());
     }
+}
+
+/// Wakes `w` at each of `times` (seconds after `start`), one timer after another: a thread that
+/// sleeps natively, a timer on the web.
+fn wake_each(w: rune::Waker, mut times: std::vec::IntoIter<f64>, start: rune::time::Instant) {
+    let Some(t) = times.next() else { return };
+    let delay = std::time::Duration::from_secs_f64(t.max(0.0)).saturating_sub(start.elapsed());
+    let _ = rune::task::spawn_after("fixture-playback", delay, move || {
+        w();
+        wake_each(w, times, start);
+    });
 }

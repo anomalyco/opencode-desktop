@@ -121,8 +121,7 @@ fn run(s: &mut App, effect: Effect) {
         // A backstop for a check that never answers; the checks above have their own timeouts.
         Effect::TimerStart { attempt } => {
             let deliver = s.deliverer();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(machine::CONNECT_TIMEOUT_MS));
+            let _ = rune::task::spawn_after("server-check-timeout", Duration::from_millis(machine::CONNECT_TIMEOUT_MS), move || {
                 deliver(Box::new(move |s: &mut App, tx: &mut Tx| dispatch(s, Event::SubmitTimedOut { attempt }, tx)) as Apply);
             });
         }

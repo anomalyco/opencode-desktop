@@ -276,7 +276,7 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
             if !patient || result != ProbeResult::Unreachable || started.elapsed() >= PATIENCE {
                 break result;
             }
-            std::thread::sleep(std::time::Duration::from_millis(250));
+            rune::task::sleep(std::time::Duration::from_millis(250));
         };
         if result == ProbeResult::Unreachable {
             server.watch_reach(wake.clone());

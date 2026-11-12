@@ -144,8 +144,30 @@ pub enum Redeemed {
 /// `redeemPairingLink`: tries every address at once, 5 s each. The code is single-use, so at most
 /// one succeeds; the first address (the one the user chose in Pairing) wins when it answers within
 /// a second of another, as a local address stops working away from its network. Blocks: run it
-/// off the app's thread.
+/// off the app's thread. A page has no threads: it tries the addresses one after another, the
+/// chosen one first.
 pub fn redeem(link: &Link) -> Redeemed {
+    #[cfg(target_arch = "wasm32")]
+    return redeem_in_turn(link);
+    #[cfg(not(target_arch = "wasm32"))]
+    redeem_at_once(link)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn redeem_in_turn(link: &Link) -> Redeemed {
+    let mut expired = false;
+    for url in &link.urls {
+        match connect(url, &link.code) {
+            Ok(token) => return Redeemed::Paired(Pairing { url: url.clone(), password: token }),
+            Err(true) => expired = true,
+            Err(false) => {}
+        }
+    }
+    if expired { Redeemed::Expired } else { Redeemed::Unreachable }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn redeem_at_once(link: &Link) -> Redeemed {
     let (tx, rx) = std::sync::mpsc::channel::<(usize, Result<String, bool>)>();
     for (i, url) in link.urls.iter().enumerate() {
         let (tx, url, code) = (tx.clone(), url.clone(), link.code.clone());

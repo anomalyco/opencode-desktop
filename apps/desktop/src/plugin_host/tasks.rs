@@ -4,16 +4,22 @@
 //! The workers start with the first job and live as long as the app. On Windows a thread's start
 //! and exit run every loaded library's thread-attach and -detach code under the loader lock,
 //! which the app's thread then waits on while it draws: a thread started for a press stalled
-//! the window for over 100 ms in a debug build. Long-lived workers pay that once.
+//! the window for over 100 ms in a debug build. Long-lived workers pay that once. A browser has no
+//! threads: there the work runs on `rune::task`'s fibers.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{Receiver, Sender, channel};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Four: a long job (the SSH plugin's sign-in listener) leaves the others free.
+#[cfg(not(target_arch = "wasm32"))]
 const WORKERS: usize = 4;
 
+#[cfg(not(target_arch = "wasm32"))]
 type Job = Box<dyn FnOnce() + Send>;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn queue() -> &'static Mutex<Sender<Job>> {
     static QUEUE: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
     QUEUE.get_or_init(|| {
@@ -30,6 +36,7 @@ fn queue() -> &'static Mutex<Sender<Job>> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn work(rx: &Mutex<Receiver<Job>>) {
     loop {
         let job = match rx.lock() {
@@ -49,10 +56,14 @@ pub fn log(line: String) {
     run(move || eprintln!("{line}"));
 }
 
-/// Runs host work `job` on a worker.
+/// Runs host work `job` on a worker: in a browser, which has no threads, on `rune::task`'s
+/// fibers, where its requests wait without holding the page.
 pub fn run(job: impl FnOnce() + Send + 'static) {
-    let sent = queue().lock().map(|tx| tx.send(Box::new(job)));
-    if !matches!(sent, Ok(Ok(()))) {
+    #[cfg(target_arch = "wasm32")]
+    let sent = rune::task::spawn("plugin-job", job).is_ok();
+    #[cfg(not(target_arch = "wasm32"))]
+    let sent = matches!(queue().lock().map(|tx| tx.send(Box::new(job))), Ok(Ok(())));
+    if !sent {
         eprintln!("plugin job dropped: no worker");
     }
 }
