@@ -1395,6 +1395,33 @@ fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
 #[path = "../../web/src/web.rs"]
 mod web;
 
+#[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
+thread_local! {
+    /// The launch's frame diagnostics, for `quit_last` to drain.
+    static QUIT_DIAGNOSTICS: std::cell::RefCell<Option<diagnostics::Diagnostics>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The windows' last step on the way out (`rune::fast_exit`), on the UI thread once every window's
+/// quit hook ran: the database's last write, the diagnostics' queue, an install-on-quit's helper
+/// (it must exist before this process ends), the launch trace, then every thread at normal
+/// priority so the process's end isn't kept waiting on an idle one.
+#[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
+fn quit_last() {
+    // Landed and closed: the file's lock goes before the update helper takes over.
+    storage::close();
+    rune::marks::mark("storage.flushed");
+    // A launch handed on while the app quit claims it now, unless an update replaces it.
+    if !updater::installs_on_quit() {
+        rune::release_instance();
+    }
+    QUIT_DIAGNOSTICS.with(|d| if let Some(d) = d.borrow_mut().take() { d.shutdown() });
+    rune::marks::mark("diagnostics.stopped");
+    updater::finish_quit();
+    rune::marks::mark("quit.update_handed_off");
+    launch::trace::finish(windows::opened());
+    launch::end_promptly();
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     launch::trace::begin();
@@ -1424,14 +1451,10 @@ fn main() {
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
     telemetry::startup("launch.gpu", rune::prewarm_gpu);
-    // Windows: the first window's GPU device and renderer start on a thread now, beside the
-    // launch, as `prewarm_gpu` does on macOS. Picking the adapter lists every adapter through wgpu,
-    // which makes a device on each (909,300 µs p50 on blade, the discrete GPU waking up), until
-    // Rune can take one adapter; the window takes what's made, waiting if it isn't ready.
-    #[cfg(windows)]
-    if !headless() {
-        rune::warm_gpu(Default::default());
-    }
+    // Windows: no GPU before the first frame. Rune paints it on the CPU and makes the window's GPU
+    // on a below-normal thread once it's on screen, then hands over. Warming the GPU here put its
+    // driver loads beside the launch's: the first frame came 8 ms and the first input 15 ms later
+    // (p50, visible desktop), for a hand-over ~50 ms sooner that nobody sees.
     telemetry::startup("launch.icon", launch::apply_app_icon);
     #[cfg(feature = "hot")]
     rune::run(AppSpec { families: appearance::launch_families(), ..spec(App::hot) });
@@ -1441,22 +1464,13 @@ fn main() {
         if !headless() {
             launch::defer();
             rune::marks::mark("windows.launch");
+            // Quitting ends the process right after `quit_last`: no window, GPU device or allocation
+            // is torn down (on Windows that was the graphics drivers' detach, hundreds of ms).
+            QUIT_DIAGNOSTICS.with(|d| *d.borrow_mut() = Some(diagnostics.clone()));
+            rune::fast_exit(quit_last);
             // Every window saved at the last quit, each with its own tabs (`windows`).
-            let opened = windows::launch(diagnostics.clone());
-            // Landed and closed: the file's lock goes before the update helper takes over.
-            storage::close();
-            rune::marks::mark("storage.flushed");
-            // A launch handed on while the app quit claims it now, unless an update replaces it.
-            if !updater::installs_on_quit() {
-                rune::release_instance();
-            }
-            diagnostics.shutdown();
-            rune::marks::mark("diagnostics.stopped");
-            // An update installing on quit has started its helper before the process ends.
-            updater::finish_quit();
-            rune::marks::mark("quit.update_handed_off");
-            launch::trace::finish(opened);
-            launch::end_promptly();
+            windows::launch(diagnostics);
+            quit_last();
             return;
         }
         // The harness's `--realtime` probes launch as a window does: the server's first reads

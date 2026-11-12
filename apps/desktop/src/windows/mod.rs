@@ -24,7 +24,7 @@ pub mod store;
 pub mod tear;
 pub(crate) mod tear_stories;
 
-pub use open::{launch, new_window};
+pub use open::{launch, new_window, opened};
 
 /// One window's identity and what it tracks of itself.
 #[derive(Default)]
