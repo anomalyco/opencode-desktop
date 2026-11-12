@@ -24,6 +24,8 @@ include!(concat!(env!("OUT_DIR"), "/i18n.rs"));
 pub mod date;
 mod intl;
 pub mod names;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 use std::borrow::Cow;
 
@@ -111,7 +113,10 @@ pub fn locales() -> &'static [LocaleInfo] {
 /// Makes the locale with id `id` (`de`, `zht`) current. Returns whether the locale changed; an
 /// unknown id changes nothing.
 pub fn set_locale(id: &str) -> bool {
-    I18N.find_locale(id).is_some_and(|index| I18N.set_locale(index))
+    let Some(index) = I18N.find_locale(id) else { return false };
+    #[cfg(target_arch = "wasm32")]
+    web::load(index, id);
+    I18N.set_locale(index)
 }
 
 /// The id of the locale that best matches the system's preferred languages, else `en`.

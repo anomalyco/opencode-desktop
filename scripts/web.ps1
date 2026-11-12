@@ -107,11 +107,17 @@ if (-not $NoBuild) {
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
   Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
+  # The spell checker's Hunspell dictionaries (SCOWL's en_US, wooorm/dictionaries `dictionary-en`), fetched when a field first checks.
+  New-Item -ItemType Directory -Force (Join-Path $next 'spell') | Out-Null
+  Copy-Item (Join-Path $root 'apps/web/spell/*') (Join-Path $next 'spell') -Include '*.aff', '*.dic'
+  # Every locale's messages but English, which the module carries; the page fetches the one it shows.
+  & bun (Join-Path $PSScriptRoot 'web-i18n.ts') (Join-Path $next 'i18n')
+  if ($LASTEXITCODE) { throw "web-i18n failed ($LASTEXITCODE)" }
   # A release ships the module and the fonts Brotli-compressed beside themselves, as a static host
   # serves them (`web-serve.ts` sends them to a browser that takes br): the module's 35 MB on the
   # wire becomes about 10, the terminal's 4.8 MB face about 2.
   if (-not $Dev) {
-    $packed = @(Join-Path $next 'app_bg.wasm') + @(Get-ChildItem (Join-Path $next 'fonts') -File | ForEach-Object FullName)
+    $packed = @(Join-Path $next 'app_bg.wasm') + @(Get-ChildItem (Join-Path $next 'fonts'), (Join-Path $next 'i18n'), (Join-Path $next 'spell') -File | ForEach-Object FullName)
     & bun -e "const z = require('node:zlib'); const fs = require('node:fs'); for (const f of process.argv.slice(1)) { const b = fs.readFileSync(f); fs.writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } })); }" @packed
     if ($LASTEXITCODE) { throw "brotli failed ($LASTEXITCODE)" }
   }

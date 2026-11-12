@@ -18,6 +18,8 @@ mod browser_history;
 #[wasm_bindgen(jspi)]
 pub fn start(password: Option<String>) {
     rune::task::start_runners();
+    // The dictionaries beside the page (`spell/`, scripts/web.ps1).
+    rune::spell::set_web_dictionaries(&["en-US"]);
     // The page's arguments first: the storage and the app's spec read them.
     let args = page_args();
     rune::tooling::Args::parse_from(args.clone());

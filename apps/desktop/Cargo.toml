@@ -71,6 +71,11 @@ ureq = { workspace = true, features = ["rustls"] }
 # The build's identity everywhere; its install, uninstall and update registration on Windows.
 win-install = { path = "../../crates/win-install" }
 
+# Rune's agent tooling (`--snap`, `--tree`, `--script`, `--html`, ...) in release builds too, as before Rune #834:
+# the harnesses run release builds. Not in a page, where it would only add to the module.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rune = { workspace = true, features = ["tooling"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 # Ogg and Opus audio tracks in videos, which AVPlayer can't play (Rune decodes them).
