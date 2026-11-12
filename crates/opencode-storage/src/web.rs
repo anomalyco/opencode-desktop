@@ -600,6 +600,16 @@ impl StorageConfig {
         Some(StorageConfig(()))
     }
 
+    /// The native open's packet hook: here the packet is ready at once.
+    pub fn on_packet(self, _sent: fn()) -> StorageConfig {
+        self
+    }
+
+    /// The native open's wait for the single-instance claim: one tab, nothing to wait for.
+    pub fn after_claim(self) -> StorageConfig {
+        self
+    }
+
     /// The native open's early cache read; the browser keeps no cache rows yet, so nothing is
     /// offered.
     pub fn early_cache(self, _key: &'static str, _version: i64, _offer: impl FnOnce(std::sync::Arc<[u8]>) + Send + 'static) -> StorageConfig {
@@ -622,6 +632,8 @@ impl Opening {
     pub fn try_storage(&mut self) -> Option<(Storage, BootReport)> {
         self.ready.take()
     }
+
+    pub fn proceed(&self) {}
 
     pub fn storage(mut self) -> (Storage, BootReport) {
         self.ready.take().unwrap_or_else(|| (Storage::memory(), BootReport { error: Some("the storage was taken already".into()), ..BootReport::default() }))

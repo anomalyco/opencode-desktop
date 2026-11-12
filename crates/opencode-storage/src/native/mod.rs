@@ -36,6 +36,10 @@ pub struct StorageConfig {
     pub(crate) clock: fn() -> i64,
     /// Cache rows read on the open's thread as soon as SQLite is open ([`StorageConfig::early_cache`]).
     pub(crate) early: Vec<EarlyCache>,
+    /// SQLite's open waits for [`Opening::proceed`] (the single-instance claim).
+    pub(crate) after_claim: bool,
+    /// Called on the open's thread as it hands the boot packet over (a launch trace's mark).
+    pub(crate) on_packet: Option<fn()>,
 }
 
 /// A `cache` row wanted before the first frame, off the UI thread.
@@ -47,7 +51,21 @@ pub(crate) struct EarlyCache {
 
 impl StorageConfig {
     pub fn native(path: impl Into<PathBuf>, clock: fn() -> i64) -> StorageConfig {
-        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock, early: Vec::new() }
+        StorageConfig { path: path.into(), import: None, official: Vec::new(), clock, early: Vec::new(), after_claim: false, on_packet: None }
+    }
+
+    /// The record's raw read starts at once; SQLite's open, which takes the file's exclusive
+    /// lock, waits for [`Opening::proceed`]: for an app that only knows after starting whether it
+    /// is the one instance (a second launch hands off and ends, and must not take the lock).
+    pub fn after_claim(mut self) -> StorageConfig {
+        self.after_claim = true;
+        self
+    }
+
+    /// `sent` runs on the open's thread as the boot packet goes to the UI: for a launch trace.
+    pub fn on_packet(mut self, sent: fn()) -> StorageConfig {
+        self.on_packet = Some(sent);
+        self
     }
 
     /// Reads `cache` row `key` at `version` on the open's thread right after SQLite opens (once

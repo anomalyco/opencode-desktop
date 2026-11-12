@@ -103,6 +103,11 @@ fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) {
     }
 }
 
+/// Whether this quit installs an update (its helper replaces the app once this process exits).
+pub fn installs_on_quit() -> bool {
+    QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+}
+
 /// Waits for an install-on-quit hand-off to finish starting its helper, which must exist before
 /// this process exits (it waits for the exit, then swaps the folders). Call it last in `main`.
 pub fn finish_quit() {

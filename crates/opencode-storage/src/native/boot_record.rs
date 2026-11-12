@@ -14,7 +14,9 @@
 //! When it's trusted: the WAL holds no frames (the writer checkpoints when writes go quiet and
 //! at quit, so after a clean quit it's empty), the header's `application_id` equals the record's
 //! generation (both written in the same transaction), and the record's xxh3 matches. Otherwise
-//! the record comes from SQLite with the rest ([`FastBoot::UseSqlite`]), never from a stale page.
+//! the record comes from SQLite with the rest ([`FastBoot::UseSqlite`]). The one exception: when
+//! another process holds the file so SQLite can't open it, the first frame is painted from the
+//! last checkpoint's record ([`FastBoot::Checkpointed`]) rather than wait, and nothing is saved.
 //!
 //! The page and record layouts follow sqlite.org/fileformat2.html.
 
@@ -105,6 +107,12 @@ pub fn from_sqlite(conn: &Connection) -> rusqlite::Result<Option<Vec<u8>>> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum FastBoot {
     Record(Vec<u8>),
+    /// The WAL holds frames, so the record on file is the last checkpoint's: possibly a few
+    /// writes behind. Used only when SQLite can't open the file (another process holds it).
+    Checkpointed(Vec<u8>),
+    /// The file is there but this process may not read it (another process opened it without
+    /// sharing).
+    Denied,
     /// The fast path can't answer (no file, a WAL with frames, another layout, a stale or torn
     /// record): the record comes from SQLite.
     UseSqlite(&'static str),
@@ -113,10 +121,12 @@ pub enum FastBoot {
 /// Reads the boot record from `db` without SQLite: one `CreateFileW`, one read of the first two
 /// pages (and one per overflow page past them), and a size check of the WAL.
 pub fn read_raw(db: &Path) -> FastBoot {
-    if wal_len(&PathBuf::from(format!("{}-wal", db.display()))) > 0 {
-        return FastBoot::UseSqlite("the WAL holds frames");
-    }
-    let Ok(file) = std::fs::File::open(db) else { return FastBoot::UseSqlite("no database file") };
+    let wal_frames = wal_len(&PathBuf::from(format!("{}-wal", db.display()))) > 0;
+    let file = match std::fs::File::open(db) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FastBoot::UseSqlite("no database file"),
+        Err(_) => return FastBoot::Denied,
+    };
     let mut first = vec![0u8; 2 * 65536];
     let Some(n) = read_some(&file, &mut first, 0) else { return FastBoot::UseSqlite("unreadable") };
     if n < 100 || &first[..16] != b"SQLite format 3\0" {
@@ -141,7 +151,7 @@ pub fn read_raw(db: &Path) -> FastBoot {
     if stamped != Some(generation) {
         return FastBoot::UseSqlite("stale record");
     }
-    FastBoot::Record(record)
+    if wal_frames { FastBoot::Checkpointed(record) } else { FastBoot::Record(record) }
 }
 
 /// The WAL's length without opening it: `GetFileAttributesExW` reads the directory entry, where

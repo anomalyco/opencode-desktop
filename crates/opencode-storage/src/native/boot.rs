@@ -81,9 +81,15 @@ fn ns(since: Instant) -> u64 {
 /// The open on the calling thread, both stages; the packet comes back with the storage.
 pub(super) fn open(config: StorageConfig) -> (Storage, BootReport, BootPacket) {
     let (tx, rx) = mpsc::channel();
-    let (storage, report) = run(config, &|p| {
-        tx.send(p).ok();
-    });
+    // Nobody to wait for: the caller takes everything at the end.
+    let gate = Gate { go: None, wanted: Arc::new(std::sync::atomic::AtomicBool::new(true)) };
+    let (storage, report) = run(
+        config,
+        &|p| {
+            tx.send(p).ok();
+        },
+        &gate,
+    );
     (storage, report, rx.try_recv().unwrap_or_default())
 }
 
@@ -91,27 +97,55 @@ pub(super) fn open(config: StorageConfig) -> (Storage, BootReport, BootPacket) {
 pub struct Opening {
     boot: Receiver<BootPacket>,
     join: Option<std::thread::JoinHandle<(Storage, BootReport)>>,
+    go: Option<mpsc::Sender<()>>,
+    wanted: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Opening {
     pub(super) fn start(config: StorageConfig) -> Opening {
         let (tx, boot) = mpsc::channel();
+        let (go, gate) = match config.after_claim {
+            true => {
+                let (go, rx) = mpsc::channel();
+                (Some(go), Gate { go: Some(rx), ..Gate::default() })
+            }
+            false => (None, Gate::default()),
+        };
+        let wanted = gate.wanted.clone();
+        let on_packet = config.on_packet;
         let join = std::thread::Builder::new()
             .name("opencode-storage-open".into())
             .spawn(move || {
                 priority(1);
-                run(config, &|p| {
-                    tx.send(p).ok();
-                    priority(-1);
-                })
+                run(
+                    config,
+                    &|p| {
+                        if let Some(sent) = on_packet {
+                            sent();
+                        }
+                        tx.send(p).ok();
+                        priority(-1);
+                    },
+                    &gate,
+                )
             })
             .ok();
-        Opening { boot, join }
+        Opening { boot, join, go, wanted }
     }
 
-    /// Stage A's packet: blocks only until stage A is done (the record read), never for stage B.
+    /// Stage A's packet: blocks only until stage A is done (the record read), never for stage B,
+    /// and never for another process's lock (then it's the last checkpoint's, `BootSource::held`).
     pub fn boot(&self) -> BootPacket {
+        self.wanted.store(true, std::sync::atomic::Ordering::Release);
         self.boot.recv().unwrap_or_default()
+    }
+
+    /// This process is the app's one instance: SQLite may open the file and take its lock
+    /// (`StorageConfig::after_claim`; the record's raw read ran already).
+    pub fn proceed(&self) {
+        if let Some(go) = &self.go {
+            go.send(()).ok();
+        }
     }
 
     /// The storage if stage B is done, without waiting: poll it after the first frame. Taken
@@ -142,11 +176,14 @@ fn priority(level: i32) {
     drop(level);
 }
 
-fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootReport) {
+fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (Storage, BootReport) {
     let t0 = Instant::now();
     let mut early = std::mem::take(&mut config.early);
     let mut report = BootReport { started: Some(t0), ..BootReport::default() };
     let mut packet: Option<BootPacket> = None;
+    // What the first frame shows if another process holds the file: the last checkpoint's
+    // record, or a first-run screen when the file can't even be read.
+    let mut held: Option<BootPacket> = None;
     match boot_record::read_raw(&config.path) {
         FastBoot::Record(bytes) => {
             report.raw_read_ns = ns(t0);
@@ -167,19 +204,44 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootRe
                 None => report.raw_miss = Some("torn record"),
             }
         }
+        FastBoot::Checkpointed(bytes) => {
+            report.raw_miss = Some("the WAL holds frames");
+            held = BootPacket::parse(bytes).map(|mut p| {
+                p.source = BootSource::Checkpoint;
+                p
+            });
+        }
+        FastBoot::Denied => {
+            report.raw_miss = Some("another process holds the file");
+            held = Some(BootPacket::held_empty());
+        }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
-    let sent = packet.is_some();
-    let mut result = stage_b(&config, &mut report, t0, if sent { None } else { Some(send) }, &mut early);
+    // SQLite takes the file's lock: not before this process is the app's one instance.
+    if !gate.wait() {
+        return (Storage::memory(), report);
+    }
+    let mut result = match held.take() {
+        Some(fallback) => held_open(&config, &mut report, t0, send, &mut early, gate, fallback, &mut packet),
+        None => stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early, Lock::Wait),
+    };
     // Another process holds the file (an instance still exiting, a tool reading it): wait for it
     // a while longer (busy_timeout is 5 s a try) rather than give the windows a store that can't
-    // keep what they write. With the first frame built from the record already, the windows
-    // work meanwhile; without it they wait, so for less.
+    // keep what they write. The first frame is built already (from the record), so the windows
+    // work meanwhile; without a packet they'd wait, so for less.
     let mut tries = 1;
-    while tries < if sent { BUSY_TRIES } else { 2 } && result.as_ref().is_err_and(is_busy) {
+    while tries < if packet.is_some() { BUSY_TRIES } else { 2 } && result.as_ref().is_err_and(|e| is_held(e, &config)) {
         tries += 1;
         report.busy_retries += 1;
-        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early);
+        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early, Lock::Wait);
+    }
+    // The first frame showed the checkpoint (or a first run): the database the lock let go of is
+    // used only if it still holds what the windows were built from.
+    if let (Ok((conn, ..)), Some(p)) = (&result, &packet)
+        && p.source.held()
+        && !shows_the_same(conn, p)
+    {
+        result = Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), Some("the saved state changed while another process held it".into())));
     }
     report.total_ns = ns(t0);
     match result {
@@ -191,15 +253,19 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootRe
         }
         Err(e) => {
             report.error = Some(e.to_string());
-            // Never empty: the files the user had, read into memory (and left where they are).
             let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
-            if let Some(import) = &config.import {
-                import::hydrate_memory(&mut cache, import);
-            }
-            // The windows were built from the record: memory keeps what they show.
             match &packet {
+                // The windows were built from the record: memory keeps what they show.
                 Some(p) => p.fill_cache(&mut cache),
-                None => send(boot_record::from_cache(&cache)),
+                None => {
+                    // Never empty: with no database yet, the files the user had, read into memory
+                    // (and left where they are). A database that exists is the real state: no
+                    // import guesses over it.
+                    if let Some(import) = config.import.as_ref().filter(|_| !config.path.exists()) {
+                        import::hydrate_memory(&mut cache, import);
+                    }
+                    send(boot_record::from_cache(&cache));
+                }
             }
             eprintln!("opencode-storage: the database couldn't open ({}); this run keeps its changes in memory", report.error.as_deref().unwrap_or_default());
             (Storage::from_parts(super::shared(cache), Backend::memory()), report)
@@ -207,9 +273,95 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket)) -> (Storage, BootRe
     }
 }
 
+/// The open while another process holds the file and the record on file may be behind (the WAL
+/// holds frames) or can't be read: SQLite is tried without waiting on the lock until the UI asks
+/// for its packet, and then the UI gets `fallback` at once and the open goes on behind it. The
+/// first frame never waits for a lock.
+#[allow(clippy::too_many_arguments)]
+fn held_open(
+    config: &StorageConfig,
+    report: &mut BootReport,
+    t0: Instant,
+    send: &dyn Fn(BootPacket),
+    early: &mut Vec<super::EarlyCache>,
+    gate: &Gate,
+    fallback: BootPacket,
+    packet: &mut Option<BootPacket>,
+) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
+    loop {
+        // A file this process can't read at all isn't probed: Windows' open retries a sharing
+        // violation for about 1.4 s before it fails.
+        if fallback.source == BootSource::Checkpoint {
+            let result = stage_b(config, report, t0, Some(send), early, Lock::Probe);
+            if result.as_ref().is_ok() || result.as_ref().is_err_and(|e| !is_held(e, config)) {
+                return result;
+            }
+        }
+        if gate.wanted() || t0.elapsed() > HELD_GRACE {
+            report.boot_source = fallback.source;
+            report.boot_bytes = fallback.len();
+            report.stage_a_ns = ns(t0);
+            *packet = Some(fallback.clone());
+            send(fallback);
+            return stage_b(config, report, t0, None, early, Lock::Wait);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Whether the database, now open, would show the first frame `shown` was: its rebuilt record
+/// has the same entries.
+fn shows_the_same(conn: &Connection, shown: &BootPacket) -> bool {
+    let fresh = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
+        .and_then(|tx| {
+            boot_record::rebuild(&tx)?;
+            tx.commit()
+        })
+        .and_then(|()| boot_record::from_sqlite(conn));
+    match fresh {
+        Ok(Some(bytes)) => BootPacket::parse(bytes).is_some_and(|p| p.body() == shown.body()),
+        _ => false,
+    }
+}
+
+/// Another process has the file: SQLite's lock, or a handle that shares nothing.
+fn is_held(e: &rusqlite::Error, config: &StorageConfig) -> bool {
+    is_busy(e) || (matches!(e, rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::CannotOpen) && config.path.exists())
+}
+
+/// How stage B meets another process's lock: wait `busy_timeout`, or answer busy at once.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lock {
+    Wait,
+    Probe,
+}
+
+/// How long the held open probes before it shows the fallback without being asked (a caller
+/// that never takes the packet).
+const HELD_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Where the open waits: SQLite's open (the exclusive lock) for the single-instance claim
+/// (`StorageConfig::after_claim`, [`Opening::proceed`]), and whether the UI is waiting for its
+/// packet ([`Opening::boot`]).
+#[derive(Default)]
+pub(crate) struct Gate {
+    go: Option<Receiver<()>>,
+    wanted: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Gate {
+    /// False when the process went another way (it handed off to a running instance).
+    fn wait(&self) -> bool {
+        self.go.as_ref().is_none_or(|go| go.recv().is_ok())
+    }
+
+    fn wanted(&self) -> bool {
+        self.wanted.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
 /// SQLite's part. `send` is set when stage A still owes the UI its packet: then the record is
 /// read through SQLite as soon as the schema and import allow.
-fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: Option<&dyn Fn(BootPacket)>, early: &mut Vec<super::EarlyCache>) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
+fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: Option<&dyn Fn(BootPacket)>, early: &mut Vec<super::EarlyCache>, lock: Lock) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
     let mut at = Instant::now();
     let lap = |at: &mut Instant| {
         let n = ns(*at);
@@ -219,9 +371,17 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
     let (mut conn, created) = connect(&config.path)?;
     report.created = created;
     report.open_ns = lap(&mut at);
-    configure(&conn)?;
+    // A probe answers busy at once: the pragmas already read the file (and so take its lock).
+    if lock == Lock::Probe {
+        conn.busy_timeout(std::time::Duration::ZERO)?;
+    }
+    configure(&conn, lock == Lock::Wait)?;
     report.pragma_ns = lap(&mut at);
     let version = schema::user_version(&conn)?;
+    // The first read took the lock (exclusive mode keeps it): the rest may wait as usual.
+    if lock == Lock::Probe {
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    }
     let mut flags = version & FLAG_MASK;
     if version >> FLAG_BITS != SCHEMA_VERSION {
         conn.execute_batch("PRAGMA journal_mode = WAL")?;
@@ -241,7 +401,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
     let deferred = match &config.import {
         Some(import) => {
             let path = config.path.clone();
-            let reopen = move || connect(&path).and_then(|(c, _)| configure(&c).map(|()| c));
+            let reopen = move || connect(&path).and_then(|(c, _)| configure(&c, true).map(|()| c));
             let (summary, deferred, settled) = import::run(&mut conn, &reopen, import, &config.official, flags, (config.clock)());
             report.import = summary;
             if settled != flags {
@@ -338,10 +498,13 @@ pub(super) fn connect(path: &Path) -> rusqlite::Result<(Connection, bool)> {
 /// heap memory and never maps or locks `-shm`, which measured 1,184 µs of the first read's
 /// 2,340 µs (p50, warm, `proof\storage-1\floor-1.txt`). The process is the file's only user (the
 /// app is single-instance); an outside reader waits until it quits.
-pub(super) fn configure(conn: &Connection) -> rusqlite::Result<()> {
+/// The connection's settings. `wait`: a held lock is waited for (`busy_timeout`, 5 s); else the
+/// caller set its own (a probe's zero) first, since these pragmas read the file.
+pub(super) fn configure(conn: &Connection, wait: bool) -> rusqlite::Result<()> {
+    let busy = if wait { "PRAGMA busy_timeout = 5000;" } else { "" };
     conn.execute_batch(&format!(
-        "PRAGMA locking_mode = EXCLUSIVE; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -8000; \
-         PRAGMA busy_timeout = 5000; PRAGMA wal_autocheckpoint = 1000; PRAGMA journal_size_limit = 0; PRAGMA mmap_size = {MMAP_SIZE};"
+        "{busy} PRAGMA locking_mode = EXCLUSIVE; PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -8000; \
+         PRAGMA wal_autocheckpoint = 1000; PRAGMA journal_size_limit = 0; PRAGMA mmap_size = {MMAP_SIZE};"
     ))
 }
 

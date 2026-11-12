@@ -1251,6 +1251,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Each draft keeps its own composer in any window, saved or not (`restore::show_draft`).
     changed |= s.show_draft();
     if s.persists() {
+        changed |= s.tell_storage_notice();
         changed |= s.hydrate_restore();
         s.poll_restore();
         s.poll_preview(false);
@@ -1411,16 +1412,14 @@ fn main() {
     if genui::skill::maybe_cli() {
         return;
     }
-    // A launch while the app runs hands its links (`deep_links`) to it and ends here, before it
-    // opens the database the running one holds.
-    if !headless() && !rune::single_instance(&launch::instance_id()) {
-        return;
-    }
-    rune::marks::mark("instance.claimed");
-    // The app's state: one database, read on its own thread while the windows are made.
+    // The app's state, read on its own thread beside the instance claim (`storage::start`). A
+    // launch while the app runs hands its links (`deep_links`) to it and ends here.
     storage::start();
+    if !headless() && !rune::single_instance(&launch::instance_id()) {
+        return launch::trace::finish(0);
+    }
+    storage::claimed();
     glyph_masks::start();
-    rune::marks::mark("storage.started");
     opencode_kit::client::set_download_dir(dirs::downloads());
     telemetry::startup("launch.platform", rune_mac::launch);
     telemetry::startup("launch.notifications", notifications::identify);
@@ -1447,6 +1446,10 @@ fn main() {
             // Landed and closed: the file's lock goes before the update helper takes over.
             storage::close();
             rune::marks::mark("storage.flushed");
+            // A launch handed on while the app quit claims it now, unless an update replaces it.
+            if !updater::installs_on_quit() {
+                rune::release_instance();
+            }
             diagnostics.shutdown();
             rune::marks::mark("diagnostics.stopped");
             // An update installing on quit has started its helper before the process ends.

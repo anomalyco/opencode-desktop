@@ -63,6 +63,19 @@ pub enum BootSource {
     Empty,
     Raw,
     Sqlite,
+    /// Another process holds the file: the last checkpoint's record, read raw. Nothing this run
+    /// changes is saved.
+    Checkpoint,
+    /// Another process holds the file and won't let it be read: a first-run screen. The saved
+    /// state is untouched; nothing this run changes is saved.
+    Denied,
+}
+
+impl BootSource {
+    /// The run paints what isn't the saved state as it is, and saves nothing.
+    pub fn held(self) -> bool {
+        matches!(self, BootSource::Checkpoint | BootSource::Denied)
+    }
 }
 
 impl BootPacket {
@@ -182,6 +195,19 @@ impl BootPacket {
     }
     pub fn len(&self) -> usize {
         self.bytes.len()
+    }
+
+    /// A first-run screen for a file another process won't let this one read.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn held_empty() -> BootPacket {
+        BootPacket { source: BootSource::Denied, ..BootPacket::default() }
+    }
+
+    /// The record's entries without its header (generation, sum): two records with the same
+    /// body show the same first frame.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn body(&self) -> &[u8] {
+        self.bytes.get(HEAD..).unwrap_or_default()
     }
 }
 

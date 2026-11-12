@@ -200,6 +200,21 @@ impl App {
         }
     }
 
+    /// Says where the window's state is when it isn't simply the saved state (`storage::Notice`),
+    /// from the first poll on: a held file's stand-in shows with its notice. True when it did.
+    pub fn tell_storage_notice(&mut self) -> bool {
+        use crate::storage::Notice;
+        use opencode_i18n::t;
+        match crate::storage::take_notice() {
+            Some(Notice::Memory(why)) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.memoryOnly.description", why = crate::status_toast::plain(&why))),
+            Some(Notice::Checkpoint) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.checkpoint.description")),
+            Some(Notice::FirstRun) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.firstRun.description")),
+            Some(Notice::Saving) => crate::status_toast::succeed(self, t!("rune.storage.saving.title"), ""),
+            None => return false,
+        }
+        true
+    }
+
     /// Takes saved drafts into the window: a draft is its text, or `{ text, mode }` for one in
     /// shell mode, as Desktop keeps the mode in the draft it persists
     /// (`ComposerPersistedState.mode`). A draft the window already holds keeps its own.
@@ -234,10 +249,6 @@ impl App {
             _ => {}
         }
         if matches!(self.restore.hydration, Hydration::Boot) {
-            if let Some(why) = crate::storage::take_degraded() {
-                let description = opencode_i18n::t!("rune.storage.memoryOnly.description", why = crate::status_toast::plain(&why));
-                crate::status_toast::fail(self, opencode_i18n::t!("rune.storage.memoryOnly.title"), description);
-            }
             let doc = WindowDoc::from_json(&crate::windows::store::load(&self.window));
             // Tabs closed since launch stay newest.
             let mut closed = crate::tabs::Closed::from_doc(&doc.closed);

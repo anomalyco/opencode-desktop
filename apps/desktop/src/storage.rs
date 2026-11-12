@@ -72,8 +72,31 @@ pub const DEV: &str = "rune.dev";
 
 static PHASE: Mutex<Option<Phase>> = Mutex::new(None);
 static READY: Condvar = Condvar::new();
-/// Why the database didn't open, until a window says so.
-static DEGRADED: Mutex<Option<String>> = Mutex::new(None);
+/// What the windows are told about where their state is, once, by the first window to take it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    /// The database couldn't open (why): this run keeps its changes in memory.
+    Memory(String),
+    /// Another process holds the file: the windows show its last checkpoint, and nothing is saved.
+    Checkpoint,
+    /// Another process holds the file and won't let it be read: a first-run screen; the saved
+    /// state is untouched, and nothing is saved.
+    FirstRun,
+    /// The file came free and still holds what the windows show: changes are saved again.
+    Saving,
+}
+
+/// The notice owed to the windows, and whether the first frame showed a held file's stand-in.
+struct Told {
+    owed: Option<Notice>,
+    held: bool,
+}
+
+static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false });
+
+fn told() -> MutexGuard<'static, Told> {
+    TOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 /// Each window's waker, woken once the storage is ready.
 static WAKERS: Mutex<Vec<Waker>> = Mutex::new(Vec::new());
 /// The boot packet's size and, of it, the plugin values', for the launch trace.
@@ -81,13 +104,26 @@ static BOOT_BYTES: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::ne
 
 fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
     match (phase, event) {
-        (Phase::Opening { opening }, Event::TakeBoot | Event::Presented) => (Phase::Booted { boot: Arc::new(opening.boot()), opening, queued: Queued::default() }, None),
+        (Phase::Opening { opening }, Event::TakeBoot | Event::Presented) => {
+            let boot = Arc::new(opening.boot());
+            // The UI thread holds the boot packet (it waited for it here, if it had to).
+            rune::marks::mark("storage.boot");
+            if boot.source.held() {
+                let mut t = told();
+                t.held = true;
+                t.owed = Some(if boot.source == opencode_storage::BootSource::Checkpoint { Notice::Checkpoint } else { Notice::FirstRun });
+            }
+            (Phase::Booted { boot, opening, queued: Queued::default() }, None)
+        }
         (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default() }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
             Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Presented))),
             None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
         },
+        // Another process holds the file and the windows show its stand-in: nothing this run
+        // changed is saved, so the quit doesn't wait for the open (it may wait out the lock).
+        (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() => (Phase::Memory(Storage::memory()), None),
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
             Some((storage, report)) => (Phase::Early(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Pending))),
@@ -157,7 +193,14 @@ fn send(event: Event) {
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
         if let Some(Effect::Adopt(_, _, error, _)) = &mut effect {
-            *DEGRADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error.take();
+            let mut t = told();
+            t.owed = match (error.take(), t.held) {
+                // The first frame's notice already says nothing is saved.
+                (Some(_), true) => t.owed.take(),
+                (Some(why), false) => Some(Notice::Memory(why)),
+                (None, true) => Some(Notice::Saving),
+                (None, false) => None,
+            };
         }
         if let Phase::Booted { boot, .. } = &next {
             BOOT_BYTES.get_or_init(|| (boot.len(), boot.plugin_bytes()));
@@ -194,10 +237,18 @@ fn joined(opening: Opening) {
     send(Event::Joined(storage, report.error));
 }
 
-/// Why the database didn't open, once: the first window to take it says so. A run in memory by
-/// design (headless, fixtures) has none.
-pub fn take_degraded() -> Option<String> {
-    DEGRADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+/// What the windows must be told about their state, once: the first window to take it says so.
+/// A run in memory by design (headless, fixtures) has nothing to tell.
+pub fn take_notice() -> Option<Notice> {
+    told().owed.take()
+}
+
+/// This process is the app's one instance: the open may take the database's lock now (the
+/// record's raw read ran beside the claim).
+pub fn claimed() {
+    if let Some(Phase::Opening { opening } | Phase::Booted { opening, .. }) = &*lock() {
+        opening.proceed();
+    }
 }
 
 fn wake_all() {
@@ -206,13 +257,17 @@ fn wake_all() {
     }
 }
 
-/// `main`, first thing: opens the database on its own thread, or keeps this run in memory.
+/// `main`, first thing: opens the database on its own thread, or keeps this run in memory. The
+/// boot record's raw read starts now, beside the instance claim that follows; SQLite's open, which
+/// locks the file, waits for the claim ([`claimed`]), so a launch that hands off never takes it.
 pub fn start() {
     let phase = match config() {
         Some(config) => Phase::Opening { opening: Storage::open_async(config) },
         None => Phase::Memory(Storage::memory()),
     };
     *lock() = Some(phase);
+    rune::marks::mark("storage.started");
+    rune::marks::mark("instance.claim");
 }
 
 /// The database for a run with a person at it (or the harness standing in for one, under a
@@ -224,7 +279,10 @@ fn config() -> Option<StorageConfig> {
     let mut sidecar = vec![opencode_kit::client::DEFAULT_SERVER.to_owned()];
     sidecar.extend(crate::arg("--server"));
     // Every group of legacy files is cut over: the app reads and writes none of them.
-    StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups: ImportGroup::ALL.to_vec(), clock: crate::wall_ms }).map(crate::glyph_masks::early)
+    let groups = ImportGroup::ALL.to_vec();
+    let config = StorageConfig::app(AppStorage { data: crate::dirs::data(), updates: crate::dirs::updates(), official: crate::dirs::official(), sidecar, groups, clock: crate::wall_ms })?;
+    // SQLite's open waits for the instance claim (`claimed`); the record's raw read doesn't.
+    Some(crate::glyph_masks::early(config.after_claim().on_packet(|| rune::marks::mark("storage.packet"))))
 }
 
 /// The first window presented its first frame: stage B is joined off the UI thread.
