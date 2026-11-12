@@ -450,6 +450,7 @@ impl App {
                     drag: super::mount::TextDrag::Idle,
                     mount: super::mount::Mount::Live { connection: 0 },
                     fit: std::cell::Cell::new(super::mount::Fit::Unmeasured),
+                    preedit: None,
                 })
             })
             .collect();

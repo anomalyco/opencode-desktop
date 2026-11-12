@@ -82,7 +82,7 @@ pub fn view(s: &App, p: &Pal, sid: &str) -> El {
     let size = rune::memo::layout_with("narrow-terminal-body", |r| (r[2], r[3])).unwrap_or((s.layout.narrow.width() - 2.0, 600.0));
     let body = match (ws.and_then(|w| w.failure.clone()), active.as_deref()) {
         (Some(why), _) => col().key("narrow-terminal-failed").grow(1.0).w_full().center().px(16.0).child(text(why).font(UI).color(p.muted)),
-        (None, Some(id)) => grid::render_terminal_pane(s, p, &wk, Some(id), size, 1.0, !s.composer.focused),
+        (None, Some(id)) => grid::render_terminal_pane(s, p, &wk, Some(id), size, 1.0, !s.composer.focused, true),
         (None, None) => col().key("narrow-terminal-loading").grow(1.0).w_full().center().child(text(t!("plugin.terminal.loading")).font(UI).color(p.muted)),
     };
     col()

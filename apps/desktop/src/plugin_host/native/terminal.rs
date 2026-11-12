@@ -168,7 +168,7 @@ pub fn screen_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     version(app, session).hash(&mut h);
     if let Some(ws) = app.terminal.workspaces.get(&app.terminal_workspace_key_for_session(session)) {
-        ws.tabs.iter().for_each(|t| (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits()).hash(&mut h));
+        ws.tabs.iter().for_each(|t| (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits(), &t.preedit).hash(&mut h));
     }
     (app.terminal.cursor_lit(*app.clock), app.composer.focused, app.side.focused, format!("{:?}", app.side.active_pane_focus)).hash(&mut h);
     crate::terminal::rename_stamp(app, &mut h);

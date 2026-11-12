@@ -80,6 +80,8 @@ pub struct TerminalTab {
     /// Whether it has an attachment (`surface-machine.ts`).
     pub mount: mount::Mount,
     pub(crate) fit: Cell<mount::Fit>,
+    /// What the input method composes at the cursor, while it composes.
+    pub preedit: Option<input::Preedit>,
 }
 
 impl TerminalTab {
@@ -544,6 +546,7 @@ impl App {
             drag: mount::TextDrag::Idle,
             mount: mount::Mount::Live { connection: self.terminal.connections },
             fit: Cell::new(mount::Fit::Unmeasured),
+            preedit: None,
         })
     }
 
@@ -583,6 +586,7 @@ impl App {
             drag: mount::TextDrag::Idle,
             mount: mount::Mount::Live { connection },
             fit: Cell::new(mount::Fit::Unmeasured),
+            preedit: None,
         });
         ws.active = Some(id.to_owned());
         Some(id.to_owned())

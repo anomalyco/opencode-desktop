@@ -136,7 +136,7 @@ pub fn encode_path(path: &str) -> String {
 }
 
 /// A Windows path: a drive (`C:`) or a UNC share (`\\server`).
-fn windows(path: &str) -> bool {
+pub fn windows(path: &str) -> bool {
     drive(path) || unc(path)
 }
 

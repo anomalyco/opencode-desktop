@@ -141,6 +141,7 @@ pub fn render_terminal_pane(
     pane_size: (f32, f32),
     env_scale: f32,
     focused: bool,
+    shown: bool,
 ) -> El {
     let (font_choice, style) = terminal_font_style(&s.knobs);
     // ghostty-web's whole-device-pixel cell, the glyphs spaced one cell apart. `env_scale` is the
@@ -176,7 +177,9 @@ pub fn render_terminal_pane(
     // Sync grid fit when the pane's layout dimensions change.
     tab.ensure_fit(fit_cols, fit_rows, cw_px, ch_px);
 
-    let snap = tab.session.snapshot();
+    // A pane kept mounted out of sight (a closed region keeps its card for the slide) draws the
+    // last screen without reading a new one, so its terminal builds none (`publish.rs`).
+    let snap = if shown { tab.session.snapshot() } else { tab.session.peek() };
     let viewport = render_viewport(
         s,
         p,
@@ -298,6 +301,16 @@ fn render_viewport(
             true
         };
         canvas_layer = canvas_layer.child(render_cursor(p, snap, cell_w, cell_h, focused, lit));
+    }
+
+    // The input method's caret (dead keys, CJK, the emoji panel, dictation) at the cursor's cell,
+    // whether or not the program shows its cursor; a password prompt keeps the input method off.
+    if focused && !snap.cursor.password_input {
+        let (col, row) = if snap.cursor.in_viewport { (snap.cursor.col, snap.cursor.row) } else { (0, snap.rows.saturating_sub(1)) };
+        let (x, y) = (f32::from(col) * cell_w, f32::from(row) * cell_h);
+        canvas_layer = canvas_layer
+            .child(el().key("terminal-ime").absolute(x, y).size(cell_w, cell_h).inert().ime_cursor())
+            .children(tab.preedit.as_ref().map(|pre| render_preedit(pre, snap, x, y, cell_h, style)));
     }
 
     let wk_drag = ws_key.to_owned();
@@ -499,6 +512,23 @@ fn render_cursor(
         .instant_changes()
         .transition(rune::Transition::none())
         .inert()
+}
+
+/// The composition over the cells from the cursor on, on the terminal's background so the cells
+/// under it don't show through, underlined as marked text is, with a caret where the input
+/// method puts it.
+fn render_preedit(pre: &super::input::Preedit, snap: &terminal::TerminalSnapshot, x: f32, y: f32, cell_h: f32, style: TextStyle) -> El {
+    let fg = snap.fg.to_rune();
+    let caret = pre.cursor.map(|(start, _)| rune::text::advance(pre.text.get(..start).unwrap_or(&pre.text), style));
+    let mut span = Span::new(0, pre.text.len()).color(fg);
+    span.underline = Some(fg);
+    el().key("terminal-preedit")
+        .absolute(x, y)
+        .h(cell_h)
+        .fill(snap.bg.to_rune())
+        .inert()
+        .child(rich(pre.text.clone(), vec![span]).font(style))
+        .children(caret.map(|cx| el().key("terminal-preedit-caret").absolute(cx, 0.0).size(1.0, cell_h).fill(snap.cursor_color.to_rune())))
 }
 
 fn render_scrollbar(

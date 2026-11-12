@@ -39,6 +39,11 @@ type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 /// DECSCUSR in the checkpoint or stream still wins.
 const DEFAULT_CURSOR: &[u8] = b"\x1b[5 q";
 
+/// Ctrl+Break as win32-input-mode records (`CSI Vk;Sc;Uc;Kd;Cs;Rc _`): Ctrl down, `VK_CANCEL` on the
+/// Pause key's scan code (extended) down and up, Ctrl up. A Windows pseudoconsole takes them and
+/// raises `CTRL_BREAK_EVENT`; there is no VT sequence for it.
+const CTRL_BREAK: &[u8] = b"\x1b[17;29;0;1;8;1_\x1b[3;70;0;1;264;1_\x1b[3;70;0;0;264;1_\x1b[17;29;0;0;0;1_";
+
 /// Why an attachment stopped, as the pane words it (`terminal.tsx` `failureText`).
 pub const DISCONNECTED: &str = "Terminal disconnected";
 pub const CONNECTION_FAILED: &str = "Terminal connection failed";
@@ -116,7 +121,9 @@ pub(crate) fn run_persistent_worker(
     shared.set_status(SessionStatus::Connected);
     waker();
 
-    let mut worker = Worker { conn: &mut conn, sizing: &mut sizing, grid: &mut grid, screen: &mut screen, shared: &shared, waker: &waker, id: &id, unflushed: false };
+    // A terminal on a Windows server is a pseudoconsole (opencode-pty asks for win32 input).
+    let console = opencode_kit::path::windows(&snapshot.info.cwd);
+    let mut worker = Worker { conn: &mut conn, sizing: &mut sizing, grid: &mut grid, screen: &mut screen, shared: &shared, waker: &waker, id: &id, console, unflushed: false };
     let end = loop {
         let (flow, more) = worker.step(&cmd_rx, &mut ws);
         if let Flow::End(status) = flow {
@@ -148,6 +155,8 @@ struct Worker<'a> {
     shared: &'a SharedState,
     waker: &'a Waker,
     id: &'a str,
+    /// The terminal is a Windows pseudoconsole: Ctrl+Break can reach it.
+    console: bool,
     /// A frame (input, a pong) is queued in the socket: wait for room to send it.
     unflushed: bool,
 }
@@ -176,6 +185,7 @@ impl Worker<'_> {
                     dirty = true;
                 }
                 Ok(WorkerCmd::Interact) => events.push(Event::Interacted),
+                Ok(WorkerCmd::Break) if self.console => events.push(Event::Input(CTRL_BREAK.to_vec())),
                 Ok(WorkerCmd::Show(reply)) => show.push(reply),
                 Ok(cmd) => {
                     let (mut input, mut resized) = (Vec::new(), None);

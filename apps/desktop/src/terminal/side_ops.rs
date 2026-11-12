@@ -46,7 +46,8 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
 pub(crate) fn surface(s: &App, p: &Pal, sid: &str, id: &str, size: (f32, f32), scale: f32, focused: bool) -> El {
     s.terminal.painted_dark.set(Some(p.dark));
     let ws_key = workspace_key(s.server_id_str(), sid);
-    grid::render_terminal_pane(s, p, &ws_key, Some(id), size, scale, focused && !s.composer.focused)
+    let shown = s.side_tab_visible(&panel_key(PLUGIN, id));
+    grid::render_terminal_pane(s, p, &ws_key, Some(id), size, scale, focused && !s.composer.focused, shown)
 }
 
 /// A selected terminal tab selects its terminal, and takes the keyboard unless restored.
@@ -108,11 +109,8 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 pub(crate) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
     let Some((wk, id)) = s.terminal_focus() else { return false };
-    let consumed = {
-        let Some(ws) = s.terminal.workspaces.get(&wk) else { return false };
-        let Some(tab) = ws.tabs.iter().find(|t| t.id == id) else { return false };
-        input::dispatch_ime(&tab.session, tab.stream.as_ref(), tab.fixture_shell, ime)
-    };
+    let Some(tab) = s.terminal_tab_mut(&wk, &id) else { return false };
+    let consumed = input::dispatch_ime(tab, ime);
     if consumed {
         s.terminal.reset_blink(*s.clock);
     }

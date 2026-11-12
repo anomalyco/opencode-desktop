@@ -40,6 +40,38 @@ pub fn dispatch_key(
         }
     }
 
+    // A character the layout made with AltGr or Option is text, even where its chord is also an
+    // app command's (Ctrl+Alt+[ is MessagePrev, and AltGr+8 types "[" on a German layout).
+    if let Some(text) = layout_text(ev) {
+        session.select(SelectionOp::Clear);
+        if !session.snapshot().scrollbar.at_bottom {
+            session.scroll(ScrollOp::Bottom);
+        }
+        let first = text.chars().next().unwrap_or(' ');
+        let (key, base) = char_to_ghostty_key(first);
+        session.send_key(KeyInput {
+            key,
+            action: KeyAction::Press,
+            shift: false,
+            ctrl: false,
+            alt: false,
+            cmd: false,
+            text: Some(text.to_owned()),
+            unshifted_codepoint: Some(base),
+        });
+        if let (Some(dir), Some(st)) = (fixture_dir, stream) {
+            echo_fixture_key(st, &KeyEvent { key: ev.key.clone(), mods: rune::Mods::default() }, super::dir_name(dir));
+        }
+        return KeyOutcome::ConsumedResetBlink;
+    }
+
+    // Ctrl+Break: Windows' console interrupt. Unlike Ctrl+C it can't be ignored, so it stops a
+    // program even under a server whose shells start with Ctrl+C turned off.
+    if ev.key == Key::Pause && m.ctrl && !m.alt && !m.shift {
+        session.send_break();
+        return KeyOutcome::ConsumedResetBlink;
+    }
+
     if Bind::TerminalPaste.matches_tx(ev, tx) {
         paste_clipboard(ws_key, tab_id, tx);
         return KeyOutcome::Consumed;
@@ -143,25 +175,61 @@ fn paste_clipboard(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) 
     });
 }
 
-pub fn dispatch_ime(
-    session: &TerminalSession,
-    stream: Option<&StreamHandle>,
-    fixture_shell: bool,
-    ime: &Ime,
-) -> bool {
+/// What the input method is composing at the terminal's cursor, drawn over the grid until it
+/// commits; `cursor` is the byte range of its caret or selection.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Preedit {
+    pub text: String,
+    pub cursor: Option<(usize, usize)>,
+}
+
+/// The input method's events for the terminal that has the keyboard: a composition shows at the
+/// cursor; committed text goes to the shell, a multi-line commit (dictation, clipboard history)
+/// as a paste so a shell that asked for bracketed paste doesn't run it line by line.
+pub fn dispatch_ime(tab: &mut super::TerminalTab, ime: &Ime) -> bool {
     match ime {
+        Ime::Preedit(text, cursor) => {
+            let next = (!text.is_empty()).then(|| Preedit { text: text.clone(), cursor: *cursor });
+            let changed = tab.preedit != next;
+            tab.preedit = next;
+            changed || !text.is_empty()
+        }
         Ime::Commit(text) if !text.is_empty() => {
+            tab.preedit = None;
+            let session = &tab.session;
             session.select(SelectionOp::Clear);
-            session.write_bytes(text.as_bytes().to_vec());
-            if fixture_shell
-                && let Some(st) = stream
+            if !session.snapshot().scrollbar.at_bottom {
+                session.scroll(ScrollOp::Bottom);
+            }
+            if text.contains(['\n', '\r']) {
+                session.paste(text.clone());
+            } else {
+                session.write_bytes(text.as_bytes().to_vec());
+            }
+            if tab.fixture_shell
+                && let Some(st) = &tab.stream
             {
                 st.feed(text.as_bytes());
             }
             true
         }
+        Ime::Disabled => {
+            tab.preedit = None;
+            false
+        }
         _ => false,
     }
+}
+
+/// A character the keyboard layout typed with AltGr (Ctrl+Alt on Windows, where Rune hands a
+/// Ctrl chord over as text only when the layout made a character with it) or with macOS's
+/// Option: text, the modifiers spent on it. Alt alone elsewhere stays Meta, as in every
+/// terminal; Linux's AltGr arrives with no Alt at all.
+fn layout_text(ev: &KeyEvent) -> Option<&str> {
+    let Key::Text(s) = &ev.key else { return None };
+    let m = ev.mods;
+    let spent = if cfg!(target_os = "macos") { m.alt && !m.ctrl && !m.cmd } else { m.ctrl && m.alt };
+    (spent && !s.is_empty() && !s.chars().any(char::is_control)).then_some(s.as_str())
 }
 
 fn echo_fixture_key(st: &StreamHandle, ev: &KeyEvent, short_dir: &str) {

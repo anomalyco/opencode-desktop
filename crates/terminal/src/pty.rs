@@ -100,6 +100,8 @@ pub(crate) enum WorkerCmd {
     Persist(Sender<PersistedTerminal>),
     /// The user pressed on the pane, which takes control of a shared terminal at its size.
     Interact,
+    /// Ctrl+Break, for a Windows console.
+    Break,
     /// A stream's program wrote this.
     Output(Vec<u8>),
     /// A stream's program exited.
@@ -270,6 +272,12 @@ impl TerminalSession {
         self.shared.snapshot.lock().clone()
     }
 
+    /// The last screen published, for a view drawn out of sight: unlike [`Self::snapshot`] it
+    /// doesn't count as read, so the worker publishes no new one for it.
+    pub fn peek(&self) -> Arc<TerminalSnapshot> {
+        self.shared.snapshot.lock().clone()
+    }
+
     /// Changes with every new screen and status, without reading either.
     pub fn generation(&self) -> u64 {
         self.shared.generation.load(Ordering::Acquire)
@@ -332,6 +340,12 @@ impl TerminalSession {
     /// control at its size (Desktop's `interacted`).
     pub fn interact(&self) {
         self.inbox.send(WorkerCmd::Interact);
+    }
+
+    /// Ctrl+Break (`CTRL_BREAK_EVENT`) for the program in a Windows console: unlike Ctrl+C a
+    /// program can't ignore it. Nothing for a terminal that isn't a Windows console.
+    pub fn send_break(&self) {
+        self.inbox.send(WorkerCmd::Break);
     }
 
     pub fn select_range_viewport(&self, start: (u16, u16), end: (u16, u16), rectangular: bool) {
@@ -551,7 +565,7 @@ pub(crate) fn apply_worker_cmd(
             shared.set_status(SessionStatus::Exited { code });
             *dirty = true;
         }
-        WorkerCmd::Interact | WorkerCmd::Nudge | WorkerCmd::Show(_) => {}
+        WorkerCmd::Interact | WorkerCmd::Break | WorkerCmd::Nudge | WorkerCmd::Show(_) => {}
         WorkerCmd::Shutdown => return false,
     }
     true
