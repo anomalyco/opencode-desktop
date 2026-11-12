@@ -3940,6 +3940,8 @@ export type BrowserTab = {
     Zoom: (self: BrowserTab) -> number,
     --- The element picker waits for a click in the page.
     Inspecting: (self: BrowserTab) -> boolean,
+    --- Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again.
+    LoadError: (self: BrowserTab) -> string?,
     --- Loads a URL, or a local `:port`.
     Navigate: (self: BrowserTab, url: string) -> (),
     --- Goes back.

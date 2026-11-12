@@ -93,6 +93,10 @@ pub struct TabSnapshot {
     pub can_go_forward: bool,
     pub zoom: f64,
     pub cursor: CursorKind,
+    /// Why the page shows no document: Chromium's net error for a main-frame load that failed, or
+    /// `page_crashed` when its renderer went away. An engine from before it sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_error: Option<String>,
 }
 
 /// An element chosen with the visual element picker (`Overlay.setInspectMode`), ready to insert
@@ -150,6 +154,11 @@ pub enum HostMsg {
     SetZoom {
         tab_id: u64,
         factor: f64,
+    },
+    /// Pages draw in the app's scheme (their `prefers-color-scheme`, scrollbars, blank page), as
+    /// Desktop's follow `nativeTheme.themeSource`. An engine from before it ignores the line.
+    SetColorScheme {
+        dark: bool,
     },
     Resize {
         tab_id: u64,

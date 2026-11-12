@@ -350,6 +350,16 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
     })
 end
 
+-- A page that failed to load or whose renderer crashed (panel.tsx's failed state, over the page):
+-- the globe, what happened and what to do, centred above the file empty state's 200 bottom pad.
+local function failed(env: Env): ui.Node
+    return ui.col({ key = "browser-failed", w = "full", grow = 1, minH = 0, px = 24, pt = 24, pb = 200, gap = 8, align = "center", justify = "center" }, {
+        ui.icon("outline-globe", { size = 20, color = "text-weak", mb = 8 }),
+        ui.text(env.I18n:T("failed.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-strong", textAlign = "center" }),
+        ui.text(env.I18n:T("failed.description"), { size = 13, weight = "regular", lineHeight = 20, color = "text-weak", textAlign = "center", wrap = true }),
+    })
+end
+
 -- The suggestions under the field (`browser-suggestions`): the field's width and 8 more on each
 -- side, so their icons and text line up with the field's; 8 in, 12 corners, the floating shadow.
 local function suggestions(env: Env, view: View, tab: BrowserTab, state: address.View, width: number): ui.Node?
@@ -392,7 +402,10 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     end
     local url = tab:Url()
     local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating
-    if blank and (engine == "ready" or engine == "starting") then
+    -- As Desktop's: the error shows once the load stops, so a reload shows its progress.
+    if tab:LoadError() ~= nil and not tab:Loading() then
+        table.insert(items, failed(env))
+    elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))
     else
         table.insert(items, ui.browserSurface({ key = "browser-page", tab = tab, grow = 1 }))

@@ -11,11 +11,12 @@ use base64::Engine as _;
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, Browser, CefString, CursorInfo, CursorType, DevToolsMessageObserver,
-    DisplayHandler, Frame, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
-    ImplLoadHandler, ImplRenderHandler, LoadHandler, PaintElementType, Rect, RenderHandler,
-    ScreenInfo, WrapDevToolsMessageObserver, WrapDisplayHandler, WrapLoadHandler,
-    WrapRenderHandler, sys, wrap_dev_tools_message_observer, wrap_display_handler,
-    wrap_load_handler, wrap_render_handler,
+    DisplayHandler, Errorcode, Frame, ImplDevToolsMessageObserver, ImplDisplayHandler, ImplFrame,
+    ImplLoadHandler, ImplRenderHandler, ImplRequestHandler, LoadHandler, PaintElementType, Rect,
+    RenderHandler, RequestHandler, ScreenInfo, TerminationStatus, WrapDevToolsMessageObserver,
+    WrapDisplayHandler, WrapLoadHandler, WrapRenderHandler, WrapRequestHandler, sys,
+    wrap_dev_tools_message_observer, wrap_display_handler, wrap_load_handler, wrap_render_handler,
+    wrap_request_handler,
 };
 use serde_json::Value;
 
@@ -310,7 +311,12 @@ wrap_display_handler! {
             }
             if let Some(url) = url {
                 let mut s = self.snap.lock().unwrap();
-                s.url = url.to_string();
+                let url = url.to_string();
+                // Chromium's error page commits the failed address; another address is another document.
+                if s.url != url {
+                    s.load_error = None;
+                }
+                s.url = url;
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             }
         }
@@ -318,6 +324,10 @@ wrap_display_handler! {
         fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
             if let Some(title) = title {
                 let mut s = self.snap.lock().unwrap();
+                // Chromium's error page names itself by host alone; the failed page keeps its address's name.
+                if s.load_error.as_deref().is_some_and(|e| e != "page_crashed") {
+                    return;
+                }
                 s.title = title.to_string();
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             }
@@ -375,6 +385,67 @@ wrap_load_handler! {
             s.loading = is_loading != 0;
             s.can_go_back = can_go_back != 0;
             s.can_go_forward = can_go_forward != 0;
+            let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+        }
+
+        // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
+        // own error page ends with no status.
+        fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
+            if frame.is_some_and(|f| f.is_main() != 1) || http_status_code <= 0 {
+                return;
+            }
+            let mut s = self.snap.lock().unwrap();
+            if s.load_error.take().is_some() {
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+            }
+        }
+
+        // A main-frame load that failed, as Desktop's did-fail-load: a cancelled one (a newer
+        // navigation, a download) keeps the page.
+        fn on_load_error(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            error_code: Errorcode,
+            error_text: Option<&CefString>,
+            failed_url: Option<&CefString>,
+        ) {
+            if frame.is_some_and(|f| f.is_main() != 1) || *error_code.as_ref() == sys::cef_errorcode_t::ERR_ABORTED {
+                return;
+            }
+            let mut s = self.snap.lock().unwrap();
+            if let Some(url) = failed_url.map(CefString::to_string).filter(|u| !u.is_empty()) {
+                // As Desktop's tab names a failed page: its host and port.
+                let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+                s.title = rest.split(['/', '?', '#']).next().unwrap_or(rest).to_owned();
+                s.url = url;
+            }
+            let text = error_text.map(CefString::to_string).unwrap_or_default();
+            s.load_error = Some(if text.is_empty() { format!("net error {}", *error_code.as_ref() as i32) } else { text });
+            let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+        }
+    }
+}
+
+wrap_request_handler! {
+    pub struct TabRequestHandler {
+        snap: Arc<Mutex<TabSnapshot>>,
+        out_tx: Sender<EngineMsg>,
+    }
+
+    impl RequestHandler {
+        // The page's renderer went away (crashed, killed, out of memory): the tab keeps its address,
+        // and a reload loads it in a new renderer, as Desktop's crashed tab does.
+        fn on_render_process_terminated(
+            &self,
+            _browser: Option<&mut Browser>,
+            _status: TerminationStatus,
+            _error_code: i32,
+            _error_string: Option<&CefString>,
+        ) {
+            let mut s = self.snap.lock().unwrap();
+            s.loading = false;
+            s.load_error = Some("page_crashed".into());
             let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
         }
     }

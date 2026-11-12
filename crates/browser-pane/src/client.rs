@@ -30,6 +30,8 @@ pub struct BrowserTab {
     pub can_go_forward: bool,
     pub zoom: f64,
     pub cursor: CursorKind,
+    /// Why the page shows no document (`TabSnapshot::load_error`).
+    pub load_error: Option<String>,
     pub inspecting: bool,
     pub surface: NativeSurface,
     pub(crate) viewport_pt: (f32, f32),
@@ -68,6 +70,8 @@ pub struct BrowserHost {
     picked: VecDeque<PickedElement>,
     site_zoom: SiteZoom,
     keep_engine: bool,
+    /// The scheme pages draw in: 0 not given yet, 1 light, 2 dark.
+    color_scheme: std::sync::atomic::AtomicU8,
     /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
     pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -107,6 +111,7 @@ impl BrowserHost {
             picked: VecDeque::new(),
             site_zoom: SiteZoom::default(),
             keep_engine: false,
+            color_scheme: std::sync::atomic::AtomicU8::new(0),
             last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
@@ -118,6 +123,15 @@ impl BrowserHost {
     /// Remembers each site's page zoom in `store` (the app's, as JSON text) and opens its pages at it again.
     pub fn remember_site_zoom(&mut self, store: crate::ZoomStore) {
         self.site_zoom = SiteZoom::remember(store);
+    }
+
+    /// Pages draw in the app's scheme (light or dark); the engine hears of it once it's up and at
+    /// each change. Cheap to call every frame.
+    pub fn set_color_scheme(&self, dark: bool) {
+        let want = if dark { 2 } else { 1 };
+        if self.color_scheme.swap(want, std::sync::atomic::Ordering::Relaxed) != want {
+            self.send(HostMsg::SetColorScheme { dark });
+        }
     }
 
     /// Leaves the engine running when the last tab closes, so the next page skips its start and
@@ -204,6 +218,7 @@ impl BrowserHost {
             can_go_forward: false,
             zoom: 1.0,
             cursor: CursorKind::Default,
+            load_error: None,
             inspecting: false,
             surface,
             viewport_pt: (800.0, 600.0),
@@ -269,6 +284,7 @@ impl BrowserHost {
             can_go_forward: false,
             zoom: 1.0,
             cursor: CursorKind::Default,
+            load_error: None,
             inspecting: false,
             surface,
             viewport_pt: (width_pt, height_pt),
@@ -415,6 +431,11 @@ impl BrowserHost {
                 EngineMsg::Ready { .. } => {
                     rune::marks::mark("browser.engine.ready");
                     *self.status.lock().unwrap() = EngineStatus::Ready;
+                    // Before any page loads, so the first draws in the app's scheme.
+                    match self.color_scheme.load(std::sync::atomic::Ordering::Relaxed) {
+                        0 => {}
+                        s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
+                    }
                     for t in &mut self.tabs {
                         t.sent_resize = None;
                     }
@@ -611,7 +632,8 @@ impl BrowserHost {
                 || t.can_go_back != snap.can_go_back
                 || t.can_go_forward != snap.can_go_forward
                 || (t.zoom - snap.zoom).abs() > 0.001
-                || t.cursor != snap.cursor;
+                || t.cursor != snap.cursor
+                || t.load_error != snap.load_error;
             t.url = snap.url;
             t.title = snap.title;
             t.loading = snap.loading;
@@ -619,6 +641,7 @@ impl BrowserHost {
             t.can_go_forward = snap.can_go_forward;
             t.zoom = snap.zoom;
             t.cursor = snap.cursor;
+            t.load_error = snap.load_error;
             if new_site {
                 let changed = changed || (t.zoom - want_zoom).abs() > 0.001;
                 t.zoom = want_zoom;
@@ -645,6 +668,7 @@ impl BrowserHost {
             can_go_forward: snap.can_go_forward,
             zoom: if is_site { want_zoom } else { snap.zoom },
             cursor: snap.cursor,
+            load_error: snap.load_error,
             inspecting: false,
             surface,
             viewport_pt: (800.0, 600.0),

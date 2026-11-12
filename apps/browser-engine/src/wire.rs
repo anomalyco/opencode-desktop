@@ -43,6 +43,10 @@ pub struct TabSnapshot {
     pub can_go_forward: bool,
     pub zoom: f64,
     pub cursor: CursorKind,
+    /// Why the page shows no document: Chromium's net error for a main-frame load that failed, or
+    /// `page_crashed` when its renderer went away. Cleared by the next document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_error: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -71,6 +75,7 @@ pub enum HostMsg {
     Reload { tab_id: u64 },
     Stop { tab_id: u64 },
     SetZoom { tab_id: u64, factor: f64 },
+    SetColorScheme { dark: bool },
     Resize { tab_id: u64, width_pt: f32, height_pt: f32, scale: f32 },
     MouseMove { tab_id: u64, x: f32, y: f32, mods: u8, leave: bool },
     MouseButton { tab_id: u64, x: f32, y: f32, button: PointerBtn, up: bool, clicks: u32, mods: u8 },

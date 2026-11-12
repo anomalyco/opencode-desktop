@@ -10,14 +10,14 @@ use cef::{
     App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString, Client,
     CommandLine, DisplayHandler, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
     ImplClient, ImplCommandLine, ImplFrame, KeyEvent, KeyEventType, LoadHandler, MouseButtonType,
-    MouseEvent, PaintElementType, Registration, RenderHandler, Settings, WindowInfo, WrapApp,
+    MouseEvent, PaintElementType, Registration, RenderHandler, RequestHandler, Settings, WindowInfo, WrapApp,
     WrapBrowserProcessHandler, WrapClient, sys, wrap_app, wrap_browser_process_handler,
     wrap_client,
 };
 use serde_json::{Value, json};
 
 use crate::handlers::{
-    FrameRing, TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, ViewRectState, ascii_vk,
+    FrameRing, TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, TabRequestHandler, ViewRectState, ascii_vk,
     cef_mods, event_flag, mac_key_code, named_codes, native_key_code,
 };
 use crate::profile::Profile;
@@ -152,6 +152,7 @@ wrap_client! {
         render: RenderHandler,
         display: DisplayHandler,
         load: LoadHandler,
+        request: RequestHandler,
     }
 
     impl Client {
@@ -163,6 +164,9 @@ wrap_client! {
         }
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(self.load.clone())
+        }
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(self.request.clone())
         }
     }
 }
@@ -185,6 +189,8 @@ pub struct EngineManager {
     out_tx: Sender<EngineMsg>,
     next_cdp_id: AtomicI32,
     next_eref: u64,
+    /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
+    dark: Option<bool>,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -200,6 +206,7 @@ impl EngineManager {
             out_tx,
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
+            dark: None,
             #[cfg(windows)]
             gpu: crate::d3d_frames::Gpu::new(adapter_luid),
         }
@@ -354,6 +361,14 @@ impl EngineManager {
                     let mut s = t.snap.lock().unwrap();
                     s.zoom = factor;
                     let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
+                }
+            }
+            // The pages' `prefers-color-scheme` follows the app's scheme, not the system's: the
+            // context's Chrome colour scheme doesn't reach windowless pages, DevTools emulation does.
+            HostMsg::SetColorScheme { dark } => {
+                self.dark = Some(dark);
+                for t in self.tabs.values() {
+                    self.send_color_scheme(&t.host, dark);
                 }
             }
             HostMsg::Resize { tab_id, width_pt, height_pt, scale } => {
@@ -581,6 +596,7 @@ impl EngineManager {
             can_go_forward: false,
             zoom: 1.0,
             cursor: CursorKind::Default,
+            load_error: None,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
@@ -603,7 +619,8 @@ impl EngineManager {
         );
         let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
         let load = TabLoadHandler::new(snap.clone(), self.out_tx.clone());
-        let mut client = SidecarTabClient::new(render, display, load);
+        let request = TabRequestHandler::new(snap.clone(), self.out_tx.clone());
+        let mut client = SidecarTabClient::new(render, display, load, request);
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = i32::from(shared_texture);
@@ -645,6 +662,9 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
+        if let Some(dark) = self.dark {
+            self.send_color_scheme(&host, dark);
+        }
 
         self.tabs.insert(
             tab_id,
@@ -660,6 +680,11 @@ impl EngineManager {
                 frames,
             },
         );
+    }
+
+    fn send_color_scheme(&self, host: &BrowserHost, dark: bool) {
+        let value = if dark { "dark" } else { "light" };
+        self.send_internal_cdp(host, "Emulation.setEmulatedMedia", json!({ "features": [{ "name": "prefers-color-scheme", "value": value }] }));
     }
 
     fn send_internal_cdp(&self, host: &BrowserHost, method: &str, params: Value) {

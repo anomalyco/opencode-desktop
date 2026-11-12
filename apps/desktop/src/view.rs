@@ -61,6 +61,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     crate::themes::set_active(&s.settings.theme);
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
+    // Pages draw in the app's scheme, as Desktop's follow its `nativeTheme.themeSource`.
+    s.browser.host.set_color_scheme(s.dark(cx));
     // Desktop's `(max-width: 767px)`: the shell's width, read once it crosses or while narrow.
     let width = cx.layout_with("zoom", move |r| r[2].min(crate::narrow::machine::BREAKPOINT));
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();

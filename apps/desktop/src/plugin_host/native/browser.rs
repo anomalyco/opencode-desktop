@@ -248,6 +248,10 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
             })?,
         )?;
     }
+    m.raw_set(
+        "LoadError",
+        lua.create_function(move |_, this: Table| read(&this, "BrowserTab:LoadError").map(|(app, id)| app.browser.host.tab(id).and_then(|t| t.load_error.clone())))?,
+    )?;
     m.raw_set("Zoom", lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Zoom").map(|(app, id)| app.browser.host.tab(id).map_or(1.0, |t| t.zoom)))?)?;
     m.raw_set(
         "Navigate",
@@ -338,7 +342,7 @@ pub fn version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     format!("{:?}", app.browser.host.status()).hash(&mut h);
     for t in app.browser.host.tabs() {
-        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting).hash(&mut h);
+        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error).hash(&mut h);
     }
     app.browser.host.focused_tab_id().hash(&mut h);
     let mut sessions: Vec<_> = app.browser.session_tabs.iter().collect();

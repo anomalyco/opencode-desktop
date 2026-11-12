@@ -2653,6 +2653,7 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:CanGoForward` | `() -> boolean` | History has a later page. |
 | `:Zoom` | `() -> number` | The page's zoom: 1 at 100%. |
 | `:Inspecting` | `() -> boolean` | The element picker waits for a click in the page. |
+| `:LoadError` | `() -> string?` | Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again. |
 | `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |
 | `:Forward` | `() -> ()` | Goes forward. |
