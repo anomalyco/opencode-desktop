@@ -85,12 +85,12 @@ codegen-units = 1
 incremental = false
 
 # A release build in minutes, for iterating on something you then time with `release`: 16 codegen units,
-# no cross-crate LTO, incremental.
+# no cross-crate LTO. Not incremental: an optimised build's incremental state outlived a Rune bump and
+# linked against `anon.*.llvm.*` symbols the new units no longer had (LNK2019), and CI builds without it.
 [profile.release-quick]
 inherits = "release"
 lto = false
 codegen-units = 16
-incremental = true
 
 [profile.rune-hot]
 inherits = "dev"
