@@ -34,6 +34,9 @@ if (Test-Path $profdata) {
     if ($trained) {
         $since = (git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.lock 2>$null)
         Write-Host "profile-guided: $triple.profdata, trained at $($trained.Substring(0, 12)), $since commits to the app since"
+        # A day of commits (58, with Rune bumps) left a profile worth 4-9 % per frame where a fresh one gave
+        # 23-30 %: the functions it names have changed. Retrain before a release.
+        if ([int]$since -ge 20) { Write-Warning "the profile is $since commits old and mostly no longer matches the code: retrain it (apps/desktop/scripts/pgo.ps1) before a release" }
     }
 } else {
     Write-Host "no profile for ${triple}: building without profile-guided optimisation"

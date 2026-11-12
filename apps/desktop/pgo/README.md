@@ -15,7 +15,10 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   palette, scrolling and panning, side panels, menus, popovers, the sidebar, resizing, Home,
   Settings, a German run, and a launch and quit in every part. Office previews and the terminal
   aren't in it yet, so they build as cold code.
-- **Refresh it** when the app or Rune changed a lot since `<target>.txt`'s commit (`release.ps1`
+- **It goes stale fast:** a profile 58 commits old (a day, with Rune bumps) gave 4-9 % less CPU per
+  frame than a build without one; retrained on the same code, 23-30 %. `release.ps1` warns from 20
+  commits on.
+- **Refresh it** before a release, when the app or Rune changed since `<target>.txt`'s commit (`release.ps1`
   prints how many app commits there have been), or after a Rust toolchain bump (the file format
   follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
   files. A stale profile is never wrong: a function whose code changed since loses its counts and
