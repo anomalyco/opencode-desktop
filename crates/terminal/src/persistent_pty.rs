@@ -108,6 +108,8 @@ pub(crate) fn run_persistent_worker(
         // Setting the socket up failed (`socket.errored`).
         Err(_) => return errored(&mut conn, &shared, &waker),
     };
+    // A keystroke is a few bytes: send it now, not after the last one's ACK (Nagle).
+    let _ = tcp(&ws).set_nodelay(true);
     if wait.watch(tcp(&ws)).is_err() {
         return finish(&shared, &waker, failed(Failure::Failed));
     }

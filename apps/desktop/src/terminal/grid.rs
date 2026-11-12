@@ -3,11 +3,11 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, Family, KeyEvent, LineCap, Phase, PointerButton, PointerEvent, Shape, Span, TextStyle, Tx, WheelEvent,
-    canvas, col, el, memo, rich, row, spacer, text,
+    Anim, Color, Cursor, Drag, El, Family, GridRow, KeyEvent, LineCap, Phase, PointerButton, PointerEvent, Shape, Span, TextStyle, Tx, WheelEvent,
+    canvas, col, el, rich, row, spacer, text,
 };
 use rune_knobs::Knobs;
 use terminal::{
@@ -27,6 +27,15 @@ use crate::view::{UI, UI_SMALL};
 pub(crate) const VIEWPORT_KEY: &str = "terminal-viewport";
 
 const INSTANT: Anim = Anim::INSTANT;
+
+/// Rows key: the terminal row's id and content hash, the font and cell, and the theme.
+type RowKey = (u128, u64, (u8, u32, u32, u32), bool);
+
+thread_local! {
+    /// Each terminal's shaped rows from its last frame, by tab: a row that is still on screen
+    /// unchanged is handed back to the grid as it was.
+    static GRID_ROWS: RefCell<HashMap<String, HashMap<RowKey, Rc<GridRow>>>> = RefCell::new(HashMap::new());
+}
 /// Desktop's panel strip (`--tabs-bar-height`).
 pub const BAR_H: f32 = 48.0;
 /// The terminal's inset in Desktop's panel (`px-[14px] py-3`).
@@ -267,31 +276,29 @@ fn render_viewport(
     let clip_w = f32::from(fit_cols) * cell_w;
     let grid_h = (slot_rows as f32) * cell_h;
 
-    let mut rows_col = col().key("terminal-rows").w(clip_w).h(grid_h);
-    for idx in 0..slot_rows {
-        if let Some(row_arc) = snap.screen_rows.get(idx) {
-            // Keyed by the row's id, so output scrolling past keeps every row it only moved.
-            let memo_id = format!("tr-{:x}", row_arc.id);
-            let version = (row_arc.id, row_arc.content_hash, style_key, p.dark, clip_w.to_bits());
-            let cloned: Arc<TerminalRow> = row_arc.clone();
-            let row_el = memo(memo_id, version, move || {
-                render_row(&cloned, p, cell_w, cell_h, style)
-            });
-            rows_col = rows_col.child(row_el);
-        } else {
-            let memo_id = format!("tr-e{idx}");
-            let empty_ver = (0u128, 0u64, style_key, p.dark, clip_w.to_bits());
-            let w = clip_w;
-            let row_el = memo(memo_id, empty_ver, move || {
-                el().w(w)
-                    .h(cell_h)
-                    .child(el().key("line").absolute(0.0, 0.0).size(w, cell_h).child(rich(String::new(), Vec::new()).font(style)))
-                    .child(canvas(Shape::new()).key("vec").absolute(0.0, 0.0).size(w, cell_h).inert())
-            });
-            rows_col = rows_col.child(row_el);
-        }
-    }
-
+    // The screen is one element (`rune::grid`): each row is shaped once and kept while the
+    // terminal's row (its id and content hash) is the same.
+    let cols = snap.screen_rows.first().map_or(fit_cols, |r| r.cells.len() as u16);
+    let rows = GRID_ROWS.with_borrow_mut(|cache| {
+        // A closed terminal's rows go with it.
+        cache.retain(|id, _| id == &tab.id || s.terminal.workspaces.values().any(|ws| ws.tabs.iter().any(|t| &t.id == id)));
+        let cache = cache.entry(tab.id.clone()).or_default();
+        let mut kept = HashMap::with_capacity(slot_rows);
+        let key_of = |id: u128, hash: u64| (id, hash, style_key, p.dark);
+        let rows: Vec<Rc<GridRow>> = (0..slot_rows)
+            .map(|idx| {
+                let key = snap.screen_rows.get(idx).map_or(key_of(0, 0), |r| key_of(r.id, r.content_hash));
+                let row = cache.remove(&key).or_else(|| kept.get(&key).cloned()).unwrap_or_else(|| {
+                    Rc::new(snap.screen_rows.get(idx).map_or_else(|| GridRow::new(String::new(), Vec::new(), style), |r| grid_row(r, p, cell_w, cell_h, style)))
+                });
+                kept.insert(key, row.clone());
+                row
+            })
+            .collect();
+        *cache = kept;
+        rows
+    });
+    let rows_col = rune::grid(cols, cell_w, cell_h, rows).key("terminal-rows").w(clip_w).h(grid_h);
     let mut canvas_layer = el()
         .key(format!("terminal-canvas-{}", tab.id))
         .w(clip_w)
@@ -674,36 +681,14 @@ fn render_scrollbar(
         )
 }
 
-/// Renders one terminal row with coalesced background spans, vector box-drawing, and merged `rich` runs.
-fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_style: TextStyle) -> El {
-    let row_w = (row_data.cells.len() as f32) * cell_w;
-    let mut container = el().w(row_w).h(cell_h);
-
-    // 1. Coalesced cell backgrounds and selection, one vector layer under the text (a node per
-    // run cost the commit as much as the text did).
-    let mut fills = Shape::new();
-    for span in &row_data.bg_spans {
-        let x = f32::from(span.start_col) * cell_w;
-        let x1 = f32::from(span.end_col) * cell_w;
-        let rect = vec![[x, 0.0], [x1, 0.0], [x1, cell_h], [x, cell_h]];
-        if let Some(bg) = span.color {
-            fills = fills.fill(rect.clone(), bg.to_rune());
-        }
-        if span.selected {
-            fills = fills.fill(rect, p.selection);
-        }
-    }
-    if !row_data.bg_spans.is_empty() {
-        container = container.child(canvas(fills).key("bg").absolute(0.0, 0.0).size(row_w, cell_h).inert());
-    }
-
-    // 2. Single stable `line` rich-text node per row + pinned wide/emoji cells + vector `Shape`.
-    // Keeping `line` always mounted prevents element pop-out/pop-in when rows wrap, scroll, or clear.
+/// A terminal row as the grid draws it: background and selection runs, the narrow cells' text
+/// in one styled line, cells that must sit exactly on their column (wide, emoji, other scripts)
+/// on their own, and box drawing, curly and double underlines and strikethrough as vectors.
+fn grid_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_style: TextStyle) -> GridRow {
     let mut shape = Shape::new();
-
     let mut line_text = String::with_capacity(row_data.cells.len());
     let mut line_spans: Vec<Span> = Vec::new();
-    let mut pinned_children: Vec<El> = Vec::new();
+    let mut pinned: Vec<(u16, u16, String, TextStyle, Color)> = Vec::new();
 
     for (idx, cell) in row_data.cells.iter().enumerate() {
         let col_idx = idx as u16;
@@ -711,10 +696,7 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             line_text.push(' ');
             continue;
         }
-
         let fg = cell_fg_color(cell);
-
-        // Decorations (strikethrough + non-single underlines) go into the row's vector `Shape`.
         if cell.flags.contains(CellFlags::STRIKETHROUGH) {
             let x0 = f32::from(col_idx) * cell_w;
             let x1 = x0 + f32::from(cell.width.max(1)) * cell_w;
@@ -723,25 +705,16 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
         }
         if !matches!(cell.underline, UnderlineKind::None | UnderlineKind::Single) {
             let ul_c = cell.underline_color.map_or(fg, |c| c.to_rune());
-            shape = draw_special_underline(
-                shape,
-                cell.underline,
-                f32::from(col_idx) * cell_w,
-                f32::from(cell.width.max(1)) * cell_w,
-                cell_h,
-                ul_c,
-            );
+            shape = draw_special_underline(shape, cell.underline, f32::from(col_idx) * cell_w, f32::from(cell.width.max(1)) * cell_w, cell_h, ul_c);
         }
-
         if let Some(ch) = single_char(&cell.grapheme)
             && draw_box_or_block(&mut shape, ch, f32::from(col_idx) * cell_w, cell_w, cell_h, fg)
         {
             line_text.push(' ');
             continue;
         }
-
-        // Wide glyphs, emoji, and non-Latin scripts get exact cell-pinned boxes so fallback font
-        // advances can never drift subsequent columns off the monospace grid.
+        // Wide glyphs, emoji and other scripts sit exactly on their cells, so a fallback font's
+        // advances can't move the columns after them.
         if cell.width != 1 || !is_grid_safe_monospaced(&cell.grapheme) {
             line_text.push(' ');
             if !cell.grapheme.is_empty() && cell.grapheme != " " {
@@ -752,17 +725,10 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
                 if cell.flags.contains(CellFlags::ITALIC) {
                     cell_style.italic = true;
                 }
-                let w = f32::from(cell.width.max(1)) * cell_w;
-                pinned_children.push(
-                    el().key(format!("g-{col_idx}"))
-                        .absolute(f32::from(col_idx) * cell_w, 0.0)
-                        .size(w, cell_h)
-                        .child(text(cell.grapheme.to_string()).font(cell_style).color(fg)),
-                );
+                pinned.push((col_idx, u16::from(cell.width.max(1)), cell.grapheme.to_string(), cell_style, fg));
             }
             continue;
         }
-
         let byte_start = line_text.len();
         if cell.grapheme.is_empty() {
             line_text.push(' ');
@@ -770,12 +736,9 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             line_text.push_str(&cell.grapheme);
         }
         let byte_end = line_text.len();
-
         let weight = cell.flags.contains(CellFlags::BOLD).then_some(700.0);
         let italic = cell.flags.contains(CellFlags::ITALIC);
-        let underline = (cell.underline == UnderlineKind::Single)
-            .then(|| cell.underline_color.map_or(fg, |c| c.to_rune()));
-
+        let underline = (cell.underline == UnderlineKind::Single).then(|| cell.underline_color.map_or(fg, |c| c.to_rune()));
         if let Some(last) = line_spans.last_mut()
             && last.end as usize == byte_start
             && last.color == Some(fg)
@@ -792,35 +755,29 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
             line_spans.push(sp);
         }
     }
-
     let trimmed_len = line_text.trim_end_matches(' ').len();
     line_text.truncate(trimmed_len);
     line_spans.retain_mut(|sp| {
         if sp.start as usize >= trimmed_len {
-            false
-        } else {
-            sp.end = sp.end.min(trimmed_len as u32);
-            sp.end > sp.start
+            return false;
         }
+        sp.end = sp.end.min(trimmed_len as u32);
+        sp.end > sp.start
     });
 
-    container = container.child(
-        el().key("line")
-            .absolute(0.0, 0.0)
-            .size(row_w, cell_h)
-            .child(rich(line_text, line_spans).font(base_style).truncate_fade_width(0.0)),
-    );
-
-    for child in pinned_children {
-        container = container.child(child);
+    let mut row = GridRow::new(line_text, line_spans, base_style);
+    for span in &row_data.bg_spans {
+        if let Some(bg) = span.color {
+            row = row.fill(span.start_col, span.end_col, bg.to_rune());
+        }
+        if span.selected {
+            row = row.fill(span.start_col, span.end_col, p.selection);
+        }
     }
-    container.child(
-        canvas(shape)
-            .key("vec")
-            .absolute(0.0, 0.0)
-            .size(row_w, cell_h)
-            .inert(),
-    )
+    for (col, width, text, style, fg) in pinned {
+        row = row.cell(col, width, text, style, fg);
+    }
+    row.shape(shape)
 }
 
 fn cell_fg_color(cell: &RenderedCell) -> Color {
@@ -842,4 +799,3 @@ fn is_grid_safe_monospaced(s: &str) -> bool {
     let Some(ch) = single_char(s) else { return false };
     ch.is_ascii_graphic() || ch == ' ' || ('\u{00A0}'..='\u{024F}').contains(&ch)
 }
-
