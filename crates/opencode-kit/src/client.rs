@@ -106,6 +106,15 @@ pub struct ReadTiming {
     pub parsing: Instant,
 }
 
+/// What a prompt's or command's POST must get back to count as taken ([`Server::write_bytes`]).
+#[derive(Clone, Copy)]
+pub(crate) enum Expect<'a> {
+    /// A 2xx JSON `{ data: { id } }`, the id the prompt carried when it carried one.
+    Prompt(Option<&'a str>),
+    /// A `204`, or a 2xx JSON.
+    Command,
+}
+
 /// A prompt's request, made before it's sent ([`Server::prepare`]).
 pub enum Prepared {
     Prompt(Vec<u8>),
@@ -315,10 +324,21 @@ impl Server {
         self.write_within(method, path, body, Duration::from_secs(15))
     }
 
-    /// `write` with the body's bytes already made (a prompt's, `Prompt::body_bytes`).
-    pub(crate) fn write_bytes(&self, path: &str, body: Vec<u8>) -> Result<Value, String> {
+    /// A prompt's or command's POST (`body` already made, `Prompt::body_bytes`), taken only on an
+    /// answer that proves OpenCode took it: OpenCode's JSON (`http::Answer::json`) of the shape
+    /// `expect` names. Anything else is an error, so the prompt's outbox row stays.
+    pub(crate) fn write_bytes(&self, path: &str, body: Vec<u8>, expect: Expect) -> Result<Value, String> {
         rune::marks::mark("net.sending");
-        self.write_raw("POST", path, Some(body), Duration::from_secs(15))
+        let answer = self.exchange("POST", path, Some(&body), Some(Duration::from_secs(15)), &[])?;
+        let status = answer.status;
+        let (v, _, _) = answer.json("POST", path)?;
+        let what = match (expect, v["data"]["id"].as_str()) {
+            (Expect::Command, _) => return Ok(v),
+            (Expect::Prompt(Some(want)), Some(got)) if got != want => format!("JSON naming message {got}, not {want}"),
+            (Expect::Prompt(_), Some(_)) => return Ok(v),
+            (Expect::Prompt(_), None) => "JSON without the message's id (data.id)".into(),
+        };
+        Err(crate::wire_error::WireError::new("POST", path, crate::wire_error::WireKind::NotOpenCode { status, what }).into())
     }
 
     /// `write`, waiting up to `timeout` for the reply.
@@ -361,9 +381,9 @@ impl Server {
     pub fn send_prepared(&self, session: &str, prompt: &Prompt, request: Prepared) -> Result<Option<String>, String> {
         self.apply_choice(session, prompt)?;
         match request {
-            Prepared::Command(body) => self.write_bytes(&format!("/api/session/{session}/command"), body).map(|_| None),
+            Prepared::Command(body) => self.write_bytes(&format!("/api/session/{session}/command"), body, Expect::Command).map(|_| None),
             Prepared::Prompt(body) => {
-                let v = self.write_bytes(&format!("/api/session/{session}/prompt"), body)?;
+                let v = self.write_bytes(&format!("/api/session/{session}/prompt"), body, Expect::Prompt(prompt.id.as_deref()))?;
                 rune::marks::mark("net.answered");
                 Ok(v["data"]["id"].as_str().map(str::to_owned))
             }
@@ -489,7 +509,7 @@ impl Server {
         // The create already chose the agent and model, so no switches before the prompt.
         let sent = created.as_ref().map_err(String::clone).and_then(|_| {
             let prompt = self.with_mentions(Some(directory), id, prompt);
-            self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes())
+            self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes(), Expect::Prompt(prompt.id.as_deref()))
         });
         match sent {
             Ok(_) => created,

@@ -244,8 +244,14 @@ fn checked(s: &mut Sent, found: Found, then: Option<AfterCheck>) -> Effects<Effe
         }
         // No receipt isn't a missing receipt: keep it unconfirmed, and never send it here.
         Found::Unknown(why) => {
-            let changed = !matches!(&s.phase, Phase::Unconfirmed { why: was, .. } if was == why);
-            s.phase = Phase::Unconfirmed { why: if s.journaled { why.into() } else { String::new() }, then };
+            // A receipt read that proved nothing keeps the reason the write already gave (a captive
+            // portal named there, say), rather than a vaguer one.
+            let why = match &s.phase {
+                Phase::Unconfirmed { why: was, .. } | Phase::Waiting { why: was } if why == super::reason::NO_RECEIPT && !was.is_empty() => was.clone(),
+                _ => why.to_owned(),
+            };
+            let changed = !matches!(&s.phase, Phase::Unconfirmed { why: was, .. } if *was == why);
+            s.phase = Phase::Unconfirmed { why: if s.journaled { why } else { String::new() }, then };
             if changed && s.journaled { Effects::one(Effect::Save) } else { Effects::none() }
         }
     }

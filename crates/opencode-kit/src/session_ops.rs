@@ -69,10 +69,10 @@ impl Server {
             self.switch_model(session, m)?;
         }
         if prompt.command.is_some() {
-            return self.write("POST", &format!("/api/session/{session}/command"), Some(prompt.command_body())).map(|_| None);
+            return self.write_bytes(&format!("/api/session/{session}/command"), prompt.command_body().to_string().into_bytes(), crate::client::Expect::Command).map(|_| None);
         }
         let prompt = self.with_mentions(None, session, prompt);
-        let v = self.write_bytes(&format!("/api/session/{session}/prompt"), prompt.body_bytes())?;
+        let v = self.write_bytes(&format!("/api/session/{session}/prompt"), prompt.body_bytes(), crate::client::Expect::Prompt(prompt.id.as_deref()))?;
         Ok(v["data"]["id"].as_str().map(str::to_owned))
     }
 
