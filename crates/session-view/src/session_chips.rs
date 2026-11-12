@@ -219,7 +219,7 @@ pub fn tip(info: &SessionRef, id: &str, now: i64) -> String {
     if info.busy {
         lines.push(opencode_i18n::t!("rune.session.chip.running").to_owned());
     } else if info.updated > 0 {
-        lines.push(opencode_i18n::t!("rune.session.chip.active", ago = opencode_kit::model::ago(now, info.updated)));
+        lines.push(opencode_i18n::t!("rune.session.chip.active", ago = ago(now, info.updated)));
     }
     lines.push(id.to_owned());
     lines.join("\n")
@@ -233,3 +233,14 @@ pub fn tips<S: TimelineHost>(s: &S, src: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// "5m ago"-style age from milliseconds, in the interface's language, as Desktop's short
+/// relative times (`common.time.*.short`).
+fn ago(now: i64, then: i64) -> String {
+    let s = ((now - then) / 1000).max(0);
+    match s {
+        0..60 => opencode_i18n::t!("common.time.justNow").to_owned(),
+        60..3600 => opencode_i18n::t!("common.time.minutesAgo.short", count = s / 60),
+        3600..86_400 => opencode_i18n::t!("common.time.hoursAgo.short", count = s / 3600),
+        _ => opencode_i18n::t!("common.time.daysAgo.short", count = s / 86_400),
+    }
+}

@@ -44,9 +44,15 @@ pub fn set(s: &mut App, id: &str) {
     s.change_settings(|x| x.language = Some(id));
 }
 
+/// How searches fold in the interface's language: Turkish and Azerbaijani fold `I` to `ı`.
+///
 /// The interface language is the text's, as Desktop's `<html lang>` (`language.tsx:396`): Han
 /// characters take its forms and fonts (Yu Gothic UI's for Japanese, Microsoft JhengHei's for
 /// Traditional Chinese) where the text itself doesn't say (kana, Hangul and Bopomofo do).
+pub fn search_fold() -> rune_kit::search::Fold {
+    rune_kit::search::Fold::for_language(opencode_i18n::locale().tag())
+}
+
 fn text_language() {
     rune::text::set_language(Some(opencode_i18n::locale().tag()));
 }

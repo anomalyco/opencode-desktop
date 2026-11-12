@@ -242,7 +242,7 @@ impl App {
         if v.applied == q {
             return false;
         }
-        v.matches = rune_kit::markdown::find(doc.text(), &q, Case::Insensitive);
+        v.matches = rune_kit::markdown::find(doc.text(), &q, Case::Folded(crate::language::search_fold()));
         v.applied = q;
         v.active = 0;
         true

@@ -35,11 +35,12 @@ pub struct Row {
 
 pub fn groups(s: &App) -> Vec<(&'static str, Vec<Row>)> {
     let open = s.connect.open.as_ref();
-    let query = open.map_or(String::new(), |o| o.search.text.trim().to_lowercase());
+    let query = open.map_or(String::new(), |o| o.search.text.trim().to_owned());
+    let fold = crate::language::search_fold();
     let list = s.integrations(s.connect_dir()).unwrap_or_default();
     let rows: Vec<Row> = list.iter()
         .filter(|i| i.source.as_deref() != Some("mcp"))
-        .filter(|i| query.is_empty() || format!("{} {}", i.id, i.name).to_lowercase().contains(&query))
+        .filter(|i| fold.contains(&format!("{} {}", i.id, i.name), &query))
         .map(|i| Row {
             id: i.id.clone(),
             name: i.name.clone(),

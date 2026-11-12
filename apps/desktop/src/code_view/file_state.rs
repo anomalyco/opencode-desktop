@@ -365,25 +365,13 @@ impl CodeDocState {
     fn recompute_matches(&mut self) {
         self.matches.clear();
         self.by_line_matches.clear();
-        let needle = self.find_query_applied.to_lowercase();
-        if needle.is_empty() || self.source.is_empty() {
+        if self.find_query_applied.is_empty() || self.source.is_empty() {
             return;
         }
+        let fold = crate::language::search_fold();
         for n in 1..=self.source.len() {
             let Some(line) = self.source.line(n) else { continue };
-            let lower = line.to_lowercase();
-            if lower.len() != line.len() {
-                // Safe ASCII/UTF-8 fallback when case-folding changes byte length.
-                for (idx, _) in line.match_indices(&self.find_query_applied) {
-                    self.matches.push((n, idx..idx + self.find_query_applied.len()));
-                }
-            } else {
-                for (idx, _) in lower.match_indices(&needle) {
-                    if line.is_char_boundary(idx) && line.is_char_boundary(idx + needle.len()) {
-                        self.matches.push((n, idx..idx + needle.len()));
-                    }
-                }
-            }
+            self.matches.extend(fold.find(line, &self.find_query_applied).into_iter().map(|r| (n, r)));
         }
         self.rebuild_line_match_index();
     }

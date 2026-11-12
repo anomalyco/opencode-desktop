@@ -729,20 +729,6 @@ fn place(parts: &mut Vec<Part>, at: Option<usize>, part: Part) {
     }
 }
 
-/// "3m ago"-style age from milliseconds, as Desktop's short relative times.
-pub fn ago(now: i64, then: i64) -> String {
-    let s = ((now - then) / 1000).max(0);
-    if s < 60 {
-        "now".into()
-    } else if s < 3600 {
-        format!("{}m ago", s / 60)
-    } else if s < 86_400 {
-        format!("{}h ago", s / 3600)
-    } else {
-        format!("{}d ago", s / 86_400)
-    }
-}
-
 pub fn tokens_short(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1e6)

@@ -281,11 +281,12 @@ impl App {
     /// The search panel's results (`search.ts`): sessions whose `"{title} {project}"` holds the
     /// trimmed query, after the session a typed id found when it isn't one of them.
     pub fn home_search_results<'a>(&'a self, selected: Option<&Project>) -> Vec<&'a SessionInfo> {
-        let q = self.search.text.trim().to_lowercase();
+        let q = self.search.text.trim();
         if q.is_empty() {
             return vec![];
         }
-        let records: Vec<&SessionInfo> = self.home_roots(selected).filter(|ses| format!("{} {}", title_of(ses), self.project_label(ses)).to_lowercase().contains(&q)).collect();
+        let fold = crate::language::search_fold();
+        let records: Vec<&SessionInfo> = self.home_roots(selected).filter(|ses| fold.contains(&format!("{} {}", title_of(ses), self.project_label(ses)), q)).collect();
         match self.home_search.search.exact().filter(|exact| !records.iter().any(|r| r.id == exact.id)) {
             Some(exact) => std::iter::once(exact).chain(records).collect(),
             None => records,

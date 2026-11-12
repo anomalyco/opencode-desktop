@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Range;
 
 use rune::{Color, El, TextStyle, col, text};
-use rune_kit::markdown::{self, Case};
+use rune_kit::markdown;
 use rune_parts::Node;
 use rune_parts::view::{PartsResolver, outline as draw};
 
@@ -62,7 +62,7 @@ pub fn pieces<'a>(body: &'a str, src_at: usize, nodes: &[Node]) -> Vec<(usize, &
 
 /// Matches of `query` in one part's words, as they draw.
 pub(super) fn find(words: &str, query: &str) -> Vec<Vec<Range<usize>>> {
-    markdown::find(words, query, Case::Insensitive)
+    markdown::find(words, query, super::folded())
 }
 
 /// Words that need Markdown to draw as written; the rest draw as plain text, which is cheaper.

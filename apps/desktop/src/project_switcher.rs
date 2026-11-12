@@ -76,19 +76,15 @@ pub struct SwitcherRow {
 }
 
 fn matches_query(q: &str, fields: &[&str]) -> bool {
-    let q = q.trim().to_lowercase();
-    q.is_empty() || fields.iter().any(|f| f.to_lowercase().contains(&q))
+    let fold = crate::language::search_fold();
+    q.trim().is_empty() || fields.iter().any(|f| fold.contains(f, q))
 }
 
 fn highlighted(s: &str, q: &str, style: rune::TextStyle, color: Color, accent: Color) -> El {
     let t = text(s.to_owned()).font(style).color(color).truncate();
-    let lower = s.to_lowercase();
-    let needle = q.trim().to_lowercase();
-    match lower.find(&needle) {
-        Some(at) if !needle.is_empty() && lower.len() == s.len() => {
-            t.spans(vec![Span::new(at, at + needle.len()).color(accent)])
-        }
-        _ => t,
+    match crate::language::search_fold().find(s, q.trim()).first() {
+        Some(r) => t.spans(vec![Span::new(r.start, r.end).color(accent)]),
+        None => t,
     }
 }
 

@@ -598,11 +598,9 @@ pub fn results(s: &App, p: &Pal) -> El {
 /// A title with the query's first match in the accent (`SearchHighlight`), one run that shrinks
 /// and truncates beside the page as the row's `min-w-0 truncate` spans do.
 fn highlight(p: &Pal, title: &str, query: &str) -> El {
-    let lower = title.to_lowercase();
-    let q = query.trim().to_lowercase();
     let t = text(title.to_owned()).font(ROW).color(p.text).truncate().shrink().min_w(0.0);
-    match (!q.is_empty() && lower.len() == title.len()).then(|| lower.find(&q)).flatten() {
-        Some(at) => t.spans(vec![rune::Span::new(at, at + q.len()).color(p.accent)]),
+    match crate::language::search_fold().find(title, query.trim()).first() {
+        Some(r) => t.spans(vec![rune::Span::new(r.start, r.end).color(p.accent)]),
         None => t,
     }
 }

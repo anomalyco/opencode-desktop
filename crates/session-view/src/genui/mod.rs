@@ -98,14 +98,21 @@ pub fn split(body: &str, streaming: bool) -> Option<Vec<Seg>> {
     Some(out)
 }
 
-/// Matches of `query` (lowercase) in a reply's text as drawn: source byte ranges per match, as
-/// `markdown::find` gives them, with an outline's matches in the words it shows.
+/// Case folding as the interface's language searches (Turkish dotless i).
+fn folded() -> Case {
+    Case::Folded(rune_kit::search::Fold::for_language(opencode_i18n::locale().tag()))
+}
+
+/// Matches of `query` in a reply's text as drawn, folded as the interface's language searches:
+/// source byte ranges per match, as `markdown::find` gives them, with an outline's matches in the
+/// words it shows.
 pub fn find(body: &str, query: &str) -> Vec<Vec<Range<usize>>> {
-    let Some(segs) = split(body, false) else { return markdown::find(body, query, Case::Insensitive) };
+    let case = folded();
+    let Some(segs) = split(body, false) else { return markdown::find(body, query, case) };
     let mut out = Vec::new();
     for seg in segs {
         match seg {
-            Seg::Md(r) => out.extend(markdown::find(&body[r.clone()], query, Case::Insensitive).into_iter().map(|m| shift(m, r.start))),
+            Seg::Md(r) => out.extend(markdown::find(&body[r.clone()], query, case).into_iter().map(|m| shift(m, r.start))),
             Seg::Ui { src_at, nodes, .. } => {
                 for (at, piece) in inline::pieces(body, src_at, &nodes) {
                     out.extend(inline::find(piece, query).into_iter().map(|m| shift(m, at)));

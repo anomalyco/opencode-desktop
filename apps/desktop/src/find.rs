@@ -233,47 +233,6 @@ fn row_hash(ranges: &[Vec<Range<usize>>], active: Option<usize>) -> u64 {
     h.finish().max(1)
 }
 
-/// Case-insensitive non-overlapping matches over plain UTF-8 text, preserving char boundaries
-/// even when Unicode lowercasing changes byte length (`'İ'`, `'ẞ'`, `'ς'`).
-pub(crate) fn find_plain(text: &str, query: &str) -> Vec<Range<usize>> {
-    if text.is_empty() || query.is_empty() {
-        return Vec::new();
-    }
-    if text.is_ascii() && query.is_ascii() {
-        let hay = text.to_ascii_lowercase();
-        let needle = query.to_ascii_lowercase();
-        return hay.match_indices(&needle).map(|(at, _)| at..at + needle.len()).collect();
-    }
-    let fold = |s: &str| {
-        let mut folded = String::with_capacity(s.len());
-        let mut map = Vec::with_capacity(s.len() + 1);
-        for (b, c) in s.char_indices() {
-            map.push(b);
-            if c == 'ς' {
-                folded.push('σ');
-            } else {
-                for fc in c.to_lowercase() {
-                    folded.push(fc);
-                }
-            }
-            map.resize(folded.len(), usize::MAX);
-        }
-        map.push(s.len());
-        (folded, map)
-    };
-    let (hay, map) = fold(text);
-    let (needle, _) = fold(query);
-    if needle.is_empty() {
-        return Vec::new();
-    }
-    hay.match_indices(&needle)
-        .filter_map(|(f0, _)| {
-            let (s0, s1) = (*map.get(f0)?, *map.get(f0 + needle.len())?);
-            (s0 != usize::MAX && s1 != usize::MAX && s0 < s1).then_some(s0..s1)
-        })
-        .collect()
-}
-
 impl App {
     pub fn find_focused(&self) -> bool {
         self.find.is_open() && self.find.input.focused
@@ -446,7 +405,7 @@ impl App {
             self.find.indexed_query.clear();
             return;
         }
-        let q = self.find.query().to_lowercase();
+        let q = self.find.query().to_owned();
         if q.is_empty() {
             self.find.matches.clear();
             self.find.rows.clear();
@@ -487,11 +446,11 @@ impl App {
                 cached.ranges.clone()
             } else {
                 let computed: Vec<Vec<Range<usize>>> = if plain {
-                    find_plain(body, &q).into_iter().map(|r| vec![r]).collect()
+                    crate::language::search_fold().find(body, &q).into_iter().map(|r| vec![r]).collect()
                 } else if outlines {
                     crate::genui::find(body, &q)
                 } else {
-                    rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Insensitive)
+                    rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Folded(crate::language::search_fold()))
                 };
                 parts.insert(cache_key, CachedPart { len, head_tail: sig, ranges: computed.clone() });
                 computed
@@ -557,7 +516,7 @@ impl App {
 /// keystroke's own commit. Whitespace or case that leave the query as it was keep the lit match
 /// (`query.changed`).
 pub fn typed(s: &mut App, tx: &mut Tx) {
-    if s.find.query().to_lowercase() == s.find.indexed_query {
+    if s.find.query() == s.find.indexed_query {
         tx.instant();
         return;
     }

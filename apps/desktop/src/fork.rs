@@ -229,12 +229,13 @@ impl App {
 
     /// Filtered messages matching `fork.search`.
     pub fn fork_filtered(&self) -> Vec<ForkableMessage> {
-        let q = self.fork.search.text.trim().to_lowercase();
+        let q = self.fork.search.text.trim();
         let all = self.fork_messages();
         if q.is_empty() {
             return all;
         }
-        all.into_iter().filter(|m| m.text.to_lowercase().contains(&q)).collect()
+        let fold = crate::language::search_fold();
+        all.into_iter().filter(|m| fold.contains(&m.text, q)).collect()
     }
 
     pub fn fork_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
