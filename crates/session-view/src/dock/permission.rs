@@ -96,7 +96,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let Pending::Permission { id, action, resources, message, input, .. } = asked(s)? else { return None };
     // What a reader hears on the card that takes focus when the request arrives (`speech.rs`):
     // what the tool does, then on what.
-    let said = [description(&action).unwrap_or(action.as_str()), message.as_str()].into_iter()
+    let said = [description(&action).unwrap_or_else(|| crate::turns::tool_title(&action)), message.as_str()].into_iter()
         .chain(input.iter().map(String::as_str)).chain(resources.iter().map(String::as_str))
         .filter(|w| !w.trim().is_empty()).collect::<Vec<_>>().join(". ");
     let fade = || face_transition(s.knobs());
