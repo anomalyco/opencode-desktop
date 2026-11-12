@@ -21,33 +21,53 @@ pub(crate) fn session_page(s: &App, p: &Pal, id: &str) -> El {
     }
     // A narrow window hides the header under its view switcher (`screen.tsx`'s `hideHeader`).
     if s.narrow() {
-        return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0), None));
+        return crate::narrow::session::page(s, p, id, || session_body(s, p, id, col().key("conversation").grow(1.0).w_full().min_h(0.0), false));
     }
-    let shown = s.displayed_session(id).unwrap_or(id);
-    let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
-    // A session its server hasn't listed yet (a launch offline) is named by what its tab saved.
-    let saved = s.session(shown).is_none().then(|| s.tabs.iter().find(|t| t.id == shown && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
-        opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
-    });
-    // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
-    let head = header(s, p, s.session(shown).or(saved.as_ref()), t);
-    session_body(s, p, id, col().key("session").grow(1.0).w_full(), Some(head))
+    session_body(s, p, id, col().key("session").grow(1.0).w_full(), true)
 }
 
-/// The session page: the timeline with its `header` stuck over it, and what sits under it.
-pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, header: Option<El>) -> El {
+/// The session page: the timeline with its header stuck over it (`with_header`), and what sits
+/// under it.
+///
+/// The timeline, its header and the pills over the composer are one region: a keystroke in the
+/// composer builds none of them. Everything they show is read inside it; what isn't `Tracked`
+/// is its inputs (the palette, the chrome, the column's width).
+pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bool) -> El {
     let info = s.session(id);
-    let shown = s.displayed_session(id);
-    let t = shown.and_then(|shown| s.transcripts.get(shown)).filter(|_| !s.loading_session(id));
-    let child = info.is_some_and(|i| i.parent.is_some());
-    let pills = if child { Vec::new() } else { pills(s, p, id) };
-    let timeline = match shown {
-        // Previous and Next message read the prompt in view from where it lies (`message_nav`).
-        Some(shown) => session_view::timeline_area(s, p, shown, t, pills, header).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-            s.message_nav.view = Some(r);
-            tx.live_only();
-        }),
-        None => col().key("timeline-area").grow(1.0).w_full().children(header),
+    let timeline = match s.displayed_session(id) {
+        Some(shown) => {
+            // The column's width is a thread-local the composer reads too: set every build, even
+            // when the region is reused.
+            let content_w = session_view::TimelineHost::content_width(s);
+            session_view::style::set_content_w(content_w);
+            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header);
+            rune::region_with("timeline-area", (id, shown, inputs), || {
+                let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
+                let child = s.session(id).is_some_and(|i| i.parent.is_some());
+                let pills = if child { Vec::new() } else { pills(s, p, id) };
+                // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
+                // A session its server hasn't listed yet (a launch offline) is named by what its tab saved.
+                let saved = s.session(shown).is_none().then(|| s.tabs.iter().find(|t| t.id == shown && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
+                    opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
+                });
+                let head = with_header.then(|| header(s, p, s.session(shown).or(saved.as_ref()), t));
+                // Previous and Next message read the prompt in view from where it lies (`message_nav`).
+                session_view::timeline_area(s, p, shown, t, pills, head).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+                    s.message_nav.view = Some(r);
+                    tx.live_only();
+                })
+            })
+        }
+        None => {
+            let head = with_header.then(|| {
+                let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
+                let saved = s.session(id).is_none().then(|| s.tabs.iter().find(|t| t.id == id && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
+                    opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
+                });
+                header(s, p, s.session(id).or(saved.as_ref()), t)
+            });
+            col().key("timeline-area").grow(1.0).w_full().children(head)
+        }
     };
     let mut page = page
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
@@ -82,7 +102,7 @@ const PILL_WAIT: f32 = 0.3;
 /// its header, and its composer with the subagent capsule over it.
 pub(crate) fn story_session(s: &App, p: &Pal) -> El {
     let Route::Session { id, .. } = &*s.route else { return el() };
-    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0), None)
+    session_body(s, p, id, col().key("session").grow(1.0).w_full().min_h(0.0), false)
 }
 
 pub(crate) fn story_header(s: &App, p: &Pal) -> El {

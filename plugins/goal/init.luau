@@ -96,9 +96,16 @@ return plugin.defineWindow(function(ctx)
         changed:Fire()
     end
 
-    -- The goal attaches to the routed session and its folder, again when either changes.
+    -- The goal attaches to the routed session and its folder, again when either changes. The
+    -- session changes for much else (its title, cost, messages): those leave the goal as it is,
+    -- and redraw nothing.
     local function attach(session: Session?)
         if session and session.id ~= "" then
+            -- The machine keeps an attach to its own target as it is (`machine.step`).
+            local t = state.target
+            if t and t.key == session.id and t.directory == session.directory then
+                return
+            end
             dispatch({ type = "attach", key = session.id, directory = session.directory })
         end
     end

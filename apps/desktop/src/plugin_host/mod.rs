@@ -751,6 +751,11 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         changed |= cx::with_app(app, || script.poll(now, tx));
     }
     requests::carry_out(app, tx);
+    // What a plugin shows lives in its VM, which `Tracked` can't see: a poll that changed what
+    // plugins draw marks the host written, so the regions that show plugin surfaces build again.
+    if changed {
+        rune::Tracked::touch(&app.plugins);
+    }
     app.plugins.clock.set(now);
     if app.plugins.synced.get() != epoch() {
         app.plugins.synced.set(epoch());
