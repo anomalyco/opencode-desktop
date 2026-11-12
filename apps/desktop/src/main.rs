@@ -99,6 +99,7 @@ mod incoming;
 #[cfg(windows)]
 mod install;
 mod jobs;
+mod jump_list;
 mod keymap;
 mod keys;
 mod knobs;
@@ -430,6 +431,8 @@ pub struct App {
     pub now_ms: rune::Tracked<i64>,
     base_ms: rune::Tracked<i64>,
     clock: rune::Tracked<f64>,
+    /// When the jump list was last looked at (`jump_list`).
+    jump_list_at: f64,
     /// How many times the view has run, and the count the last poll saw: state that a poll
     /// derives from other state (panel tabs, plugins' watched signals) can only have moved when
     /// the view ran since, or when an earlier poll this frame changed something.
@@ -1259,6 +1262,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= s.poll_copies(tx);
         s.prompts.hydrate((*s.waker).clone());
         s.poll_window();
+        s.poll_taskbar();
+        jump_list::poll(s);
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave
         // name can't tell windows apart; a hot build's one window isn't among them.
         if !*s.framed && (s.window.id.is_empty() || cfg!(feature = "hot")) {
@@ -1426,6 +1431,15 @@ fn quit_last() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    // A debug build COM starts for a proof's scratch toast activator (`LocalServer32`, whose
+    // command line is fixed in the registry and whose environment is the user's) takes its
+    // scratch root from the command line: it never runs without one. Release builds ignore it.
+    #[cfg(debug_assertions)]
+    if let Some(root) = std::env::args().find_map(|a| a.strip_prefix("--dirs-root=").map(str::to_owned)) {
+        // SAFETY: the first thing `main` does, before any other thread exists.
+        #[allow(unsafe_code)]
+        unsafe { std::env::set_var("RUNE_DIRS_ROOT", root) };
+    }
     launch::trace::begin();
     telemetry::launched();
     launch::attach_console();
@@ -1448,6 +1462,7 @@ fn main() {
         return launch::trace::finish(0);
     }
     storage::claimed();
+    notifications::take_activation(rune::extra_args());
     glyph_masks::start();
     opencode_kit::client::set_download_dir(dirs::downloads());
     telemetry::startup("launch.platform", rune_mac::launch);

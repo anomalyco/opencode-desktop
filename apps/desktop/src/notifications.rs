@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 
 use crate::App;
 
+pub mod actions;
+
 /// Desktop's `MAX_ACTIVE_NOTIFICATIONS`.
 pub const CAP: usize = 40;
 /// Permission requests already posted, so a repeated `permission.asked` doesn't post twice.
@@ -108,12 +110,18 @@ impl Kinds {
 /// One notification to post: what it says and the session a click opens.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Note {
+    /// The same for the same request (`req-<id>`) or the same session's run (`run-<id>`), so a
+    /// repeat replaces it and an answer anywhere takes it out (`answered`).
     pub id: String,
     pub kind: Kind,
     /// Desktop's title for what asked: usually `kind`'s, "Input requested" for an MCP server's form.
     pub title: &'static str,
     pub body: String,
     pub session: String,
+    /// What its buttons answer (`actions`): a permission's decisions or a question's answers.
+    pub ask: Option<actions::Ask>,
+    /// The window that posted it, which its buttons' answers go to.
+    pub window: String,
 }
 
 /// Where notifications go: the system, or a test's list.
@@ -129,9 +137,12 @@ pub struct Notifier {
     sink: Option<Box<dyn Sink>>,
     /// Whether this run looked for the system's notifications yet.
     tried: bool,
-    /// Sessions whose notification was clicked, from the click's thread, with their server's key.
-    clicks: Arc<Mutex<Vec<(String, String)>>>,
 }
+
+/// Clicks from any thread, for whichever window they're for (`actions::take`).
+static CLICKS: Mutex<Vec<rune_notify::Click>> = Mutex::new(Vec::new());
+/// Every window's waker, so a click wakes the one it's for.
+static WAKERS: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(Vec::new());
 
 /// What every window and every server's events share, as Desktop's one `NotificationCoordinator`
 /// for all its servers (`shell/notifications/coordinator.ts`, `runtime/server/runtime.tsx:55`):
@@ -139,9 +150,9 @@ pub struct Notifier {
 /// posted this run, oldest first, at most [`CAP`] in the system's list.
 #[derive(Default)]
 pub struct Coordinator {
-    shown: VecDeque<String>,
+    /// Posted ids, oldest first, with the server they're from.
+    shown: VecDeque<(String, String)>,
     asked: VecDeque<String>,
-    posted: u64,
 }
 
 thread_local! {
@@ -164,29 +175,74 @@ impl Coordinator {
 }
 
 impl Notifier {
-
-    /// A click on a notification for `session` on `server`, from any thread.
-    fn click(clicks: &Mutex<Vec<(String, String)>>, session: String, server: String) {
-        clicks.lock().unwrap_or_else(|e| e.into_inner()).push((session, server));
+    /// Whether this window posts to the system's notifications.
+    pub fn shows(&self) -> bool {
+        self.sink.is_some()
     }
 
-    fn post(&mut self, kind: Kind, title: &'static str, session: &str, body: String, server: &str) {
+    /// A click on a notification, from any thread: it waits for its window's poll.
+    fn click(click: rune_notify::Click) {
+        CLICKS.lock().unwrap_or_else(|e| e.into_inner()).push(click);
+        for wake in WAKERS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            wake();
+        }
+    }
+
+    fn post(&mut self, note: Note, server: &str) {
         let Some(sink) = self.sink.as_mut() else { return };
         if sink.focused() {
             return;
         }
         COORDINATOR.with_borrow_mut(|c| {
+            // The same id replaces its toast in place: it isn't counted twice.
+            c.shown.retain(|(id, _)| *id != note.id);
             if c.shown.len() >= CAP
-                && let Some(oldest) = c.shown.pop_front()
+                && let Some((oldest, _)) = c.shown.pop_front()
             {
                 sink.remove(&oldest);
             }
-            c.posted += 1;
-            let note = Note { id: format!("opencode-rune-{}-{}", std::process::id(), c.posted), kind, title, body, session: session.to_owned() };
             sink.post(&note, server);
-            c.shown.push_back(note.id);
+            c.shown.push_back((note.id, server.to_owned()));
         });
     }
+
+    /// Takes notification `id` out of the system's list, if this run posted it.
+    fn take_out(&mut self, id: &str) {
+        let Some(sink) = self.sink.as_mut() else { return };
+        COORDINATOR.with_borrow_mut(|c| {
+            let before = c.shown.len();
+            c.shown.retain(|(shown, _)| shown != id);
+            if c.shown.len() != before {
+                sink.remove(id);
+            }
+        });
+    }
+}
+
+/// Request `id` was answered (here, in another window, from its toast, or the server settled
+/// it): its notification goes, as the dock's does.
+pub fn answered(app: &mut App, id: &str) {
+    app.notify.take_out(&format!("req-{id}"));
+}
+
+/// A session's run notification goes once the session has been looked at.
+pub fn seen(app: &mut App, session: &str) {
+    app.notify.take_out(&format!("run-{session}"));
+}
+
+/// The app quits: the requests of its own server end with it, so their notifications go.
+pub fn quitting(app: &mut App) {
+    let Some(sink) = app.notify.sink.as_mut() else { return };
+    let own = opencode_kit::servers::ServerKey::sidecar();
+    COORDINATOR.with_borrow_mut(|c| {
+        c.shown.retain(|(id, server)| {
+            let ends = id.starts_with("req-") && click_server(server) == own;
+            if ends {
+                sink.remove(id);
+            }
+            !ends
+        });
+    });
 }
 
 impl App {
@@ -285,9 +341,15 @@ pub fn event(app: &mut App, e: &crate::events::StreamEvent, sid: &str) {
         return;
     }
     let Some((kind, title, session, body)) = decided else { return };
+    // A request's toast says what it asks and carries its answers; a run's is per session.
+    let (id, body, ask) = match actions::ask(ty, data) {
+        Some(ask) => (format!("req-{}", ask.request()), actions::body(&body, &ask), Some(ask)),
+        None => (format!("run-{session}"), body, None),
+    };
     // The click opens the session on its own server (`openNotificationSession`).
     let server = crate::servers::runtime::active(app).as_str().to_owned();
-    app.notify.post(kind, title, &session, body, &server);
+    let note = Note { id, kind, title, body, session, ask, window: app.window.id.clone() };
+    app.notify.post(note, &server);
 }
 
 /// Opens clicked notifications' sessions, and connects the system the first time a live window
@@ -297,9 +359,21 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         app.notify.tried = true;
         install(app);
     }
-    let clicks = std::mem::take(&mut *app.notify.clicks.lock().unwrap_or_else(|e| e.into_inner()));
     let mut opened = false;
-    for (session, from) in clicks {
+    for mut click in actions::take(app) {
+        // A button answers where the app is, without bringing it forward.
+        match actions::act(app, &mut click) {
+            actions::Outcome::Answered => {
+                opened = true;
+                continue;
+            }
+            actions::Outcome::Wait => {
+                CLICKS.lock().unwrap_or_else(|e| e.into_inner()).push(click);
+                continue;
+            }
+            actions::Outcome::Open => {}
+        }
+        let (session, from) = (click.get("session").unwrap_or(""), click.get("server").unwrap_or(""));
         if session.is_empty() {
             continue;
         }
@@ -307,8 +381,8 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             rune_notify::bring_to_front();
         }
         app.close_settings();
-        crate::servers::runtime::switch(app, &click_server(&from));
-        app.open(&session, tx);
+        crate::servers::runtime::switch(app, &click_server(from));
+        app.open(session, tx);
         opened = true;
     }
     opened
@@ -328,15 +402,10 @@ fn install(app: &mut App) {
     if !rune_notify::available() {
         return;
     }
-    let clicks = app.notify.clicks.clone();
-    let waker = (*app.waker).clone();
-    rune_notify::on_click(move |c| {
-        let (session, server) = (c.get("session").unwrap_or("").to_owned(), c.get("server").unwrap_or("").to_owned());
-        Notifier::click(&clicks, session, server);
-        if let Some(w) = &waker {
-            w();
-        }
-    });
+    if let Some(waker) = (*app.waker).clone() {
+        WAKERS.lock().unwrap_or_else(|e| e.into_inner()).push(waker);
+    }
+    rune_notify::on_click(Notifier::click);
     app.notify.sink = Some(Box::new(System));
 }
 
@@ -351,8 +420,9 @@ impl Sink for System {
         let n = rune_notify::Notification::new(&note.id, note.title)
             .body(&note.body)
             .info("session", &note.session)
-            .info("server", server);
-        rune_notify::post(&n);
+            .info("server", server)
+            .info("window", &note.window);
+        rune_notify::post(&note.ask.as_ref().map_or(n.clone(), |ask| actions::buttons(n, ask)));
     }
 
     fn remove(&mut self, id: &str) {
@@ -362,9 +432,8 @@ impl Sink for System {
 
 /// A notification's link, opened with the app (`deep_links`): its session opens as a click's
 /// does. On Windows every click comes this way, also the one that starts the app after it quit.
-pub fn clicked(app: &mut App, click: &rune_notify::Click) {
-    let (session, server) = (click.get("session").unwrap_or("").to_owned(), click.get("server").unwrap_or("").to_owned());
-    Notifier::click(&app.notify.clicks, session, server);
+pub fn clicked(_: &mut App, click: &rune_notify::Click) {
+    Notifier::click(click.clone());
 }
 
 /// Gives a windowed run the app's identity before its window opens, writing nothing: on Windows
@@ -388,8 +457,8 @@ pub fn identify() {}
 
 /// After the first frame, off the UI thread: the registered install's toasts open the app's
 /// scheme, so a toast left in the notification center starts it again; another copy (a zip, a
-/// build folder, a harness run) names its toasts only when nothing has yet, and its clicks reach
-/// it while it runs. It never writes the install's registration.
+/// build folder, a harness run) reads only, and its clicks reach it while it runs. A launch
+/// writes no registration. Then the toast activator is served (`rune_notify::serve_activations`).
 #[cfg(target_os = "windows")]
 pub fn settle_identity() {
     static SETTLED: std::sync::Once = std::sync::Once::new();
@@ -411,6 +480,11 @@ fn settle_once() {
         {
             eprintln!("notifications: {e}");
         }
+        // A toast's button reaches this process straight away where the install registered the
+        // activator; elsewhere the registration is inert and buttons act through the toast's event.
+        if let Err(e) = rune_notify::serve_activations(&product.toast_activator()) {
+            eprintln!("notifications: toast activator: {e}");
+        }
         eprintln!("notifications: {} ({found:?}), settled in {} µs off the UI thread", product.id(), started.elapsed().as_micros());
     });
     if let Err(e) = spawned {
@@ -420,4 +494,19 @@ fn settle_once() {
 
 #[cfg(not(target_os = "windows"))]
 pub fn settle_identity() {}
+
+/// A launch COM made for a toast's button after the app quit (`LocalServer32 ... --toast-activated`,
+/// which the install registers with the activator; COM adds `-Embedding`): it takes the
+/// activation (a few ms after the class is up) and starts as the app does, its first window
+/// answering the click. The app's own server ended with it, so its requests did too; a request
+/// the window no longer finds opens its session instead.
+pub fn take_activation(args: &[String]) {
+    if !args.iter().any(|a| a == "--toast-activated" || a.eq_ignore_ascii_case("-Embedding")) {
+        return;
+    }
+    let product = crate::launch::product();
+    if let Some(click) = rune_notify::wait_activation(&product.toast_activator(), std::time::Duration::from_secs(5)) {
+        Notifier::click(click);
+    }
+}
 

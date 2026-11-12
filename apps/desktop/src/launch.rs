@@ -125,13 +125,19 @@ pub fn window_title() -> &'static str {
 /// entry's key and the single-instance pipe's name) and its own URL scheme, from the same
 /// environment the release workflows give every artifact of a build (the setup too).
 pub fn product() -> win_install::Product {
-    win_install::Product::from_build(
+    let product = win_install::Product::from_build(
         option_env!("OPENCODE_RUNE_WINDOW_TITLE"),
         option_env!("OPENCODE_RUNE_BUNDLE_ID"),
         option_env!("OPENCODE_RUNE_BUILD_CHANNEL"),
         option_env!("OPENCODE_RUNE_URL_SCHEME"),
         crate::updater::build_version(),
-    )
+    );
+    // `--app-id=<id>`, honoured only when `RUNE_DIRS_ROOT` moves every folder the app writes: a
+    // harness run's own AppUserModelID, so its taskbar button, jump list and toasts are its own.
+    match crate::dirs::rooted().then(|| rune::extra_args().iter().find_map(|a| a.strip_prefix("--app-id=").map(str::to_owned))).flatten() {
+        Some(id) => product.with_id(id),
+        None => product,
+    }
 }
 
 /// What `rune::single_instance` keeps one process of: the data folder, as Desktop's

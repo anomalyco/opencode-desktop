@@ -8,6 +8,8 @@
 //!   session opens, the app coming forward, also when the click started it.
 //! - `console/authorized?window=<id>` is the OpenCode Console's return link after a sign-in:
 //!   the window that started it comes forward (Desktop's `consoleReturnWindow`).
+//! - `new-window`, `new-session` and `session?id=<id>` are the jump list's (`jump_list`): a new
+//!   window, a new session in the window in front, a session on the app's own server.
 //!
 //! The window comes forward for each, as Desktop's `focusWindow` does. A link that arrives
 //! before the server connects (one that started the app) waits for it.
@@ -92,6 +94,23 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
         }
         return;
     }
+    match jump(url, crate::launch::product().scheme()) {
+        Some(Jump::NewWindow) => {
+            crate::windows::new_window(s);
+            return;
+        }
+        Some(Jump::NewSession) => {
+            rune_notify::bring_to_front();
+            s.close_settings();
+            s.new_session(tx);
+            return;
+        }
+        Some(Jump::Session(id)) => {
+            crate::notifications::clicked(s, &rune_notify::Click { id: String::new(), info: vec![("session".into(), id), ("server".into(), String::new())] });
+            return;
+        }
+        None => {}
+    }
     match (project(url, crate::launch::product().scheme()), server_of(s)) {
         (Some(dir), Some(server)) => {
             let ready = ready_servers(s);
@@ -155,6 +174,32 @@ fn project(url: &str, own: &str) -> Option<String> {
     }
     let dir = query.split('&').find_map(|pair| pair.strip_prefix("project=")).map(unpercent)?;
     (!dir.trim().is_empty() && !dir.chars().any(char::is_control)).then_some(dir)
+}
+
+/// The jump list's entries (`jump_list`), besides `open?project=`.
+#[derive(Debug, PartialEq, Eq)]
+enum Jump {
+    NewWindow,
+    NewSession,
+    /// `session?id=<id>`: a session on the app's own server.
+    Session(String),
+}
+
+fn jump(url: &str, own: &str) -> Option<Jump> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    if !scheme.eq_ignore_ascii_case(own) {
+        return None;
+    }
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    match path.trim_end_matches('/') {
+        "new-window" => Some(Jump::NewWindow),
+        "new-session" => Some(Jump::NewSession),
+        "session" => {
+            let id = query.split('&').find_map(|pair| pair.strip_prefix("id=")).map(unpercent)?;
+            (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(Jump::Session(id))
+        }
+        _ => None,
+    }
 }
 
 /// The window a `<own>://console/authorized?window=<id>` link names.

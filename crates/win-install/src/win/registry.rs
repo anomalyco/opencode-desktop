@@ -100,15 +100,6 @@ pub fn write_identity(p: &Product, root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// A copy that isn't installed (a zip, a build folder) names its toasts only when nothing did
-/// yet: it never repoints an install's identity. True when it wrote the key.
-pub fn write_identity_if_absent(p: &Product) -> bool {
-    let path = identity_key(p);
-    if CURRENT_USER.open(&path).is_ok() {
-        return false;
-    }
-    CURRENT_USER.create(&path).and_then(|k| k.set_string("DisplayName", p.name())).is_ok()
-}
 
 fn identity_key(p: &Product) -> String {
     format!(r"Software\Classes\AppUserModelId\{}", p.id())

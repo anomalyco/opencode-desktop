@@ -66,6 +66,22 @@ impl Product {
         &self.version
     }
 
+    /// The same build under another AppUserModelID: a harness run's scratch identity, so its
+    /// taskbar button, jump list and toasts (and any registration a proof writes for them) are
+    /// its own, never an install's or another run's.
+    pub fn with_id(mut self, id: impl Into<String>) -> Product {
+        self.id = id.into();
+        self
+    }
+
+    /// The COM class of the app's toast activator (`{xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx}`): one
+    /// per AppUserModelID, the same in every build of it, from the id's FNV-1a hash. The install
+    /// registers it (`CustomActivator`, `LocalServer32`); the app serves it while it runs.
+    pub fn toast_activator(&self) -> String {
+        let hash = self.id.bytes().fold(0x6c62_272e_07bb_0142_62b8_2175_6295_c58d_u128, |h, b| (h ^ u128::from(b)).wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b));
+        let h = (hash & !(0xf << 76) | (0x4 << 76)) & !(0x3 << 62) | (0x2 << 62);
+        format!("{{{:08x}-{:04x}-{:04x}-{:04x}-{:012x}}}", h >> 96, (h >> 80) & 0xffff, (h >> 64) & 0xffff, (h >> 48) & 0xffff, h & 0xffff_ffff_ffff)
+    }
     /// The install folder's name: the name without parentheses (`OpenCode Rune`).
     pub fn folder(&self) -> String {
         self.name.replace(['(', ')'], "").split_whitespace().collect::<Vec<_>>().join(" ")

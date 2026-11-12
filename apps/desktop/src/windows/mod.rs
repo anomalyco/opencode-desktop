@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::sync::mpsc::{Receiver, Sender};
 
 use opencode_kit::client::{Incoming, Request, Write};
-use rune::{AppHandle, WindowHandle, WindowPlacement};
+use rune::{AppHandle, WindowHandle};
 
 use crate::App;
 
@@ -20,7 +20,9 @@ pub mod close;
 mod life;
 mod open;
 pub mod peer;
+pub mod placement;
 pub mod store;
+pub mod taskbar;
 pub mod tear;
 pub(crate) mod tear_stories;
 
@@ -35,10 +37,12 @@ pub struct Window {
     /// The one window of a profile that never saved a window list: Desktop's tabs come into it
     /// (`crate::seed`).
     pub fresh: bool,
-    /// Its frame while neither maximized nor full screen, what restoring it returns to.
-    normal: Option<WindowPlacement>,
-    /// When `normal` was last read (`App::clock`).
+    /// Where it is, and the frame restoring it returns to.
+    pub placement: placement::Placement,
+    /// When `placement` was last read (`App::clock`).
     read_at: f64,
+    /// What its taskbar button shows.
+    pub taskbar: taskbar::Taskbar,
     /// The frame last saved.
     saved: Option<store::Frame>,
     /// The tab strip's rect in window points, where a tab dropped from another window lands.
@@ -238,25 +242,12 @@ impl App {
         }
     }
 
-    /// Where the window is, with the frame restoring returns to while it's maximized.
+    /// Reads where the window is (`placement`); the frame to save, unless it's minimized.
     fn window_frame(&mut self) -> Option<store::Frame> {
         let p = handle(&self.window.id)?.placement()?;
-        if p.minimized {
-            return None;
-        }
-        if !p.maximized && !p.full_screen {
-            self.window.normal = Some(p);
-        }
-        let normal = self.window.normal.unwrap_or(p);
-        Some(store::Frame {
-            x: Some(normal.position.0),
-            y: Some(normal.position.1),
-            width: normal.content_size.0,
-            height: normal.content_size.1,
-            maximized: p.maximized,
-            full_screen: p.full_screen,
-            display: None,
-        })
+        let (next, frame) = self.window.placement.step(p);
+        self.window.placement = next;
+        frame
     }
 
     /// The window is closing. Unless it's the last one open or the app is quitting

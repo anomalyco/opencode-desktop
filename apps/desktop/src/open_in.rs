@@ -401,9 +401,16 @@ fn pick(s: &mut App, rel: &str, id: &str, reveal: bool, tx: &mut Tx) {
     }
 }
 
-/// Right-click on a tree row: the apps (the file manager revealing the row), and Copy path.
+/// Right-click on a tree row: the apps (the file manager revealing the row), and Copy path. A
+/// file of this computer's drags out of the row too, to Explorer, a browser or a chat app, or
+/// back into the composer (`rune::DragItem::within_app`).
 pub fn context(row: El, rel: String) -> El {
-    row.on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| {
+    let dragged = rel.clone();
+    row.drag_out(move |s: &App| {
+        let path = s.can_open_in().then(|| s.open_in_path(&dragged)).flatten().filter(|p| std::path::Path::new(p).exists())?;
+        Some(rune::DragItem::new().file(path).within_app())
+    })
+    .on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| {
         if !s.can_open_in() {
             return;
         }

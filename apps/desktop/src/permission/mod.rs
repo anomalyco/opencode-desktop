@@ -140,6 +140,7 @@ impl App {
         if self.permission_sent.replied(id) {
             self.pending.retain(|p| p.id() != id);
             self.requests.retain(|(_, r)| r != id);
+            crate::notifications::answered(self, id);
         }
     }
 

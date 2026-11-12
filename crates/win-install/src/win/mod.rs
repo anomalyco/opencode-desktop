@@ -69,14 +69,14 @@ pub fn refresh(p: &Product, root: &Path) -> Result<Vec<String>, String> {
 }
 
 /// Where a running copy stands: the registered install (`root` is its folder), which the setup
-/// already named for toasts, or another copy (a zip, a build folder, a harness run), which names
-/// its toasts only if nothing has yet (`AppUserModelId\<id>` absent), so it never repoints the
-/// install's. Reads the registry; call it off the UI thread, after the first frame.
+/// named for toasts, or another copy (a zip, a build folder, a harness run). It only reads: a
+/// launch writes no registration, so a copy's toasts show under whatever the setup (or, for a
+/// proof, its script) registered for its id. Call it off the UI thread, after the first frame.
 pub fn settle_identity(p: &Product, root: &Path) -> Identity {
     if registry::entry_root(p).is_some_and(|r| same_path(&r, root)) {
         return Identity::Installed;
     }
-    Identity::Copy { wrote: registry::write_identity_if_absent(p) }
+    Identity::Copy
 }
 
 /// What `settle_identity` found.
@@ -84,8 +84,8 @@ pub fn settle_identity(p: &Product, root: &Path) -> Identity {
 pub enum Identity {
     /// The registered install: its scheme and toast identity are the setup's.
     Installed,
-    /// Another copy; `wrote` when it named the toasts because nothing had.
-    Copy { wrote: bool },
+    /// Another copy.
+    Copy,
 }
 
 /// Takes away everything `register` wrote outside `root`: the shortcuts (and a taskbar pin to the

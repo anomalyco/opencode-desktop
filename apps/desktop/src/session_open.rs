@@ -58,6 +58,7 @@ impl App {
         for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {
             s.viewed = s.idle.max(s.viewed);
         }
+        crate::notifications::seen(self, &root);
         crate::windows::peer::touch(self);
         if !self.tabs.iter().any(|t| t.id == root) {
             let (title, directory) = self.session(&root).map(|s| (s.title.clone(), s.directory.clone())).unwrap_or_default();

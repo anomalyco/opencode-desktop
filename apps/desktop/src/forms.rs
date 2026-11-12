@@ -32,6 +32,7 @@ impl App {
         self.requests.retain(|(_, r)| r != id);
         self.question.forget(id);
         self.permission_sent.0.remove(id);
+        crate::notifications::answered(self, id);
     }
 
     pub fn typed_mut(&mut self, form: &str, key: &str) -> &mut TextEdit {

@@ -319,6 +319,7 @@ impl App {
             self.queue_terminal_save();
             crate::terminal::persist::flush();
         }
+        crate::notifications::quitting(self);
         self.window_quitting();
         crate::windows::quit_saved(&self.window.id);
     }

@@ -208,6 +208,7 @@ impl App {
                 let had = self.requests.iter().any(|(_, r)| *r == rid) || self.pending.iter().any(|p| p.id() == rid);
                 self.pending.retain(|p| p.id() != rid);
                 self.requests.retain(|(_, r)| *r != rid);
+                crate::notifications::answered(self, &rid);
                 had
             }
             _ => false,

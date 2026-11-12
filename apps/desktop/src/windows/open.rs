@@ -13,9 +13,6 @@ use super::{Window, register};
 use crate::tabs::Tab;
 use crate::{App, Route};
 
-/// Desktop's window size when none was saved.
-const DEFAULT_SIZE: (f32, f32) = (1280.0, 800.0);
-
 /// What a window opened from another starts with: the tabs it moves, each with its server, and
 /// their drafts. It shows them at once from their servers' shared copies (`servers::runtime`).
 pub struct Seed {
@@ -113,7 +110,7 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
         ids.iter()
             .enumerate()
             .map(|(i, id)| {
-                let frame = store::load_frame(id).and_then(|f| fit(f, displays));
+                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays));
                 window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
             })
             .collect::<Vec<_>>()
@@ -143,7 +140,8 @@ pub(super) fn open(s: &App, w: Window, frame: Option<Frame>, inactive: bool) -> 
 }
 
 /// Window `w`'s spec: the app, at `frame` when it has one.
-fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Diagnostics) -> WindowSpec<App> {
+fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Diagnostics) -> WindowSpec<App> {
+    w.placement = super::placement::Placement::opening(frame.as_ref());
     let (id, life) = (w.id.clone(), w.life);
     let diagnostics = diagnostics.clone();
     let app_diagnostics = diagnostics.clone();
@@ -185,6 +183,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
             s.window.hidden &= !focused;
             if focused {
                 super::focused(&s.window.id);
+                s.taskbar_focused();
             }
         })
         // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
@@ -205,27 +204,7 @@ fn window(w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Dia
     if let Some(f) = frame {
         spec.options.position = f.x.zip(f.y);
         spec.options.physical_size = Some((f.width, f.height));
-        spec = spec.maximized(f.maximized || f.full_screen);
+        spec = spec.maximized(f.maximized).full_screen(f.full_screen);
     }
     spec.on_created(move |native| register(&id, native, handle, life))
-}
-
-/// `f`, while it still fits on one of the displays (Desktop's `resolveWindowState`); a
-/// maximized window keeps that on the default size.
-fn fit(f: Frame, displays: &[Display]) -> Option<Frame> {
-    let within = |d: &Display| {
-        let (x, y, w, h) = (d.position.0, d.position.1, d.size.0 as i32, d.size.1 as i32);
-        // A frame saved without a place (Electron's is optional) opens where the system puts it.
-        let (Some(fx), Some(fy)) = (f.x, f.y) else { return true };
-        fx >= x - 16 && fy >= y - 16 && fx + f.width as i32 <= x + w + 16 && fy + f.height as i32 <= y + h + 16
-    };
-    if displays.iter().any(within) {
-        return Some(f);
-    }
-    let primary = displays.iter().find(|d| d.primary).or(displays.first())?;
-    let scale = primary.scale;
-    let (w, h) = ((DEFAULT_SIZE.0 as f64 * scale) as u32, (DEFAULT_SIZE.1 as f64 * scale) as u32);
-    let x = primary.position.0 + (primary.size.0 as i32 - w as i32).max(0) / 2;
-    let y = primary.position.1 + (primary.size.1 as i32 - h as i32).max(0) / 2;
-    Some(Frame { x: Some(x), y: Some(y), width: w, height: h, ..f })
 }
