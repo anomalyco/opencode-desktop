@@ -266,8 +266,9 @@ fn render_viewport(
 
     let mut rows_col = col().key("terminal-rows").w(clip_w).h(grid_h);
     for idx in 0..slot_rows {
-        let memo_id = format!("tr-{idx}");
         if let Some(row_arc) = snap.screen_rows.get(idx) {
+            // Keyed by the row's id, so output scrolling past keeps every row it only moved.
+            let memo_id = format!("tr-{:x}", row_arc.id);
             let version = (row_arc.id, row_arc.content_hash, style_key, p.dark, clip_w.to_bits());
             let cloned: Arc<TerminalRow> = row_arc.clone();
             let row_el = memo(memo_id, version, move || {
@@ -275,6 +276,7 @@ fn render_viewport(
             });
             rows_col = rows_col.child(row_el);
         } else {
+            let memo_id = format!("tr-e{idx}");
             let empty_ver = (0u128, 0u64, style_key, p.dark, clip_w.to_bits());
             let w = clip_w;
             let row_el = memo(memo_id, empty_ver, move || {
@@ -663,16 +665,22 @@ fn render_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_st
     let row_w = (row_data.cells.len() as f32) * cell_w;
     let mut container = el().w(row_w).h(cell_h);
 
-    // 1. Coalesced cell background & selection spans.
+    // 1. Coalesced cell backgrounds and selection, one vector layer under the text (a node per
+    // run cost the commit as much as the text did).
+    let mut fills = Shape::new();
     for span in &row_data.bg_spans {
         let x = f32::from(span.start_col) * cell_w;
-        let w = f32::from(span.end_col.saturating_sub(span.start_col)) * cell_w;
+        let x1 = f32::from(span.end_col) * cell_w;
+        let rect = vec![[x, 0.0], [x1, 0.0], [x1, cell_h], [x, cell_h]];
         if let Some(bg) = span.color {
-            container = container.child(el().absolute(x, 0.0).size(w, cell_h).fill(bg.to_rune()));
+            fills = fills.fill(rect.clone(), bg.to_rune());
         }
         if span.selected {
-            container = container.child(el().absolute(x, 0.0).size(w, cell_h).fill(p.selection));
+            fills = fills.fill(rect, p.selection);
         }
+    }
+    if !row_data.bg_spans.is_empty() {
+        container = container.child(canvas(fills).key("bg").absolute(0.0, 0.0).size(row_w, cell_h).inert());
     }
 
     // 2. Single stable `line` rich-text node per row + pinned wide/emoji cells + vector `Shape`.
