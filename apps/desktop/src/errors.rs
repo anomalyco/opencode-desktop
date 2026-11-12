@@ -13,55 +13,62 @@ use opencode_kit::wire_error::{WireError, WireKind};
 pub struct UserError {
     /// The headline: what didn't happen ("Couldn't rename session").
     pub what: String,
-    /// Why, naming the server and its own words when it gave them.
+    /// Why, in the app's words, naming the server.
     pub why: String,
+    /// The server's own explanation, shown as its words and apart from ours.
+    pub quote: Option<String>,
     /// What to do now, when the button isn't it.
     pub next: Option<String>,
     /// What "Copy details" puts on the clipboard.
     pub details: String,
 }
 
+const RETRY_LOGS: &str = "Try again. If it keeps failing, check the server's logs.";
+const SIGN_IN_PAGE: &str = "If this network has a sign-in page, sign in, then try again.";
+
 impl UserError {
     /// `e`, from a call to `server` (its name as the app shows it), headlined `what`.
     pub fn from_wire(what: &str, server: &str, e: &WireError) -> UserError {
-        let (why, next): (String, Option<&str>) = match &e.kind {
-            WireKind::Unreachable(_) => (format!("{server} isn't answering."), Some("Check that it's running and reachable, then try again.")),
-            WireKind::TimedOut => (format!("{server} didn't answer in time."), Some("It may still be working on it. Try again in a moment.")),
-            WireKind::Dropped(_) => (format!("The connection to {server} dropped before it answered."), Some("It may have gone through: check before you try again.")),
-            WireKind::Tls(detail) => (format!("The secure connection to {server} failed ({detail})."), Some("Check the server's certificate.")),
+        let theirs = |m: &Option<String>| m.as_deref().map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
+        let (why, quote, next): (String, Option<String>, Option<&str>) = match &e.kind {
+            WireKind::Unreachable(_) => (format!("{server} isn't answering."), None, Some("Check that it's running and reachable, then try again.")),
+            WireKind::TimedOut => (format!("{server} didn't answer in time."), None, Some("It may still be working on it. Try again in a moment.")),
+            WireKind::Dropped(_) => (format!("The connection to {server} dropped before it answered."), None, Some("It may have gone through. Check before you try again.")),
+            WireKind::Tls(detail) => (format!("The secure connection to {server} failed ({detail})."), None, Some("Check the server's certificate.")),
             WireKind::Redirected { location, .. } => (
                 match location {
                     Some(to) => format!("Something on the network answered instead of {server}, and sent the app to {to}."),
                     None => format!("Something on the network answered instead of {server}."),
                 },
-                Some("If this network has a sign-in page, sign in, then try again."),
+                None,
+                Some(SIGN_IN_PAGE),
             ),
-            WireKind::NotOpenCode { what, .. } => (format!("Something on the network answered instead of {server}: {what}."), Some("If this network has a sign-in page, sign in, then try again.")),
-            WireKind::Status { status: 401, .. } => (format!("{server} asks this app to sign in again."), Some("Sign in to the server, then try again.")),
-            WireKind::Status { status: 403, message, .. } => (message.clone().unwrap_or_else(|| format!("{server} doesn't allow this.")), None),
-            WireKind::Status { status, message: Some(m), .. } if *status >= 500 => (format!("{server} hit an error: {}", stopped(m)), Some("Try again; if it keeps failing, check the server's logs.")),
-            WireKind::Status { status, message: None, .. } if *status >= 500 => (format!("{server} hit an error (HTTP {status})."), Some("Try again; if it keeps failing, check the server's logs.")),
-            WireKind::Status { message: Some(m), .. } => (sentence(m), None),
-            WireKind::Status { status, message: None, .. } => (format!("{server} refused it (HTTP {status})."), None),
-            WireKind::Shape(m) | WireKind::Other(m) => (sentence(m), None),
+            WireKind::NotOpenCode { what, .. } => (format!("Something on the network answered instead of {server}: {what}."), None, Some(SIGN_IN_PAGE)),
+            WireKind::Status { status: 401, .. } => (format!("{server} asks this app to sign in again."), None, Some("Sign in to the server, then try again.")),
+            WireKind::Status { status: 403, message, .. } => match theirs(message) {
+                Some(m) => (format!("{server} doesn't allow this. It says:"), Some(m), None),
+                None => (format!("{server} doesn't allow this."), None, None),
+            },
+            WireKind::Status { status, message, .. } if *status >= 500 => match theirs(message) {
+                Some(m) => (format!("{server} hit an error. It says:"), Some(m), Some(RETRY_LOGS)),
+                None => (format!("{server} hit an error (HTTP {status})."), None, Some(RETRY_LOGS)),
+            },
+            WireKind::Status { status, message, .. } => match theirs(message) {
+                Some(m) => (format!("{server} refused it. It says:"), Some(m), None),
+                None => (format!("{server} refused it (HTTP {status})."), None, None),
+            },
+            WireKind::Shape(m) | WireKind::Other(m) => (sentence(m), None, None),
         };
         let details = format!("Action: {what}\nServer: {server}\nCall: {} {}\nError: {}", e.method, e.path, e.kind);
-        UserError { what: what.to_owned(), why, next: next.map(str::to_owned), details }
+        UserError { what: what.to_owned(), why, quote, next: next.map(str::to_owned), details }
     }
 
-    /// The toast's description: why, then what to do.
+    /// Why, the server's words in quotation marks and what to do, one paragraph each, for a
+    /// surface that shows one text (the Files panel's failed read).
     pub fn description(&self) -> String {
-        match &self.next {
-            Some(next) => format!("{} {next}", self.why),
-            None => self.why.clone(),
-        }
+        let quote = self.quote.as_ref().map(|q| format!("\u{201c}{q}\u{201d}"));
+        [Some(self.why.clone()), quote, self.next.clone()].into_iter().flatten().collect::<Vec<_>>().join("\n")
     }
-}
-
-/// `m` ending with a stop, as the middle of a sentence.
-fn stopped(m: &str) -> String {
-    let m = m.trim();
-    if m.ends_with(['.', '!', '?']) { m.to_owned() } else { format!("{m}.") }
 }
 
 /// `m` as a sentence: capitalised, ending with a stop.

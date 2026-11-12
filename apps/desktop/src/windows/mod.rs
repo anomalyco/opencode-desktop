@@ -268,7 +268,8 @@ impl App {
         let last = OPEN.with(|o| !o.borrow().iter().any(|w| w.id != id && w.life.saved()));
         // A window closed while others stay is kept, to open again (`reopen`).
         if !last && !rune::quitting() {
-            self.keep_closed_window();
+            // Where it was: as it closed, or (closed minimized) as it last settled.
+            self.keep_closed_window(frame.or(self.window.saved));
         }
         let effect = life(&id, life::LifeEvent::Closing { keep: rune::quitting() || last });
         life(&id, life::LifeEvent::Closed);

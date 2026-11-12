@@ -91,12 +91,27 @@ pub fn opened() -> usize {
     OPENED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// The displays the launch found, which a window reopened later fits its frame to (Rune tells
+/// the displays only to the launch).
+static DISPLAYS: std::sync::Mutex<Vec<Display>> = std::sync::Mutex::new(Vec::new());
+
+/// Where a window saved at `f` opens now: [`super::placement::fit`] on the launch's displays,
+/// or `f` as it is without them.
+pub(super) fn refit(f: Frame) -> Option<Frame> {
+    let displays = DISPLAYS.lock().unwrap_or_else(|e| e.into_inner());
+    if displays.is_empty() {
+        return Some(f);
+    }
+    super::placement::fit(f, &displays)
+}
+
 /// Opens every window saved at the last quit, or one for a new profile, each where it was. The
 /// list and the frames come from the boot packet, taken once the event loop is up (so the
 /// storage's read runs under it); a list that didn't change isn't written again. Returns when
 /// the app quits, unless it ends at once (`rune::fast_exit`).
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
+        *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = displays.to_vec();
         let saved = store::saved_ids();
         let mut ids = saved.clone().unwrap_or_default();
         if ids.is_empty() {

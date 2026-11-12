@@ -400,12 +400,21 @@ pub(crate) fn probe(server: &Server, discover: bool, grace: Duration) -> (Server
     let mut pause = Duration::from_millis(250);
     loop {
         let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
+        let tried = Instant::now();
         if actual.reachable() {
             return (actual, true);
         }
         let left = grace.saturating_sub(start.elapsed());
         if left.is_zero() {
             return (actual, false);
+        }
+        // A try that ran out its 250 ms (`Server::reachable`) waited with a SYN in flight, unanswered:
+        // Windows answers a refused loopback SYN with silence, resending it, not a reset. Try
+        // again at once, so a SYN is always out and a server that starts listening during the
+        // grace is found within 250 ms, not after a back-off of up to a second more. A refusal at
+        // once (a reset, as elsewhere) backs off. This only runs for the launch's 5 s grace.
+        if tried.elapsed() >= Duration::from_millis(200) {
+            continue;
         }
         std::thread::sleep(pause.min(left));
         pause = (pause * 2).min(Duration::from_secs(1));
@@ -462,6 +471,9 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     crate::updater::start_if_packaged(s);
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
+    if s.persists() {
+        crate::windows::reopen::expire(*s.now_ms);
+    }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
     start(s, tx);

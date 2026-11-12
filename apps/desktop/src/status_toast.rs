@@ -65,6 +65,10 @@ pub struct Entry {
     pub id: u64,
     pub title: String,
     pub description: Option<String>,
+    /// Someone else's words, shown as theirs under the description (a server's explanation).
+    pub quote: Option<String>,
+    /// What to do now, a line of its own under the rest.
+    pub next: Option<String>,
     pub action: Option<ToastAction>,
     /// The glyph before the words: a success toast's tick.
     pub icon: Option<&'static Icon>,
@@ -227,9 +231,14 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
         ToastAction::Reveal(label, _) => label.clone(),
         ToastAction::CopyDetails(_) => "details".to_owned(),
     });
-    let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, entry.description.as_deref().unwrap_or(""));
+    let parts = [entry.description.as_deref(), entry.quote.as_deref(), entry.next.as_deref()].map(|p| p.unwrap_or(""));
+    let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, parts.join("\u{1f}"));
     let now = *s.clock;
-    let words = [entry.title.as_str(), entry.description.as_deref().unwrap_or("")].into_iter().filter(|w| !w.trim().is_empty()).collect::<Vec<_>>().join(". ");
+    let words = std::iter::once(entry.title.as_str()).chain(parts).map(str::trim).filter(|w| !w.is_empty()).fold(String::new(), |out, w| match out.chars().last() {
+        None => w.to_owned(),
+        Some('.' | ':' | '!' | '?') => format!("{out} {w}"),
+        Some(_) => format!("{out}. {w}"),
+    });
     s.speech.say(words, rune::LiveRegion::Polite);
     step(s, ToastEvent::Shown { key, options: Shown::Status(entry), secs, now: now }, None);
     // A toast shown from a handler or a poll times out on the next poll's wake.
@@ -241,7 +250,7 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
 }
 
 fn entry(title: impl Into<String>, description: Option<String>, persistent: bool) -> Entry {
-    Entry { id: 0, title: title.into(), description, action: None, icon: None, persistent, buttons: Vec::new(), handle: None }
+    Entry { id: 0, title: title.into(), description, quote: None, next: None, action: None, icon: None, persistent, buttons: Vec::new(), handle: None }
 }
 
 /// Shows `"Reverted"` with an `"Undo"` button bound to `undo`.
@@ -297,8 +306,14 @@ pub fn from_server(s: &mut App, e: String) {
 
 /// Shows `e`: what happened, why and what to do, with Copy details, until dismissed.
 pub fn error(s: &mut App, e: &crate::errors::UserError) {
-    let (title, description) = noted(s, e.what.clone(), e.description());
-    let entry = Entry { action: Some(ToastAction::CopyDetails(e.details.clone())), ..entry(title, description, true) };
+    let (title, _) = noted(s, e.what.clone(), e.description().replace('\n', " "));
+    let cut = |t: &str| t.trim().chars().take(240).collect::<String>();
+    let entry = Entry {
+        quote: e.quote.as_deref().map(cut),
+        next: e.next.as_deref().map(cut),
+        action: Some(ToastAction::CopyDetails(e.details.clone())),
+        ..entry(title, Some(cut(&e.why)), true)
+    };
     show(s, entry, None);
     s.speech.urgent();
 }
@@ -606,7 +621,12 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .min_w(0.0)
         .gap(4.0)
         .child(text(entry.title.clone()).key("toast-title").font(TITLE).color(p.text).truncate().w_full())
-        .children(entry.description.as_ref().map(|desc| text(desc.clone()).key("toast-description").font(DESC).color(p.muted).wrap().w_full()));
+        .children(entry.description.as_ref().map(|desc| text(desc.clone()).key("toast-description").font(DESC).color(p.muted).wrap().w_full()))
+        // The server's words, set apart by a rule as a quotation is, in the text colour: theirs.
+        .children(entry.quote.as_ref().map(|q| {
+            el().key("toast-quote").role("note").w_full().pl(9.0).py(1.0).border_sides([0.0, 0.0, 0.0, 2.0], p.border).child(text(q.clone()).font(DESC).color(p.text).wrap().w_full())
+        }))
+        .children(entry.next.as_ref().map(|next| text(next.clone()).key("toast-next").font(DESC).color(p.muted).wrap().w_full().mt(4.0)));
     if let Some(btn) = action_btn {
         content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
     } else if !entry.buttons.is_empty() {

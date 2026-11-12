@@ -118,7 +118,8 @@ pub(super) fn encode(text: &str, shell: bool, parts: Option<Parts<'_>>, blobs: &
         .iter()
         .filter_map(|f| match (&f.media, blobs.id(&f.bytes)) {
             (Some(media), _) => Some(json!({ "name": f.name, "mime": f.mime, "media": media })),
-            (None, Some(id)) => Some(json!({ "name": f.name, "mime": f.mime, "blob": { "id": id } })),
+            // Its size, for what a kept closed window holds (`windows::reopen`).
+            (None, Some(id)) => Some(json!({ "name": f.name, "mime": f.mime, "size": f.bytes.len(), "blob": { "id": id } })),
             // Its bytes are still being stored: it joins the document once they are.
             (None, None) => None,
         })
