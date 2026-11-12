@@ -140,6 +140,8 @@ pub(crate) struct Queue {
     pub(crate) cmds: Vec<Cmd>,
     /// The buffers (crate::BUFFER_*) whose timer is armed.
     pub(crate) armed: u8,
+    /// A `Cmd::CommitSoon` waits in `cmds`: another one adds nothing (one commit per turn).
+    pub(crate) commit_queued: bool,
 }
 
 pub(crate) type SharedQueue = Arc<Mutex<Queue>>;
@@ -173,7 +175,11 @@ impl Backend {
             Writer::Parked(parked) => {
                 let (tx, rx) = mpsc::channel();
                 let queue = self.queue.clone();
-                let spawned = std::thread::Builder::new().name("opencode-storage".into()).spawn(move || parked.run(rx, queue));
+                // Below normal: a commit the UI thread asked for (`commit_soon`) never preempts it.
+                let spawned = std::thread::Builder::new().name("opencode-storage".into()).spawn(move || {
+                    boot::priority(-1);
+                    parked.run(rx, queue)
+                });
                 match spawned {
                     Ok(join) => {
                         *w = Writer::Running { tx: tx.clone(), join };
@@ -212,6 +218,12 @@ impl Backend {
     /// Queues `cmd`; true when the writer must be woken for it.
     fn enqueue(&self, cmd: Cmd) -> bool {
         let mut q = lock_queue(&self.queue);
+        if matches!(cmd, Cmd::CommitSoon) {
+            if q.commit_queued {
+                return false;
+            }
+            q.commit_queued = true;
+        }
         let wake = q.armed & cmd.buffer() == 0;
         q.cmds.push(cmd);
         wake
@@ -273,6 +285,7 @@ fn answer_offline(cmd: Cmd) {
         Cmd::GetBlob { done, .. } => done(None),
         Cmd::GetPreview { done, .. } => done(None),
         Cmd::GetCache { done, .. } => done(None),
+        Cmd::CommitSoon => {}
         _ => {}
     }
 }

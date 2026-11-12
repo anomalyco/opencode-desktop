@@ -7,9 +7,10 @@
 //! and SQLite, still the source of truth, opens afterwards for everything else.
 //!
 //! Where it is: the `boot` table is created first in a new file, so its root is page 2
-//! (`FLAG_BOOT_PAGE2`), and the file's pages are 64 KiB, so the record (one row, `id = 1`) sits
-//! whole on page 2 up to about 64 KiB; one read of the first two pages gets the header and the
-//! record. A larger record continues on overflow pages, read one positioned read each.
+//! (`FLAG_BOOT_PAGE2`). The record (one row, `id = 1`) starts there and continues on overflow
+//! pages: one read of the file's first 128 KiB gets the header, page 2 and, with today's 16 KiB
+//! pages, the overflow pages that lie in it; any other is one positioned read. (Files made
+//! before 4 KiB pages have 64 KiB ones: the record whole on page 2, up to about 64 KiB.)
 //!
 //! When it's trusted: the WAL holds no frames (the writer checkpoints when writes go quiet and
 //! at quit, so after a clean quit it's empty), the header's `application_id` equals the record's
@@ -118,6 +119,9 @@ pub enum FastBoot {
     UseSqlite(&'static str),
 }
 
+/// How much of the file's start the raw read takes in one read.
+const FIRST_READ: usize = 128 * 1024;
+
 /// Reads the boot record from `db` without SQLite: one `CreateFileW`, one read of the first two
 /// pages (and one per overflow page past them), and a size check of the WAL.
 pub fn read_raw(db: &Path) -> FastBoot {
@@ -127,7 +131,8 @@ pub fn read_raw(db: &Path) -> FastBoot {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return FastBoot::UseSqlite("no database file"),
         Err(_) => return FastBoot::Denied,
     };
-    let mut first = vec![0u8; 2 * 65536];
+    // The first 128 KiB: the header, page 2 and, with small pages, most of a record's overflow.
+    let mut first = vec![0u8; FIRST_READ];
     let Some(n) = read_some(&file, &mut first, 0) else { return FastBoot::UseSqlite("unreadable") };
     if n < 100 || &first[..16] != b"SQLite format 3\0" {
         return FastBoot::UseSqlite("not a database");
@@ -146,7 +151,8 @@ pub fn read_raw(db: &Path) -> FastBoot {
     if n < 2 * page_size {
         return FastBoot::UseSqlite("short read");
     }
-    let Some(record) = leaf_blob(&file, &first[page_size..2 * page_size], page_size, usable) else { return FastBoot::UseSqlite("unexpected page layout") };
+    let first = &first[..n];
+    let Some(record) = leaf_blob(&file, first, page_size, usable) else { return FastBoot::UseSqlite("unexpected page layout") };
     let stamped = record.get(4..8).and_then(|b| b.try_into().ok()).map(u32::from_le_bytes);
     if stamped != Some(generation) {
         return FastBoot::UseSqlite("stale record");
@@ -197,7 +203,10 @@ fn read_some(file: &std::fs::File, buf: &mut [u8], offset: u64) -> Option<usize>
 }
 
 /// The `data` column of row 1 on table leaf page `page`, following its overflow chain.
-fn leaf_blob(file: &std::fs::File, page: &[u8], page_size: usize, usable: usize) -> Option<Vec<u8>> {
+/// The boot row's `data` from page 2, following its overflow pages: from `first` (the file's
+/// start, already read) when they're in it, one positioned read each when not.
+fn leaf_blob(file: &std::fs::File, first: &[u8], page_size: usize, usable: usize) -> Option<Vec<u8>> {
+    let page = first.get(page_size..2 * page_size)?;
     if page[0] != 0x0D || u16::from_be_bytes([page[3], page[4]]) == 0 {
         return None;
     }
@@ -222,12 +231,15 @@ fn leaf_blob(file: &std::fs::File, page: &[u8], page_size: usize, usable: usize)
         let mut next = u32::from_be_bytes(page.get(start + local..start + local + 4)?.try_into().ok()?);
         let mut overflow = vec![0u8; page_size];
         while bytes.len() < payload {
-            if next == 0 || read_some(file, &mut overflow, u64::from(next - 1) * page_size as u64)? != page_size {
-                return None;
-            }
-            next = u32::from_be_bytes(overflow[..4].try_into().ok()?);
+            let at = usize::try_from(next).ok()?.checked_sub(1)? * page_size;
+            let page: &[u8] = match first.get(at..at + page_size) {
+                Some(p) => p,
+                None if read_some(file, &mut overflow, at as u64)? == page_size => &overflow,
+                None => return None,
+            };
+            next = u32::from_be_bytes(page[..4].try_into().ok()?);
             let take = (payload - bytes.len()).min(usable - 4);
-            bytes.extend_from_slice(&overflow[4..4 + take]);
+            bytes.extend_from_slice(&page[4..4 + take]);
         }
     }
     let (from, len) = data_column(&bytes)?;

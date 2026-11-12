@@ -165,7 +165,7 @@ impl Opening {
 
 /// The thread's priority: 1 above normal (stage A), -1 below normal (stage B).
 #[allow(unsafe_code)]
-fn priority(level: i32) {
+pub(super) fn priority(level: i32) {
     #[cfg(windows)]
     // SAFETY: GetCurrentThread returns a pseudo-handle valid for this call; the priority value is
     // one of the documented THREAD_PRIORITY_* constants.
@@ -496,8 +496,11 @@ pub(super) fn connect(path: &Path) -> rusqlite::Result<(Connection, bool)> {
             }
             let conn = Connection::open_with_flags(path, flags | OpenFlags::SQLITE_OPEN_CREATE)?;
             sql::persist_wal(&conn);
-            // 64 KiB pages hold the boot record whole on page 2 (`boot_record`).
-            conn.execute_batch("PRAGMA page_size = 65536")?;
+            // 16 KiB pages: a commit writes whole pages to the WAL, so a keystroke's kill-safe
+            // commit (`Storage::commit_soon`) costs 16 KiB, not 64 (4 KiB would be 4, but a 5 MB
+            // attachment's commit then takes 25,754 µs against 12,319: `proof\storage-2\blob-page.txt`).
+            // The boot record continues on overflow pages inside the raw read's first 128 KiB.
+            conn.execute_batch("PRAGMA page_size = 16384")?;
             Ok((conn, true))
         }
         Err(e) => Err(e),

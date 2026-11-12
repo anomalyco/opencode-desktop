@@ -145,6 +145,8 @@ pub(crate) enum Cmd {
     GetPreview { server: String, session: String, done: PreviewRead },
     Cache { key: String, value: Option<(i64, Arc<[u8]>)> },
     GetCache { key: String, version: i64, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send> },
+    /// Commit the state, document and window rows set so far at the storage thread's next turn.
+    CommitSoon,
 }
 
 pub(crate) const BUFFER_STATE: u8 = 1;
@@ -223,6 +225,16 @@ impl Storage {
     /// app quit, session end and update restart. Nothing queued: returns at once, touching nothing.
     pub fn flush(&self, reason: FlushReason, deadline: std::time::Duration) -> FlushReport {
         self.inner.backend.flush(reason, deadline)
+    }
+
+    /// The kill-safe tier: the state, document and window rows set so far are committed to the
+    /// WAL at the storage thread's next turn, rather than when their write-behind timer fires.
+    /// Calls made before that turn share one commit. The commit hands the rows to the operating
+    /// system without a sync, so they survive the process being killed at any moment after it;
+    /// a power cut can still lose what came after the last synced checkpoint. For what the user
+    /// just did: a keystroke's draft (once per frame), a tab, panel or window change.
+    pub fn commit_soon(&self) {
+        self.send(Cmd::CommitSoon);
     }
 
     /// The first frame is on screen: the work that waited for it (removing imported files, the

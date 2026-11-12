@@ -2,8 +2,10 @@
 //! `src/main/storage/index.ts`): `opencode_storage` opens `opencode.sqlite` on its own thread as
 //! the first thing `main` does, hands the first frame its state in one read (the boot packet),
 //! and from then on every read comes from memory and every write goes behind, coalesced on the
-//! storage thread. Nothing here names a file: the web build backs the same calls with browser
-//! storage.
+//! storage thread, at its next turn: every state, document and window row set here asks for a
+//! kill-safe commit (`Storage::commit_soon`), so a kill loses at most the change in flight, and
+//! the writes of one turn share one commit. Nothing here names a file: the web build backs the
+//! same calls with browser storage.
 //!
 //! The open's two stages meet the windows in [`Phase`]: the first frame is built from the boot
 //! packet; once the first window has presented, stage B (SQLite itself, the cache of everything
@@ -370,6 +372,7 @@ fn put(name: &str, key: &str, value: Option<Arc<str>>) {
                 Some(v) => s.state().set(name, key, v.clone()),
                 None => s.state().delete(name, key),
             };
+            s.commit_soon();
         },
         |boot, queued| {
             let current = queued.state(name, key).unwrap_or_else(|| boot.state(name, key).map(Arc::from));
@@ -412,7 +415,10 @@ pub fn doc(key: &str) -> Lookup {
 /// Sets or removes a document. An unchanged one writes nothing.
 pub fn set_doc(key: &str, value: Option<String>) {
     with(
-        |s| s.documents().set(key, value.clone()),
+        |s| {
+            s.documents().set(key, value.clone());
+            s.commit_soon();
+        },
         |boot, queued| {
             let current = queued.doc(key).unwrap_or_else(|| boot.document(key).map(str::to_owned));
             if current != value {
@@ -451,7 +457,10 @@ pub fn frame(id: &str) -> Option<WindowFrame> {
 /// Records window `id`'s frame (coalesced; call when a move or resize settles and on close).
 pub fn set_frame(id: &str, frame: WindowFrame) {
     with(
-        |s| s.windows().set_frame(id, frame),
+        |s| {
+            s.windows().set_frame(id, frame);
+            s.commit_soon();
+        },
         |boot, queued| {
             if queued.frames.iter().rev().find(|(i, _)| i == id).map(|(_, f)| *f).or_else(|| boot.frame(id)) != Some(frame) {
                 queued.frames.push((id.to_owned(), frame));
@@ -553,7 +562,13 @@ pub fn with_storage(f: impl FnOnce(&Storage) + Send + 'static) {
 
 /// Window `id` closed for good: its frame, tabs, panes and drafts go (Desktop's `registry.closed`).
 pub fn forget_window(id: &str) {
-    with(|s| s.windows().forget(id), |_, queued| queued.forgotten.push(id.to_owned()));
+    with(
+        |s| {
+            s.windows().forget(id);
+            s.commit_soon();
+        },
+        |_, queued| queued.forgotten.push(id.to_owned()),
+    );
 }
 
 /// Window `id`'s own namespace (`opencode.window.<id>.dat`), every row of it: what the packet

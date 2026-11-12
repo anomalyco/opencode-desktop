@@ -72,6 +72,9 @@ impl Batch {
     }
 }
 
+/// The page size a file is rewritten to (`Writer::repage`), and the largest file rewritten.
+const REPAGE_TO: i64 = 16384;
+const REPAGE_MAX: i64 = 64 * 1024 * 1024;
 const STATE_MS: u64 = 250;
 const DOCS_MS: u64 = 500;
 const WINDOWS_MS: u64 = 250;
@@ -83,6 +86,10 @@ type Armed = Option<(Attempt, Instant)>;
 
 pub(crate) struct Writer {
     conn: Connection,
+    /// A `Cmd::CommitSoon` came: commit the buffered rows once the queue is drained.
+    commit_due: bool,
+    /// The WAL, opened once for `sync_wal`.
+    wal_file: Option<std::fs::File>,
     cache: Arc<Mutex<Cache>>,
     clock: fn() -> i64,
     seq: Seq,
@@ -142,6 +149,8 @@ impl Writer {
             deferred,
             touched: HashMap::new(),
             written: 0,
+            commit_due: false,
+            wal_file: None,
         }
     }
 
@@ -166,6 +175,7 @@ impl Writer {
                 let cmds = {
                     let mut q = super::lock_queue(&queue);
                     q.armed = armed;
+                    q.commit_queued = false;
                     std::mem::take(&mut q.cmds)
                 };
                 if cmds.is_empty() {
@@ -174,16 +184,22 @@ impl Writer {
                 for cmd in cmds {
                     self.handle(cmd);
                 }
+                self.commit_if_due();
             }
             let msg = match self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() {
                 Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
             // Commands made before the message (a flush, the first frame, a stop) come first.
-            let cmds = std::mem::take(&mut super::lock_queue(&queue).cmds);
+            let cmds = {
+                let mut q = super::lock_queue(&queue);
+                q.commit_queued = false;
+                std::mem::take(&mut q.cmds)
+            };
             for cmd in cmds {
                 self.handle(cmd);
             }
+            self.commit_if_due();
             match msg {
                 Ok(Msg::Wake) => {}
                 Ok(Msg::Flush { reason, started, reply }) => {
@@ -195,6 +211,7 @@ impl Writer {
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
                     self.flush(FlushReason::Quit, Instant::now());
                     self.quit_checkpoint(FlushReason::Quit);
+                    self.repage();
                     self.close_machines();
                     return;
                 }
@@ -305,6 +322,7 @@ impl Writer {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::CommitSoon => self.commit_due = true,
             Cmd::State { name, key, value } => self.state_event(WriteBehindEvent::Set { key: (name, key), value }),
             Cmd::ClearState { name } => {
                 let n = name.clone();
@@ -338,11 +356,17 @@ impl Writer {
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
                 outbox::native::Prepared::Write(w, blobs, clear) => {
-                    let r = self.durable(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
+                    // Committed to the WAL (kill-safe), answered, then synced: the request leaves
+                    // on the answer, and only a power cut in the sync's few ms is left open.
+                    let r = self.committed(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
                     if r.is_ok() {
                         outbox::cached(&mut self.cache().outbox, &w);
                     }
+                    let ok = r.is_ok();
                     answer(done, r);
+                    if ok {
+                        self.sync_wal();
+                    }
                 }
                 outbox::native::Prepared::Read { server, adopt, done } => {
                     let adopted = match outbox::native::has_adoptees(&self.conn, &adopt) {
@@ -405,6 +429,40 @@ impl Writer {
         self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// A kill-safe write: committed to the WAL (handed to the operating system, no sync) before
+    /// it returns; `sync_wal` makes it survive a power cut too.
+    fn committed(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
+        let now = (self.clock)();
+        let result = (|| {
+            // Unsynced, the WAL header included (see `commit_if_due`); `sync_wal` follows.
+            self.conn.execute_batch("PRAGMA synchronous = OFF")?;
+            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+            f(&tx, now)?;
+            tx.commit()
+        })();
+        self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+        match result {
+            Ok(()) => {
+                self.wal_event(WalEvent::Committed { boot });
+                Ok(())
+            }
+            Err(e) => Err(StorageError(e.to_string())),
+        }
+    }
+
+    /// The WAL's frames to the disk (what `synchronous = FULL` does at each commit), through a
+    /// handle of its own kept open; a failed sync waits for the next checkpoint's.
+    fn sync_wal(&mut self) {
+        if self.wal_file.is_none() {
+            let path = self.conn.path().map(|p| format!("{p}-wal"));
+            self.wal_file = path.and_then(|p| std::fs::OpenOptions::new().write(true).open(p).ok());
+        }
+        if let Some(f) = &self.wal_file {
+            f.sync_data().ok();
+        }
+        rune::marks::mark("outbox.synced");
+    }
+
     /// A Tier 0 write: committed and synced before it returns.
     fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
@@ -443,6 +501,50 @@ impl Writer {
         // closing; closing the storage waits for it.
         let checkpointed = quit && self.wal != WalState::Clean;
         FlushReport { clean: false, rows: self.written, micros: super::micros(started), checkpointed, timed_out: false }
+    }
+
+    /// A file made before 16 KiB pages is rewritten with them as the storage closes, once, while
+    /// it's small enough to take a few ms (`REPAGE_MAX`): a commit writes whole pages to the WAL,
+    /// and the kill-safe tier commits a keystroke's draft at a time. A bigger file keeps its 64 KiB
+    /// pages. Rewritten with `VACUUM` under the rollback journal, so a kill midway leaves the old
+    /// file; the boot record's raw read is kept only if its table's root is still page 2.
+    fn repage(&mut self) {
+        let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
+        let (page, pages) = (get("page_size"), get("page_count"));
+        if page <= REPAGE_TO || page * pages > REPAGE_MAX {
+            return;
+        }
+        let t = Instant::now();
+        let done = self.conn.execute_batch(&format!("PRAGMA journal_mode = DELETE; PRAGMA page_size = {REPAGE_TO}; VACUUM; PRAGMA journal_mode = WAL;"));
+        // The WAL back to empty: the next launch reads the record raw.
+        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
+        let root: i64 = self.conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'boot'", [], |r| r.get(0)).unwrap_or(0);
+        if root != 2
+            && let Ok(version) = super::schema::user_version(&self.conn)
+        {
+            super::schema::set_flags(&self.conn, version & super::schema::FLAG_MASK & !super::schema::FLAG_BOOT_PAGE2).ok();
+        }
+        eprintln!("opencode-storage: {} {} pages of {page} B into {REPAGE_TO} B pages in {} us", if done.is_ok() { "rewrote" } else { "couldn't rewrite" }, pages, t.elapsed().as_micros());
+    }
+
+    /// The kill-safe tier (`Storage::commit_soon`): once the queue is drained, the state,
+    /// document and window rows waiting in their buffers go to the WAL in one commit (no sync).
+    fn commit_if_due(&mut self) {
+        if !std::mem::take(&mut self.commit_due) {
+            return;
+        }
+        let mut batches: Vec<Batch> = Vec::new();
+        batches.extend(step_buffer(&mut self.seq, &mut self.state, WriteBehindEvent::FlushRequested, STATE_MS, "state", &mut self.timers).into_iter().map(|(a, m)| Batch::State(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.docs, WriteBehindEvent::FlushRequested, DOCS_MS, "docs", &mut self.timers).into_iter().map(|(a, m)| Batch::Docs(a, m)));
+        batches.extend(step_buffer(&mut self.seq, &mut self.windows, WriteBehindEvent::FlushRequested, WINDOWS_MS, "windows", &mut self.timers).into_iter().map(|(a, m)| Batch::Windows(a, m)));
+        if !batches.is_empty() {
+            // No sync at all, not even the WAL header's after a checkpoint (1,400 µs at NORMAL
+            // against 145-165 µs, `proof\storage-2\first-commit.txt`): the frames are the
+            // operating system's once written; the next checkpoint (at NORMAL) syncs them.
+            self.conn.execute_batch("PRAGMA synchronous = OFF").ok();
+            self.commit(batches);
+            self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
+        }
     }
 
     /// The quit's checkpoint, after its flush answered: the next open finds the WAL empty and

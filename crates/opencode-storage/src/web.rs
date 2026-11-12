@@ -166,6 +166,7 @@ fn offline(cmd: Cmd) {
         Cmd::GetBlob { done, .. } => done(None),
         Cmd::GetPreview { done, .. } => done(None),
         Cmd::GetCache { done, .. } => done(None),
+        Cmd::CommitSoon => {}
         _ => {}
     }
 }
