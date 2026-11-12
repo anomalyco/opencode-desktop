@@ -159,13 +159,34 @@ pub fn add(s: &mut App, server: machine::Saved) {
 }
 
 /// `servers.remove`.
-pub fn remove(url: &str) {
-    with(|r| {
-        r.list.retain(|x| x.url != url);
+pub fn remove(url: &str) -> Option<(Server, usize)> {
+    let gone = with(|r| {
+        let at = r.list.iter().position(|x| x.url == url)?;
+        let server = r.list.remove(at);
         r.health.remove(url);
+        save(&r.list);
+        Some((server, at))
+    });
+    changed();
+    gone
+}
+
+/// A removed server's Undo: listed again at `index`, password and name as they were.
+pub fn put_back(server: Server, index: usize) {
+    with(|r| {
+        r.list.retain(|x| x.url != server.url);
+        let at = index.min(r.list.len());
+        r.list.insert(at, server);
         save(&r.list);
     });
     changed();
+}
+
+/// Removes `url` and offers it back (`crate::undo`).
+pub fn remove_offering(s: &mut App, url: &str) {
+    if let Some((server, index)) = remove(url) {
+        crate::undo::offer(s, opencode_i18n::t!("rune.undo.serverRemoved"), crate::undo::Undoable::Server { server, index });
+    }
 }
 
 /// Checks each server that has no check yet.

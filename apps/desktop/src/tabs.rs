@@ -153,27 +153,74 @@ pub struct ClosedTab {
     pub prompted: bool,
 }
 
-/// Closed session tabs, oldest first, as Desktop's `tabs.closed`: a session appears once, at
-/// its latest close, keyed by its server and id (`shell/tabs/closed.ts`). Drafts are never
-/// recorded; their state goes with them.
+/// Closed tabs, oldest first, as Desktop's `tabs.closed`: a session appears once, at its latest
+/// close, keyed by its server and id (`shell/tabs/closed.ts`). Beyond Desktop, which disposes a
+/// closed draft with its words, a draft tab closed with something in it is kept too, with when it
+/// closed (`DRAFT_DAYS`), and ⇧⌘T reopens it whole; `Recently closed` lists sessions only.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Closed(Vec<ClosedTab>);
+pub struct Closed(Vec<ClosedTab>, Vec<(String, i64)>);
+
+/// How long a closed draft stays reopenable.
+pub const DRAFT_DAYS: i64 = 7;
 
 impl Closed {
     pub fn push(&mut self, entry: ClosedTab) {
-        if entry.tab.is_draft() {
-            return;
-        }
         self.0.retain(|e| !e.tab.is(&entry.tab.server, &entry.tab.id));
         self.0.push(entry);
         let over = self.0.len().saturating_sub(CLOSED_LIMIT);
         self.0.drain(..over);
+        let kept: Vec<&str> = self.0.iter().filter(|e| e.tab.is_draft()).map(|e| e.tab.id.as_str()).collect();
+        self.1.retain(|(id, _)| kept.contains(&id.as_str()));
+    }
+
+    /// A draft tab closed at `at_ms` with something in it: reopenable.
+    pub fn push_draft(&mut self, entry: ClosedTab, at_ms: i64) {
+        let id = entry.tab.id.clone();
+        self.push(entry);
+        self.1.retain(|(d, _)| *d != id);
+        self.1.push((id, at_ms));
+    }
+
+    /// Every entry, oldest first, drafts included.
+    pub fn entries(&self) -> impl Iterator<Item = &ClosedTab> + '_ {
+        self.0.iter()
+    }
+
+    /// The closed drafts as the window keeps them (`rune.closedDrafts`): id, folder, place, when.
+    pub fn drafts_json(&self) -> serde_json::Value {
+        self.1.iter().filter_map(|(id, at)| {
+            let e = self.0.iter().find(|e| e.tab.is_draft() && e.tab.id == *id)?;
+            Some(serde_json::json!({ "draftID": id, "directory": e.tab.directory, "index": e.index, "closedAt": at }))
+        }).collect()
+    }
+
+    /// Takes back the closed drafts kept as `drafts_json` writes them, dropping those closed more
+    /// than `DRAFT_DAYS` before `now_ms`; the ids of those dropped, whose words go.
+    pub fn take_drafts_json(&mut self, v: &serde_json::Value, now_ms: i64) -> Vec<String> {
+        let mut expired = Vec::new();
+        for d in v.as_array().into_iter().flatten() {
+            let (Some(id), Some(at)) = (d["draftID"].as_str(), d["closedAt"].as_i64()) else { continue };
+            if now_ms - at > DRAFT_DAYS * 24 * 3600 * 1000 {
+                expired.push(id.to_owned());
+                continue;
+            }
+            let tab = Tab::draft(id, d["directory"].as_str().unwrap_or_default());
+            let entry = ClosedTab { tab, index: d["index"].as_u64().unwrap_or(0) as usize, prompted: false };
+            self.push_draft(entry, at);
+        }
+        expired
     }
 
     /// Takes the newest closed tab that isn't open again (or `target`'s), dropping stale ones
     /// passed on the way (`takeClosedTab`).
     pub fn take(&mut self, open: &[Tab], target: Option<&str>) -> Option<ClosedTab> {
-        let is_open = |e: &ClosedTab| open.iter().any(|t| t.kind == TabKind::Session && t.is(&e.tab.server, &e.tab.id));
+        let taken = self.take_entry(open, target)?;
+        self.1.retain(|(id, _)| *id != taken.tab.id);
+        Some(taken)
+    }
+
+    fn take_entry(&mut self, open: &[Tab], target: Option<&str>) -> Option<ClosedTab> {
+        let is_open = |e: &ClosedTab| open.iter().any(|t| t.kind == e.tab.kind && t.is(&e.tab.server, &e.tab.id));
         if let Some(id) = target {
             let at = self.0.iter().rposition(|e| e.tab.id == id)?;
             return (!is_open(&self.0[at])).then(|| self.0.remove(at));
@@ -188,7 +235,7 @@ impl Closed {
 
     /// Newest first, without tabs open again (`listClosedTabs`).
     pub fn list<'a>(&'a self, open: &'a [Tab]) -> impl Iterator<Item = &'a ClosedTab> + 'a {
-        self.0.iter().rev().filter(|e| !open.iter().any(|t| t.kind == TabKind::Session && t.is(&e.tab.server, &e.tab.id)))
+        self.0.iter().rev().filter(|e| !e.tab.is_draft()).filter(|e| !open.iter().any(|t| t.kind == TabKind::Session && t.is(&e.tab.server, &e.tab.id)))
     }
 
     /// Sessions of the server the window works against now that are gone for good leave the
@@ -202,6 +249,7 @@ impl Closed {
     pub fn to_doc(&self) -> Vec<doc::ClosedTab> {
         self.0
             .iter()
+            .filter(|e| !e.tab.is_draft())
             .map(|e| {
                 let (_, mut info) = e.tab.to_doc();
                 info.prompted = e.prompted.then_some(true);

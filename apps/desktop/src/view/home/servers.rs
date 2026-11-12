@@ -285,7 +285,7 @@ fn open_menu(s: &mut App, key: &ServerKey, tx: &mut Tx) {
         }
         (Some("remove"), Some(url)) => {
             tx.instant();
-            crate::servers::remove(url);
+            crate::servers::remove_offering(s, url);
             crate::servers::dialog::sync(s, tx);
         }
         _ => {}

@@ -41,6 +41,8 @@ const CONTENT_FADE: Anim = Anim::new(Curve::tween(CONTENT_FADE_SECS, Easing::EAS
 #[derive(Clone, Debug)]
 pub enum ToastAction {
     UndoRewind(UndoRewind),
+    /// Puts back what the toast says was done (`crate::undo`): its offer goes with the toast.
+    Undo,
     /// A plugin's button (its label) that shows a path in the file manager (desktop.reveal).
     Reveal(String, PathBuf),
 }
@@ -202,7 +204,11 @@ fn step(s: &mut App, event: ToastEvent<Shown>, mut tx: Option<&mut Tx>) {
             ToastEffect::WakeAt(due) => Some(due),
             // A toast shown again in front pulses (`pulseToast`), unless motion is reduced.
             ToastEffect::Pulse(id) if !*s.reduced_motion => s.toast.pulse.step(PulseEvent::Start { id, now: *s.clock }),
-            ToastEffect::Pulse(_) | ToastEffect::Closed(_) => None,
+            ToastEffect::Closed(id) => {
+                crate::undo::toast_closed(s, id);
+                None
+            }
+            ToastEffect::Pulse(_) => None,
         };
         // Without a `Tx`, the next poll wakes for it.
         if let (Some(due), Some(tx)) = (wake, tx.as_deref_mut()) {
@@ -215,7 +221,7 @@ fn step(s: &mut App, event: ToastEvent<Shown>, mut tx: Option<&mut Tx>) {
 /// in place, a buried one comes to the front (`showToast`'s key).
 fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
     let action = entry.action.as_ref().map(|a| match a {
-        ToastAction::UndoRewind(_) => "undo".to_owned(),
+        ToastAction::UndoRewind(_) | ToastAction::Undo => "undo".to_owned(),
         ToastAction::Reveal(label, _) => label.clone(),
     });
     let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, entry.description.as_deref().unwrap_or(""));
@@ -239,6 +245,12 @@ fn entry(title: impl Into<String>, description: Option<String>, persistent: bool
 pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
     let e = Entry { action: Some(ToastAction::UndoRewind(undo)), ..entry(opencode_i18n::t!("session.rewind.toast.title"), None, false) };
     show(s, e, Some(DURATION))
+}
+
+/// Shows `title` with an `Undo` button for [`crate::undo::SECS`] s; its id, which the offer goes by.
+pub fn undoable(s: &mut App, title: &str) -> u64 {
+    let e = Entry { action: Some(ToastAction::Undo), ..entry(title, None, false) };
+    show(s, e, Some(crate::undo::SECS))
 }
 
 /// Shows a message that leaves after [`DURATION`] s.
@@ -535,7 +547,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
 
     let action_btn = entry.action.as_ref().map(|action| {
         let (key, label) = match action {
-            ToastAction::UndoRewind(_) => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
+            ToastAction::UndoRewind(_) | ToastAction::Undo => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
             ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
         };
         let action = action.clone();
@@ -555,10 +567,15 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
                 .press(p.pressed)
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    // The offer is taken before its toast goes, which would withdraw it.
+                    if matches!(action, ToastAction::Undo) {
+                        crate::undo::pressed(s, id, tx);
+                    }
                     dismiss_id(s, id);
                     match action.clone() {
                         ToastAction::UndoRewind(undo) => s.undo_rewind(undo, tx),
                         ToastAction::Reveal(_, path) => crate::plugin_host::reveal(&path.to_string_lossy()),
+                        ToastAction::Undo => {}
                     }
                 })
                 .child(text(label).font(TITLE).color(p.text))

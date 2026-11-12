@@ -21,12 +21,14 @@ mod life;
 mod open;
 pub mod peer;
 pub mod placement;
+pub mod reopen;
 pub mod store;
 pub mod taskbar;
 pub mod tear;
 pub(crate) mod tear_stories;
 
 pub use open::{launch, new_window, opened};
+pub use reopen::reopen;
 
 /// One window's identity and what it tracks of itself.
 #[derive(Default)]
@@ -264,6 +266,10 @@ impl App {
             return;
         }
         let last = OPEN.with(|o| !o.borrow().iter().any(|w| w.id != id && w.life.saved()));
+        // A window closed while others stay is kept, to open again (`reopen`).
+        if !last && !rune::quitting() {
+            self.keep_closed_window();
+        }
         let effect = life(&id, life::LifeEvent::Closing { keep: rune::quitting() || last });
         life(&id, life::LifeEvent::Closed);
         if effect != life::LifeEffect::Keep {

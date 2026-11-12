@@ -274,7 +274,7 @@ pub(crate) fn http_row(p: &Pal, server: &crate::servers::Server) -> El {
                 Some("edit") => crate::servers::dialog::open(s, Some(&url), tx),
                 Some("remove") => {
                     tx.instant();
-                    crate::servers::remove(&url);
+                    crate::servers::remove_offering(s, &url);
                     crate::servers::dialog::sync(s, tx);
                 }
                 _ => {}

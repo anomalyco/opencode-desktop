@@ -256,6 +256,8 @@ impl App {
             self.close_tab(&uid, tx);
         }
         self.write(opencode_kit::client::Write::Archive(id.to_owned()));
+        // Beyond Desktop: the toast offers it back, tab and all.
+        crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
     }
 
     /// Unarchive: it comes back to its group (`inbox.unarchive`).

@@ -150,6 +150,28 @@ impl App {
         }
     }
 
+    /// Whether draft `key` holds anything worth reopening: words, files, context or cards.
+    pub(crate) fn draft_has_content(&self, key: &str) -> bool {
+        if self.composer_holds(key) {
+            return !self.composer.text.trim().is_empty() || self.attach.any() || !self.attach.context.is_empty() || self.quote.any();
+        }
+        self.restore.drafts.contains_key(key) || self.restore.parked.get(key).is_some_and(|p| !p.is_empty())
+    }
+
+    /// The shown draft's tab closed but the draft stays (it can be reopened): it's parked as a
+    /// tab switch parks it, its field's undo history with it, and the composer holds no draft.
+    pub(crate) fn park_shown_draft(&mut self) {
+        let Some(key) = self.restore.shown.take() else { return };
+        self.add.swap_draft(Some(key.as_str()), None);
+        let edit = (*self.composer).clone();
+        let (text, parked) = self.take_composer_draft();
+        self.restore.edits.insert(key.clone(), edit);
+        self.park_draft(key, text, parked);
+        let focused = self.composer.focused;
+        *self.composer = TextEdit::new("");
+        self.composer.focused = focused;
+    }
+
     /// The shown draft is gone (its tab closed or moved to another window): the composer empties
     /// and holds no draft until the next shows.
     pub(crate) fn drop_shown_draft(&mut self) {

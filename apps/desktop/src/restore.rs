@@ -259,18 +259,27 @@ impl App {
             _ if !crate::storage::is_ready() => return false,
             _ => {}
         }
+        let mut expired = Vec::new();
         if matches!(self.restore.hydration, Hydration::Boot) {
-            let doc = WindowDoc::from_json(&crate::windows::store::load(&self.window));
+            let raw = crate::windows::store::load(&self.window);
+            let doc = WindowDoc::from_json(&raw);
             // Tabs closed since launch stay newest.
             let mut closed = crate::tabs::Closed::from_doc(&doc.closed);
-            for e in self.closed.list(&[]).collect::<Vec<_>>().into_iter().rev() {
-                closed.push(e.clone());
+            expired = closed.take_drafts_json(&raw["rune.closedDrafts"], *self.now_ms);
+            for e in self.closed.entries().cloned().collect::<Vec<_>>() {
+                if e.tab.is_draft() { closed.push_draft(e, *self.now_ms) } else { closed.push(e) }
             }
             *self.closed = closed;
             self.restore.written.keys.insert("tabs.closed", closed_json(&self.closed));
+            self.restore.written.keys.insert("rune.closedDrafts", self.closed.drafts_json());
         }
         let (ready, pending) = crate::windows::store::drafts(&self.window);
         self.take_drafts(&ready);
+        // A draft closed more than a week ago goes with its words.
+        for id in expired {
+            self.restore.drafts.remove(&id);
+            self.restore.parked.remove(&id);
+        }
         // A draft that still can't be read after its load stays where it is, unshown.
         if pending.is_empty() || matches!(self.restore.hydration, Hydration::Loading { .. }) {
             self.restore.hydration = Hydration::Done;
@@ -361,9 +370,9 @@ impl App {
     }
 
     /// The window's own rows (Desktop's `opencode.window.<id>.dat` keys) as they stand.
-    fn window_keys(&self) -> [(&'static str, Value); 4] {
+    fn window_keys(&self) -> [(&'static str, Value); 5] {
         let recent = self.current_tab().and_then(|uid| self.tab(&uid)).map(|t| json!({ "key": t.key().encode() }));
-        [("lastActiveUrl", json!(page_href(self))), ("tabs.recent", recent.unwrap_or(Value::Null)), ("side", self.side.to_json()), ("tabs.closed", closed_json(&self.closed))]
+        [("lastActiveUrl", json!(page_href(self))), ("tabs.recent", recent.unwrap_or(Value::Null)), ("side", self.side.to_json()), ("tabs.closed", closed_json(&self.closed)), ("rune.closedDrafts", self.closed.drafts_json())]
     }
 
     /// Every window's rows this one shares (Desktop's global `layout` sidebar, `sidebar.inbox`,
@@ -395,6 +404,11 @@ impl App {
                 Some((self.draft_tab_key(k).encode(), v))
             })
             .collect()
+    }
+
+    /// Every draft's document as it stands, by tab key: what a closed window keeps (`windows::reopen`).
+    pub(crate) fn draft_documents(&self) -> HashMap<String, String> {
+        self.drafts_now()
     }
 
     /// Records what stands now as written: the rows read at launch.
@@ -461,7 +475,7 @@ impl App {
         let hydrated = self.hydrated();
         for (key, value) in self.window_keys() {
             // The closed tabs on disk aren't in memory until the window is hydrated.
-            if (key == "tabs.closed" && !hydrated) || self.restore.written.keys.get(key) == Some(&value) {
+            if (matches!(key, "tabs.closed" | "rune.closedDrafts") && !hydrated) || self.restore.written.keys.get(key) == Some(&value) {
                 continue;
             }
             crate::windows::store::save(&self.window, key, &value);

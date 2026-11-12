@@ -237,7 +237,18 @@ impl App {
                 let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(&id)).unwrap_or(false);
                 self.closed.push(ClosedTab { tab, index: i, prompted });
             }
-            // A closed draft goes with its words; it can't be reopened (Desktop's `disposeTab`).
+            // A draft with something in it is kept, words, files and all, and can be reopened
+            // (⇧⌘T, or the toast's Undo); Desktop disposes of it (`disposeTab`).
+            TabKind::Draft if self.draft_has_content(&id) => {
+                self.forget_draft_history(&id);
+                if shown {
+                    self.park_shown_draft();
+                }
+                let now = *self.now_ms;
+                self.closed.push_draft(ClosedTab { tab, index: i, prompted: false }, now);
+                crate::undo::offer(self, opencode_i18n::t!("rune.undo.draftClosed"), crate::undo::Undoable::DraftTab { draft: id.clone() });
+            }
+            // An empty one just goes.
             TabKind::Draft => {
                 self.forget_draft_history(&id);
                 self.restore.drafts.remove(&id);
@@ -270,10 +281,11 @@ impl App {
     pub(crate) fn reopen_closed(&mut self, target: Option<&str>, append: bool, tx: &mut Tx) {
         let Some(entry) = self.closed.take(&self.tabs, target) else { return };
         let at = if append { self.tabs.len() } else { entry.index.min(self.tabs.len()) };
-        let id = entry.tab.id.clone();
+        let (id, uid, draft) = (entry.tab.id.clone(), entry.tab.uid(), entry.tab.is_draft());
         crate::servers::runtime::switch(self, &entry.tab.server);
         self.tabs.insert(at, entry.tab);
-        self.open(&id, tx);
+        // A draft comes back with what it held (its words and the rest stayed parked).
+        if draft { self.select_tab(&uid, tx) } else { self.open(&id, tx) }
         self.save_tabs();
     }
 

@@ -229,6 +229,7 @@ mod turn_errors_stories;
 mod type_to_compose;
 #[cfg(feature = "office")]
 mod office;
+mod undo;
 mod updater;
 mod usage;
 mod view;
@@ -450,6 +451,8 @@ pub struct App {
     pub unsent: rune::Tracked<send_failed::Log>,
     /// Sessions shown before the server has them (`new_session.rs`).
     pub starts: rune::Tracked<new_session::Starts>,
+    /// What the window's toasts offer back (`undo`).
+    pub undos: rune::Tracked<undo::Undos>,
     /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
     pub new_worktree: rune::Tracked<new_worktree::NewWorktree>,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
@@ -1288,6 +1291,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.poll_preview(false);
         changed |= s.poll_copies(tx);
         changed |= s.poll_line_comments();
+        crate::windows::reopen::poll(s);
+        crate::windows::reopen::poll_asked(s);
         s.prompts.hydrate((*s.waker).clone());
         s.poll_window();
         s.poll_taskbar();
