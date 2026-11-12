@@ -14,7 +14,8 @@ use crate::App;
 /// A Text rendering choice, as saved (`textRenderer`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextRenderer {
-    /// Rune's default here: Windfoil with Chromium's weight, or Retina-like on macOS.
+    /// Rune's default here: Windfoil with Chromium's weight, or on macOS CoreText's text without
+    /// font smoothing, as official draws it ([`default_mode`]).
     #[default]
     Default,
     WindfoilMac,
@@ -91,7 +92,7 @@ impl TextRenderer {
     /// The mode it draws with, when Rune has one for it.
     fn mode(self) -> Option<FontSmoothing> {
         Some(match self {
-            Self::Default => FontSmoothing::default(),
+            Self::Default => default_mode(),
             Self::WindfoilMac => FontSmoothing::Windfoil,
             Self::WindfoilChromium => FontSmoothing::WindfoilChromium,
             Self::Slug => FontSmoothing::Slug,
@@ -153,7 +154,7 @@ pub enum RenderingEffect {
 impl Rendering {
     pub fn mode(self) -> FontSmoothing {
         match self {
-            Rendering::Unapplied => FontSmoothing::default(),
+            Rendering::Unapplied => default_mode(),
             Rendering::Applied { mode, .. } | Rendering::FellBack { mode, .. } => mode,
         }
     }
@@ -181,12 +182,20 @@ impl Rendering {
     }
 }
 
+/// What Default draws. On macOS that's CoreText's text with font smoothing off, which is what
+/// official draws: its `<body>` is `antialiased` (`-webkit-font-smoothing: antialiased`), and
+/// Rune's own macOS default, `On`, adds smoothing's dilation, so its text came out heavier.
+/// Elsewhere it's Rune's default. Retina-like still draws `On`.
+fn default_mode() -> FontSmoothing {
+    if cfg!(target_os = "macos") { FontSmoothing::Off } else { FontSmoothing::default() }
+}
+
 fn resolve(choice: TextRenderer) -> Rendering {
     match (choice.mode(), choice.support()) {
         (Some(mode), SmoothingSupport::Yes) => Rendering::Applied { choice, mode },
         (Some(mode), SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode, reason },
-        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: FontSmoothing::default(), reason },
-        (_, _) => Rendering::FellBack { choice, mode: FontSmoothing::default(), reason: "" },
+        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: default_mode(), reason },
+        (_, _) => Rendering::FellBack { choice, mode: default_mode(), reason: "" },
     }
 }
 
