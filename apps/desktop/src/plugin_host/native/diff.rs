@@ -171,9 +171,11 @@ fn files(sr: &SessionReview) -> Vec<Data> {
         .collect()
 }
 
-/// The version of what `Dep::Diff(session)` reads.
-pub fn version(app: &App, session: &str) -> (u64, bool, bool) {
-    (app.review.sessions.get(session).map_or(0, |sr| sr.stamp), app.review.diff_mode == DiffMode::Split, app.review.expand_mode == ExpandMode::Expand)
+/// The version of what `Dep::Diff(session)` reads, the file heading stuck over the scrolled
+/// diff included: scrolling past a file's heading sticks it without changing the diff.
+pub fn version(app: &App, session: &str) -> (u64, bool, bool, Option<usize>) {
+    let sr = app.review.sessions.get(session);
+    (sr.map_or(0, |sr| sr.stamp), app.review.diff_mode == DiffMode::Split, app.review.expand_mode == ExpandMode::Expand, sr.and_then(|sr| sr.diffs.sticky()))
 }
 
 /// The version of what `Dep::NarrowReview(session)` reads: the files open in the narrow list
