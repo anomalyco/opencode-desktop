@@ -51,10 +51,14 @@ pub fn end_promptly() {
 
 /// After the first frame: D3D12's background threads (shader work for the driver) from idle to
 /// below normal priority, still under the UI's, so a process ended from outside (Task Manager, the
-/// uninstaller closing running copies) isn't kept alive by them waiting for an idle CPU.
+/// uninstaller closing running copies) isn't kept alive by them waiting for an idle CPU. On a thread
+/// of its own: the snapshot lists every thread on the machine, 100-125 ms on a busy one, which held
+/// the UI thread (and What's New's first picture) just after the first frame.
 pub fn unidle_gpu_threads() {
     #[cfg(target_os = "windows")]
-    raise_threads(|name| name.starts_with("D3D Background Thread"), windows_sys::Win32::System::Threading::THREAD_PRIORITY_BELOW_NORMAL);
+    let _ = std::thread::Builder::new()
+        .name("unidle-gpu-threads".into())
+        .spawn(|| raise_threads(|name| name.starts_with("D3D Background Thread"), windows_sys::Win32::System::Threading::THREAD_PRIORITY_BELOW_NORMAL));
 }
 
 /// Raises this process's threads whose name passes `named` and whose priority is under `floor` to
