@@ -292,9 +292,20 @@ pub fn desktop_recent_tabs(dirs: &[PathBuf]) -> Option<(serde_json::Value, serde
     let (dir, _) = seed::pick(dirs)?;
     seed::recent_tabs(&dir.join("drafts.sqlite"))
 }
+/// Has SQLite count its heap from now on, which the build leaves off (`SQLITE_DEFAULT_MEMSTATUS=0`):
+/// for a measuring build, before the first connection opens.
+pub fn count_sqlite_memory() {
+    // SAFETY: SQLITE_CONFIG_MEMSTATUS (9) with an int, before SQLite is initialised; afterwards
+    // SQLite refuses it with SQLITE_MISUSE and nothing changes.
+    #[allow(unsafe_code)]
+    unsafe {
+        rusqlite::ffi::sqlite3_config(9, 1 as std::ffi::c_int);
+    }
+}
+
 /// SQLite's own heap now and at its highest, in bytes (`sqlite3_memory_used`,
 /// `sqlite3_memory_highwater`): its page caches and statements, which live outside the app's
-/// allocator.
+/// allocator. Zero unless [`count_sqlite_memory`] ran first.
 pub fn sqlite_memory() -> (i64, i64) {
     // SAFETY: both are thread-safe reads of SQLite's global counters.
     #[allow(unsafe_code)]

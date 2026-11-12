@@ -37,6 +37,7 @@ pub fn publish_vms(app: &crate::App) {
 /// and SQLite's own heap, which the allocator sites can't name by plugin or see at all.
 #[cfg(feature = "alloc-sites")]
 pub fn register_reports() {
+    opencode_storage::count_sqlite_memory();
     procwatch::alloc::sites::contribute("luau-vms", || VMS.lock().map(|v| v.iter().map(|(id, bytes)| format!("vm {bytes} {id}\n")).collect()).unwrap_or_default());
     procwatch::alloc::sites::contribute("sqlite", || {
         let (used, high) = opencode_storage::sqlite_memory();

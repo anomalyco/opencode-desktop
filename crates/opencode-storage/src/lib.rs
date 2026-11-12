@@ -38,7 +38,7 @@ pub use stores::{CacheStore, DocumentStore, PreviewStore, StateStore, WindowStor
 #[cfg(not(target_arch = "wasm32"))]
 use native::Backend;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{BootReport, Opening, StorageConfig, desktop_recent_tabs, sqlite_memory};
+pub use native::{BootReport, Opening, StorageConfig, count_sqlite_memory, desktop_recent_tabs, sqlite_memory};
 #[cfg(target_arch = "wasm32")]
 use web::Backend;
 #[cfg(target_arch = "wasm32")]
