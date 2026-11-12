@@ -1256,6 +1256,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= s.hydrate_restore();
         s.poll_restore();
         s.poll_preview(false);
+        changed |= s.poll_copies(tx);
         s.prompts.hydrate((*s.waker).clone());
         s.poll_window();
         // A window with its own id saves its frame itself (`windows`), as AppKit's one autosave

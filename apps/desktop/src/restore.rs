@@ -8,6 +8,7 @@
 //! `sidebar.organize`). A keystroke writes only its draft's document; a sidebar drag only
 //! `layout`.
 
+mod copies;
 mod doc;
 mod parked;
 mod preview;
@@ -78,6 +79,7 @@ pub struct Restore {
     /// Whether the window has what the boot didn't hold: its closed tabs and other drafts.
     hydration: Hydration,
     previews: preview::Previews,
+    copies: copies::Copies,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.

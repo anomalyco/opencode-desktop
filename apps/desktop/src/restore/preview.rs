@@ -23,7 +23,7 @@ const BYTES: usize = 48 * 1024;
 pub struct Previews(HashMap<String, u64>);
 
 /// What a session's preview depends on, cheap to take every poll.
-fn stamp(messages: &[Message]) -> u64 {
+pub(super) fn stamp(messages: &[Message]) -> u64 {
     let mut h = DefaultHasher::new();
     messages.len().hash(&mut h);
     if let Some(last) = messages.last() {
@@ -75,11 +75,24 @@ impl App {
             return;
         }
         let stamp = stamp(&t.messages);
-        if self.restore.previews.0.get(id) == Some(&stamp) {
-            return;
-        }
+        // The session's copy for reading it later (`copies`), once it has settled.
+        // A transcript that's still the boot record's two turns would overwrite a fuller copy.
+        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
+        let copy = (!streaming && !cold && self.copy_due(id, stamp)).then(|| {
+            rune::marks::mark("state.copy.encode");
+            let bytes = super::copies::encode(&t.messages);
+            rune::marks::mark("state.copy.encoded");
+            bytes
+        });
+        let preview = self.restore.previews.0.get(id) != Some(&stamp);
         let updated = self.session(id).map_or(0, |s| s.updated);
-        crate::storage::set_preview(server.as_str(), id, Some((updated, Arc::from(encode(&t.messages)))));
-        self.restore.previews.0.insert(id.clone(), stamp);
+        if preview {
+            crate::storage::set_preview(server.as_str(), id, Some((updated, Arc::from(encode(&t.messages)))));
+            self.restore.previews.0.insert(id.clone(), stamp);
+        }
+        if let Some(bytes) = copy {
+            let (server, id) = (server.clone(), id.clone());
+            self.store_copy(&server, &id, stamp, bytes);
+        }
     }
 }
