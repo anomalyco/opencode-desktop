@@ -6,6 +6,11 @@
 //! `plugins.started`, `server.answered`, `content.live`, `quit.saved`, `storage.flushed`, …)
 //! share one list.
 //!
+//! `pixels.stable` is the last frame drawn after `content.live` once no frame has come for
+//! [`STILL`]: when the window stopped changing (a fade still running keeps it back). Rune draws
+//! only when something changed, so a drawn frame is a changed picture. A launch whose window
+//! keeps drawing (a spinner waiting on a server) has none.
+//!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
@@ -57,6 +62,12 @@ impl Io {
     }
 }
 static QUIT_SENT: AtomicBool = AtomicBool::new(false);
+/// The last frame drawn after `content.live`, until the window has been still for [`STILL`].
+static LAST_DRAWN: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+/// When it was: `pixels.stable`.
+static STABLE: OnceLock<Instant> = OnceLock::new();
+/// How long the window draws nothing before its last frame counts as the stable one.
+const STILL: Duration = Duration::from_millis(500);
 
 /// First thing in `main`.
 pub fn begin() {
@@ -84,7 +95,7 @@ fn echoes() -> bool {
 }
 
 /// The milestones `--launch-marks` prints.
-const MILESTONES: [&str; 5] = ["frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live"];
+const MILESTONES: [&str; 6] = ["frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
 
 /// Prints the milestones reached since the last call.
 fn echo() {
@@ -95,18 +106,33 @@ fn echo() {
     }
     let marks = rune::marks::marks();
     let mut printed = done;
+    let mut lines = String::new();
     for name in MILESTONES.iter().skip(done) {
-        let Some((_, t)) = marks.iter().find(|(n, _)| n == name) else { break };
-        use std::io::Write;
-        let mut out = std::io::stdout().lock();
-        let at = ns(*t);
+        let found = marks.iter().find(|(n, _)| n == name).map(|(_, t)| *t).or_else(|| if *name == "pixels.stable" { STABLE.get().copied() } else { None });
+        let Some(t) = found else { break };
+        let at = ns(t);
         // Epoch ms of the mark, for strobe's milestone `at` group: FILETIME is 100 ns since 1601.
         let epoch_ms = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10_000).saturating_add(at / 1_000_000));
-        let _ = writeln!(out, "launch-mark {name} {at} at={epoch_ms}");
-        let _ = out.flush();
+        lines.push_str(&format!("launch-mark {name} {at} at={epoch_ms}\n"));
         printed += 1;
     }
     PRINTED.store(printed, Ordering::Relaxed);
+    if lines.is_empty() {
+        return;
+    }
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(lines.as_bytes());
+    let _ = out.flush();
+    // A launch from the Dock, Finder or Explorer has no stdout: the same lines go to
+    // `<logs>/launch-marks.log`. The first milestone is the first frame, so this file is never
+    // written before it.
+    if let Some(dir) = crate::dirs::logs() {
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("launch-marks.log")) {
+            let _ = file.write_all(lines.as_bytes());
+        }
+    }
 }
 
 /// Nanoseconds from the process's creation to `t`.
@@ -133,11 +159,32 @@ pub fn drawn(s: &App) {
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
         mark("content.live");
     }
+    if STABLE.get().is_none() && rune::marks::marks().iter().any(|(n, _)| *n == "content.live") {
+        *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    }
     echo();
+}
+
+/// `pixels.stable`, once the window has drawn nothing for [`STILL`] after content went live;
+/// asks to be polled again until then.
+fn settle(tx: &mut Tx) {
+    if STABLE.get().is_some() {
+        return;
+    }
+    let Some(last) = *LAST_DRAWN.lock().unwrap_or_else(|e| e.into_inner()) else { return };
+    let quiet = Instant::now().checked_duration_since(last).unwrap_or_default();
+    if quiet >= STILL {
+        let _ = STABLE.set(last);
+        return;
+    }
+    tx.wake_after(STILL - quiet);
 }
 
 /// `poll`: a traced quit, once, when it's due.
 pub fn poll(tx: &mut Tx) {
+    if on() {
+        settle(tx);
+    }
     echo();
     let Some(after) = quit_after() else { return };
     if QUIT_SENT.load(Ordering::Relaxed) {
@@ -179,7 +226,7 @@ pub fn finish(windows: usize) {
     let Some(path) = crate::arg("--launch-trace") else { return };
     mark("main.return");
     let Some(boot) = BOOT.get() else { return };
-    let marks: serde_json::Map<String, serde_json::Value> = rune::marks::marks().into_iter().map(|(n, t)| (n.to_owned(), ns(t).into())).collect();
+    let marks: serde_json::Map<String, serde_json::Value> = rune::marks::marks().into_iter().chain(STABLE.get().map(|t| ("pixels.stable", *t))).map(|(n, t)| (n.to_owned(), ns(t).into())).collect();
     let metrics: serde_json::Map<String, serde_json::Value> = rune::marks::metrics().into_iter().map(|(n, v)| (n.to_owned(), v.into())).collect();
     let notes: serde_json::Map<String, serde_json::Value> = rune::marks::notes().into_iter().map(|(n, v)| (n.to_owned(), v.into())).collect();
     let line = serde_json::json!({
@@ -229,9 +276,12 @@ fn process_clock() -> (u64, u64) {
 fn io_calls(ns: &dyn Fn(Instant) -> u64) -> serde_json::Value {
     let calls = super::io_trace::take();
     let reads = (super::io_trace::READ_CALLS.load(Ordering::Relaxed), super::io_trace::READ_BYTES.load(Ordering::Relaxed));
+    let (dropped, cost_ns) = super::io_trace::stats();
     serde_json::json!({
         "read_calls": reads.0,
         "read_bytes": reads.1,
+        "dropped": dropped,
+        "cost_ns_per_call": cost_ns,
         "calls": calls.into_iter().map(|(c, sites)| serde_json::json!({ "ns": ns(c.at), "took_ns": c.took_ns, "tid": c.tid, "op": c.op, "path": c.path, "ok": c.ok, "sites": sites })).collect::<Vec<_>>(),
     })
 }
@@ -339,8 +389,61 @@ fn threads() -> Vec<(u32, String)> {
     Vec::new()
 }
 
-/// Elsewhere the marks count from `main`.
-#[cfg(not(target_os = "windows"))]
+/// 100 ns intervals from 1601 (FILETIME's epoch) to 1970.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const UNIX_IN_FILETIME: u64 = 116_444_736_000_000_000;
+
+/// The wall clock now, as a FILETIME.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(unsafe_code)]
+fn realtime_filetime() -> u64 {
+    let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a timespec this frame owns.
+    unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut t) };
+    UNIX_IN_FILETIME + t.tv_sec as u64 * 10_000_000 + t.tv_nsec as u64 / 100
+}
+
+/// The process's creation time (the kernel's, µs) and now, as FILETIMEs.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn process_clock() -> (u64, u64) {
+    // SAFETY: a zeroed plain-C struct, filled by the kernel for this process's own pid.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: the struct above, its size, and this process's pid.
+    let got = unsafe { libc::proc_pidinfo(std::process::id() as libc::c_int, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    let now = realtime_filetime();
+    if got != size {
+        return (0, 0);
+    }
+    (UNIX_IN_FILETIME + info.pbi_start_tvsec * 10_000_000 + info.pbi_start_tvusec * 10, now)
+}
+
+/// The process's creation time and now, as FILETIMEs: `/proc/self/stat`'s start time (clock
+/// ticks after boot, 10 ms each on most kernels) against the boot clock.
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn process_clock() -> (u64, u64) {
+    // A file read: only for a run that writes a trace.
+    if !on() {
+        return (0, 0);
+    }
+    let now = realtime_filetime();
+    let Some(ticks) = std::fs::read_to_string("/proc/self/stat").ok().and_then(|s| s.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().nth(19)?.parse::<u64>().ok())) else {
+        return (0, 0);
+    };
+    // SAFETY: no arguments.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    let mut boot = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a timespec this frame owns.
+    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut boot) };
+    let up = boot.tv_sec as u64 * 10_000_000 + boot.tv_nsec as u64 / 100;
+    let age = up.saturating_sub(ticks * 10_000_000 / hz);
+    (now.saturating_sub(age), now)
+}
+
+/// Elsewhere (the browser build) the marks count from `main`.
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn process_clock() -> (u64, u64) {
     (0, 0)
 }
