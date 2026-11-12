@@ -31,7 +31,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx, arrivals: &mut Option<arrivals::Arr
         }
         changed |= match &*h {
             crate::events::Heard::Event(e) => {
-                s.motion_events.note(&e.ty);
+                if crate::motion_log::wanted() { s.motion_events.note(&e.ty); }
                 // A session deleted while its tab is open: the tab says it's gone (`session_state`).
                 let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
@@ -158,7 +158,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.session_write_replied(&data, tx);
                 return true;
             }
-            s.motion_events.note(&ty);
+            if crate::motion_log::wanted() { s.motion_events.note(&ty); }
             return s.apply_event(&ty, &data);
         }
         Incoming::Status(e) => status(s, e, tx),

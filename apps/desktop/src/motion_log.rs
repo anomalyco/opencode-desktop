@@ -3,10 +3,11 @@
 //! `motion.jsonl` in the app's log folder (`~/Library/Logs/opencode-rune` on macOS; see
 //! `crate::dirs`).
 //!
-//! It runs from `App::on_frame_drawn`, so it costs nothing while the window is idle and never asks
-//! for a frame. The UI thread only takes Rune's light snapshot (`Runtime::motion_elements`) and
-//! hands it to a thread of its own, which keeps the visible elements in a ring capped in frames
-//! and bytes, and a cheap scan of the last four looks for a still edge that steps at least
+//! It runs in debug builds, and in a release build started with `--motion-log` ([`wanted`]);
+//! otherwise it makes nothing at all. It runs from `App::on_frame_drawn`, so it costs nothing while
+//! the window is idle and never asks for a frame. The UI thread only takes Rune's light snapshot
+//! (`Runtime::motion_elements`) and hands it to a thread of its own, which keeps the visible
+//! elements in a ring capped in frames and bytes, and a cheap scan of the last four looks for a still edge that steps at least
 //! 2 pt in one frame and stops, or a second element under one key (`#dup`). Only then does it
 //! build a [`Recording`] of the ring and run the gate's own [`check`], which decides; a finding of
 //! `jump`, `offset-jump`, `appear-then-jump` or `twice` on a frame with no user input is logged.
@@ -411,24 +412,37 @@ impl Worker {
     }
 }
 
+/// Whether this run keeps the motion log: always in a debug build; in a release build only when
+/// started with `--motion-log` or with `OPENCODE_MOTION_LOG=1` set (a user reporting a glitch;
+/// Export logs packs `motion.jsonl`).
+/// Off, it costs nothing: no buffer, no thread, no work per frame.
+pub fn wanted() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| cfg!(debug_assertions) || rune::extra_args().iter().any(|a| a == "--motion-log") || std::env::var_os("OPENCODE_MOTION_LOG").is_some_and(|v| v == "1"))
+}
+
 /// The live app's log: the feed on the UI thread, and a thread that watches and writes, started
 /// on the first live frame. A frame the thread hasn't room for is dropped, never waited on.
-#[derive(Default)]
-pub struct Log {
-    feed: Feed,
-    tx: Option<(SyncSender<Frame>, Receiver<Vec<MotionElement>>)>,
-    last: Option<Instant>,
+pub enum Log {
+    /// Not kept this run ([`wanted`]): every frame returns at once.
+    Off,
+    /// Kept, before the first live frame: nothing made yet.
+    Waiting,
+    /// The watch thread runs.
+    On { feed: Feed, tx: SyncSender<Frame>, back: Receiver<Vec<MotionElement>>, last: Option<Instant> },
+}
+
+impl Default for Log {
+    fn default() -> Self {
+        if wanted() { Log::Waiting } else { Log::Off }
+    }
 }
 
 impl Log {
     /// `App::on_frame_drawn`: live sessions only, never a fixture.
     pub fn frame(&mut self, rt: &Runtime<App>) {
-        if !rt.state.live() { return; }
-        let now = Instant::now();
-        let input = rune::last_input().is_some_and(|t| self.last.is_none_or(|last| t > last));
-        self.last = Some(now);
-        let ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
-        let (tx, back) = self.tx.get_or_insert_with(|| {
+        if matches!(self, Log::Off) || !rt.state.live() { return; }
+        if matches!(self, Log::Waiting) {
             let (tx, rx) = std::sync::mpsc::sync_channel::<Frame>(QUEUE);
             let (done, back) = std::sync::mpsc::sync_channel(QUEUE + 1);
             let mut worker = Worker::new(crate::dirs::motion_log().unwrap_or_else(|| std::env::temp_dir().join("motion.jsonl")));
@@ -438,14 +452,19 @@ impl Log {
                     let _ = done.try_send(f.els);
                 }
             });
-            (tx, back)
-        });
-        self.feed.spare.extend(back.try_iter());
-        if let Err(TrySendError::Full(f) | TrySendError::Disconnected(f)) = tx.try_send(self.feed.frame(rt, input, ms)) {
+            *self = Log::On { feed: Feed::default(), tx, back, last: None };
+        }
+        let Log::On { feed, tx, back, last } = self else { return };
+        let now = Instant::now();
+        let input = rune::last_input().is_some_and(|t| last.is_none_or(|last| t > last));
+        *last = Some(now);
+        let ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        feed.spare.extend(back.try_iter());
+        if let Err(TrySendError::Full(f) | TrySendError::Disconnected(f)) = tx.try_send(feed.frame(rt, input, ms)) {
             // What it carried for the first time goes again with the next one.
-            for (id, ..) in &f.paths { self.feed.sent.remove(id); }
-            if f.events.is_some() { self.feed.event_seq = 0; }
-            self.feed.spare.push(f.els);
+            for (id, ..) in &f.paths { feed.sent.remove(id); }
+            if f.events.is_some() { feed.event_seq = 0; }
+            feed.spare.push(f.els);
         }
     }
 }
