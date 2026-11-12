@@ -349,6 +349,9 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// In a page, the built-ins the first screen didn't show wait for the first reads to land
+    /// (`ready`): started first, they held the reads' answers back for about 115 ms.
+    plugins_after_reads: bool,
 }
 
 impl Launch {
@@ -480,6 +483,12 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // The built-ins the first screen didn't show start now; plugins from folders (`--plugin-dir`,
     // overrides, installed) are read on a worker. Redraw for their panels and commands without
     // waiting for a server response.
+    // In a page, after the first reads land (`poll`): the page has one thread, and a built-in's
+    // start on it holds the reads' answers back.
+    if cfg!(target_arch = "wasm32") && matches!(window_phase(s), Some(Phase::Probing { .. })) {
+        s.launch.plugins_after_reads = true;
+        return false;
+    }
     let started = crate::plugin_host::first_frame(s);
     if started {
         tx.instant();
@@ -573,6 +582,11 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    // The first reads landed (or stopped): the built-ins `ready` held back start now.
+    if s.launch.plugins_after_reads && !matches!(window_phase(s), Some(Phase::Probing { .. })) {
+        s.launch.plugins_after_reads = false;
+        if crate::plugin_host::first_frame(s) { tx.instant(); }
+    }
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
     let now = *s.clock;
     if s.live() && crate::attended() {
