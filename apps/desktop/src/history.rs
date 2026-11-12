@@ -172,7 +172,7 @@ impl App {
             (None, true) => self.close_settings(),
             (None, false) => {}
         }
-        tx.settle();
+        session_view::jump::settle(self, tx);
         true
     }
 

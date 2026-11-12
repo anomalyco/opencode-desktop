@@ -1,9 +1,13 @@
-//! Delete's confirmation, as Desktop's machine runs it (`session/delete-machine.ts`,
-//! `home/sessions/controller.tsx:423-524`): asking, then waiting for the server with both
-//! buttons off. The session and its subagents leave the list at once and come back if the delete
-//! fails; once the server has deleted them their tabs go too and the dialog closes. A delete
-//! that hasn't answered in 15 s counts as failed, so the buttons can't stay off. The session is
-//! on its own server, whichever one the window works against (`ProjectSessionRow`'s `ctx()`).
+//! Delete: Desktop's confirmation (`session/delete-machine.ts`, `home/sessions/controller.tsx:
+//! 423-524`) stays, since once the server has deleted a session its copy is gone for good. Beyond
+//! Desktop, which sends the delete at once and waits with both buttons off, Delete in the dialog
+//! closes it and takes the session and its subagents off the list at once, and a toast offers it
+//! back for its 8 s (`crate::undo`): only when the toast goes is the delete sent (at once when
+//! the app quits). Undo puts the sessions back, nothing sent. Once sent, the server decides: they
+//! go with their tabs when it has deleted them, and come back with Desktop's failure toast if it
+//! refuses or hasn't answered in 15 s. Killed before the toast goes, nothing was sent: the
+//! session is still there next launch. The session is on its own server, whichever one the
+//! window works against (`ProjectSessionRow`'s `ctx()`).
 
 use rune::machine::Effects;
 
@@ -22,13 +26,12 @@ pub(crate) struct Asked {
     pub title: String,
 }
 
+/// The confirmation.
 #[derive(Clone, Debug, Default)]
 pub(crate) enum Delete {
     #[default]
     Closed,
     Confirming { asked: Asked },
-    /// `hidden`: the sessions taken off the list until the server answers.
-    Deleting { asked: Asked, hidden: Vec<SessionInfo>, due: f64 },
 }
 
 pub(crate) enum Event {
@@ -36,62 +39,100 @@ pub(crate) enum Event {
     /// Cancel, Escape or a press outside (`cancel.requested`).
     Cancel,
     /// Delete (`confirm.requested`): `tree` is the session and its subagents, empty once it's gone.
-    Confirm { tree: Vec<SessionInfo>, now: f64 },
-    /// `server` answered the delete of `session`.
-    Replied { session: String, server: ServerKey, ok: bool },
-    Tick { now: f64 },
+    Confirm { tree: Vec<SessionInfo> },
 }
 
 #[derive(Debug)]
 pub(crate) enum Effect {
     /// Take these sessions off `server`'s list (the data layer's hide).
     Hide(ServerKey, Vec<String>),
-    /// Send the delete to `server`.
-    Run(ServerKey, String),
-    WakeAt(f64),
-    /// Put hidden sessions back on `server`'s list.
-    Restore(ServerKey, Vec<SessionInfo>),
-    /// `server` deleted them: their tabs and page go (`session.removed`).
-    Removed(ServerKey, Vec<String>),
-    Failed,
+    /// Offer `session` back; the delete is sent when the offer's toast goes.
+    Defer { server: ServerKey, session: String, hidden: Vec<SessionInfo> },
 }
 
 pub(crate) fn step(delete: &mut Delete, event: Event) -> Effects<Effect> {
-    let ours = |a: &Asked, session: &str, server: &ServerKey| a.session == session && a.server == *server;
     match (std::mem::take(delete), event) {
-        (Delete::Closed | Delete::Confirming { .. }, Event::Ask(asked)) => {
+        (_, Event::Ask(asked)) => {
             *delete = Delete::Confirming { asked };
             Effects::none()
         }
         (Delete::Confirming { .. }, Event::Cancel) => Effects::none(),
-        // A delete that timed out can still land: the session is gone, so the dialog goes too.
-        (Delete::Confirming { asked }, Event::Replied { session, server, ok: true }) if ours(&asked, &session, &server) => Effects::one(Effect::Removed(server, vec![session])),
-        (Delete::Confirming { asked }, Event::Confirm { tree, now }) => {
+        (Delete::Confirming { asked }, Event::Confirm { tree }) => {
             if tree.is_empty() {
                 return Effects::none();
             }
-            let due = now + TIMEOUT;
             let hide = Effect::Hide(asked.server.clone(), tree.iter().map(|s| s.id.clone()).collect());
-            let run = Effect::Run(asked.server.clone(), asked.session.clone());
-            *delete = Delete::Deleting { asked, hidden: tree, due };
-            Effects::Many(vec![hide, run, Effect::WakeAt(due)])
+            Effects::two(hide, Effect::Defer { server: asked.server, session: asked.session, hidden: tree })
         }
-        (Delete::Deleting { asked, hidden, .. }, Event::Replied { session, server, ok: true }) if ours(&asked, &session, &server) => {
-            Effects::one(Effect::Removed(server, hidden.into_iter().map(|h| h.id).collect()))
-        }
-        (Delete::Deleting { asked, hidden, .. }, Event::Replied { session, server, ok: false }) if ours(&asked, &session, &server) => {
-            *delete = Delete::Confirming { asked };
-            Effects::two(Effect::Restore(server, hidden), Effect::Failed)
-        }
-        (Delete::Deleting { asked, hidden, due }, Event::Tick { now }) if now + 1e-9 >= due => {
-            let server = asked.server.clone();
-            *delete = Delete::Confirming { asked };
-            Effects::two(Effect::Restore(server, hidden), Effect::Failed)
-        }
-        // A second click, Enter or Cancel waits for the delete in flight.
         (state, _) => {
             *delete = state;
             Effects::none()
         }
+    }
+}
+
+/// A delete sent, its sessions hidden until the server answers.
+#[derive(Clone, Debug)]
+struct Sending {
+    server: ServerKey,
+    session: String,
+    hidden: Vec<SessionInfo>,
+    due: f64,
+}
+
+/// The deletes sent and not answered yet.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Sent(Vec<Sending>);
+
+pub(crate) enum SentEvent {
+    /// The toast went: the delete of `session` on `server` goes now.
+    Sent { server: ServerKey, session: String, hidden: Vec<SessionInfo>, now: f64 },
+    /// `server` answered the delete of `session`.
+    Replied { session: String, server: ServerKey, ok: bool },
+    Tick { now: f64 },
+}
+
+#[derive(Debug)]
+pub(crate) enum SentEffect {
+    /// `server` deleted them: their tabs and page go (`session.removed`).
+    Removed(ServerKey, Vec<String>),
+    /// Put hidden sessions back on `server`'s list, and say it failed.
+    Failed(ServerKey, Vec<SessionInfo>),
+    WakeAt(f64),
+}
+
+impl Sent {
+    pub(crate) fn step(&mut self, event: SentEvent) -> Effects<SentEffect> {
+        match event {
+            SentEvent::Sent { server, session, hidden, now } => {
+                let due = now + TIMEOUT;
+                self.0.retain(|s| !(s.session == session && s.server == server));
+                self.0.push(Sending { server, session, hidden, due });
+                Effects::one(SentEffect::WakeAt(due))
+            }
+            SentEvent::Replied { session, server, ok } => {
+                let Some(at) = self.0.iter().position(|s| s.session == session && s.server == server) else {
+                    // A delete that timed out can still land: the session is gone, so its tabs go too.
+                    return if ok { Effects::one(SentEffect::Removed(server, vec![session])) } else { Effects::none() };
+                };
+                let s = self.0.remove(at);
+                if ok {
+                    return Effects::one(SentEffect::Removed(s.server, s.hidden.into_iter().map(|h| h.id).collect()));
+                }
+                Effects::one(SentEffect::Failed(s.server, s.hidden))
+            }
+            SentEvent::Tick { now } => {
+                let (late, waiting): (Vec<Sending>, Vec<Sending>) = std::mem::take(&mut self.0).into_iter().partition(|s| now + 1e-9 >= s.due);
+                self.0 = waiting;
+                let mut effects: Vec<SentEffect> = late.into_iter().map(|s| SentEffect::Failed(s.server, s.hidden)).collect();
+                effects.extend(self.next_due().map(SentEffect::WakeAt));
+                Effects::Many(effects)
+            }
+        }
+    }
+
+    /// When the oldest delete in flight times out.
+    pub(crate) fn next_due(&self) -> Option<f64> {
+        self.0.iter().map(|s| s.due).reduce(f64::min)
     }
 }

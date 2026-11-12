@@ -76,11 +76,28 @@ pub enum Load {
     Loading { focus: Option<(String, Option<crate::tool_open::Anchor>)> },
     Ready { mode: ChangeMode, revision: u64 },
     NoVcs { mode: ChangeMode, revision: u64 },
+    /// Beyond Desktop, which shows "No file changes yet" when the read fails: the read failed,
+    /// `why` in the app's words (`crate::errors`); the changes it showed before stay.
+    Failed { mode: ChangeMode, revision: u64, why: String, offline: bool },
 }
 
 impl Load {
+    /// The changes landed: what's listed is what there is.
     pub fn ready(&self) -> bool {
-        !matches!(self, Load::Loading { .. })
+        matches!(self, Load::Ready { .. } | Load::NoVcs { .. })
+    }
+
+    /// Why the last read failed, when it did.
+    pub fn failed(&self) -> Option<&str> {
+        match self {
+            Load::Failed { why, .. } => Some(why),
+            _ => None,
+        }
+    }
+
+    /// The last read failed for want of the server.
+    pub fn offline(&self) -> bool {
+        matches!(self, Load::Failed { offline: true, .. })
     }
 
     pub fn no_git(&self) -> bool {
@@ -91,7 +108,7 @@ impl Load {
     pub fn loaded_revision(&self) -> Option<(ChangeMode, u64)> {
         match *self {
             Load::Loading { .. } => None,
-            Load::Ready { mode, revision } | Load::NoVcs { mode, revision } => Some((mode, revision)),
+            Load::Ready { mode, revision } | Load::NoVcs { mode, revision } | Load::Failed { mode, revision, .. } => Some((mode, revision)),
         }
     }
 
@@ -100,8 +117,13 @@ impl Load {
         let next = if no_git { Load::NoVcs { mode, revision } } else { Load::Ready { mode, revision } };
         match std::mem::replace(self, next) {
             Load::Loading { focus } => focus,
-            Load::Ready { .. } | Load::NoVcs { .. } => None,
+            Load::Ready { .. } | Load::NoVcs { .. } | Load::Failed { .. } => None,
         }
+    }
+
+    /// The read of `mode` at `revision` failed; a change waiting to be shown waits for the next.
+    fn failed_with(&mut self, mode: ChangeMode, revision: u64, why: String, offline: bool) {
+        *self = Load::Failed { mode, revision, why, offline };
     }
 
     /// Another mode: its changes load from scratch.
@@ -329,8 +351,27 @@ impl App {
     fn apply_fetched_diffs(&mut self, fetched: FetchedDiffs) -> Option<(String, Option<crate::tool_open::Anchor>)> {
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
-        let (files, meta) = parse_diff_list(&fetched.raw_diff);
-        let listed = data::listed_paths(&fetched.raw_diff);
+        let raw = match fetched.raw_diff {
+            Ok(raw) => raw,
+            Err(e) => {
+                let what = opencode_i18n::t!("rune.review.readFailed").to_owned();
+                let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
+                let wire = opencode_kit::wire_error::WireError::parse(&e);
+                let offline = wire.as_ref().is_some_and(|w| matches!(w.kind, opencode_kit::wire_error::WireKind::Unreachable(_) | opencode_kit::wire_error::WireKind::TimedOut));
+                let why = match wire {
+                    Some(w) => crate::errors::UserError::from_wire(&what, &server, &w).description(),
+                    None => crate::status_toast::plain(&e),
+                };
+                let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
+                if sr.mode == fetched.mode {
+                    sr.load.failed_with(fetched.mode, fetched.revision, why, offline);
+                    sr.stamp += 1;
+                }
+                return None;
+            }
+        };
+        let (files, meta) = parse_diff_list(&raw);
+        let listed = data::listed_paths(&raw);
         let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
             return None;

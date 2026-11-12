@@ -4,9 +4,11 @@
 //! the moment the server answers again (`Incoming::Reconnected` also resyncs). The stream thread
 //! in `opencode_kit::client` retries on its own with backoff.
 //!
-//! One [`Link`] per server, many at once (`Links`), as OpenCode Desktop keeps one event stream
-//! and one sync state per server (`packages/app/src/runtime/server/server-sync/machine.ts`:
-//! `idle | disconnected | awaiting-handshake | live`, and `packages/client/src/solid/connection.ts`).
+//! One [`Link`] per server (`opencode_kit::servers::link`), many at once (`Links`), as OpenCode
+//! Desktop keeps one event stream and one sync state per server
+//! (`packages/app/src/runtime/server/server-sync/machine.ts`: `idle | disconnected |
+//! awaiting-handshake | live`, and `packages/client/src/solid/connection.ts`). What the stream,
+//! the other calls, the launch, the health probe and the OS say steps it; the header reads it.
 //! Desktop shows nothing while a server is away; the header label is Kit's (`motion_gate` ALLOW).
 
 use std::collections::{HashMap, HashSet};
@@ -14,13 +16,13 @@ use std::time::Duration;
 
 use opencode_kit::client::Request;
 use opencode_kit::model::{self, Message, Part, ToolStatus};
+use opencode_kit::servers::link::{Event, Link};
 use rune::Tx;
-use rune::machine::Effects;
 
 use crate::{App, Route, Source};
 
 /// A short drop says nothing; the stream thread already retries after 250 ms.
-pub const QUIET: f64 = 2.0;
+pub const QUIET: f64 = opencode_kit::servers::link::QUIET;
 pub const RECONNECTING: &str = "Reconnecting…";
 /// The event stream is reopened after this long with nothing on it. The server sends a
 /// heartbeat every 15 s, so a tunnel that accepts but never answers is caught here.
@@ -28,100 +30,6 @@ pub const STREAM_IDLE: Duration = Duration::from_secs(25);
 
 /// A server's key (`opencode_kit::servers::ServerKey`'s text: `"sidecar"`, an address, `wsl:…`).
 pub type ServerId = String;
-
-/// Whether a lost link says so yet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Notice {
-    /// Too short to mention.
-    Quiet,
-    /// The header says Reconnecting.
-    Shown,
-}
-
-/// One server's link, as this app sees it.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Link {
-    /// The stream is up and nothing failed for want of a link.
-    #[default]
-    Live,
-    /// A read or write failed for want of a link at `since`, and the stream hasn't said either way.
-    Suspect { since: f64, notice: Notice },
-    /// The event stream dropped at `since`.
-    Down { since: f64, notice: Notice },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum LinkEvent {
-    /// The event stream reported a drop (`events: …`).
-    StreamDropped { now: f64 },
-    /// Another call failed on the link itself (not the server's answer).
-    CallFailed { now: f64 },
-    /// The server answered something.
-    Heard,
-    /// The event stream is back.
-    StreamBack,
-    /// The window polls at `now`.
-    Tick { now: f64 },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum LinkEffect {
-    /// Poll again at this time.
-    WakeAt(f64),
-    /// What the header shows changed: commit at once (a status change doesn't animate).
-    Repaint,
-}
-
-impl Link {
-    pub fn step(&mut self, event: LinkEvent) -> Effects<LinkEffect> {
-        use LinkEffect::*;
-        match (*self, event) {
-            (Link::Live, LinkEvent::StreamDropped { now }) => {
-                *self = Link::Down { since: now, notice: Notice::Quiet };
-                Effects::one(WakeAt(now + QUIET))
-            }
-            // A suspect link whose stream drops is down from now, and keeps what it shows.
-            (Link::Suspect { notice, .. }, LinkEvent::StreamDropped { now }) => {
-                *self = Link::Down { since: now, notice };
-                if notice == Notice::Quiet { Effects::one(WakeAt(now + QUIET)) } else { Effects::none() }
-            }
-            (Link::Live, LinkEvent::CallFailed { now }) => {
-                *self = Link::Suspect { since: now, notice: Notice::Quiet };
-                Effects::one(WakeAt(now + QUIET))
-            }
-            (Link::Suspect { notice, .. }, LinkEvent::Heard) | (Link::Suspect { notice, .. } | Link::Down { notice, .. }, LinkEvent::StreamBack) => {
-                *self = Link::Live;
-                if notice == Notice::Shown { Effects::one(Repaint) } else { Effects::none() }
-            }
-            // A suspect link whose stream outlives `STREAM_IDLE` without dropping is alive after all.
-            (Link::Suspect { since, .. }, LinkEvent::Tick { now }) if now - since >= STREAM_IDLE.as_secs_f64() + QUIET => {
-                *self = Link::Live;
-                Effects::one(Repaint)
-            }
-            (Link::Suspect { since, notice: Notice::Quiet } | Link::Down { since, notice: Notice::Quiet }, LinkEvent::Tick { now }) => {
-                let left = since + QUIET - now;
-                if left > 1e-3 {
-                    return Effects::one(WakeAt(now + left));
-                }
-                let suspect = matches!(*self, Link::Suspect { .. });
-                *self = if suspect { Link::Suspect { since, notice: Notice::Shown } } else { Link::Down { since, notice: Notice::Shown } };
-                if suspect { Effects::two(Repaint, WakeAt(now + STREAM_IDLE.as_secs_f64())) } else { Effects::one(Repaint) }
-            }
-            _ => Effects::none(),
-        }
-    }
-
-    /// The link is down or in doubt.
-    pub fn down(&self) -> bool { !matches!(self, Link::Live) }
-
-    /// The event stream dropped.
-    pub fn dropped(&self) -> bool { matches!(self, Link::Down { .. }) }
-
-    /// The header says Reconnecting.
-    pub fn shown(&self) -> bool {
-        matches!(self, Link::Suspect { notice: Notice::Shown, .. } | Link::Down { notice: Notice::Shown, .. })
-    }
-}
 
 /// After a reconnect, the subagents read again: their step logs give way to the fresh page when
 /// it lands, and the next list of running sessions may name subagents that started meanwhile.
@@ -133,44 +41,32 @@ pub enum CatchUp {
     AwaitingActive,
 }
 
-/// Every server's link, many at once, and the catch-up after a reconnect.
+/// Every server's link (`opencode_kit::servers::link`), many at once, and the catch-up after a
+/// reconnect.
 #[derive(Default)]
 pub struct Links {
-    links: HashMap<ServerId, Link>,
-    /// Each server's link as the header tells it (`opencode_kit::servers::link`).
-    states: HashMap<ServerId, opencode_kit::servers::link::Link>,
+    /// Each server's link that isn't online; one not listed is.
+    states: HashMap<ServerId, Link>,
+    /// What the launch and the health probe last said of each server, as the link last heard it.
+    heard: HashMap<ServerId, Probe>,
     catch_up: HashMap<ServerId, CatchUp>,
     /// Subagents whose pages were asked for again after a reconnect, by server.
     refreshing: HashMap<ServerId, HashSet<String>>,
 }
 
 impl Links {
-    pub fn get(&self, server: &str) -> Link { self.links.get(server).copied().unwrap_or_default() }
-
-    /// Steps `server`'s link; a live link leaves the map.
-    pub fn step(&mut self, server: &str, event: LinkEvent) -> Effects<LinkEffect> {
-        let mut link = self.get(server);
-        let effects = link.step(event);
-        if link == Link::Live { self.links.remove(server); } else { self.links.insert(server.to_owned(), link); }
-        effects
-    }
-
     /// Server `server`'s link as the header tells it.
-    pub fn state(&self, server: &str) -> opencode_kit::servers::link::Link {
-        self.states.get(server).cloned().unwrap_or_default()
+    pub fn state(&self, server: &str) -> Link {
+        self.states.get(server).cloned().unwrap_or(Link::Online)
     }
-
-    /// Every server whose link is down or in doubt.
-    pub fn troubled(&self) -> impl Iterator<Item = &ServerId> + '_ { self.links.keys() }
 
     /// A server that leaves this window forgets its link.
     pub fn forget(&mut self, server: &str) {
-        self.links.remove(server);
         self.states.remove(server);
+        self.heard.remove(server);
         self.catch_up.remove(server);
         self.refreshing.remove(server);
     }
-
 }
 
 /// The server the window is checked out on (`servers::runtime`): the key the stream's lines and
@@ -179,34 +75,21 @@ fn server_of(s: &App) -> Option<ServerId> {
     crate::launch::window_server(s)
 }
 
-fn apply(s: &mut App, server: &str, event: LinkEvent, tx: &mut Tx) -> bool {
-    let was = s.server_links.get(server).dropped();
-    let mut changed = false;
-    for effect in s.server_links.step(server, event) {
-        match effect {
-            LinkEffect::WakeAt(at) => tx.wake_after(Duration::from_secs_f64((at - *s.clock).max(0.0))),
-            LinkEffect::Repaint => {
-                tx.instant();
-                changed = true;
-            }
-        }
-    }
-    // The stream dropping or reopening is the first word that the server went or came back.
-    if was != s.server_links.get(server).dropped() {
-        crate::servers::health::nudge(s, &opencode_kit::servers::ServerKey::new(server), tx);
-    }
-    changed
-}
-
 /// Steps server `server`'s link (`opencode_kit::servers::link`) and carries out what it asks.
 pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::Event, tx: &mut Tx) -> bool {
     use opencode_kit::servers::link::Effect;
     let mut state = s.server_links.state(server);
+    let was = state.dropped();
     let effects = state.step(event);
-    if state == opencode_kit::servers::link::Link::Online {
+    let dropped = state.dropped();
+    if state == Link::Online {
         s.server_links.states.remove(server);
     } else {
         s.server_links.states.insert(server.to_owned(), state);
+    }
+    // The stream dropping or reopening is the first word that the server went or came back.
+    if was != dropped {
+        crate::servers::health::nudge(s, &opencode_kit::servers::ServerKey::new(server), tx);
     }
     let mut changed = false;
     for effect in effects {
@@ -226,7 +109,7 @@ pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::
 }
 
 /// Server `server`'s link as the header tells it.
-pub fn link_of(s: &App, server: &str) -> opencode_kit::servers::link::Link {
+pub fn link_of(s: &App, server: &str) -> Link {
     s.server_links.state(server)
 }
 
@@ -246,13 +129,16 @@ pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
     let Some(server) = server_of(s) else { return false };
     let now = *s.clock;
     if e.starts_with("events:") {
-        apply(s, &server, LinkEvent::StreamDropped { now: now }, tx);
-        step_link(s, &server, opencode_kit::servers::link::Event::StreamDown { now, error: stream_error(e) }, tx);
+        // What was mid-text when it dropped grows again only from whole text (the barrier).
+        for (sid, t) in s.transcripts.iter() {
+            s.stream_gaps.entry(sid.clone()).or_default().extend(t.open_steps());
+        }
+        step_link(s, &server, Event::StreamDown { now, error: stream_error(e) }, tx);
         *s.status = e.to_owned();
         return true;
     }
     if link_error(e) {
-        apply(s, &server, LinkEvent::CallFailed { now: now }, tx);
+        step_link(s, &server, Event::CallFailed { now }, tx);
     }
     false
 }
@@ -260,32 +146,96 @@ pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
 /// The stream is back.
 pub fn back(s: &mut App) {
     let Some(server) = server_of(s) else { return };
-    apply(s, &server, LinkEvent::StreamBack, &mut Tx::default());
-    step_link(s, &server, opencode_kit::servers::link::Event::StreamUp, &mut Tx::default());
+    step_link(s, &server, Event::StreamUp, &mut Tx::default());
 }
 
 /// The server answered something: a suspect link is fine. True when the header changed.
 pub fn heard(s: &mut App) -> bool {
     let Some(server) = server_of(s) else { return false };
-    apply(s, &server, LinkEvent::Heard, &mut Tx::default())
+    if !matches!(s.server_links.state(&server), Link::Suspect { .. }) {
+        return false;
+    }
+    step_link(s, &server, Event::Heard, &mut Tx::default())
 }
 
-/// The window's server's link is down or in doubt.
-pub fn down(s: &App) -> bool { s.server_links.get(crate::servers::runtime::active(s).as_str()).down() }
+/// The window's server's link is anything but online: nothing should wait on it to answer.
+pub fn down(s: &App) -> bool {
+    link_of(s, crate::servers::runtime::active(s).as_str()) != Link::Online
+}
 
-/// The header says Reconnecting for the window's server.
-pub fn shown(s: &App) -> bool { s.server_links.get(crate::servers::runtime::active(s).as_str()).shown() }
-
-/// Marks the header once trouble has lasted [`QUIET`], for every server in trouble.
+/// Marks the header once trouble has lasted [`QUIET`], for every server whose link waits on
+/// the clock; and steps the window's server's link with what its launch and health probe say
+/// when that changes.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let now = *s.clock;
-    let reopening: Vec<ServerId> = s.server_links.states.iter().filter(|(_, l)| matches!(l, opencode_kit::servers::link::Link::Reopening { shown: false, .. })).map(|(k, _)| k.clone()).collect();
-    let mut shown = false;
-    for server in reopening {
-        shown |= step_link(s, &server, opencode_kit::servers::link::Event::Tick { now }, tx);
+    let mut changed = probed(s, tx);
+    let ticking: Vec<ServerId> = s.server_links.states.iter().filter(|(_, l)| l.ticks()).map(|(k, _)| k.clone()).collect();
+    for server in ticking {
+        changed |= step_link(s, &server, Event::Tick { now }, tx);
     }
-    let troubled: Vec<ServerId> = s.server_links.troubled().cloned().collect();
-    troubled.iter().fold(shown, |changed, server| apply(s, server, LinkEvent::Tick { now: now }, tx) | changed)
+    changed
+}
+
+/// What the launch and the health probe say of a server, for its link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Probe {
+    Unknown,
+    Answering,
+    SignedOut,
+    Incompatible,
+    Unreachable,
+}
+
+/// The window's server's launch and health answers, into its link when they change. A probe
+/// that finds nothing doesn't outvote a stream that's up.
+fn probed(s: &mut App, tx: &mut Tx) -> bool {
+    use crate::view::server_unavailable::{self as unavailable, Cover};
+    let key = crate::servers::runtime::active(s).clone();
+    let probe = match unavailable::cover(&key) {
+        Some(Cover::SignedOut) => Probe::SignedOut,
+        Some(Cover::Incompatible) => Probe::Incompatible,
+        None if crate::launch::offline(s) || unavailable::unreachable(&key) => Probe::Unreachable,
+        None if crate::servers::health::get(&key).is_some_and(|h| opencode_kit::servers::health::is_healthy(Some(&h))) => Probe::Answering,
+        None => Probe::Unknown,
+    };
+    let server = key.as_str().to_owned();
+    if s.server_links.heard.get(&server).copied().unwrap_or(Probe::Unknown) == probe {
+        return false;
+    }
+    let now = *s.clock;
+    let event = match probe {
+        Probe::SignedOut => Event::Unauthorized,
+        Probe::Incompatible => Event::Healthy { compatible: false },
+        Probe::Answering => Event::Healthy { compatible: true },
+        // Heard only once the stream is down too, so asked again each poll until then.
+        Probe::Unreachable if matches!(link_of(s, &server), Link::Online | Link::Suspect { .. }) => return false,
+        Probe::Unreachable => Event::Unreachable { now },
+        Probe::Unknown => {
+            s.server_links.heard.insert(server, probe);
+            return false;
+        }
+    };
+    s.server_links.heard.insert(server.clone(), probe);
+    step_link(s, &server, event, tx)
+}
+
+/// `--stream-audit <file>` (the resilience harness's stream cuts): each poll where the open
+/// session's newest reply shows other text than the last, one JSON line with it, so the harness
+/// can check every text shown was a start of the final one.
+pub fn audit(s: &App) {
+    use std::io::Write;
+    static FILE: std::sync::OnceLock<Option<std::sync::Mutex<(std::fs::File, String)>>> = std::sync::OnceLock::new();
+    let Some(file) = FILE.get_or_init(|| crate::arg("--stream-audit").and_then(|p| std::fs::File::create(p).ok()).map(|f| std::sync::Mutex::new((f, String::new())))) else { return };
+    let Route::Session { id, .. } = &*s.route else { return };
+    let Some(Message::Assistant(a)) = s.transcripts.get(id).and_then(|t| t.messages.iter().rev().find(|m| matches!(m, Message::Assistant(_)))) else { return };
+    let text: String = a.parts.iter().filter_map(|p| if let Part::Text { text } = p { Some(text.as_str()) } else { None }).collect();
+    let mut f = file.lock().unwrap_or_else(|e| e.into_inner());
+    if f.1 == text {
+        return;
+    }
+    let line = serde_json::json!({ "t": *s.clock, "msg": a.id, "done": a.completed.is_some(), "text": text });
+    let _ = writeln!(f.0, "{line}");
+    f.1 = text;
 }
 
 /// After a reconnect, reads again what the lost link may have hidden: the pages of the open
@@ -354,22 +304,24 @@ mod story {
     use crate::App;
     use crate::stories::{Story, Trigger, replay};
 
-    use super::{Link, LinkEvent, Notice};
+    use super::{Event, Link, step_link};
 
     /// The open session, its stream down long enough to say so.
     fn reconnecting(s: &mut App) {
         crate::open_scene(s);
         s.finish_stream();
         let server = super::server_of(s).unwrap_or_default();
-        s.server_links.step(&server, LinkEvent::StreamDropped { now: *s.clock - super::QUIET });
-        s.server_links.step(&server, LinkEvent::Tick { now: *s.clock });
-        debug_assert_eq!(s.server_links.get(&server), Link::Down { since: *s.clock - super::QUIET, notice: Notice::Shown });
+        let now = *s.clock;
+        step_link(s, &server, Event::StreamDown { now: now - super::QUIET, error: None }, &mut rune::Tx::default());
+        step_link(s, &server, Event::Tick { now }, &mut rune::Tx::default());
+        debug_assert_eq!(s.server_links.state(&server), Link::Reopening { since: now - super::QUIET, shown: true });
     }
 
     const KEYS: &[Trigger] = &[
         replay(|s, _| {
             let server = super::server_of(s).unwrap_or_default();
-            s.server_links.step(&server, LinkEvent::StreamDropped { now: *s.clock });
+            let now = *s.clock;
+            step_link(s, &server, Event::StreamDown { now, error: None }, &mut rune::Tx::default());
         }),
         Trigger { key: 'b', label: "Stream back", run: |s, _| super::back(s) },
     ];

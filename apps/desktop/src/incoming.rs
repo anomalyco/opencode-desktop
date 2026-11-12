@@ -136,12 +136,17 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             let t = s.transcripts.entry(session.clone()).or_insert_with(|| Transcript { session: session.clone(), messages: vec![] });
             attachments::reconcile(&mut s.attach.echoes, t, &messages);
             let delivered: Vec<String> = messages.iter().map(|m| m.id().to_owned()).collect();
-            t.merge(messages);
+            match s.stream_gaps.get_mut(&session) {
+                Some(gapped) => t.merge_caught(messages, gapped),
+                None => t.merge(messages),
+            }
             reconnect::page_in(s, &session);
             s.settle_inbox(&session, &delivered);
-            if (first || cold) && s.route == Route::here(session) {
-                // Guarantee 8: the first load of the open session lands, nothing grows in.
-                tx.settle();
+            if (first || cold) && s.route == Route::here(session.clone()) {
+                // Guarantee 8: the first load of the open session lands, nothing grows in. One
+                // read up from its end (a place kept from the last run) stays where it is: landing
+                // the end's follow would carry it there.
+                session_view::jump::settle(s, tx);
             }
             if cold {
                 *arrivals = None;

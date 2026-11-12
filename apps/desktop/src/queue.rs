@@ -87,6 +87,13 @@ impl App {
         self.queue_op(session, if queued { Operation::Remove { id } } else { Operation::Delete { id } });
     }
 
+    /// Undo on a removed queued prompt's toast: its words and files come back into `session`'s
+    /// composer after anything typed there (its saved draft when another page shows), ready to
+    /// queue again. Re-queued by itself it would go with today's agent and model, not its own.
+    pub(crate) fn unwithdraw(&mut self, session: &str, text: String, files: Vec<opencode_kit::model::Attachment>) {
+        let _ = self.queue_draft_effect(session, Effect::Merge { text, files, paths: Vec::new() });
+    }
+
     /// Withdraws a queued prompt into the composer, after anything already typed there, once the
     /// server lets it go; until then its row shows it pending.
     pub fn undo_queued(&mut self, session: &str, id: &str) {
@@ -150,7 +157,14 @@ impl App {
                     inbox.set_delivery(id, Delivery::Queue);
                 }
                 Operation::Remove { id } | Operation::Undo { id, .. } | Operation::Delete { id } => {
+                    let item = inbox.items.iter().find(|i| i.id == *id).cloned();
                     inbox.remove(id);
+                    // Removed (not taken back into the composer, which keeps it anyway): offered back.
+                    if let (Some(item), false) = (item, matches!(active, Operation::Undo { .. })) {
+                        let files = model::user_files(&item.id);
+                        let files = if files.is_empty() { item.files } else { files.to_vec() };
+                        crate::undo::offer(self, opencode_i18n::t!("rune.undo.queueRemoved"), crate::undo::Undoable::Unqueued { session: session.to_owned(), text: item.text, files });
+                    }
                 }
                 Operation::Edit(_) | Operation::Reorder { .. } => {}
             }

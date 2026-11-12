@@ -2,7 +2,7 @@
 //! from the server's JSON (`/api/project`, `/api/session`, `/api/session/:id/message`) and
 //! kept current by the same events `/api/event` streams.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
@@ -462,6 +462,10 @@ pub fn parse_messages(v: &Value) -> Vec<Message> {
     list.into_iter().filter_map(parse_message).collect()
 }
 
+/// In a dropped stream's gapped steps (`Transcript::apply_caught`): a step not known yet when it
+/// dropped is gapped too, until the page read after it lands.
+pub const UNSEEN: &str = "\u{0}unseen";
+
 /// One open transcript, kept current from events.
 #[derive(Clone, Debug, Default)]
 pub struct Transcript {
@@ -485,18 +489,83 @@ impl Transcript {
             || matches!(last, Some(Message::User { .. }))
     }
 
+    /// What a stream that drops now leaves mid-text: the assistant steps still open, and
+    /// ([`UNSEEN`]) any step the drop hides the start of, until the next page read says.
+    pub fn open_steps(&self) -> HashSet<String> {
+        self.messages.iter().filter_map(|m| match m {
+            Message::Assistant(a) if a.completed.is_none() && a.error.is_none() => Some(a.id.clone()),
+            _ => None,
+        }).chain(std::iter::once(UNSEEN.to_owned())).collect()
+    }
+
+    /// [`Transcript::apply`] after the stream dropped while the steps in `gapped` were open (the
+    /// catching-up barrier). OpenCode's deltas carry no offset, so one heard after the gap
+    /// can't be told apart from one the gap swallowed: a gapped step's deltas are held back, and
+    /// its text grows again only from whole text (`*.ended`, a page read). What it shows stays a
+    /// prefix of what it ends as: nothing lost into the middle, nothing said twice. Returns
+    /// whether it changed, and whether the step ended without its whole text (its page should be
+    /// read again).
+    pub fn apply_caught(&mut self, ty: &str, d: &Value, now: i64, gapped: &mut HashSet<String>) -> (bool, bool) {
+        let mid = s(&d["assistantMessageID"]);
+        // A step heard of only after the drop, mid-text, may have started in the gap: its start
+        // is gone, so it's gapped too. One whose start is heard now began after it.
+        if gapped.contains(UNSEEN) && !mid.is_empty() && self.assistant(&mid).is_none() && matches!(ty, "session.text.delta" | "session.reasoning.delta") {
+            gapped.insert(mid.clone());
+        }
+        if !gapped.contains(&mid) {
+            return (self.apply(ty, d, now), false);
+        }
+        match ty {
+            "session.text.delta" | "session.reasoning.delta" => (false, false),
+            "session.step.ended" | "session.step.failed" => {
+                gapped.remove(&mid);
+                (self.apply(ty, d, now), true)
+            }
+            _ => (self.apply(ty, d, now), false),
+        }
+    }
+
+    /// [`Transcript::merge`] after a dropped stream (which, like any page read, keeps the text a
+    /// step shows where the page's copy is only a start of it): an open step this page brings
+    /// that the drop hid joins the barrier, and a step the page says ended leaves it.
+    pub fn merge_caught(&mut self, fresh: Vec<Message>, gapped: &mut HashSet<String>) {
+        let unseen = gapped.remove(UNSEEN);
+        for m in &fresh {
+            let Message::Assistant(new) = m else { continue };
+            let open = new.completed.is_none() && new.error.is_none();
+            // An open step this page brings that the drop hid: what streams next is its middle.
+            if unseen && open && !self.messages.iter().any(|o| o.id() == new.id) {
+                gapped.insert(new.id.clone());
+            }
+            if !open {
+                gapped.remove(&new.id);
+            }
+        }
+        self.merge(fresh);
+    }
+
     pub fn merge(&mut self, fresh: Vec<Message>) {
         let mut prev: Option<String> = None;
-        for m in fresh {
+        for mut m in fresh {
             let id = m.id().to_owned();
             let after = prev.replace(id).and_then(|p| self.messages.iter().position(|o| o.id() == p));
             if let Some(slot) = self.messages.iter_mut().find(|o| o.id() == m.id()) {
                 // Keep live-streamed text when the fetched copy is behind.
-                if let (Message::Assistant(old), Message::Assistant(new)) = (&*slot, &m)
+                if let (Message::Assistant(old), Message::Assistant(new)) = (&*slot, &mut m)
                     && new.completed.is_none()
-                    && old.parts.len() > new.parts.len()
                 {
-                    continue;
+                    if old.parts.len() > new.parts.len() {
+                        continue;
+                    }
+                    // OpenCode writes a part's text when the part ends: a page read mid-reply has
+                    // it empty or short, and taking it would wipe what streamed (and the deltas
+                    // after would run on from nothing).
+                    for (fresh_part, shown) in new.parts.iter_mut().zip(&old.parts) {
+                        match (fresh_part, shown) {
+                            (Part::Text { text: f }, Part::Text { text: o }) | (Part::Reasoning { text: f, .. }, Part::Reasoning { text: o, .. }) if o.starts_with(f.as_str()) => *f = o.clone(),
+                            _ => {}
+                        }
+                    }
                 }
                 // Nor rewind a compaction that ended to a copy read while it ran.
                 if let (Message::Compaction(old), Message::Compaction(new)) = (&*slot, &m)

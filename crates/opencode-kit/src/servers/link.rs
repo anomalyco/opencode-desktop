@@ -14,6 +14,9 @@ use crate::wire_error::{WireError, WireKind};
 
 /// A drop shorter than this says nothing (Kit's grace before the header says Reconnecting).
 pub const QUIET: f64 = 2.0;
+/// A suspect link whose stream stays up this long is fine after all: the app reopens a stream
+/// that's silent for 25 s (`reconnect::STREAM_IDLE`), and the server writes a heartbeat every 15.
+pub const SUSPECT_FOR: f64 = 25.0 + QUIET;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Link {
@@ -24,6 +27,10 @@ pub enum Link {
     Online,
     /// The stream dropped at `since` and is reopening; `shown` once it has lasted [`QUIET`].
     Reopening { since: f64, shown: bool },
+    /// The stream is up, but a read or write failed for want of a link at `since`; `shown` once
+    /// it has lasted [`QUIET`]. Any answer clears it, and so does the stream outliving its idle
+    /// limit without dropping ([`SUSPECT_FOR`]).
+    Suspect { since: f64, shown: bool },
     /// Nothing answers: `why` in the client's words (no connection, no answer in time).
     Offline { since: f64, why: Offline },
     /// Something else answers in its place: a captive portal's sign-in page, a proxy.
@@ -55,6 +62,10 @@ pub enum Event {
     Unauthorized,
     /// The OS says the network changed or the machine woke: try again now.
     NetworkChanged,
+    /// Another call failed on the link itself at `now` (not the server's answer).
+    CallFailed { now: f64 },
+    /// The server answered something.
+    Heard,
     Tick { now: f64 },
 }
 
@@ -73,7 +84,9 @@ impl Link {
         use Effect::*;
         let before = self.clone();
         let effects = match (&*self, event) {
-            (_, Event::StreamUp) | (Link::Connecting | Link::Offline { .. } | Link::Intercepted { .. }, Event::Healthy { compatible: true }) => {
+            // Only the stream clears a stream something else answers: a proxy that mangles the
+            // event stream alone (buffering it, a sign-in page for it) leaves the probe answering.
+            (_, Event::StreamUp) | (Link::Connecting | Link::Offline { .. } | Link::SignedOut | Link::Incompatible, Event::Healthy { compatible: true }) => {
                 *self = Link::Online;
                 Effects::none()
             }
@@ -94,9 +107,15 @@ impl Link {
                     *self = Link::SignedOut;
                     Effects::none()
                 }
-                Some(WireKind::Unreachable(_)) if !matches!(self, Link::Online) => {
+                Some(WireKind::Unreachable(_)) if !matches!(self, Link::Online | Link::Suspect { .. }) => {
                     *self = Link::Offline { since: now, why: Offline::Refused };
                     Effects::none()
+                }
+                // A suspect link whose stream drops is reopening from now, and keeps what it shows.
+                _ if matches!(self, Link::Suspect { .. }) => {
+                    let Link::Suspect { shown, .. } = *self else { return Effects::none() };
+                    *self = Link::Reopening { since: now, shown };
+                    if shown { Effects::none() } else { Effects::one(WakeAt(now + QUIET)) }
                 }
                 // A drop from online, or one the client can't name: it's reopening, quietly at first.
                 _ if matches!(self, Link::Online | Link::Connecting) => {
@@ -113,9 +132,29 @@ impl Link {
                 *self = Link::Offline { since: now, why: Offline::Refused };
                 Effects::none()
             }
-            (Link::Offline { .. } | Link::Intercepted { .. } | Link::Reopening { .. } | Link::Connecting, Event::NetworkChanged) => {
+            (Link::Offline { .. } | Link::Intercepted { .. } | Link::Reopening { .. } | Link::Suspect { .. } | Link::Connecting, Event::NetworkChanged) => {
                 *self = Link::Connecting;
                 Effects::one(Reconnect)
+            }
+            (Link::Online, Event::CallFailed { now }) => {
+                *self = Link::Suspect { since: now, shown: false };
+                Effects::one(WakeAt(now + QUIET))
+            }
+            (Link::Suspect { .. }, Event::Heard) => {
+                *self = Link::Online;
+                Effects::none()
+            }
+            (Link::Suspect { since, shown }, Event::Tick { now }) => {
+                let (since, shown) = (*since, *shown);
+                if now + 1e-3 >= since + SUSPECT_FOR {
+                    *self = Link::Online;
+                    return Effects::one(Repaint);
+                }
+                if shown || now + 1e-3 < since + QUIET {
+                    return Effects::one(WakeAt(if shown { since + SUSPECT_FOR } else { since + QUIET }));
+                }
+                *self = Link::Suspect { since, shown: true };
+                Effects::one(WakeAt(since + SUSPECT_FOR))
             }
             (Link::Reopening { since, shown: false }, Event::Tick { now }) => {
                 let since = *since;
@@ -138,6 +177,21 @@ impl Link {
 
     /// Whether the header says anything: everything but online, connecting and a short drop.
     pub fn shown(&self) -> bool {
-        !matches!(self, Link::Online | Link::Connecting | Link::Reopening { shown: false, .. })
+        !matches!(self, Link::Online | Link::Connecting | Link::Reopening { shown: false, .. } | Link::Suspect { shown: false, .. })
+    }
+
+    /// Whether the header says Reconnecting: the stream reopening, or calls failing, past [`QUIET`].
+    pub fn reconnecting(&self) -> bool {
+        matches!(self, Link::Reopening { shown: true, .. } | Link::Suspect { shown: true, .. })
+    }
+
+    /// Whether it waits on the clock (a grace to run out).
+    pub fn ticks(&self) -> bool {
+        matches!(self, Link::Reopening { shown: false, .. } | Link::Suspect { .. })
+    }
+
+    /// The event stream dropped, or something else answers in the server's place.
+    pub fn dropped(&self) -> bool {
+        matches!(self, Link::Reopening { .. } | Link::Offline { .. } | Link::Intercepted { .. })
     }
 }

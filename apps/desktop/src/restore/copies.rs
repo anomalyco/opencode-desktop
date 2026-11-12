@@ -97,7 +97,7 @@ impl App {
             {
                 o.step(crate::session_pages::OpenEvent::Received);
             }
-            tx.settle();
+            session_view::jump::settle(self, tx);
             changed = true;
         }
         changed

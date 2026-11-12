@@ -193,7 +193,7 @@ pub fn view(s: &App, id: &str) -> View {
         // Nothing known of it and its server isn't answering (never reached, its stream is down,
         // or its health check failed): say so rather than wait blank, as Desktop's
         // `unreachable | stopped` health does.
-        _ if offline(s) || s.server_links.get(&server(s)).dropped() => View::Unreachable,
+        _ if offline(s) || crate::reconnect::link_of(s, key.as_str()).dropped() => View::Unreachable,
         _ => View::Session,
     }
 }
@@ -207,22 +207,20 @@ fn offline(s: &App) -> bool {
 /// live: signed out (with Sign in again), an unsupported version, offline, or the stream
 /// reconnecting. Nothing while it's live.
 pub fn status(s: &App, p: &Pal) -> Option<El> {
+    use opencode_kit::servers::link::Link;
     let key = crate::servers::runtime::active(s);
     let small = |words: &str| rune::text(words.to_owned()).key("connection-status").font(crate::view::UI_SMALL).color(p.faint);
-    match server_unavailable::cover(key) {
-        Some(Cover::SignedOut) => return Some(server_unavailable::signed_out_status(p, key)),
-        Some(Cover::Incompatible) => return Some(small(opencode_i18n::t!("session.error.incompatible"))),
-        None => {}
+    // One machine says it (`opencode_kit::servers::link`), stepped by the stream, the other
+    // calls, the launch, the health probe and the OS (`reconnect`).
+    match crate::reconnect::link_of(s, key.as_str()) {
+        Link::SignedOut => Some(server_unavailable::signed_out_status(p, key)),
+        Link::Incompatible => Some(small(opencode_i18n::t!("session.error.incompatible"))),
+        // Something on the network answers in the server's place (a sign-in page).
+        Link::Intercepted { .. } => Some(small(opencode_i18n::t!("rune.session.interceptedCopy"))),
+        Link::Offline { .. } => Some(small(opencode_i18n::t!("rune.session.offlineCopy"))),
+        link if link.reconnecting() => Some(small(crate::reconnect::RECONNECTING)),
+        _ => None,
     }
-    // Something on the network answers in the server's place (a sign-in page): the stream's
-    // own error said so (`opencode_kit::servers::link`).
-    if matches!(crate::reconnect::link_of(s, key.as_str()), opencode_kit::servers::link::Link::Intercepted { .. }) {
-        return Some(small(opencode_i18n::t!("rune.session.interceptedCopy")));
-    }
-    if offline(s) {
-        return Some(small(opencode_i18n::t!("rune.session.offlineCopy")));
-    }
-    crate::reconnect::shown(s).then(|| small(crate::reconnect::RECONNECTING))
 }
 
 /// The open session's panel, when it can't show.

@@ -152,7 +152,33 @@ impl LineComments {
     }
 }
 
+/// A comment box closed with words in it (Cancel, Escape), kept for as long as its undo toast.
+#[derive(Clone, Debug)]
+pub struct Discarded {
+    spot: Spot,
+    selection: Range,
+    comment: String,
+    /// The comment it was editing; none for a new one.
+    edit: Option<String>,
+}
+
 impl App {
+    /// Undo on a closed comment box's toast: it opens again where it stood, its words in it and
+    /// the caret after them.
+    pub(crate) fn restore_discarded_comment(&mut self, d: Discarded, tx: &mut Tx) {
+        match d.edit {
+            Some(id) => self.line_comment(&d.spot, machine::Event::EditOpened { id, range: d.selection, text: d.comment }, tx),
+            None => {
+                self.line_comment(&d.spot, machine::Event::DraftOpened(d.selection), tx);
+                if let Some(draft) = self.line_comments.draft_mut(&d.spot) {
+                    draft.text.replace_text(d.comment);
+                    let end = draft.text.text.len();
+                    draft.text.set_caret(end);
+                }
+            }
+        }
+    }
+
     /// Steps the mode at `spot` and carries out its effects.
     pub fn line_comment(&mut self, spot: &Spot, event: machine::Event, tx: &mut Tx) {
         tx.instant();
@@ -178,6 +204,10 @@ impl App {
                 machine::Effect::SubmitDraft { comment, selection } => self.add_line_comment(spot, selection, comment, tx),
                 machine::Effect::SubmitEdit { id, comment, selection } => self.update_line_comment(spot, &id, selection, comment),
                 machine::Effect::Delete { id } => self.remove_line_comment(&spot.session, &id),
+                machine::Effect::Discarded { comment, selection, edit } => {
+                    let discarded = Discarded { spot: spot.clone(), selection, comment, edit };
+                    crate::undo::offer(self, opencode_i18n::t!("rune.undo.commentDiscarded"), crate::undo::Undoable::Comment(discarded));
+                }
             }
         }
         if self.line_comments.version(&spot.session) != before {

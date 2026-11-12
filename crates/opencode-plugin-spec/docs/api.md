@@ -2526,6 +2526,7 @@ A set of changes for `ui.diffView`.
 | `:Sources` | `() -> { DiffSource }` | What it can compare in this folder: `branch` only on a branch other than the default one. |
 | `:Status` | `() -> DiffStatus` | How the read went. |
 | `:Retry` | `() -> ()` | Reads again after a failure. |
+| `:Error` | `() -> string?` | Why the read failed, in the app's words, while `Status` is `error` or `offline`. |
 | `:Active` | `() -> string?` | The file the preview shows: the one focused last while it still changed, else the first the server lists. |
 | `:Focus` | `(path: string) -> ()` | Shows a changed file in the preview, and selects it in the tree. |
 | `:Tree` | `() -> FileTreeModel` | Its changed files as a tree for `ui.fileTree`, every folder open until the user shuts it. |

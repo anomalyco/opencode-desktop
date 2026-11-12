@@ -25,7 +25,8 @@ pub struct FetchedDiffs {
     pub session_id: String,
     pub mode: ChangeMode,
     pub revision: u64,
-    pub raw_diff: Value,
+    /// The server's diff, or why it couldn't be read (in the client's words).
+    pub raw_diff: Result<Value, String>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     pub no_git: bool,
@@ -299,8 +300,7 @@ pub fn fetch_live_diffs(
         ChangeMode::Turn => server.get(&format!("/api/session/{}/diff", crate::switcher::encode(&session_id))),
         ChangeMode::Branch => server.get(&format!("/api/vcs/diff?{loc}&mode=branch")),
         ChangeMode::Git => server.get(&format!("/api/vcs/diff?{loc}&mode=working")),
-    }
-    .unwrap_or(Value::Null);
+    };
 
     FetchedDiffs {
         session_id,

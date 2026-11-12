@@ -90,6 +90,11 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
         Ok(status(app.review.sessions.get(&sid)))
     })?;
     let read = with(sid);
+    method(lua, &m, "Error", move |_, ()| {
+        let (app, sid) = read("DiffDocument:Error")?;
+        Ok(app.review.sessions.get(&sid).and_then(|sr| sr.load.failed().map(str::to_owned)))
+    })?;
+    let read = with(sid);
     method(lua, &m, "Loading", move |_, ()| {
         let (app, sid) = read("DiffDocument:Loading")?;
         Ok(status(app.review.sessions.get(&sid)) == "loading")
@@ -150,6 +155,8 @@ pub fn status(sr: Option<&SessionReview>) -> &'static str {
     match sr {
         Some(sr) if sr.load.no_git() => "no-vcs",
         Some(sr) if sr.load.ready() => "ready",
+        Some(sr) if sr.load.offline() => "offline",
+        Some(sr) if sr.load.failed().is_some() => "error",
         _ => "loading",
     }
 }

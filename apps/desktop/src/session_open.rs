@@ -71,7 +71,7 @@ impl App {
         if self.side_open() {
             self.review.dirty = true;
         }
-        tx.settle();
+        session_view::jump::settle(self, tx);
         match &*self.source {
             // A session still starting has nothing to read yet (`new_session.rs`).
             Source::Live { .. } if self.starts.has(id) => {}

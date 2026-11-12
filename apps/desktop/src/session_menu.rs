@@ -17,6 +17,7 @@ use rune::machine::Seq;
 use rune::{Key, KeyEvent, PopupAnchor, TextEdit, Tx};
 
 use opencode_kit::client::Write;
+use opencode_kit::model::SessionInfo;
 use opencode_kit::servers::ServerKey;
 
 use crate::popup::{self, Menu};
@@ -70,6 +71,8 @@ pub struct Menus {
     seq: Seq,
     /// Delete's confirmation.
     delete: delete::Delete,
+    /// Deletes sent (their undo toast went), until the server answers.
+    sent: delete::Sent,
     /// The storybook's drawn menu lights this item.
     pub hot: Option<String>,
 }
@@ -96,15 +99,11 @@ impl Menus {
     /// What Delete's confirmation asks about, while it shows: the session, its server, its title.
     pub(crate) fn asked(&self) -> Option<&delete::Asked> {
         match &self.delete {
-            delete::Delete::Confirming { asked } | delete::Delete::Deleting { asked, .. } => Some(asked),
+            delete::Delete::Confirming { asked } => Some(asked),
             delete::Delete::Closed => None,
         }
     }
 
-    /// The delete is on its way: the dialog's buttons are off (`selectSessionDeleteView`).
-    pub fn deleting(&self) -> bool {
-        matches!(self.delete, delete::Delete::Deleting { .. })
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -350,7 +349,7 @@ impl App {
             }
             Some("delete") => {
                 let server = crate::servers::runtime::active(self).clone();
-                self.delete_event(delete::Event::Replied { session, server, ok }, why, tx);
+                self.sent_event(delete::SentEvent::Replied { session, server, ok }, why, tx);
             }
             Some("unarchive") => self.switcher_restore_replied(session, ok, why, tx),
             _ => {}
@@ -370,16 +369,16 @@ impl App {
     pub fn ask_delete_on(&mut self, server: &ServerKey, id: &str) {
         let title = crate::servers::runtime::with_server(self, server, |s| s.session(id).map(crate::view::title_of)).flatten().unwrap_or_else(|| opencode_i18n::t!("command.session.new").to_owned());
         let asked = delete::Asked { session: id.to_owned(), server: server.clone(), title };
-        self.delete_event(delete::Event::Ask(asked), "", &mut Tx::default());
+        self.delete_event(delete::Event::Ask(asked), &mut Tx::default());
     }
 
-    /// Cancel, Escape or a press outside Delete's confirmation; nothing while the delete runs.
+    /// Cancel, Escape or a press outside Delete's confirmation.
     pub fn cancel_delete(&mut self, tx: &mut Tx) {
-        self.delete_event(delete::Event::Cancel, "", tx);
+        self.delete_event(delete::Event::Cancel, tx);
     }
 
     /// Delete: the session the confirmation asks about and its subagents leave its server's
-    /// list, and the server's answer decides.
+    /// list, and the toast that offers them back sends the delete when it goes (`delete`).
     pub fn delete_session(&mut self, tx: &mut Tx) {
         let Some(asked) = self.menus.asked().cloned() else { return };
         let tree = crate::servers::runtime::with_server(self, &asked.server, |s| {
@@ -393,53 +392,79 @@ impl App {
             gone.iter().filter_map(|g| s.session(g).cloned()).collect()
         })
         .unwrap_or_default();
-        self.delete_event(delete::Event::Confirm { tree, now: tx.clock() }, "", tx);
+        self.delete_event(delete::Event::Confirm { tree }, tx);
     }
 
-    /// The delete's deadline.
+    /// The deadline of the deletes sent.
     pub fn poll_delete(&mut self, now: f64, tx: &mut Tx) -> bool {
-        let before = self.menus.confirming();
         // Only a delete in flight hears the clock: polls leave the menus untouched otherwise, so
         // regions that read them stay reused.
-        if matches!(self.menus.delete, delete::Delete::Deleting { .. }) {
-            self.delete_event(delete::Event::Tick { now }, "", tx);
-        }
-        if let delete::Delete::Deleting { due, .. } = self.menus.delete {
+        let Some(due) = self.menus.sent.next_due() else { return false };
+        if now + 1e-9 < due {
             tx.wake_at(due);
+            return false;
         }
-        before != self.menus.confirming()
+        self.sent_event(delete::SentEvent::Tick { now }, "", tx);
+        true
     }
 
-    /// Runs `event` through Delete's machine and carries out what it asks.
-    fn delete_event(&mut self, event: delete::Event, why: &str, tx: &mut Tx) {
+    /// Runs `event` through Delete's confirmation and carries out what it asks.
+    fn delete_event(&mut self, event: delete::Event, tx: &mut Tx) {
         for effect in delete::step(&mut self.menus.delete, event) {
             tx.instant();
             match effect {
                 delete::Effect::Hide(server, ids) => {
                     crate::servers::runtime::with_server(self, &server, |s| s.sessions.retain(|s| !ids.contains(&s.id)));
                 }
-                delete::Effect::Run(server, id) => {
-                    // A story's write goes nowhere and a build that can't write sends none: each
-                    // answers at once.
-                    let sent = crate::servers::runtime::with_server(self, &server, |s| s.write(Write::Delete(id.clone()))).unwrap_or(false);
-                    if self.stage.is_some() || !sent {
-                        return self.delete_event(delete::Event::Replied { session: id, server, ok: sent }, why, tx);
-                    }
+                delete::Effect::Defer { server, session, hidden } => {
+                    crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionDeleted"), crate::undo::Undoable::Deleted { server, session, hidden });
                 }
-                delete::Effect::WakeAt(due) => tx.wake_at(due),
-                delete::Effect::Restore(server, hidden) => {
-                    crate::servers::runtime::with_server(self, &server, |s| {
-                        for h in hidden {
-                            if s.session(&h.id).is_none() {
-                                s.sessions.push(h);
-                            }
-                        }
-                    });
-                }
-                delete::Effect::Removed(server, gone) => {
+            }
+        }
+    }
+
+    /// The delete of `session` on `server` goes now: its undo toast went, or the app quits.
+    pub(crate) fn send_delete(&mut self, server: ServerKey, session: String, hidden: Vec<SessionInfo>, tx: &mut Tx) {
+        let now = *self.clock;
+        self.sent_event(delete::SentEvent::Sent { server: server.clone(), session: session.clone(), hidden, now }, "", tx);
+        // A story's write goes nowhere and a build that can't write sends none: each answers at once.
+        let sent = crate::servers::runtime::with_server(self, &server, |s| s.write(Write::Delete(session.clone()))).unwrap_or(false);
+        if self.stage.is_some() || !sent {
+            self.sent_event(delete::SentEvent::Replied { session, server, ok: sent }, "", tx);
+        }
+    }
+
+    /// Undo on a delete's toast: its sessions are listed again, nothing sent.
+    pub(crate) fn undelete(&mut self, server: &ServerKey, hidden: Vec<SessionInfo>) {
+        crate::servers::runtime::with_server(self, server, |s| s.unhide(hidden));
+    }
+
+    fn unhide(&mut self, hidden: Vec<SessionInfo>) {
+        for h in hidden {
+            if self.session(&h.id).is_none() {
+                self.sessions.push(h);
+            }
+        }
+    }
+
+    /// Runs `event` through the deletes sent and carries out what it asks.
+    fn sent_event(&mut self, event: delete::SentEvent, why: &str, tx: &mut Tx) {
+        for effect in self.menus.sent.step(event) {
+            match effect {
+                delete::SentEffect::WakeAt(due) => tx.wake_at(due),
+                delete::SentEffect::Removed(server, gone) => {
+                    tx.instant();
                     crate::servers::runtime::with_server(self, &server, |s| s.session_removed(&gone));
                 }
-                delete::Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("session.delete.failed.title"), why),
+                delete::SentEffect::Failed(server, hidden) => {
+                    tx.instant();
+                    crate::servers::runtime::with_server(self, &server, |s| s.unhide(hidden));
+                    // A refusal with the server's words has its own toast (`from_server`, in
+                    // `session_write_replied`).
+                    if why.is_empty() {
+                        crate::status_toast::fail(self, opencode_i18n::t!("session.delete.failed.title"), "");
+                    }
+                }
             }
         }
     }

@@ -378,7 +378,7 @@ impl super::App {
         if let Some(opening) = self.opening.take() {
             *self.route = opening.from;
             let _ = self.show_draft();
-            tx.settle();
+            session_view::jump::settle(self, tx);
         }
     }
 
@@ -406,14 +406,14 @@ impl super::App {
             *self.opening = None;
             // Mount the finished transcript at its end, or where it was read, without
             // resetting input or focus.
-            tx.settle();
+            session_view::jump::settle(self, tx);
             self.ends.land(&id, tx);
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }
         let expired = opening.expired(self.live(), *self.clock);
         if expired && self.opening.as_mut().is_some_and(|o| o.step(OpenEvent::Expired)) {
-            tx.settle();
+            session_view::jump::settle(self, tx);
             return true;
         }
         false
@@ -513,11 +513,17 @@ impl super::App {
             // Cursor order, not ID order: a steered prompt can have an older ID than history.
             messages.append(&mut t.messages);
             t.messages = messages;
-        } else { t.merge(messages); }
+        } else {
+            match self.stream_gaps.get_mut(id.as_str()) {
+                Some(gapped) => t.merge_caught(messages, gapped),
+                None => t.merge(messages),
+            }
+        }
         self.settle_inbox(id, &delivered);
         let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
-        if first || cold { tx.settle(); }
+        // A timeline read up from its end (a place kept from the last run) isn't carried to it.
+        if first || cold { session_view::jump::settle(self, tx); }
         if page.history {
             // A page that added nothing ends it too, so a server that keeps handing out cursors
             // can't loop (`history-machine.ts` `stalled`).
@@ -552,7 +558,7 @@ impl super::App {
                     if let Some(pages) = &self.pages.pool { pages.history(key, cursor, limit); }
                 }
                 HistoryEffect::WakeAfter(after) => tx.wake_after(after),
-                HistoryEffect::Settle => tx.settle(),
+                HistoryEffect::Settle => session_view::jump::settle(self, tx),
                 HistoryEffect::Repaint => changed = true,
             }
         }

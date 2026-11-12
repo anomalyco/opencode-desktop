@@ -128,6 +128,19 @@ impl Disclosures {
         self.len() == 0
     }
 
+    /// Every disclosure the reader opened (`true`) or shut (`false`), for keeping across a
+    /// restart; one springing shut counts as shut.
+    pub fn touched(&self) -> impl Iterator<Item = (&String, bool)> {
+        self.0.iter().map(|(k, d)| (k, *d == Disclosure::Open))
+    }
+
+    /// Takes back what [`Disclosures::touched`] kept; what the reader toggled since stays.
+    pub fn restore(&mut self, touched: impl IntoIterator<Item = (String, bool)>) {
+        for (k, open) in touched {
+            self.0.entry(k).or_insert(if open { Disclosure::Open } else { Disclosure::Shut });
+        }
+    }
+
     /// Keeps the toggled disclosures whose key passes `keep`.
     pub fn retain(&mut self, mut keep: impl FnMut(&String) -> bool) {
         self.0.retain(|k, _| keep(k));

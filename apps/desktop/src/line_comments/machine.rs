@@ -87,6 +87,8 @@ impl Range {
 #[derive(Clone, Debug)]
 pub struct Draft {
     pub text: TextEdit,
+    /// What the box opened with: nothing for a new comment, the comment for an edit.
+    pub original: String,
     pub field: Field,
     /// The narrow field's height once its grip has been dragged (`resize: vertical`).
     pub height: Option<f32>,
@@ -111,10 +113,17 @@ pub enum GripEvent {
 }
 
 impl Draft {
-    fn new(text: &str) -> Draft {
-        let mut text = TextEdit::new(text);
+    fn new(original: &str) -> Draft {
+        let mut text = TextEdit::new(original);
         text.focused = true;
-        Draft { text, field: Field::default(), height: None, grip: Grip::Idle }
+        Draft { text, original: original.to_owned(), field: Field::default(), height: None, grip: Grip::Idle }
+    }
+
+    /// Words typed that closing the box would throw away: changed from what it opened with,
+    /// and at least [`KEEP_CHARS`] of them (a stray letter isn't worth a toast).
+    fn discards(&self) -> Option<String> {
+        let words = self.text.text.trim();
+        (words != self.original.trim() && words.chars().count() >= KEEP_CHARS).then(|| words.to_owned())
     }
 
     /// Steps the grip; a move while dragging sets the field's height, never under `min`.
@@ -173,7 +182,13 @@ pub enum Effect {
     SubmitDraft { comment: String, selection: Range },
     SubmitEdit { id: String, comment: String, selection: Range },
     Delete { id: String },
+    /// Beyond Desktop: a box closed with `comment` typed in it (the edit of `edit`, or a new
+    /// one), which an undo can open again.
+    Discarded { comment: String, selection: Range, edit: Option<String> },
 }
+
+/// How many characters a closed box must hold to be offered back.
+const KEEP_CHARS: usize = 12;
 
 /// A transition's effects, and whether the mode changed (`step.state !== current`).
 pub struct Step {
@@ -280,10 +295,11 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
         }
         Event::DraftOpened(r) => open_draft(mode, r),
         Event::DraftCancelled => {
-            if !matches!(mode, Mode::Drafting { .. }) {
-                return stay();
-            }
-            enter(mode, Mode::Idle)
+            let Mode::Drafting { range, draft } = &*mode else { return stay() };
+            let discarded = draft.discards().map(|comment| Effect::Discarded { comment, selection: *range, edit: None });
+            let mut s = enter(mode, Mode::Idle);
+            s.effects.extend(discarded);
+            s
         }
         Event::DraftSubmitted => {
             let Mode::Drafting { range, draft } = &*mode else { return stay() };
@@ -336,10 +352,11 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
             enter(mode, Mode::Editing { id, range, draft: Draft::new(&text) })
         }
         Event::EditCancelled => {
-            if !matches!(mode, Mode::Editing { .. }) {
-                return stay();
-            }
-            enter(mode, Mode::Idle)
+            let Mode::Editing { id, range, draft } = &*mode else { return stay() };
+            let discarded = draft.discards().map(|comment| Effect::Discarded { comment, selection: *range, edit: Some(id.clone()) });
+            let mut s = enter(mode, Mode::Idle);
+            s.effects.extend(discarded);
+            s
         }
         Event::EditSubmitted => {
             let Mode::Editing { id, range, draft } = &*mode else { return stay() };

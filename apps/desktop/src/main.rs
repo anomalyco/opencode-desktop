@@ -468,6 +468,11 @@ pub struct App {
     /// the view ran since, or when an earlier poll this frame changed something.
     pub view_runs: std::cell::Cell<u64>,
     polled_runs: u64,
+    /// The window's timeline places and opened rows as last written (`restore::places`).
+    pub(crate) timeline_kept: restore::places::Kept,
+    /// Each session's assistant steps that were open when its event stream dropped: their text
+    /// grows again only from whole text (`Transcript::apply_caught`, the catching-up barrier).
+    pub(crate) stream_gaps: HashMap<String, std::collections::HashSet<String>>,
     fixture: rune::Tracked<Value>,
     playback: rune::Tracked<VecDeque<(f64, String, Value)>>,
     /// What the fixture's server stored from the replies it streamed (`served.rs`).
@@ -1170,6 +1175,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.polled_runs = s.view_runs.get();
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
+    s.poll_places(now, tx);
+    reconnect::audit(s);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
     changed |= servers::health::poll(s, tx);
@@ -1250,7 +1257,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.morph(tx);
     }
     if s.glows.busy() {
-        changed |= s.glows.poll(&s.knobs, now, tx);
+        let held = session_view::jump::held(s);
+        changed |= s.glows.poll(&s.knobs, now, tx, held.as_ref());
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= line_reveal::poll(s, now, tx);

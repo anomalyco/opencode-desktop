@@ -166,11 +166,12 @@ impl Arrivals {
         matches!(self, Arrivals::Tracking { growing, landing, .. } if !growing.is_empty() || *landing != Landing::default())
     }
 
-    pub fn poll(&mut self, k: &Knobs, now: f64, tx: &mut Tx) -> bool {
+    /// `held`: the open timeline's place, which the settle keeps (`jump::held`).
+    pub fn poll(&mut self, k: &Knobs, now: f64, tx: &mut Tx, held: Option<&(String, String, f32)>) -> bool {
         let mut glowing = false;
         for effect in self.step(Event::Frame { now, secs: crate::knobs::glow_secs(k) }) {
             match effect {
-                Effect::Settle => tx.settle(),
+                Effect::Settle => crate::jump::settle_held(tx, held),
                 Effect::Frame => {
                     tx.wake_after(std::time::Duration::ZERO);
                     glowing = true;

@@ -40,11 +40,11 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
 /// footer.
 pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     let Some(asked) = s.menus.asked() else { return vec![] };
-    let busy = s.menus.deleting();
     let name = asked.title.clone();
     let kit = crate::palette::kit(p);
+    // Delete closes the dialog at once (the delete waits for its undo toast), so its buttons are
+    // never off waiting for the server, as Desktop's are.
     let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Ghost)
-        .disabled(busy)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.cancel_delete(tx))
         .build(kit)
         .key("delete-cancel")
@@ -54,7 +54,6 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     // where the theme's token is flattened over `bg-base`. Opaque, as the elevation's ring and
     // drop would show through a translucent fill.
     let delete = crate::widgets::button(t!("session.delete.button"), ButtonVariant::Danger)
-        .disabled(busy)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.delete_session(tx))
         .build(kit)
         .key("delete-confirm");

@@ -166,6 +166,31 @@ local function loading(env: Env): ui.Node
     })
 end
 
+-- Beyond Desktop, which says "No file changes yet" when the read fails: what failed, why, and
+-- Try again, where the empty view stands.
+local function failed(env: Env, view: View, doc: DiffDocument, why: string): ui.Node
+    return ui.col({ key = "review-failed", w = "full", grow = 1, align = "center", justify = "center", gap = 8, pad = 24, pb = 160 }, {
+        ui.text(env.I18n:T("rune.review.readFailed"), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text", textAlign = "center" }),
+        ui.text(why, { size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-muted", maxW = 360, textAlign = "center", mb = 4 }),
+        ui.row({
+            key = "review-retry",
+            h = 28,
+            px = 10,
+            radius = 6,
+            center = true,
+            role = "button",
+            label = env.I18n:T("common.retry"),
+            fill = "surface-raised",
+            hover = "surface-hover",
+            press = "surface-press",
+            hoverTransition = "instant",
+            onPress = view:Handler(function()
+                doc:Retry()
+            end),
+        }, { ui.text(env.I18n:T("common.retry"), { size = 13, weight = "medium", lineHeight = 20, color = "text" }) }),
+    })
+end
+
 -- A folder outside version control (`SessionReviewEmptyNoGitV2`).
 local function noGit(env: Env): ui.Node
     return ui.col({ key = "review-no-git", w = "full", grow = 1, align = "center", justify = "center", gap = 16, pad = 24, pb = 160 }, {
@@ -291,6 +316,8 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     if status == "loading" and #files == 0 then
         table.insert(main, loading(env))
+    elseif (status == "error" or status == "offline") and #files == 0 then
+        table.insert(main, failed(env, view, doc, doc:Error() or ""))
     elseif status == "no-vcs" then
         table.insert(main, noGit(env))
     elseif #files == 0 then

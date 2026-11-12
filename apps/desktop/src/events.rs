@@ -117,7 +117,19 @@ impl App {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
         if let Some(t) = self.transcripts.get_mut(&sid) {
-            done.transcript = t.apply(ty, data, now);
+            done.transcript = match self.stream_gaps.get_mut(&sid) {
+                Some(gapped) => {
+                    let (changed, reread) = t.apply_caught(ty, data, now, gapped);
+                    if gapped.is_empty() {
+                        self.stream_gaps.remove(&sid);
+                    }
+                    if reread {
+                        self.reload_session(&sid);
+                    }
+                    changed
+                }
+                None => t.apply(ty, data, now),
+            };
         }
         if ty.starts_with("session.") && !sid.is_empty() {
             if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {

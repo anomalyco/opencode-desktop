@@ -61,6 +61,20 @@ pub struct Ends {
     pub recall: crate::recall::Recall,
     /// The session coming back to its place, and that place, until its timeline shows.
     due: Option<(String, String, f32)>,
+    /// Places read in an earlier run, for timelines this run hasn't drawn yet.
+    saved: HashMap<String, (String, f32)>,
+    /// The place each timeline was last held at through a settle ([`held`]).
+    held: std::cell::RefCell<HashMap<String, (String, f32)>>,
+}
+
+/// Where a timeline stood, to keep across a restart: its session, the first row showing and how
+/// far below the viewport's top that row's top stood, and whether that was more than a screen up.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+    pub session: String,
+    pub row: String,
+    pub at: f32,
+    pub far: bool,
 }
 
 impl Ends {
@@ -77,13 +91,33 @@ impl Ends {
     /// A timeline that mounts afresh starts on its end.
     pub fn forget(&mut self, id: &str) {
         self.follow.remove(id);
+        self.saved.remove(id);
     }
 
     /// Where session `id`'s timeline was read when it last showed, scrolled up: its first row
     /// showing and how far below the top that row's top stood. `None` while it follows its end.
     pub fn place(&self, id: &str) -> Option<(String, f32)> {
         if self.at_end(id) { return None; }
-        self.recall.place(id)
+        self.recall.place(id).or_else(|| self.saved.get(id).cloned())
+    }
+
+    /// Places from an earlier run (`places`): each timeline stands there, not on its end, until
+    /// it's drawn and read again.
+    pub fn restore(&mut self, places: Vec<Place>) {
+        for p in places {
+            self.follow.insert(p.session.clone(), Follow::Detached { far: p.far });
+            self.saved.insert(p.session, (p.row, p.at));
+        }
+    }
+
+    /// Where each of `sessions` stands, for those not on their end.
+    pub fn places<'a>(&self, sessions: impl Iterator<Item = &'a str>) -> Vec<Place> {
+        sessions.filter_map(|id| self.place(id).map(|(row, at)| Place { session: id.to_owned(), row, at, far: self.far(id) })).collect()
+    }
+
+    /// Whether session `id`'s place waits for its timeline to show ([`Ends::land`]).
+    pub fn due(&self, id: &str) -> bool {
+        self.due.as_ref().is_some_and(|(due, ..)| due == id)
     }
 
     /// Session `id` is opened again. Read scrolled up, it comes back to its place once its
@@ -100,6 +134,7 @@ impl Ends {
     /// draws it there. A row out of the mounted window is mounted first.
     pub fn land(&mut self, id: &str, tx: &mut Tx) {
         let Some((_, row, at)) = self.due.take_if(|(due, ..)| due == id) else { return };
+        self.held.borrow_mut().insert(id.to_owned(), (row.clone(), at));
         tx.scroll_into_view_in(format!("scroll-{id}"), row.clone());
         tx.scroll_key_to(row, at);
     }
@@ -121,6 +156,38 @@ impl Ends {
 
     pub fn set_at_end(&mut self, id: &str, at: bool) {
         self.step(Some(id), Event::AtEnd(at));
+    }
+}
+
+/// `Tx::settle` for a change that lands what's moving, which also carries every stick-to-bottom
+/// viewport to its end: the open timeline, read up from its end, keeps its place in the same
+/// commit instead (its reader's place, or one kept from the last run). Motion has a cause: the
+/// reader, never a change landing.
+pub fn settle<S: TimelineHost>(s: &S, tx: &mut Tx) {
+    settle_held(tx, held(s).as_ref());
+}
+
+/// The open timeline's place a settle must keep: its session, its first row showing and where.
+/// A place read again within a point of the one kept last is that one, so holding it twice puts
+/// it on the same pixel (the drawn rect it's read from is snapped to pixels; the offset isn't).
+pub fn held<S: TimelineHost>(s: &S) -> Option<(String, String, f32)> {
+    let id = s.active_session_id()?;
+    let (row, at) = s.ends().place(id)?;
+    let mut last = s.ends().held.borrow_mut();
+    let at = match last.get(id) {
+        Some((r, a)) if *r == row && (a - at).abs() < 1.0 => *a,
+        _ => at,
+    };
+    last.insert(id.to_owned(), (row.clone(), at));
+    Some((id.to_owned(), row, at))
+}
+
+/// [`settle`] with the place already read ([`held`]).
+pub fn settle_held(tx: &mut Tx, held: Option<&(String, String, f32)>) {
+    tx.settle();
+    if let Some((id, row, at)) = held {
+        tx.scroll_into_view_in(format!("scroll-{id}"), row.clone());
+        tx.scroll_key_to(row.clone(), *at);
     }
 }
 

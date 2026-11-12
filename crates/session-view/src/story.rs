@@ -201,7 +201,8 @@ pub fn setup(s: &mut Host, waker: Waker) {
 pub fn poll(s: &mut Host, now: f64, tx: &mut Tx) -> bool {
     s.clock = now;
     s.now_ms = s.base_ms + (now * 1000.0) as i64;
-    s.arrivals.poll(&s.knobs, now, tx) | crate::poll(s, now, tx)
+    let held = crate::jump::held(s);
+    s.arrivals.poll(&s.knobs, now, tx, held.as_ref()) | crate::poll(s, now, tx)
 }
 
 pub fn on_key(s: &mut Host, ev: &KeyEvent, tx: &mut Tx) -> bool {

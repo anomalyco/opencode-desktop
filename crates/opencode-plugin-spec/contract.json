@@ -1100,6 +1100,7 @@
       { "name": "Sources", "kind": "method", "sig": "() -> { DiffSource }", "doc": "What it can compare in this folder: `branch` only on a branch other than the default one." },
       { "name": "Status", "kind": "method", "sig": "() -> DiffStatus", "doc": "How the read went." },
       { "name": "Retry", "kind": "method", "sig": "() -> ()", "doc": "Reads again after a failure." },
+      { "name": "Error", "kind": "method", "sig": "() -> string?", "doc": "Why the read failed, in the app's words, while `Status` is `error` or `offline`." },
       { "name": "Active", "kind": "method", "sig": "() -> string?", "doc": "The file the preview shows: the one focused last while it still changed, else the first the server lists." },
       { "name": "Focus", "kind": "method", "sig": "(path: string) -> ()", "doc": "Shows a changed file in the preview, and selects it in the tree." },
       { "name": "Tree", "kind": "method", "sig": "() -> FileTreeModel", "doc": "Its changed files as a tree for `ui.fileTree`, every folder open until the user shuts it." },

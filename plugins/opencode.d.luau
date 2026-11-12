@@ -3794,6 +3794,8 @@ export type DiffDocument = {
     Status: (self: DiffDocument) -> DiffStatus,
     --- Reads again after a failure.
     Retry: (self: DiffDocument) -> (),
+    --- Why the read failed, in the app's words, while `Status` is `error` or `offline`.
+    Error: (self: DiffDocument) -> string?,
     --- The file the preview shows: the one focused last while it still changed, else the first the server lists.
     Active: (self: DiffDocument) -> string?,
     --- Shows a changed file in the preview, and selects it in the tree.

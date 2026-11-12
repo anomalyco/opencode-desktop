@@ -12,6 +12,7 @@ mod copies;
 mod doc;
 mod draft_doc;
 mod parked;
+pub mod places;
 mod preview;
 
 use std::collections::HashMap;
@@ -196,6 +197,7 @@ impl App {
             *self.sidebar_w = (w as f32).clamp(crate::view::SIDEBAR_MIN, crate::view::SIDEBAR_MAX);
         }
         self.side.restore_json(doc.side.as_ref().unwrap_or(&Value::Null));
+        self.restore_places();
         self.load_persisted_terminals(server);
         let _ = self.show_draft();
         // What was read is what's stored: nothing is written until something changes.
@@ -316,6 +318,8 @@ impl App {
         // A tab on its way out takes its window back, and a gap it opened in another closes.
         self.tear_back();
         self.close_rune_mcp();
+        // A delete waiting on this window's toast goes now: the toast goes with the window.
+        crate::undo::commit_all(self);
         if self.persists() {
             self.poll_restore();
             self.poll_preview(true);
@@ -331,6 +335,8 @@ impl App {
     /// queued, the window list and its frame with it; the last window to quit lands every
     /// window's rows in one transaction before the process may end (`windows::quit_saved`).
     pub fn save_on_quit(&mut self) {
+        // A delete waiting on its toast goes now.
+        crate::undo::commit_all(self);
         if self.persists() {
             self.poll_restore();
             self.poll_preview(true);
