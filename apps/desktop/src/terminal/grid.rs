@@ -23,8 +23,11 @@ use crate::App;
 use crate::palette::Pal;
 use crate::view::{UI, UI_SMALL};
 
-/// The terminal's screen: its Tab stop and the key that tells the terminal it has the keyboard.
+/// The terminal's pane, which owns its keys while the screen in it has focus.
 pub(crate) const VIEWPORT_KEY: &str = "terminal-viewport";
+/// The terminal's screen (`rune::grid`): its Tab stop, the text a reader reads, and the key that
+/// tells the terminal it has the keyboard.
+pub(crate) const SCREEN_KEY: &str = "terminal-rows";
 
 const INSTANT: Anim = Anim::INSTANT;
 
@@ -298,7 +301,17 @@ fn render_viewport(
         *cache = kept;
         rows
     });
-    let rows_col = rune::grid(cols, cell_w, cell_h, rows).key("terminal-rows").w(clip_w).h(grid_h);
+    // The screen is the Tab stop and the name, so a reader lands on its text and its caret (not
+    // on a pane that repeats the whole screen); the viewport around it owns the keys.
+    let rows_col = rune::grid(cols, cell_w, cell_h, rows).key(SCREEN_KEY).w(clip_w).h(grid_h)
+        .focusable(true)
+        // A name that holds while a command runs: a shell retitles its window per command, and
+        // each change of the focused element's name is said again. The tab shows the shell's.
+        .label(opencode_i18n::t!(
+            "rune.a11y.terminal",
+            title = if tab.custom_title { tab.title.clone() } else { opencode_i18n::t!("plugin.terminal.title.numbered", number = tab.title_number.max(1)) }
+        ))
+        .description(opencode_i18n::t!("rune.a11y.terminal.leave"));
     let mut canvas_layer = el()
         .key(format!("terminal-canvas-{}", tab.id))
         .w(clip_w)
@@ -362,7 +375,7 @@ fn render_viewport(
         let (col, row) = if snap.cursor.in_viewport { (snap.cursor.col, snap.cursor.row) } else { (0, snap.rows.saturating_sub(1)) };
         let (x, y) = (f32::from(col) * cell_w, f32::from(row) * cell_h);
         canvas_layer = canvas_layer
-            .child(el().key("terminal-ime").absolute(x, y).size(cell_w, cell_h).inert().ime_cursor())
+            .child(el().key("terminal-ime").absolute(x, y).size(cell_w, cell_h).inert().a11y_hidden().ime_cursor())
             .children(tab.preedit.as_ref().map(|pre| render_preedit(pre, snap, x, y, cell_h, style)));
     }
 
@@ -385,14 +398,9 @@ fn render_viewport(
     let (wk_move, tid_move) = (ws_key.to_owned(), tab.id.clone());
     let (wk_menu, tid_menu) = (ws_key.to_owned(), tab.id.clone());
 
-    let title = tab.title.clone();
     let mut outer = row()
         .key(VIEWPORT_KEY)
-        .role("document")
-        // A Tab stop that owns its keys while focused (Tab included); F6 leaves it.
-        .focusable(true)
-        .label(opencode_i18n::t!("rune.a11y.terminal", title = title))
-        .description(opencode_i18n::t!("rune.a11y.terminal.leave"))
+        // Owns the screen's keys while it has focus (Tab included); F6 leaves it.
         .on_key(|app: &mut App, ev: &KeyEvent, tx: &mut Tx| {
             if app.terminal_focus().is_none() {
                 app.focus_terminal_surface();
@@ -651,6 +659,8 @@ fn render_cursor(
 
     canvas(shape)
         .key("terminal-cursor")
+        // The caret a reader follows is the screen's text selection; this draws it.
+        .a11y_hidden()
         .absolute(x, y)
         .size(cur_w, cell_h)
         .instant_changes()

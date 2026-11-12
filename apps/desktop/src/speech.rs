@@ -67,7 +67,30 @@ pub struct Speech {
     /// The open run's tool calls by id, and their tools' names: `session.tool.called` brings
     /// a call's input and `session.tool.input.started` its name.
     tools: Vec<(String, String)>,
+    /// The focused terminal's output, as speech follows it.
+    terminal: Output,
 }
+
+/// A focused terminal's new output: the rows on screen as last seen (their ids, which a row
+/// keeps while it scrolls, and what they held), the lines that arrived and aren't said yet, and
+/// when the last arrived (the app's clock, seconds).
+#[derive(Debug, Default)]
+struct Output {
+    terminal: Option<(String, String)>,
+    /// The user typed into it since it took focus: output before that (a shell's banner, a
+    /// restored session's scrollback) is read by moving through it, not said.
+    typed: bool,
+    /// The rows the user typed on (their commands), which are never said back.
+    input: Vec<u128>,
+    seen: Vec<(u128, u64)>,
+    pending: Vec<String>,
+    at: f64,
+}
+
+/// How long a terminal's output must pause before its new lines are said, in seconds.
+const OUTPUT_QUIET: f64 = 0.4;
+/// More new lines than this are said as how many, and the last.
+const OUTPUT_LINES: usize = 5;
 
 impl Speech {
     /// Queues `words` for the next poll (a toast's message).
@@ -165,6 +188,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) {
         }
         app.speech.dock = shown.map(|(id, _, _)| id);
     }
+    terminal_output(app, tx);
     let queued = std::mem::take(&mut app.speech.queued);
     if !queued.is_empty() {
         let how = if queued.iter().any(|s| s.how == LiveRegion::Assertive) { LiveRegion::Assertive } else { LiveRegion::Polite };
@@ -175,6 +199,73 @@ pub fn poll(app: &mut App, tx: &mut Tx) {
         tx.announce(words, how);
     }
     app.speech.in_prompt = tx.focused().is_none_or(|k| k == "prompt");
+}
+
+/// New output in the terminal that has focus, by the rule replies follow: not every byte, not
+/// nothing. The rows a program prints (rows whose text is new, other than the cursor's, which
+/// the user types on) are said once output pauses for [`OUTPUT_QUIET`]: up to
+/// [`OUTPUT_LINES`] lines, else how many and the last. Nothing while a full-screen program draws
+/// (the alternate screen), or while the user reads back up the scrollback.
+fn terminal_output(app: &mut App, tx: &mut Tx) {
+    let focused = tx.focused() == Some(crate::terminal::grid::SCREEN_KEY);
+    let Some((wk, id)) = app.terminal_focus().filter(|_| focused) else {
+        app.speech.terminal = Output::default();
+        return;
+    };
+    let Some(snap) = app.terminal.workspaces.get(&wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let now = *app.clock;
+    let out = &mut app.speech.terminal;
+    let here = Some((wk, id));
+    if out.terminal != here {
+        // A terminal newly focused: what it shows now is read by moving through it, not said.
+        *out = Output { terminal: here, seen: snap.screen_rows.iter().map(|r| (r.id, r.content_hash)).collect(), at: now, ..Output::default() };
+        return;
+    }
+    if !out.typed || snap.alt_screen || !snap.scrollbar.at_bottom {
+        out.pending.clear();
+        out.seen = snap.screen_rows.iter().map(|r| (r.id, r.content_hash)).collect();
+        return;
+    }
+    let cursor = usize::from(snap.cursor.row);
+    for (k, row) in snap.screen_rows.iter().enumerate() {
+        // A row that holds something new (a blank row filled, a new row scrolled in), once the
+        // cursor has left it (a program may still be writing it), and not a command the user typed.
+        if k == cursor || out.input.contains(&row.id) || out.seen.contains(&(row.id, row.content_hash)) { continue; }
+        let line = row.trimmed_text().trim();
+        if !line.is_empty() { out.pending.push(line.to_owned()); }
+        out.at = now;
+    }
+    out.seen = snap.screen_rows.iter().enumerate().filter(|&(k, _)| k != cursor).map(|(_, r)| (r.id, r.content_hash)).collect();
+    if out.pending.is_empty() { return; }
+    if now - out.at < OUTPUT_QUIET {
+        tx.wake_at(out.at + OUTPUT_QUIET);
+        return;
+    }
+    let lines = std::mem::take(&mut out.pending);
+    let words = if lines.len() <= OUTPUT_LINES {
+        lines.join(". ")
+    } else {
+        opencode_i18n::t!("rune.a11y.terminal.output", count = lines.len(), last = lines.last().map_or("", String::as_str))
+    };
+    app.speech.queued.push(Say { words, how: LiveRegion::Polite });
+}
+
+/// A key went to the focused terminal (from `terminal::key_terminal`): the row the cursor is on
+/// is the user's command, and output from here on is said.
+pub fn terminal_key(app: &mut App, wk: &str, id: &str) {
+    if !app.speech.listening {
+        return;
+    }
+    let Some(snap) = app.terminal.workspaces.get(wk).and_then(|ws| ws.tabs.iter().find(|t| t.id == id)).map(|t| t.session.snapshot()) else { return };
+    let out = &mut app.speech.terminal;
+    out.typed = true;
+    if let Some(row) = snap.screen_rows.get(usize::from(snap.cursor.row))
+        && !out.input.contains(&row.id)
+    {
+        out.input.push(row.id);
+        let extra = out.input.len().saturating_sub(16);
+        out.input.drain(..extra);
+    }
 }
 
 /// The request the open page's dock shows: its id, what a reader hears, and the key of what

@@ -680,8 +680,8 @@ impl App {
     /// Drains worker updates, visual bell flashes, exited/recovered PTYs, and phase-locked cursor blink edges.
     /// Zero heap allocations and `false` return on idle frames so `idle_poll` stays silent.
     pub fn poll_terminal(&mut self, tx: &mut Tx) -> bool {
-        if std::mem::take(&mut self.terminal.claim_focus) && tx.focused() != Some(grid::VIEWPORT_KEY) {
-            tx.focus(grid::VIEWPORT_KEY, tx.focus_visible());
+        if std::mem::take(&mut self.terminal.claim_focus) && tx.focused() != Some(grid::SCREEN_KEY) {
+            tx.focus(grid::SCREEN_KEY, tx.focus_visible());
         }
         if self.stage.is_some()
             && self.terminal.story_built_variant.is_some_and(|v| v != *self.variant)

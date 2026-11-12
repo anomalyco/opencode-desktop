@@ -78,10 +78,11 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // The terminal has the keys only while keyboard focus is on its viewport (which a click, a
     // toggle or Tab puts there): anywhere else, Tab, F6 and typing are that control's, so the
     // keyboard is never trapped in the shell.
-    if tx.focused() != Some(super::grid::VIEWPORT_KEY) {
+    if tx.focused() != Some(super::grid::SCREEN_KEY) {
         return false;
     }
     let Some((wk, id)) = s.terminal_focus() else { return false };
+    crate::speech::terminal_key(s, &wk, &id);
 
     // ⌘W closes the terminal (Desktop's scoped `terminal.close`); the strip's tab keys stay the strip's.
     if Bind::TabClose.matches_tx(ev, tx) {
@@ -124,6 +125,7 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 pub(crate) fn ime_terminal(s: &mut App, ime: &Ime) -> bool {
     let Some((wk, id)) = s.terminal_focus() else { return false };
+    crate::speech::terminal_key(s, &wk, &id);
     let Some(tab) = s.terminal_tab_mut(&wk, &id) else { return false };
     let consumed = input::dispatch_ime(tab, ime);
     if consumed {
