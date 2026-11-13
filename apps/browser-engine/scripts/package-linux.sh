@@ -22,7 +22,13 @@ install -m755 "$bin/opencode-browser-engine" "$bin/opencode-browser-engine-helpe
 # The distribution carries debug symbols in libcef.so. Only its dynamic symbols ship.
 strip --strip-unneeded -o "$app/libcef.so" "$cef/libcef.so"
 install -m644 "$cef"/{chrome_100_percent.pak,chrome_200_percent.pak,icudtl.dat,resources.pak,v8_context_snapshot.bin,CREDITS.html} "$app/"
-install -m644 "$cef/include/cef_app.h" "$app/CEF-LICENSE.h"
+if [[ -f "$cef/LICENSE.txt" ]]; then
+  install -m644 "$cef/LICENSE.txt" "$app/"
+else
+  # download-cef's flattened runtime omits the root license; its original tarball is adjacent.
+  archive=$(jq -er .name "$cef/archive.json")
+  tar -xOjf "$(dirname "$cef")/$archive" "${archive%.tar.bz2}/LICENSE.txt" > "$app/LICENSE.txt"
+fi
 for locale in $(jq -r '.locales[].id' ../../crates/opencode-i18n/locales/locales.json); do
   case $locale in en) locale=en-US;; zh) locale=zh-CN;; zht) locale=zh-TW;; no) locale=nb;; esac
   if [[ -f "$cef/locales/$locale.pak" ]]; then install -m644 "$cef/locales/$locale.pak" "$app/locales/"; fi

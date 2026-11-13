@@ -67,6 +67,7 @@ on:
 
 run-name: >-
   ${{ github.event_name == 'push' && format('dev: {0}', github.sha)
+  || inputs.channel == 'engine-linux' && 'linux x64 browser engine preview'
   || inputs.channel == 'stable' && format('stable: {0} bump (dispatched)', inputs.bump)
   || format('{0}: {1} (dispatched)', inputs.channel, inputs.platforms == 'all' && 'every platform' || 'Windows x64') }}
 
@@ -656,6 +657,7 @@ jobs:
 
   # ---- Browser engine: manually published Linux preview ----
   build-engine-linux:
+    timeout-minutes: 45
     if: github.ref == 'refs/heads/dev' && inputs.channel == 'engine-linux'
     runs-on: ubuntu-24.04
     outputs:
@@ -673,6 +675,7 @@ jobs:
           path: ${{ runner.temp }}/engine
 
   publish-engine-linux:
+    timeout-minutes: 20
     needs: build-engine-linux
     runs-on: ubuntu-24.04
     environment: release

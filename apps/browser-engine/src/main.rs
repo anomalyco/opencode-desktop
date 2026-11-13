@@ -14,6 +14,7 @@
 #[cfg(windows)]
 mod d3d_frames;
 mod engine;
+mod output;
 mod handlers;
 #[cfg(target_os = "macos")]
 mod mac_app;
@@ -33,7 +34,7 @@ use std::time::{Duration, Instant};
 use uds_windows::{UnixListener, UnixStream};
 
 use crate::engine::{CefRuntime, EngineManager};
-use crate::wire::{EngineMsg, HostMsg};
+use crate::wire::HostMsg;
 
 /// How long the engine waits for its app to come back after it disconnected without a Shutdown.
 const RECONNECT_GRACE: Duration = Duration::from_secs(15);
@@ -140,7 +141,7 @@ fn main() {
     step("listening");
 
     let (events, rx) = mpsc::channel::<Event>();
-    let client_writer: Arc<Mutex<Option<(u64, UnixStream)>>> = Arc::new(Mutex::new(None));
+    let client_writer: Arc<Mutex<Option<(u64, Arc<UnixStream>)>>> = Arc::default();
     accept_connections(listener, events.clone());
 
     // The app's GPU (`HIGH,LOW` LUID halves): Chromium renders on it, so its frames open there.
@@ -155,22 +156,21 @@ fn main() {
     let _cef = CefRuntime::initialize(adapter_luid, locale.as_deref(), events.clone());
     step("cef_initialized");
 
-    let (out_tx, out_rx) = mpsc::channel::<EngineMsg>();
+    let (out_tx, out_rx) = output::Output::channel();
     {
         let writer_slot = client_writer.clone();
         std::thread::Builder::new()
             .name("engine-sock-tx".into())
             .spawn(move || {
-                while let Ok(msg) = out_rx.recv() {
-                    let Ok(mut line) = serde_json::to_string(&msg) else {
-                        continue;
-                    };
-                    line.push('\n');
-                    let mut guard = writer_slot.lock().unwrap();
-                    if let Some((_, stream)) = guard.as_mut()
-                        && (stream.write_all(line.as_bytes()).is_err() || stream.flush().is_err())
-                    {
-                        *guard = None;
+                for msg in out_rx {
+                    let Some((id, stream)) = writer_slot.lock().unwrap().clone() else { continue };
+                    let mut writer = std::io::BufWriter::new(stream.as_ref());
+                    if serde_json::to_writer(&mut writer, &msg).is_err()
+                        || writer.write_all(b"\n").is_err() || writer.flush().is_err() {
+                        let mut guard = writer_slot.lock().unwrap();
+                        if guard.as_ref().is_some_and(|(current, _)| *current == id) {
+                            *guard = None;
+                        }
                     }
                 }
             })
@@ -194,7 +194,9 @@ fn main() {
         ($event:expr) => {
             match $event {
                 Event::Connected { id, writer } => {
-                    *client_writer.lock().unwrap() = Some((id, writer));
+                    if let Some((_, old)) = client_writer.lock().unwrap().replace((id, Arc::new(writer))) {
+                        let _ = old.shutdown(std::net::Shutdown::Both);
+                    }
                     true
                 }
                 Event::Disconnected { id } => {

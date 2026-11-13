@@ -4,10 +4,9 @@ use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
+use crate::output::{Output, Paint};
 use std::sync::{Arc, Mutex};
 
-use base64::Engine as _;
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, Browser, CefString, CursorInfo, CursorType, DevToolsMessageObserver,
@@ -190,7 +189,7 @@ wrap_render_handler! {
         tab_id: u64,
         view_state: Arc<Mutex<ViewRectState>>,
         mach_port: Arc<AtomicU32>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
         frame_seq: Arc<AtomicU64>,
         frames: FrameRing,
     }
@@ -283,13 +282,13 @@ wrap_render_handler! {
             let id = self.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;
             let len = (width as usize) * (height as usize) * 4;
             let slice = unsafe { std::slice::from_raw_parts(buffer, len) };
-            let b64 = base64::engine::general_purpose::STANDARD.encode(slice);
-            let _ = self.out_tx.send(EngineMsg::CpuFrame {
-                tab_id: self.tab_id,
+            // OnPaint owns the full buffer only for this call. A replacement must contain all
+            // pixels: the app may never have seen the paints preceding this dirty rectangle.
+            self.out_tx.paint(self.tab_id, Paint {
                 frame_id: id,
                 width: width as u32,
                 height: height as u32,
-                bgra_b64: b64,
+                bgra: slice.to_vec(),
             });
         }
     }
@@ -298,7 +297,7 @@ wrap_render_handler! {
 wrap_display_handler! {
     pub struct TabDisplayHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl DisplayHandler {
@@ -372,7 +371,7 @@ wrap_display_handler! {
 wrap_load_handler! {
     pub struct TabLoadHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl LoadHandler {
@@ -432,7 +431,7 @@ wrap_load_handler! {
 wrap_request_handler! {
     pub struct TabRequestHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl RequestHandler {
@@ -458,7 +457,7 @@ wrap_dev_tools_message_observer! {
         tab_id: u64,
         id_map: Arc<Mutex<HashMap<i32, u64>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl DevToolsMessageObserver {

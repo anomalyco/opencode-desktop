@@ -200,7 +200,7 @@ struct ManagedTab {
 pub struct EngineManager {
     tabs: HashMap<u64, ManagedTab>,
     mach_port: Arc<AtomicU32>,
-    out_tx: Sender<EngineMsg>,
+    out_tx: crate::output::Output,
     next_cdp_id: AtomicI32,
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
@@ -212,7 +212,7 @@ pub struct EngineManager {
 
 impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
-    pub fn new(out_tx: Sender<EngineMsg>, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
+    pub fn new(out_tx: crate::output::Output, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),

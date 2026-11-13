@@ -20,9 +20,8 @@ pub const PROFILE_ENV: &str = "OPENCODE_BROWSER_PROFILE";
 pub(crate) const UNLOCK_WAIT: Duration = Duration::from_secs(20);
 
 /// The profile every app shared before each got its own; the engine's own default.
-/// Panics if the application's directories are unavailable.
 pub fn shared_profile_dir() -> PathBuf {
-    try_shared_profile_dir().expect(crate::installer::ERR_DIRS)
+    try_shared_profile_dir().unwrap_or_else(|| crate::installer::fallback_dir().join("browser-profile"))
 }
 
 pub fn try_shared_profile_dir() -> Option<PathBuf> {

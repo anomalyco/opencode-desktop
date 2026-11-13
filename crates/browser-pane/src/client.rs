@@ -357,7 +357,8 @@ impl BrowserHost {
 
     pub fn navigate(&mut self, tab_id: u64, raw_url: &str) {
         rune::marks::mark("browser.page.navigate");
-        NAVIGATED.store(true, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "engine")]
+        crate::transport::paint_event(crate::transport::PaintEvent::Navigate);
         let url = resolve_address(raw_url);
         // The page shows where it is until the engine says it went: the address field holds what
         // was submitted meanwhile, as Desktop's does (an address set here at once ended that hold,
@@ -774,7 +775,3 @@ impl BrowserHost {
 /// Tabs a connect sent itself, by id: the address and size (width, height in points, scale)
 /// each opened at.
 pub(crate) type EarlyOpens = Arc<Mutex<HashMap<u64, (String, (f32, f32, f32))>>>;
-
-/// A page was asked for this run, so the next frame is a page's (the launch trace's
-/// `browser.page.painted`).
-pub(crate) static NAVIGATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
