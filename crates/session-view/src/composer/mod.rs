@@ -425,8 +425,9 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     // A landmark F6 lands on (the prompt, or the request standing in its place).
     let box_el = col()
         .key(key)
+        // Unnamed, as official's `<form>`: a name would cost the view an allocation each run,
+        // and the prompt inside names it as F6 lands.
         .role("form")
-        .label_static(opencode_i18n::t!("ui.promptInput.label"))
         .w_full()
         .max_w(crate::style::dock_w())
         .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
