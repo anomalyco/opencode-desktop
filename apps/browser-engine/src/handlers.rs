@@ -173,7 +173,9 @@ pub type FrameRing = ();
 /// The native cursor CEF hands `OnCursorChange` (unused: the app draws its own cursor).
 #[cfg(windows)]
 type NativeCursor = sys::HCURSOR;
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+type NativeCursor = sys::cef_cursor_handle_t;
+#[cfg(target_os = "macos")]
 type NativeCursor = *mut u8;
 
 #[derive(Clone, Debug)]
@@ -263,7 +265,7 @@ wrap_render_handler! {
                 }
             }
             #[cfg(not(any(target_os = "macos", windows)))]
-            let _ = (id, &self.frames);
+            let _ = (id, info, &self.frames, &self.mach_port);
         }
 
         fn on_paint(
@@ -557,9 +559,29 @@ pub fn wheel_delta(dx: f32, dy: f32) -> (f32, f32) {
 
 /// The key's `native_key_code`: a macOS virtual key code, or on Windows the `WM_KEYDOWN`
 /// `lParam` with the key's scan code, which gives the page its `KeyboardEvent.code`.
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn native_key_code(_vk: i32, mac: i32) -> i32 {
     mac
+}
+
+/// Chromium's Linux keyboard events use XKB keycodes (evdev + 8), including under Ozone.
+/// The wire carries logical keys; resolve the US-layout physical key for known keys, and
+/// leave the physical code unspecified for text outside that layout.
+#[cfg(target_os = "linux")]
+pub fn native_key_code(vk: i32, _mac: i32) -> i32 {
+    for (row, first) in [(b"1234567890".as_slice(), 10), (b"QWERTYUIOP", 24), (b"ASDFGHJKL", 38), (b"ZXCVBNM", 52)] {
+        if let Some(offset) = row.iter().position(|&key| i32::from(key) == vk) {
+            return first + offset as i32;
+        }
+    }
+    match vk {
+        0x1b => 9, 0xbd => 20, 0xbb => 21, 0x08 => 22, 0x09 => 23,
+        0xdb => 34, 0xdd => 35, 0x0d => 36, 0xba => 47, 0xde => 48, 0xc0 => 49,
+        0xdc => 51, 0xbc => 59, 0xbe => 60, 0xbf => 61, 0x20 => 65,
+        0x24 => 110, 0x26 => 111, 0x21 => 112, 0x25 => 113, 0x27 => 114,
+        0x23 => 115, 0x28 => 116, 0x22 => 117, 0x2e => 119,
+        _ => 0,
+    }
 }
 
 #[cfg(windows)]

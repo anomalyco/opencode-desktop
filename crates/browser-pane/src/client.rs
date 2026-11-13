@@ -1,16 +1,15 @@
-//! Sidecar connection, multi-tab state, and one-line Rune `NativeSurface` element builder.
+//! Sidecar connection and multi-tab state, including the Rune frame handle for each tab.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use base64::Engine as _;
-use rune::native_surface::{ByteFrame, ColorInfo, Format};
-use rune::{Ime, Key, KeyEvent, NativeSurface, Waker};
+use rune::{Ime, Key, KeyEvent, Waker};
 use serde_json::Value;
 
 use crate::address::resolve_address;
+use crate::frame::{self, TabSurface};
 use crate::installer::EngineStatus;
 use crate::keys::{is_shell_shortcut, named_key_str};
 #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -33,7 +32,7 @@ pub struct BrowserTab {
     /// Why the page shows no document (`TabSnapshot::load_error`).
     pub load_error: Option<String>,
     pub inspecting: bool,
-    pub surface: NativeSurface,
+    pub surface: TabSurface,
     pub(crate) viewport_pt: (f32, f32),
     pub(crate) scale: f32,
     pub(crate) sent_resize: Option<(f32, f32, f32)>,
@@ -51,7 +50,7 @@ impl BrowserTab {
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     focused_tab: Option<u64>,
-    pub(crate) surfaces: Arc<Mutex<HashMap<u64, NativeSurface>>>,
+    pub(crate) surfaces: Arc<Mutex<HashMap<u64, TabSurface>>>,
     pub(crate) status: Arc<Mutex<EngineStatus>>,
     last_polled_status: EngineStatus,
     pub(crate) outbox: Arc<Mutex<Option<Sender<HostMsg>>>>,
@@ -197,7 +196,7 @@ impl BrowserHost {
 
     pub fn set_waker(&mut self, waker: Waker) {
         for tab in &self.tabs {
-            tab.surface.set_waker(waker.clone());
+            frame::wake_window(&tab.surface, &waker);
         }
         self.waker = Some(waker);
     }
@@ -227,10 +226,9 @@ impl BrowserHost {
     /// and headless UI tests.
     pub fn insert_mock_tab(&mut self, url: &str, title: &str, status: EngineStatus) -> u64 {
         let id = self.alloc_tab_id();
-        let surface = NativeSurface::new();
-        let _ = surface.push_bytes(rune::native_surface::synthetic(640, 360, 0), 1);
+        let surface = frame::preview();
         if let Some(w) = &self.waker {
-            surface.set_waker(w.clone());
+            frame::wake_window(&surface, w);
         }
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         self.tabs.push(BrowserTab {
@@ -292,9 +290,9 @@ impl BrowserHost {
         self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let url = resolve_address(raw_url);
         let id = self.alloc_tab_id();
-        let surface = NativeSurface::new();
+        let surface = TabSurface::new();
         if let Some(w) = &self.waker {
-            surface.set_waker(w.clone());
+            frame::wake_window(&surface, w);
         }
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         self.site_zoom.prepare();
@@ -589,24 +587,8 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpEvent { .. } => {}
-                // Windows pushes these to the tab's surface on the socket's reader thread.
-                EngineMsg::SharedFrame { .. } => {}
-                EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } => {
-                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(bgra_b64) {
-                        if let Some(surface) = self.surfaces.lock().unwrap().get(&tab_id).cloned() {
-                            let _ = surface.push_bytes(
-                                ByteFrame {
-                                    width,
-                                    height,
-                                    format: Format::Bgra,
-                                    color: ColorInfo::default(),
-                                    planes: [bytes, Vec::new()],
-                                },
-                                frame_id,
-                            );
-                        }
-                    }
-                }
+                // The socket reader delivers frames directly to the tab's retained Rune surface.
+                EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } => {}
             }
         }
         #[cfg(feature = "engine")]
@@ -747,11 +729,10 @@ impl BrowserHost {
             }
             return changed;
         }
-        let surface = NativeSurface::new();
+        let surface = self.surfaces.lock().unwrap().entry(snap.tab_id).or_insert_with(TabSurface::new).clone();
         if let Some(w) = &self.waker {
-            surface.set_waker(w.clone());
+            frame::wake_window(&surface, w);
         }
-        self.surfaces.lock().unwrap().insert(snap.tab_id, surface.clone());
         let is_site = site_of(&snap.url).is_some();
         if is_site && (snap.zoom - want_zoom).abs() > 0.001 {
             self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });

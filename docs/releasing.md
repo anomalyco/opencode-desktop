@@ -14,6 +14,12 @@ gh workflow run release.yml -R anomalyco/rune-desktop --ref dev -f channel=stabl
 
 Tags start nothing, and the workflow has no ref input: a run always releases `github.sha` on `dev`.
 
+## Linux browser engine preview
+
+Dispatch `release.yml` from `dev` with `channel=engine-linux` to build the x86_64 CEF sidecar and publish a private GitHub prerelease. Its `index.json`, `.tar.zst` and `SHA256SUMS` can be downloaded together with `gh release download <tag>`. A debug desktop build accepts that local index with `OPENCODE_BROWSER_ENGINE_SOURCE=file:$PWD/index.json OPENCODE_BROWSER_ENGINE_TRUST=local`.
+
+The public `opencode-rune/browser-engine/stable` index currently contains the pinned macOS bundle. Publishing a release-service channel replaces every target. Public delivery needs a coordinated engine release and a Linux archive hash pinned in the desktop build.
+
 ## Security boundary
 
 - Build and verify jobs run repository code with no environment, secrets or `id-token`.

@@ -30,7 +30,9 @@ impl BrowserHost {
         if self.status().is_hung() {
             *self.outbox.lock().unwrap() = None;
             crate::transport::end_engine(&self.engine);
-            let _ = std::fs::remove_file(self.socket_override.clone().unwrap_or_else(installer::socket_path));
+            if let Ok(sock) = self.engine_socket() {
+                let _ = std::fs::remove_file(sock);
+            }
         }
         if self.is_connected() || self.status() == EngineStatus::Connecting {
             return;
@@ -109,12 +111,22 @@ impl BrowserHost {
         }
     }
 
+    fn engine_socket(&self) -> Result<std::path::PathBuf, &'static str> {
+        self.socket_override.as_deref().map_or_else(installer::try_socket_path, installer::custom_socket)
+    }
+
     /// Hands the connect to a thread: this app's running engine (a UI hot reload), else the
     /// installed one, started, else a download that a page waits for.
     fn connect(&mut self, start: Start) {
         *self.status.lock().unwrap() = EngineStatus::Connecting;
         let mach_service = self.ensure_mach_receiver();
-        let sock = self.socket_override.clone().unwrap_or_else(installer::socket_path);
+        let sock = match self.engine_socket() {
+            Ok(path) => path,
+            Err(err) => {
+                *self.status.lock().unwrap() = EngineStatus::Failed(err.into());
+                return;
+            }
+        };
         let profile = profile::for_spawn(self.profile_dir.as_deref());
         let link = Link {
             status: self.status.clone(),
@@ -132,6 +144,9 @@ impl BrowserHost {
             if let Ok(stream) = UnixStream::connect(&sock) {
                 return wire_stream(stream, mach_service, &link);
             }
+            let Some(profile) = profile else {
+                return link.set(EngineStatus::Failed(installer::ERR_DIRS.into()));
+            };
             let Some(engine) = installer::installed() else {
                 *link.status.lock().unwrap() = EngineStatus::NotInstalled;
                 if start == Start::Only {
@@ -145,8 +160,9 @@ impl BrowserHost {
             // engine started ahead of one leaves the folder alone).
             if start == Start::ForPage
                 && let Some(version) = engine.version
+                && let Some(root) = installer::try_engines_root()
             {
-                installer::remove_old(&installer::engines_root(), version);
+                installer::remove_old(&root, version);
             }
         });
         if spawned.is_err() {

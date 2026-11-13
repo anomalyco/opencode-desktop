@@ -37,7 +37,19 @@ impl Profile {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
+pub(crate) fn xdg_dir(variable: &str, fallback: &str) -> PathBuf {
+    std::env::var_os(variable).map(PathBuf::from).filter(|p| p.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("set HOME or XDG directories")).join(fallback))
+        .join("co.anomaly.opencode")
+}
+
+#[cfg(target_os = "linux")]
+fn state_dir() -> PathBuf {
+    xdg_dir("XDG_STATE_HOME", ".local/state")
+}
+
+#[cfg(target_os = "macos")]
 fn state_dir() -> PathBuf {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()));
     home.join("Library/Application Support/co.anomaly.opencode")
@@ -95,4 +107,3 @@ fn is_dead(_dir: &Path, pid: i32) -> bool {
 fn is_dead(dir: &Path, _pid: i32) -> bool {
     lock(dir).is_some()
 }
-

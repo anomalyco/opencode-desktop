@@ -18,6 +18,7 @@ mod handlers;
 #[cfg(target_os = "macos")]
 mod mac_app;
 mod profile;
+mod tab_client;
 mod wire;
 
 use std::io::{BufRead, BufReader, Write};
@@ -333,7 +334,12 @@ fn end_children_with_engine() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
+fn default_socket_path() -> PathBuf {
+    profile::xdg_dir("XDG_CACHE_HOME", ".cache").join("browser.sock")
+}
+
+#[cfg(target_os = "macos")]
 fn default_socket_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let uid = unsafe { libc::geteuid() };

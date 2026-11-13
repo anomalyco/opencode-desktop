@@ -57,6 +57,8 @@ const TARGET: &str = if cfg!(all(windows, target_arch = "aarch64")) {
     "windows-x64"
 } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
     "macos-arm64"
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+    "linux-x64"
 } else {
     "unsupported"
 };
@@ -118,6 +120,10 @@ pub(crate) fn latest() -> Result<Release, String> {
         return Err(ERR_NO_SOURCE.into());
     }
     let sha256 = sha256.to_ascii_lowercase();
+    // Also used in the on-disk partial filename. Validate before treating it as a path component.
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(err_untrusted("the index has an invalid archive hash"));
+    }
     if let Trust::Sha256(allowed) = &trust
         && !allowed.contains(&sha256)
     {

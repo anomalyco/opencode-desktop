@@ -1,6 +1,10 @@
 //! Times a page load the way Seer's browser tab sees it: engine up, first frame on the surface,
-//! loading done. Run with its own engine and profile so it never touches a live one:
-//! `OPENCODE_BROWSER_SOCKET=/tmp/x.sock OPENCODE_BROWSER_PROFILE=/tmp/p cargo run -p browser-pane --example load_timing -- URL…`
+//! loading done. On Linux, use a private directory for the socket and a separate profile:
+//! ```sh
+//! d=$(mktemp -d /tmp/browser-pane.XXXXXX) && \
+//! OPENCODE_BROWSER_SOCKET="$d/x.sock" OPENCODE_BROWSER_PROFILE="$d/profile" \
+//! cargo run -p browser-pane --features engine --example load_timing -- URL…
+//! ```
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

@@ -8,9 +8,11 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use base64::Engine as _;
 use rune::time::Instant;
-use rune::{NativeSurface, Waker};
+use rune::Waker;
 
+use crate::frame::{self, TabSurface};
 use crate::installer::{ERR_HUNG, ERR_STOPPED, EngineStatus};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
@@ -21,7 +23,7 @@ pub(crate) use std::os::unix::net::UnixStream;
 pub(crate) use uds_windows::UnixStream;
 
 /// Each tab's surface by tab id, which frames are pushed to off the UI thread.
-pub(crate) type Surfaces = Arc<Mutex<HashMap<u64, NativeSurface>>>;
+pub(crate) type Surfaces = Arc<Mutex<HashMap<u64, TabSurface>>>;
 
 /// How long a new engine may take to open its socket: the first start after an install can take
 /// several seconds while the OS scans the freshly unpacked files (Windows Defender does, for
@@ -377,24 +379,29 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 let Ok(msg) = serde_json::from_str::<EngineMsg>(&line) else { continue };
                 answers.heard(&link);
                 // Straight to the tab's surface, which wakes the app itself.
-                if matches!(msg, EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. }) {
-                    use std::sync::atomic::Ordering::Relaxed;
-                    if !FIRST_FRAME.swap(true, Relaxed) {
-                        rune::marks::mark("browser.page.first_frame");
-                    }
-                    if crate::client::NAVIGATED.load(Relaxed) && !PAINTED.swap(true, Relaxed) {
-                        rune::marks::mark("browser.page.painted");
-                    }
-                }
                 if let EngineMsg::SharedFrame { tab_id, frame_id, width, height, texture, release_fence } = msg {
+                    mark_frame();
                     push_shared(&link.surfaces, tab_id, frame_id, width, height, texture, release_fence);
                     continue;
                 }
-                let is_frame = matches!(msg, EngineMsg::CpuFrame { .. });
-                let _ = link.inbox_tx.send(msg);
-                if !is_frame {
-                    link.wake();
+                if let EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } = msg {
+                    let surface = link.surfaces.lock().unwrap().get(&tab_id).cloned();
+                    if let Some(surface) = surface && let Some(bytes) = decode_frame(width, height, &bgra_b64) {
+                        frame::push_bgra(&surface, width, height, bytes, frame_id);
+                        mark_frame();
+                    }
+                    continue;
                 }
+                // On reconnect the engine repaints immediately after TabList. Give those paints
+                // their destination before the UI thread has a chance to adopt the restored tabs.
+                if let EngineMsg::TabList { tabs } = &msg {
+                    let mut surfaces = link.surfaces.lock().unwrap();
+                    for tab in tabs {
+                        surfaces.entry(tab.tab_id).or_insert_with(TabSurface::new);
+                    }
+                }
+                let _ = link.inbox_tx.send(msg);
+                link.wake();
             }
             answers.end();
             lost(&link);
@@ -406,6 +413,29 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
 static FIRST_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The first frame after the run's first navigation, for `browser.page.painted`.
 static PAINTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn mark_frame() {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !FIRST_FRAME.swap(true, Relaxed) {
+        rune::marks::mark("browser.page.first_frame");
+    }
+    if crate::client::NAVIGATED.load(Relaxed) && !PAINTED.swap(true, Relaxed) {
+        rune::marks::mark("browser.page.painted");
+    }
+}
+
+/// `on_paint` sends one tightly packed, top-down BGRA plane with standard padded base64.
+fn decode_frame(width: u32, height: u32, encoded: &str) -> Option<Vec<u8>> {
+    let len = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+    if len == 0 || base64::encoded_len(len, true)? != encoded.len() {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    if bytes.len() != len {
+        return None;
+    }
+    Some(bytes)
+}
 
 #[cfg(windows)]
 fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String) {
