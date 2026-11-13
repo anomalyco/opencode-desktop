@@ -98,9 +98,14 @@ if (-not $NoBuild) {
   Remove-Item -Recurse -Force $next -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force $next | Out-Null
   $bindgen = @('--target', 'web', '--out-dir', $next, '--out-name', 'app')
-  if (-not $Dev -and -not $Names) { $bindgen += '--remove-name-section' }
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
+  # The functions the page's warming workers compile ahead of it (`web-warm.ts`, index.html), found
+  # by the module's names, which a release then drops.
+  $warm = @((Join-Path $next 'app_bg.wasm'), (Join-Path $root 'apps/web/warm.txt'))
+  if ($Dev -or $Names) { $warm += '--keep-names' }
+  & bun (Join-Path $PSScriptRoot 'web-warm.ts') @warm
+  if ($LASTEXITCODE) { throw "web-warm failed ($LASTEXITCODE)" }
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
   Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'IBMPlexMono-TextItalic.ttf', 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'

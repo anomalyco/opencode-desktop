@@ -127,8 +127,62 @@
   // page's memory until its next garbage collection (about 58 MB).
   const download = url => fetch(url);
   // From the page's start, while it checks its server and asks for a password if it needs one.
-  const module = download(new URL('app_bg.wasm', import.meta.url));
-
+  const fetched = download(new URL('app_bg.wasm', import.meta.url));
+  // Chromium compiles each function of the module the first time it runs, on the thread that runs
+  // it: about 7,000 before the first frame (180 ms of this page's thread) and 700 more under the
+  // first click and key. Workers given the same compiled module share its code with the page, so
+  // each calls a lane of those functions, in the order the page first runs them, while the page
+  // reads its storage and server: each compiles, then traps at once on a stack pointer near 0
+  // (`scripts/web-warm.ts`). Nothing they run reaches the page: their instances have memories of
+  // their own (8 MB each, gone when they finish) and imports that throw. A lane that stops
+  // answering is ended and goes on after the function it stopped in. Safari and Firefox compile
+  // ahead of a function's first run, and a module without the lanes (`rune.warm`) has none.
+  const warming = !!navigator.userAgentData && !(navigator.deviceMemory < 4);
+  const warmer = warming && URL.createObjectURL(new Blob([`
+    Error.stackTraceLimit = 0;
+    onmessage = ({ data: { module, lane, after } }) => {
+      const imports = {};
+      for (const i of WebAssembly.Module.imports(module)) {
+        (imports[i.module] ??= {})[i.name] = i.kind === 'tag' ? new WebAssembly.Tag({ parameters: ['externref'] }) : () => { throw 0; };
+      }
+      const { exports } = new WebAssembly.Instance(module, imports);
+      const [sizes, signatures] = new TextDecoder().decode(WebAssembly.Module.customSections(module, 'rune.warm')[0]).split(';');
+      const size = sizes.split(' ').map(Number), types = signatures.split(',');
+      const start = size.slice(0, lane).reduce((a, b) => a + b, 0);
+      for (let i = Math.max(start, after + 1); i < start + size[lane]; i++) {
+        if (i % 32 === 0) postMessage(i);
+        exports.__warm_sp.value = 16;
+        try { exports.__warm.get(i)(...[...types[i]].map((t) => t === 'I' ? 0n : t === 'r' ? null : 0)); } catch {}
+      }
+      postMessage(-1);
+    };`], { type: 'text/javascript' }));
+  // Started now, so they're up by the time the module is.
+  const lanes = warming ? [0, 1, 2].map(() => new Worker(warmer, { name: 'warm' })) : [];
+  // A compile that fails (an old server's MIME type) falls back to the app's own load.
+  const module = warming ? WebAssembly.compileStreaming(fetched).catch(() => download(new URL('app_bg.wasm', import.meta.url))) : fetched;
+  if (warming) module.then((compiled) => {
+    if (!(compiled instanceof WebAssembly.Module) || !WebAssembly.Module.customSections(compiled, 'rune.warm').length) {
+      for (const worker of lanes) worker.terminate();
+      return;
+    }
+    lanes.forEach(function run(worker, lane, _, after = -1) {
+      let at = after, heard = performance.now();
+      const watch = setInterval(() => {
+        if (performance.now() - heard < 1000) return;
+        clearInterval(watch);
+        worker.terminate();
+        run(new Worker(warmer, { name: 'warm' }), lane, null, at + 32);
+      }, 250);
+      worker.onmessage = ({ data }) => {
+        heard = performance.now();
+        if (data >= 0) { at = data; return; }
+        clearInterval(watch);
+        worker.terminate();
+      };
+      worker.onerror = () => { clearInterval(watch); worker.terminate(); };
+      worker.postMessage({ module: compiled, lane, after });
+    });
+  }, () => {});
   // The app's first reads (`launch.rs`'s FIRST_READS), asked for now, so the server answers while
   // the module downloads; the app takes the answers up when it reads them with the same
   // credential (`ureq_web::start_get`), and reads again otherwise.
