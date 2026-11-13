@@ -1409,17 +1409,6 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     }
 }
 
-/// Runs an app that has no window to fall back to: a headless one, or the harness's realtime run.
-/// A launch that can't start (a release build without Rune's agent tooling asked for `--snap`, or
-/// no display) says why and exits non-zero, rather than panicking behind a process with no window.
-#[cfg(not(target_arch = "wasm32"))]
-fn started(app: rune::App<App>) {
-    if let Err(error) = app.try_run() {
-        eprintln!("opencode-desktop: {error}");
-        std::process::exit(1);
-    }
-}
-
 /// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native
 /// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
@@ -1554,7 +1543,7 @@ fn main() {
     // (p50, visible desktop), for a hand-over ~50 ms sooner that nobody sees.
     telemetry::startup("launch.icon", launch::apply_app_icon);
     #[cfg(feature = "hot")]
-    started(rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::hot) }));
+    rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::hot) }).run();
     #[cfg(not(feature = "hot"))]
     {
         let diagnostics = diagnostics::Diagnostics::default();
@@ -1598,7 +1587,7 @@ fn main() {
                 s.updater.closing();
                 s.save_on_close();
             });
-        started(app);
+        app.run();
         storage::close();
         diagnostics.shutdown();
         // A headless run's marks too (`--launch-trace`): the harness's realtime probes, such as the
