@@ -350,17 +350,25 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     };
     let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);
     let touch_bar = composer::touch::bar(s, p);
-    if bottom.is_empty() && touch_bar.is_none() {
-        return root;
+    let window = if bottom.is_empty() && touch_bar.is_none() {
+        root
+    } else {
+        col()
+            .key("window-column")
+            .w_full()
+            .h_full()
+            .fill(p.bg_deep)
+            .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
+            .child(col().key("plugin-window-bottom").w_full().children(bottom))
+            .children(touch_bar)
+    };
+    // The web app's `#root` is `p-px` (`packages/app/index.html`; Desktop's renderer isn't): the
+    // whole shell sits 1 pt in from the page's edges, and the panels' shadows end there, as `<main>`'s
+    // overflow clips them. Sheets and menus, fixed to the page, don't.
+    if !cfg!(target_arch = "wasm32") {
+        return window;
     }
-    col()
-        .key("window-column")
-        .w_full()
-        .h_full()
-        .fill(p.bg_deep)
-        .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
-        .child(col().key("plugin-window-bottom").w_full().children(bottom))
-        .children(touch_bar)
+    el().key("web-root").w_full().h_full().padding(1.0).fill(p.bg_deep).child(el().key("web-shell").w_full().h_full().clip_soft(0.0).child(window))
 }
 
 // ---------------------------------------------------------------------------------------------
