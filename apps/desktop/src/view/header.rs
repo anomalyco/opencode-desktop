@@ -174,7 +174,8 @@ pub(super) fn scoped(scope: &str, key: &str) -> String {
 /// clicked; a subagent's is plain and takes at most 45% of the header.
 fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     if info.parent.is_some() {
-        return vec![text(title_of(info)).key("title").font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0).dir(rune::Direction::Auto)];
+        // The page's one level-1 heading, as official's `<h1>`.
+        return vec![text(title_of(info)).key("title").role("heading").level(1).font(CRUMB).color(p.text).truncate_fade().px(4.0).py(6.0).shrink().min_w(0.0).dir(rune::Direction::Auto)];
     }
     let target = Target::on(crate::servers::runtime::active(s), &info.id, Spot::Header);
     let marked = s.menus.on.as_ref() == Some(&target);
@@ -185,7 +186,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             let begin = target.clone();
             // The title in its own direction (`session-identity-header.tsx:263`): an `h1` that renames
             // on a click, no Tab stop (`message-timeline.tsx:540-547`).
-            let mut t = row().key("title").dir(rune::Direction::Auto).role("heading").label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            let mut t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
