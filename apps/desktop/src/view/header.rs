@@ -6,8 +6,9 @@ use super::*;
 use crate::session_menu::{Spot, Target};
 use opencode_i18n::t;
 
-/// A crumb's `/` (`Slash`): the neighbouring 13 pt text's size in the regular weight.
-const SLASH: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0);
+/// A crumb's `/` (`Slash`): the neighbouring 13 pt text's size. Its `font-weight:
+/// var(--font-weight-normal)` names a variable Desktop never sets, so it inherits the page's 440.
+const SLASH: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 /// A crumb title (`text-[13px] font-[530] leading-4 tracking-[-0.04px]`).
 const CRUMB: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 /// The title section's gap (`.session-header-title`).
@@ -130,7 +131,7 @@ fn fit(s: &App, info: Option<&SessionInfo>, proj: &str, worktree: Option<&str>, 
     let Some(location) = width("header-location") else { return HeaderFit::Full };
     let actions = rune::memo::layout_with("header-actions", |r| r[2]).unwrap_or(0.0);
     let limit = if info.parent.is_some() { (width("header").unwrap_or(0.0) - 22.0) * 0.6 } else { f32::INFINITY };
-    let label = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
+    let label = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     let base = Measured {
         location,
         title_box: 0.0,

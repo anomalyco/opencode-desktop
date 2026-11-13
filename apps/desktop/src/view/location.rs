@@ -11,8 +11,9 @@ use crate::palette::Pal;
 /// The trigger's key: the card opens beside it.
 pub const TRIGGER: &str = "location-trigger";
 
-/// 13 on 16 at the regular weight, as the trigger's `text-[13px] font-normal`.
-const LABEL: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
+/// 13 on 16, as the trigger's `text-[13px] font-normal`: Desktop defines no
+/// `--font-weight-normal`, so the label keeps the page's 440 (measured in the shipped app).
+const LABEL: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 
 pub use super::location_card::Location;
 
@@ -49,7 +50,7 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
     if let Some(w) = worktree {
         // `SessionHeaderSeparator gap 0`: the trigger's own gap each side, less the glyph's bearing.
         t = t
-            .child(text("/").font(TextStyle::new(13.0, 400.0).lh(16.0)).color(p.icon_faint).mx(-0.5))
+            .child(text("/").font(TextStyle::new(13.0, 440.0).lh(16.0)).color(p.icon_faint).mx(-0.5))
             .child(rune::icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted));
         if collapse < 1 {
             t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));

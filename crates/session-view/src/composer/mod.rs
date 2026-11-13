@@ -109,14 +109,15 @@ pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> E
         .children(chevron.then(|| icon(&ic::CHEVRON_DOWN, 16.0).key("chevron").color(if open { p.icon } else { p.icon_muted })))
 }
 
-/// The `/` between a provider and its model (`slash.css`): the neighbouring text's size in
-/// its regular weight, `icon-icon-faint`, 6 pt of space to its ink on each side.
+/// The `/` between a provider and its model (`slash.css`): the neighbouring text's size and
+/// the page's 440 (`var(--font-weight-normal)` is never set), `icon-icon-faint`, 6 pt of space
+/// to its ink on each side.
 pub fn slash(p: &Pal, gap: f32) -> El {
     // The margins less the glyph's side bearings (`margin-inline: -0.25px -0.34px`).
     text("/").font(SLASH).color(p.icon_faint).ml((gap - 0.5).max(0.0) - 0.25).mr((gap - 0.5).max(0.0) - 0.34)
 }
 
-const SLASH: TextStyle = TextStyle::new(13.0, 400.0).lh(16.0).tracking(-0.04);
+const SLASH: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 
 /// Default `+` attach button at the start of the toolbar (`⌘U`). The pickers start 4 after it
 /// (`ms-1`), the toolbar's 2 pt gap and its own 2.

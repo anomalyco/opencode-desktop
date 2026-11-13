@@ -30,7 +30,7 @@ const MD_H: [TextStyle; 4] = [
     TextStyle::new(14.0, 670.0).lh(21.0),
     TextStyle::new(14.0, 530.0).lh(21.0),
 ];
-pub const CODE: TextStyle = TextStyle::new(13.0, 400.0).mono().lh(20.0);
+pub const CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0);
 /// A tool's code (`--v2-font-family-code` at 440, tracking -0.04): a console's text, a shell's
 /// command, Execute's calls.
 pub const TOOL_CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
