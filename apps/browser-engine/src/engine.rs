@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::{
-    App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString, Client,
-    CommandLine, DisplayHandler, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
-    ImplClient, ImplCommandLine, ImplFrame, KeyEvent, KeyEventType, LoadHandler, MouseButtonType,
-    MouseEvent, PaintElementType, Registration, RenderHandler, RequestHandler, Settings, WindowInfo, WrapApp,
-    WrapBrowserProcessHandler, WrapClient, sys, wrap_app, wrap_browser_process_handler,
-    wrap_client,
+    App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings, CefString,
+    CommandLine, ImplApp, ImplBrowser, ImplBrowserHost, ImplBrowserProcessHandler,
+    ImplCommandLine, ImplFrame, KeyEvent, KeyEventType, MouseButtonType,
+    MouseEvent, PaintElementType, Registration, Settings, WindowInfo, WrapApp,
+    WrapBrowserProcessHandler, sys, wrap_app, wrap_browser_process_handler,
 };
 use serde_json::{Value, json};
 
@@ -21,17 +20,13 @@ use crate::handlers::{
     cef_mods, event_flag, mac_key_code, named_codes, native_key_code,
 };
 use crate::profile::Profile;
+use crate::tab_client::SidecarTabClient;
 use crate::wire::{
     CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, TabSnapshot,
 };
 
-/// What a page that paints no background of its own shows through (ARGB). On Windows it's
-/// Chromium's default, opaque white, as Desktop's browser shows such a page; without it black
-/// text lands on the dark pane. macOS keeps the dark base it has always had.
-#[cfg(target_os = "windows")]
-const BASE_COLOR: u32 = 0xFFFF_FFFF;
-#[cfg(not(target_os = "windows"))]
-const BASE_COLOR: u32 = 0xFF11_1318;
+/// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
+const BASE_COLOR: u32 = if cfg!(target_os = "macos") { 0xFF11_1318 } else { 0xFFFF_FFFF };
 
 pub struct CefRuntime {
     profile: Profile,
@@ -150,6 +145,12 @@ wrap_app! {
             command_line: Option<&mut CommandLine>,
         ) {
             let Some(cmd) = command_line else { return };
+            // Rune owns the window. CEF paints offscreen even when no display server is running.
+            #[cfg(target_os = "linux")]
+            {
+                cmd.append_switch_with_value(Some(&"ozone-platform".into()), Some(&"headless".into()));
+                cmd.append_switch(Some(&"disable-gpu".into()));
+            }
             cmd.append_switch(Some(&"mute-audio".into()));
             cmd.append_switch(Some(&"use-mock-keychain".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
@@ -183,30 +184,6 @@ wrap_browser_process_handler! {
     }
 }
 
-wrap_client! {
-    struct SidecarTabClient {
-        render: RenderHandler,
-        display: DisplayHandler,
-        load: LoadHandler,
-        request: RequestHandler,
-    }
-
-    impl Client {
-        fn render_handler(&self) -> Option<RenderHandler> {
-            Some(self.render.clone())
-        }
-        fn display_handler(&self) -> Option<DisplayHandler> {
-            Some(self.display.clone())
-        }
-        fn load_handler(&self) -> Option<LoadHandler> {
-            Some(self.load.clone())
-        }
-        fn request_handler(&self) -> Option<RequestHandler> {
-            Some(self.request.clone())
-        }
-    }
-}
-
 struct ManagedTab {
     browser: Browser,
     host: BrowserHost,
@@ -216,13 +193,14 @@ struct ManagedTab {
     internal_picked: Arc<Mutex<Vec<i64>>>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
+    #[cfg(windows)]
     frames: FrameRing,
 }
 
 pub struct EngineManager {
     tabs: HashMap<u64, ManagedTab>,
     mach_port: Arc<AtomicU32>,
-    out_tx: Sender<EngineMsg>,
+    out_tx: crate::output::Output,
     next_cdp_id: AtomicI32,
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
@@ -234,7 +212,7 @@ pub struct EngineManager {
 
 impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
-    pub fn new(out_tx: Sender<EngineMsg>, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
+    pub fn new(out_tx: crate::output::Output, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -720,6 +698,7 @@ impl EngineManager {
                 internal_picked,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
+                #[cfg(windows)]
                 frames,
             },
         );

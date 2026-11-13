@@ -15,18 +15,23 @@ use sha2::{Digest, Sha256};
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
 pub const ENGINE_REVISION: u32 = 1;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BIN_REL: &str = "Contents/MacOS/opencode-browser-engine";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine";
+#[cfg(target_os = "linux")]
+pub const ENGINE_BIN_REL: &str = "opencode-browser-engine";
 #[cfg(windows)]
 pub const ENGINE_BIN_REL: &str = "opencode-browser-engine.exe";
 /// Approximate archive size in decimal megabytes, shown before the first download (the index
 /// gives the exact one once it's read): the 156.0.14.1 macOS zip is `128_330_085` bytes.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_DOWNLOAD_MB: u64 = 128;
+/// Approximate decimal MB of the stripped 156.0.26.1 linux-x64 tar.zst.
+#[cfg(target_os = "linux")]
+pub const ENGINE_DOWNLOAD_MB: u64 = 131;
 /// Approximate archive size in decimal megabytes: `package-windows.ps1`'s x64 archive of
 /// 156.0.26.1 is `141_657_795` bytes.
 #[cfg(windows)]
@@ -35,6 +40,8 @@ pub const ENGINE_DOWNLOAD_MB: u64 = 142;
 pub const ERR_DOWNLOAD: &str = "Couldn't download the browser. Check your connection and try again.";
 pub(crate) const ERR_VERIFY: &str = "The browser download was damaged, so it wasn't installed. Try again.";
 pub(crate) const ERR_INSTALL: &str = "Couldn't install the browser. Check available disk space and try again.";
+#[cfg(feature = "engine")]
+pub(crate) const ERR_DIRS: &str = "Couldn't locate the browser's application directories.";
 pub(crate) const ERR_DISK_FULL: &str = "There isn't enough disk space to install the browser. Free some space and try again.";
 pub(crate) const ERR_NO_SOURCE: &str = "Browser isn't available for this platform yet.";
 pub const ERR_STOPPED: &str = "The browser stopped unexpectedly.";
@@ -203,9 +210,27 @@ pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
 /// The folder holding one folder per installed engine version.
 #[cfg(feature = "engine")]
 pub fn engines_root() -> PathBuf {
-    engine_dirs()
-        .map_or_else(|| std::env::temp_dir().join("co.anomaly.opencode"), |d| d.state().to_owned())
-        .join("browser-engine")
+    try_engines_root().unwrap_or_else(|| fallback_dir().join("browser-engine"))
+}
+
+#[cfg(feature = "engine")]
+pub(crate) fn fallback_dir() -> PathBuf {
+    #[cfg(unix)]
+    return std::env::temp_dir().join(format!("co.anomaly.opencode-{}", user_id()));
+    #[cfg(not(unix))]
+    std::env::temp_dir().join("co.anomaly.opencode")
+}
+
+#[cfg(all(feature = "engine", unix))]
+#[allow(unsafe_code)]
+fn user_id() -> u32 {
+    // SAFETY: geteuid takes no pointers and returns the effective uid of this process.
+    unsafe { libc::geteuid() }
+}
+
+#[cfg(feature = "engine")]
+pub fn try_engines_root() -> Option<PathBuf> {
+    Some(engine_dirs()?.state().join("browser-engine"))
 }
 
 /// An installed engine: its version and its executable.
@@ -227,11 +252,12 @@ pub fn installed() -> Option<Installed> {
     if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
-    installed_versions(&engines_root())
+    let root = try_engines_root()?;
+    installed_versions(&root)
         .into_iter()
         .filter(|v| v.accepted())
         .max()
-        .map(|version| Installed { version: Some(version), bin: bin_in(&engines_root().join(version.to_string())) })
+        .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
         .filter(|i| i.bin.is_file())
 }
 
@@ -249,19 +275,35 @@ pub(crate) fn bin_in(version_dir: &Path) -> PathBuf {
 }
 
 /// Removes every version folder but `keep` and the newest that each other app revision would
-/// start, and unpacking folders left by an app that quit mid-install (their process is gone, so
+/// start (Linux: keep the current version and the newest other version), and unpacking folders left by an app that quit mid-install (their process is gone, so
 /// another app's install in progress keeps its own). A folder an engine still runs from stays:
 /// it moves aside first, which Windows refuses while its files are open, so nothing in use is
 /// ever half deleted. Reads one folder; call it off the UI thread.
 #[cfg(feature = "engine")]
 pub(crate) fn remove_old(root: &Path, keep: Version) {
     let versions = installed_versions(root);
+    #[cfg(target_os = "linux")]
+    let other = versions.iter().filter(|&&v| v != keep).max();
+    #[cfg(not(target_os = "linux"))]
     let newest_of = |revision: u32| versions.iter().filter(|v| v.revision == revision).max().copied();
     for v in &versions {
+        #[cfg(not(target_os = "linux"))]
         if *v == keep || (v.revision != keep.revision && newest_of(v.revision) == Some(*v)) || *v > keep {
             continue;
         }
         let dir = root.join(v.to_string());
+        #[cfg(target_os = "linux")]
+        let _executables = {
+            if Some(v) == other || *v == keep { continue; }
+            let bin = bin_in(&dir);
+            // Linux denies a write-open on a running ELF (ETXTBSY), and denies exec while a
+            // write descriptor is held. Hold both through removal; this covers older engines
+            // too, even when launched directly or by an app that has since exited.
+            let open = |path| std::fs::OpenOptions::new().write(true).open(path);
+            let Ok(main) = open(bin.clone()) else { continue };
+            let Ok(helper) = open(bin.with_file_name("opencode-browser-engine-helper")) else { continue };
+            (main, helper)
+        };
         let trash = root.join(format!(".{v}.old-{}", std::process::id()));
         if std::fs::rename(&dir, &trash).is_ok() {
             let _ = std::fs::remove_dir_all(&trash);
@@ -279,27 +321,85 @@ pub(crate) fn sweep_unpacking(root: &Path) {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>`: the process that made it is gone.
-        let pid = name.strip_prefix('.').and_then(|n| n.split_once(".staging-").or_else(|| n.split_once(".old-"))).and_then(|(_, rest)| rest.split('-').next()?.parse::<u32>().ok());
+        let pid = name.strip_prefix('.').and_then(|name| {
+            let (version, pid) = if let Some((version, rest)) = name.split_once(".staging-") {
+                let (pid, seq) = rest.split_once('-')?;
+                seq.parse::<u64>().ok()?;
+                (version, pid)
+            } else {
+                name.split_once(".old-")?
+            };
+            Version::parse(version)?;
+            pid.parse::<u32>().ok()
+        });
         if pid.is_some_and(|pid| pid != std::process::id() && !crate::background::pid_alive(pid)) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
 }
 
+/// The socket for this app. Connections use `try_socket_path` to report directory errors.
 #[cfg(feature = "engine")]
 pub fn socket_path() -> PathBuf {
+    try_socket_path().unwrap_or_else(|_| fallback_dir().join(socket_name()))
+}
+
+#[cfg(feature = "engine")]
+pub fn try_socket_path() -> Result<PathBuf, &'static str> {
     if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
-        return PathBuf::from(custom);
+        return custom_socket(Path::new(&custom));
     }
-    // Windows: the folder under `%LOCALAPPDATA%` is already the user's own.
-    #[cfg(unix)]
-    let uid = unsafe { libc::geteuid() };
-    #[cfg(windows)]
-    let uid = 0;
-    let dir = engine_dirs().map_or_else(|| PathBuf::from("/tmp"), |d| d.cache().to_owned());
-    let _ = create_private_dir(&dir);
-    let exe = std::env::current_exe().unwrap_or_default();
-    dir.join(socket_name_for(&exe, uid))
+    let dirs = engine_dirs().ok_or(ERR_DIRS)?;
+    let name = socket_name();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        // The cache may already be shared with other callers. Create a dedicated socket
+        // directory with private permissions from the outset, and validate it before use.
+        let dir = dirs.cache().join("ipc");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|_| "Couldn't create the browser socket directory.")?;
+        let dir = dir.canonicalize().map_err(|_| "Couldn't resolve the browser socket directory.")?;
+        custom_socket(&dir.join(name)).map_err(|_| "The browser IPC directory must be owned by you with mode 0700 and have secure parent directories.")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = create_private_dir(dirs.cache());
+        Ok(dirs.cache().join(name))
+    }
+}
+
+/// The engine chmods its socket's parent. On Linux, only pass an override in an already private
+/// directory, using a path that another user can't replace between this check and spawn.
+#[cfg(feature = "engine")]
+pub(crate) fn custom_socket(path: &Path) -> Result<PathBuf, &'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        const ERR: &str = "Choose an existing private directory (mode 0700, no symlinks) for the browser socket.";
+        let path = std::path::absolute(path).map_err(|_| ERR)?;
+        let parent = path.parent().ok_or(ERR)?;
+        let uid = user_id();
+        let mut prefix = PathBuf::new();
+        for component in parent.components() {
+            prefix.push(component);
+            let meta = prefix.symlink_metadata().map_err(|_| ERR)?;
+            if !meta.is_dir() || (meta.uid() != 0 && meta.uid() != uid) {
+                return Err(ERR);
+            }
+            if prefix == parent {
+                if meta.uid() != uid || meta.mode() & 0o7777 != 0o700 {
+                    return Err(ERR);
+                }
+            } else if meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0 {
+                // A sticky ancestor (e.g. /tmp) protects the next owned directory.
+                return Err(ERR);
+            }
+        }
+        path.file_name().ok_or(ERR)?;
+        Ok(path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    Ok(path.to_owned())
 }
 
 /// The engine serves one app at a time: the last to connect takes every frame and tab update,
@@ -309,6 +409,15 @@ pub fn socket_name_for(exe: &Path, uid: u32) -> String {
     format!("browser-{uid}-{}.sock", exe_tag(exe))
 }
 
+#[cfg(feature = "engine")]
+fn socket_name() -> String {
+    #[cfg(unix)]
+    let uid = user_id();
+    #[cfg(windows)]
+    let uid = 0;
+    socket_name_for(&std::env::current_exe().unwrap_or_default(), uid)
+}
+
 /// Eight hex digits of the executable path's hash, pairing an app's socket with its profile.
 #[cfg(feature = "engine")]
 pub(crate) fn exe_tag(exe: &Path) -> String {
@@ -316,7 +425,7 @@ pub(crate) fn exe_tag(exe: &Path) -> String {
     digest[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(feature = "engine")]
+#[cfg(all(feature = "engine", not(target_os = "linux")))]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     #[cfg(unix)]

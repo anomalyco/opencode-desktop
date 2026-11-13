@@ -1,6 +1,6 @@
 //! The one-line Rune element that shows a tab's frames and forwards its input.
 
-use rune::{Align, Drag, El, KeyEvent, MagnifyEvent, Phase, PointerButton, PointerEvent, SurfaceFit, WheelEvent, el};
+use rune::{Align, Drag, El, KeyEvent, MagnifyEvent, Phase, PointerButton, PointerEvent, WheelEvent, el};
 
 use crate::client::BrowserHost;
 use crate::protocol::{HostMsg, PointerBtn, pack_mods};
@@ -26,15 +26,15 @@ impl BrowserHost {
         let Some(tab) = self.tab(tab_id) else {
             return el().key(key.into());
         };
-        el().key(key.into())
+        let page = el().key(key.into())
             .grow(1.0)
             .min_w(0.0)
             .min_h(0.0)
             .w_full()
             .focusable(true)
             .cursor(tab.cursor.to_rune())
-            .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward])
-            .native_surface(&tab.surface, SurfaceFit::Fill)
+            .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward]);
+        crate::frame::draw(page, &tab.surface)
             .surface_anchor(Align::Start, Align::Start)
             .surface_unscaled(true)
             .on_layout(move |s: &mut S, [_x, _y, w, h]| {

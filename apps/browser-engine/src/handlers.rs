@@ -4,10 +4,9 @@ use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::{CString, c_char, c_void};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
+use crate::output::{Output, Paint};
 use std::sync::{Arc, Mutex};
 
-use base64::Engine as _;
 use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, Browser, CefString, CursorInfo, CursorType, DevToolsMessageObserver,
@@ -173,7 +172,9 @@ pub type FrameRing = ();
 /// The native cursor CEF hands `OnCursorChange` (unused: the app draws its own cursor).
 #[cfg(windows)]
 type NativeCursor = sys::HCURSOR;
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+type NativeCursor = sys::cef_cursor_handle_t;
+#[cfg(target_os = "macos")]
 type NativeCursor = *mut u8;
 
 #[derive(Clone, Debug)]
@@ -188,7 +189,7 @@ wrap_render_handler! {
         tab_id: u64,
         view_state: Arc<Mutex<ViewRectState>>,
         mach_port: Arc<AtomicU32>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
         frame_seq: Arc<AtomicU64>,
         frames: FrameRing,
     }
@@ -263,7 +264,7 @@ wrap_render_handler! {
                 }
             }
             #[cfg(not(any(target_os = "macos", windows)))]
-            let _ = (id, &self.frames);
+            let _ = (id, info, &self.frames, &self.mach_port);
         }
 
         fn on_paint(
@@ -281,13 +282,13 @@ wrap_render_handler! {
             let id = self.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;
             let len = (width as usize) * (height as usize) * 4;
             let slice = unsafe { std::slice::from_raw_parts(buffer, len) };
-            let b64 = base64::engine::general_purpose::STANDARD.encode(slice);
-            let _ = self.out_tx.send(EngineMsg::CpuFrame {
-                tab_id: self.tab_id,
+            // OnPaint owns the full buffer only for this call. A replacement must contain all
+            // pixels: the app may never have seen the paints preceding this dirty rectangle.
+            self.out_tx.paint(self.tab_id, Paint {
                 frame_id: id,
                 width: width as u32,
                 height: height as u32,
-                bgra_b64: b64,
+                bgra: slice.to_vec(),
             });
         }
     }
@@ -296,7 +297,7 @@ wrap_render_handler! {
 wrap_display_handler! {
     pub struct TabDisplayHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl DisplayHandler {
@@ -370,7 +371,7 @@ wrap_display_handler! {
 wrap_load_handler! {
     pub struct TabLoadHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl LoadHandler {
@@ -430,7 +431,7 @@ wrap_load_handler! {
 wrap_request_handler! {
     pub struct TabRequestHandler {
         snap: Arc<Mutex<TabSnapshot>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl RequestHandler {
@@ -456,7 +457,7 @@ wrap_dev_tools_message_observer! {
         tab_id: u64,
         id_map: Arc<Mutex<HashMap<i32, u64>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
-        out_tx: Sender<EngineMsg>,
+        out_tx: Output,
     }
 
     impl DevToolsMessageObserver {
@@ -557,9 +558,29 @@ pub fn wheel_delta(dx: f32, dy: f32) -> (f32, f32) {
 
 /// The key's `native_key_code`: a macOS virtual key code, or on Windows the `WM_KEYDOWN`
 /// `lParam` with the key's scan code, which gives the page its `KeyboardEvent.code`.
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn native_key_code(_vk: i32, mac: i32) -> i32 {
     mac
+}
+
+/// Chromium's Linux keyboard events use XKB keycodes (evdev + 8), including under Ozone.
+/// The wire carries logical keys; resolve the US-layout physical key for known keys, and
+/// leave the physical code unspecified for text outside that layout.
+#[cfg(target_os = "linux")]
+pub fn native_key_code(vk: i32, _mac: i32) -> i32 {
+    for (row, first) in [(b"1234567890".as_slice(), 10), (b"QWERTYUIOP", 24), (b"ASDFGHJKL", 38), (b"ZXCVBNM", 52)] {
+        if let Some(offset) = row.iter().position(|&key| i32::from(key) == vk) {
+            return first + offset as i32;
+        }
+    }
+    match vk {
+        0x1b => 9, 0xbd => 20, 0xbb => 21, 0x08 => 22, 0x09 => 23,
+        0xdb => 34, 0xdd => 35, 0x0d => 36, 0xba => 47, 0xde => 48, 0xc0 => 49,
+        0xdc => 51, 0xbc => 59, 0xbe => 60, 0xbf => 61, 0x20 => 65,
+        0x24 => 110, 0x26 => 111, 0x21 => 112, 0x25 => 113, 0x27 => 114,
+        0x23 => 115, 0x28 => 116, 0x22 => 117, 0x2e => 119,
+        _ => 0,
+    }
 }
 
 #[cfg(windows)]

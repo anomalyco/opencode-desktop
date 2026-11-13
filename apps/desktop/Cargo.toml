@@ -11,7 +11,7 @@ default = ["knobs", "office"]
 # their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
 # shows Office files as binary.
 office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
-# The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
+# The embedded browser's engine. Enabled on macOS, Windows and Linux x86_64 below.
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
 browser-faults = ["browser-pane/faults"]
@@ -86,6 +86,9 @@ libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 authenticode = { path = "../../crates/authenticode" }

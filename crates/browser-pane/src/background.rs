@@ -3,7 +3,7 @@
 //!
 //! Windows reads both cheaply on each check: `GetSystemPowerStatus` for the power line and the
 //! internet connection profile's cost (`NetworkInformation`) for metering. macOS and Linux don't
-//! pause yet: their checks report nothing, so the download goes ahead (throttled, at low priority).
+//! pause yet: their checks report nothing, so the download goes ahead at the background rate.
 
 use crate::installer::PauseReason;
 
@@ -95,7 +95,7 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[allow(unsafe_code)]
 mod imp {
     use crate::installer::PauseReason;
@@ -104,6 +104,10 @@ mod imp {
         None
     }
 
+    #[cfg(target_os = "linux")]
+    pub(super) fn set_background_priority(_background: bool) {}
+
+    #[cfg(target_os = "macos")]
     pub(super) fn set_background_priority(background: bool) {
         let class = if background {
             libc::qos_class_t::QOS_CLASS_BACKGROUND
@@ -128,7 +132,7 @@ mod imp {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod imp {
     use crate::installer::PauseReason;
 

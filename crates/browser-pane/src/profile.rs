@@ -19,13 +19,13 @@ pub const PROFILE_ENV: &str = "OPENCODE_BROWSER_PROFILE";
 /// engines stays up 15 s after its last app disconnects, holding the shared profile.
 pub(crate) const UNLOCK_WAIT: Duration = Duration::from_secs(20);
 
-fn profiles_root() -> PathBuf {
-    crate::installer::engine_dirs().map_or_else(|| PathBuf::from("/tmp"), |d| d.state().to_owned())
-}
-
 /// The profile every app shared before each got its own; the engine's own default.
 pub fn shared_profile_dir() -> PathBuf {
-    profiles_root().join("browser-profile")
+    try_shared_profile_dir().unwrap_or_else(|| crate::installer::fallback_dir().join("browser-profile"))
+}
+
+pub fn try_shared_profile_dir() -> Option<PathBuf> {
+    Some(crate::installer::engine_dirs()?.state().join("browser-profile"))
 }
 
 /// The app's own lasting profile, tagged like its socket (`browser-profile-<tag>`).
@@ -34,14 +34,17 @@ pub fn profile_dir_for(root: &Path, exe: &Path) -> PathBuf {
 }
 
 /// The profile the engine gets: the environment's, then the app's choice, then its own.
-pub(crate) fn resolve(env: Option<OsString>, chosen: Option<&Path>, exe: &Path) -> PathBuf {
+pub(crate) fn resolve(env: Option<OsString>, chosen: Option<&Path>, exe: &Path) -> Option<PathBuf> {
     if let Some(dir) = env.filter(|d| !d.is_empty()) {
-        return PathBuf::from(dir);
+        return Some(PathBuf::from(dir));
     }
-    chosen.map_or_else(|| profile_dir_for(&profiles_root(), exe), Path::to_path_buf)
+    if let Some(dir) = chosen {
+        return Some(dir.to_owned());
+    }
+    Some(profile_dir_for(crate::installer::engine_dirs()?.state(), exe))
 }
 
-pub(crate) fn for_spawn(chosen: Option<&Path>) -> PathBuf {
+pub(crate) fn for_spawn(chosen: Option<&Path>) -> Option<PathBuf> {
     let exe = std::env::current_exe().unwrap_or_default();
     resolve(std::env::var_os(PROFILE_ENV), chosen, &exe)
 }

@@ -97,10 +97,16 @@ impl Prefetch {
             }
             return;
         }
+        let Some(root) = installer::try_engines_root() else {
+            if mode == Mode::Urgent {
+                set(&status, waker.as_ref(), EngineStatus::Failed(installer::ERR_DIRS.into()));
+            }
+            return;
+        };
         let effect = self.event(Event::Start(mode));
         if effect == Some(Effect::Spawn(mode)) {
             let job = Job { ctl: self.clone(), status, waker };
-            if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run()).is_err() {
+            if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run(&root)).is_err() {
                 self.event(Event::Finished);
             }
         }
@@ -140,7 +146,7 @@ struct Job {
 }
 
 impl Job {
-    fn run(self) {
+    fn run(self, root: &Path) {
         let mut attempts = 0;
         // The index check and the OS's pause answer come at normal priority (they're small, and a
         // busy machine would starve them for minutes); the download's first read sets its pace.
@@ -189,11 +195,11 @@ impl Job {
                 log(&format!("browser engine: downloading {} for the next start", release.version));
             }
             let started = Instant::now();
-            let err = match self.install(&release, &mut low) {
+            let err = match self.install(root, &release, &mut low) {
                 Ok(()) => {
                     rune::marks::mark("browser.engine.installed");
                     log(&format!("browser engine {} installed in {} µs", release.version, started.elapsed().as_micros()));
-                    installer::remove_old(&installer::engines_root(), release.version);
+                    installer::remove_old(root, release.version);
                     self.report(EngineStatus::Installed);
                     break;
                 }
@@ -225,16 +231,15 @@ impl Job {
 
     /// One try: the rest of the archive, unpacked as it arrives into a staging folder, checked,
     /// and moved into place as `<root>\<version>`.
-    fn install(&self, release: &Release, low: &mut bool) -> Result<(), Cut> {
-        let root = installer::engines_root();
-        std::fs::create_dir_all(&root).map_err(|e| Cut::Failed(err_write(&e)))?;
-        installer::sweep_unpacking(&root);
+    fn install(&self, root: &Path, release: &Release, low: &mut bool) -> Result<(), Cut> {
+        std::fs::create_dir_all(root).map_err(|e| Cut::Failed(err_write(&e)))?;
+        installer::sweep_unpacking(root);
         let partial = root.join(format!(".{}-{}.part", release.version, &release.sha256[..16]));
         // Before a byte comes: the rest of the archive and what it unpacks to (under three times
         // its size) must fit.
         let have = std::fs::metadata(&partial).map_or(0, |m| m.len()).min(release.size);
-        let need = release.size - have + release.size * 3;
-        if let Some(free) = background::free_space(&root).filter(|&free| free < need) {
+        let need = (release.size - have).saturating_add(release.size.saturating_mul(3));
+        if let Some(free) = background::free_space(root).filter(|&free| free < need) {
             return Err(Cut::Failed(installer::err_disk_space(need, free)));
         }
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
@@ -296,8 +301,12 @@ impl Job {
             Pace::Limit(BACKGROUND_RATE)
         };
         let verifier = Verifier::new(&release.trust);
-        let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
         let tar_zst = release.url.split('?').next().is_some_and(|u| u.ends_with(".tar.zst"));
+        #[cfg(not(target_os = "macos"))]
+        if !tar_zst {
+            return Err(Cut::Rejected(ERR_VERIFY.into()));
+        }
+        let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
         // A first try unpacks as the bytes arrive. A resumed one downloads the rest first and
         // unpacks the whole file once, rather than unpacking the bytes it already has again on
         // every try.
@@ -323,6 +332,7 @@ impl Job {
             let mut archive = std::io::BufReader::new(std::fs::File::open(partial).map_err(|e| Cut::Failed(err_write(&e)))?);
             unpack::tar_zst(&mut archive, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)?;
         }
+        #[cfg(target_os = "macos")]
         if !tar_zst {
             unzip(partial, staging)?;
         }
@@ -330,6 +340,17 @@ impl Job {
         rune::marks::mark("browser.engine.verified");
         if !installer::bin_in(staging).is_file() {
             return Err(Cut::Failed(ERR_INSTALL.into()));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let bin = installer::bin_in(staging);
+            for program in [bin.with_file_name("opencode-browser-engine-helper"), bin] {
+                let executable = program.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o100 != 0);
+                if !executable {
+                    return Err(Cut::Rejected(ERR_VERIFY.into()));
+                }
+            }
         }
         Ok(())
     }
@@ -353,8 +374,9 @@ impl Job {
 }
 
 /// macOS's bundle zip, with its links and attributes (`ditto`), into `staging`.
+#[cfg(target_os = "macos")]
 fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
-    let ok = std::process::Command::new("ditto").args(["-x", "-k"]).arg(archive).arg(staging).status().is_ok_and(|s| s.success());
+    let ok = std::process::Command::new("/usr/bin/ditto").args(["-x", "-k"]).arg(archive).arg(staging).status().is_ok_and(|s| s.success());
     if ok { Ok(()) } else { Err(Cut::Failed(ERR_INSTALL.into())) }
 }
 
@@ -368,4 +390,3 @@ fn set(status: &Mutex<EngineStatus>, waker: Option<&Waker>, next: EngineStatus) 
 fn log(line: &str) {
     eprintln!("{line}");
 }
-
