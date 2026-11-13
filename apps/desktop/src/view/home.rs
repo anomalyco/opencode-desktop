@@ -119,7 +119,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     let groups = s.home_groups(selected);
     let nav_ids = std::rc::Rc::new(groups.iter().flat_map(|g| g.shown_ids(open).map(str::to_owned)).collect::<Vec<_>>());
     // Each row: `ps-3 pe-3`, the 16 pt avatar and `gap-1.5` before its labels.
-    let labels_w = (width - 12.0 - 12.0 - 16.0 - 6.0).max(0.0);
+    let labels_w = (width - 12.0 - 12.0 - 16.0 - ROW_GAP).max(0.0);
 
     // `sticky top-0 bg-base pb-1 pt-6 md:pb-3 lg:pt-12`.
     let mut header = col()
@@ -341,7 +341,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     let target = Target::on(crate::servers::runtime::active(s), &ses.id, Spot::Row);
     let marked = s.menus.on.as_ref() == Some(&target);
     let stacked = tier == Tier::Narrow && show_project;
-    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked);
+    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked, ROW_GAP);
     let mut r = row()
         .key(format!("r-{}", ses.id))
         .role("button")
@@ -352,7 +352,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         .h(if stacked { 48.0 } else { 40.0 })
         .pl(if tier == Tier::Narrow { 6.0 } else { 12.0 })
         .pr(12.0)
-        .gap(6.0)
+        .gap(ROW_GAP)
         .center_y()
         .radius(6.0)
         .hover_group()
@@ -366,7 +366,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
     }
     // Home's rename field is 13 on 24 (home/sessions/view.tsx's InlineInput in its 24 pt row).
     let labels = match crate::session_menu_view::field(s, p, &target, UI_MED.lh(24.0)) {
-        Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(field).children(parts.project),
+        Some(field) => row().key("labels").grow(1.0).shrink().min_w(0.0).gap(ROW_GAP).center_y().child(field).children(parts.project),
         None => {
             r = r.pointer_buttons([rune::PointerButton::Middle]).on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 if opens_in_background(tx) {
@@ -427,6 +427,11 @@ pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
     tx.instant();
 }
 
+/// The web app's rows are `gap-2` where Desktop's are `gap-1.5` (`view.tsx`'s `!props.desktop`), and
+/// their labels `contents`, so its title and project name are 8 apart too.
+const WEB: bool = cfg!(target_arch = "wasm32");
+const ROW_GAP: f32 = if WEB { 8.0 } else { 6.0 };
+
 /// What a session row and a search result share.
 pub(super) struct Parts {
     pub avatar: El,
@@ -439,7 +444,7 @@ pub(super) struct Parts {
 impl Parts {
     /// `ses`'s pieces for labels `labels_w` wide. `stacked` on a narrow window: the project
     /// under the title, the row 48 tall (`view.css`'s mobile rule).
-    pub fn of(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show_project: bool, stacked: bool) -> Parts {
+    pub fn of(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show_project: bool, stacked: bool, gap: f32) -> Parts {
         let project = s.project_for_session(ses);
         let name = project_or_dir(project, &ses.directory);
         // `HomeSessionIndicators`: a busy session shows its activity ring instead of the dot.
@@ -460,7 +465,11 @@ impl Parts {
             return Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) };
         }
         let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
-        let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title).children(project_el.clone());
+        let mut labels = row().key("labels").grow(1.0).shrink().min_w(0.0).gap(gap).center_y().child(title).children(project_el.clone());
+        // The web app shows no worktree and branch on a row (`HomeSessionLocation`'s `!desktop`).
+        if WEB {
+            return Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) };
+        }
         // Shown while the row is hovered or Alt is held; it hides at once when the pointer moves to another row.
         let hovered = s.home_search.hovered.as_deref();
         let show = s.home_search.alt_held || hovered == Some(ses.id.as_str());

@@ -84,7 +84,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
     let active = s.home_search_active(&ids);
     let show_project = selected.is_none();
     // A result: `pl-[18px] pr-6`, the avatar and `gap-1.5`, inside the panel 12 wider than the field.
-    let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - 6.0).max(0.0);
+    let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 }).max(0.0);
     let body = if s.home_search_loading() {
         // `px-4 py-3`, a 16 pt Loader.
         row().key("home-search-loading").w_full().px(16.0).py(12.0).center().child(activity_ring_sized(p, 16.0))
@@ -137,7 +137,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
 /// `HomeSessionSearchResultRow`: 40 tall, `pl-[18px] pr-6`, the overlay when hovered or
 /// highlighted; the pointer highlights it.
 fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project: bool, labels_w: f32, stacked: bool) -> El {
-    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked);
+    let parts = Parts::of(s, p, ses, labels_w, show_project, stacked, 6.0);
     let (id, hover_id) = (ses.id.clone(), ses.id.clone());
     let mut r = row()
         .key(format!("sr-{}", ses.id))
@@ -147,7 +147,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .h(if stacked && show_project { 48.0 } else { 40.0 })
         .pl(18.0)
         .pr(24.0)
-        .gap(6.0)
+        .gap(if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 })
         .center_y()
         .hover_group()
         .hover(p.hover)
