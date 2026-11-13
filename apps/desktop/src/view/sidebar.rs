@@ -6,6 +6,13 @@ use super::*;
 use crate::layout_state::{PeekEvent, SidebarPeekState};
 use opencode_i18n::t;
 
+mod customized;
+mod menu;
+pub(crate) mod grouping;
+mod recent;
+mod rows;
+pub(crate) mod state;
+
 // ---------------------------------------------------------------------------------------------
 // Sidebar: Desktop's vertical tabs (`shell.tsx`, `titlebar.tsx`, `tab-strip.tsx`). Top tabs have
 // none: the aside narrows to nothing and its tabs fly to the titlebar.
@@ -211,8 +218,13 @@ fn list(s: &App, p: &Pal) -> El {
         // A switch crossfades the whole list, and the active session's tab flies into its card
         // (`shell-active-{id}`), which landing the list's changes at once would keep from flying.
         crate::layout_state::TabLayout::Inbox => super::inbox::inbox(s, p, (INSET_START, INSET_END)),
-        // Experimental › Organize vertical sidebar, Projects: side tabs alone (`shell.tsx`).
-        crate::layout_state::TabLayout::Vertical if s.settings.sidebar_organize == crate::settings::Organize::Projects => super::sidebar_organized::organized(s, p),
+        // Experimental › Organize vertical sidebar: side tabs alone (`titlebar.tsx:814-826`).
+        crate::layout_state::TabLayout::Vertical => match s.settings.sidebar_organize.effective() {
+            crate::settings::Organize::Projects => super::sidebar_organized::organized(s, p),
+            crate::settings::Organize::Customize => customized::customized(s, p),
+            crate::settings::Organize::Recent => recent::recent(s, p),
+            crate::settings::Organize::List => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
+        },
         _ => tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None),
     }
 }

@@ -23,12 +23,30 @@ static DRAFT_PENCIL: Icon = Icon {
 /// The strip keyed `key`, running `orientation`. A horizontal one shares `viewport` points
 /// (its width at the last layout) and keeps `trailing` (the `+` button) after its last tab.
 pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>) -> El {
+    let all: Vec<usize> = (0..s.tabs.len()).collect();
+    strip(s, p, key, orientation, viewport, trailing, &all, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+        tx.live_only();
+        s.strip_laid_out(r);
+    })
+}
+
+/// A side strip of only the tabs at `indices` (in `s.tabs`), as the Customize sidebar's sections
+/// draw theirs (`verticalTabStrip(…, grouped)`, `sidebar-customized.tsx`). A drag reorders them
+/// among themselves; `hide_avatars` drops their project avatars under a project's header.
+pub(crate) fn section_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide_avatars: bool) -> El {
+    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool) -> El {
     // Every server's tabs mix in one strip, each named by its `Tab::uid`.
     let current = if s.settings.open { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
-    let uids: Vec<String> = s.tabs.iter().map(crate::tabs::Tab::uid).collect();
+    let tabs: Vec<&crate::tabs::Tab> = indices.iter().filter_map(|&i| s.tabs.get(i)).collect();
+    let uids: Vec<String> = tabs.iter().map(|t| t.uid()).collect();
     let nav_ids: std::rc::Rc<Vec<String>> = std::rc::Rc::new(uids.clone());
-    let items = s.tabs.iter().zip(&uids).enumerate().map(|(index, (t, uid))| item(s, p, t, uid, index, nav_ids.clone()));
+    let items = tabs.iter().zip(&uids).enumerate().map(|(index, (t, uid))| item(s, p, t, uid, index, nav_ids.clone(), hide_avatars));
+    let order: Vec<usize> = indices.to_vec();
     let mut strip = TabStrip::new(key, orientation)
         .tabs(items)
         .active(current.as_deref())
@@ -56,7 +74,11 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
             // The hover preview (`tab_preview`).
             s.preview_hover(id, inside, tx);
         })
-        .on_reorder(|s: &mut App, r, _| s.move_tab(r.from, r.to));
+        .on_reorder(move |s: &mut App, r, _| {
+            if let (Some(&from), Some(&to)) = (order.get(r.from), order.get(r.to)) {
+                s.move_tab(from, to);
+            }
+        });
     // A tab pulled off the strip opens in a window of its own (`windows::tear`): 36 across a
     // horizontal strip, 48 out of a vertical one. The only tab goes too while another window can
     // take it.
@@ -70,13 +92,10 @@ pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation
     if let Some(t) = trailing {
         strip = strip.trailing_action(t);
     }
-    strip.build(crate::palette::kit(p)).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-        tx.live_only();
-        s.strip_laid_out(r);
-    })
+    strip.build(crate::palette::kit(p))
 }
 
-fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: usize, nav_ids: std::rc::Rc<Vec<String>>) -> TabItem<'a, App> {
+fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: usize, nav_ids: std::rc::Rc<Vec<String>>, hide_avatar: bool) -> TabItem<'a, App> {
     let draft = t.is_draft();
     let face = face(s, t);
     let target = target(s, t);
@@ -84,7 +103,12 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: u
     // No server badge or dot on the tab itself: only its preview names the server
     // (`tab-nav.tsx:158-164`).
     let mut item = TabItem::new(uid, face.title).status(status(s, t)).marked(marked);
-    item = if draft { item.icon(&DRAFT_PENCIL) } else { item.avatar(crate::icons::badge(s, p, face.project, &project_or_dir(face.project, face.dir))) };
+    item = match (draft, hide_avatar) {
+        (true, _) => item.icon(&DRAFT_PENCIL),
+        // Its slot stays, empty (`[data-avatar="hidden"]`'s `visibility: hidden`, `tab-nav.css:466`).
+        (false, true) => item.avatar(el().size(16.0, 16.0)),
+        (false, false) => item.avatar(crate::icons::badge(s, p, face.project, &project_or_dir(face.project, face.dir))),
+    };
     if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
         item = item.editor(field);
     }

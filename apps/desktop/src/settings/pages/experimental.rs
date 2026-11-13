@@ -3,7 +3,7 @@
 
 use rune::{El, col};
 
-use super::{choice, header, page};
+use super::{header, page, select};
 use crate::App;
 use opencode_i18n::t;
 use crate::palette::Pal;
@@ -13,7 +13,7 @@ pub fn view(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let rows = vec![
         ("settings-sidebar-organize", setting(p, "settings-sidebar-organize", t!("settings.experimental.row.sidebarOrganize.title"), t!("settings.experimental.row.sidebarOrganize.description"),
-            choice(s, p, "settings-sidebar-organize-select", t!("settings.experimental.row.sidebarOrganize.title"), st.sidebar_organize, |s, id, _| s.change_settings(|x| x.sidebar_organize = Organize::parse(Some(id)))))),
+            organize(s, p))),
         ("settings-new-icons", setting(p, "settings-new-icons", t!("settings.experimental.row.newIcons.title"), t!("settings.experimental.row.newIcons.description"),
             switch(p, "new-icons-switch", st.new_icons).on_press(|s: &mut App| {
                 s.change_settings(|x| x.new_icons = !x.new_icons);
@@ -28,4 +28,11 @@ pub fn view(s: &App, p: &Pal) -> El {
         .child(settings::list(p, "experimental-list", super::rows(s, p, 20.0, rows)))
         .child(super::revealable(s, p, "record-glitches", 0.0, crate::glitch::settings_section(s, p)));
     page(p, "settings-experimental-page", header(p, t!("settings.tab.experimental"), t!("settings.experimental.description")), body)
+}
+
+/// Organize vertical sidebar's select (`experimental.tsx:32-45`): the choices this build offers.
+fn organize(s: &App, p: &Pal) -> El {
+    let options = Organize::options().iter().map(|o| (o.name().to_owned(), o.label().to_owned())).collect();
+    let current = s.settings.sidebar_organize.effective().name();
+    select(s, p, "settings-sidebar-organize-select", t!("settings.experimental.row.sidebarOrganize.title"), options, current, |s, id, _| s.change_settings(|x| x.sidebar_organize = Organize::parse(Some(id))))
 }
