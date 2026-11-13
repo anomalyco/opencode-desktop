@@ -29,10 +29,26 @@ case "$OPENCODE_RUNE_VERSION" in
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
 
-if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
-  cargo build --release --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml"
-fi
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/release/opencode-desktop"
+if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
+  triple=$(rustc -vV | sed -n 's/^host: //p')
+  if [ "$triple" = aarch64-apple-darwin ]; then
+    # The training build names its target. Keep the same crate identities here and leave
+    # host build scripts and proc macros uninstrumented. No training happens on CI.
+    (
+      cd "$ROOT"
+      profile="apps/desktop/pgo/$triple.profdata"
+      test -s "$profile" || { echo "Missing release profile: $profile" >&2; exit 1; }
+      echo "profile-guided: $triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
+      # rustc for a dependency may run in that dependency's directory.
+      export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
+      cargo build --release --locked --target "$triple" -p opencode-desktop
+    )
+    BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$triple/release/opencode-desktop"
+  else
+    cargo build --release --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml"
+  fi
+fi
 EXPECTED_VER="opencode-rune $OPENCODE_RUNE_VERSION ($OPENCODE_RUNE_BUILD_CHANNEL)"
 ACTUAL_VER=$("$BIN" --version)
 [ "$ACTUAL_VER" = "$EXPECTED_VER" ] || {
