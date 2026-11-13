@@ -99,7 +99,11 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
         .role("complementary")
         .w(slot_w)
         .h_full()
-        .motion(SIDE_SPRING);
+        .motion(SIDE_SPRING)
+        // Desktop moves the side panel by layout (the chat's width springs, `session/screen.tsx`),
+        // and Chromium paints a box layout moves on whole device pixels each frame, so the card's
+        // ring and shadow keep their resting profile mid-flight instead of blending.
+        .motion_snaps();
     // The slot clips what slides out of it, but lets the card's raised ring and shadow
     // ("--v2-elevation-raised", outside its box) show past its start edge while it is open or
     // still sliding shut, as Desktop's aside does; a slot at rest shut shows none.

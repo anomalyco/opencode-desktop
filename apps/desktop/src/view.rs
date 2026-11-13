@@ -276,7 +276,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .fill(p.bg_base)
         .elevate(p.raised)
         .clip_soft(0.0);
-    panel = if switching { panel.motion(GLIDE).raise() } else { panel.motion(crate::panels::view::SIDE_SPRING) };
+    // Its edge rides the side region's flight by layout in Desktop too, on whole device pixels.
+    panel = if switching { panel.motion(GLIDE).raise() } else { panel.motion(crate::panels::view::SIDE_SPRING).motion_snaps() };
     let mut root = row()
         .key("window")
         .role("window")
