@@ -64,23 +64,25 @@ struct SlotUniform {
     flags: [f32; 4],
 }
 
-impl rune::Compositor<App> for OfficeCompositor {
+impl OfficeCompositor {
     /// Only while a page is on screen: otherwise the window's frame is Rune's own.
-    fn draws_own(&self) -> bool {
+    pub fn draws_own(&self) -> bool {
         self.gpu.is_some()
     }
 
-    fn render(&mut self, f: &mut Frame<'_, App>) {
+    /// Renders the pages on screen into their targets before the frame records. False when no
+    /// page is on screen.
+    pub fn prepare(&mut self, f: &mut Frame<'_, App>) -> bool {
         let slots: Vec<(u32, [f32; 4])> = f.rt.instances.iter().filter(|i| i.params[1] == KIND_EFFECT).filter(|i| registry::is_mark(mark(i))).map(|i| (mark(i), i.rect)).collect();
         if slots.is_empty() {
             self.gpu = None;
-            return f.draw_ui();
+            return false;
         }
         let key = f.device_key();
         if self.gpu.as_ref().is_none_or(|g| g.key != key) {
             self.gpu = Some(Gpu::new(f.device, key));
         }
-        let Some(gpu) = self.gpu.as_mut() else { return f.draw_ui() };
+        let Some(gpu) = self.gpu.as_mut() else { return false };
         gpu.poll_vello();
         gpu.targets.retain(|m, _| slots.iter().any(|(s, _)| s == m));
         if let Vello::Ready(renderer) = &mut gpu.vello {
@@ -106,27 +108,28 @@ impl rune::Compositor<App> for OfficeCompositor {
                 }
             }
         }
-        let (queue, clear) = (f.queue, f.rt.clear_color());
-        f.ui.prepare(f.device, f.queue, &mut f.rt.text.atlas, &f.rt.instances, f.size);
-        let (targets, blit, device) = (&gpu.targets, &mut gpu.blit, f.device);
-        f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, site| {
-            let Some(target) = targets.get(&site.mark) else { return };
-            let i = site.instance;
-            let uniform = SlotUniform {
-                rect: [i.rect[0] - site.origin[0], i.rect[1] - site.origin[1], i.rect[2], i.rect[3]],
-                clip: i.clip,
-                pass: [site.origin[0], site.origin[1], site.size[0] as f32, site.size[1] as f32],
-                fade: i.fade,
-                flags: [if site.srgb_blend { 1.0 } else { 0.0 }, 1.0, 1.0, 0.0],
-            };
-            queue.write_buffer(&target.uniform, 0, bytemuck::bytes_of(&uniform));
-            pass.set_pipeline(blit.pipeline(device, site.format));
-            pass.set_bind_group(0, &target.bind, &[]);
-            pass.draw(0..4, 0..1);
-        });
+        true
     }
 
-    fn animating(&self) -> bool {
+    /// Draws page slot `site` into the open pass.
+    pub fn draw(&mut self, pass: &mut wgpu::RenderPass<'_>, site: &rune::render::EffectSite<'_>, queue: &wgpu::Queue, device: &wgpu::Device) {
+        let Some(gpu) = self.gpu.as_mut() else { return };
+        let Some(target) = gpu.targets.get(&site.mark) else { return };
+        let i = site.instance;
+        let uniform = SlotUniform {
+            rect: [i.rect[0] - site.origin[0], i.rect[1] - site.origin[1], i.rect[2], i.rect[3]],
+            clip: i.clip,
+            pass: [site.origin[0], site.origin[1], site.size[0] as f32, site.size[1] as f32],
+            fade: i.fade,
+            flags: [if site.srgb_blend { 1.0 } else { 0.0 }, 1.0, 1.0, 0.0],
+        };
+        queue.write_buffer(&target.uniform, 0, bytemuck::bytes_of(&uniform));
+        pass.set_pipeline(gpu.blit.pipeline(device, site.format));
+        pass.set_bind_group(0, &target.bind, &[]);
+        pass.draw(0..4, 0..1);
+    }
+
+    pub fn animating(&self) -> bool {
         self.gpu.as_ref().is_some_and(|g| matches!(g.vello, Vello::Starting(_)))
     }
 }

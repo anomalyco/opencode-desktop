@@ -10,7 +10,7 @@ default = ["knobs", "office"]
 # Word, Excel and PowerPoint previews (`office`): BetterOffice's engines and Vello, which draws
 # their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
 # shows Office files as binary.
-office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
+office = ["dep:office-preview", "dep:vello"]
 # The embedded browser's engine. Enabled on macOS, Windows and Linux x86_64 below.
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
@@ -27,7 +27,9 @@ knobs = ["rune-knobs/panel"]
 [dependencies]
 memchr = "2"
 base64 = "0.22"
-bytemuck = { version = "1", features = ["derive"], optional = true }
+bytemuck = { version = "1", features = ["derive"] }
+# The new-session Easter egg's pipelines (`egg/gpu.rs`): Rune's own wgpu, named for its types.
+wgpu = { version = "30", default-features = false }
 office-preview = { path = "../../crates/office-preview", optional = true }
 vello = { version = "0.11", default-features = false, features = ["wgpu"], optional = true }
 browser-pane = { path = "../../crates/browser-pane" }
@@ -91,6 +93,8 @@ libc = "0.2"
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# The egg's sound stream (`egg/sound/wasapi.rs`): the same build of `windows` Rune's video sound uses.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Threading"] }
 authenticode = { path = "../../crates/authenticode" }
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Cryptography", "Win32_Security_Cryptography_Catalog", "Win32_Security_Cryptography_Sip", "Win32_Security_WinTrust", "Win32_System_Console", "Win32_System_Diagnostics", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

@@ -100,6 +100,7 @@ mod capsule_stories;
 pub mod code_view;
 mod commands;
 mod commands_stories;
+mod compositor;
 mod compaction_stories;
 mod connect;
 mod context_window;
@@ -111,6 +112,7 @@ mod dictation;
 mod dirs;
 mod dock_fade_stories;
 mod dropzone;
+mod egg;
 mod escape;
 mod events;
 mod export_logs;
@@ -393,6 +395,10 @@ pub struct App {
     pub knobs: rune::Tracked<rune_knobs::Knobs>,
     /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
     pub glitch: rune::Tracked<glitch::Glitch>,
+    /// The new-session wordmark's Easter egg (`egg`): nothing until the pointer comes near its "e".
+    /// Untracked: its frames step and draw without the view running; `egg::poll` says when the
+    /// view must.
+    pub egg: egg::Egg,
     /// The + menu, the `/` command popover and shell mode.
     pub add: rune::Tracked<add_menu::AddMenu>,
     /// The composer's suggestion lists and prompt recall (`suggestions/machine.rs`).
@@ -1230,6 +1236,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= office::poll(s, tx);
     }
     changed |= glitch::poll(s, tx);
+    changed |= egg::poll(s, now, tx);
     changed |= appearance::poll(s);
     text_rendering::poll(s, tx);
     changed |= language::poll(s, tx);
@@ -1456,10 +1463,9 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
 /// Metal backend (`RUNE_GPU_BACKEND=wgpu` draws with wgpu again, no rebuild).
 pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
     let app = rune::App::new(spec);
-    // Office pages draw their Vello scenes into effect slots; a window without one draws as
-    // Rune's default frame does.
-    #[cfg(feature = "office")]
-    let app = app.compositor(office::OfficeCompositor::default());
+    // Office pages draw their Vello scenes into effect slots, and the new-session Easter egg its
+    // pins and lodger; a window without one draws as Rune's default frame does.
+    let app = app.compositor(compositor::AppCompositor::default());
     menubar::install(
         app
             .gpu_backend(rune::GpuBackend::Metal)
@@ -1483,6 +1489,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 /// (Desktop flushes its stores on `visibilitychange` to hidden, `renderer/platform/storage.ts`).
 fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
     status_toast::visibility(s, shown, tx);
+    egg::visibility(s, shown, tx);
     if !shown && s.persists() {
         s.poll_restore();
         s.poll_preview(true);

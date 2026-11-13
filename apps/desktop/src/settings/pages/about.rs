@@ -135,28 +135,83 @@ const TICK: f64 = 0.075;
 /// 6 to 13, then stays right. Under Reduce Motion it is spelled at once.
 pub struct Wordmark {
     pub letters: [u8; 8],
-    /// The page opened and its scramble hasn't started.
-    pending: bool,
-    /// Each letter's settle tick.
-    settles: [u8; 8],
-    /// When the running scramble started (the app's clock) and the last tick it drew.
-    started: Option<(f64, u8)>,
+    scramble: Scramble,
     seed: u64,
+}
+
+/// The scramble's phase: spelled, opened and waiting for its first poll, or running from
+/// `start` (the app's clock) with each letter's settle tick and the last tick drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Scramble {
+    Still,
+    Pending,
+    Running { start: f64, settles: [u8; 8], drawn: u8 },
+}
+
+enum Event {
+    /// The page shows (`true`) or leaves.
+    Active(bool),
+    Poll { now: f64, reduced: bool },
+}
+
+/// What a step asks of the poll: draw the letters at once (an SVG `use` swaps, nothing glides),
+/// and wake at the next tick.
+#[derive(Default)]
+struct Effects {
+    drew: bool,
+    wake: Option<f64>,
 }
 
 impl Default for Wordmark {
     fn default() -> Self {
-        Wordmark { letters: TARGET, pending: false, settles: [0; 8], started: None, seed: 0x9E37_79B9_7F4A_7C15 }
+        Wordmark { letters: TARGET, scramble: Scramble::Still, seed: 0x9E37_79B9_7F4A_7C15 }
     }
 }
 
 impl Wordmark {
-    /// The page shows (`true`) or leaves: a scramble starts on the next poll, or the letters
-    /// spell the word again.
     pub fn activate(&mut self, active: bool) {
-        self.started = None;
-        self.pending = active;
-        self.letters = TARGET;
+        self.step(Event::Active(active));
+    }
+
+    fn step(&mut self, event: Event) -> Effects {
+        match (self.scramble, event) {
+            (_, Event::Active(active)) => {
+                self.scramble = if active { Scramble::Pending } else { Scramble::Still };
+                self.letters = TARGET;
+                Effects::default()
+            }
+            (Scramble::Still, Event::Poll { .. }) => Effects::default(),
+            (Scramble::Pending, Event::Poll { reduced: true, .. }) => {
+                self.scramble = Scramble::Still;
+                Effects::default()
+            }
+            (Scramble::Pending, Event::Poll { now, .. }) => {
+                self.seed ^= now.to_bits() | 1;
+                let mut settles = [0; 8];
+                for i in 0..8 {
+                    self.letters[i] = self.random(CHOICES);
+                    settles[i] = 6 + self.random(8);
+                }
+                self.scramble = Scramble::Running { start: now, settles, drawn: 0 };
+                Effects { drew: true, wake: Some(now + TICK) }
+            }
+            (Scramble::Running { start, settles, drawn }, Event::Poll { now, .. }) => {
+                let tick = ((now - start) / TICK).floor().clamp(0.0, 255.0) as u8;
+                let last = settles.iter().copied().max().unwrap_or(0);
+                let drew = tick > drawn;
+                if drew {
+                    for i in 0..8 {
+                        self.letters[i] = if tick >= settles[i] { TARGET[i] } else { self.random(CHOICES) };
+                    }
+                }
+                if tick >= last {
+                    self.scramble = Scramble::Still;
+                    return Effects { drew, wake: None };
+                }
+                self.scramble = Scramble::Running { start, settles, drawn: tick.max(drawn) };
+                Effects { drew, wake: Some(start + f64::from(tick + 1) * TICK) }
+            }
+        }
     }
 
     fn random(&mut self, below: u8) -> u8 {
@@ -171,40 +226,18 @@ impl Wordmark {
 /// Runs the scramble on the app's clock: an opening's first letters, then each tick's.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let reduced = *s.reduced_motion;
-    if !s.settings_pages.wordmark.pending && s.settings_pages.wordmark.started.is_none() {
+    if s.settings_pages.wordmark.scramble == Scramble::Still {
         return false;
     }
-    let w = &mut s.settings_pages.wordmark;
-    if std::mem::take(&mut w.pending) && !reduced {
-        w.seed ^= now.to_bits() | 1;
-        for i in 0..8 {
-            w.letters[i] = w.random(CHOICES);
-            w.settles[i] = 6 + w.random(8);
-        }
-        w.started = Some((now, 0));
-        // A letter swaps for the next at once, as an SVG `use` does: nothing glides between them.
+    let fx = s.settings_pages.wordmark.step(Event::Poll { now, reduced });
+    if fx.drew {
         tx.instant();
-        tx.wake_after(std::time::Duration::from_secs_f64(TICK));
-        return true;
     }
-    let Some((start, drawn)) = w.started else { return false };
-    let tick = ((now - start) / TICK).floor().clamp(0.0, 255.0) as u8;
-    let last = w.settles.iter().copied().max().unwrap_or(0);
-    if tick > drawn {
-        tx.instant();
-        for i in 0..8 {
-            w.letters[i] = if tick >= w.settles[i] { TARGET[i] } else { w.random(CHOICES) };
-        }
+    if let Some(due) = fx.wake {
+        tx.wake_after(std::time::Duration::from_secs_f64((due - now).max(0.001)));
     }
-    if tick >= last {
-        w.started = None;
-    } else {
-        w.started = Some((start, tick.max(drawn)));
-        tx.wake_after(std::time::Duration::from_secs_f64((start + f64::from(tick + 1) * TICK - now).max(0.001)));
-    }
-    tick > drawn
+    fx.drew
 }
-
 /// The wordmark spelling `letters`, `k` points a unit of its 234 by 42 grid, each letter 30 on.
 fn wordmark(letters: &[u8; 8], k: f32, stem: rune::Color, weak: rune::Color) -> El {
     // A picture: right to left doesn't mirror it.

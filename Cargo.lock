@@ -3323,7 +3323,9 @@ dependencies = [
  "toml_edit",
  "ureq",
  "vello",
+ "wgpu",
  "win-install",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
@@ -3406,6 +3408,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "browser-pane",
+ "bytemuck",
  "crc32fast",
  "flate2",
  "getrandom 0.3.4",
@@ -3445,6 +3448,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "wgpu",
  "win-install",
 ]
 
