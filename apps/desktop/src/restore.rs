@@ -14,6 +14,7 @@ mod draft_doc;
 mod parked;
 pub mod places;
 mod preview;
+mod undo;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -86,6 +87,8 @@ pub struct Restore {
     blobs: draft_doc::Blobs,
     /// Each draft's own editor while another shows: its undo history comes back with it.
     edits: HashMap<String, rune::TextEdit>,
+    /// What each draft's stored undo history was last written as (`undo`).
+    undo: undo::Kept,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.
@@ -509,6 +512,7 @@ impl App {
             self.restore.written.drafts.remove(&key);
             if let Some(tab) = TabKey::parse(&key) {
                 crate::windows::store::save_draft(&self.window, &tab, None);
+                self.forget_undo(&tab);
             }
         }
         for (key, draft) in drafts {

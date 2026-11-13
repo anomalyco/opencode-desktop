@@ -1181,6 +1181,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
     s.poll_places(now, tx);
+    s.poll_undo(now, tx);
     reconnect::audit(s);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
