@@ -75,7 +75,7 @@ function dialog.transition(s: State, e: { [string]: any }): (State, { { [string]
         end
         -- Each start forgets the prompts shown before it.
         local nextState: State = { status = "active", id = s.id, mode = s.mode, target = s.target, name = s.name, prompted = false }
-        return nextState, { { type = "connect", config = { id = s.id, target = s.target, name = s.name }, replace = stageOf(e.snapshot) == "incompatible" } }
+        return nextState, { { type = "connect", config = { id = s.id, target = s.target, name = s.name } } }
     end
     if s.status == "idle" then
         return s, {}
@@ -121,7 +121,6 @@ function dialog.view(s: State, snapshot: Snapshot)
     local shown = s.status == "active" or s.status == "completed"
     local prompted = shown and s.prompted
     local challenge = if shown then s.challenge else nil
-    local incompatible = stageOf(snapshot) == "incompatible"
     local settled = s.status == "completed" or s.status == "closed"
     local busy = isBusy(s, snapshot)
     local waiting = isWaiting(s, snapshot) or settled
@@ -144,17 +143,16 @@ function dialog.view(s: State, snapshot: Snapshot)
         primary = {
             action = "submit",
             disabled = busy or #(string.match(s.target, "^%s*(.-)%s*$") or "") == 0 or settled,
-            label = if busy then "stage.connecting" elseif incompatible then "update" elseif s.mode == "add" then "form.add" else "connect",
+            label = if busy then "stage.connecting" elseif s.mode == "add" then "form.add" else "connect",
         }
     end
     return {
         title = if prompted or s.mode ~= "add" then "connectTo" else "add",
-        showForm = s.mode ~= "prompt" and not incompatible and (not prompted or (err ~= nil and challenge == nil)),
+        showForm = s.mode ~= "prompt" and (not prompted or (err ~= nil and challenge == nil)),
         inputsDisabled = busy or challenge ~= nil or settled,
-        incompatible = incompatible,
         prompt = if challenge then challenge.prompt else nil,
         waiting = waiting,
-        error = if incompatible then nil else err,
+        error = err,
         primary = primary,
     }
 end
@@ -183,12 +181,6 @@ function dialog.render(env: any, v: View): UiNode?
         table.insert(body, ui.col({ w = "full", gap = 8 }, {
             label(I18n:T("form.name")),
             ui.field({ key = "ssh-name", editor = env.name, placeholder = I18n:T("form.namePlaceholder"), size = "large", disabled = view.inputsDisabled, w = "full", dir = "auto" }),
-        }))
-    end
-    if view.incompatible then
-        table.insert(body, ui.col({ w = "full", gap = 8, role = "status" }, {
-            ui.text(I18n:T("stage.incompatible"), { size = 14, weight = "medium", lineHeight = 20, color = "text-chrome" }),
-            ui.text(I18n:T("error.version"), { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true }),
         }))
     end
     if view.prompt then

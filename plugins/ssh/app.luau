@@ -42,7 +42,6 @@ return plugin.defineApp(function(ctx)
     local Askpass = ctx:GetService("Askpass")
 
     local program = if App.Platform == "windows" then "ssh.exe" else "ssh"
-    local development = App.Channel == "local"
 
     -- The saved hosts (`servers`); earlier versions saved them as JSON text.
     local saved = Store:Value("servers", {} :: any)
@@ -82,7 +81,7 @@ return plugin.defineApp(function(ctx)
                     id = item.config.id,
                     name = command.name(item.config),
                     label = I18n:T("label"),
-                    state = if stage == "connecting" then "starting" elseif stage == "authentication" then "auth" elseif stage == "ready" or stage == "failed" or stage == "incompatible" then stage else "stopped",
+                    state = if stage == "connecting" then "starting" elseif stage == "authentication" then "auth" elseif stage == "ready" or stage == "failed" then stage else "stopped",
                     -- Every saved host is in the app's registry, up or not, as Desktop lists it
                     -- (renderer.tsx sets no `listed`): Home shows its lock, spinner or red dot.
                     listed = true,
@@ -254,8 +253,9 @@ return plugin.defineApp(function(ctx)
         health(attempt, { url = `http://127.0.0.1:{localPort}`, password = password })
     end
 
-    -- `bootstrap.ts`: the host's registered service, or the CLI installed and its service started.
-    local function bootstrap(attempt: number, target: command.Target, replace: boolean)
+    -- `bootstrap.ts`: the host's registered service, whatever its version, or the CLI installed
+    -- and its service started. The app's version only picks which CLI to install.
+    local function bootstrap(attempt: number, target: command.Target)
         local version = Server:Version() or ""
         local args = command.sshArgs(target)
         table.insert(args, target.host)
@@ -269,21 +269,16 @@ return plugin.defineApp(function(ctx)
         end
         local r = command.parseRegistration(found.stdout)
         if r then
-            if development or r.version == version then
-                return tunnel(attempt, target, r.url, r.password)
-            end
-            if not replace then
-                return fail(attempt, command.failure("version", r.version))
-            end
+            return tunnel(attempt, target, r.url, r.password)
         end
         if not command.validVersion(version) then
-            return fail(attempt, command.failure("version", version))
+            return fail(attempt, command.failure("unpublished", version))
         end
         local check = ssh(attempt, args, command.versionScript(`"{command.binaryPath(version)}"`), 600)
         if not check then
             return
         end
-        if not (check.ok and command.parseVersion(check.stdout) == version) then
+        if not (check.ok and command.parseVersion(check.stdout) ~= nil) then
             local probe = ssh(attempt, args, command.PROBE_SCRIPT, 600)
             if not probe then
                 return
@@ -308,7 +303,7 @@ return plugin.defineApp(function(ctx)
                 return fail(attempt, command.failure(if head.status == 404 then "unpublished" else "install", (installed.failure :: command.Failure).detail))
             end
         end
-        local started = ssh(attempt, args, command.startScript(version, replace), 600)
+        local started = ssh(attempt, args, command.startScript(version), 600)
         if not started then
             return
         end
@@ -319,13 +314,10 @@ return plugin.defineApp(function(ctx)
         if not registration then
             return fail(attempt, command.failure("service"))
         end
-        if not development and registration.version ~= version then
-            return fail(attempt, command.failure("version", registration.version))
-        end
         tunnel(attempt, target, registration.url, registration.password)
     end
 
-    local function connect(id: string, attempt: number, config: machine.Config, replace: boolean)
+    local function connect(id: string, attempt: number, config: machine.Config)
         local conn: Conn = { id = id, prompts = {}, processes = {}, tail = "", deadline = System:Now() }
         conns[attempt] = conn
         local ok, listener = pcall(function()
@@ -375,7 +367,7 @@ return plugin.defineApp(function(ctx)
                 dispatch({ type = "destination.resolved", id = id, attempt = attempt, destination = `{field("user") or ""}@{host}:{field("port") or "22"}` })
             end
         end
-        bootstrap(attempt, target, replace)
+        bootstrap(attempt, target)
     end
 
     local function run(effect: machine.Effect)
@@ -401,7 +393,7 @@ return plugin.defineApp(function(ctx)
                 dispatch({ type = "retry.due", id = effect.id, attempt = effect.attempt })
             end)
         elseif t == "attempt.start" then
-            task.spawn(connect, effect.id, effect.attempt, effect.config, effect.replace)
+            task.spawn(connect, effect.id, effect.attempt, effect.config)
         end
     end
 
@@ -427,7 +419,7 @@ return plugin.defineApp(function(ctx)
         calls += 1
         local id = calls
         if kind == "start" then
-            dispatch({ type = "start", config = { id = p.id, target = p.target, name = p.name or "" }, replace = p.replace == true, background = p.background == true })
+            dispatch({ type = "start", config = { id = p.id, target = p.target, name = p.name or "" }, background = p.background == true })
         elseif kind == "respond" then
             dispatch({ type = "respond", id = p.id, prompt = p.prompt, value = p.value })
         elseif kind == "cancel" then
@@ -450,7 +442,7 @@ return plugin.defineApp(function(ctx)
     task.spawn(function()
         for _, r in state.servers do
             if r.saved and r.phase.kind == "disconnected" then
-                dispatch({ type = "start", config = r.config, replace = false, background = true })
+                dispatch({ type = "start", config = r.config, background = true })
             end
         end
     end)

@@ -21,8 +21,6 @@ function row.render(env: any, v: View, props: ServerRowProps): UiNode?
         local health = nil
         if stage == "ready" then
             health = props.health or { healthy = true }
-        elseif stage == "incompatible" then
-            health = { healthy = false, incompatible = true }
         elseif stage == "failed" then
             health = { healthy = false }
         end

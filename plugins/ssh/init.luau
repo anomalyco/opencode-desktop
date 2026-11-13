@@ -79,8 +79,8 @@ return plugin.defineWindow(function(ctx)
         return started[id] ~= nil and it ~= nil and it.stage == "connecting" and it.attempt == started[id]
     end
 
-    local function start(config: any, replace: boolean)
-        if request("start", { id = config.id, target = config.target, name = config.name, replace = replace }) then
+    local function start(config: any)
+        if request("start", { id = config.id, target = config.target, name = config.name }) then
             local it = item(config.id)
             started[config.id] = it and it.attempt
             answered[config.id] = nil
@@ -118,7 +118,7 @@ return plugin.defineWindow(function(ctx)
         end
         for _, effect in effects do
             if effect.type == "connect" then
-                start(effect.config, effect.replace)
+                start(effect.config)
             elseif effect.type == "respond" then
                 answered[nextState.id] = effect.prompt
                 request("respond", { id = nextState.id, prompt = effect.prompt, value = effect.value })
@@ -177,7 +177,7 @@ return plugin.defineWindow(function(ctx)
             return
         end
         prompting = id
-        start(it.config, false)
+        start(it.config)
     end
 
     -- The cover's sign-in offer (`selectSshCanOffer`, `cover.offered` in `window-machine.ts`):
@@ -212,7 +212,7 @@ return plugin.defineWindow(function(ctx)
             dispatch({ type = "synced", snapshot = controller.snapshot() })
         elseif prompting then
             local it = item(prompting)
-            if it and (it.prompt or it.stage == "incompatible") then
+            if it and it.prompt then
                 local config = it.config
                 prompting = nil
                 openDialog(config, true)
@@ -251,7 +251,7 @@ return plugin.defineWindow(function(ctx)
         local deadline = System:Now() + 120000
         while System:Now() < deadline do
             local it = item(id)
-            if not it or it.stage == "failed" or it.stage == "incompatible" then
+            if not it or it.stage == "failed" then
                 return false
             elseif it.stage == "ready" then
                 return true

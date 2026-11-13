@@ -18,14 +18,12 @@ export type Prompt = { id: string, text: string, confirm: boolean }
 export type Resting =
     { kind: "disconnected" }
     | { kind: "authentication" }
-    | { kind: "incompatible", detail: string }
     | { kind: "failed", code: string, detail: string, failures: number }
 
 -- `connecting` and `authenticating` run an attempt; `failed` may hold a scheduled retry.
 export type Phase =
     { kind: "disconnected" }
     | { kind: "authentication" }
-    | { kind: "incompatible", detail: string }
     | { kind: "connecting", attempt: number, interactive: boolean, failures: number, resting: Resting }
     | { kind: "authenticating", attempt: number, failures: number, resting: Resting, prompt: Prompt }
     | { kind: "ready", attempt: number, http: Http }
@@ -65,12 +63,7 @@ end
 
 function machine.error(r: Record): string?
     local p = r.phase :: any
-    if p.kind == "failed" then
-        return p.code
-    elseif p.kind == "incompatible" then
-        return "version"
-    end
-    return nil
+    return if p.kind == "failed" then p.code else nil
 end
 
 local function active(phase: Phase): (number?, number, Resting?)
@@ -117,8 +110,6 @@ local function restingOf(phase: Phase): Resting
         return p.resting
     elseif p.kind == "authentication" then
         return { kind = "authentication" }
-    elseif p.kind == "incompatible" then
-        return { kind = "incompatible", detail = p.detail }
     elseif p.kind == "failed" then
         return { kind = "failed", code = p.code, detail = p.detail, failures = p.failures }
     end
@@ -147,10 +138,6 @@ local function failed(s: State, i: number, reported: string, detail: string, fai
     -- A failed attempt shows the saved server again, not the target it tried.
     local r = s.servers[i]
     r.config = if r.saved then table.clone(r.saved) else r.config
-    if code == "version" then
-        r.phase = { kind = "incompatible", detail = detail }
-        return {}
-    end
     -- Only a saved server reconnects by itself, and only from failures another try can fix.
     local fixable = not (code == "input" or code == "platform" or code == "unpublished" or code == "host-key" or code == "ssh-missing")
     local retry = r.saved ~= nil and failures < machine.RETRY_LIMIT and fixable and not string.find(detail, "Permission denied", 1, true)
@@ -194,7 +181,7 @@ function machine.step(s: State, e: Event): { Effect }
             table.insert(s.servers, record)
         end
         local effects = halt(phase)
-        table.insert(effects, { type = "attempt.start", id = id, attempt = attempt, config = clean, replace = e.replace == true })
+        table.insert(effects, { type = "attempt.start", id = id, attempt = attempt, config = clean })
         return effects
     elseif t == "cancel" then
         local i = find(s, e.id)
@@ -243,7 +230,7 @@ function machine.step(s: State, e: Event): { Effect }
             failures = p.failures,
             resting = { kind = "failed", code = p.code, detail = p.detail, failures = p.failures },
         }
-        return { { type = "attempt.start", id = e.id, attempt = attempt, config = s.servers[i].config, replace = false } }
+        return { { type = "attempt.start", id = e.id, attempt = attempt, config = s.servers[i].config } }
     elseif t == "respond" then
         local i = find(s, e.id)
         if not i then

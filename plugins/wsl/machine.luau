@@ -15,8 +15,6 @@ export type OpencodeCheck = {
     distro: string,
     resolvedPath: string?,
     version: string?,
-    expectedVersion: string?,
-    matchesDesktop: boolean?,
     error: string?,
 }
 export type ServerConfig = { id: string, distro: string }
@@ -230,7 +228,7 @@ function machine.step(s: State, e: Event): { Effect }
         return { resolve(e.attempt) }
     elseif t == "update" then
         -- Updating stops the distro's server first, even one still starting, and starts it again
-        -- once the CLI matches.
+        -- once the CLI is installed.
         local d = distroOf(s, e.distro) :: any
         if d.status == "updating" then
             return { resolve(e.attempt) }
