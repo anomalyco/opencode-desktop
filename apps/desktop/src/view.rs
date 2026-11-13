@@ -259,6 +259,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
             if chrome().bottom { band.pin(Some(0.0), None, Some(0.0), Some(0.0)) } else { band.pin(Some(0.0), Some(0.0), Some(0.0), None) }
         });
     let (band_below, band) = if switching { (band, None) } else { (None, band) };
+    // Desktop's `<main>` has `contain: content` (`shell.tsx`), so Chromium rounds its origin to a
+    // device pixel on its own and everything in it against that: at 1.875x, 44 pt is 82.5 px and
+    // its content sits on the pixel below where its own position would round. What Desktop puts
+    // in `<main>` snaps against it here too.
+    let main = [s.sidebar_shown_w(), chrome().main_top()];
     let mut panel = col()
         .key("panel")
         .grow(1.0)
@@ -287,10 +292,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .children(band)
         // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
         // chat panel), and paints over the page and the panels after it.
-        .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1)))
+        .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
         .child(
             // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
             panel
+                .paint_contained(main)
                 .role("main")
                 .on_background_press(|s: &mut App| {
                     s.side.focused = false;
@@ -309,18 +315,19 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 } })
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
-        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx));
+        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx).paint_contained(main));
     if let Some(dock) = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx) {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
-                .motion(crate::panels::view::SIDE_SPRING),
+                .motion(crate::panels::view::SIDE_SPRING)
+                .paint_contained(main),
         );
     }
     // A plugin's cover over a tab whose server isn't ready (`PluginServerCover`): the whole main
     // area from under the titlebar row (`<main>`, not the panels' inset in it), the page and its
     // panels mounted under it.
     if let Some(cover) = (!s.settings.open).then(|| crate::plugin_host::server_cover(s, p)).flatten() {
-        root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().main_top()), Some(0.0), Some(chrome().foot())));
+        root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().main_top()), Some(0.0), Some(chrome().foot())).paint_contained(main));
     }
     if open {
         root = root.child(resize_handle(s, p, w));
