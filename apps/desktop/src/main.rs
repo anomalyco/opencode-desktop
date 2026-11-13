@@ -1518,6 +1518,13 @@ fn main() {
     storage::claimed();
     notifications::take_activation(rune::extra_args());
     glyph_masks::start();
+    // The first view's theme tokens (OpenCode's kit and the default theme's palette, both
+    // appearances from one parse), built while the window is made rather than in its first frame.
+    let _ = std::thread::Builder::new().name("theme-warm".into()).spawn(|| {
+        for dark in [true, false] {
+            session_view::palette::kit(session_view::palette::pal(dark));
+        }
+    });
     opencode_kit::client::set_download_dir(dirs::downloads());
     // Where the browser engine lives follows this app's data root (no I/O until a page opens).
     #[cfg(any(target_os = "macos", windows))]
