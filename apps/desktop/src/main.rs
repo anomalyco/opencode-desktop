@@ -1398,6 +1398,8 @@ pub(crate) const TERMINAL_FONTS: &[&str] = &["fonts/JetBrainsMonoNerdFontMono-Re
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     rune::text::set_face_weights(appearance::FACE_WEIGHTS);
+    // Desktop's base.css sets `text-wrap-style: pretty` on every element.
+    rune::text::set_pretty_wrap(true);
     AppSpec {
         scenes: stories::scenes(),
         fonts: FONTS,
