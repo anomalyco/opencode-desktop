@@ -365,7 +365,7 @@ fn tab_bar(
     let slug = pane_slug(pane);
     let controls = pane == SessionPane::Bottom || reserve_toggle;
     let room = pane_w - 24.0 - if controls { 36.0 } else { 0.0 } - 36.0;
-    let new_natural = 10.0 + rune::text::measure(opencode_i18n::t!("session.tab.new"), &[], UI, None).0 + 30.0;
+    let new_natural = 10.0 + rune::text::measure(opencode_i18n::t!("session.tab.new"), &[], UI, None).0 + CLOSE_END;
     let active_of = |e: &ResolvedEntry| shown_new_id.is_none() && pane_active == Some(e.key.as_str());
     // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
     let leads: Vec<Option<El>> = entries.iter().map(|e| e.provider.lead(s, p, &e.tab, active_of(e))).collect();
@@ -567,9 +567,13 @@ fn strip_widths(naturals: &[f32], room: f32) -> Vec<f32> {
 /// A strip's narrowest tab (`tabs.css:503`).
 const TAB_MIN_W: f32 = 72.0;
 
+/// What a closable tab takes after its label: the wrapper's 8 pt gap, the 20 pt close button and
+/// the 4 pt end padding (`tabs-trigger-wrapper`, `tabs.css`).
+const CLOSE_END: f32 = 8.0 + 20.0 + 4.0;
+
 /// The width tab `entry`'s content takes unshrunk (CSS `max-content`), as `tab_trigger` lays
-/// it out: 10 in, the icon and 6, the title, the badge, then the close button 4 from the end or
-/// 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
+/// it out: 10 in, the icon and 6, the title, the badge, then 8 to the close button and 4 from the
+/// end, or 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
 /// terminal's title stops at 160 (`TerminalTabLabel`).
 fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
     let title = rune::text::measure(&entry.tab.title, &[], UI, None).0;
@@ -579,7 +583,7 @@ fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
         (false, None) => title,
     };
     let badge = entry.tab.badge.as_ref().map_or(0.0, |b| 6.0 + rune::text::measure(b, &[], UI_SMALL, None).0);
-    let end = if entry.tab.can_close() { 30.0 } else { 10.0 };
+    let end = if entry.tab.can_close() { CLOSE_END } else { 10.0 };
     10.0 + body + badge + end
 }
 
@@ -691,9 +695,11 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, act
 }
 
 /// A tab's close button (`tabs-trigger-close-button`): 20 pt, the 16 pt small cross, shown on
-/// the selected tab and on hover.
+/// the selected tab and on hover, 8 after the label (the tab's 6 pt gap and 2 more), as the
+/// trigger wrapper's gap puts it.
 fn close_button(p: &Pal, key: String, shown: bool, close: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     el().key(key)
+        .ml(2.0)
         .role("button")
         .label_static(opencode_i18n::t!("common.closeTab"))
         .size(20.0, 20.0)
