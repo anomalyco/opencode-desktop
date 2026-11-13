@@ -4,7 +4,7 @@
 //! own search (`crates/terminal/src/find.rs`), so it follows output as it arrives. Enter goes to
 //! the next older match, Shift+Enter to the newer one, Escape closes. Desktop's terminal has none.
 
-use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Transition, Tx, icon, row, text, text_input};
+use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Transition, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -63,7 +63,7 @@ pub(super) fn bar(p: &Pal, wk: &str, tab: &super::TerminalTab, snap: &terminal::
             .fill(p.bg_base)
             .child(
                 row().key("terminal-find-value").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)).child(
-                    text_input(field, UI)
+                    session_view::style::field(field, UI)
                         .key("terminal-find-input")
                         .single_line()
                         .truncate_fade()

@@ -11,7 +11,7 @@ use crate::popover::Highlight;
 use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::{project_git, project_sandboxes};
 use opencode_kit::path;
-use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -476,7 +476,7 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         .center_y()
         .child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted))
         .child(
-            text_input(&picker.search, UI)
+            session_view::style::field(&picker.search, UI)
                 .key("branch-picker-input")
                 .single_line()
                 .grow(1.0)

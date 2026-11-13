@@ -371,7 +371,7 @@ fn startup(s: &App, p: &Pal) -> El {
     let st = &s.settings_pages.project;
     // `textarea-v2`: five 17.55 pt mono lines 8 in, on the base fill under the neutral lift.
     let failed = st.failed.contains(&Field::Startup);
-    let input = rune::text_input(&st.startup, STARTUP).key("settings-project-startup-input").w_full()
+    let input = session_view::style::field(&st.startup, STARTUP).key("settings-project-startup-input").w_full()
         .color(p.text).placeholder(t!("dialog.project.edit.worktree.startup.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("dialog.project.edit.worktree.startup"))
         .on_edit(|s: &mut App| &mut s.settings_pages.project.startup);
     let input = match st.startup_h {

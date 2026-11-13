@@ -515,7 +515,7 @@ pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
     let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
     field
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
-        .child(rune::text_input(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
+        .child(session_view::style::field(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("settings.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
             // Enter opens the lit result, else the first (`search-machine.ts`).

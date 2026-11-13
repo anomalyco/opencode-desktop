@@ -12,7 +12,7 @@ use opencode_kit::client::PathAttachment;
 use opencode_kit::model::Attachment;
 use rune::{
     Color, El, Key, KeyEvent, MotionIntent, Shadow, Spring, SpringPair, TextEdit, TextStyle,
-    Transition, Tx, col, el, icon, row, spacer, text, text_input,
+    Transition, Tx, col, el, icon, row, spacer, text,
 };
 use rune_theme_opencode::icons as ic;
 
@@ -478,7 +478,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(
                                     prompt_dir(
-                                        text_input(
+                                        crate::style::field(
                                             s.composer_edit(),
                                             if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
                                         ),

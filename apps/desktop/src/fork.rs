@@ -13,7 +13,7 @@ use opencode_kit::mention;
 use opencode_kit::model::{Message, SessionInfo, Transcript};
 use rune::{
     Color, Cx, El, Key, KeyEvent, Spring, TextEdit, Transition, Tx, col, el, icon, row,
-    text, text_input,
+    text,
 };
 use rune_theme_opencode::icons as ic;
 
@@ -387,7 +387,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .center_y()
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            text_input(&s.fork.search, UI)
+            session_view::style::field(&s.fork.search, UI)
                 .key("fork-input")
                 .single_line()
                 .grow(1.0)

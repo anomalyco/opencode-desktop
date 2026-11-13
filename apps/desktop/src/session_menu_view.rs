@@ -1,7 +1,7 @@
 //! What the session menus and rename draw: the title field, Delete's confirmation, and a drawn
 //! copy of a menu for the storybook and stills (native menus never draw headless).
 
-use rune::{Color, El, TextStyle, Tx, col, el, row, spacer, text, text_input};
+use rune::{Color, El, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
 
 use crate::palette::{Elevate as _, Pal};
@@ -23,7 +23,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
     if !s.menus.renames(target) {
         return None;
     }
-    let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).truncate_fade().h(style.line_px());
+    let input = session_view::style::field(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).truncate_fade().h(style.line_px());
     // Outside a tab the field hugs its text, but a focused single-line input reserves 1.5 pt for
     // the caret and scrolls the text left by that much when the caret is at the end, clipping the
     // first glyph. Room past the text (and any composition) keeps it in view; it still shrinks

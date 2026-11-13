@@ -11,7 +11,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
 use opencode_kit::model::{Assistant, Message, Part, Transcript};
-use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text, text_input};
+use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
@@ -620,7 +620,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
             .radius(6.0)
             .fill(p.bg_base)
             .child(row().key("find-value").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)).child(
-                text_input(&s.find.input, UI)
+                session_view::style::field(&s.find.input, UI)
                     .key("find-input")
                     .spellcheck(s.settings.spellcheck)
                     .single_line()

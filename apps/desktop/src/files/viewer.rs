@@ -1,7 +1,7 @@
 //! The open file: its toolbar, find bar, and either the shared [`CodeViewer`] or, for Markdown,
 //! the rendered page ([`super::markdown`]).
 
-use rune::{Anim, Color, Cursor, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text, text_input};
+use rune::{Anim, Color, Cursor, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::SessionFiles;
@@ -252,7 +252,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
         .fill(p.layer1)
         .child(icon(&ic::MAGNIFYING_GLASS, 12.0).color(p.faint))
         .child(
-            text_input(&doc.find_input, UI_SMALL)
+            session_view::style::field(&doc.find_input, UI_SMALL)
                 .key("files-find-input")
                 .spellcheck(spellcheck)
                 .placeholder(opencode_i18n::t!("rune.files.findPlaceholder"), p.faint)

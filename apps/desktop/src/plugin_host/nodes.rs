@@ -334,7 +334,7 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     };
     let (on_edit, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin);
     let font = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-    let mut input = rune::text_input(edit, font)
+    let mut input = session_view::style::field(edit, font)
         .spellcheck(false)
         .placeholder(a.string("placeholder").unwrap_or_default().to_owned(), pal.faint)
         .selection_style(pal.field_selection)

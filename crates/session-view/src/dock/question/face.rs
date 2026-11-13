@@ -1,6 +1,6 @@
 //! The question's face of the composer surface: header, answers and footer.
 
-use rune::{Anim, Color, El, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text, text_input};
+use rune::{Anim, Color, El, SpringPair, TextEdit, TextStyle, Transition, Tx, col, el, row, spacer, text};
 
 use super::*;
 use crate::dock::{Variant, button, face_transition};
@@ -142,7 +142,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let (id, field_key) = (f.id.clone(), field.key.clone());
         // The typed answer is written where an answer's title is, in the same row: no box of its
         // own, wrapping inside the row as it grows.
-        let input = text_input(&edit, if editing { TITLE } else { STRONG })
+        let input = crate::style::field(&edit, if editing { TITLE } else { STRONG })
             .key("q-input")
             .spellcheck(s.composer_spellcheck())
             .label(custom_label())

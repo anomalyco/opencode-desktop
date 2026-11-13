@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use opencode_i18n::t;
 use rune::machine::{Attempt, Effects, Seq};
-use rune::{El, Key, KeyEvent, PointerPress, TextEdit, Tx, text_input};
+use rune::{El, Key, KeyEvent, PointerPress, TextEdit, Tx};
 
 use crate::App;
 use crate::jobs::Apply;
@@ -151,7 +151,7 @@ pub(crate) fn stamp(s: &App, h: &mut impl std::hash::Hasher) {
 pub(super) fn field(s: &App, p: &Pal, id: &str) -> Option<El> {
     let r = s.terminal.renaming.field().filter(|r| r.id == id)?;
     Some(
-        text_input(&r.field, crate::view::UI)
+        session_view::style::field(&r.field, crate::view::UI)
             .key("terminal-rename")
             .label_static(t!("common.rename"))
             .spellcheck(s.settings.spellcheck)

@@ -8,7 +8,7 @@
 
 use crate::pickers::PickerHost as _;
 use opencode_kit::model::{Project, project_git};
-use rune::{Color, Cx, El, Key, KeyEvent, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, Span, Spring, TextEdit, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::mentions::list::Highlight;
@@ -619,7 +619,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .center_y()
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(
-            text_input(&s.project_switcher.search, UI)
+            session_view::style::field(&s.project_switcher.search, UI)
                 .key("project-switcher-input")
                 .single_line()
                 .grow(1.0)

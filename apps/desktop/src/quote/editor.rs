@@ -5,7 +5,7 @@
 //! session works), and `@` lists files to mention. It stands where the Quote toolbar was when
 //! it replaced it, else over its card, and keeps its bottom edge as the draft grows.
 
-use rune::{Color, Cx, El, Icon, KeyEvent, Mods, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cx, El, Icon, KeyEvent, Mods, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::App;
@@ -287,7 +287,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .w_full()
         .child(el().key("rule").w(2.0).h_full().fill(p.layer3))
         .child(text(quote.text.clone()).key("quote").font(FIELD).color(p.muted).wrap().max_lines(preview_lines).dir(rune::Direction::Auto).pl(12.0).shrink().min_w(0.0).grow(1.0));
-    let input = text_input(draft, FIELD)
+    let input = session_view::style::field(draft, FIELD)
         .key("quote-comment-field")
         .label_static(opencode_i18n::t!("ui.lineComment.submit"))
         .color(p.text)

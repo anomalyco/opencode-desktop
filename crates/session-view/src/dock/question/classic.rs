@@ -9,7 +9,7 @@
 
 use std::f32::consts::PI;
 
-use rune::{Anim, Color, Curve, Easing, El, Key, KeyEvent, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Anim, Color, Curve, Easing, El, Key, KeyEvent, Shadow, Spring, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
 use super::*;
@@ -306,7 +306,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     let on = s.dock().custom_on(&k);
     let edit = s.dock().typed.get(&k).cloned().unwrap_or_else(|| TextEdit::new(""));
     let (id, field_key) = (f.id.clone(), field.key.clone());
-    let input = text_input(&edit, INPUT)
+    let input = crate::style::field(&edit, INPUT)
         .key("q-input")
         .spellcheck(s.composer_spellcheck())
         .label(custom_label())

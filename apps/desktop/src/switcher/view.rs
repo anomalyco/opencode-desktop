@@ -2,7 +2,7 @@
 //! dialog (`dialog.css:141-234`) over `SearchList` (`ui/forms/search-list/search-list.css`), its
 //! rows `PaletteRow` with `palette-menu.css`'s title and `keybind.css`'s chips.
 
-use rune::{Color, Cx, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cx, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::{file_icons, icons as ic};
 
 use super::shown::Empty;
@@ -81,7 +81,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     // the text, the text in `text-base` and the placeholder in it at half strength.
     // The highlighted row is the field's active descendant: arrows keep focus in the field, and
     // a reader says each row they land on (`SearchList`'s `aria-activedescendant`).
-    let input = text_input(&s.switcher.search, UI)
+    let input = session_view::style::field(&s.switcher.search, UI)
         .key("switcher-input")
         .single_line()
         .grow(1.0)

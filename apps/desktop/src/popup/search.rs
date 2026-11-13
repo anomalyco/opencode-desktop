@@ -16,7 +16,7 @@ pub(super) fn search_field(s: &App, p: &Pal, placeholder: &str) -> El {
     let k = crate::palette::kit(p);
     let edit = &s.popup.query;
     let typed = !edit.text.is_empty();
-    let input = rune::text_input(edit, INPUT)
+    let input = session_view::style::field(edit, INPUT)
         .key("popup-search-input")
         .single_line()
         .grow(1.0)

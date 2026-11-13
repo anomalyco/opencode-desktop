@@ -19,7 +19,7 @@ mod slide;
 
 use std::ops::Range;
 
-use rune::{Align, Color, El, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text, text_input};
+use rune::{Align, Color, El, Side, Span, TextEdit, TextStyle, Transition, Tx, col, el, icon, rich, row, text};
 use rune_kit::ScrollBar as _;
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
@@ -129,7 +129,7 @@ pub fn scrim<S: TimelineHost>(key: impl Into<String>, close: impl Fn(&mut S, &mu
 /// The search field's text input, bare (the row around it is [`search_row`]); add `.on_edit`
 /// and `.on_input_key` to it. It replaces the model picker's field rather than adding a style.
 pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> El {
-    text_input(edit, UI)
+    crate::style::field(edit, UI)
         .key(key.to_owned())
         .single_line()
         .truncate_fade()

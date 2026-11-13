@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use rune::{Color, El, Key, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, El, Key, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{Model, ModelAction, PickerHost, host, mark, search};
@@ -65,7 +65,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let groups = pk.manage_groups();
     let searching = !m.search.text.trim().is_empty();
 
-    let field = text_input(&m.search, UI)
+    let field = crate::style::field(&m.search, UI)
         .key("manage-models-input")
         .single_line()
         .grow(1.0)

@@ -3,7 +3,7 @@
 //! Sign in), and a failed server's error view with Copy details, Disable and Try again.
 
 use opencode_kit::integration::{McpServer, McpStatus};
-use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text, text_input};
+use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_kit::{ButtonVariant, Switch};
 use rune_theme_opencode::icons as ic;
 
@@ -96,7 +96,7 @@ fn list(s: &App, p: &Pal, dir: &str, tall: bool) -> El {
     let open = s.mcp.open.as_ref().expect("open");
     let field = row().key("mcp-search-field").w_full().h(28.0).pr(6.0).gap(6.0).center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
-        .child(text_input(&open.search, crate::view::UI).key("mcp-search").single_line().grow(1.0).shrink().min_w(0.0)
+        .child(session_view::style::field(&open.search, crate::view::UI).key("mcp-search").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(opencode_i18n::t!("dialog.mcp.search.placeholder"), p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection).selection_style(p.field_selection)
             .label_static(opencode_i18n::t!("dialog.mcp.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.mcp.open.as_mut().expect("open").search)

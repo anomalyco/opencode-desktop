@@ -2,7 +2,7 @@
 //! `session-review-v2.css`, `file-tree.css`): the tree toggle pinned at the panel's top left, the
 //! 48 px sidebar header and toolbar, the borderless filter field, and 28 px tree rows.
 
-use rune::{Anim, Color, Cursor, El, Icon, TextEdit, Tx, col, el, icon, row, text, text_input};
+use rune::{Anim, Color, Cursor, El, Icon, TextEdit, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons::TreeIcon;
 
@@ -114,7 +114,7 @@ pub fn filter_field(
         .motion(rune::Spring::NONE)
         .child(icon(&SEARCH, 14.0).color(p.icon_muted))
         .child(
-            text_input(edit, UI)
+            session_view::style::field(edit, UI)
                 .key(key.to_owned())
                 // Named by its placeholder, which goes once a letter is typed.
                 .label(placeholder.to_owned())

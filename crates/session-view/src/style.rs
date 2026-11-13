@@ -111,6 +111,15 @@ pub fn hover_none() -> bool {
 
 pub fn touch_controls() -> bool { POINTER.get() == Pointer::Touch }
 
+/// A text field (`rune::text_input`), as `base.css`'s touch rule has every field: on a phone it
+/// types at 16 (iOS zooms to a smaller one) while its placeholder keeps the design's size.
+pub fn field(edit: &rune::TextEdit, style: TextStyle) -> El {
+    if !touch_controls() {
+        return rune::text_input(edit, style);
+    }
+    rune::text_input(edit, TextStyle { size: 16.0, ..style }).placeholder_font(style)
+}
+
 /// CSS hover-reveal: always visible when the primary pointer cannot hover.
 pub fn hover_reveal(e: El) -> El { if hover_none() { e } else { e.group_opacity(0.0, 1.0) } }
 

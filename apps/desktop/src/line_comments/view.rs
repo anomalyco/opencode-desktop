@@ -16,7 +16,7 @@
 
 use std::rc::Rc;
 
-use rune::{Color, Cursor, Drag, El, Icon, Phase, TextStyle, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Cursor, Drag, El, Icon, Phase, TextStyle, Tx, col, el, icon, row, text};
 
 use super::machine::{Draft, Event, GripEvent};
 use super::{LineComment, Spot, Surface};
@@ -108,7 +108,7 @@ fn draft_box(s: &App, p: &Pal, spot: &Spot, side: rune_kit::diff::Side, line: u3
 fn field_input(s: &App, p: &Pal, spot: &Spot, draft: &Draft, style: TextStyle, placeholder: &str) -> El {
     let mention = spot.surface != Surface::Review;
     let (edit, change, key) = (spot.clone(), spot.clone(), spot.clone());
-    text_input(&draft.text, style)
+    session_view::style::field(&draft.text, style)
         .key("line-comment-field")
         .label_static(opencode_i18n::t!("ui.lineComment.submit"))
         .color(p.text)
