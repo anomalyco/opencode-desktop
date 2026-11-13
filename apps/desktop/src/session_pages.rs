@@ -320,6 +320,10 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode
             Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, super::switcher::encode(cursor)),
             None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
         };
+        // The launch trace splits the server's part of content live from the app's: the first
+        // foreground newest page asked for (the open session's) and its answer.
+        let first = foreground && job.cursor.is_none();
+        if first { rune::marks::mark("session.read.sent"); }
         let mut start = Instant::now();
         crate::telemetry::take_read();
         let mut answer = fetch(&path);
@@ -339,6 +343,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode
         if answer.is_ok() { q.0.lock().unwrap().stalled = None; }
         match answer {
             Ok(value) => {
+                if first { rune::marks::mark("session.read.received"); }
                 let end = Instant::now();
                 let mut read = crate::telemetry::Read { source: "server", fetch: Some((start, end)), ..Default::default() };
                 if let Some((first_byte, bytes, parsing)) = crate::telemetry::take_read() {
