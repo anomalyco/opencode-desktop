@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "세션 삭제됨",
   "rune.toast.renameNoAnswer": "서버가 새 제목을 제때 확인하지 않아 마지막으로 수락한 제목으로 돌아갔습니다. 잠시 후 다시 시도하세요.",
   "rune.dictation.timedOut": "받아쓰기가 끝나지 않았습니다. 지금까지 들린 단어는 초안에 있습니다.",
-  "rune.dictation.timedOutEmpty": "받아쓰기가 끝나지 않았고 들린 단어가 없습니다. 다시 시도하세요."
+  "rune.dictation.timedOutEmpty": "받아쓰기가 끝나지 않았고 들린 단어가 없습니다. 다시 시도하세요.",
+  "rune.web.check.title": "휴대폰 점검",
+  "rune.web.check.intro": "이 휴대폰을 측정하고 숫자만 보냅니다. 비밀번호도 스크린샷도 보내지 않습니다.",
+  "rune.web.check.measuring": "측정 중입니다. 몇 초간 움직이지 마세요.",
+  "rune.web.check.keyboard": "입력란을 탭하세요. 키보드가 나타나면 완료를 탭하세요.",
+  "rune.web.check.field": "여기를 탭하세요",
+  "rune.web.check.rotate": "휴대폰을 가로로 돌리고 2초 기다린 다음 다시 돌리세요.",
+  "rune.web.check.send": "결과 보내기",
+  "rune.web.check.sending": "보내는 중…",
+  "rune.web.check.sent": "보냈습니다. 코드: {{code}}",
+  "rune.web.check.notSent": "보내지 못했습니다. 다시 시도하세요.",
+  "rune.web.check.works": "작동함",
+  "rune.web.check.failed": "실패",
+  "rune.web.check.none": "측정 안 됨"
 }

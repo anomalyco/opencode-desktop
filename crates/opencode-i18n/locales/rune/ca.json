@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "S'ha suprimit la sessió",
   "rune.toast.renameNoAnswer": "El servidor no ha confirmat el títol nou a temps, així que ha tornat l'últim títol que va acceptar. Torneu-ho a provar d'aquí a un moment.",
   "rune.dictation.timedOut": "El dictat no s'ha acabat. Les paraules sentides fins ara són a l'esborrany.",
-  "rune.dictation.timedOutEmpty": "El dictat no s'ha acabat i no s'ha sentit cap paraula. Torneu-ho a provar."
+  "rune.dictation.timedOutEmpty": "El dictat no s'ha acabat i no s'ha sentit cap paraula. Torneu-ho a provar.",
+  "rune.web.check.title": "Comprovació del telèfon",
+  "rune.web.check.intro": "Mesura aquest telèfon i només envia números: cap contrasenya, cap captura de pantalla.",
+  "rune.web.check.measuring": "S'està mesurant. No us mogueu uns segons.",
+  "rune.web.check.keyboard": "Toqueu el camp. Quan surti el teclat, toqueu Fet.",
+  "rune.web.check.field": "Toqueu aquí",
+  "rune.web.check.rotate": "Gireu el telèfon de costat, espereu dos segons i torneu-lo a girar.",
+  "rune.web.check.send": "Envieu els resultats",
+  "rune.web.check.sending": "S'està enviant…",
+  "rune.web.check.sent": "Enviat. El vostre codi: {{code}}",
+  "rune.web.check.notSent": "No s'ha pogut enviar. Torneu-ho a provar.",
+  "rune.web.check.works": "Funciona",
+  "rune.web.check.failed": "Ha fallat",
+  "rune.web.check.none": "No mesurat"
 }

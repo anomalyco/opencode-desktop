@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "ລຶບເຊດຊັນແລ້ວ",
   "rune.toast.renameNoAnswer": "ເຊີບເວີບໍ່ໄດ້ຢືນຢັນຫົວຂໍ້ໃໝ່ທັນເວລາ ສະນັ້ນຫົວຂໍ້ທີ່ມັນຮັບເອົາຫຼ້າສຸດຈຶ່ງກັບມາ. ລອງໃໝ່ອີກຄັ້ງໃນອີກບໍ່ດົນ.",
   "rune.dictation.timedOut": "ການພິມດ້ວຍສຽງບໍ່ສຳເລັດ. ຄຳທີ່ໄດ້ຍິນມາຮອດຕອນນີ້ຢູ່ໃນສະບັບຮ່າງ.",
-  "rune.dictation.timedOutEmpty": "ການພິມດ້ວຍສຽງບໍ່ສຳເລັດ ແລະ ບໍ່ໄດ້ຍິນຄຳໃດເລີຍ. ລອງໃໝ່ອີກຄັ້ງ."
+  "rune.dictation.timedOutEmpty": "ການພິມດ້ວຍສຽງບໍ່ສຳເລັດ ແລະ ບໍ່ໄດ້ຍິນຄຳໃດເລີຍ. ລອງໃໝ່ອີກຄັ້ງ.",
+  "rune.web.check.title": "ກວດໂທລະສັບ",
+  "rune.web.check.intro": "ວັດແທກໂທລະສັບນີ້ ແລະ ສົ່ງພຽງແຕ່ຕົວເລກ: ບໍ່ມີລະຫັດຜ່ານ, ບໍ່ມີຮູບໜ້າຈໍ.",
+  "rune.web.check.measuring": "ກຳລັງວັດແທກ. ກະລຸນາຢູ່ນິ້ງໆສອງສາມວິນາທີ.",
+  "rune.web.check.keyboard": "ແຕະຊ່ອງ. ເມື່ອແປ້ນພິມຂຶ້ນມາ, ແຕະ ແລ້ວໆ.",
+  "rune.web.check.field": "ແຕະບ່ອນນີ້",
+  "rune.web.check.rotate": "ໝຸນໂທລະສັບໄປທາງຂ້າງ, ລໍຖ້າສອງວິນາທີ, ແລ້ວໝຸນກັບຄືນ.",
+  "rune.web.check.send": "ສົ່ງຜົນ",
+  "rune.web.check.sending": "ກຳລັງສົ່ງ…",
+  "rune.web.check.sent": "ສົ່ງແລ້ວ. ລະຫັດຂອງທ່ານ: {{code}}",
+  "rune.web.check.notSent": "ບໍ່ສາມາດສົ່ງໄດ້. ລອງໃໝ່.",
+  "rune.web.check.works": "ໃຊ້ໄດ້",
+  "rune.web.check.failed": "ລົ້ມເຫຼວ",
+  "rune.web.check.none": "ບໍ່ໄດ້ວັດແທກ"
 }

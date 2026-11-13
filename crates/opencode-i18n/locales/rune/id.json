@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesi dihapus",
   "rune.toast.renameNoAnswer": "Server tidak mengonfirmasi judul baru tepat waktu, jadi judul yang terakhir diterimanya dikembalikan. Coba lagi sebentar lagi.",
   "rune.dictation.timedOut": "Dikte tidak selesai. Kata-kata yang terdengar sejauh ini ada di draf.",
-  "rune.dictation.timedOutEmpty": "Dikte tidak selesai, dan tidak ada kata yang terdengar. Coba lagi."
+  "rune.dictation.timedOutEmpty": "Dikte tidak selesai, dan tidak ada kata yang terdengar. Coba lagi.",
+  "rune.web.check.title": "Pemeriksaan ponsel",
+  "rune.web.check.intro": "Mengukur ponsel ini dan hanya mengirim angka: tanpa kata sandi, tanpa tangkapan layar.",
+  "rune.web.check.measuring": "Mengukur. Diamkan beberapa detik.",
+  "rune.web.check.keyboard": "Ketuk kolom. Saat papan ketik muncul, ketuk Selesai.",
+  "rune.web.check.field": "Ketuk di sini",
+  "rune.web.check.rotate": "Putar ponsel ke samping, tunggu dua detik, lalu kembalikan.",
+  "rune.web.check.send": "Kirim hasil",
+  "rune.web.check.sending": "Mengirim…",
+  "rune.web.check.sent": "Terkirim. Kode Anda: {{code}}",
+  "rune.web.check.notSent": "Tidak dapat mengirim. Coba lagi.",
+  "rune.web.check.works": "Berfungsi",
+  "rune.web.check.failed": "Gagal",
+  "rune.web.check.none": "Tidak diukur"
 }

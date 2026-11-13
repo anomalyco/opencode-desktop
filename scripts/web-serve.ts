@@ -65,8 +65,19 @@ async function answer(request: Request, path: string) {
 
 async function diag(request: Request) {
   const text = await request.text()
-  if (text.length > 4096) return new Response(null, { status: 413 })
+  if (text.length > 8192) return new Response(null, { status: 413 })
   const sent = (() => { try { return JSON.parse(text) as Record<string, unknown> } catch { return {} } })()
+  // The phone check (`check.js`): its code, then one line per measurement, each an item's name,
+  // its state and what it measured, as short strings.
+  if (typeof sent.check === "string" && /^[A-Z0-9]{4,8}$/.test(sent.check) && Array.isArray(sent.items)) {
+    const from = request.headers.get("x-forwarded-for") ?? ""
+    for (const entry of sent.items.slice(0, 32) as Record<string, unknown>[]) {
+      if (typeof entry?.item !== "string" || !/^[a-z]{2,16}$/.test(entry.item)) continue
+      const state = ["ok", "fail", "none"].includes(String(entry.state)) ? String(entry.state) : "none"
+      log({ kind: "diag", from, check: sent.check, partial: sent.partial === true, item: entry.item, state, value: typeof entry.value === "string" ? entry.value.slice(0, 300) : "" })
+    }
+    return new Response(null, { status: 204 })
+  }
   const kept = Object.fromEntries(Object.entries(DIAG).flatMap(([key, type]) => (typeof sent[key] === type ? [[key, typeof sent[key] === "string" ? String(sent[key]).slice(0, 300) : sent[key]]] : [])))
   log({ kind: "diag", from: request.headers.get("x-forwarded-for") ?? "", ...kept })
   return new Response(null, { status: 204 })

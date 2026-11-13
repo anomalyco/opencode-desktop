@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessiýa pozuldy",
   "rune.toast.renameNoAnswer": "Serwer täze ady wagtynda tassyklamady, şonuň üçin iň soňky kabul eden ady yzyna gaýtaryldy. Birazdan täzeden synanyşyň.",
   "rune.dictation.timedOut": "Aýdyp ýazmak tamamlanmady. Şu wagta çenli eşidilen sözler garalamada.",
-  "rune.dictation.timedOutEmpty": "Aýdyp ýazmak tamamlanmady we hiç bir söz eşidilmedi. Täzeden synanyşyň."
+  "rune.dictation.timedOutEmpty": "Aýdyp ýazmak tamamlanmady we hiç bir söz eşidilmedi. Täzeden synanyşyň.",
+  "rune.web.check.title": "Telefon barlagy",
+  "rune.web.check.intro": "Bu telefony ölçýär we diňe sanlary iberýär: parol ýok, ekran suraty ýok.",
+  "rune.web.check.measuring": "Ölçülýär. Birnäçe sekunt gymyldatmaň.",
+  "rune.web.check.keyboard": "Meýdana basyň. Klawiatura çykanda Taýýar düwmesine basyň.",
+  "rune.web.check.field": "Şu ýere basyň",
+  "rune.web.check.rotate": "Telefony gapdala öwrüň, iki sekunt garaşyň, soňra yzyna öwrüň.",
+  "rune.web.check.send": "Netijeleri iber",
+  "rune.web.check.sending": "Iberilýär…",
+  "rune.web.check.sent": "Iberildi. Siziň koduňyz: {{code}}",
+  "rune.web.check.notSent": "Iberip bolmady. Gaýtadan synanyşyň.",
+  "rune.web.check.works": "Işleýär",
+  "rune.web.check.failed": "Başartmady",
+  "rune.web.check.none": "Ölçülmedi"
 }

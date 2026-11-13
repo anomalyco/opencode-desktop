@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Сесията е изтрита",
   "rune.toast.renameNoAnswer": "Сървърът не потвърди новото заглавие навреме, затова последното прието заглавие е върнато. Опитайте отново след малко.",
   "rune.dictation.timedOut": "Диктуването не приключи. Чутите досега думи са в черновата.",
-  "rune.dictation.timedOutEmpty": "Диктуването не приключи и не бяха чути думи. Опитайте отново."
+  "rune.dictation.timedOutEmpty": "Диктуването не приключи и не бяха чути думи. Опитайте отново.",
+  "rune.web.check.title": "Проверка на телефона",
+  "rune.web.check.intro": "Измерва този телефон и изпраща само числа: без парола, без екранна снимка.",
+  "rune.web.check.measuring": "Измерване. Не мърдайте няколко секунди.",
+  "rune.web.check.keyboard": "Докоснете полето. Когато се появи клавиатурата, докоснете Готово.",
+  "rune.web.check.field": "Докоснете тук",
+  "rune.web.check.rotate": "Завъртете телефона настрани, изчакайте две секунди и го върнете.",
+  "rune.web.check.send": "Изпрати резултатите",
+  "rune.web.check.sending": "Изпращане…",
+  "rune.web.check.sent": "Изпратено. Вашият код: {{code}}",
+  "rune.web.check.notSent": "Неуспешно изпращане. Опитайте отново.",
+  "rune.web.check.works": "Работи",
+  "rune.web.check.failed": "Неуспешно",
+  "rune.web.check.none": "Не е измерено"
 }

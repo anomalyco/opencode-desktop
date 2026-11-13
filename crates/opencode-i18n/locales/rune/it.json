@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessione eliminata",
   "rune.toast.renameNoAnswer": "Il server non ha confermato il nuovo titolo in tempo, quindi è tornato l’ultimo titolo che aveva accettato. Riprova tra un momento.",
   "rune.dictation.timedOut": "La dettatura non è terminata. Le parole sentite finora sono nella bozza.",
-  "rune.dictation.timedOutEmpty": "La dettatura non è terminata e non è stata sentita nessuna parola. Riprova."
+  "rune.dictation.timedOutEmpty": "La dettatura non è terminata e non è stata sentita nessuna parola. Riprova.",
+  "rune.web.check.title": "Verifica del telefono",
+  "rune.web.check.intro": "Misura questo telefono e invia solo numeri: niente password, niente screenshot.",
+  "rune.web.check.measuring": "Misurazione in corso. Resta fermo qualche secondo.",
+  "rune.web.check.keyboard": "Tocca il campo. Quando compare la tastiera, tocca Fine.",
+  "rune.web.check.field": "Tocca qui",
+  "rune.web.check.rotate": "Gira il telefono in orizzontale, aspetta due secondi e rimettilo dritto.",
+  "rune.web.check.send": "Invia i risultati",
+  "rune.web.check.sending": "Invio…",
+  "rune.web.check.sent": "Inviato. Il tuo codice: {{code}}",
+  "rune.web.check.notSent": "Impossibile inviare. Riprova.",
+  "rune.web.check.works": "Funziona",
+  "rune.web.check.failed": "Non riuscito",
+  "rune.web.check.none": "Non misurato"
 }

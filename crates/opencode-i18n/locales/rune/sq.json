@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesioni u fshi",
   "rune.toast.renameNoAnswer": "Serveri nuk e konfirmoi titullin e ri në kohë, prandaj u rikthye titulli që pranoi së fundi. Provo sërish pas pak.",
   "rune.dictation.timedOut": "Diktimi nuk përfundoi. Fjalët e dëgjuara deri tani janë në draft.",
-  "rune.dictation.timedOutEmpty": "Diktimi nuk përfundoi dhe nuk u dëgjua asnjë fjalë. Provo sërish."
+  "rune.dictation.timedOutEmpty": "Diktimi nuk përfundoi dhe nuk u dëgjua asnjë fjalë. Provo sërish.",
+  "rune.web.check.title": "Kontrolli i telefonit",
+  "rune.web.check.intro": "Mat këtë telefon dhe dërgon vetëm numra: pa fjalëkalim, pa pamje ekrani.",
+  "rune.web.check.measuring": "Po matet. Mos e lëvizni për disa sekonda.",
+  "rune.web.check.keyboard": "Prekni fushën. Kur të shfaqet tastiera, prekni U krye.",
+  "rune.web.check.field": "Prekni këtu",
+  "rune.web.check.rotate": "Kthejeni telefonin anash, prisni dy sekonda, pastaj ktheni prapë.",
+  "rune.web.check.send": "Dërgo rezultatet",
+  "rune.web.check.sending": "Po dërgohet…",
+  "rune.web.check.sent": "U dërgua. Kodi juaj: {{code}}",
+  "rune.web.check.notSent": "Nuk u dërgua. Provoni përsëri.",
+  "rune.web.check.works": "Funksionon",
+  "rune.web.check.failed": "Dështoi",
+  "rune.web.check.none": "Nuk u mat"
 }

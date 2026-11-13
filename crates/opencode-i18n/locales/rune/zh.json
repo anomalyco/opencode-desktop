@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "会话已删除",
   "rune.toast.renameNoAnswer": "服务器未及时确认新标题，因此已恢复为它最后接受的标题。请稍后重试。",
   "rune.dictation.timedOut": "听写未完成。目前听到的内容已放入草稿。",
-  "rune.dictation.timedOutEmpty": "听写未完成，也没有听到任何内容。请重试。"
+  "rune.dictation.timedOutEmpty": "听写未完成，也没有听到任何内容。请重试。",
+  "rune.web.check.title": "手机检查",
+  "rune.web.check.intro": "测量这台手机，只发送数字：不含密码，不含截图。",
+  "rune.web.check.measuring": "正在测量。请保持几秒不动。",
+  "rune.web.check.keyboard": "轻点输入框。键盘出现后，轻点“完成”。",
+  "rune.web.check.field": "轻点这里",
+  "rune.web.check.rotate": "把手机横过来，等两秒，再转回来。",
+  "rune.web.check.send": "发送结果",
+  "rune.web.check.sending": "正在发送…",
+  "rune.web.check.sent": "已发送。你的代码：{{code}}",
+  "rune.web.check.notSent": "无法发送。请重试。",
+  "rune.web.check.works": "正常",
+  "rune.web.check.failed": "失败",
+  "rune.web.check.none": "未测量"
 }

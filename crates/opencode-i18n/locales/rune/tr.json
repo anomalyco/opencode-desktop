@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Oturum silindi",
   "rune.toast.renameNoAnswer": "Sunucu yeni başlığı zamanında onaylamadı, bu yüzden en son kabul ettiği başlık geri geldi. Birazdan yeniden deneyin.",
   "rune.dictation.timedOut": "Dikte tamamlanmadı. Şimdiye kadar duyulan sözcükler taslakta.",
-  "rune.dictation.timedOutEmpty": "Dikte tamamlanmadı ve hiç sözcük duyulmadı. Yeniden deneyin."
+  "rune.dictation.timedOutEmpty": "Dikte tamamlanmadı ve hiç sözcük duyulmadı. Yeniden deneyin.",
+  "rune.web.check.title": "Telefon denetimi",
+  "rune.web.check.intro": "Bu telefonu ölçer ve yalnızca sayı gönderir: parola yok, ekran görüntüsü yok.",
+  "rune.web.check.measuring": "Ölçülüyor. Birkaç saniye kıpırdatmayın.",
+  "rune.web.check.keyboard": "Alana dokunun. Klavye açılınca Bitti'ye dokunun.",
+  "rune.web.check.field": "Buraya dokunun",
+  "rune.web.check.rotate": "Telefonu yan çevirin, iki saniye bekleyin, sonra geri çevirin.",
+  "rune.web.check.send": "Sonuçları gönder",
+  "rune.web.check.sending": "Gönderiliyor…",
+  "rune.web.check.sent": "Gönderildi. Kodunuz: {{code}}",
+  "rune.web.check.notSent": "Gönderilemedi. Yeniden deneyin.",
+  "rune.web.check.works": "Çalışıyor",
+  "rune.web.check.failed": "Başarısız",
+  "rune.web.check.none": "Ölçülmedi"
 }

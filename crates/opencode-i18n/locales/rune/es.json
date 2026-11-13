@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesión eliminada",
   "rune.toast.renameNoAnswer": "El servidor no confirmó el nuevo título a tiempo, así que volvió el último título que aceptó. Vuelve a intentarlo en un momento.",
   "rune.dictation.timedOut": "El dictado no terminó. Las palabras oídas hasta ahora están en el borrador.",
-  "rune.dictation.timedOutEmpty": "El dictado no terminó y no se oyó ninguna palabra. Vuelve a intentarlo."
+  "rune.dictation.timedOutEmpty": "El dictado no terminó y no se oyó ninguna palabra. Vuelve a intentarlo.",
+  "rune.web.check.title": "Comprobación del teléfono",
+  "rune.web.check.intro": "Mide este teléfono y solo envía números: ni contraseña ni capturas de pantalla.",
+  "rune.web.check.measuring": "Midiendo. No lo muevas unos segundos.",
+  "rune.web.check.keyboard": "Toca el campo. Cuando salga el teclado, toca OK.",
+  "rune.web.check.field": "Toqueu aquí",
+  "rune.web.check.rotate": "Gira el teléfono de lado, espera dos segundos y vuelve a girarlo.",
+  "rune.web.check.send": "Enviar resultados",
+  "rune.web.check.sending": "Enviando…",
+  "rune.web.check.sent": "Enviado. Tu código: {{code}}",
+  "rune.web.check.notSent": "No se pudo enviar. Inténtalo de nuevo.",
+  "rune.web.check.works": "Funciona",
+  "rune.web.check.failed": "Falló",
+  "rune.web.check.none": "Sin medir"
 }

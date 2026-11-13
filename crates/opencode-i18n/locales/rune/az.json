@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessiya silindi",
   "rune.toast.renameNoAnswer": "Server yeni başlığı vaxtında təsdiqləmədi, ona görə də son qəbul etdiyi başlıq geri qaytarıldı. Bir azdan yenidən cəhd edin.",
   "rune.dictation.timedOut": "Diktə tamamlanmadı. İndiyədək eşidilən sözlər qaralamadadır.",
-  "rune.dictation.timedOutEmpty": "Diktə tamamlanmadı və heç bir söz eşidilmədi. Yenidən cəhd edin."
+  "rune.dictation.timedOutEmpty": "Diktə tamamlanmadı və heç bir söz eşidilmədi. Yenidən cəhd edin.",
+  "rune.web.check.title": "Telefon yoxlaması",
+  "rune.web.check.intro": "Bu telefonu ölçür və yalnız rəqəmlər göndərir: parol yox, ekran şəkli yox.",
+  "rune.web.check.measuring": "Ölçülür. Bir neçə saniyə tərpənməyin.",
+  "rune.web.check.keyboard": "Sahəyə toxunun. Klaviatura açılanda Hazır düyməsinə toxunun.",
+  "rune.web.check.field": "Bura toxunun",
+  "rune.web.check.rotate": "Telefonu yan çevirin, iki saniyə gözləyin, sonra geri çevirin.",
+  "rune.web.check.send": "Nəticələri göndər",
+  "rune.web.check.sending": "Göndərilir…",
+  "rune.web.check.sent": "Göndərildi. Kodunuz: {{code}}",
+  "rune.web.check.notSent": "Göndərmək olmadı. Yenidən cəhd edin.",
+  "rune.web.check.works": "İşləyir",
+  "rune.web.check.failed": "Alınmadı",
+  "rune.web.check.none": "Ölçülməyib"
 }

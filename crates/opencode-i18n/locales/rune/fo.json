@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Seta strikað",
   "rune.toast.renameNoAnswer": "Ambætarin váttaði ikki nýggja heitið í tíð, so heitið, hann seinast góðtók, er aftur. Royn aftur um eina løtu.",
   "rune.dictation.timedOut": "Upplesturin varð ikki liðugur. Orðini, sum hava verið hoyrd higartil, eru í kladduni.",
-  "rune.dictation.timedOutEmpty": "Upplesturin varð ikki liðugur, og eingi orð vórðu hoyrd. Royn aftur."
+  "rune.dictation.timedOutEmpty": "Upplesturin varð ikki liðugur, og eingi orð vórðu hoyrd. Royn aftur.",
+  "rune.web.check.title": "Telefonkanning",
+  "rune.web.check.intro": "Mátar hesa telefonina og sendir bara tøl: einki loyniorð, einki skíggjamynd.",
+  "rune.web.check.measuring": "Mátar. Halt still í nakrar sekund.",
+  "rune.web.check.keyboard": "Trýst á teigin. Tá ið knappaborðið er frammi, trýst á Liðugt.",
+  "rune.web.check.field": "Trýst her",
+  "rune.web.check.rotate": "Vend telefonina á síðuna, bíða tvey sekund, og vend hana aftur.",
+  "rune.web.check.send": "Send úrslit",
+  "rune.web.check.sending": "Sendir…",
+  "rune.web.check.sent": "Sent. Tín kota: {{code}}",
+  "rune.web.check.notSent": "Kundi ikki senda. Royn aftur.",
+  "rune.web.check.works": "Virkar",
+  "rune.web.check.failed": "Miseydnaðist",
+  "rune.web.check.none": "Ikki mátað"
 }

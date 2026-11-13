@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "セッションを削除しました",
   "rune.toast.renameNoAnswer": "サーバーが新しいタイトルを時間内に確認しなかったため、最後に受け付けたタイトルに戻しました。少し待ってからもう一度お試しください。",
   "rune.dictation.timedOut": "音声入力が終わりませんでした。ここまでに聞き取れた言葉は下書きに入っています。",
-  "rune.dictation.timedOutEmpty": "音声入力が終わらず、言葉も聞き取れませんでした。もう一度お試しください。"
+  "rune.dictation.timedOutEmpty": "音声入力が終わらず、言葉も聞き取れませんでした。もう一度お試しください。",
+  "rune.web.check.title": "電話のチェック",
+  "rune.web.check.intro": "この電話を計測し、数値だけを送ります。パスワードもスクリーンショットも送りません。",
+  "rune.web.check.measuring": "計測中です。数秒そのままにしてください。",
+  "rune.web.check.keyboard": "フィールドをタップします。キーボードが出たら「完了」をタップします。",
+  "rune.web.check.field": "ここをタップ",
+  "rune.web.check.rotate": "電話を横向きにし、2秒待ってから元に戻します。",
+  "rune.web.check.send": "結果を送信",
+  "rune.web.check.sending": "送信中…",
+  "rune.web.check.sent": "送信しました。コード: {{code}}",
+  "rune.web.check.notSent": "送信できませんでした。もう一度お試しください。",
+  "rune.web.check.works": "動作",
+  "rune.web.check.failed": "失敗",
+  "rune.web.check.none": "未計測"
 }

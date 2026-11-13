@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "सत्र मेटाइयो",
   "rune.toast.renameNoAnswer": "सर्भरले नयाँ शीर्षक समयमै पुष्टि गरेन, त्यसैले यसले अन्तिम पटक स्वीकार गरेको शीर्षक फर्किएको छ। केही बेरपछि फेरि प्रयास गर्नुहोस्।",
   "rune.dictation.timedOut": "डिक्टेसन सकिएन। अहिलेसम्म सुनिएका शब्दहरू मस्यौदामा छन्।",
-  "rune.dictation.timedOutEmpty": "डिक्टेसन सकिएन, र कुनै शब्द सुनिएन। फेरि प्रयास गर्नुहोस्।"
+  "rune.dictation.timedOutEmpty": "डिक्टेसन सकिएन, र कुनै शब्द सुनिएन। फेरि प्रयास गर्नुहोस्।",
+  "rune.web.check.title": "फोन जाँच",
+  "rune.web.check.intro": "यसले यो फोन नाप्छ र अङ्क मात्र पठाउँछ: पासवर्ड होइन, स्क्रिनसट होइन।",
+  "rune.web.check.measuring": "नापिँदै छ। केही सेकेन्ड नचलाउनुहोस्।",
+  "rune.web.check.keyboard": "फिल्डमा ट्याप गर्नुहोस्। किबोर्ड आएपछि सम्पन्न मा ट्याप गर्नुहोस्।",
+  "rune.web.check.field": "यहाँ ट्याप गर्नुहोस्",
+  "rune.web.check.rotate": "फोनलाई तेर्सो घुमाउनुहोस्, दुई सेकेन्ड पर्खनुहोस्, अनि फर्काउनुहोस्।",
+  "rune.web.check.send": "नतिजा पठाउनुहोस्",
+  "rune.web.check.sending": "पठाउँदै…",
+  "rune.web.check.sent": "पठाइयो। तपाईंको कोड: {{code}}",
+  "rune.web.check.notSent": "पठाउन सकिएन। फेरि प्रयास गर्नुहोस्।",
+  "rune.web.check.works": "काम गर्छ",
+  "rune.web.check.failed": "असफल",
+  "rune.web.check.none": "नापिएको छैन"
 }

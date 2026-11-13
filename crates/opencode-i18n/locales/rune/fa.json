@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "جلسه حذف شد",
   "rune.toast.renameNoAnswer": "سرور عنوان جدید را به‌موقع تأیید نکرد، بنابراین عنوانی که آخرین بار پذیرفته بود برگشت. کمی بعد دوباره امتحان کنید.",
   "rune.dictation.timedOut": "دیکته تمام نشد. کلماتی که تا اینجا شنیده شد در پیش‌نویس است.",
-  "rune.dictation.timedOutEmpty": "دیکته تمام نشد و هیچ کلمه‌ای شنیده نشد. دوباره امتحان کنید."
+  "rune.dictation.timedOutEmpty": "دیکته تمام نشد و هیچ کلمه‌ای شنیده نشد. دوباره امتحان کنید.",
+  "rune.web.check.title": "بررسی گوشی",
+  "rune.web.check.intro": "این گوشی را اندازه می‌گیرد و فقط عدد می‌فرستد: نه رمز عبور، نه تصویر صفحه.",
+  "rune.web.check.measuring": "در حال اندازه‌گیری. چند ثانیه تکان نخورید.",
+  "rune.web.check.keyboard": "روی فیلد بزنید. وقتی صفحه‌کلید آمد، روی «انجام شد» بزنید.",
+  "rune.web.check.field": "اینجا بزنید",
+  "rune.web.check.rotate": "گوشی را به پهلو بچرخانید، دو ثانیه صبر کنید و برگردانید.",
+  "rune.web.check.send": "ارسال نتایج",
+  "rune.web.check.sending": "در حال ارسال…",
+  "rune.web.check.sent": "ارسال شد. کد شما: {{code}}",
+  "rune.web.check.notSent": "ارسال نشد. دوباره تلاش کنید.",
+  "rune.web.check.works": "کار می‌کند",
+  "rune.web.check.failed": "ناموفق",
+  "rune.web.check.none": "اندازه‌گیری نشد"
 }

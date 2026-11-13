@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesiune ștearsă",
   "rune.toast.renameNoAnswer": "Serverul nu a confirmat noul titlu la timp, așa că a revenit ultimul titlu pe care l-a acceptat. Încearcă din nou peste un moment.",
   "rune.dictation.timedOut": "Dictarea nu s-a terminat. Cuvintele auzite până acum sunt în ciornă.",
-  "rune.dictation.timedOutEmpty": "Dictarea nu s-a terminat și nu s-a auzit niciun cuvânt. Încearcă din nou."
+  "rune.dictation.timedOutEmpty": "Dictarea nu s-a terminat și nu s-a auzit niciun cuvânt. Încearcă din nou.",
+  "rune.web.check.title": "Verificarea telefonului",
+  "rune.web.check.intro": "Măsoară acest telefon și trimite doar numere: fără parolă, fără captură de ecran.",
+  "rune.web.check.measuring": "Se măsoară. Nu mișca telefonul câteva secunde.",
+  "rune.web.check.keyboard": "Atinge câmpul. Când apare tastatura, atinge Gata.",
+  "rune.web.check.field": "Atinge aici",
+  "rune.web.check.rotate": "Întoarce telefonul pe o parte, așteaptă două secunde, apoi readu-l.",
+  "rune.web.check.send": "Trimite rezultatele",
+  "rune.web.check.sending": "Se trimite…",
+  "rune.web.check.sent": "Trimis. Codul tău: {{code}}",
+  "rune.web.check.notSent": "Nu s-a putut trimite. Încearcă din nou.",
+  "rune.web.check.works": "Funcționează",
+  "rune.web.check.failed": "Eșuat",
+  "rune.web.check.none": "Nemăsurat"
 }

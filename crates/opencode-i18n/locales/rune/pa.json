@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "سیشن مٹا دتا گیا",
   "rune.toast.renameNoAnswer": "سرور نے نویں سرخی دی ویلے سر تصدیق نئیں کیتی، ایس لئی آخری منی ہوئی سرخی واپس آ گئی اے۔ تھوڑی دیر بعد فیر کوشش کرو۔",
   "rune.dictation.timedOut": "بول کے لکھنا پورا نئیں ہویا۔ ہن تک سُنے گئے لفظ ڈرافٹ وچ نیں۔",
-  "rune.dictation.timedOutEmpty": "بول کے لکھنا پورا نئیں ہویا، تے کوئی لفظ نئیں سُنیا گیا۔ فیر کوشش کرو۔"
+  "rune.dictation.timedOutEmpty": "بول کے لکھنا پورا نئیں ہویا، تے کوئی لفظ نئیں سُنیا گیا۔ فیر کوشش کرو۔",
+  "rune.web.check.title": "ਫ਼ੋਨ ਜਾਂਚ",
+  "rune.web.check.intro": "ਇਹ ਫ਼ੋਨ ਨੂੰ ਮਾਪਦਾ ਹੈ ਅਤੇ ਸਿਰਫ਼ ਅੰਕ ਭੇਜਦਾ ਹੈ: ਕੋਈ ਪਾਸਵਰਡ ਨਹੀਂ, ਕੋਈ ਸਕ੍ਰੀਨਸ਼ਾਟ ਨਹੀਂ।",
+  "rune.web.check.measuring": "ਮਾਪ ਰਿਹਾ ਹੈ। ਕੁਝ ਸਕਿੰਟ ਸਥਿਰ ਰਹੋ।",
+  "rune.web.check.keyboard": "ਖੇਤਰ 'ਤੇ ਟੈਪ ਕਰੋ। ਕੀਬੋਰਡ ਆਉਣ 'ਤੇ ਹੋ ਗਿਆ 'ਤੇ ਟੈਪ ਕਰੋ।",
+  "rune.web.check.field": "ਇੱਥੇ ਟੈਪ ਕਰੋ",
+  "rune.web.check.rotate": "ਫ਼ੋਨ ਨੂੰ ਪਾਸੇ ਘੁਮਾਓ, ਦੋ ਸਕਿੰਟ ਉਡੀਕੋ, ਫਿਰ ਵਾਪਸ ਘੁਮਾਓ।",
+  "rune.web.check.send": "ਨਤੀਜੇ ਭੇਜੋ",
+  "rune.web.check.sending": "ਭੇਜ ਰਿਹਾ ਹੈ…",
+  "rune.web.check.sent": "ਭੇਜ ਦਿੱਤਾ। ਤੁਹਾਡਾ ਕੋਡ: {{code}}",
+  "rune.web.check.notSent": "ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "rune.web.check.works": "ਕੰਮ ਕਰਦਾ ਹੈ",
+  "rune.web.check.failed": "ਅਸਫਲ",
+  "rune.web.check.none": "ਮਾਪਿਆ ਨਹੀਂ"
 }

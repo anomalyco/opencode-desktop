@@ -96,5 +96,18 @@
   "rune.web.connect.server": "ސަރވަރ އެޑްރެސް",
   "rune.web.connect.password": "ޕާސްވޯޑް (އިޚްތިޔާރީ)",
   "rune.web.loading": "ލޯޑިންގ…",
-  "rune.web.loadingMb": "ލޯޑިންގ… {{loaded}} MB"
+  "rune.web.loadingMb": "ލޯޑިންގ… {{loaded}} MB",
+  "rune.web.check.title": "ފޯނު ޗެކް",
+  "rune.web.check.intro": "މި ފޯނު މިނަނީ، އަދި ފޮނުވަނީ ނަންބަރުތައް އެކަނި: ޕާސްވޯޑެއް ނޫން، ސްކްރީންޝޮޓެއް ނޫން.",
+  "rune.web.check.measuring": "މިނަމުން. ސިކުންތު ކިހާއިރަކު ހަރަކާތް ނުކޮށް ހުރެބަލާ.",
+  "rune.web.check.keyboard": "ފީލްޑަށް ޓެޕްކުރޭ. ކީބޯޑު އައުމުން Done އަށް ޓެޕްކުރޭ.",
+  "rune.web.check.field": "މިތަނަށް ޓެޕްކުރޭ",
+  "rune.web.check.rotate": "ފޯނު ފަރާތަކަށް އަނބުރާ، ދެ ސިކުންތު މަޑުކޮށް، އަނބުރާ ކުރިން ހުރިގޮތަށް ލާ.",
+  "rune.web.check.send": "ނަތީޖާ ފޮނުވާ",
+  "rune.web.check.sending": "ފޮނުވަމުން…",
+  "rune.web.check.sent": "ފޮނުވިއްޖެ. ތިބާގެ ކޯޑު: {{code}}",
+  "rune.web.check.notSent": "ނުފޮނުވުނު. އަލުން މަސައްކަތްކޮށްލާ.",
+  "rune.web.check.works": "މަސައްކަތްކުރޭ",
+  "rune.web.check.failed": "ނާކާމިޔާބު",
+  "rune.web.check.none": "ނުމިނޭ"
 }

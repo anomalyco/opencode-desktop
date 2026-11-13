@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessão excluída",
   "rune.toast.renameNoAnswer": "O servidor não confirmou o novo título a tempo, então o último título aceito voltou. Tente novamente em instantes.",
   "rune.dictation.timedOut": "O ditado não terminou. As palavras ouvidas até agora estão no rascunho.",
-  "rune.dictation.timedOutEmpty": "O ditado não terminou e nenhuma palavra foi ouvida. Tente novamente."
+  "rune.dictation.timedOutEmpty": "O ditado não terminou e nenhuma palavra foi ouvida. Tente novamente.",
+  "rune.web.check.title": "Gwiriañ ar pellgomzer",
+  "rune.web.check.intro": "Muzuliañ a ra ar pellgomzer-mañ hag e kas niveroù hepken: ger-tremen ebet, tapadenn-skramm ebet.",
+  "rune.web.check.measuring": "O vuzuliañ. Chomit difiñv un nebeud eilennoù.",
+  "rune.web.check.keyboard": "Stokit ar maez. Pa vez war wel ar c'hlavier, stokit Graet.",
+  "rune.web.check.field": "Stokit amañ",
+  "rune.web.check.rotate": "Troit ar pellgomzer war e gostez, gortozit div eilenn, ha distroit anezhañ.",
+  "rune.web.check.send": "Kas an disoc'hoù",
+  "rune.web.check.sending": "O kas…",
+  "rune.web.check.sent": "Kaset. Ho kod: {{code}}",
+  "rune.web.check.notSent": "N'eus ket bet gallet kas. Klaskit en-dro.",
+  "rune.web.check.works": "Mont a ra",
+  "rune.web.check.failed": "C'hwitet",
+  "rune.web.check.none": "N'eo ket muzuliet"
 }

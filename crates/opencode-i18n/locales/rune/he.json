@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "ההפעלה נמחקה",
   "rune.toast.renameNoAnswer": "השרת לא אישר את הכותרת החדשה בזמן, ולכן חזרה הכותרת האחרונה שהוא קיבל. נסו שוב בעוד רגע.",
   "rune.dictation.timedOut": "ההכתבה לא הסתיימה. המילים שנשמעו עד עכשיו נמצאות בטיוטה.",
-  "rune.dictation.timedOutEmpty": "ההכתבה לא הסתיימה ולא נשמעו מילים. נסו שוב."
+  "rune.dictation.timedOutEmpty": "ההכתבה לא הסתיימה ולא נשמעו מילים. נסו שוב.",
+  "rune.web.check.title": "בדיקת טלפון",
+  "rune.web.check.intro": "מודד את הטלפון הזה ושולח רק מספרים: בלי סיסמה, בלי צילום מסך.",
+  "rune.web.check.measuring": "מודד. אל תזיזו כמה שניות.",
+  "rune.web.check.keyboard": "הקישו על השדה. כשהמקלדת מופיעה, הקישו על סיום.",
+  "rune.web.check.field": "הקישו כאן",
+  "rune.web.check.rotate": "סובבו את הטלפון לרוחב, חכו שתי שניות והחזירו אותו.",
+  "rune.web.check.send": "שליחת התוצאות",
+  "rune.web.check.sending": "שולח…",
+  "rune.web.check.sent": "נשלח. הקוד שלכם: {{code}}",
+  "rune.web.check.notSent": "השליחה נכשלה. נסו שוב.",
+  "rune.web.check.works": "עובד",
+  "rune.web.check.failed": "נכשל",
+  "rune.web.check.none": "לא נמדד"
 }

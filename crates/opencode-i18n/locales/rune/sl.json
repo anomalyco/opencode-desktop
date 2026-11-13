@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Seja izbrisana",
   "rune.toast.renameNoAnswer": "Strežnik novega naslova ni pravočasno potrdil, zato je vrnjen naslov, ki ga je nazadnje sprejel. Poskusite znova čez trenutek.",
   "rune.dictation.timedOut": "Narek se ni končal. Doslej slišane besede so v osnutku.",
-  "rune.dictation.timedOutEmpty": "Narek se ni končal in nobena beseda ni bila slišana. Poskusite znova."
+  "rune.dictation.timedOutEmpty": "Narek se ni končal in nobena beseda ni bila slišana. Poskusite znova.",
+  "rune.web.check.title": "Preverjanje telefona",
+  "rune.web.check.intro": "Izmeri ta telefon in pošlje samo številke: brez gesla, brez posnetka zaslona.",
+  "rune.web.check.measuring": "Merjenje. Nekaj sekund se ne premikajte.",
+  "rune.web.check.keyboard": "Tapnite polje. Ko se prikaže tipkovnica, tapnite Končano.",
+  "rune.web.check.field": "Tapnite tukaj",
+  "rune.web.check.rotate": "Obrnite telefon na bok, počakajte dve sekundi in ga obrnite nazaj.",
+  "rune.web.check.send": "Pošlji rezultate",
+  "rune.web.check.sending": "Pošiljanje …",
+  "rune.web.check.sent": "Poslano. Vaša koda: {{code}}",
+  "rune.web.check.notSent": "Pošiljanje ni uspelo. Poskusite znova.",
+  "rune.web.check.works": "Deluje",
+  "rune.web.check.failed": "Ni uspelo",
+  "rune.web.check.none": "Ni izmerjeno"
 }

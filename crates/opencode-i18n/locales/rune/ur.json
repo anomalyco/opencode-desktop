@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "سیشن حذف کر دیا گیا",
   "rune.toast.renameNoAnswer": "سرور نے نئے عنوان کی بروقت تصدیق نہیں کی، اس لیے آخری قبول شدہ عنوان واپس آ گیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔",
   "rune.dictation.timedOut": "ڈکٹیشن مکمل نہیں ہوئی۔ اب تک سنے گئے الفاظ ڈرافٹ میں ہیں۔",
-  "rune.dictation.timedOutEmpty": "ڈکٹیشن مکمل نہیں ہوئی، اور کوئی لفظ سنائی نہیں دیا۔ دوبارہ کوشش کریں۔"
+  "rune.dictation.timedOutEmpty": "ڈکٹیشن مکمل نہیں ہوئی، اور کوئی لفظ سنائی نہیں دیا۔ دوبارہ کوشش کریں۔",
+  "rune.web.check.title": "فون جانچ",
+  "rune.web.check.intro": "یہ اس فون کو ناپتا ہے اور صرف نمبر بھیجتا ہے: نہ پاس ورڈ، نہ اسکرین شاٹ۔",
+  "rune.web.check.measuring": "ناپا جا رہا ہے۔ چند سیکنڈ ساکن رہیں۔",
+  "rune.web.check.keyboard": "فیلڈ پر ٹیپ کریں۔ کی بورڈ آنے پر ہو گیا پر ٹیپ کریں۔",
+  "rune.web.check.field": "یہاں ٹیپ کریں",
+  "rune.web.check.rotate": "فون کو آڑا گھمائیں، دو سیکنڈ رکیں، پھر واپس گھمائیں۔",
+  "rune.web.check.send": "نتائج بھیجیں",
+  "rune.web.check.sending": "بھیجا جا رہا ہے…",
+  "rune.web.check.sent": "بھیج دیا۔ آپ کا کوڈ: {{code}}",
+  "rune.web.check.notSent": "بھیجا نہیں جا سکا۔ دوبارہ کوشش کریں۔",
+  "rune.web.check.works": "کام کرتا ہے",
+  "rune.web.check.failed": "ناکام",
+  "rune.web.check.none": "ناپا نہیں گیا"
 }

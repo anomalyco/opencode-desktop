@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "სესია წაიშალა",
   "rune.toast.renameNoAnswer": "სერვერმა ახალი სათაური დროულად არ დაადასტურა, ამიტომ დაბრუნდა მის მიერ ბოლოს მიღებული სათაური. სცადეთ ხელახლა ცოტა ხანში.",
   "rune.dictation.timedOut": "კარნახი არ დასრულდა. აქამდე გაგონილი სიტყვები მონახაზშია.",
-  "rune.dictation.timedOutEmpty": "კარნახი არ დასრულდა და არცერთი სიტყვა არ გაიგონა. სცადეთ ხელახლა."
+  "rune.dictation.timedOutEmpty": "კარნახი არ დასრულდა და არცერთი სიტყვა არ გაიგონა. სცადეთ ხელახლა.",
+  "rune.web.check.title": "ტელეფონის შემოწმება",
+  "rune.web.check.intro": "ზომავს ამ ტელეფონს და აგზავნის მხოლოდ რიცხვებს: არც პაროლს, არც ეკრანის სურათს.",
+  "rune.web.check.measuring": "იზომება. რამდენიმე წამი არ გაანძრიოთ.",
+  "rune.web.check.keyboard": "შეეხეთ ველს. როცა კლავიატურა გამოჩნდება, შეეხეთ მზადაა-ს.",
+  "rune.web.check.field": "შეეხეთ აქ",
+  "rune.web.check.rotate": "შეატრიალეთ ტელეფონი გვერდზე, დაელოდეთ ორ წამს და დააბრუნეთ.",
+  "rune.web.check.send": "შედეგების გაგზავნა",
+  "rune.web.check.sending": "იგზავნება…",
+  "rune.web.check.sent": "გაიგზავნა. თქვენი კოდი: {{code}}",
+  "rune.web.check.notSent": "ვერ გაიგზავნა. სცადეთ ხელახლა.",
+  "rune.web.check.works": "მუშაობს",
+  "rune.web.check.failed": "ვერ მოხერხდა",
+  "rune.web.check.none": "არ გაზომილა"
 }

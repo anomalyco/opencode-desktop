@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Usunięto sesję",
   "rune.toast.renameNoAnswer": "Serwer nie potwierdził nowego tytułu na czas, więc wrócił tytuł, który zaakceptował ostatnio. Spróbuj ponownie za chwilę.",
   "rune.dictation.timedOut": "Dyktowanie nie zostało ukończone. Usłyszane dotąd słowa są w wersji roboczej.",
-  "rune.dictation.timedOutEmpty": "Dyktowanie nie zostało ukończone i nie usłyszano żadnych słów. Spróbuj ponownie."
+  "rune.dictation.timedOutEmpty": "Dyktowanie nie zostało ukończone i nie usłyszano żadnych słów. Spróbuj ponownie.",
+  "rune.web.check.title": "Sprawdzenie telefonu",
+  "rune.web.check.intro": "Mierzy ten telefon i wysyła tylko liczby: bez hasła, bez zrzutu ekranu.",
+  "rune.web.check.measuring": "Trwa pomiar. Nie ruszaj przez kilka sekund.",
+  "rune.web.check.keyboard": "Stuknij pole. Gdy pojawi się klawiatura, stuknij Gotowe.",
+  "rune.web.check.field": "Stuknij tutaj",
+  "rune.web.check.rotate": "Obróć telefon poziomo, odczekaj dwie sekundy i obróć z powrotem.",
+  "rune.web.check.send": "Wyślij wyniki",
+  "rune.web.check.sending": "Wysyłanie…",
+  "rune.web.check.sent": "Wysłano. Twój kod: {{code}}",
+  "rune.web.check.notSent": "Nie udało się wysłać. Spróbuj ponownie.",
+  "rune.web.check.works": "Działa",
+  "rune.web.check.failed": "Niepowodzenie",
+  "rune.web.check.none": "Nie zmierzono"
 }

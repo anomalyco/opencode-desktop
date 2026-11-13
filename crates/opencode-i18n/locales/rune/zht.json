@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "已刪除工作階段",
   "rune.toast.renameNoAnswer": "伺服器未及時確認新標題，因此已恢復為它最後接受的標題。請稍後再試。",
   "rune.dictation.timedOut": "聽寫未完成。目前聽到的內容已放入草稿。",
-  "rune.dictation.timedOutEmpty": "聽寫未完成，也沒有聽到任何內容。請再試一次。"
+  "rune.dictation.timedOutEmpty": "聽寫未完成，也沒有聽到任何內容。請再試一次。",
+  "rune.web.check.title": "手機檢查",
+  "rune.web.check.intro": "測量這台手機，只傳送數字：不含密碼，不含截圖。",
+  "rune.web.check.measuring": "正在測量。請保持幾秒不動。",
+  "rune.web.check.keyboard": "點一下輸入框。鍵盤出現後，點一下「完成」。",
+  "rune.web.check.field": "點這裡",
+  "rune.web.check.rotate": "把手機轉成橫向，等兩秒，再轉回來。",
+  "rune.web.check.send": "傳送結果",
+  "rune.web.check.sending": "正在傳送…",
+  "rune.web.check.sent": "已傳送。你的代碼：{{code}}",
+  "rune.web.check.notSent": "無法傳送。請再試一次。",
+  "rune.web.check.works": "正常",
+  "rune.web.check.failed": "失敗",
+  "rune.web.check.none": "未測量"
 }

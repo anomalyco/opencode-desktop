@@ -108,6 +108,9 @@
   })();
   const status = document.querySelector('#status');
   const params = new URLSearchParams(location.search);
+  // `?check=1`: the phone check over the app (`check.js`), started before the app so it reports
+  // one that never draws too.
+  if (params.has('check')) import('./check.js').then(check => check.start({ say, ready: messagesReady })).catch(error => console.error(error));
   // A password never stays in the address: taken out before anything loads, and kept only in
   // this page's memory (the app sends it as the Authorization header) unless the user asks to
   // stay signed in.

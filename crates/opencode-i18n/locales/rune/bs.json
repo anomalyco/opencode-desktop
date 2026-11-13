@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesija izbrisana",
   "rune.toast.renameNoAnswer": "Server nije na vrijeme potvrdio novi naslov, pa je vraćen naslov koji je posljednji prihvatio. Pokušajte ponovo za trenutak.",
   "rune.dictation.timedOut": "Diktiranje nije završeno. Dosad čute riječi su u skici.",
-  "rune.dictation.timedOutEmpty": "Diktiranje nije završeno i nijedna riječ nije čuta. Pokušajte ponovo."
+  "rune.dictation.timedOutEmpty": "Diktiranje nije završeno i nijedna riječ nije čuta. Pokušajte ponovo.",
+  "rune.web.check.title": "Provjera telefona",
+  "rune.web.check.intro": "Mjeri ovaj telefon i šalje samo brojeve: bez lozinke, bez snimka ekrana.",
+  "rune.web.check.measuring": "Mjerenje. Ne mičite se nekoliko sekundi.",
+  "rune.web.check.keyboard": "Dodirnite polje. Kada se pojavi tastatura, dodirnite Gotovo.",
+  "rune.web.check.field": "Dodirnite ovdje",
+  "rune.web.check.rotate": "Okrenite telefon na stranu, sačekajte dvije sekunde, pa ga vratite.",
+  "rune.web.check.send": "Pošalji rezultate",
+  "rune.web.check.sending": "Slanje…",
+  "rune.web.check.sent": "Poslano. Vaš kod: {{code}}",
+  "rune.web.check.notSent": "Slanje nije uspjelo. Pokušajte ponovo.",
+  "rune.web.check.works": "Radi",
+  "rune.web.check.failed": "Nije uspjelo",
+  "rune.web.check.none": "Nije izmjereno"
 }

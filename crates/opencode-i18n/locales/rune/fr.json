@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Session supprimée",
   "rune.toast.renameNoAnswer": "Le serveur n’a pas confirmé le nouveau titre à temps, le dernier titre qu’il a accepté est donc rétabli. Réessayez dans un instant.",
   "rune.dictation.timedOut": "La dictée ne s’est pas terminée. Les mots entendus jusqu’ici sont dans le brouillon.",
-  "rune.dictation.timedOutEmpty": "La dictée ne s’est pas terminée et aucun mot n’a été entendu. Réessayez."
+  "rune.dictation.timedOutEmpty": "La dictée ne s’est pas terminée et aucun mot n’a été entendu. Réessayez.",
+  "rune.web.check.title": "Vérification du téléphone",
+  "rune.web.check.intro": "Mesure ce téléphone et n'envoie que des chiffres : ni mot de passe, ni capture d'écran.",
+  "rune.web.check.measuring": "Mesure en cours. Ne bougez pas pendant quelques secondes.",
+  "rune.web.check.keyboard": "Touchez le champ. Quand le clavier apparaît, touchez OK.",
+  "rune.web.check.field": "Touchez ici",
+  "rune.web.check.rotate": "Tournez le téléphone à l'horizontale, attendez deux secondes, puis remettez-le droit.",
+  "rune.web.check.send": "Envoyer les résultats",
+  "rune.web.check.sending": "Envoi…",
+  "rune.web.check.sent": "Envoyé. Votre code : {{code}}",
+  "rune.web.check.notSent": "Envoi impossible. Réessayez.",
+  "rune.web.check.works": "Fonctionne",
+  "rune.web.check.failed": "Échec",
+  "rune.web.check.none": "Non mesuré"
 }

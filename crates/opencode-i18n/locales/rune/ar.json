@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "تم حذف الجلسة",
   "rune.toast.renameNoAnswer": "لم يؤكد الخادم العنوان الجديد في الوقت المناسب، لذا عاد العنوان الذي قبله آخر مرة. حاول مرة أخرى بعد قليل.",
   "rune.dictation.timedOut": "لم يكتمل الإملاء. الكلمات التي سُمعت حتى الآن موجودة في المسودة.",
-  "rune.dictation.timedOutEmpty": "لم يكتمل الإملاء، ولم تُسمع أي كلمات. حاول مرة أخرى."
+  "rune.dictation.timedOutEmpty": "لم يكتمل الإملاء، ولم تُسمع أي كلمات. حاول مرة أخرى.",
+  "rune.web.check.title": "فحص الهاتف",
+  "rune.web.check.intro": "يقيس هذا الهاتف ويرسل أرقامًا فقط: بلا كلمة مرور ولا لقطة شاشة.",
+  "rune.web.check.measuring": "جارٍ القياس. لا تحرّك الهاتف لبضع ثوانٍ.",
+  "rune.web.check.keyboard": "اضغط على الحقل. عندما تظهر لوحة المفاتيح، اضغط تم.",
+  "rune.web.check.field": "اضغط هنا",
+  "rune.web.check.rotate": "أدر الهاتف على جانبه، وانتظر ثانيتين، ثم أعده.",
+  "rune.web.check.send": "إرسال النتائج",
+  "rune.web.check.sending": "جارٍ الإرسال…",
+  "rune.web.check.sent": "تم الإرسال. رمزك: {{code}}",
+  "rune.web.check.notSent": "تعذّر الإرسال. حاول مرة أخرى.",
+  "rune.web.check.works": "يعمل",
+  "rune.web.check.failed": "فشل",
+  "rune.web.check.none": "لم يُقَس"
 }

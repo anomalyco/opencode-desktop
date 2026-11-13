@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesija izdzēsta",
   "rune.toast.renameNoAnswer": "Serveris laikus neapstiprināja jauno nosaukumu, tāpēc ir atjaunots pēdējais tā pieņemtais nosaukums. Mēģiniet vēlreiz pēc brīža.",
   "rune.dictation.timedOut": "Diktēšana netika pabeigta. Līdz šim sadzirdētie vārdi ir melnrakstā.",
-  "rune.dictation.timedOutEmpty": "Diktēšana netika pabeigta, un netika sadzirdēts neviens vārds. Mēģiniet vēlreiz."
+  "rune.dictation.timedOutEmpty": "Diktēšana netika pabeigta, un netika sadzirdēts neviens vārds. Mēģiniet vēlreiz.",
+  "rune.web.check.title": "Tālruņa pārbaude",
+  "rune.web.check.intro": "Izmēra šo tālruni un sūta tikai skaitļus: ne paroli, ne ekrānuzņēmumu.",
+  "rune.web.check.measuring": "Notiek mērīšana. Dažas sekundes nekustiniet.",
+  "rune.web.check.keyboard": "Pieskarieties laukam. Kad parādās tastatūra, pieskarieties Gatavs.",
+  "rune.web.check.field": "Pieskarieties šeit",
+  "rune.web.check.rotate": "Pagrieziet tālruni uz sāniem, pagaidiet divas sekundes un pagrieziet atpakaļ.",
+  "rune.web.check.send": "Sūtīt rezultātus",
+  "rune.web.check.sending": "Sūta…",
+  "rune.web.check.sent": "Nosūtīts. Jūsu kods: {{code}}",
+  "rune.web.check.notSent": "Neizdevās nosūtīt. Mēģiniet vēlreiz.",
+  "rune.web.check.works": "Darbojas",
+  "rune.web.check.failed": "Neizdevās",
+  "rune.web.check.none": "Nav izmērīts"
 }

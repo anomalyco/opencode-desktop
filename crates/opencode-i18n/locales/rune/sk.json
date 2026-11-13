@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Relácia odstránená",
   "rune.toast.renameNoAnswer": "Server nový názov včas nepotvrdil, preto sa vrátil názov, ktorý naposledy prijal. Skúste to o chvíľu znova.",
   "rune.dictation.timedOut": "Diktovanie sa nedokončilo. Doteraz počuté slová sú v koncepte.",
-  "rune.dictation.timedOutEmpty": "Diktovanie sa nedokončilo a nebolo počuť žiadne slová. Skúste to znova."
+  "rune.dictation.timedOutEmpty": "Diktovanie sa nedokončilo a nebolo počuť žiadne slová. Skúste to znova.",
+  "rune.web.check.title": "Kontrola telefónu",
+  "rune.web.check.intro": "Zmeria tento telefón a pošle len čísla: žiadne heslo, žiadnu snímku obrazovky.",
+  "rune.web.check.measuring": "Meria sa. Niekoľko sekúnd sa nehýbte.",
+  "rune.web.check.keyboard": "Ťuknite do poľa. Keď sa objaví klávesnica, ťuknite na Hotovo.",
+  "rune.web.check.field": "Ťuknite sem",
+  "rune.web.check.rotate": "Otočte telefón na šírku, počkajte dve sekundy a otočte ho späť.",
+  "rune.web.check.send": "Odoslať výsledky",
+  "rune.web.check.sending": "Odosiela sa…",
+  "rune.web.check.sent": "Odoslané. Váš kód: {{code}}",
+  "rune.web.check.notSent": "Odoslanie zlyhalo. Skúste to znova.",
+  "rune.web.check.works": "Funguje",
+  "rune.web.check.failed": "Zlyhalo",
+  "rune.web.check.none": "Nemerané"
 }

@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessie verwijderd",
   "rune.toast.renameNoAnswer": "De server heeft de nieuwe titel niet op tijd bevestigd, dus de titel die hij het laatst accepteerde is terug. Probeer het zo meteen opnieuw.",
   "rune.dictation.timedOut": "Het dicteren is niet afgerond. De woorden die tot nu toe zijn gehoord, staan in het concept.",
-  "rune.dictation.timedOutEmpty": "Het dicteren is niet afgerond en er zijn geen woorden gehoord. Probeer het opnieuw."
+  "rune.dictation.timedOutEmpty": "Het dicteren is niet afgerond en er zijn geen woorden gehoord. Probeer het opnieuw.",
+  "rune.web.check.title": "Telefooncontrole",
+  "rune.web.check.intro": "Meet deze telefoon en verstuurt alleen getallen: geen wachtwoord, geen screenshot.",
+  "rune.web.check.measuring": "Bezig met meten. Een paar seconden stilhouden.",
+  "rune.web.check.keyboard": "Tik op het veld. Als het toetsenbord er is, tik op Gereed.",
+  "rune.web.check.field": "Tik hier",
+  "rune.web.check.rotate": "Draai de telefoon op zijn kant, wacht twee seconden en draai hem terug.",
+  "rune.web.check.send": "Resultaten versturen",
+  "rune.web.check.sending": "Versturen…",
+  "rune.web.check.sent": "Verstuurd. Je code: {{code}}",
+  "rune.web.check.notSent": "Versturen mislukt. Probeer het opnieuw.",
+  "rune.web.check.works": "Werkt",
+  "rune.web.check.failed": "Mislukt",
+  "rune.web.check.none": "Niet gemeten"
 }

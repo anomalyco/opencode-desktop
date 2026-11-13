@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Munkamenet törölve",
   "rune.toast.renameNoAnswer": "A kiszolgáló nem erősítette meg időben az új címet, ezért visszaállt az utoljára elfogadott cím. Próbálja újra egy pillanat múlva.",
   "rune.dictation.timedOut": "A diktálás nem fejeződött be. Az eddig hallott szavak a piszkozatban vannak.",
-  "rune.dictation.timedOutEmpty": "A diktálás nem fejeződött be, és egy szó sem hallatszott. Próbálja újra."
+  "rune.dictation.timedOutEmpty": "A diktálás nem fejeződött be, és egy szó sem hallatszott. Próbálja újra.",
+  "rune.web.check.title": "Telefonellenőrzés",
+  "rune.web.check.intro": "Megméri ezt a telefont, és csak számokat küld: se jelszót, se képernyőképet.",
+  "rune.web.check.measuring": "Mérés. Pár másodpercig ne mozdítsd.",
+  "rune.web.check.keyboard": "Koppints a mezőbe. Amikor megjelenik a billentyűzet, koppints a Kész gombra.",
+  "rune.web.check.field": "Koppints ide",
+  "rune.web.check.rotate": "Fordítsd a telefont fekvőbe, várj két másodpercet, majd fordítsd vissza.",
+  "rune.web.check.send": "Eredmények küldése",
+  "rune.web.check.sending": "Küldés…",
+  "rune.web.check.sent": "Elküldve. A kódod: {{code}}",
+  "rune.web.check.notSent": "Nem sikerült elküldeni. Próbáld újra.",
+  "rune.web.check.works": "Működik",
+  "rune.web.check.failed": "Sikertelen",
+  "rune.web.check.none": "Nem mért"
 }

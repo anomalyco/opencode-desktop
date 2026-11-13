@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Session slettet",
   "rune.toast.renameNoAnswer": "Serveren bekræftede ikke den nye titel i tide, så den titel, den sidst accepterede, er tilbage. Prøv igen om et øjeblik.",
   "rune.dictation.timedOut": "Dikteringen blev ikke færdig. De ord, der er hørt indtil nu, står i kladden.",
-  "rune.dictation.timedOutEmpty": "Dikteringen blev ikke færdig, og der blev ikke hørt nogen ord. Prøv igen."
+  "rune.dictation.timedOutEmpty": "Dikteringen blev ikke færdig, og der blev ikke hørt nogen ord. Prøv igen.",
+  "rune.web.check.title": "Telefontjek",
+  "rune.web.check.intro": "Måler denne telefon og sender kun tal: ingen adgangskode, intet skærmbillede.",
+  "rune.web.check.measuring": "Måler. Hold den stille et par sekunder.",
+  "rune.web.check.keyboard": "Tryk på feltet. Når tastaturet er fremme, tryk på OK.",
+  "rune.web.check.field": "Tryk her",
+  "rune.web.check.rotate": "Vend telefonen på siden, vent to sekunder, og vend den tilbage.",
+  "rune.web.check.send": "Send resultater",
+  "rune.web.check.sending": "Sender…",
+  "rune.web.check.sent": "Sendt. Din kode: {{code}}",
+  "rune.web.check.notSent": "Kunne ikke sende. Prøv igen.",
+  "rune.web.check.works": "Virker",
+  "rune.web.check.failed": "Mislykkedes",
+  "rune.web.check.none": "Ikke målt"
 }

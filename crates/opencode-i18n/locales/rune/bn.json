@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "সেশন মুছে ফেলা হয়েছে",
   "rune.toast.renameNoAnswer": "সার্ভার সময়মতো নতুন শিরোনাম নিশ্চিত করেনি, তাই এটি শেষবার যে শিরোনাম গ্রহণ করেছিল সেটি ফিরে এসেছে। একটু পরে আবার চেষ্টা করুন।",
   "rune.dictation.timedOut": "ডিক্টেশন শেষ হয়নি। এখন পর্যন্ত শোনা শব্দগুলো খসড়ায় আছে।",
-  "rune.dictation.timedOutEmpty": "ডিক্টেশন শেষ হয়নি, কোনো শব্দ শোনা যায়নি। আবার চেষ্টা করুন।"
+  "rune.dictation.timedOutEmpty": "ডিক্টেশন শেষ হয়নি, কোনো শব্দ শোনা যায়নি। আবার চেষ্টা করুন।",
+  "rune.web.check.title": "ফোন পরীক্ষা",
+  "rune.web.check.intro": "এই ফোনটি মাপে এবং শুধু সংখ্যা পাঠায়: কোনো পাসওয়ার্ড নয়, কোনো স্ক্রিনশট নয়।",
+  "rune.web.check.measuring": "মাপা হচ্ছে। কয়েক সেকেন্ড স্থির থাকুন।",
+  "rune.web.check.keyboard": "ঘরটিতে ট্যাপ করুন। কীবোর্ড এলে সম্পন্ন-এ ট্যাপ করুন।",
+  "rune.web.check.field": "এখানে ট্যাপ করুন",
+  "rune.web.check.rotate": "ফোনটি পাশে ঘোরান, দুই সেকেন্ড অপেক্ষা করুন, তারপর ফিরিয়ে আনুন।",
+  "rune.web.check.send": "ফলাফল পাঠান",
+  "rune.web.check.sending": "পাঠানো হচ্ছে…",
+  "rune.web.check.sent": "পাঠানো হয়েছে। আপনার কোড: {{code}}",
+  "rune.web.check.notSent": "পাঠানো যায়নি। আবার চেষ্টা করুন।",
+  "rune.web.check.works": "কাজ করে",
+  "rune.web.check.failed": "ব্যর্থ",
+  "rune.web.check.none": "মাপা হয়নি"
 }

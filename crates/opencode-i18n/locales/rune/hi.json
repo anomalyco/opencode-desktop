@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "सेशन हटा दिया गया",
   "rune.toast.renameNoAnswer": "सर्वर ने नए शीर्षक की समय पर पुष्टि नहीं की, इसलिए पिछला स्वीकार किया गया शीर्षक वापस आ गया है। थोड़ी देर में फिर कोशिश करें।",
   "rune.dictation.timedOut": "डिक्टेशन पूरा नहीं हुआ। अब तक सुने गए शब्द ड्राफ़्ट में हैं।",
-  "rune.dictation.timedOutEmpty": "डिक्टेशन पूरा नहीं हुआ, और कोई शब्द सुनाई नहीं दिया। फिर कोशिश करें।"
+  "rune.dictation.timedOutEmpty": "डिक्टेशन पूरा नहीं हुआ, और कोई शब्द सुनाई नहीं दिया। फिर कोशिश करें।",
+  "rune.web.check.title": "फ़ोन जाँच",
+  "rune.web.check.intro": "यह फ़ोन को मापता है और सिर्फ़ संख्याएँ भेजता है: कोई पासवर्ड नहीं, कोई स्क्रीनशॉट नहीं।",
+  "rune.web.check.measuring": "माप रहा है। कुछ सेकंड स्थिर रहें।",
+  "rune.web.check.keyboard": "फ़ील्ड पर टैप करें। कीबोर्ड आने पर हो गया पर टैप करें।",
+  "rune.web.check.field": "यहाँ टैप करें",
+  "rune.web.check.rotate": "फ़ोन को आड़ा घुमाएँ, दो सेकंड रुकें, फिर वापस घुमाएँ।",
+  "rune.web.check.send": "नतीजे भेजें",
+  "rune.web.check.sending": "भेज रहा है…",
+  "rune.web.check.sent": "भेज दिया। आपका कोड: {{code}}",
+  "rune.web.check.notSent": "भेजा नहीं जा सका। फिर से कोशिश करें।",
+  "rune.web.check.works": "काम करता है",
+  "rune.web.check.failed": "विफल",
+  "rune.web.check.none": "मापा नहीं गया"
 }

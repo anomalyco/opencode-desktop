@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Istunto poistettu",
   "rune.toast.renameNoAnswer": "Palvelin ei vahvistanut uutta otsikkoa ajoissa, joten sen viimeksi hyväksymä otsikko palautettiin. Yritä hetken kuluttua uudelleen.",
   "rune.dictation.timedOut": "Sanelu ei valmistunut. Tähän mennessä kuullut sanat ovat luonnoksessa.",
-  "rune.dictation.timedOutEmpty": "Sanelu ei valmistunut, eikä sanoja kuultu. Yritä uudelleen."
+  "rune.dictation.timedOutEmpty": "Sanelu ei valmistunut, eikä sanoja kuultu. Yritä uudelleen.",
+  "rune.web.check.title": "Puhelimen tarkistus",
+  "rune.web.check.intro": "Mittaa tämän puhelimen ja lähettää vain lukuja: ei salasanaa, ei kuvakaappausta.",
+  "rune.web.check.measuring": "Mitataan. Pidä paikallaan muutama sekunti.",
+  "rune.web.check.keyboard": "Napauta kenttää. Kun näppäimistö on esillä, napauta Valmis.",
+  "rune.web.check.field": "Napauta tästä",
+  "rune.web.check.rotate": "Käännä puhelin vaakaan, odota kaksi sekuntia ja käännä takaisin.",
+  "rune.web.check.send": "Lähetä tulokset",
+  "rune.web.check.sending": "Lähetetään…",
+  "rune.web.check.sent": "Lähetetty. Koodisi: {{code}}",
+  "rune.web.check.notSent": "Lähetys epäonnistui. Yritä uudelleen.",
+  "rune.web.check.works": "Toimii",
+  "rune.web.check.failed": "Epäonnistui",
+  "rune.web.check.none": "Ei mitattu"
 }

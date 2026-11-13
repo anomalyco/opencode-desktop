@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Seanss kustutatud",
   "rune.toast.renameNoAnswer": "Server ei kinnitanud uut pealkirja õigel ajal, seega taastati viimati vastu võetud pealkiri. Proovi hetke pärast uuesti.",
   "rune.dictation.timedOut": "Dikteerimine ei lõppenud. Seni kuuldud sõnad on mustandis.",
-  "rune.dictation.timedOutEmpty": "Dikteerimine ei lõppenud ja ühtegi sõna ei kuuldud. Proovi uuesti."
+  "rune.dictation.timedOutEmpty": "Dikteerimine ei lõppenud ja ühtegi sõna ei kuuldud. Proovi uuesti.",
+  "rune.web.check.title": "Telefoni kontroll",
+  "rune.web.check.intro": "Mõõdab seda telefoni ja saadab ainult numbreid: ei parooli ega ekraanipilti.",
+  "rune.web.check.measuring": "Mõõdan. Hoia paar sekundit paigal.",
+  "rune.web.check.keyboard": "Puuduta välja. Kui klaviatuur on avatud, puuduta Valmis.",
+  "rune.web.check.field": "Puuduta siin",
+  "rune.web.check.rotate": "Pööra telefon külili, oota kaks sekundit ja pööra tagasi.",
+  "rune.web.check.send": "Saada tulemused",
+  "rune.web.check.sending": "Saadan…",
+  "rune.web.check.sent": "Saadetud. Sinu kood: {{code}}",
+  "rune.web.check.notSent": "Saatmine ebaõnnestus. Proovi uuesti.",
+  "rune.web.check.works": "Töötab",
+  "rune.web.check.failed": "Ebaõnnestus",
+  "rune.web.check.none": "Mõõtmata"
 }

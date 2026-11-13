@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Đã xóa phiên",
   "rune.toast.renameNoAnswer": "Máy chủ không xác nhận tiêu đề mới kịp thời, nên tiêu đề được chấp nhận gần nhất đã được khôi phục. Hãy thử lại sau giây lát.",
   "rune.dictation.timedOut": "Đọc chính tả chưa hoàn tất. Những từ nghe được đến giờ đã có trong bản nháp.",
-  "rune.dictation.timedOutEmpty": "Đọc chính tả chưa hoàn tất và không nghe được từ nào. Hãy thử lại."
+  "rune.dictation.timedOutEmpty": "Đọc chính tả chưa hoàn tất và không nghe được từ nào. Hãy thử lại.",
+  "rune.web.check.title": "Kiểm tra điện thoại",
+  "rune.web.check.intro": "Đo điện thoại này và chỉ gửi số liệu: không mật khẩu, không ảnh chụp màn hình.",
+  "rune.web.check.measuring": "Đang đo. Giữ yên vài giây.",
+  "rune.web.check.keyboard": "Chạm vào ô. Khi bàn phím hiện ra, chạm Xong.",
+  "rune.web.check.field": "Chạm vào đây",
+  "rune.web.check.rotate": "Xoay điện thoại nằm ngang, chờ hai giây rồi xoay lại.",
+  "rune.web.check.send": "Gửi kết quả",
+  "rune.web.check.sending": "Đang gửi…",
+  "rune.web.check.sent": "Đã gửi. Mã của bạn: {{code}}",
+  "rune.web.check.notSent": "Không gửi được. Hãy thử lại.",
+  "rune.web.check.works": "Hoạt động",
+  "rune.web.check.failed": "Thất bại",
+  "rune.web.check.none": "Chưa đo"
 }

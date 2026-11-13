@@ -58,5 +58,18 @@
   "rune.tool.failed": "{{tool}} འཐུས་ཤོར།",
   "rune.web.connect.server": "སར་བར་ཁ་བྱང་།",
   "rune.web.connect.password": "ཆོག་ཡིག་ (གདམ་ཁ་ཅན།)",
-  "rune.web.loading": "མངོན་གསལ་འབད་དོ།…"
+  "rune.web.loading": "མངོན་གསལ་འབད་དོ།…",
+  "rune.web.check.title": "ཁ་པར་ཞིབ་དཔྱད།",
+  "rune.web.check.intro": "ཁ་པར་འདི་ཚད་འཇལ་ཞིནམ་ལས་ཨང་གྲངས་རྐྱངམ་ཅིག་གཏང་། ཆོག་ཡིག་མེད། གསལ་གཞི་པར་མེད།",
+  "rune.web.check.measuring": "ཚད་འཇལ་དོ། སྐར་ཆ་ཁ་ཙམ་གི་རིང་ མ་འགུལ་བར་སྡོད།",
+  "rune.web.check.keyboard": "ས་སྒོ་ལུ་ཨེབ། ལྡེ་སྒྲོམ་འཐོན་པའི་སྐབས་ Done ལུ་ཨེབ།",
+  "rune.web.check.field": "ནཱ་ལུ་ཨེབ།",
+  "rune.web.check.rotate": "ཁ་པར་ཟུར་ལུ་བསྒྱིར། སྐར་ཆ་གཉིས་སྒུག ལོག་སྟེ་བསྒྱིར།",
+  "rune.web.check.send": "གྲུབ་འབྲས་གཏང་།",
+  "rune.web.check.sending": "གཏང་དོ…",
+  "rune.web.check.sent": "བཏང་ཡི། ཁྱོད་ཀྱི་ཨང་རྟགས་: {{code}}",
+  "rune.web.check.notSent": "གཏང་མ་ཚུགས། ལོག་སྟེ་འབད་རྩོལ་བསྐྱེད།",
+  "rune.web.check.works": "ལཱ་འབདཝ་ཨིན།",
+  "rune.web.check.failed": "འཐུས་ཤོར།",
+  "rune.web.check.none": "ཚད་མ་འཇལ།"
 }

@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "සැසිය මකා දැමිණි",
   "rune.toast.renameNoAnswer": "සේවාදායකය නව මාතෘකාව නියමිත වේලාවට තහවුරු නොකළ නිසා, එය අවසන් වරට පිළිගත් මාතෘකාව නැවත පැමිණ ඇත. මොහොතකින් නැවත උත්සාහ කරන්න.",
   "rune.dictation.timedOut": "නියම කිරීම අවසන් නොවීය. මේ දක්වා ඇසුණු වචන කෙටුම්පතේ ඇත.",
-  "rune.dictation.timedOutEmpty": "නියම කිරීම අවසන් නොවූ අතර කිසිදු වචනයක් ඇසුණේ නැත. නැවත උත්සාහ කරන්න."
+  "rune.dictation.timedOutEmpty": "නියම කිරීම අවසන් නොවූ අතර කිසිදු වචනයක් ඇසුණේ නැත. නැවත උත්සාහ කරන්න.",
+  "rune.web.check.title": "දුරකථන පරීක්ෂාව",
+  "rune.web.check.intro": "මෙම දුරකථනය මැන අංක පමණක් යවයි: මුරපදයක් නැත, තිර රුවක් නැත.",
+  "rune.web.check.measuring": "මනිමින්. තත්පර කිහිපයක් නොසෙල්වී සිටින්න.",
+  "rune.web.check.keyboard": "ක්ෂේත්‍රය තට්ටු කරන්න. යතුරු පුවරුව ආ විට නිමයි තට්ටු කරන්න.",
+  "rune.web.check.field": "මෙතන තට්ටු කරන්න",
+  "rune.web.check.rotate": "දුරකථනය පැත්තට කරකවා, තත්පර දෙකක් රැඳී, ආපසු හරවන්න.",
+  "rune.web.check.send": "ප්‍රතිඵල යවන්න",
+  "rune.web.check.sending": "යවමින්…",
+  "rune.web.check.sent": "යැව්වා. ඔබේ කේතය: {{code}}",
+  "rune.web.check.notSent": "යැවිය නොහැකි විය. නැවත උත්සාහ කරන්න.",
+  "rune.web.check.works": "ක්‍රියා කරයි",
+  "rune.web.check.failed": "අසාර්ථකයි",
+  "rune.web.check.none": "මැන නැත"
 }

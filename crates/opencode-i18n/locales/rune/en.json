@@ -226,5 +226,18 @@
   "rune.session.slowCopy": "This server is slow to answer · showing what was saved",
   "rune.toast.renameNoAnswer": "The server didn't confirm the new title in time, so the title it last accepted is back. Try again in a moment.",
   "rune.dictation.timedOut": "Dictation didn't finish. The words heard so far are in the draft.",
-  "rune.dictation.timedOutEmpty": "Dictation didn't finish, and no words were heard. Try again."
+  "rune.dictation.timedOutEmpty": "Dictation didn't finish, and no words were heard. Try again.",
+  "rune.web.check.title": "Phone check",
+  "rune.web.check.intro": "Measures this phone and sends only numbers: no password, no screenshot.",
+  "rune.web.check.measuring": "Measuring. Hold still for a few seconds.",
+  "rune.web.check.keyboard": "Tap the field. When the keyboard is up, tap Done.",
+  "rune.web.check.field": "Tap here",
+  "rune.web.check.rotate": "Turn the phone sideways, wait two seconds, then turn it back.",
+  "rune.web.check.send": "Send results",
+  "rune.web.check.sending": "Sending…",
+  "rune.web.check.sent": "Sent. Your code: {{code}}",
+  "rune.web.check.notSent": "Couldn't send. Try again.",
+  "rune.web.check.works": "Works",
+  "rune.web.check.failed": "Failed",
+  "rune.web.check.none": "Not measured"
 }

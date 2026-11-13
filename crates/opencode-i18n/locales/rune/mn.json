@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Сесс устгагдлаа",
   "rune.toast.renameNoAnswer": "Сервер шинэ гарчгийг цагтаа баталгаажуулаагүй тул сүүлд хүлээн авсан гарчиг сэргэлээ. Хэсэг хугацааны дараа дахин оролдоно уу.",
   "rune.dictation.timedOut": "Бичүүлэлт дуусаагүй. Одоог хүртэл сонсогдсон үгс ноорогт байна.",
-  "rune.dictation.timedOutEmpty": "Бичүүлэлт дуусаагүй бөгөөд ямар ч үг сонсогдсонгүй. Дахин оролдоно уу."
+  "rune.dictation.timedOutEmpty": "Бичүүлэлт дуусаагүй бөгөөд ямар ч үг сонсогдсонгүй. Дахин оролдоно уу.",
+  "rune.web.check.title": "Утасны шалгалт",
+  "rune.web.check.intro": "Энэ утсыг хэмжиж, зөвхөн тоо илгээнэ: нууц үг ч үгүй, дэлгэцийн зураг ч үгүй.",
+  "rune.web.check.measuring": "Хэмжиж байна. Хэдэн секунд хөдөлгөөнгүй байгаарай.",
+  "rune.web.check.keyboard": "Талбарт товш. Гар гарч ирэхэд Болсон дээр товш.",
+  "rune.web.check.field": "Энд товш",
+  "rune.web.check.rotate": "Утсаа хажуу тийш эргүүлж, хоёр секунд хүлээгээд буцааж эргүүл.",
+  "rune.web.check.send": "Үр дүн илгээх",
+  "rune.web.check.sending": "Илгээж байна…",
+  "rune.web.check.sent": "Илгээлээ. Таны код: {{code}}",
+  "rune.web.check.notSent": "Илгээж чадсангүй. Дахин оролдоно уу.",
+  "rune.web.check.works": "Ажилладаг",
+  "rune.web.check.failed": "Амжилтгүй",
+  "rune.web.check.none": "Хэмжээгүй"
 }

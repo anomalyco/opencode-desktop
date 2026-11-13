@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Նիստը ջնջվեց",
   "rune.toast.renameNoAnswer": "Սերվերը ժամանակին չհաստատեց նոր վերնագիրը, ուստի վերադարձվեց վերջին ընդունված վերնագիրը։ Փորձեք կրկին մի պահից։",
   "rune.dictation.timedOut": "Թելադրումը չավարտվեց։ Մինչ այժմ լսված բառերը սևագրում են։",
-  "rune.dictation.timedOutEmpty": "Թելադրումը չավարտվեց, և ոչ մի բառ չլսվեց։ Փորձեք կրկին։"
+  "rune.dictation.timedOutEmpty": "Թելադրումը չավարտվեց, և ոչ մի բառ չլսվեց։ Փորձեք կրկին։",
+  "rune.web.check.title": "Հեռախոսի ստուգում",
+  "rune.web.check.intro": "Չափում է այս հեռախոսը և ուղարկում միայն թվեր․ ոչ գաղտնաբառ, ոչ էկրանի պատկեր։",
+  "rune.web.check.measuring": "Չափվում է։ Մի քանի վայրկյան մի շարժեք։",
+  "rune.web.check.keyboard": "Հպեք դաշտին։ Երբ ստեղնաշարը հայտնվի, հպեք Պատրաստ է։",
+  "rune.web.check.field": "Հպեք այստեղ",
+  "rune.web.check.rotate": "Հեռախոսը շրջեք կողքի, սպասեք երկու վայրկյան, ապա հետ շրջեք։",
+  "rune.web.check.send": "Ուղարկել արդյունքները",
+  "rune.web.check.sending": "Ուղարկվում է…",
+  "rune.web.check.sent": "Ուղարկված է։ Ձեր կոդը՝ {{code}}",
+  "rune.web.check.notSent": "Չհաջողվեց ուղարկել։ Փորձեք կրկին։",
+  "rune.web.check.works": "Աշխատում է",
+  "rune.web.check.failed": "Ձախողվեց",
+  "rune.web.check.none": "Չափված չէ"
 }

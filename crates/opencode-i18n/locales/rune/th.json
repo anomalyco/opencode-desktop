@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "ลบเซสชันแล้ว",
   "rune.toast.renameNoAnswer": "เซิร์ฟเวอร์ไม่ได้ยืนยันชื่อใหม่ทันเวลา จึงกลับไปใช้ชื่อที่ยอมรับล่าสุด ลองอีกครั้งในอีกสักครู่",
   "rune.dictation.timedOut": "การพิมพ์ด้วยเสียงไม่เสร็จ คำที่ได้ยินจนถึงตอนนี้อยู่ในฉบับร่างแล้ว",
-  "rune.dictation.timedOutEmpty": "การพิมพ์ด้วยเสียงไม่เสร็จ และไม่ได้ยินคำใดเลย ลองอีกครั้ง"
+  "rune.dictation.timedOutEmpty": "การพิมพ์ด้วยเสียงไม่เสร็จ และไม่ได้ยินคำใดเลย ลองอีกครั้ง",
+  "rune.web.check.title": "ตรวจโทรศัพท์",
+  "rune.web.check.intro": "วัดโทรศัพท์เครื่องนี้และส่งเฉพาะตัวเลข: ไม่มีรหัสผ่าน ไม่มีภาพหน้าจอ",
+  "rune.web.check.measuring": "กำลังวัด อยู่นิ่ง ๆ สักครู่",
+  "rune.web.check.keyboard": "แตะช่อง เมื่อแป้นพิมพ์ขึ้นมา ให้แตะ เสร็จสิ้น",
+  "rune.web.check.field": "แตะที่นี่",
+  "rune.web.check.rotate": "หมุนโทรศัพท์เป็นแนวนอน รอสองวินาที แล้วหมุนกลับ",
+  "rune.web.check.send": "ส่งผลลัพธ์",
+  "rune.web.check.sending": "กำลังส่ง…",
+  "rune.web.check.sent": "ส่งแล้ว รหัสของคุณ: {{code}}",
+  "rune.web.check.notSent": "ส่งไม่ได้ ลองอีกครั้ง",
+  "rune.web.check.works": "ใช้งานได้",
+  "rune.web.check.failed": "ล้มเหลว",
+  "rune.web.check.none": "ไม่ได้วัด"
 }

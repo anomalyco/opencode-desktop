@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sitzung gelöscht",
   "rune.toast.renameNoAnswer": "Der Server hat den neuen Titel nicht rechtzeitig bestätigt, daher ist der zuletzt akzeptierte Titel zurück. Versuchen Sie es gleich noch einmal.",
   "rune.dictation.timedOut": "Das Diktat wurde nicht abgeschlossen. Die bisher erkannten Wörter stehen im Entwurf.",
-  "rune.dictation.timedOutEmpty": "Das Diktat wurde nicht abgeschlossen, und es wurden keine Wörter erkannt. Versuchen Sie es erneut."
+  "rune.dictation.timedOutEmpty": "Das Diktat wurde nicht abgeschlossen, und es wurden keine Wörter erkannt. Versuchen Sie es erneut.",
+  "rune.web.check.title": "Telefon-Check",
+  "rune.web.check.intro": "Misst dieses Telefon und sendet nur Zahlen: kein Passwort, kein Bildschirmfoto.",
+  "rune.web.check.measuring": "Wird gemessen. Ein paar Sekunden stillhalten.",
+  "rune.web.check.keyboard": "Tippen Sie ins Feld. Wenn die Tastatur da ist, tippen Sie auf Fertig.",
+  "rune.web.check.field": "Hier tippen",
+  "rune.web.check.rotate": "Drehen Sie das Telefon quer, warten Sie zwei Sekunden und drehen Sie es zurück.",
+  "rune.web.check.send": "Ergebnisse senden",
+  "rune.web.check.sending": "Wird gesendet …",
+  "rune.web.check.sent": "Gesendet. Ihr Code: {{code}}",
+  "rune.web.check.notSent": "Senden fehlgeschlagen. Versuchen Sie es erneut.",
+  "rune.web.check.works": "Funktioniert",
+  "rune.web.check.failed": "Fehlgeschlagen",
+  "rune.web.check.none": "Nicht gemessen"
 }

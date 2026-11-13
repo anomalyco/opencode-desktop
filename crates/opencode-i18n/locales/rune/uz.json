@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessiya o‘chirildi",
   "rune.toast.renameNoAnswer": "Server yangi sarlavhani o‘z vaqtida tasdiqlamadi, shuning uchun u oxirgi qabul qilgan sarlavha qaytarildi. Birozdan keyin qayta urinib ko‘ring.",
   "rune.dictation.timedOut": "Diktovka yakunlanmadi. Hozirgacha eshitilgan so‘zlar qoralamada.",
-  "rune.dictation.timedOutEmpty": "Diktovka yakunlanmadi va hech qanday so‘z eshitilmadi. Qayta urinib ko‘ring."
+  "rune.dictation.timedOutEmpty": "Diktovka yakunlanmadi va hech qanday so‘z eshitilmadi. Qayta urinib ko‘ring.",
+  "rune.web.check.title": "Telefon tekshiruvi",
+  "rune.web.check.intro": "Bu telefonni o‘lchaydi va faqat raqamlar yuboradi: parol yo‘q, skrinshot yo‘q.",
+  "rune.web.check.measuring": "O‘lchanmoqda. Bir necha soniya qimirlatmang.",
+  "rune.web.check.keyboard": "Maydonga bosing. Klaviatura chiqqach, Tayyor tugmasini bosing.",
+  "rune.web.check.field": "Shu yerga bosing",
+  "rune.web.check.rotate": "Telefonni yon tomonga burang, ikki soniya kuting, so‘ng qaytaring.",
+  "rune.web.check.send": "Natijalarni yuborish",
+  "rune.web.check.sending": "Yuborilmoqda…",
+  "rune.web.check.sent": "Yuborildi. Kodingiz: {{code}}",
+  "rune.web.check.notSent": "Yuborib bo‘lmadi. Qayta urinib ko‘ring.",
+  "rune.web.check.works": "Ishlaydi",
+  "rune.web.check.failed": "Muvaffaqiyatsiz",
+  "rune.web.check.none": "O‘lchanmagan"
 }

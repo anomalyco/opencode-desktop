@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "ክፍለ ጊዜው ተሰርዟል",
   "rune.toast.renameNoAnswer": "አገልጋዩ አዲሱን ርዕስ በጊዜ አላረጋገጠም፣ ስለዚህ የመጨረሻው የተቀበለው ርዕስ ተመልሷል። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።",
   "rune.dictation.timedOut": "ማስጻፉ አልተጠናቀቀም። እስካሁን የተሰሙት ቃላት በረቂቁ ውስጥ ናቸው።",
-  "rune.dictation.timedOutEmpty": "ማስጻፉ አልተጠናቀቀም፣ ምንም ቃል አልተሰማም። እንደገና ይሞክሩ።"
+  "rune.dictation.timedOutEmpty": "ማስጻፉ አልተጠናቀቀም፣ ምንም ቃል አልተሰማም። እንደገና ይሞክሩ።",
+  "rune.web.check.title": "የስልክ ፍተሻ",
+  "rune.web.check.intro": "ይህን ስልክ ይለካል እና ቁጥሮችን ብቻ ይልካል፦ የይለፍ ቃል የለም፣ ቅጽበታዊ ገጽ እይታ የለም።",
+  "rune.web.check.measuring": "በመለካት ላይ። ለጥቂት ሰከንዶች ሳይንቀሳቀሱ ይቆዩ።",
+  "rune.web.check.keyboard": "መስኩን ይንኩ። የቁልፍ ሰሌዳው ሲመጣ ተከናውኗልን ይንኩ።",
+  "rune.web.check.field": "እዚህ ይንኩ",
+  "rune.web.check.rotate": "ስልኩን ወደ ጎን ያዙሩት፣ ሁለት ሰከንድ ይጠብቁ፣ ከዚያ መልሰው ያዙሩት።",
+  "rune.web.check.send": "ውጤቶችን ላክ",
+  "rune.web.check.sending": "በመላክ ላይ…",
+  "rune.web.check.sent": "ተልኳል። ኮድዎ፦ {{code}}",
+  "rune.web.check.notSent": "መላክ አልተቻለም። እንደገና ይሞክሩ።",
+  "rune.web.check.works": "ይሰራል",
+  "rune.web.check.failed": "አልተሳካም",
+  "rune.web.check.none": "አልተለካም"
 }

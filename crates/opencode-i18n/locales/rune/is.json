@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Lotu eytt",
   "rune.toast.renameNoAnswer": "Netþjónninn staðfesti ekki nýja titilinn í tæka tíð, svo titillinn sem hann samþykkti síðast er kominn aftur. Reyndu aftur eftir smástund.",
   "rune.dictation.timedOut": "Upplestrinum lauk ekki. Orðin sem heyrðust hingað til eru í drögunum.",
-  "rune.dictation.timedOutEmpty": "Upplestrinum lauk ekki og engin orð heyrðust. Reyndu aftur."
+  "rune.dictation.timedOutEmpty": "Upplestrinum lauk ekki og engin orð heyrðust. Reyndu aftur.",
+  "rune.web.check.title": "Símaprófun",
+  "rune.web.check.intro": "Mælir þennan síma og sendir aðeins tölur: ekkert lykilorð, engin skjámynd.",
+  "rune.web.check.measuring": "Mæli. Haltu kyrru í nokkrar sekúndur.",
+  "rune.web.check.keyboard": "Ýttu á reitinn. Þegar lyklaborðið birtist, ýttu á Lokið.",
+  "rune.web.check.field": "Ýttu hér",
+  "rune.web.check.rotate": "Snúðu símanum á hlið, bíddu í tvær sekúndur og snúðu honum svo til baka.",
+  "rune.web.check.send": "Senda niðurstöður",
+  "rune.web.check.sending": "Sendi…",
+  "rune.web.check.sent": "Sent. Kóðinn þinn: {{code}}",
+  "rune.web.check.notSent": "Tókst ekki að senda. Reyndu aftur.",
+  "rune.web.check.works": "Virkar",
+  "rune.web.check.failed": "Mistókst",
+  "rune.web.check.none": "Ekki mælt"
 }

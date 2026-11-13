@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Seansas ištrintas",
   "rune.toast.renameNoAnswer": "Serveris laiku nepatvirtino naujo pavadinimo, todėl grąžintas paskutinis jo priimtas pavadinimas. Bandykite dar kartą po akimirkos.",
   "rune.dictation.timedOut": "Diktavimas nebaigtas. Iki šiol išgirsti žodžiai yra juodraštyje.",
-  "rune.dictation.timedOutEmpty": "Diktavimas nebaigtas ir nebuvo išgirsta jokių žodžių. Bandykite dar kartą."
+  "rune.dictation.timedOutEmpty": "Diktavimas nebaigtas ir nebuvo išgirsta jokių žodžių. Bandykite dar kartą.",
+  "rune.web.check.title": "Telefono patikra",
+  "rune.web.check.intro": "Išmatuoja šį telefoną ir siunčia tik skaičius: jokio slaptažodžio, jokios ekrano kopijos.",
+  "rune.web.check.measuring": "Matuojama. Kelias sekundes nejudinkite.",
+  "rune.web.check.keyboard": "Bakstelėkite lauką. Kai atsiras klaviatūra, bakstelėkite Atlikta.",
+  "rune.web.check.field": "Bakstelėkite čia",
+  "rune.web.check.rotate": "Pasukite telefoną ant šono, palaukite dvi sekundes ir pasukite atgal.",
+  "rune.web.check.send": "Siųsti rezultatus",
+  "rune.web.check.sending": "Siunčiama…",
+  "rune.web.check.sent": "Išsiųsta. Jūsų kodas: {{code}}",
+  "rune.web.check.notSent": "Nepavyko išsiųsti. Bandykite dar kartą.",
+  "rune.web.check.works": "Veikia",
+  "rune.web.check.failed": "Nepavyko",
+  "rune.web.check.none": "Neišmatuota"
 }

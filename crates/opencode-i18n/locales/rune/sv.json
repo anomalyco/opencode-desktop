@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sessionen togs bort",
   "rune.toast.renameNoAnswer": "Servern bekräftade inte den nya titeln i tid, så titeln den senast godkände är tillbaka. Försök igen om en stund.",
   "rune.dictation.timedOut": "Dikteringen blev inte klar. Orden som hörts hittills finns i utkastet.",
-  "rune.dictation.timedOutEmpty": "Dikteringen blev inte klar och inga ord hördes. Försök igen."
+  "rune.dictation.timedOutEmpty": "Dikteringen blev inte klar och inga ord hördes. Försök igen.",
+  "rune.web.check.title": "Telefonkontroll",
+  "rune.web.check.intro": "Mäter den här telefonen och skickar bara siffror: inget lösenord, ingen skärmbild.",
+  "rune.web.check.measuring": "Mäter. Håll still några sekunder.",
+  "rune.web.check.keyboard": "Tryck på fältet. När tangentbordet syns, tryck på Klar.",
+  "rune.web.check.field": "Tryck här",
+  "rune.web.check.rotate": "Vänd telefonen på sidan, vänta två sekunder och vänd tillbaka den.",
+  "rune.web.check.send": "Skicka resultat",
+  "rune.web.check.sending": "Skickar …",
+  "rune.web.check.sent": "Skickat. Din kod: {{code}}",
+  "rune.web.check.notSent": "Det gick inte att skicka. Försök igen.",
+  "rune.web.check.works": "Fungerar",
+  "rune.web.check.failed": "Misslyckades",
+  "rune.web.check.none": "Inte mätt"
 }

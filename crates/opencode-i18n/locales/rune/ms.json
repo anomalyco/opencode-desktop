@@ -209,5 +209,18 @@
   "rune.undo.sessionDeleted": "Sesi dipadamkan",
   "rune.toast.renameNoAnswer": "Pelayan tidak mengesahkan tajuk baharu tepat pada masanya, jadi tajuk yang terakhir diterimanya dikembalikan. Cuba lagi sebentar nanti.",
   "rune.dictation.timedOut": "Imlak tidak selesai. Perkataan yang didengar setakat ini ada dalam draf.",
-  "rune.dictation.timedOutEmpty": "Imlak tidak selesai dan tiada perkataan didengar. Cuba lagi."
+  "rune.dictation.timedOutEmpty": "Imlak tidak selesai dan tiada perkataan didengar. Cuba lagi.",
+  "rune.web.check.title": "Semakan telefon",
+  "rune.web.check.intro": "Mengukur telefon ini dan menghantar nombor sahaja: tiada kata laluan, tiada tangkapan skrin.",
+  "rune.web.check.measuring": "Sedang mengukur. Jangan gerakkan selama beberapa saat.",
+  "rune.web.check.keyboard": "Ketik medan. Apabila papan kekunci muncul, ketik Selesai.",
+  "rune.web.check.field": "Ketik di sini",
+  "rune.web.check.rotate": "Pusingkan telefon ke sisi, tunggu dua saat, kemudian pusingkan semula.",
+  "rune.web.check.send": "Hantar keputusan",
+  "rune.web.check.sending": "Menghantar…",
+  "rune.web.check.sent": "Dihantar. Kod anda: {{code}}",
+  "rune.web.check.notSent": "Tidak dapat menghantar. Cuba lagi.",
+  "rune.web.check.works": "Berfungsi",
+  "rune.web.check.failed": "Gagal",
+  "rune.web.check.none": "Tidak diukur"
 }
