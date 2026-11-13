@@ -2,11 +2,12 @@
 # opencode-rune-plan.sh: decides what .github/workflows/release.yml builds and publishes, from the
 # event, the ref and the repository's tags alone.
 #
-#   dev     a push to dev (or a dispatch from dev): 0.0.0-dev-<run + 400> on the release
-#           service's dev channel, signed, every platform (SCOPE all). A dispatch can pick SCOPE
-#           x64 (Windows x64 only); a channel's release is replaced whole, so a platform that run
-#           didn't build has no target until a run builds it again (the updater then reports
-#           NoTarget, updater/protocol.rs `decide`).
+#   dev     the schedule (or a dispatch from dev): 0.0.0-dev-<run + 400> on the release
+#           service's dev channel, signed. SCOPE x64 (four times a day) builds Windows x64; all
+#           (nightly) also Windows arm64 and macOS. A channel's release is replaced whole, so a
+#           platform this run didn't build has no target until a run builds it again (the updater
+#           then reports NoTarget, updater/protocol.rs `decide`). A scheduled run builds nothing
+#           when dev hasn't changed an app file since the last successful dev run of its scope.
 #   check   a dispatch from dev: the same build, signed and verified, published nowhere. Its last
 #           job pushes and deletes a throwaway v0.0.0-test-<run> tag to prove it can tag.
 #   stable  a dispatch from dev with BUMP (patch, minor or major): the latest vX.Y.Z tag (0.0.0
@@ -17,12 +18,13 @@
 # job checks out github.sha.
 #
 # Environment: EVENT, REF_NAME, CHANNEL, BUMP, SCOPE, SHA, GITHUB_SHA, GITHUB_RUN_NUMBER,
-# GITHUB_REPOSITORY, GH_TOKEN.
+# GITHUB_RUN_ID, GITHUB_REPOSITORY, GH_TOKEN.
 . "$(dirname "$0")/lib.sh"
 
 [ -n "$SHA" ] && [ "$SHA" = "${GITHUB_SHA:-}" ] || die "The checked-out commit $SHA is not this run's commit ${GITHUB_SHA:-}."
 [ "$REF_NAME" = dev ] || die "Releases run from dev, not $REF_NAME."
 
+build_desktop=true
 tag=""
 scope=${SCOPE:-all}
 # Renaming the workflow to release.yml (2026-11-12) restarted its run numbers at 1, after
@@ -62,6 +64,28 @@ esac
 
 case "$scope" in x64 | all) ;; *) die "Unknown scope $scope." ;; esac
 
+# A scheduled dev run builds only when dev changed an app file since the last successful dev run
+# of its scope (an every-platform run counts for the x64 scope too). A run that finds nothing
+# succeeds at the same commit, so it is the next one's base.
+reason=""
+if [ "$EVENT" = schedule ] && [ "$CHANNEL" = dev ]; then
+  if [ "$scope" = all ]; then prefix="dev: every platform"; else prefix="dev: "; fi
+  last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=dev&status=success&per_page=100" \
+    --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID and (.display_title | startswith(\"$prefix\")))][0].head_sha // empty" || true)
+  if [ "$last" = "$SHA" ]; then
+    reason="dev is still at ${SHA:0:9}, which the last successful dev run of this scope built."
+  elif [ -n "$last" ]; then
+    files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$last...$SHA" --jq '.files[]?.filename' || true)
+    count=$(grep -c . <<< "$files" || true)
+    app='^(apps/desktop/|apps/installer/|crates/|plugins/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/release\.yml$|\.github/release/)'
+    # The compare API lists at most 300 files: more is a change worth a build.
+    if [ "$count" -gt 0 ] && [ "$count" -lt 300 ] && ! grep -Eq "$app" <<< "$files"; then
+      reason="no app file changed between ${last:0:9} and ${SHA:0:9}."
+    fi
+  fi
+  [ -z "$reason" ] || build_desktop=false
+fi
+
 if [ "$scope" = all ]; then windows_arches='["x64","arm64"]' macos=true; else windows_arches='["x64"]' macos=false; fi
 
 {
@@ -71,7 +95,12 @@ if [ "$scope" = all ]; then windows_arches='["x64","arm64"]' macos=true; else wi
   echo "notes-url=$notes"
   echo "release-channel=$release_channel"
   echo "release-version=$release_version"
+  echo "build-desktop=$build_desktop"
   echo "windows-arches=$windows_arches"
   echo "macos=$macos"
 } >> "$GITHUB_OUTPUT"
-echo "Planned OpenCode (Rune) ($CHANNEL, $scope): $release_channel $release_version${tag:+ ($tag)}; Windows $windows_arches, macOS $macos, at $SHA." >> "$GITHUB_STEP_SUMMARY"
+if [ -n "$reason" ]; then
+  echo "Nothing to build: $reason" >> "$GITHUB_STEP_SUMMARY"
+else
+  echo "Planned OpenCode (Rune) ($CHANNEL, $scope): $release_channel $release_version${tag:+ ($tag)}; Windows $windows_arches, macOS $macos, at $SHA." >> "$GITHUB_STEP_SUMMARY"
+fi

@@ -4,7 +4,7 @@
 
 ## Channels
 
-- **dev**: every push to `dev` that changes an app file builds every platform (Windows x64 and arm64, macOS), signs it, and publishes `0.0.0-dev-<n>` on the dev channel. A running release finishes, and of the pushes that land meanwhile only the newest waits. The unsigned Windows setups also go to the rolling `opencode-rune-windows-dev` pre-release.
+- **dev**: runs on a schedule from `dev`: Windows x64 four times a day, and every platform (Windows x64 and arm64, macOS) nightly, only when an app file changed. It signs what it built and publishes `0.0.0-dev-<n>` on the dev channel. A channel's release is replaced whole, so a platform the run didn't build has no update until the next run that builds it. The unsigned Windows setups also go to the rolling `opencode-rune-windows-dev` pre-release.
 - **check**: dispatch from `dev`. It builds, signs and verifies, and publishes nothing. Its last job pushes and deletes a throwaway `v0.0.0-test-<n>` tag.
 - **stable**: dispatch from `dev` with a bump (`patch`, `minor` or `major`). The version is the latest `vX.Y.Z` tag bumped (`0.0.0` when there is none). Every platform has to be signed and verified. Once it's published, the last job tags `v<version>` on the released commit and creates the GitHub release with the signed files. A failed run doesn't use up a version.
 
