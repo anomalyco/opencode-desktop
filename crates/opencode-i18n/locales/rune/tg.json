@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Пас аз {{duration}} бо коди {{code}} анҷом ёфт",
   "rune.terminal.mark.finished": "Пас аз {{duration}} анҷом ёфт",
   "rune.terminal.mark.ok": "Пас аз {{duration}} бомуваффақият",
+  "rune.textRendering.default.mac": "Пешфарз (канорҳои ҳамвор)",
   "rune.undo.draftClosed": "Нусхаи сиёҳ пӯшида шуд",
   "rune.undo.serverRemoved": "Сервер хориҷ шуд",
   "rune.undo.sessionArchived": "Сессия бойгонӣ шуд",

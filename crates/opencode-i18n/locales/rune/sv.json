@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Avslutades med {{code}} efter {{duration}}",
   "rune.terminal.mark.finished": "Klar efter {{duration}}",
   "rune.terminal.mark.ok": "Lyckades efter {{duration}}",
+  "rune.textRendering.default.mac": "Standard (kantutjämnad)",
   "rune.undo.draftClosed": "Utkastet stängdes",
   "rune.undo.serverRemoved": "Servern togs bort",
   "rune.undo.sessionArchived": "Sessionen arkiverades",

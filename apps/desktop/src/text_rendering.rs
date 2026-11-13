@@ -14,7 +14,8 @@ use crate::App;
 /// A Text rendering choice, as saved (`textRenderer`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextRenderer {
-    /// Rune's default here: Windfoil with Chromium's weight, or Retina-like on macOS.
+    /// Rune's default here: Windfoil with Chromium's weight; on a Mac (and in a Mac's browser)
+    /// CoreText's text without font smoothing, as official draws it ([`default_mode`]).
     #[default]
     Default,
     WindfoilMac,
@@ -73,7 +74,7 @@ impl TextRenderer {
     pub fn label(self) -> &'static str {
         use opencode_i18n::t;
         match self {
-            Self::Default if cfg!(target_os = "macos") => t!("rune.textRendering.default.mac"),
+            Self::Default if mac_default() => t!("rune.textRendering.default.mac"),
             Self::Default => t!("rune.textRendering.default"),
             Self::WindfoilMac => t!("rune.textRendering.windfoil"),
             Self::WindfoilChromium => t!("rune.textRendering.windfoilChromium"),
@@ -91,7 +92,7 @@ impl TextRenderer {
     /// The mode it draws with, when Rune has one for it.
     fn mode(self) -> Option<FontSmoothing> {
         Some(match self {
-            Self::Default => FontSmoothing::default(),
+            Self::Default => default_mode(),
             Self::WindfoilMac => FontSmoothing::Windfoil,
             Self::WindfoilChromium => FontSmoothing::WindfoilChromium,
             Self::Slug => FontSmoothing::Slug,
@@ -153,7 +154,7 @@ pub enum RenderingEffect {
 impl Rendering {
     pub fn mode(self) -> FontSmoothing {
         match self {
-            Rendering::Unapplied => FontSmoothing::default(),
+            Rendering::Unapplied => default_mode(),
             Rendering::Applied { mode, .. } | Rendering::FellBack { mode, .. } => mode,
         }
     }
@@ -181,12 +182,26 @@ impl Rendering {
     }
 }
 
+/// What Default draws. Where Rune's own default is font smoothing (`On`: macOS, and a Mac's
+/// browser), it's CoreText's text with smoothing off, which is what official draws there: its
+/// `<body>` is `antialiased` (`-webkit-font-smoothing: antialiased`), and smoothing's dilation
+/// drew Rune's text 12-30% heavier than official's (TEXT-2, `proof\text-gpu\weight\mac\`).
+/// Everywhere else it's Rune's default, unchanged. Retina-like still draws `On`.
+fn default_mode() -> FontSmoothing {
+    if mac_default() { FontSmoothing::Off } else { FontSmoothing::default() }
+}
+
+/// Whether Rune's own default here is font smoothing: on macOS and in a Mac's browser.
+fn mac_default() -> bool {
+    FontSmoothing::default() == FontSmoothing::On
+}
+
 fn resolve(choice: TextRenderer) -> Rendering {
     match (choice.mode(), choice.support()) {
         (Some(mode), SmoothingSupport::Yes) => Rendering::Applied { choice, mode },
         (Some(mode), SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode, reason },
-        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: FontSmoothing::default(), reason },
-        (_, _) => Rendering::FellBack { choice, mode: FontSmoothing::default(), reason: "" },
+        (_, SmoothingSupport::No(reason) | SmoothingSupport::Fallback(reason)) => Rendering::FellBack { choice, mode: default_mode(), reason },
+        (_, _) => Rendering::FellBack { choice, mode: default_mode(), reason: "" },
     }
 }
 

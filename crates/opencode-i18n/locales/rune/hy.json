@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Ավարտվեց {{code}} կոդով {{duration}} հետո",
   "rune.terminal.mark.finished": "Ավարտվեց {{duration}} հետո",
   "rune.terminal.mark.ok": "Հաջողվեց {{duration}} հետո",
+  "rune.textRendering.default.mac": "Լռելյայն (հարթեցված եզրեր)",
   "rune.undo.draftClosed": "Սևագիրը փակվեց",
   "rune.undo.serverRemoved": "Սերվերը հեռացվեց",
   "rune.undo.sessionArchived": "Նիստը արխիվացվեց",

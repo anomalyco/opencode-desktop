@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "ອອກດ້ວຍລະຫັດ {{code}} ຫຼັງ {{duration}}",
   "rune.terminal.mark.finished": "ສຳເລັດຫຼັງ {{duration}}",
   "rune.terminal.mark.ok": "ສຳເລັດຜົນຫຼັງ {{duration}}",
+  "rune.textRendering.default.mac": "ຄ່າເລີ່ມຕົ້ນ (antialiased)",
   "rune.undo.draftClosed": "ປິດສະບັບຮ່າງແລ້ວ",
   "rune.undo.serverRemoved": "ລຶບເຊີບເວີອອກແລ້ວ",
   "rune.undo.sessionArchived": "ເກັບເຊດຊັນເຂົ້າຄັງແລ້ວ",

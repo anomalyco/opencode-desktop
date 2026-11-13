@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "បានចេញដោយកូដ {{code}} បន្ទាប់ពី {{duration}}",
   "rune.terminal.mark.finished": "បានបញ្ចប់បន្ទាប់ពី {{duration}}",
   "rune.terminal.mark.ok": "ជោគជ័យបន្ទាប់ពី {{duration}}",
+  "rune.textRendering.default.mac": "លំនាំដើម (antialiased)",
   "rune.undo.draftClosed": "បានបិទសេចក្ដីព្រាង",
   "rune.undo.serverRemoved": "បានដកម៉ាស៊ីនមេចេញ",
   "rune.undo.sessionArchived": "បានរក្សាទុកសម័យក្នុងបណ្ណសារ",

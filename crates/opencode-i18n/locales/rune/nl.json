@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Afgesloten met {{code}} na {{duration}}",
   "rune.terminal.mark.finished": "Klaar na {{duration}}",
   "rune.terminal.mark.ok": "Gelukt na {{duration}}",
+  "rune.textRendering.default.mac": "Standaard (anti-aliased)",
   "rune.undo.draftClosed": "Concept gesloten",
   "rune.undo.serverRemoved": "Server verwijderd",
   "rune.undo.sessionArchived": "Sessie gearchiveerd",

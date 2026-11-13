@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} 后退出，代码 {{code}}",
   "rune.terminal.mark.finished": "{{duration}} 后结束",
   "rune.terminal.mark.ok": "{{duration}} 后成功",
+  "rune.textRendering.default.mac": "默认（抗锯齿）",
   "rune.undo.draftClosed": "草稿已关闭",
   "rune.undo.serverRemoved": "服务器已移除",
   "rune.undo.sessionArchived": "会话已归档",

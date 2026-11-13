@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} sonra {{code}} kodu ilə çıxdı",
   "rune.terminal.mark.finished": "{{duration}} sonra bitdi",
   "rune.terminal.mark.ok": "{{duration}} sonra uğurlu",
+  "rune.textRendering.default.mac": "Defolt (hamarlanmış kənarlar)",
   "rune.undo.draftClosed": "Qaralama bağlandı",
   "rune.undo.serverRemoved": "Server silindi",
   "rune.undo.sessionArchived": "Sessiya arxivləşdirildi",

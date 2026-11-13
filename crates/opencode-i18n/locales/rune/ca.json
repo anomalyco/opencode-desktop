@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Ha sortit amb {{code}} després de {{duration}}",
   "rune.terminal.mark.finished": "Ha acabat després de {{duration}}",
   "rune.terminal.mark.ok": "Correcte després de {{duration}}",
+  "rune.textRendering.default.mac": "Per defecte (amb antialiàsing)",
   "rune.undo.draftClosed": "S'ha tancat l'esborrany",
   "rune.undo.serverRemoved": "S'ha eliminat el servidor",
   "rune.undo.sessionArchived": "S'ha arxivat la sessió",

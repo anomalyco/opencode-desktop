@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Zakończono kodem {{code}} po {{duration}}",
   "rune.terminal.mark.finished": "Zakończono po {{duration}}",
   "rune.terminal.mark.ok": "Powodzenie po {{duration}}",
+  "rune.textRendering.default.mac": "Domyślne (wygładzanie krawędzi)",
   "rune.undo.draftClosed": "Zamknięto wersję roboczą",
   "rune.undo.serverRemoved": "Usunięto serwer",
   "rune.undo.sessionArchived": "Zarchiwizowano sesję",

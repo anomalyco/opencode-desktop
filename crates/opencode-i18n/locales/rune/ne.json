@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} पछि कोड {{code}} सहित बन्द भयो",
   "rune.terminal.mark.finished": "{{duration}} पछि सकियो",
   "rune.terminal.mark.ok": "{{duration}} पछि सफल",
+  "rune.textRendering.default.mac": "पूर्वनिर्धारित (एन्टिएलियास्ड)",
   "rune.undo.draftClosed": "मस्यौदा बन्द भयो",
   "rune.undo.serverRemoved": "सर्भर हटाइयो",
   "rune.undo.sessionArchived": "सत्र अभिलेखमा राखियो",

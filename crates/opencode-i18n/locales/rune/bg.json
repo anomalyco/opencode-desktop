@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Завърши с код {{code}} след {{duration}}",
   "rune.terminal.mark.finished": "Завърши след {{duration}}",
   "rune.terminal.mark.ok": "Успешно след {{duration}}",
+  "rune.textRendering.default.mac": "По подразбиране (изгладени ръбове)",
   "rune.undo.draftClosed": "Черновата е затворена",
   "rune.undo.serverRemoved": "Сървърът е премахнат",
   "rune.undo.sessionArchived": "Сесията е архивирана",

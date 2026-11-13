@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} ਬਾਅਦ ਕੋਡ {{code}} ਨਾਲ ਬੰਦ ਹੋਇਆ",
   "rune.terminal.mark.finished": "{{duration}} ਬਾਅਦ ਪੂਰਾ ਹੋਇਆ",
   "rune.terminal.mark.ok": "{{duration}} ਬਾਅਦ ਸਫਲ",
+  "rune.textRendering.default.mac": "ਡਿਫੌਲਟ (ਐਂਟੀਅਲਾਇਸਡ)",
   "rune.undo.draftClosed": "ڈرافٹ بند ہو گیا",
   "rune.undo.serverRemoved": "سرور ہٹا دتا گیا",
   "rune.undo.sessionArchived": "سیشن آرکائیو ہو گیا",

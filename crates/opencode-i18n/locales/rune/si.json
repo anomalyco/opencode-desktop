@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} කට පසු කේතය {{code}} සමඟ පිටවිය",
   "rune.terminal.mark.finished": "{{duration}} කට පසු අවසන් විය",
   "rune.terminal.mark.ok": "{{duration}} කට පසු සාර්ථකයි",
+  "rune.textRendering.default.mac": "පෙරනිමි (antialiased)",
   "rune.undo.draftClosed": "කෙටුම්පත වැසිණි",
   "rune.undo.serverRemoved": "සේවාදායකය ඉවත් කළා",
   "rune.undo.sessionArchived": "සැසිය සංරක්ෂණය කළා",

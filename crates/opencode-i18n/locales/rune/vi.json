@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Thoát với mã {{code}} sau {{duration}}",
   "rune.terminal.mark.finished": "Xong sau {{duration}}",
   "rune.terminal.mark.ok": "Thành công sau {{duration}}",
+  "rune.textRendering.default.mac": "Mặc định (khử răng cưa)",
   "rune.undo.draftClosed": "Đã đóng bản nháp",
   "rune.undo.serverRemoved": "Đã xóa máy chủ",
   "rune.undo.sessionArchived": "Đã lưu trữ phiên",

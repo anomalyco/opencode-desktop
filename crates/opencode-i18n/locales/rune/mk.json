@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Завршено со код {{code}} по {{duration}}",
   "rune.terminal.mark.finished": "Готово по {{duration}}",
   "rune.terminal.mark.ok": "Успешно по {{duration}}",
+  "rune.textRendering.default.mac": "Стандардно (изедначени рабови)",
   "rune.undo.draftClosed": "Нацртот е затворен",
   "rune.undo.serverRemoved": "Серверот е отстранет",
   "rune.undo.sessionArchived": "Сесијата е архивирана",

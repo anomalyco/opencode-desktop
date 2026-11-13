@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Lõppes koodiga {{code}} pärast {{duration}}",
   "rune.terminal.mark.finished": "Valmis pärast {{duration}}",
   "rune.terminal.mark.ok": "Õnnestus pärast {{duration}}",
+  "rune.textRendering.default.mac": "Vaikimisi (silutud servad)",
   "rune.undo.draftClosed": "Mustand suleti",
   "rune.undo.serverRemoved": "Server eemaldati",
   "rune.undo.sessionArchived": "Seanss arhiveeriti",

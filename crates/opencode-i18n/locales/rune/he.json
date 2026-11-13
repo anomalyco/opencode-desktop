@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "יצא עם {{code}} אחרי {{duration}}",
   "rune.terminal.mark.finished": "הסתיים אחרי {{duration}}",
   "rune.terminal.mark.ok": "הצליח אחרי {{duration}}",
+  "rune.textRendering.default.mac": "ברירת מחדל (החלקת קצוות)",
   "rune.undo.draftClosed": "הטיוטה נסגרה",
   "rune.undo.serverRemoved": "השרת הוסר",
   "rune.undo.sessionArchived": "ההפעלה הועברה לארכיון",

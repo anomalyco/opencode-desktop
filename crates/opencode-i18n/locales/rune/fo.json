@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Endaði við {{code}} eftir {{duration}}",
   "rune.terminal.mark.finished": "Liðugt eftir {{duration}}",
   "rune.terminal.mark.ok": "Eydnaðist eftir {{duration}}",
+  "rune.textRendering.default.mac": "Sjálvvirði (slættaðar kantar)",
   "rune.undo.draftClosed": "Kladda latin aftur",
   "rune.undo.serverRemoved": "Ambætari strikaður",
   "rune.undo.sessionArchived": "Seta goymd í skjalasavn",

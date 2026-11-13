@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Hætti með {{code}} eftir {{duration}}",
   "rune.terminal.mark.finished": "Lokið eftir {{duration}}",
   "rune.terminal.mark.ok": "Tókst eftir {{duration}}",
+  "rune.textRendering.default.mac": "Sjálfgefið (jaðarjöfnun)",
   "rune.undo.draftClosed": "Drögum lokað",
   "rune.undo.serverRemoved": "Netþjónn fjarlægður",
   "rune.undo.sessionArchived": "Lota sett í safn",

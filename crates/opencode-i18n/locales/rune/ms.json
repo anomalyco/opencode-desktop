@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Keluar dengan {{code}} selepas {{duration}}",
   "rune.terminal.mark.finished": "Selesai selepas {{duration}}",
   "rune.terminal.mark.ok": "Berjaya selepas {{duration}}",
+  "rune.textRendering.default.mac": "Lalai (antialias)",
   "rune.undo.draftClosed": "Draf ditutup",
   "rune.undo.serverRemoved": "Pelayan dialih keluar",
   "rune.undo.sessionArchived": "Sesi diarkibkan",

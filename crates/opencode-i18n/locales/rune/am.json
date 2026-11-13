@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "ከ{{duration}} በኋላ በኮድ {{code}} ወጣ",
   "rune.terminal.mark.finished": "ከ{{duration}} በኋላ ተጠናቀቀ",
   "rune.terminal.mark.ok": "ከ{{duration}} በኋላ ተሳክቷል",
+  "rune.textRendering.default.mac": "ነባሪ (antialiased)",
   "rune.undo.draftClosed": "ረቂቁ ተዘግቷል",
   "rune.undo.serverRemoved": "አገልጋዩ ተወግዷል",
   "rune.undo.sessionArchived": "ክፍለ ጊዜው ተመዝግቧል",
