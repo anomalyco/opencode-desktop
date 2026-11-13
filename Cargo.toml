@@ -30,19 +30,19 @@ license = "MIT"
 # Rune's default features less two the app doesn't use: `embedded-fonts` (the app registers its own
 # faces, so Rune's bundled Inter was 1.25 MB nobody drew with) and `ogg-audio` (Ogg and Opus audio
 # for macOS video, which apps/desktop turns on for macOS alone).
-rune = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b", default-features = false, features = ["accessibility", "dbus", "metal-backend", "svg"] }
-rune-kit = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-luau = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-i18n = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-procwatch = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-mac = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-notify = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-perf = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
-rune-register = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
+rune = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d", default-features = false, features = ["accessibility", "dbus", "metal-backend", "svg"] }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-luau = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-theme-opencode = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-i18n = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+procwatch = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-knobs = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-mac = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-notify = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-perf = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
+rune-register = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
 # Objects keep their keys in the order they arrive, as JavaScript's do: a tool's arguments list as
 # Desktop lists them.
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -54,18 +54,18 @@ ureq = { version = "3.4", default-features = false }
 # `vendor/wgpu-hal` in the Rune repo), at the Rune rev pinned above: a window's GPU is then the one adapter
 # Rune picks through DXGI, with no device made on the others, and a frame presents only what changed.
 # Keep the rev equal to the `rune` rev.
-wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
 # Rune's winit (winit 0.30 as published plus `vendor/winit.patch`: a new Windows window isn't added again
 # to the taskbar it's already on, which cost CoInitializeEx and a TaskbarList COM object on the UI
 # thread before the first frame). Keep the rev equal to the `rune` rev.
-winit = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
 # Rune's accesskit_windows (0.35.2 as published plus `vendor/accesskit_windows.patch`: headings and
 # landmarks reach UI Automation). At the same rev as `rune`.
-accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
 # Rune's parley_engine (0.12.0 as published plus `vendor/parley_engine.patch`: UAX #9 rule L1 at a
 # paragraph's end, so Unicode's BidiTest.txt passes whole; segmenters and font metrics made once,
 # not for every text and run). Keep the rev equal to the `rune` rev.
-parley_engine = { git = "https://github.com/anomalyco/rune", rev = "740ecbc96902fe0008745de61cd3b732fb407a6b" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "4766e6d352efd0f60657bcd56b2a8801da3ad38d" }
 yrs = { git = "https://github.com/openooxml/y-crdt.git", rev = "e785c00611ebce79ece115defa25295982cac165" }
 
 [profile.dev.package."*"]
