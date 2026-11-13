@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} 後にコード {{code}} で終了",
   "rune.terminal.mark.finished": "{{duration}} 後に終了",
   "rune.terminal.mark.ok": "{{duration}} 後に成功",
+  "rune.textRendering.default.mac": "デフォルト（アンチエイリアス）",
   "rune.undo.draftClosed": "下書きを閉じました",
   "rune.undo.serverRemoved": "サーバーを削除しました",
   "rune.undo.sessionArchived": "セッションをアーカイブしました",

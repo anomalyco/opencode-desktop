@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Baigta kodu {{code}} po {{duration}}",
   "rune.terminal.mark.finished": "Baigta po {{duration}}",
   "rune.terminal.mark.ok": "Pavyko po {{duration}}",
+  "rune.textRendering.default.mac": "Numatytasis (glotninti kraštai)",
   "rune.undo.draftClosed": "Juodraštis uždarytas",
   "rune.undo.serverRemoved": "Serveris pašalintas",
   "rune.undo.sessionArchived": "Seansas suarchyvuotas",

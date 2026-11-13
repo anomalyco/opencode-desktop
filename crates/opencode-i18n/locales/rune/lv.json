@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Beidzās ar kodu {{code}} pēc {{duration}}",
   "rune.terminal.mark.finished": "Pabeigts pēc {{duration}}",
   "rune.terminal.mark.ok": "Izdevās pēc {{duration}}",
+  "rune.textRendering.default.mac": "Noklusējums (nogludinātas malas)",
   "rune.undo.draftClosed": "Melnraksts aizvērts",
   "rune.undo.serverRemoved": "Serveris noņemts",
   "rune.undo.sessionArchived": "Sesija arhivēta",

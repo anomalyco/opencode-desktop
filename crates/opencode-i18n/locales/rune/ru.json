@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Завершено с кодом {{code}} через {{duration}}",
   "rune.terminal.mark.finished": "Завершено через {{duration}}",
   "rune.terminal.mark.ok": "Успешно через {{duration}}",
+  "rune.textRendering.default.mac": "По умолчанию (сглаживание)",
   "rune.undo.draftClosed": "Черновик закрыт",
   "rune.undo.serverRemoved": "Сервер удалён",
   "rune.undo.sessionArchived": "Сессия в архиве",

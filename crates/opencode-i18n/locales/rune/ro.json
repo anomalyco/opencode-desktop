@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "S-a încheiat cu {{code}} după {{duration}}",
   "rune.terminal.mark.finished": "Gata după {{duration}}",
   "rune.terminal.mark.ok": "Reușit după {{duration}}",
+  "rune.textRendering.default.mac": "Implicit (antialiasing)",
   "rune.undo.draftClosed": "Ciornă închisă",
   "rune.undo.serverRemoved": "Server eliminat",
   "rune.undo.sessionArchived": "Sesiune arhivată",

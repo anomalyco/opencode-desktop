@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Skončené s kódom {{code}} po {{duration}}",
   "rune.terminal.mark.finished": "Dokončené po {{duration}}",
   "rune.terminal.mark.ok": "Úspech po {{duration}}",
+  "rune.textRendering.default.mac": "Predvolené (vyhladené hrany)",
   "rune.undo.draftClosed": "Koncept zatvorený",
   "rune.undo.serverRemoved": "Server odstránený",
   "rune.undo.sessionArchived": "Relácia archivovaná",

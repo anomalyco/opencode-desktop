@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Päättyi koodilla {{code}} ajassa {{duration}}",
   "rune.terminal.mark.finished": "Valmis ajassa {{duration}}",
   "rune.terminal.mark.ok": "Onnistui ajassa {{duration}}",
+  "rune.textRendering.default.mac": "Oletus (reunanpehmennys)",
   "rune.undo.draftClosed": "Luonnos suljettu",
   "rune.undo.serverRemoved": "Palvelin poistettu",
   "rune.undo.sessionArchived": "Istunto arkistoitu",

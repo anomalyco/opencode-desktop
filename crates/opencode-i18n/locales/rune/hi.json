@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} बाद कोड {{code}} के साथ बंद हुआ",
   "rune.terminal.mark.finished": "{{duration}} बाद पूरा हुआ",
   "rune.terminal.mark.ok": "{{duration}} बाद सफल",
+  "rune.textRendering.default.mac": "डिफ़ॉल्ट (एंटी-एलियास्ड)",
   "rune.undo.draftClosed": "ड्राफ़्ट बंद हुआ",
   "rune.undo.serverRemoved": "सर्वर हटाया गया",
   "rune.undo.sessionArchived": "सेशन संग्रहीत हुआ",

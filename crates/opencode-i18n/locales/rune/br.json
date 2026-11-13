@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Kuitaet gant {{code}} goude {{duration}}",
   "rune.terminal.mark.finished": "Echu goude {{duration}}",
   "rune.terminal.mark.ok": "Berzh goude {{duration}}",
+  "rune.textRendering.default.mac": "Dre ziouer (antialiased)",
   "rune.undo.draftClosed": "Rascunho fechado",
   "rune.undo.serverRemoved": "Servidor removido",
   "rune.undo.sessionArchived": "Sessão arquivada",

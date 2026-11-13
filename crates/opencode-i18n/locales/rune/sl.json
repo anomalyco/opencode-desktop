@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Končano s kodo {{code}} po {{duration}}",
   "rune.terminal.mark.finished": "Končano po {{duration}}",
   "rune.terminal.mark.ok": "Uspešno po {{duration}}",
+  "rune.textRendering.default.mac": "Privzeto (glajenje robov)",
   "rune.undo.draftClosed": "Osnutek zaprt",
   "rune.undo.serverRemoved": "Strežnik odstranjen",
   "rune.undo.sessionArchived": "Seja arhivirana",

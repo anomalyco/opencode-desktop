@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Τερματίστηκε με {{code}} μετά από {{duration}}",
   "rune.terminal.mark.finished": "Ολοκληρώθηκε μετά από {{duration}}",
   "rune.terminal.mark.ok": "Επιτυχία μετά από {{duration}}",
+  "rune.textRendering.default.mac": "Προεπιλογή (εξομάλυνση άκρων)",
   "rune.undo.draftClosed": "Το πρόχειρο έκλεισε",
   "rune.undo.serverRemoved": "Ο διακομιστής αφαιρέθηκε",
   "rune.undo.sessionArchived": "Η συνεδρία αρχειοθετήθηκε",

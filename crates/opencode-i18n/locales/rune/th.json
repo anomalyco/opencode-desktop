@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "ออกด้วยรหัส {{code}} หลัง {{duration}}",
   "rune.terminal.mark.finished": "เสร็จหลัง {{duration}}",
   "rune.terminal.mark.ok": "สำเร็จหลัง {{duration}}",
+  "rune.textRendering.default.mac": "ค่าเริ่มต้น (แอนติเอเลียส)",
   "rune.undo.draftClosed": "ปิดฉบับร่างแล้ว",
   "rune.undo.serverRemoved": "นำเซิร์ฟเวอร์ออกแล้ว",
   "rune.undo.sessionArchived": "เก็บถาวรเซสชันแล้ว",

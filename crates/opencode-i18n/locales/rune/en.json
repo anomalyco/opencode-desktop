@@ -187,7 +187,7 @@
   "rune.textRendering.cleartype": "ClearType",
   "rune.textRendering.cycle": "Cycle text rendering",
   "rune.textRendering.default": "Default (Windfoil, Chromium weight)",
-  "rune.textRendering.default.mac": "Default (antialiased, as official)",
+  "rune.textRendering.default.mac": "Default (antialiased)",
   "rune.textRendering.description": "How text is drawn, switched live, for comparing renderers. Windfoil draws each glyph's exact coverage from its outline on the GPU, so text stays sharp while it zooms or moves.",
   "rune.textRendering.first": "First outline renderer (for measuring)",
   "rune.textRendering.hintedGpu": "Hinted GPU",

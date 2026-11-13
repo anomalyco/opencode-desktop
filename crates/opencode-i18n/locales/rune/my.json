@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} အကြာတွင် ကုဒ် {{code}} ဖြင့် ထွက်သည်",
   "rune.terminal.mark.finished": "{{duration}} အကြာတွင် ပြီးသည်",
   "rune.terminal.mark.ok": "{{duration}} အကြာတွင် အောင်မြင်သည်",
+  "rune.textRendering.default.mac": "မူလ (antialiased)",
   "rune.undo.draftClosed": "မူကြမ်း ပိတ်လိုက်ပြီ",
   "rune.undo.serverRemoved": "ဆာဗာ ဖယ်ရှားလိုက်ပြီ",
   "rune.undo.sessionArchived": "ဆက်ရှင် သိမ်းဆည်းလိုက်ပြီ",

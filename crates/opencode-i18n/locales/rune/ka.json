@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "დასრულდა კოდით {{code}} {{duration}}-ის შემდეგ",
   "rune.terminal.mark.finished": "დასრულდა {{duration}}-ის შემდეგ",
   "rune.terminal.mark.ok": "წარმატებით {{duration}}-ის შემდეგ",
+  "rune.textRendering.default.mac": "ნაგულისხმევი (გასწორებული კიდეები)",
   "rune.undo.draftClosed": "მონახაზი დაიხურა",
   "rune.undo.serverRemoved": "სერვერი წაიშალა",
   "rune.undo.sessionArchived": "სესია დაარქივდა",

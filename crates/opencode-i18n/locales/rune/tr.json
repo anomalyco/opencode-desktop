@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} sonra {{code}} ile çıktı",
   "rune.terminal.mark.finished": "{{duration}} sonra bitti",
   "rune.terminal.mark.ok": "{{duration}} sonra başarılı",
+  "rune.textRendering.default.mac": "Varsayılan (kenar yumuşatma)",
   "rune.undo.draftClosed": "Taslak kapatıldı",
   "rune.undo.serverRemoved": "Sunucu kaldırıldı",
   "rune.undo.sessionArchived": "Oturum arşivlendi",

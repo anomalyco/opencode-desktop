@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Doli me {{code}} pas {{duration}}",
   "rune.terminal.mark.finished": "Përfundoi pas {{duration}}",
   "rune.terminal.mark.ok": "Me sukses pas {{duration}}",
+  "rune.textRendering.default.mac": "E parazgjedhur (skaje të lëmuara)",
   "rune.undo.draftClosed": "Drafti u mbyll",
   "rune.undo.serverRemoved": "Serveri u hoq",
   "rune.undo.sessionArchived": "Sesioni u arkivua",

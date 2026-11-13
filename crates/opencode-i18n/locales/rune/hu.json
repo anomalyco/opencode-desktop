@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Kilépés {{code}} kóddal, {{duration}} után",
   "rune.terminal.mark.finished": "Kész, {{duration}} után",
   "rune.terminal.mark.ok": "Sikerült, {{duration}} után",
+  "rune.textRendering.default.mac": "Alapértelmezett (élsimított)",
   "rune.undo.draftClosed": "Piszkozat bezárva",
   "rune.undo.serverRemoved": "Kiszolgáló eltávolítva",
   "rune.undo.sessionArchived": "Munkamenet archiválva",

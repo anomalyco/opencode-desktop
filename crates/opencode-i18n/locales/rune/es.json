@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "Salió con {{code}} tras {{duration}}",
   "rune.terminal.mark.finished": "Terminó tras {{duration}}",
   "rune.terminal.mark.ok": "Correcto tras {{duration}}",
+  "rune.textRendering.default.mac": "Predeterminado (suavizado)",
   "rune.undo.draftClosed": "Borrador cerrado",
   "rune.undo.serverRemoved": "Servidor eliminado",
   "rune.undo.sessionArchived": "Sesión archivada",

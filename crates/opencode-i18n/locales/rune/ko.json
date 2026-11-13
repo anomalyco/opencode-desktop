@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} 후 코드 {{code}}(으)로 종료",
   "rune.terminal.mark.finished": "{{duration}} 후 완료",
   "rune.terminal.mark.ok": "{{duration}} 후 성공",
+  "rune.textRendering.default.mac": "기본값(안티앨리어싱)",
   "rune.undo.draftClosed": "초안 닫힘",
   "rune.undo.serverRemoved": "서버 제거됨",
   "rune.undo.sessionArchived": "세션 보관됨",

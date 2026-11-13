@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}}-ийн дараа {{code}} кодоор гарсан",
   "rune.terminal.mark.finished": "{{duration}}-ийн дараа дууссан",
   "rune.terminal.mark.ok": "{{duration}}-ийн дараа амжилттай",
+  "rune.textRendering.default.mac": "Өгөгдмөл (зөөлрүүлсэн ирмэг)",
   "rune.undo.draftClosed": "Ноорог хаагдлаа",
   "rune.undo.serverRemoved": "Сервер хасагдлаа",
   "rune.undo.sessionArchived": "Сесс архивлагдлаа",

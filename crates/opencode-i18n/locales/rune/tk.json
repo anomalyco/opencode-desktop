@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} soň {{code}} kody bilen çykdy",
   "rune.terminal.mark.finished": "{{duration}} soň tamamlandy",
   "rune.terminal.mark.ok": "{{duration}} soň üstünlikli",
+  "rune.textRendering.default.mac": "Deslapky (tekizlenen gyralar)",
   "rune.undo.draftClosed": "Garalama ýapyldy",
   "rune.undo.serverRemoved": "Serwer aýryldy",
   "rune.undo.sessionArchived": "Sessiýa arhiwlendi",

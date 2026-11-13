@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "پس از {{duration}} با کد {{code}} خارج شد",
   "rune.terminal.mark.finished": "پس از {{duration}} تمام شد",
   "rune.terminal.mark.ok": "پس از {{duration}} موفق شد",
+  "rune.textRendering.default.mac": "پیش‌فرض (لبه‌های نرم)",
   "rune.undo.draftClosed": "پیش‌نویس بسته شد",
   "rune.undo.serverRemoved": "سرور حذف شد",
   "rune.undo.sessionArchived": "جلسه بایگانی شد",

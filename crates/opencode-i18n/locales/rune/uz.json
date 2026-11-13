@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "{{duration}} dan keyin {{code}} kodi bilan chiqdi",
   "rune.terminal.mark.finished": "{{duration}} dan keyin tugadi",
   "rune.terminal.mark.ok": "{{duration}} dan keyin muvaffaqiyatli",
+  "rune.textRendering.default.mac": "Standart (silliqlangan qirralar)",
   "rune.undo.draftClosed": "Qoralama yopildi",
   "rune.undo.serverRemoved": "Server olib tashlandi",
   "rune.undo.sessionArchived": "Seans arxivlandi",

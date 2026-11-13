@@ -127,6 +127,7 @@
   "rune.terminal.mark.failed": "انتهى بالرمز {{code}} بعد {{duration}}",
   "rune.terminal.mark.finished": "انتهى بعد {{duration}}",
   "rune.terminal.mark.ok": "نجح بعد {{duration}}",
+  "rune.textRendering.default.mac": "افتراضي (حواف مُنعَّمة)",
   "rune.undo.draftClosed": "تم إغلاق المسودة",
   "rune.undo.serverRemoved": "تمت إزالة الخادم",
   "rune.undo.sessionArchived": "تمت أرشفة الجلسة",
