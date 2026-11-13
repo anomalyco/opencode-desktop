@@ -154,7 +154,7 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
     let title = crate::view::tab_strip::face(s, t).title;
     let mark = if t.is_draft() { s.tab_status(&t.id) } else { s.tab_status_of(t) };
     let status = mark.filter(|_| !active);
-    let (select, close) = (uid.clone(), uid.clone());
+    let (select, close, middle) = (uid.clone(), uid.clone(), uid.clone());
     let mut r = row()
         .key(format!("narrow-tab-{uid}"))
         .role("button")
@@ -166,7 +166,12 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        // A middle click closes it, as the titlebar's tabs do (`TabNavItem`'s `auxclick`).
+        .pointer_buttons([rune::PointerButton::Middle])
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            if tx.button() == rune::PointerButton::Middle {
+                return s.close_tab(&middle, tx);
+            }
             s.select_tab(&select, tx);
             s.tabs_drawer(TabsEvent::Close, tx);
         })
