@@ -11,6 +11,8 @@ impl BrowserHost {
     /// a viewport in window points, so it renders at its own zoom, not the app's. Frames draw
     /// one texel per device pixel from the top-left corner, so while the element resizes the
     /// last frame holds still, with the parent's fill in any gap, until one at the new size lands.
+    /// `pressed` runs as any button goes down on the page, so the app can note that the keyboard
+    /// is in it now (the page's own focus never reaches the app).
     pub fn surface_el<S: 'static>(
         &self,
         key: impl Into<String>,
@@ -18,6 +20,7 @@ impl BrowserHost {
         scale: f32,
         view_zoom: f32,
         access: fn(&mut S) -> &mut BrowserHost,
+        pressed: fn(&mut S, u64),
     ) -> El {
         let z = view_zoom.max(0.01);
         let Some(tab) = self.tab(tab_id) else {
@@ -83,6 +86,9 @@ impl BrowserHost {
             .on_drag(move |s: &mut S, d: &mut Drag, tx| {
                 let mods = pack_mods(tx.mods());
                 let btn = PointerBtn::from(tx.button());
+                if d.phase == Phase::Down {
+                    pressed(s, tab_id);
+                }
                 let host = access(s);
                 match d.phase {
                     Phase::Down => host.send(HostMsg::MouseButton {
@@ -114,6 +120,7 @@ impl BrowserHost {
             })
             .on_secondary_press_local(move |s: &mut S, p: PointerEvent, tx| {
                 let mods = pack_mods(tx.mods());
+                pressed(s, tab_id);
                 let host = access(s);
                 for up in [false, true] {
                     host.send(HostMsg::MouseButton {
