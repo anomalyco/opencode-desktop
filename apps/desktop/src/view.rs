@@ -75,6 +75,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     session_view::scroller::set_device_scale(cx.env().scale);
     set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
+    session_view::style::set_hover_none(cx.hover_none());
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic

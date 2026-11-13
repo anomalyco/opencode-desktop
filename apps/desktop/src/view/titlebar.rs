@@ -38,7 +38,8 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         // Right to left the row runs from the caption buttons, which stay on the right
         // (`titlebar.tsx:192`), as the traffic lights stay on the left.
         .direction(ui_direction());
-    if !cfg!(target_os = "macos") {
+    // Desktop's app menu is Windows' and Linux's (`windows-menu.tsx`); a browser has none.
+    if !cfg!(any(target_os = "macos", target_arch = "wasm32")) {
         bar = bar.leading(crate::app_menu::button(s, p).motion(GLIDE));
     }
     // A narrow window's row holds one trigger for the tabs' drawer, `px-2` (`titlebar.tsx:581`),

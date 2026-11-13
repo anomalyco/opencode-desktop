@@ -86,11 +86,24 @@ pub fn set_content_w(w: f32) {
 thread_local! {
     /// The window is below Desktop's 768 px breakpoint this frame.
     static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The pointer can't hover this frame (a touch screen: `Cx::hover_none`).
+    static HOVER_NONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Tells this frame's session views the window is narrow; the host calls it before building them.
 pub fn set_narrow(narrow: bool) {
     NARROW.set(narrow);
+}
+
+/// Tells this frame's session views the pointer can't hover (`Cx::hover_none`), so what a
+/// mouse would reveal on hover shows, as Desktop's `@media (hover: none)` rules do.
+pub fn set_hover_none(none: bool) {
+    HOVER_NONE.set(none);
+}
+
+/// The pointer can't hover this frame.
+pub fn hover_none() -> bool {
+    HOVER_NONE.get()
 }
 
 /// The window is below Desktop's 768 px breakpoint this frame.
@@ -388,13 +401,15 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).children(actions).child(button)
     };
     // It also shows while the keyboard is on it or a plugin's action beside it
-    // (`markdown.css:379-382`'s `:focus-within`).
+    // (`markdown.css:379-382`'s `:focus-within`), and always where nothing hovers: its
+    // `opacity: 0` is `@media (hover: hover)` only (`markdown.css:359`).
+    let idle = if hover_none() { 1.0 } else { 0.0 };
     col()
         .w_full()
         .hover_group_focus()
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
-        .child(buttons.group_opacity(0.0, 1.0))
+        .child(buttons.group_opacity(idle, 1.0))
 }
 
 /// A copy button's `copied::mark_copied` mark: `prefix` and a hash of `what`.
