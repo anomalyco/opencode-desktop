@@ -516,7 +516,9 @@ pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
     field
         .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
         .child(session_view::style::field(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
-            .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("settings.search.placeholder"))
+            .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint)
+            // A touch screen's `input::placeholder` is 13 under the 16 the field types (`base.css`).
+            .placeholder_font(if narrow && !session_view::style::touch_controls() { NARROW_INPUT } else { ROW }).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("settings.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
             // Enter opens the lit result, else the first (`search-machine.ts`).
             .on_submit(|s: &mut App, tx: &mut Tx| {

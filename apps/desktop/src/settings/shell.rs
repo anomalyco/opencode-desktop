@@ -160,7 +160,10 @@ fn narrow_bar(s: &App, p: &Pal, inset: f32) -> El {
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             let groups = groups(s);
             let selected = s.settings_pages.page.id().to_owned();
-            let mut menu = Menu::new(t!("command.category.settings")).align(rune::Align::End);
+            // `.settings-mobile-menu`: as tall as the room under it (`--kb-popper-content-available-height`),
+            // not a menu's usual eleven and a half rows, so every page shows; 8 under its trigger (`gutter={8}`).
+            let rows = groups.iter().map(|g| g.len() + 1).sum::<usize>() as f32;
+            let mut menu = Menu::new(t!("command.category.settings")).align(rune::Align::End).gap(8.0).rows_before_scroll(rows);
             for (g, group) in groups.iter().enumerate() {
                 if g > 0 {
                     menu = menu.separator();
