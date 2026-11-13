@@ -348,42 +348,29 @@ fn resolved(fx: &mut Effects<Effect>, ids: Vec<WaiterId>) {
     }
 }
 
-/// The oldest OpenCode this app speaks to: 2.x serves the `/api` routes it uses (1.x answers
-/// `/global/health` and 404s on `/api/info`).
-pub const MIN_MAJOR: u64 = 2;
-
-/// Whether a server reporting `version` is older than [`MIN_MAJOR`]. A version that doesn't
-/// read as `major.…` (`unknown`, a dev build's name) isn't held against it.
-pub fn too_old(version: &str) -> bool {
-    version.trim_start_matches('v').split(['.', '-']).next().and_then(|m| m.parse::<u64>().ok()).is_some_and(|m| m < MIN_MAJOR)
-}
-
-fn old(health: Option<&Health>) -> bool {
-    matches!(health, Some(Health::Probe(ProbeResult::Healthy { version: Some(v), .. })) if too_old(v))
-}
-
-/// `isServerHealthy` (`:146-148`), less a server too old for this app (Desktop doesn't check).
+/// `isServerHealthy` (`:146-148`). A server that answers `/api/info` is usable whatever version
+/// it reports.
 pub fn is_healthy(health: Option<&Health>) -> bool {
-    matches!(health, Some(Health::Probe(ProbeResult::Healthy { .. }))) && !old(health)
+    matches!(health, Some(Health::Probe(ProbeResult::Healthy { .. })))
 }
 
 /// `canUseServer` (`:150-153`): it answered, or nothing says it can't yet.
 pub fn can_use(health: Option<&Health>) -> bool {
-    matches!(health, None | Some(Health::Probe(ProbeResult::Healthy { .. }) | Health::Checking { .. })) && !old(health)
+    matches!(health, None | Some(Health::Probe(ProbeResult::Healthy { .. }) | Health::Checking { .. }))
 }
 
 /// `isServerFailed` (`:155-158`): its last answer, or its plugin, says it can't be used.
 pub fn is_failed(health: Option<&Health>) -> bool {
-    matches!(health, Some(Health::Probe(ProbeResult::Unreachable | ProbeResult::Unauthorized) | Health::Incompatible)) || old(health)
+    matches!(health, Some(Health::Probe(ProbeResult::Unreachable | ProbeResult::Unauthorized) | Health::Incompatible))
 }
 
 pub fn is_unauthorized(health: Option<&Health>) -> bool {
     matches!(health, Some(Health::Probe(ProbeResult::Unauthorized)))
 }
 
-/// Its plugin says it can't run, or it answered with a version older than [`MIN_MAJOR`].
+/// Its plugin says it can't run.
 pub fn is_incompatible(health: Option<&Health>) -> bool {
-    matches!(health, Some(Health::Incompatible)) || old(health)
+    matches!(health, Some(Health::Incompatible))
 }
 
 /// `selectServerVersion` (`:168-170`).
@@ -435,7 +422,6 @@ pub fn indicator(health: Option<&Health>) -> Indicator {
         Some(Health::Starting) => Indicator::Connecting,
         Some(Health::Checking { managed: true }) => Indicator::Connecting,
         Some(Health::Checking { managed: false }) => Indicator::Unknown,
-        _ if old(health) => Indicator::Incompatible,
         Some(Health::Probe(ProbeResult::Healthy { .. })) => Indicator::Healthy,
         Some(Health::Probe(ProbeResult::Unreachable)) => Indicator::Unreachable,
         Some(Health::Incompatible) => Indicator::Incompatible,

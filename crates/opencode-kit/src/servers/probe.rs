@@ -74,14 +74,6 @@ pub fn probe_with(http: &HttpBase, timeout: Duration, retries: u32, delay: Durat
             Ok(Some(info)) => return ProbeResult::Healthy { version: Some(info.version), hostname: info.hostname },
             Ok(None) => return ProbeResult::Unreachable,
             Err(RequestError::Status(401)) => return ProbeResult::Unauthorized,
-            // OpenCode 1.x has no `/api/info`, but answers `/global/health` with its version:
-            // it answers, and it's too old (`health::too_old`), not unreachable.
-            Err(RequestError::Status(404)) => {
-                return match get_json(http, "/global/health", deadline.saturating_duration_since(Instant::now())) {
-                    Ok(v) if v["version"].is_string() => ProbeResult::Healthy { version: v["version"].as_str().map(str::to_owned), hostname: None },
-                    _ => ProbeResult::Unreachable,
-                };
-            }
             Err(RequestError::Transport(_)) if count < retries => {
                 count += 1;
                 let wait = delay * count;

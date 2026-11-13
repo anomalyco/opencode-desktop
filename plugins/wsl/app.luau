@@ -226,23 +226,22 @@ return plugin.defineApp(function(ctx)
         return { name = name, canExecute = true, hasBash = has("bash"), hasCurl = has("curl") }
     end
 
-    -- Where the distro's OpenCode is and what version it runs, against the app's server's.
+    -- Where the distro's OpenCode is and what version it runs. Any version that runs will do.
     local function inspectCli(distro: string): (machine.OpencodeCheck?, string?)
         local out, err = wsl(runtime.sh(runtime.DISCOVER_SCRIPT, distro), runtime.TIMEOUT)
         if not out then
             return nil, err
         end
-        local expected = Server:Version()
         local path = runtime.firstLine(out.stdout)
         if not path then
-            return { distro = distro, expectedVersion = expected, error = I18n:T("error.opencodeMissing") }, nil
+            return { distro = distro, error = I18n:T("error.opencodeMissing") }, nil
         end
         local v = wsl(runtime.sh(runtime.versionScript(runtime.quote(path)), distro), runtime.TIMEOUT)
         local version = if v then runtime.parseVersion(v.stdout) else nil
         if not version then
-            return { distro = distro, resolvedPath = path, expectedVersion = expected, error = I18n:T("error.opencodeCannotRun") }, nil
+            return { distro = distro, resolvedPath = path, error = I18n:T("error.opencodeCannotRun") }, nil
         end
-        return { distro = distro, resolvedPath = path, version = version, expectedVersion = expected, matchesDesktop = if expected then expected == version else nil }, nil
+        return { distro = distro, resolvedPath = path, version = version }, nil
     end
 
     local function hostJob(attempt: number, job: machine.HostJob)
@@ -283,8 +282,7 @@ return plugin.defineApp(function(ctx)
     end
 
     local function installCli(distro: string, attempt: number)
-        local expected = Server:Version() or ""
-        local script = runtime.installScript(expected)
+        local script = runtime.installScript(Server:Version() or "")
         if not script then
             return dispatch({ type = "job.failed", distro = distro, attempt = attempt, message = I18n:T("error.installOpencode") })
         end
@@ -297,11 +295,10 @@ return plugin.defineApp(function(ctx)
         if not check then
             return dispatch({ type = "job.failed", distro = distro, attempt = attempt, message = checkErr or "" })
         end
-        if check.version == expected then
+        if check.error == nil then
             return dispatch({ type = "cli.installed", distro = distro, attempt = attempt, check = check })
         end
-        local message = I18n:T("error.updateVersion", { distro = distro, installed = check.version or I18n:T("error.noVersion"), expected = expected })
-        dispatch({ type = "job.failed", distro = distro, attempt = attempt, message = message, check = check })
+        dispatch({ type = "job.failed", distro = distro, attempt = attempt, message = check.error, check = check })
     end
 
     -- ---- Sidecars (`sidecar.ts`) ------------------------------------------------------------

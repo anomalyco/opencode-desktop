@@ -7,7 +7,7 @@ local decode = require("./decode")
 
 local command = {}
 
-export type Code = "connection" | "input" | "platform" | "version" | "install" | "service" | "host-key" | "ssh-missing" | "unpublished"
+export type Code = "connection" | "input" | "platform" | "install" | "service" | "host-key" | "ssh-missing" | "unpublished"
 export type Failure = { code: Code, detail: string }
 export type Target = { host: string, args: { string } }
 
@@ -203,8 +203,8 @@ function command.binaryPath(version: string): string
     return `$HOME/.opencode/desktop-ssh/{version}/opencode`
 end
 
-function command.startScript(version: string, replace: boolean): string
-    return `set -eu\ncli="{command.binaryPath(version)}"\n"$cli" service {if replace then "restart" else "start"}\n` .. REGISTRATION
+function command.startScript(version: string): string
+    return `set -eu\ncli="{command.binaryPath(version)}"\n"$cli" service start\n` .. REGISTRATION
 end
 
 function command.versionScript(cmd: string): string
@@ -230,16 +230,14 @@ function command.archiveUrl(target: string, version: string): string?
     return `https://registry.npmjs.org/@opencode/cli-{target}/-/cli-{target}-{version}.tgz`
 end
 
--- Installs the CLI from `url` into this app's own folder on the host, checking its version.
+-- Installs the CLI from `url` into this app's own folder on the host, checking that it runs.
 function command.installScript(version: string, url: string): string
     local destination = command.quote(`.opencode/desktop-ssh/{version}/opencode`)
     return 'set -eu\numask 077\ndestination="$HOME"/'
         .. destination
         .. '\nmkdir -p "$(dirname "$destination")"\nstage=$(mktemp -d "$(dirname "$destination")/.install-XXXXXX")\ntrap \'rm -rf "$stage"\' EXIT\nurl='
         .. command.quote(url)
-        .. '\nif command -v curl >/dev/null 2>&1; then\n  curl -fsSL --connect-timeout 15 --max-time 180 "$url" -o "$stage/archive.tgz"\nelse\n  wget -T 180 -O "$stage/archive.tgz" "$url"\nfi\ntar -xzf "$stage/archive.tgz" -C "$stage"\nchmod 755 "$stage/package/bin/opencode"\ntest "$("$stage/package/bin/opencode" --version | awk \'{print $NF}\' | sed \'s/^v//\')" = '
-        .. command.quote(version)
-        .. '\nmv "$stage/package/bin/opencode" "$destination"\n'
+        .. '\nif command -v curl >/dev/null 2>&1; then\n  curl -fsSL --connect-timeout 15 --max-time 180 "$url" -o "$stage/archive.tgz"\nelse\n  wget -T 180 -O "$stage/archive.tgz" "$url"\nfi\ntar -xzf "$stage/archive.tgz" -C "$stage"\nchmod 755 "$stage/package/bin/opencode"\n"$stage/package/bin/opencode" --version >/dev/null\nmv "$stage/package/bin/opencode" "$destination"\n'
 end
 
 function command.parseVersion(output: string): string?
@@ -261,7 +259,7 @@ function command.parseVersion(output: string): string?
     return nil
 end
 
-export type Registration = { url: string, password: string, version: string }
+export type Registration = { url: string, password: string }
 
 -- The service's registration the scripts print, when its URL is the one its status names.
 function command.parseRegistration(output: string): Registration?
@@ -277,8 +275,8 @@ function command.parseRegistration(output: string): Registration?
     end
     for body in string.gmatch(output, "OPENCODE_SSH_REGISTRATION_BEGIN(.-)OPENCODE_SSH_REGISTRATION_END") do
         local v = decode(trim(body))
-        if type(v) == "table" and type(v.url) == "string" and type(v.password) == "string" and type(v.version) == "string" and v.url == status and type(v.pid) == "number" and v.pid > 0 then
-            return { url = v.url, password = v.password, version = v.version }
+        if type(v) == "table" and type(v.url) == "string" and type(v.password) == "string" and v.url == status and type(v.pid) == "number" and v.pid > 0 then
+            return { url = v.url, password = v.password }
         end
     end
     return nil

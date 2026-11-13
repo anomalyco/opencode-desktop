@@ -131,9 +131,7 @@ local function status(state: any, name: string, probingAddable: boolean): Status
     if not check then
         return if probing then checking() else nil
     end
-    if check.matchesDesktop == false then
-        return { label = { key = "onboarding.updateOpencode" }, tone = "warning" }
-    elseif not check.resolvedPath then
+    if not check.resolvedPath then
         return { label = { key = "onboarding.distroStatus.opencodeMissing" }, tone = "warning" }
     elseif check.error then
         return { label = { key = "onboarding.installOpencode" }, tone = "warning" }
@@ -168,16 +166,15 @@ local function primary(state: any, selected: string?, check: any, busy: boolean,
             width = nil,
         }
     end
-    local opencodeReady = check ~= nil and check.resolvedPath ~= nil and check.matchesDesktop ~= false and check.error == nil
+    local opencodeReady = check ~= nil and check.resolvedPath ~= nil and check.error == nil
     if not opencodeReady then
-        local update = check ~= nil and check.resolvedPath ~= nil and check.matchesDesktop == false
         return {
             variant = "neutral",
-            label = if installing then { key = "onboarding.updatingOpencode" } elseif update then { key = "onboarding.updateOpencode" } else { key = "onboarding.installOpencode" },
+            label = if installing then { key = "onboarding.updatingOpencode" } else { key = "onboarding.installOpencode" },
             disabled = busy,
             action = "install-opencode",
             loading = installing,
-            width = if update then 138 else 129,
+            width = 129,
         }
     end
     return {
@@ -369,8 +366,6 @@ function model.row(state: any, distro: string)
     if check then
         if not check.resolvedPath then
             action = "onboarding.installOpencode"
-        elseif check.matchesDesktop == false then
-            action = "onboarding.updateOpencode"
         end
     end
     local runtime: string? = nil
