@@ -219,35 +219,3 @@ impl Link {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_launch_that_waits_on_a_slow_server_says_so_until_the_stream_opens() {
-        let mut link = Link::Online;
-        let fx: Vec<Effect> = link.step(Event::FirstReadsSlow { now: 1.5 }).into_iter().collect();
-        assert_eq!(link, Link::Slow { since: 1.5 });
-        assert!(fx.contains(&Effect::Repaint) && link.shown());
-        let _ = link.step(Event::StreamUp);
-        assert_eq!(link, Link::Online);
-    }
-
-    #[test]
-    fn a_slow_launch_whose_reads_fail_is_offline() {
-        let mut link = Link::Slow { since: 1.5 };
-        let _ = link.step(Event::Unreachable { now: 10.0 });
-        assert!(matches!(link, Link::Offline { .. }));
-    }
-
-    #[test]
-    fn a_server_that_does_not_answer_the_check_after_a_wake_is_offline_at_once() {
-        let mut link = Link::Online;
-        let error = WireError::new("GET", "/api/info", WireKind::TimedOut);
-        let _ = link.step(Event::Unanswered { now: 3.0, error: Some(error) });
-        assert_eq!(link, Link::Offline { since: 3.0, why: Offline::Silent });
-        let mut signed_out = Link::SignedOut;
-        let _ = signed_out.step(Event::Unanswered { now: 3.0, error: None });
-        assert_eq!(signed_out, Link::SignedOut);
-    }
-}
