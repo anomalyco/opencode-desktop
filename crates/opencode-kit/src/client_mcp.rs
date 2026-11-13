@@ -175,13 +175,16 @@ enum Outbound {
     ToolsChanged,
 }
 
-/// Where replies and notices for the open socket go: the worker's queue and, natively, a nudge
-/// that wakes the worker from its wait on the socket, so it sleeps until there's something to do.
+/// Where replies and notices for the open socket go: the worker's queue and a nudge that wakes the
+/// worker from its wait on the socket (natively a poller, in a page the task's bell), so it sleeps
+/// until there's something to do.
 #[derive(Clone)]
 struct Outbox {
     tx: Sender<Outbound>,
     #[cfg(not(target_arch = "wasm32"))]
     wake: Arc<polling::Poller>,
+    #[cfg(target_arch = "wasm32")]
+    bell: u64,
 }
 
 impl Outbox {
@@ -189,6 +192,8 @@ impl Outbox {
         if self.tx.send(out).is_ok() {
             #[cfg(not(target_arch = "wasm32"))]
             self.wake.notify().ok();
+            #[cfg(target_arch = "wasm32")]
+            web::ring(self.bell);
         }
     }
 }
@@ -315,7 +320,7 @@ impl ClientMcp {
                 #[cfg(not(target_arch = "wasm32"))]
                 out.wake.notify().ok();
                 #[cfg(target_arch = "wasm32")]
-                drop(out);
+                web::ring(out.bell);
             }
             !dialing
         };

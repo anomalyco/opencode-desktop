@@ -154,13 +154,18 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
 /// `future`, or a timeout (aborting the request) after `idle` without an answer: `Ok(TimedOut)`;
 /// `Err` is what the browser said when the promise failed, for the caller to type.
 async fn with_idle(promise: js_sys::Promise, idle: Duration, abort: &web_sys::AbortController) -> Result<JsValue, Result<WireKind, String>> {
+    let mut handle = None;
     let timer = js_sys::Promise::new(&mut |resolve, _| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_1(&resolve, idle.as_millis() as i32, &JsValue::from_str("idle"));
-        }
+        handle = web_sys::window().and_then(|w| w.set_timeout_with_callback_and_timeout_and_arguments_1(&resolve, idle.as_millis() as i32, &JsValue::from_str("idle")).ok());
     });
     let raced = js_sys::Promise::race(&js_sys::Array::of2(&promise, &timer));
-    match JsFuture::from(raced).await {
+    let answer = JsFuture::from(raced).await;
+    // Every chunk of the event stream races a fresh timer: one left armed would wake the page
+    // `idle` after each event for nothing.
+    if let (Some(window), Some(h)) = (web_sys::window(), handle) {
+        window.clear_timeout_with_handle(h);
+    }
+    match answer {
         Ok(v) if v.as_string().as_deref() == Some("idle") => {
             abort.abort();
             Err(Ok(WireKind::TimedOut))

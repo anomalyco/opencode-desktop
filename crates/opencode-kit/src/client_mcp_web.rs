@@ -4,9 +4,9 @@
 //! socket with it; then it serves the same JSON-RPC as natively (`handle_frame`), on a task of the
 //! page's event loop that waits on the socket and never on the main thread.
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::rc::Rc;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
@@ -27,6 +27,22 @@ struct Events {
     frames: VecDeque<String>,
     /// Resolves the task's current wait.
     wake: Option<js_sys::Function>,
+}
+
+thread_local! {
+    /// Each open socket's events, by its outbox's bell: a reply, a changed tool list or a close
+    /// from the app wakes the task, which otherwise sleeps until the socket hands it something.
+    static BELLS: RefCell<HashMap<u64, Weak<RefCell<Events>>>> = RefCell::default();
+    static NEXT_BELL: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Wakes the task serving the socket behind ell, if it's waiting.
+pub(super) fn ring(bell: u64) {
+    let Some(events) = BELLS.with(|b| b.borrow().get(&bell).and_then(Weak::upgrade)) else { return };
+    let wake = events.borrow_mut().wake.take();
+    if let Some(wake) = wake {
+        let _ = wake.call0(&JsValue::NULL);
+    }
 }
 
 enum Ticket {
@@ -104,7 +120,10 @@ async fn serve(url: &str, options: &ClientMcpOptions, calls: &Sender<McpCall>, w
     ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
     ws.set_onerror(Some(on_close.as_ref().unchecked_ref()));
     ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-    let result = run(&ws, &events, options, calls, waker, shared).await;
+    let bell = NEXT_BELL.with(|n| n.replace(n.get() + 1));
+    BELLS.with(|b| b.borrow_mut().insert(bell, Rc::downgrade(&events)));
+    let result = run(&ws, &events, bell, options, calls, waker, shared).await;
+    BELLS.with(|b| b.borrow_mut().remove(&bell));
     ws.set_onopen(None);
     ws.set_onclose(None);
     ws.set_onerror(None);
@@ -115,16 +134,16 @@ async fn serve(url: &str, options: &ClientMcpOptions, calls: &Sender<McpCall>, w
     result
 }
 
-async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, options: &ClientMcpOptions, calls: &Sender<McpCall>, waker: &Waker, shared: &Shared) -> (bool, bool) {
+async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, bell: u64, options: &ClientMcpOptions, calls: &Sender<McpCall>, waker: &Waker, shared: &Shared) -> (bool, bool) {
     let dialed = rune::time::Instant::now();
     while !events.borrow().open {
         if events.borrow().closed || dialed.elapsed() > super::CONNECT_TIMEOUT {
             return (false, false);
         }
-        wait(events, 1000).await;
+        wait(events, Some(1000)).await;
     }
     let (tx, out_rx) = channel();
-    let out_tx = Outbox { tx };
+    let out_tx = Outbox { tx, bell };
     let out = out_tx.clone();
     if !transition(shared, move |_| Some(Conn::Open { tcp: None, out, ready: None }), waker) {
         return (false, true);
@@ -149,19 +168,18 @@ async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, options: &Cl
         if events.borrow().closed {
             return (initialized, false);
         }
-        // A tool's answer comes from the app between frames: look again soon while one is out.
-        // Idle, the socket wakes the task; the timeout only notices a closed handle.
-        wait(events, if in_flight > 0 { 20 } else { 1000 }).await;
+        // Idle, nothing but the socket or the app's outbox (its bell) wakes the task: no timer.
+        wait(events, None).await;
     }
 }
 
-/// Until the socket hands over something, or `ms` passes.
-async fn wait(events: &Rc<RefCell<Events>>, ms: i32) {
+/// Until the socket or the outbox hands over something, or `ms` passes.
+async fn wait(events: &Rc<RefCell<Events>>, ms: Option<i32>) {
     if !events.borrow().frames.is_empty() {
         return;
     }
     let promise = js_sys::Promise::new(&mut |resolve, _| {
-        if let Some(window) = web_sys::window() {
+        if let (Some(window), Some(ms)) = (web_sys::window(), ms) {
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
         }
         events.borrow_mut().wake = Some(resolve);
