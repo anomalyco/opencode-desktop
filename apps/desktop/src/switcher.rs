@@ -616,7 +616,12 @@ impl App {
             Action::RemoteSession { .. } => {}
             Action::Command(id) => self.run_command(id, tx),
             // `path:line` (or `path#L12`) opens the file at that line.
-            Action::File(path) => self.open_workspace_file(&path, false, line, tx),
+            // Keyboard focus follows into the file, onto its line, so a reader lands in what
+            // opened rather than on the window.
+            Action::File(path) => {
+                self.open_workspace_file(&path, false, line, tx);
+                tx.focus(format!("cl{}", line.unwrap_or(1).max(1)), tx.focus_visible());
+            }
             Action::Setting(id) => {
                 if let Some(e) = crate::settings::search::index(self).into_iter().find(|e| e.id == id) {
                     crate::settings::search::reveal(self, &e, tx);

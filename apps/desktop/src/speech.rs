@@ -64,6 +64,10 @@ pub struct Speech {
     in_prompt: bool,
     /// The request the open page's dock showed at the last poll.
     dock: Option<String>,
+    /// A request arrived on the open page: the key that takes focus at the next poll, when focus
+    /// is then in the prompt the dock replaces, or nowhere. A keyboard user's, with or without a
+    /// screen reader.
+    focus_dock: Option<&'static str>,
     /// The open run's tool calls by id, and their tools' names: `session.tool.called` brings
     /// a call's input and `session.tool.input.started` its name.
     tools: Vec<(String, String)>,
@@ -146,6 +150,9 @@ pub fn step(turn: Turn, heard: Heard) -> (Turn, Option<Say>) {
 
 /// Feeds one stream event to the machine (from `App::react`).
 pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
+    if matches!(ty, "permission.asked" | "form.created") && open_root(app).is_some_and(|r| r == app.root_of(sid)) {
+        app.speech.focus_dock = Some(if ty == "permission.asked" { session_view::dock::permission::PERMISSION_FOCUS } else { "q-opt-0" });
+    }
     if !app.speech.listening {
         return;
     }
@@ -170,6 +177,11 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
 /// (from `poll`). A poll in one frame says everything queued in it as one announcement, so a
 /// reader hears it all rather than only the last.
 pub fn poll(app: &mut App, tx: &mut Tx) {
+    if let Some(key) = app.speech.focus_dock.take()
+        && tx.focused().is_none_or(|k| k == "prompt")
+    {
+        tx.focus(key, tx.focus_visible());
+    }
     let listening = tx.assistive_technology();
     if !listening {
         if app.speech.listening {
