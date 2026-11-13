@@ -300,7 +300,7 @@ jobs:
             --jq '.[] | select(.body | contains("<!-- opencode-rune-pr-build -->")) | .id' | head -n 1 || true)
           if [ -n "$existing_id" ]; then
             if [ "$MERGED" = "true" ]; then
-              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — merged into `dev`. Install or auto-update **OpenCode (Rune)** from [`https://anoma.ly/release/opencode-rune/desktop/dev/macos-arm64-dmg`](https://anoma.ly/release/opencode-rune/desktop/dev/macos-arm64-dmg).'
+              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — merged into `dev`. Install or auto-update **OpenCode (Rune)** from [`https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg`](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg).'
             else
               body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — this pull request is closed.'
             fi

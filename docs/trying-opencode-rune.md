@@ -4,7 +4,7 @@
 
 ## 1. Install the `dev` build
 
-1. Download [`OpenCode (Rune).dmg`](https://anoma.ly/release/opencode-rune/desktop/dev/macos-arm64-dmg) (Apple Silicon, macOS 26 or later) and drag **OpenCode (Rune).app** into `/Applications`.
+1. Download [`OpenCode (Rune).dmg`](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg) (Apple Silicon, macOS 26 or later) and drag **OpenCode (Rune).app** into `/Applications`.
 2. Make sure an OpenCode server is running locally, either by opening **OpenCode Desktop** or by running `opencode serve --port 4096` in a terminal.
 3. Open **OpenCode (Rune)**. It connects to `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically, and it never starts a server on its own. If nothing is running yet, start the server and click **Retry**.
 

@@ -18,18 +18,14 @@ name: OpenCode (Rune) Release
 # This file and .github/release/ are the security boundary for releases; changing .github/ needs
 # Dax (.github/CODEOWNERS and the `release boundary (.github needs Dax)` ruleset). The release
 # service authorizes publish jobs by their OIDC token: anomalyco/rune-desktop, this file,
-# refs/heads/dev, environment release (anomalyco/release registry/opencode-rune.json).
+# refs/heads/dev, environment release (anomalyco/release registry/opencode.json).
 #
-# When (notes/ci-cost.md in the operation-detox workspace has the numbers behind this):
-# - dev, four times a day at :17 past 02, 07, 12 and 21 UTC (12:17, 17:17, 22:17 and 07:17 in
-#   Brisbane; off the top of the hour, when GitHub's scheduler is busiest): Windows x64. Pushes
-#   to dev don't start it: agents push about 100 times a day, and nearly every push-started build
-#   was superseded before it finished.
-# - dev, nightly at 17:17 UTC (03:17 in Brisbane): every platform, Windows arm64 and macOS too.
-# - dev signs what it built and publishes it on the dev channel, and puts the unsigned Windows
-#   setups on the rolling pre-release.
-# - A scheduled run builds nothing when dev hasn't changed an app file since the last successful
-#   dev run of its scope (only its plan job runs, about a Linux minute).
+# When:
+# - dev: every push to dev that changes an app file (the paths below) builds every platform,
+#   signs it, publishes it on the dev channel, and puts the unsigned Windows setups on the
+#   rolling pre-release. Releases never cancel each other: the running one finishes, and of the
+#   pushes that land meanwhile only the newest waits (GitHub replaces an older pending run in the
+#   group), so a busy dev branch still publishes.
 # - workflow_dispatch from dev builds now, whatever changed: check (build, sign, verify, publish
 #   nothing), dev, or stable with a bump. Stable computes vX.Y.Z from the latest tag, publishes
 #   every platform, then tags v<version> and creates the GitHub release. Tags start nothing.
@@ -38,9 +34,19 @@ name: OpenCode (Rune) Release
 # checks out github.sha, and the plan fails unless that is the commit it checked out on dev.
 
 on:
-  schedule:
-    - cron: "17 2,7,12,21 * * *"
-    - cron: "17 17 * * *"
+  push:
+    branches: [dev]
+    paths:
+      - "apps/desktop/**"
+      - "apps/installer/**"
+      - "crates/**"
+      - "plugins/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/release.yml"
+      - ".github/release/**"
   workflow_dispatch:
     inputs:
       channel:
@@ -54,27 +60,23 @@ on:
         options: [patch, minor, major]
         default: patch
       platforms:
-        description: windows-x64 (the scheduled build), or all (Windows x64 and arm64, and macOS; stable always builds all)
+        description: check and dev only. windows-x64, or all (Windows x64 and arm64, and macOS; push and stable always build all)
         type: choice
-        options: [windows-x64, all]
-        default: windows-x64
+        options: [all, windows-x64]
+        default: all
 
 run-name: >-
-  ${{ github.event_name == 'schedule' && (github.event.schedule == '17 17 * * *' && 'dev: every platform (nightly)' || 'dev: Windows x64 (scheduled)')
+  ${{ github.event_name == 'push' && format('dev: {0}', github.sha)
   || inputs.channel == 'stable' && format('stable: {0} bump (dispatched)', inputs.bump)
   || format('{0}: {1} (dispatched)', inputs.channel, inputs.platforms == 'all' && 'every platform' || 'Windows x64') }}
 
 permissions:
   contents: read
 
-# A newer dev or check run of the same scope cancels an older one still building; a stable
-# release always finishes.
+# Releases never cancel each other (see When above); a newer check run cancels an older one.
 concurrency:
-  group: >-
-    opencode-rune-${{ github.event_name == 'workflow_dispatch' && inputs.channel == 'stable' && 'stable'
-    || format('{0}-{1}', github.event_name == 'workflow_dispatch' && inputs.channel || 'dev',
-      (github.event.schedule == '17 17 * * *' || inputs.platforms == 'all') && 'all' || 'x64') }}
-  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.channel == 'stable') }}
+  group: opencode-rune-${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'dev' }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && inputs.channel == 'check' }}
 
 defaults:
   run:
@@ -92,7 +94,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: read
     outputs:
       channel: ${{ steps.plan.outputs.channel }}
       service: ${{ steps.plan.outputs.service }}
@@ -100,7 +101,6 @@ jobs:
       notes-url: ${{ steps.plan.outputs.notes-url }}
       release-channel: ${{ steps.plan.outputs.release-channel }}
       release-version: ${{ steps.plan.outputs.release-version }}
-      build-desktop: ${{ steps.plan.outputs.build-desktop }}
       windows-arches: ${{ steps.plan.outputs.windows-arches }}
       macos: ${{ steps.plan.outputs.macos }}
     steps:
@@ -117,7 +117,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'dev' }}
           BUMP: ${{ inputs.bump || 'patch' }}
-          SCOPE: ${{ (github.event.schedule == '17 17 * * *' || inputs.platforms == 'all') && 'all' || 'x64' }}
+          SCOPE: ${{ inputs.platforms == 'windows-x64' && 'x64' || 'all' }}
           GH_TOKEN: ${{ github.token }}
 
   # Which signing values the release environment holds, read on Linux, so a Windows or macOS
@@ -126,7 +126,6 @@ jobs:
   # which fails if either is empty.
   credentials:
     needs: plan
-    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: release
@@ -163,7 +162,7 @@ jobs:
 
   build-macos:
     needs: plan
-    if: ${{ needs.plan.outputs.build-desktop == 'true' && needs.plan.outputs.macos == 'true' }}
+    if: ${{ needs.plan.outputs.macos == 'true' }}
     runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 120
     env:
@@ -195,7 +194,6 @@ jobs:
 
   build-windows:
     needs: plan
-    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -645,8 +643,8 @@ jobs:
             '{channel: $channel, version: $version, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
             > "$RUNNER_TEMP/release.json"
           bash .github/release/release-client.sh publish \
-            --app opencode-rune \
-            --artifact desktop \
+            --app opencode \
+            --artifact desktop-rune \
             --release "$RUNNER_TEMP/release.json" \
             "${targets[@]}" \
             --out "$RUNNER_TEMP/manifest.json" \
@@ -658,7 +656,7 @@ jobs:
 
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
   # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
-  # the same, so the download links never change: x64 four times a day (when dev changed), arm64 nightly.
+  # the same, so the download links never change: every push to dev that changes the app.
   # A setup this run didn't build stays, with its line in SHA256SUMS. Signed builds go to the feed
   # too (publish-desktop).
 
@@ -706,7 +704,7 @@ jobs:
             done < "$RUNNER_TEMP/old/SHA256SUMS"
           fi
           title="OpenCode (Rune) for Windows, dev ($VERSION)"
-          notes="Unsigned Windows setups from dev: x64 rebuilt four times a day when dev changes, arm64 nightly. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
+          notes="Unsigned Windows setups from dev, rebuilt on every push that changes the app. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
 
           if [ "$exists" = true ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true >/dev/null
