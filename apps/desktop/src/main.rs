@@ -217,6 +217,7 @@ mod switcher;
 mod tab_actions;
 mod tab_badges;
 mod tabs;
+mod tips;
 mod telemetry;
 mod terminal;
 mod todos;
@@ -450,6 +451,8 @@ pub struct App {
     pub rewind: rune::Tracked<rewind::RewindState>,
     pub fork: rune::Tracked<fork::ForkState>,
     pub toast: rune::Tracked<status_toast::StatusToast>,
+    /// The paced one-time tips (`tips.rs`).
+    pub tips: rune::Tracked<tips::Tips>,
     /// Prompts sent and not yet seen back, for rolling a failed one back (`send_failed.rs`).
     pub unsent: rune::Tracked<send_failed::Log>,
     /// Sessions shown before the server has them (`new_session.rs`).
@@ -1289,6 +1292,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= settings::pages::projects::poll(s);
     changed |= reconnect::poll(s, tx);
     changed |= session_state::poll(s, tx);
+    changed |= tips::poll(s, tx);
     changed |= status_toast::poll(s, now, tx);
     changed |= layout_state::poll(s, now, tx);
     changed |= narrow::poll(s, now, tx);

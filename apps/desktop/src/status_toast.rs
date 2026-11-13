@@ -47,6 +47,8 @@ pub enum ToastAction {
     CopyDetails(String),
     /// A plugin's button (its label) that shows a path in the file manager (desktop.reveal).
     Reveal(String, PathBuf),
+    /// A tip's Install (`crate::tips`): the tip is done and its page opens.
+    Tip(crate::tips::queue::Tip),
 }
 
 /// A plugin toast's button (`ToastAction` with `run`): it closes the toast, then runs `run` in its
@@ -230,6 +232,7 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
         ToastAction::UndoRewind(_) | ToastAction::Undo => "undo".to_owned(),
         ToastAction::Reveal(label, _) => label.clone(),
         ToastAction::CopyDetails(_) => "details".to_owned(),
+        ToastAction::Tip(tip) => tip.install().to_owned(),
     });
     let parts = [entry.description.as_deref(), entry.quote.as_deref(), entry.next.as_deref()].map(|p| p.unwrap_or(""));
     let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, parts.join("\u{1f}"));
@@ -263,6 +266,13 @@ pub fn rewound(s: &mut App, undo: UndoRewind) -> u64 {
 pub fn undoable(s: &mut App, title: &str) -> u64 {
     let e = Entry { action: Some(ToastAction::Undo), ..entry(title, None, false) };
     show(s, e, Some(crate::undo::SECS))
+}
+
+/// Shows `tip` until the person closes it or presses Install (`tips/model.ts`: `persistent`,
+/// one action); its id.
+pub fn tip(s: &mut App, tip: crate::tips::queue::Tip) -> u64 {
+    let e = Entry { action: Some(ToastAction::Tip(tip)), ..entry(tip.title(), Some(tip.description().to_owned()), true) };
+    show(s, e, None)
 }
 
 /// Shows a message that leaves after [`DURATION`] s.
@@ -486,7 +496,8 @@ const STACK: &str = "toast-stack";
 /// Escape dismisses a persistent failure toast in front when no higher overlay owns the key.
 pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let plain_esc = ev.key == Key::Escape && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift;
-    if plain_esc && s.toast.current().is_some_and(|e| e.persistent) {
+    // A tip isn't a failure: it stays until its own × (Sonner's toasts take no Escape).
+    if plain_esc && s.toast.current().is_some_and(|e| e.persistent && !matches!(e.action, Some(ToastAction::Tip(_)))) {
         tx.instant();
         dismiss(s);
         return true;
@@ -581,6 +592,8 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             dismiss_id(s, id);
+            // `ToastOptions.onDismiss`: the person closed it.
+            crate::tips::dismissed(s, id, tx);
         })
         // `icon-muted` at rest, `icon-base` under the pointer.
         .child(icon(&CLOSE, 16.0).color(p.icon_muted))
@@ -591,6 +604,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
             ToastAction::UndoRewind(_) | ToastAction::Undo => ("toast-undo", opencode_i18n::t!("session.rewind.toast.undo").to_owned()),
             ToastAction::Reveal(label, _) => ("toast-reveal", label.clone()),
             ToastAction::CopyDetails(_) => ("toast-copy-details", opencode_i18n::t!("rune.error.copyDetails").to_owned()),
+            ToastAction::Tip(tip) => ("toast-tip-install", tip.install().to_owned()),
         };
         let action = action.clone();
         row()
@@ -619,6 +633,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
                         ToastAction::Reveal(_, path) => crate::plugin_host::reveal(&path.to_string_lossy()),
                         ToastAction::Undo => {}
                         ToastAction::CopyDetails(details) => tx.copy_rich(rune::ClipboardContent::new(details)),
+                        ToastAction::Tip(tip) => crate::tips::installed(s, id, tip, tx),
                     }
                 })
                 .child(text(label).font(TITLE).color(p.text))
