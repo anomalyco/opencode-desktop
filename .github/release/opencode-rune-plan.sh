@@ -1,157 +1,106 @@
 #!/usr/bin/env bash
-# opencode-rune-plan.sh: decides what .github/workflows/opencode-rune-release.yml builds and
-# publishes from the event and ref alone, plus the pinned Browser Engine version and SHA-256.
+# opencode-rune-plan.sh: decides what .github/workflows/release.yml builds and publishes, from the
+# event, the ref and the repository's tags alone.
 #
-#   pr-check  pull_request to main: builds and smoke-tests OpenCode (Rune).app; no signing/publish.
-#   dev       the schedule (or dispatch dev on main): 0.0.0-dev-<run>, built only. SCOPE x64
-#             (four times a day) builds Windows x64; all (nightly) also Windows arm64 and
-#             macOS. dev signs and publishes nothing (see
-#             FEED below): its unsigned setups go to the rolling pre-release. A scheduled run
-#             builds nothing when main hasn't changed an app file since the last successful dev
-#             run of its scope.
-#   check     dispatch check on main: builds, signs (when secrets exist), and verifies; no publish.
-#   stable    tag opencode-rune-v<version> (or dispatch stable on that tag): publishes <version>
-#             on opencode-rune/desktop/stable, every platform.
-#   engine    tag browser-engine-<version>: publishes only opencode-rune/browser-engine/stable.
+#   dev     the schedule (or a dispatch from dev): 0.0.0-dev-<run + 400> on the release
+#           service's dev channel, signed. SCOPE x64 (four times a day) builds Windows x64; all
+#           (nightly) also Windows arm64 and macOS. A channel's release is replaced whole, so a
+#           platform this run didn't build has no target until a run builds it again (the updater
+#           then reports NoTarget, updater/protocol.rs `decide`). A scheduled run builds nothing
+#           when dev hasn't changed an app file since the last successful dev run of its scope.
+#   check   a dispatch from dev: the same build, signed and verified, published nowhere. Its last
+#           job pushes and deletes a throwaway v0.0.0-test-<run> tag to prove it can tag.
+#   stable  a dispatch from dev with BUMP (patch, minor or major): the latest vX.Y.Z tag (0.0.0
+#           when there is none) bumped, on the stable channel, every platform. Tags start nothing:
+#           the workflow tags v<version> and creates the GitHub release only after publishing.
 #
-# Besides the release's identity it outputs windows-arches (JSON: the Windows builds), macos
-# (whether macOS builds), sign (whether anything is signed, verified and published),
-# feed-windows-arches and feed-macos (what is, when it is), and publish-engine (only when the
-# pinned engine isn't live yet).
+# A run releases the commit it runs on: SHA (the checked-out commit) must be GITHUB_SHA, so every
+# job checks out github.sha.
+#
+# Environment: EVENT, REF_NAME, CHANNEL, BUMP, SCOPE, SHA, GITHUB_SHA, GITHUB_RUN_NUMBER,
+# GITHUB_RUN_ID, GITHUB_REPOSITORY, GH_TOKEN.
 . "$(dirname "$0")/lib.sh"
 
-crate_version=$(awk '/^\[package\]/ { package = 1; next } /^\[/ { package = 0 } package && /^version = "/ { gsub(/^version = "|"$/, ""); print; exit }' apps/desktop/Cargo.toml)
-[[ "$crate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Expected X.Y.Z version in apps/desktop/Cargo.toml, found $crate_version."
-
-# TODO(IMPORTANT before release): the Browser Engine's delivery and trust root are decided when the
-# app moves into the opencode repo (crates/browser-pane/src/source.rs, SOURCE and TRUST). Until then
-# this workflow publishes no engine: the app has no pinned engine for it to sync.
-engine_version=""
-engine_release_version=""
-engine_sha256=""
+[ -n "$SHA" ] && [ "$SHA" = "${GITHUB_SHA:-}" ] || die "The checked-out commit $SHA is not this run's commit ${GITHUB_SHA:-}."
+[ "$REF_NAME" = dev ] || die "Releases run from dev, not $REF_NAME."
 
 build_desktop=true
-publish_engine=false
 tag=""
 scope=${SCOPE:-all}
+# Renaming the workflow to release.yml (2026-11-12) restarted its run numbers at 1, after
+# opencode-rune-release.yml had reached 386. Continue past them, so no two builds share a version.
+number=$((GITHUB_RUN_NUMBER + 400))
 
-if [ "$EVENT" = pull_request ]; then
-  channel=pr-check
-  release_channel=check
-  release_version="0.0.0-dev-$GITHUB_RUN_NUMBER"
-  notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
-elif [ "$REF_TYPE" = tag ] && [[ "$REF_NAME" == browser-engine-* ]]; then
-  die "Tag $REF_NAME: the Browser Engine isn't published from here (see the TODO above)."
-  channel=engine
-  release_channel=stable
-  release_version="$crate_version"
-  build_desktop=false
-  publish_engine=true
-  notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$REF_NAME"
-else
-  case "$CHANNEL" in
-    stable)
-      expected_tag="opencode-rune-v$crate_version"
-      if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "$expected_tag" ]; then
-        die "Tag $REF_NAME does not match apps/desktop/Cargo.toml version $crate_version."
-      fi
-      if [ "$EVENT" = workflow_dispatch ] && [ "$INPUT_REF" != "$expected_tag" ]; then
-        die "Stable dispatch must target tag $expected_tag, not $INPUT_REF."
-      fi
-      channel=stable
-      release_channel=stable
-      release_version="$crate_version"
-      tag="$expected_tag"
-      publish_engine=true
-      notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$expected_tag"
-      ;;
-    dev)
-      [ "$REF_NAME" = main ] || die "The dev channel runs from main, not $REF_NAME."
-      if [ "$EVENT" = workflow_dispatch ] && [ "$INPUT_REF" != main ]; then
-        die "The dev channel builds ref main, not $INPUT_REF."
-      fi
-      channel=dev
-      release_channel=dev
-      release_version="0.0.0-dev-$GITHUB_RUN_NUMBER"
-      publish_engine=false
-      notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
-      ;;
-    check)
-      channel=check
-      release_channel=dev
-      release_version="0.0.0-dev-$GITHUB_RUN_NUMBER"
-      notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
-      ;;
-    *)
-      die "Unknown channel $CHANNEL."
-      ;;
-  esac
-fi
+case "$CHANNEL" in
+  stable)
+    [ "$EVENT" = workflow_dispatch ] || die "Stable releases are dispatched from dev."
+    latest=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --paginate --jq '.[].ref' |
+      sed -n 's|^refs/tags/v\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -n 1)
+    IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
+    case "${BUMP:-patch}" in
+      major) version="$((major + 1)).0.0" ;;
+      minor) version="$major.$((minor + 1)).0" ;;
+      patch) version="$major.$minor.$((patch + 1))" ;;
+      *) die "Unknown bump $BUMP." ;;
+    esac
+    tag="v$version"
+    refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" --jq '.[].ref')
+    if grep -Fxq "refs/tags/$tag" <<< "$refs"; then die "$tag is already tagged."; fi
+    release_channel=stable release_version=$version
+    notes="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+    scope=all
+    ;;
+  dev)
+    release_channel=dev release_version="0.0.0-dev-$number"
+    notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
+    ;;
+  check)
+    release_channel=dev release_version="0.0.0-dev-$number"
+    tag="v0.0.0-test-$number"
+    notes="https://github.com/$GITHUB_REPOSITORY/commit/$SHA"
+    ;;
+  *) die "Unknown channel $CHANNEL." ;;
+esac
 
 case "$scope" in x64 | all) ;; *) die "Unknown scope $scope." ;; esac
-[ "$channel" != stable ] || scope=all
 
-# A scheduled dev run builds only when main changed an app file since the last successful dev
-# run of its scope (an every-platform run counts for the x64 scope too). A run that finds nothing
+# A scheduled dev run builds only when dev changed an app file since the last successful dev run
+# of its scope (an every-platform run counts for the x64 scope too). A run that finds nothing
 # succeeds at the same commit, so it is the next one's base.
 reason=""
-if [ "$EVENT" = schedule ] && [ "$channel" = dev ]; then
+if [ "$EVENT" = schedule ] && [ "$CHANNEL" = dev ]; then
   if [ "$scope" = all ]; then prefix="dev: every platform"; else prefix="dev: "; fi
-  last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/opencode-rune-release.yml/runs?branch=main&status=success&per_page=100" \
+  last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=dev&status=success&per_page=100" \
     --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID and (.display_title | startswith(\"$prefix\")))][0].head_sha // empty" || true)
   if [ "$last" = "$SHA" ]; then
-    reason="main is still at ${SHA:0:9}, which the last successful dev run of this scope built."
+    reason="dev is still at ${SHA:0:9}, which the last successful dev run of this scope built."
   elif [ -n "$last" ]; then
     files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$last...$SHA" --jq '.files[]?.filename' || true)
     count=$(grep -c . <<< "$files" || true)
-    app='^(apps/desktop/|apps/installer/|crates/|plugins/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/opencode-rune-release\.yml$|\.github/release/)'
+    app='^(apps/desktop/|apps/installer/|crates/|plugins/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|\.cargo/|\.github/workflows/release\.yml$|\.github/release/)'
     # The compare API lists at most 300 files: more is a change worth a build.
     if [ "$count" -gt 0 ] && [ "$count" -lt 300 ] && ! grep -Eq "$app" <<< "$files"; then
       reason="no app file changed between ${last:0:9} and ${SHA:0:9}."
     fi
   fi
-  if [ -n "$reason" ]; then
-    build_desktop=false
-    publish_engine=false
-  fi
+  [ -z "$reason" ] || build_desktop=false
 fi
 
-# No engine publishes from here (see the TODO above).
-publish_engine=false
-
 if [ "$scope" = all ]; then windows_arches='["x64","arm64"]' macos=true; else windows_arches='["x64"]' macos=false; fi
-# FEED: release, signing and publishing are deferred (the brief, 2026-11-12): Rune's desktop app
-# will ship from the opencode repository, which sets them up there. So dev signs and publishes
-# nothing and books no runner for it (sign=false): its builds keep main building and give the
-# rolling pre-release its unsigned setups. check and stable keep the signing, verify and publish
-# jobs working as the worked example for that set-up. (Were dev to publish again: a channel's
-# release is replaced whole, and carrying arm64's or macOS's older archive forward under a new
-# version makes those builds reinstall it at every check, because the updater compares versions
-# until an update has recorded the archive's SHA-256, updater/protocol.rs `decide`.)
-if [ "$channel" = dev ]; then sign=false; else sign=true; fi
-feed_windows_arches=$windows_arches feed_macos=$macos
 
 {
-  echo "sha=$SHA"
-  echo "channel=$channel"
+  echo "channel=$CHANNEL"
   echo "service=https://anoma.ly/release"
   echo "tag=$tag"
   echo "notes-url=$notes"
   echo "release-channel=$release_channel"
   echo "release-version=$release_version"
   echo "build-desktop=$build_desktop"
-  echo "sign=$sign"
   echo "windows-arches=$windows_arches"
   echo "macos=$macos"
-  echo "feed-windows-arches=$feed_windows_arches"
-  echo "feed-macos=$feed_macos"
-  echo "publish-engine=$publish_engine"
-  echo "engine-version=$engine_version"
-  echo "engine-release-version=$engine_release_version"
-  echo "engine-sha256=$engine_sha256"
 } >> "$GITHUB_OUTPUT"
 if [ -n "$reason" ]; then
   echo "Nothing to build: $reason" >> "$GITHUB_STEP_SUMMARY"
 else
-  echo "Planned OpenCode (Rune) ($channel, $scope): desktop=$build_desktop ($release_channel $release_version; Windows $windows_arches, macOS $macos; signed and published: $sign), engine=$publish_engine ($engine_version) at $SHA." >> "$GITHUB_STEP_SUMMARY"
+  echo "Planned OpenCode (Rune) ($CHANNEL, $scope): $release_channel $release_version${tag:+ ($tag)}; Windows $windows_arches, macOS $macos, at $SHA." >> "$GITHUB_STEP_SUMMARY"
 fi

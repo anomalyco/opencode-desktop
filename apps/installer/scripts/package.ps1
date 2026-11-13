@@ -20,7 +20,7 @@
 #
 # -Cargo runs cargo another way, such as a build throttle ("pwsh tools/cargo.ps1 +1.99.1").
 #
-# .github/workflows/opencode-rune-release.yml runs this script in build-windows (x64 and arm64;
+# .github/workflows/release.yml runs this script in build-windows (x64 and arm64;
 # the unsigned setups go to the rolling GitHub pre-release), signs the install folder through
 # Azure Artifact Signing, runs it again with -Payload around the signed zip, signs that setup,
 # and publishes the zip as target windows-<arch> and the setup as windows-<arch>-setup.

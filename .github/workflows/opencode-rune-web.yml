@@ -1,12 +1,12 @@
 name: OpenCode (Rune) Web Build
 
 # Builds the browser build (apps/web: the desktop app as wasm with WebGPU) and uploads the
-# static folder as an artifact, to keep main's web build honest and to give a bundle to try. It
+# static folder as an artifact, to keep dev's web build honest and to give a bundle to try. It
 # deploys nothing: serve the folder locally (`pwsh scripts/web.ps1 -NoBuild`, or any static
 # server) and open it in Chrome or Edge.
 #
-# Three times a day, and only when main moved since the last green run; or by hand. Not on every
-# push: main moves dozens of times a day, and every push's own wasm32 check runs before it.
+# Three times a day, and only when dev moved since the last green run; or by hand. Not on every
+# push: dev moves dozens of times a day, and every push's own wasm32 check runs before it.
 
 on:
   schedule:
@@ -31,11 +31,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow opencode-rune-web.yml --branch main --status success --limit 1 --json headSha -q '.[0].headSha' || true)
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow opencode-rune-web.yml --branch dev --status success --limit 1 --json headSha -q '.[0].headSha' || true)
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$last" != "$GITHUB_SHA" ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "main hasn't moved since the last green run ($last)"
+            echo "dev hasn't moved since the last green run ($last)"
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -60,7 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: web-wasm32
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
       # Luau's C++ builds for the web with WASI SDK's clang (LLVM and the WASI sysroot in one).
       - id: wasi-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

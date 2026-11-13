@@ -30,7 +30,7 @@ with `pwsh apps/desktop/scripts/release.ps1` (a plain `cargo build --release` le
 it takes 25 to 60 minutes and about 10 GB for one rustc). `--profile release-quick` builds in minutes
 for iterating.
 
-For prebuilt `main` and side-by-side pull-request `.dmg` builds, see [docs/trying-opencode-rune.md](docs/trying-opencode-rune.md).
+For prebuilt `dev` and side-by-side pull-request `.dmg` builds, see [docs/trying-opencode-rune.md](docs/trying-opencode-rune.md). Releases: [docs/releasing.md](docs/releasing.md).
 
 ## Workspace layout
 
