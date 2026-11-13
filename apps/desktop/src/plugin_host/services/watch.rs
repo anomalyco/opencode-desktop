@@ -28,12 +28,18 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
     let mut fired = false;
     for name in names {
         if name == "Sessions.Changed" {
-            for s in &app.sessions {
-                let key = format!("Sessions.Changed:{}", s.id);
-                let v = session_version(app, &s.id);
+            // A session's version is made of `Tracked` state alone: while none of what the last
+            // comparison read was written, no version moved, and the sessions aren't hashed again.
+            if half.sessions_read.borrow().as_ref().is_some_and(|read| !read.changed()) {
+                continue;
+            }
+            let (versions, read) = rune::tracked_reads(|| app.sessions.iter().map(|s| (s.id.clone(), session_version(app, &s.id))).collect::<Vec<_>>());
+            *half.sessions_read.borrow_mut() = Some(read);
+            for (id, v) in versions {
+                let key = format!("Sessions.Changed:{id}");
                 let was = half.seen.borrow_mut().insert(key, v);
                 if was.is_some_and(|w| w != v) {
-                    fired |= super::super::fire_named(app, i, &name, session_data(app, &s.id));
+                    fired |= super::super::fire_named(app, i, &name, session_data(app, &id));
                 }
             }
             continue;

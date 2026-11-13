@@ -231,7 +231,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // The bottom pane's reserve and the pane itself read the side region's tabs, which ask every
     // panel's plugin: once per view.
     let side_reg = (matches!(*s.route, Route::Session { .. }) && !s.settings.open).then(|| s.resolve_side_region()).flatten();
-    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_ref(), cx);
+    let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref(), cx);
     // A layout switch moves the panel, the sidebar and every tab on GLIDE, with the panel on top:
     // the tabs slide under its edges between the titlebar and the sidebar rather than over the
     // page. The titlebar row comes and goes at once, and below the panel while it does.
@@ -307,7 +307,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
                 .child(crate::dropzone::overlay(s, p, panel_sz)),
         )
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx));
-    if let Some(dock) = crate::panels::view::bottom_dock(s, side_reg.as_ref(), p, cx) {
+    if let Some(dock) = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx) {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
                 .motion(crate::panels::view::SIDE_SPRING),

@@ -1,6 +1,7 @@
 //! Side region per-session state, resolved strip projection, keyboard shortcuts, and persistence.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use rune::Tx;
 
@@ -133,6 +134,9 @@ pub struct SideState {
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
     next_new_serial: u64,
+    /// The last `App::resolve_side_region`: the plugins' surface versions and the `Tracked`
+    /// state it read, and what it resolved.
+    resolved: std::cell::RefCell<Option<(u64, rune::Reads, Option<Rc<ResolvedRegion>>)>>,
 }
 
 impl Default for SideState {
@@ -153,6 +157,7 @@ impl Default for SideState {
             closing: Default::default(),
             tab_menu: None,
             add_menu: None,
+            resolved: Default::default(),
             sessions: HashMap::new(),
             adding: Vec::new(),
             chosen_new_tab: HashMap::new(),
@@ -291,7 +296,27 @@ impl App {
         self.side.sessions.entry(session_id.to_owned()).or_default()
     }
 
-    pub fn resolve_side_region(&self) -> Option<ResolvedRegion> {
+    /// The routed session's side region: its tabs from every panel's provider, in strip order.
+    ///
+    /// Asking every provider (each plugin's `list`) costs a view about 100 us, and views and
+    /// handlers ask several times a frame: the last answer stands while the plugins' surfaces and
+    /// the `Tracked` state it read are as they were, as a region's would. A region that asks gets
+    /// those reads either way.
+    pub fn resolve_side_region(&self) -> Option<Rc<ResolvedRegion>> {
+        let plugins = crate::plugin_host::surfaces_version(self);
+        if let Some((version, read, region)) = &*self.side.resolved.borrow()
+            && *version == plugins
+            && !read.changed()
+        {
+            read.read();
+            return region.clone();
+        }
+        let (region, read) = rune::tracked_reads(|| self.resolve_side_region_now().map(Rc::new));
+        *self.side.resolved.borrow_mut() = Some((plugins, read, region.clone()));
+        region
+    }
+
+    fn resolve_side_region_now(&self) -> Option<ResolvedRegion> {
         let session_id = self.active_session_id()?.to_owned();
         let (directory, project_id) = match self.session(&session_id) {
             Some(info) => (info.directory.clone(), info.project.clone()),
@@ -551,9 +576,9 @@ impl App {
             .resolve_side_region()
             .map(|r| {
                 r.entries
-                    .into_iter()
+                    .iter()
                     .filter(|e| e.tab.transient)
-                    .map(|e| e.key)
+                    .map(|e| e.key.clone())
                     .collect()
             })
             .unwrap_or_default();

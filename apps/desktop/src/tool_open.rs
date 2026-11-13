@@ -288,7 +288,7 @@ impl App {
     fn showing(&self, o: &Opened) -> bool {
         self.active_session_id() == Some(o.session.as_str())
             && self.side_open()
-            && self.resolve_side_region().and_then(|r| r.active).as_deref() == Some(o.tab.as_str())
+            && self.resolve_side_region().and_then(|r| r.active.clone()).as_deref() == Some(o.tab.as_str())
     }
 
     /// Opens `target` for step `step`; pressed again while it shows, puts the side region back.
@@ -304,7 +304,7 @@ impl App {
         // A chain of steps opened one after another still goes back to where it began.
         let before = match self.tool_open.take().filter(|o| self.showing(o)) {
             Some(o) => o.before,
-            None if self.side_open() => self.resolve_side_region().and_then(|r| r.active),
+            None if self.side_open() => self.resolve_side_region().and_then(|r| r.active.clone()),
             None => None,
         };
         let tab = match target {

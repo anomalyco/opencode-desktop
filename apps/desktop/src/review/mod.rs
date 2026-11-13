@@ -293,7 +293,7 @@ impl App {
         if !(self.side_open() || self.stage.is_some()) {
             return false;
         }
-        self.resolve_side_region().and_then(|r| r.active).as_deref() == Some(REVIEW_KEY)
+        self.resolve_side_region().and_then(|r| r.active.clone()).as_deref() == Some(REVIEW_KEY)
     }
 
     pub fn note_review_event(&mut self, ty: &str) -> bool {

@@ -127,6 +127,8 @@ pub struct Half {
     pub epoch: Cell<u64>,
     /// What each watched signal saw last (`services::watch`).
     pub seen: RefCell<HashMap<String, u64>>,
+    /// What `Sessions.Changed` read when it last compared the sessions' versions.
+    pub sessions_read: RefCell<Option<rune::Reads>>,
     /// Shell slots whose render failed in the running VM: they draw nothing until a reload.
     pub failed: RefCell<std::collections::HashSet<String>>,
 }
@@ -151,6 +153,7 @@ impl Half {
             held: RefCell::default(),
             epoch: Cell::new(0),
             seen: RefCell::default(),
+            sessions_read: RefCell::default(),
             failed: RefCell::default(),
         })
     }

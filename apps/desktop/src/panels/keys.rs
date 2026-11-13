@@ -49,7 +49,7 @@ impl App {
             Some(r) => Some(r),
             None => {
                 resolved = self.resolve_side_region();
-                resolved.as_ref()
+                resolved.as_deref()
             }
         };
         self.active_session_id() == Some(sid)

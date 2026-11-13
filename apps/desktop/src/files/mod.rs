@@ -382,9 +382,9 @@ impl App {
         let act = reg.active.as_deref()?;
         let id = act.strip_prefix("file:")?;
         if id == OPEN_TAB_ID {
-            Some((reg.session_id, None))
+            Some((reg.session_id.clone(), None))
         } else {
-            file_tab_path(id).map(|p| (reg.session_id, Some(p)))
+            file_tab_path(id).map(|p| (reg.session_id.clone(), Some(p)))
         }
     }
 
