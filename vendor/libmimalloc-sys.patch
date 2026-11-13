@@ -1,0 +1,30 @@
+# libmimalloc-sys 0.1.49 as published (mimalloc 3.3), plus this: small (64 KiB) pages commit on demand in 16 KiB steps, as
+# medium and large pages already do with `mi_option_page_commit_on_demand`. Every thread that allocates holds a partly used
+# small page per size class, committed whole; most of each was never written. Measured in OpenCode: mimalloc's committed bytes
+# at Home 57.8 MB to 46.2 MB, after ten tabs closed back to Home 101.5 MB to 75.4 MB; launch and frame times unchanged.
+diff --git "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h" "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
+index 31fdace9..dc0db9cc 100644
+--- "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
++++ "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\include\\mimalloc\\types.h"
+@@ -209,7 +209,7 @@ terms of the MIT license. A copy of the license can be found in the file
+ #define MI_MAX_ALLOC_SIZE        PTRDIFF_MAX
+ 
+ // Minimal commit for a page on-demand commit (should be >= OS page size)
+-#define MI_PAGE_MIN_COMMIT_SIZE  MI_ARENA_SLICE_SIZE
++#define MI_PAGE_MIN_COMMIT_SIZE  (16*1024)   // rune-desktop: small (64 KiB) pages commit on demand too
+ 
+ 
+ // ------------------------------------------------------
+diff --git "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\src\\arena.c" "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\src\\arena.c"
+index a5686d55..eb59a0ce 100644
+--- "a/C:\\Users\\Lukem\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libmimalloc-sys-0.1.49\\c_src\\mimalloc\\v3\\src\\arena.c"
++++ "b/vendor\\libmimalloc-sys\\c_src\\mimalloc\\v3\\src\\arena.c"
+@@ -960,7 +960,7 @@ static mi_page_t* mi_arenas_page_regular_alloc(mi_theap_t* theap, size_t slice_c
+ 
+   // 2. find a free block, potentially allocating a new arena
+   const long commit_on_demand = mi_option_get(mi_option_page_commit_on_demand);
+-  const bool commit = (slice_count <= mi_slice_count_of_size(MI_PAGE_MIN_COMMIT_SIZE) ||  // always commit small pages
++  const bool commit = (mi_size_of_slices(slice_count) <= MI_PAGE_MIN_COMMIT_SIZE ||  // always commit pages no larger than a commit step
+                        (commit_on_demand == 2 && _mi_os_has_overcommit()) || (commit_on_demand == 0));
+   page = mi_arenas_page_alloc_fresh(theap, slice_count, block_size, 1, commit);
+   if (page == NULL) return NULL;

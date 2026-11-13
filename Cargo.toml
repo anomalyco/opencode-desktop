@@ -50,6 +50,9 @@ ureq = { version = "3.4", default-features = false }
 
 # BetterOffice's Word engine builds against its own yrs fork, as its workspace patches it.
 [patch.crates-io]
+# mimalloc with small pages committed on demand too (`vendor/libmimalloc-sys.patch`): ~11 MB less at Home, ~26 MB after a busy
+# spell, no launch or frame cost measured. Keep the version equal to what `mimalloc` asks for.
+libmimalloc-sys = { path = "vendor/libmimalloc-sys" }
 # Rune's wgpu-hal (wgpu-hal as published plus `dx12::Instance::expose_adapter` and partial presents,
 # `vendor/wgpu-hal` in the Rune repo), at the Rune rev pinned above: a window's GPU is then the one adapter
 # Rune picks through DXGI, with no device made on the others, and a frame presents only what changed.
