@@ -1,9 +1,10 @@
-// The web build names no std clock: `std::time::Instant` has no clock in a browser and panics
-// there; `rune::time::Instant` is the page's clock there and std's own natively. Clippy can't
-// say this: natively `rune::time::Instant` *is* `std::time::Instant`, so a `disallowed-types`
-// ban fails on correct code. This walks every crate of this workspace that the web build
-// compiles, from its root through its `mod` declarations, leaves out modules and items compiled
-// out for wasm32 (or only for tests), and refuses std's `Instant` in what's left.
+// The web build names no std clock: `std::time::Instant` and `SystemTime::now` have no clock in a
+// browser and panic there; `rune::time`'s are the page's clocks there and std's own natively.
+// Clippy can't say this: natively `rune::time::Instant` *is* `std::time::Instant`, so a
+// `disallowed-types` ban fails on correct code. This walks every crate of this workspace that the
+// web build compiles, from its root through its `mod` declarations, leaves out modules and items
+// compiled out for wasm32 (or only for tests), and refuses std's `Instant` and `SystemTime::now`
+// in what's left.
 // `scripts/web.ps1 -Check` runs it. Usage: bun scripts/web-clock.ts [package] (default opencode-web)
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, relative, basename } from "node:path"
@@ -37,10 +38,10 @@ for (const id of crates) {
     walk(target.src_path, true, new Set())
 }
 if (bad.length) {
-  console.error(`std::time::Instant in the web build (it panics in a browser; use rune::time::Instant, or web_time::Instant where rune isn't a dependency):\n${bad.join("\n")}`)
+  console.error(`std's clock in the web build (Instant and SystemTime::now panic in a browser; use rune::time's, or web_time's where rune isn't a dependency):\n${bad.join("\n")}`)
   process.exit(1)
 }
-console.log(`web clock: ${files} files in ${crates.size} crates, no std::time::Instant`)
+console.log(`web clock: ${files} files in ${crates.size} crates, no std::time::Instant or SystemTime::now`)
 
 function walk(file: string, owner: boolean, seen: Set<string>) {
   if (seen.has(file) || !existsSync(file)) return
@@ -53,6 +54,14 @@ function walk(file: string, owner: boolean, seen: Set<string>) {
   modules(text, file, owner || basename(file) === "mod.rs" ? dirname(file) : join(dirname(file), basename(file, ".rs")), seen)
   // `std::time::Instant`, or `Instant` in a `use std::time::{...}`, outside items compiled out for wasm32.
   for (const m of text.matchAll(/((?:#\[[^\]]*\]\s*)*)[^\n;{}]*std::time::(?:Instant\b|\{[^}]*\bInstant\b[^}]*\})/g)) {
+    if ([...(m[1] ?? "").matchAll(/#\[cfg\(([\s\S]*?)\)\]/g)].some((c) => !cfg(c[1]!))) continue
+    const line = text.slice(0, m.index! + (m[1]?.length ?? 0)).split("\n").length
+    bad.push(`  ${relative(root, file)}:${line}`)
+  }
+  // `SystemTime` itself is a plain value (a file's mtime, `UNIX_EPOCH`); only asking std for now panics.
+  const std = /std::time::SystemTime::now|use\s+std::time::(?:SystemTime\b|\{[^}]*\bSystemTime\b[^}]*\})/.test(text)
+  for (const m of text.matchAll(/((?:#\[[^\]]*\]\s*)*)[^\n;{}]*(std::time::)?SystemTime::now\b/g)) {
+    if (!m[2] && !std) continue
     if ([...(m[1] ?? "").matchAll(/#\[cfg\(([\s\S]*?)\)\]/g)].some((c) => !cfg(c[1]!))) continue
     const line = text.slice(0, m.index! + (m[1]?.length ?? 0)).split("\n").length
     bad.push(`  ${relative(root, file)}:${line}`)

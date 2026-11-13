@@ -31,7 +31,7 @@ fn save(history: &History) {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    crate::wall_ms()
 }
 
 /// Steps the tips and carries out what they ask; true when a toast came or went.
