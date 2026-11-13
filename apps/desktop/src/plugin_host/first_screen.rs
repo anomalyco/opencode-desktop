@@ -9,8 +9,9 @@
 //! - **Not before the frame on any route:** the updater's titlebar pill shows only once the
 //!   updater's worker, started after the first frame, has an update ready, so it's hidden in the
 //!   first frame and the second either way.
-//! - **A session:** the slots in its header and debug bar, the composer's pills; with a cached
-//!   transcript on screen, the code blocks and link handlers its messages draw with; and every
+//! - **A session:** the slots in its header (the debug bar's only while it's shown, above), the
+//!   composer's pills; with a cached transcript on screen, the code blocks and link handlers its
+//!   messages draw with; and every
 //!   plugin with a tab in the session's open side or bottom pane (the tab strip shows each one's
 //!   title), plus the file viewers when the Files plugin has one.
 //! - **Home and a draft:** nothing else.
@@ -32,7 +33,8 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     }
     let Route::Session { id: session, .. } = &*app.route else { return out };
     let transcript = app.launch.cold_transcript.is_some();
-    out.extend(sources::builtin_ids().filter(|id| has(id, &["Slot", "ComposerPill"]) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
+    // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.
+    out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
     if let Some(side) = app.side.sessions.get(session) {
         let tabs = &side.tab_state.tabs;
         let shown = |key: &String| match tabs.panes.get(key).copied().unwrap_or(SessionPane::Side) {
