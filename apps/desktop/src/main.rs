@@ -1395,6 +1395,7 @@ pub(crate) const TERMINAL_FONTS: &[&str] = &["fonts/JetBrainsMonoNerdFontMono-Re
 
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty` in tests).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
+    rune::text::set_face_weights(appearance::FACE_WEIGHTS);
     AppSpec {
         scenes: stories::scenes(),
         fonts: FONTS,
