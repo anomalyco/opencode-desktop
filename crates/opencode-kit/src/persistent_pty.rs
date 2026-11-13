@@ -27,6 +27,8 @@ pub struct PersistentPtyInfo {
     pub tail: i64,
     /// The oldest output byte the server still keeps (`output.head`): 0 while it has all of it.
     pub head: i64,
+    /// The program it runs: the server's own shell unless the terminal was started with another.
+    pub command: String,
 }
 
 /// What `GET /api/experimental/persistent-pty/:id/snapshot` restores a screen from.
@@ -46,6 +48,7 @@ pub struct TerminalCreate {
     size: Option<(u16, u16)>,
     command: Option<String>,
     args: Vec<String>,
+    env: Vec<(String, String)>,
 }
 
 impl TerminalCreate {
@@ -71,6 +74,17 @@ impl TerminalCreate {
         self.args = args;
         self
     }
+
+    /// The program it runs instead of the server's own shell, if any.
+    pub fn program(&self) -> Option<&str> {
+        self.command.as_deref().filter(|c| !c.is_empty())
+    }
+
+    /// Sets `key` to `value` in the shell's environment.
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
 }
 
 pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
@@ -87,6 +101,7 @@ pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
         size: (dim("cols").unwrap_or(80), dim("rows").unwrap_or(24)),
         tail: d["output"]["tail"].as_i64().unwrap_or(0),
         head: d["output"]["head"].as_i64().unwrap_or(-1),
+        command: d["command"].as_str().unwrap_or_default().to_owned(),
     })
 }
 
@@ -112,7 +127,8 @@ impl Server {
     /// Starts the server's shell for a session (`POST /api/experimental/session/:id/terminal`).
     pub fn terminal_create(&self, session_id: &str, input: &TerminalCreate) -> Result<PersistentPtyInfo, String> {
         let path = format!("/api/experimental/session/{}/terminal", encode_component(session_id));
-        let mut body = json!({ "args": input.args, "title": input.title, "env": {} });
+        let env: serde_json::Map<String, Value> = input.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+        let mut body = json!({ "args": input.args, "title": input.title, "env": env });
         if let Some(cwd) = input.cwd.as_ref().filter(|c| !c.is_empty()) {
             body["cwd"] = json!(cwd);
         }

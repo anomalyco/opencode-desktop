@@ -209,7 +209,21 @@ pub fn shell_folder(snap: &TerminalSnapshot, started_in: &str) -> String {
     let path = rest.find('/').map_or("", |i| &rest[i..]);
     let decoded = percent_decode(path);
     let b = decoded.as_bytes();
-    if b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':' { decoded[1..].to_owned() } else if decoded.is_empty() { started_in.to_owned() } else { decoded }
+    if b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':' {
+        return decoded[1..].to_owned();
+    }
+    if decoded.is_empty() {
+        return started_in.to_owned();
+    }
+    // A Windows server's shells: Git Bash says `/c/x` and WSL `/mnt/c/x` for `C:/x`; a folder only
+    // WSL has (`/home/u`) is none the server can start in, so the terminal's own is used.
+    let windows = started_in.as_bytes().get(1) == Some(&b':');
+    let drive = decoded.strip_prefix("/mnt").unwrap_or(&decoded);
+    match drive.as_bytes() {
+        [b'/', d, rest @ ..] if windows && d.is_ascii_alphabetic() && (rest.is_empty() || rest[0] == b'/') => format!("{}:{}", char::from(d.to_ascii_uppercase()), if rest.is_empty() { "/" } else { &drive[2..] }),
+        _ if windows => started_in.to_owned(),
+        _ => decoded,
+    }
 }
 
 fn percent_decode(s: &str) -> String {
@@ -275,5 +289,12 @@ mod tests {
         assert_eq!(shell_folder(&snap, "C:\\start"), "C:/a b");
         snap.pwd = "\"C:\\Users\\x\"".into();
         assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\Users\\x", "OSC 9;9, quoted");
+        snap.pwd = "file://host/c/Repos/a".into();
+        assert_eq!(shell_folder(&snap, "C:\\start"), "C:/Repos/a", "Git Bash");
+        snap.pwd = "file://host/mnt/d/x".into();
+        assert_eq!(shell_folder(&snap, "C:\\start"), "D:/x", "WSL");
+        assert_eq!(shell_folder(&snap, "/home/u"), "/mnt/d/x", "a Linux server's own path");
+        snap.pwd = "file://host/home/u".into();
+        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\start", "only WSL has it");
     }
 }

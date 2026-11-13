@@ -87,6 +87,9 @@ pub struct Settings {
     /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
     /// on the Mac; Desktop's terminal (ghostty-web) treats Option as Meta.
     pub terminal_option_meta: bool,
+    /// The shells the terminal starts with prompt marks (`terminal::integration::Shell::id`),
+    /// each turned on by the user; none by default.
+    pub terminal_marks: Vec<String>,
     /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
     /// locale id; `None` follows the system's languages (`language::apply`).
     pub language: Option<String>,
@@ -153,6 +156,7 @@ impl Default for Settings {
             tab_layout: Default::default(),
             new_question_ui: false,
             terminal_option_meta: false,
+            terminal_marks: Vec::new(),
             language: None,
             default_destination: Destination::default(),
             last_used: BTreeMap::new(),
@@ -196,7 +200,7 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
-            "terminal": { "optionAsMeta": self.terminal_option_meta },
+            "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
             "language": self.language,
             "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
@@ -244,6 +248,7 @@ impl Settings {
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
+            terminal_marks: v["terminal"]["marks"].as_array().map(|a| a.iter().filter_map(|m| m.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
             language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),
             default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
             last_used: v["workspaces"]["lastUsed"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned()))).collect()).unwrap_or_default(),

@@ -54,6 +54,31 @@ pub fn view(s: &App, p: &Pal) -> El {
         let control = switch(p, "terminal-option-meta-switch", st.terminal_option_meta).on_press(|s: &mut App| s.change_settings(|x| x.terminal_option_meta = !x.terminal_option_meta));
         rows.push(("terminal-option-meta", setting(p, "terminal-option-meta", t!("rune.settings.general.row.terminalOptionMeta.title"), t!("rune.settings.general.row.terminalOptionMeta.description"), control)));
     }
+    // Prompt marks for the shells that don't send them, each the user's to turn on; the shell
+    // starts with a script on its command line, never one added to its profile (`integration.rs`).
+    if cfg!(windows) {
+        use crate::terminal::integration::Shell;
+        for shell in Shell::ALL {
+            let id = shell.id();
+            let on = st.terminal_marks.iter().any(|m| m == id);
+            let control = switch(p, &format!("{}-switch", shell.setting_key()), on).on_press(move |s: &mut App| {
+                s.change_settings(|x| {
+                    if x.terminal_marks.iter().any(|m| m == id) {
+                        x.terminal_marks.retain(|m| m != id);
+                    } else {
+                        x.terminal_marks.push(id.to_owned());
+                    }
+                });
+            });
+            let description = match shell {
+                Shell::Cmd => t!("rune.settings.general.row.terminalMarks.descriptionCmd").to_owned(),
+                Shell::GitBash | Shell::Wsl => t!("rune.settings.general.row.terminalMarks.descriptionBash", shell = shell.label()),
+                Shell::Pwsh | Shell::PowerShell => t!("rune.settings.general.row.terminalMarks.description", shell = shell.label()),
+            };
+            let title = t!("rune.settings.general.row.terminalMarks.title", shell = shell.label());
+            rows.push((shell.setting_key(), setting(p, shell.setting_key(), &title, &description, control)));
+        }
+    }
     let rows = super::rows(s, p, 20.0, rows);
     let general = super::section(p, "settings-general-section", Some(t!("settings.general.section.general")), settings::list(p, "settings-list", rows));
     let body = col().w_full().gap(32.0)

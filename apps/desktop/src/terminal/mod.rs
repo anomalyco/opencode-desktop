@@ -4,6 +4,7 @@
 mod draw;
 mod find;
 pub mod grid;
+pub mod integration;
 pub mod input;
 mod links;
 mod menu;
@@ -172,6 +173,9 @@ pub struct TerminalPane {
     pub claim_focus: bool,
     /// A paste waiting for the user to say it may run (`paste.rs`).
     pub pending_paste: Option<paste::Pending>,
+    /// Each server's own shell (by its address), once a terminal with marks needed it
+    /// (`App::terminal_launch`); `None` when it couldn't be told.
+    pub server_shells: std::cell::RefCell<HashMap<String, Option<String>>>,
 }
 
 impl Default for TerminalPane {
@@ -194,6 +198,7 @@ impl Default for TerminalPane {
             spare_field: rune::TextEdit::default(),
             claim_focus: false,
             pending_paste: None,
+            server_shells: Default::default(),
         }
     }
 }
@@ -447,10 +452,16 @@ impl App {
             // does in every native terminal; the session's folder when it hasn't said.
             let shown = self.terminal.workspaces.get(ws_key).and_then(|ws| ws.active.as_deref().and_then(|id| ws.tabs.iter().find(|t| t.id == id)));
             let directory = shown.map_or_else(|| directory.clone(), |t| links::shell_folder(&t.session.peek(), &directory));
-            let created = srv.terminal_create(
-                &session_id,
-                &TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))),
-            );
+            let create = self.terminal_launch(&srv, TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))), None, Vec::new());
+            let created = srv.terminal_create(&session_id, &create);
+            // A terminal started as the server's own: its program is that server's shell (which the
+            // marks then start, `server_shell`), whatever was guessed before.
+            if create.program().is_none()
+                && let Ok(info) = &created
+                && !info.command.is_empty()
+            {
+                self.terminal.server_shells.borrow_mut().insert(srv.base.clone(), Some(info.command.clone()));
+            }
             let tab = created.and_then(|info| self.persistent_tab(srv, info));
             let ws = self.terminal.workspaces.get_mut(ws_key)?;
             return match tab {
@@ -515,7 +526,61 @@ impl App {
         let wk = self.terminal_workspace_key_for_session(sid);
         let title = title.filter(|t| !t.is_empty()).unwrap_or_else(|| format!("Terminal {}", self.terminal.workspaces.get(&wk).map_or(1, TerminalWorkspace::next_title_number)));
         let cwd = cwd.filter(|c| !c.is_empty()).or_else(|| self.session(sid).map(|s| s.directory.clone()));
-        srv.terminal_create(sid, &TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())).command(command, args))
+        srv.terminal_create(sid, &self.terminal_launch(&srv, TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())), command, args))
+    }
+
+    /// What a new terminal on `srv` runs: `command` with `args`, or the server's own shell, with
+    /// that shell's marks when the user turned them on (`integration.rs`; bash's only from a
+    /// server on this computer, which can read the script's file); and on this Windows computer
+    /// `WSLENV` carrying `COLORTERM` into WSL.
+    fn terminal_launch(&self, srv: &opencode_kit::client::Server, create: TerminalCreate, command: Option<String>, args: Vec<String>) -> TerminalCreate {
+        let local = srv.is_local();
+        let create = if local && cfg!(windows) { create.env("WSLENV", integration::wslenv(&std::env::var("WSLENV").unwrap_or_default())) } else { create };
+        if self.settings.terminal_marks.is_empty() {
+            return create.command(command, args);
+        }
+        let program = match &command {
+            Some(c) if !c.is_empty() => args.is_empty().then(|| c.clone()),
+            _ => self.server_shell(srv),
+        };
+        let marked = program.as_deref().and_then(|p| {
+            let shell = integration::Shell::of(p).filter(|sh| self.settings.terminal_marks.iter().any(|m| m == sh.id()))?;
+            if shell.reads_a_file() && !local {
+                return None;
+            }
+            integration::launch(shell, p, crate::dirs::data().map(|d| d.join("shell-integration")).as_deref())
+        });
+        match marked {
+            Some((command, args)) => create.command(Some(command), args),
+            None => create.command(command, args),
+        }
+    }
+
+    /// The shell `srv` starts a terminal in: the one it last started for a plain new terminal, else
+    /// as its `ShellSelect.environment` picks it on Windows:
+    /// `SHELL` when it names one (known only for a server on this computer, which shares this
+    /// process's environment), else the first of its shells (`GET /api/config/shell`: PowerShell 7,
+    /// Windows PowerShell, Git Bash, cmd). Asked once per server.
+    fn server_shell(&self, srv: &opencode_kit::client::Server) -> Option<String> {
+        if let Some(known) = self.terminal.server_shells.borrow().get(&srv.base) {
+            return known.clone();
+        }
+        let listed = srv.get("/api/config/shell").ok().map(|v| {
+            let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
+            items.iter().filter_map(|i| Some((i["name"].as_str()?.to_owned(), i["path"].as_str()?.to_owned()))).collect::<Vec<_>>()
+        });
+        let listed: Vec<(String, String)> = listed.unwrap_or_default().into_iter().filter(|(_, path)| path.as_bytes().get(1) == Some(&b':')).collect();
+        let from_env = std::env::var("SHELL").ok().filter(|s| srv.is_local() && cfg!(windows) && !s.is_empty()).and_then(|s| {
+            let path = std::path::Path::new(&s);
+            if path.is_absolute() {
+                return path.is_file().then_some(s);
+            }
+            let name = path.file_stem()?.to_string_lossy().to_ascii_lowercase();
+            listed.iter().find(|(n, _)| *n == name).map(|(_, p)| p.clone())
+        });
+        let shell = from_env.or_else(|| listed.first().map(|(_, p)| p.clone()));
+        self.terminal.server_shells.borrow_mut().insert(srv.base.clone(), shell.clone());
+        shell
     }
 
     /// A terminal [`App::start_terminal`] started joins session `sid`'s terminals and becomes
