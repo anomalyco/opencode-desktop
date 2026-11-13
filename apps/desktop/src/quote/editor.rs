@@ -362,6 +362,7 @@ fn source_position(a: &Anchor, cx: &mut Cx<App>, shell: impl Fn([f32; 4]) -> [f3
     let view = shell(cx.window_layout(&format!("scroll-{}", a.session))?);
     let (b_top, b_bottom, b_left, b_right) = (view[1], view[1] + view[3], view[0], view[0] + view[2]);
     let pinned = b_bottom - height - GAP;
+    if cx.hover_none() { return Some((pinned, (b_left + b_right - width) * 0.5)); }
     let centred = |l: f32, r: f32| ((l + r - width) / 2.0).max(b_left + GAP).min((b_left + GAP).max(b_right - width - GAP));
     let Some(origin) = cx.window_layout(&a.path).map(&shell) else { return Some((pinned, centred(b_left, b_right))) };
     let rects: Vec<[f32; 4]> = a.rects.iter().map(|r| [origin[0] + r[0], origin[1] + r[1], r[2], r[3]]).collect();

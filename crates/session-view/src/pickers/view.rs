@@ -118,7 +118,7 @@ pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: boo
     let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
     // Rune shows it at its hovered opacity while the keyboard is on it (`:focus-visible`).
-    let shown = !default || s.pickers().open == Some(Kind::Effort);
+    let shown = crate::style::hover_none() || !default || s.pickers().open == Some(Kind::Effort);
     if shown { button } else { button.group_opacity(0.0, 1.0) }
 }
 

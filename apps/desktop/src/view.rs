@@ -75,7 +75,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     session_view::scroller::set_device_scale(cx.env().scale);
     set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
-    session_view::style::set_hover_none(cx.hover_none());
+    session_view::style::set_pointer(cx.hover_none(), cx.touch_controls());
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
@@ -339,7 +339,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         _ => "",
     };
     let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);
-    if bottom.is_empty() {
+    let touch_bar = composer::touch::bar(s, p);
+    if bottom.is_empty() && touch_bar.is_none() {
         return root;
     }
     col()
@@ -349,6 +350,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .fill(p.bg_deep)
         .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
         .child(col().key("plugin-window-bottom").w_full().children(bottom))
+        .children(touch_bar)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -378,4 +380,3 @@ pub(crate) fn title_of(s: &SessionInfo) -> String {
 pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {
     project.map(|p| p.name.clone()).unwrap_or_else(|| opencode_kit::path::basename(dir).to_owned())
 }
-

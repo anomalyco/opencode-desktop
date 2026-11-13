@@ -297,9 +297,12 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     let mut subtitle = el().key("subtitle").w_full().h(14.0);
     if hint {
         let edit = if comment.is_some() { opencode_i18n::t!("ui.commentCard.editComment") } else { opencode_i18n::t!("ui.commentCard.addComment") };
-        subtitle = subtitle
-            .child(line("quote-line", &OUTLINE_QUOTE, label, p.muted).group_opacity(1.0, 0.0))
-            .child(line("comment-line", &COMMENT, edit.to_owned(), p.text).absolute(0.0, 0.0).group_opacity(0.0, 1.0));
+        subtitle = if crate::style::hover_none() && comment.is_none() {
+            subtitle.child(line("comment-line", &COMMENT, edit.to_owned(), p.text))
+        } else {
+            subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted).group_opacity(1.0, 0.0))
+                .child(line("comment-line", &COMMENT, edit.to_owned(), p.text).absolute(0.0, 0.0).group_opacity(0.0, 1.0))
+        };
     } else {
         subtitle = subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted));
     }
@@ -343,4 +346,3 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     }
     Some(c)
 }
-

@@ -165,7 +165,8 @@ fn near(id: u64, at: ScrollPos) {
 
 /// A large ghost-muted `IconButton` with its tooltip above (`preview-controls.tsx`).
 fn control(p: &Pal, id: u64, key: &'static str, label: &str, icon: &'static rune::Icon, disabled: bool, to: fn(f32) -> f32) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).help(label.to_owned()).help_above().size(28.0, 28.0).radius(6.0).center().child(rune::icon(icon, 16.0).color(p.icon_muted));
+    let target = if session_view::style::touch_controls() { 44.0 } else { 28.0 };
+    let b = row().key(key).role("button").label(label.to_owned()).help(label.to_owned()).help_above().size(target, target).radius(6.0).center().child(rune::icon(icon, 16.0).color(p.icon_muted));
     if disabled {
         return b.layer_opacity(0.5).disabled(true);
     }

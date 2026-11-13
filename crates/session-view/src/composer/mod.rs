@@ -254,6 +254,8 @@ pub trait ComposerHost: TimelineHost {
     fn composer_shell_mode(&self) -> bool {
         false
     }
+    /// The host renders the touch actions below the window, independently of the editor.
+    fn composer_docked_actions(&self) -> bool { false }
     /// The app's spell checking setting (Desktop's `spellcheck`): the prompt marks misspelled
     /// words while it is on, outside shell mode (`editor.tsx:318`).
     fn composer_spellcheck(&self) -> bool {
@@ -335,6 +337,11 @@ pub fn submit_or_stop<S: ComposerHost>(s: &mut S, tx: &mut Tx) {
 /// lay `--submit-hover` and `overlay-contrast-pressed` over it. Without anything to send it
 /// is disabled: the same button at 40% (`submit.css:74-80`), with no hover.
 pub fn submit_button(p: &Pal, live: bool) -> El {
+    submit_surface(el().key("submit").role("button").size(28.0, 28.0).radius(6.0).center(), p, live)
+}
+
+/// Button-v2 submit elevation, including the disabled ink, for icon and labelled buttons.
+pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
     let shadow = |y: f32, blur: f32, spread: f32, color: Color, inset: bool| Shadow { y, blur, spread, color, inset, ..Shadow::default() };
     let (white, black) = (Color::WHITE, Color::BLACK);
     let elevation = if p.dark {
@@ -353,7 +360,7 @@ pub fn submit_button(p: &Pal, live: bool) -> El {
     };
     let b = elevation
         .into_iter()
-        .fold(el().key("submit").role("button").size(28.0, 28.0).radius(6.0).center().fill(p.q.submit), El::box_shadow)
+        .fold(base.fill(p.q.submit), El::box_shadow)
         .gradient(white.alpha(if p.dark { 0.6 } else { 0.2 }), white.alpha(0.0))
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
@@ -381,6 +388,7 @@ pub fn composer<S: ComposerHost>(s: &S, p: &Pal) -> El {
 
 /// Renders the shared composer, keyed `{scope}-composer` when `scope` isn't empty.
 pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
+    let docked = s.composer_docked_actions() && scope.is_empty();
     let (pad, shown) = (
         rune::memo::layout_with("editor-pad", |r| r[3]),
         rune::memo::layout_with("editor-scroll", |r| r[3]),
@@ -395,7 +403,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         (false, false) => icon(&ic::ARROW_UP, 16.0).key("send-glyph"),
     };
     // Send finishes a dictation and sends its words, so it stays live while one runs.
-    let submit = submit_button(p, ready || stop || s.composer_dictating())
+    let submit = (!docked).then(|| submit_button(p, ready || stop || s.composer_dictating())
         .label(if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             if stop {
@@ -404,7 +412,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                 s.composer_send(tx);
             }
         })
-        .child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
+        .child(glyph.color(p.q.submit_text).transition(stop_glyph_swap())));
     let key = if scope.is_empty() {
         "composer".to_owned()
     } else {
@@ -420,7 +428,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .label_static(opencode_i18n::t!("ui.promptInput.label"))
         .w_full()
         .max_w(crate::style::dock_w())
-        .min_h(88.0)
+        .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
         .corners([12.0; 4])
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
@@ -500,7 +508,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                 ),
                     )),
             )
-            .child(
+            .children((!docked || !s.composer_shell_mode()).then(||
                 row()
                     .key("toolbar")
                     .transition(s.composer_face_transition())
@@ -512,9 +520,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .children(s.composer_toolbar_items(p, scope, busy && ready))
                     // The slot rides the composer's edge as a panel's spring moves it, as
                     // Desktop's follows the chat's width; the button's own swaps land at once.
-                    .child(el().key("submit-slot").size(28.0, 28.0).child(submit)),
-            )
+                    .children(submit.map(|b| el().key("submit-slot").size(28.0, 28.0).child(b)))
+            ))
             .children(s.composer_below_toolbar(p)),
     }
 }
-

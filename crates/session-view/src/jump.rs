@@ -33,11 +33,11 @@ pub const GAP: f32 = 10.0;
 /// A composer pill's height (`[data-composer-pill]`, `composer-lane.css:7`).
 pub const CHIP_H: f32 = 32.0;
 /// The capsule's lane: its chip and that gap, kept clear under the timeline's last row.
-pub const CAPSULE_LANE: f32 = CHIP_H + GAP;
+pub fn chip_height() -> f32 { if crate::style::hover_none() { 44.0 } else { CHIP_H } }
 
 /// The room the pills take over the composer: their lane while any shows.
 pub fn lane(pills: bool) -> f32 {
-    if pills { CAPSULE_LANE } else { 0.0 }
+    if pills { chip_height() + GAP } else { 0.0 }
 }
 
 /// The timeline's fade over the composer (p248): transparent at the composer's top edge, under
@@ -255,7 +255,7 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
     let edge = fade(s, lane(!pills.is_empty()));
     // A pill's height whatever shows, so the 28 pt button sits where it does beside the 32 pt
     // capsule and doesn't move 2 pt when one comes or goes.
-    let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).min_h(CHIP_H).center_y();
+    let lane = row().key("activity-lane").w_full().max_w(crate::style::dock_w()).min_h(chip_height()).center_y();
     let lane = match s.lane_align() {
         Align::Start => lane.children(pills).child(spacer()),
         Align::End => lane.child(spacer()).children(pills),

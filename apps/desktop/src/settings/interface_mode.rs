@@ -25,7 +25,9 @@ const INBOX_ROWS: [Dot; 4] = [Dot::Approval, Dot::Done, Dot::Working, Dot::Worki
 /// The row's control: the three cards, 12pt apart.
 pub(super) fn control(s: &App, p: &Pal) -> El {
     let current = s.tab_layout();
-    TabLayout::ALL.into_iter().fold(row().key("interface-mode").role("radiogroup").label_static(t!("settings.general.row.interfaceMode.title")).focus_group().gap(12.0), |r, layout| {
+    let group = row().key("interface-mode").role("radiogroup").label_static(t!("settings.general.row.interfaceMode.title")).focus_group().gap(12.0).shrink().min_w(0.0);
+    let group = if super::rows_wrap() { group.w_full().max_w(384.0) } else { group };
+    TabLayout::ALL.into_iter().fold(group, |r, layout| {
         r.child(card(p, layout, layout == current))
     })
 }
@@ -80,7 +82,7 @@ fn card(p: &Pal, layout: TabLayout, checked: bool) -> El {
         .focus_selected(checked)
         // `:has(input:focus-visible)`: a 2pt `border-focus` outline 2pt out.
         .focus_ring(2.0, 2.0, c.border_focus)
-        .w(120.0)
+        .w(120.0).shrink().min_w(0.0)
         .radius(8.0)
         .fill(c.layer_02)
         .hover_group()

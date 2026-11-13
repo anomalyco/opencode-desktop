@@ -7,6 +7,8 @@ use super::narrow::{self, Agent};
 use super::*;
 use opencode_i18n::t;
 
+pub(super) mod touch;
+
 // ---------------------------------------------------------------------------------------------
 // Composer and status bar
 
@@ -88,6 +90,7 @@ impl session_view::dock::DockHost for App {
 }
 
 impl ComposerHost for App {
+    fn composer_docked_actions(&self) -> bool { touch::mounted(self) }
     fn composer_active_option(&self) -> Option<String> {
         self.mention_active().map(|k| format!("mention-{k}")).or_else(|| self.slash_active().map(|id| format!("command-{id}")))
     }
@@ -185,6 +188,9 @@ impl ComposerHost for App {
         session_view::dock::bare(self)
     }
     fn composer_toolbar_items(&self, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
+        if scope.is_empty() && self.composer_docked_actions() {
+            return session_view::pickers::view::triggers(self, p);
+        }
         toolbar_items(self, p, scope, queues)
     }
     fn composer_below_toolbar(&self, p: &Pal) -> Option<El> {
@@ -203,6 +209,16 @@ impl ComposerHost for App {
         self.suggest_input(tx);
     }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        // editor.tsx:343: even above suggestions, Return writes a line, never sends a prompt.
+        if ev.key == Key::Enter && self.composer_docked_actions() && !self.composer.is_composing() {
+            if ev.mods.cmd || ev.mods.ctrl {
+                if !tx.key_repeat() { session_view::composer::submit_or_stop(self, tx); }
+            } else {
+                self.composer.insert("\n");
+                self.composer_on_change(tx);
+            }
+            return true;
+        }
         if crate::popup::key(self, ev, tx)
             || self.fork_key(ev, tx)
             || self.suggest_key(ev, tx)

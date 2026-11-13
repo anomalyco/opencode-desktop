@@ -308,7 +308,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         }
         meta = meta.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
     }
-    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y().group_opacity(0.0, 1.0);
+    let wrapper = crate::style::hover_reveal(row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y());
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
     wrapper.child(button.ml(COPY_AT.0)).child(meta)
 }
@@ -415,7 +415,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
             }
             r = r.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
         }
-        r.group_opacity(0.0, 1.0)
+        crate::style::hover_reveal(r)
     };
     // The Sources experiment's chip leads a finished turn's footer that searched the web: it
     // stays in view, 16 under the reply, and Copy follows it 8 on (`text-part-footer`).
@@ -444,7 +444,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
         // Copy and the rest show under the pointer, as Desktop's footer does.
         let mut tail = row().key("tail").pin(None, Some(COPY_AT.1), Some(0.0), None).h(COPY).gap(4.0).center_y();
         if has_text {
-            tail = tail.child(button.group_opacity(0.0, 1.0));
+            tail = tail.child(crate::style::hover_reveal(button));
             if !items.is_empty() {
                 tail = tail.child(meta(items)).child(text("\u{00b7}").key("sep-interrupted").font(META).color(p.faint).group_opacity(0.0, 1.0));
             }
@@ -461,7 +461,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
     };
     // Copy and the meta show only while the reply or its footer is hovered, at once, as
     // Desktop's do; Kit's Working-to-Copy swap still plays under the pointer.
-    lane.child(button.absolute(COPY_AT.0 + dx, y).group_opacity(0.0, 1.0))
+    lane.child(crate::style::hover_reveal(button.absolute(COPY_AT.0 + dx, y)))
         .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + dx + COPY + 4.0, y)))
         .children(s.turn_tail_extra(p, session, busy))
 }

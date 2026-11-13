@@ -489,7 +489,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     };
     // The arrow shows while the pointer is over the label, and always while open.
     let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
-    trigger = trigger.child(if open { a } else { a.group_opacity(0.0, 1.0) });
+    trigger = trigger.child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) });
     let mut c = col().w_full().child(trigger);
     if open || shutting {
         // A file header in the steps sticks under the label and its 8 pt.

@@ -155,7 +155,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .hover(surface)
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_menu(s, &ctx_server, &ctx_id, tx))
         .child(nav)
-        .child(if menu_open { actions } else { actions.group_opacity(0.0, 1.0) });
+        .child(if menu_open || session_view::style::hover_none() { actions } else { actions.group_opacity(0.0, 1.0) });
     if active || menu_open {
         r = r.fill(surface);
     }

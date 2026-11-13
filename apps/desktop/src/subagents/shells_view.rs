@@ -6,7 +6,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::activity::{EndStatus, Event, Phase};
 use super::shells::{self, Shell};
-use super::{ELAPSED, PANEL_PAD, PANEL_ROW, elapsed, run_time};
+use super::{ELAPSED, PANEL_PAD, panel_row, elapsed, run_time};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
 use crate::view::{INSTANT, UI};
@@ -28,7 +28,7 @@ pub fn row_of(s: &App, p: &Pal, sh: &Shell, span: f32, time_w: f32) -> El {
         .role("menuitem")
         .label(sh.command.clone())
         .w_full()
-        .h(PANEL_ROW)
+        .h(panel_row())
         .px(6.0)
         .gap(8.0)
         .center_y()
@@ -68,6 +68,9 @@ pub fn end(s: &App, p: &Pal, key: &str, subagent: bool, ms: Option<i64>, time_w:
             shells::dispatch(s, Event::StopRequested { key: target.clone(), subagent });
         })
         .child(mark);
+    if session_view::style::hover_none() {
+        return row().key("end").h(44.0).gap(2.0).ml(8.0).center_y().child(time.w(time_w)).child(stop.size(44.0, 44.0));
+    }
     let (time, stop) = if stopping { (time.opacity(0.0), stop) } else { (time.group_opacity(1.0, 0.0), stop.group_opacity(0.0, 1.0)) };
     row()
         .key("end")
@@ -223,4 +226,3 @@ fn strip_ansi(s: &str) -> String {
     }
     out
 }
-

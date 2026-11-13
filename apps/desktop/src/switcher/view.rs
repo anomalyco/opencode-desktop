@@ -20,6 +20,10 @@ const ROW_H: f32 = 28.0;
 /// A row whose description goes under its title in a window 640 pt or narrower (`min-height: 40px`).
 const STACKED_H: f32 = 40.0;
 
+fn entry_height(stacked: bool) -> f32 {
+    if session_view::style::touch_controls() { 44.0 } else if stacked { STACKED_H } else { ROW_H }
+}
+
 /// Whether `e`'s row stacks its description under its title: the window is 640 pt or narrower
 /// and it has one (a file's row keeps its own line).
 fn stacked(s: &App, e: &Entry) -> bool {
@@ -96,7 +100,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     };
     let search = row()
         .key("switcher-field")
-        .h(28.0)
+        .h(entry_height(false))
         .pl(6.0)
         .pr(6.0)
         .gap(6.0)
@@ -127,7 +131,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
             section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, w));
         }
         let tall = entries[i..end].iter().filter(|e| stacked(s, e)).count() as f32;
-        content_h += ROW_H + (end - i) as f32 * (ROW_H + GAP) + tall * (STACKED_H - ROW_H) + if last { 0.0 } else { GAP };
+        content_h += ROW_H + (end - i) as f32 * (entry_height(false) + GAP) + tall * (entry_height(true) - entry_height(false)) + if last { 0.0 } else { GAP };
         results = results.child(section);
         i = end;
     }
@@ -149,14 +153,15 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     } else {
         content_h += 6.0;
     }
-    let scroll_h = content_h.min(max_h - HEAD_H).max(0.0);
+    let header = HEAD_H + entry_height(false) - ROW_H;
+    let scroll_h = content_h.min(max_h - header).max(0.0);
 
     col()
         .key("switcher")
         .role("dialog")
         .label(placeholder)
         .w(w)
-        .h(HEAD_H + scroll_h)
+        .h(header + scroll_h)
         .radius(12.0)
         .fill(p.bg_base)
         .elevate(p.overlay)
@@ -211,7 +216,7 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .role("option")
         .label(e.title.clone())
         .w_full()
-        .h(if stacked(s, e) { STACKED_H } else { ROW_H })
+        .h(entry_height(stacked(s, e)))
         .px(6.0)
         .gap(8.0)
         .center_y()

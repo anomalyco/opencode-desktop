@@ -157,7 +157,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
         .fill(surface(shown))
         .hover(surface(hovered))
         .child(nav)
-        .child(if menu_open { actions } else { actions.group_opacity(0.0, 1.0) });
+        .child(if menu_open || session_view::style::hover_none() { actions } else { actions.group_opacity(0.0, 1.0) });
     if auth {
         r = r.help(t!("server.status.authentication"));
     } else if incompatible {

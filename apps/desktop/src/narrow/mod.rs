@@ -38,6 +38,7 @@ pub struct Narrow {
     pub tabs_presence: Presence,
     pub more: MoreDrawer,
     pub more_presence: Presence,
+    pub(super) pull: sheet::Pull,
 }
 
 impl Narrow {
@@ -126,6 +127,7 @@ impl App {
             None => {}
         }
         let narrow = &mut self.layout.narrow;
+        if !narrow.tabs.is_open() { narrow.pull.clear(tabs::SHEET); }
         present(&mut narrow.tabs_presence, narrow.tabs.is_open(), *self.clock, tx);
     }
 
@@ -133,6 +135,7 @@ impl App {
     pub fn more_drawer(&mut self, event: MoreEvent, tx: &mut Tx) {
         self.layout.narrow.more = std::mem::take(&mut self.layout.narrow.more).step(event);
         let narrow = &mut self.layout.narrow;
+        if !narrow.more.is_open() { narrow.pull.clear(session::MORE_SHEET); }
         present(&mut narrow.more_presence, narrow.more.is_open(), *self.clock, tx);
     }
 }
@@ -234,4 +237,3 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 pub fn content_width(s: &App) -> Option<f32> {
     s.narrow().then(|| (s.layout.narrow.width() - 2.0 - 32.0).max(0.0))
 }
-

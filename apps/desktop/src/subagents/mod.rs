@@ -189,7 +189,7 @@ pub fn chip(s: &App, p: &Pal, key: &str, label: String, open: bool) -> El {
         .key(key)
         .role("button")
         .label(label)
-        .h(CHIP_H)
+        .h(session_view::jump::chip_height())
         .px(10.0)
         .gap(8.0)
         .center_y()
@@ -239,7 +239,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
     let span = (agent_w + 8.0 + label_w).max(command_w);
     // Panel inset 4 + hairline 0.5, row inset 6, then the mark, agent and task (or command) and
     // time, 8 apart, with 8 more before the time.
-    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w;
+    let natural = 2.0 * (PANEL_PAD + 0.5 + 6.0) + 16.0 + 8.0 + span + 16.0 + time_w + if session_view::style::hover_none() { 46.0 } else { 0.0 };
     let mut list = col().key("activity-list").w_full().padding(PANEL_PAD);
     for it in &items {
         let (parent, child, title, agent) = (id.to_owned(), it.session.clone(), it.label.clone(), it.agent.clone());
@@ -251,7 +251,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
                 .role("menuitem")
                 .label(format!("{name} {}", it.label))
                 .w_full()
-                .h(PANEL_ROW)
+                .h(panel_row())
                 .px(6.0)
                 .gap(8.0)
                 .center_y()
@@ -281,7 +281,7 @@ pub fn panel(s: &App, p: &Pal, id: &str) -> Option<El> {
         list = list.child(shells_view::row_of(s, p, sh, span, time_w));
     }
     let n = items.len() + shell_items.len();
-    let h = (n as f32 * PANEL_ROW + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
+    let h = (n as f32 * panel_row() + 2.0 * PANEL_PAD).min(PANEL_MAX_H);
     // `MenuScroll` (`activity-chips.tsx:214`). What it holds comes in with the list, not on fades
     // of its own.
     let rows = session_view::scroller::scroller("activity-scroll")
@@ -312,10 +312,9 @@ fn time_column(times: impl Iterator<Item = String>, width: &impl Fn(&str, rune::
 }
 
 pub(crate) const PANEL_PAD: f32 = 4.0;
-pub(crate) const PANEL_ROW: f32 = 28.0;
+pub(crate) fn panel_row() -> f32 { if session_view::style::hover_none() { 44.0 } else { 28.0 } }
 /// Desktop's `max-height: min(270px, …)`.
 const PANEL_MAX_H: f32 = 270.0;
 
 /// The run time in the list: 11pt, tabular figures.
 pub(crate) const ELAPSED: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
-

@@ -18,12 +18,22 @@ const SLIDE: Easing = Easing::cubic(0.2, 0.8, 0.2, 1.0);
 
 /// The scrim and the sheet keyed `key` holding `content`, in a window `win_h` tall.
 pub fn sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: f32, content: El, dismiss: fn(&mut S, &mut Tx)) -> Vec<El> {
+    draggable_sheet(p, key, leaving, travel, win_h, content, dismiss, None, handle(p))
+}
+
+pub fn handle(p: &Pal) -> El {
+    el().key("handle").w_full().h(28.0).min_h(28.0).center().child(el().size(32.0, 4.0).radius(2.0).fill(p.q.border_strong))
+}
+
+/// A hand moving the handle owns the offset until release; the opening/closing transaction
+/// otherwise owns it. The panel's children (especially lists) retain their own touch gestures.
+pub fn draggable_sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: f32, content: El, dismiss: fn(&mut S, &mut Tx), drag: Option<f32>, handle: El) -> Vec<El> {
     let fade = if leaving { Curve::tween(SLIDE_OUT, Easing::cubic(0.42, 0.0, 1.0, 1.0)) } else { Curve::tween(SLIDE_IN, Easing::cubic(0.0, 0.0, 0.58, 1.0)) };
     let mut scrim = el()
         .key(format!("{key}-scrim"))
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .fill(p.scrim)
-        .opacity(if leaving { 0.0 } else { 1.0 })
+        .opacity(if leaving { 0.0 } else { 1.0 - drag.unwrap_or(0.0) / travel.max(1.0) })
         .opacity_motion(fade)
         .transition(Transition::asymmetric(Transition::opacity().springs(SpringPair::new(Spring::new(SLIDE_IN, 0.0), Spring::NONE)), Transition::none()))
         .on_press_tx(move |s: &mut S, tx: &mut Tx| dismiss(s, tx));
@@ -38,7 +48,7 @@ pub fn sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: 
         .fill(p.bg_deep)
         .elevate(p.overlay)
         .no_window_drag()
-        .offset(0.0, if leaving { travel } else { 0.0 })
+        .offset(0.0, if leaving { travel } else { drag.unwrap_or(0.0) })
         .offset_motion(Curve::tween(if leaving { SLIDE_OUT } else { SLIDE_IN }, SLIDE))
         .transition(Transition::asymmetric(
             Transition::move_edge(rune::Edge::Bottom).springs(SpringPair::new(Spring::new(SLIDE_IN, 0.0), Spring::NONE)),
@@ -46,7 +56,7 @@ pub fn sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: 
         ))
         // Presses inside stay inside.
         .on_press(|_: &mut S| {})
-        .child(el().key("handle").w_full().h(28.0).min_h(28.0).center().child(el().size(32.0, 4.0).radius(2.0).fill(p.q.border_strong)))
+        .child(handle)
         .child(content);
     if leaving {
         scrim = scrim.inert();

@@ -245,7 +245,7 @@ pub fn action(s: &App, p: &Pal, session: &str, call: &session_view::tools::Call)
         // leaves (`basic-tool.css:200-213`, no transition); hidden, it stays pressable, as
         // Desktop's tool actions do. On the button rather than its glyph, so the row's hover
         // reveals it, not only its own.
-        .group_opacity(0.0, 1.0)
+        .group_opacity(if session_view::style::hover_none() { 1.0 } else { 0.0 }, 1.0)
         .child(rune::icon(&rune_theme_opencode::icons::SIDEBAR, 14.0).color(ink))
         .on_press_tx({
             let (step, t) = (step.clone(), t.clone());

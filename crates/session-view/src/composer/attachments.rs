@@ -247,7 +247,7 @@ pub fn remove_button<S: 'static>(
         .center()
         .fill(p.icon_muted)
         .outline(1.0, 0.0, p.icon_contrast)
-        .group_opacity(0.0, 1.0)
+        .group_opacity(if crate::style::hover_none() { 1.0 } else { 0.0 }, 1.0)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
             on(s);

@@ -439,6 +439,9 @@ pub fn open(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx
 /// [`open`], drawn on every platform.
 pub fn open_drawn(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx, pick: impl FnOnce(&mut App, Option<&str>, &mut Tx) + 'static) {
     close(s, None, restore::Reason::Outside, tx);
+    // A menu's max-content width comes from its rows, not the width left on its anchor's
+    // end side. Measure once at open; placement can then shift the whole menu on screen.
+    let menu = if menu.width.is_none() && menu.look == Look::Menu && menu.search.is_none() { menu.hug() } else { menu };
     let anchor = anchor.into();
     let origin = match &anchor {
         PopupAnchor::Key(key) => restore::Origin::Trigger(key.clone()),
@@ -752,7 +755,11 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {
-        Some(w) => surface.w(w).max_w(w),
+        Some(w) => {
+            let available = s.filter(|s| s.narrow()).map(|s| (s.layout.narrow.width() - 8.0).max(1.0)).unwrap_or(w);
+            let w = w.min(available);
+            surface.min_w(menu.min_w.min(w)).w(w).max_w(w)
+        }
         None => surface,
     };
     surface.child(list.build(&name("popup-scroll", "popup-sub-scroll"), menu.max_h))

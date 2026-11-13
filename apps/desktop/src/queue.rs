@@ -435,6 +435,7 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
     let reveal = |e: El| match (st.parked || st.editing, st.lifted) {
         (true, _) => e,
         (false, true) => e.opacity(0.0),
+        (false, false) if session_view::style::hover_none() => e,
         (false, false) => e.group_opacity(0.0, 1.0),
     };
     let steer = row()
@@ -693,4 +694,3 @@ mod behind_story {
         crate::stories::Story::session("Timeline/Sends behind waiting steers", KEYS),
     ]);
 }
-

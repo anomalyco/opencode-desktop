@@ -74,7 +74,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let body = match &open.detail {
         Detail::Open { name, error, copied, .. } => detail(s, p, &open.dir, name, error, copied.as_deref() == Some(error.as_str())),
         // `max-width: 639px`: each row stands at least 44 tall, 8 in above and below (`search-list.css:291-297`).
-        _ => list(s, p, &open.dir, win_w < 640.0),
+        _ => list(s, p, &open.dir, win_w < 640.0 || cx.hover_none()),
     };
     let dialog = widgets::overlay(p, col())
         .key("mcp-dialog")

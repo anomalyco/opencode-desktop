@@ -344,6 +344,7 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         *s.quote.placed.borrow_mut() = Some(comment::Anchor { session: offer.session.clone(), path, rects, short, backward: offer.backward });
     }
     let x = ((left + right - w) / 2.0).max(b_left + GAP).min(b_right - w - GAP);
+    let (x, y) = if cx.hover_none() { ((b_left + b_right - w) / 2.0, b_bottom - h - GAP) } else { (x, y) };
     Some(bar(p, offer.truncated).absolute(x, y).opacity(if size.is_some() { 1.0 } else { 0.0 }))
 }
 
@@ -392,4 +393,3 @@ pub(crate) fn bar_with(p: &Pal, truncated: bool, on: impl Fn(&mut App, &mut Tx) 
         .children(truncated.then(|| text(opencode_i18n::t!("session.quote.tooLong")).font(TOO_LONG).color(p.muted).px(8.0)))
         .child(button)
 }
-

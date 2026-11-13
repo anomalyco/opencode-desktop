@@ -138,7 +138,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> 
         })
         .child(crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted));
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
-    let holder = el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None).group_opacity(0.0, 1.0).child(backdrop).child(button);
+    let holder = crate::style::hover_reveal(el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None)).child(backdrop).child(button);
     let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
     // `bash-scroll`: no bar, as Desktop hides it (`message-part.css:815-824`).
     let viewport = crate::scroller::scroller("scroll").hidden(col().w_full().max_h(part.cap).shrink().min_h(0.0).scroll_fade(ScrollFade::feather(PAD + 4.0)), inset);

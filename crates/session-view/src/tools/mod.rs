@@ -308,7 +308,7 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
     if let Press::Toggle(k) = press {
         let a = el().key("arrow").w(if t.compact { 16.0 } else { 24.0 }).h(24.0).center().child(arrow(p, d.open()));
         button = button
-            .child(if d.open() { a } else { a.group_opacity(0.0, 1.0) })
+            .child(if d.open() || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
             .label(t.title.into_owned())
             .expanded(d.open())

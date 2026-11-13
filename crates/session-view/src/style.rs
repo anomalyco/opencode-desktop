@@ -87,7 +87,7 @@ thread_local! {
     /// The window is below Desktop's 768 px breakpoint this frame.
     static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     /// The pointer can't hover this frame (a touch screen: `Cx::hover_none`).
-    static HOVER_NONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static POINTER: std::cell::Cell<Pointer> = const { std::cell::Cell::new(Pointer::Hover) };
 }
 
 /// Tells this frame's session views the window is narrow; the host calls it before building them.
@@ -97,14 +97,22 @@ pub fn set_narrow(narrow: bool) {
 
 /// Tells this frame's session views the pointer can't hover (`Cx::hover_none`), so what a
 /// mouse would reveal on hover shows, as Desktop's `@media (hover: none)` rules do.
-pub fn set_hover_none(none: bool) {
-    HOVER_NONE.set(none);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pointer { Hover, NoHover, Touch }
+
+pub fn set_pointer(hover_none: bool, touch: bool) {
+    POINTER.set(if touch { Pointer::Touch } else if hover_none { Pointer::NoHover } else { Pointer::Hover });
 }
 
 /// The pointer can't hover this frame.
 pub fn hover_none() -> bool {
-    HOVER_NONE.get()
+    POINTER.get() != Pointer::Hover
 }
+
+pub fn touch_controls() -> bool { POINTER.get() == Pointer::Touch }
+
+/// CSS hover-reveal: always visible when the primary pointer cannot hover.
+pub fn hover_reveal(e: El) -> El { if hover_none() { e } else { e.group_opacity(0.0, 1.0) } }
 
 /// The window is below Desktop's 768 px breakpoint this frame.
 pub fn narrow() -> bool {
