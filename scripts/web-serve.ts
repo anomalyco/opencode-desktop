@@ -13,6 +13,9 @@ const types: Record<string, string> = {
   ".ttf": "font/ttf",
   ".otf": "font/otf",
   ".wav": "audio/wav",
+  ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
+  ".png": "image/png",
 }
 
 Bun.serve({

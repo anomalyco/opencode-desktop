@@ -174,6 +174,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
     let root = el().key("zoom");
+    // A phone's notch, status bar and home indicator (a browser's safe area; zero natively):
+    // the app keeps clear of them and the window's colour runs under them to the screen's edge.
+    let [top, right, bottom, left] = cx.safe_area().map(|inset| inset / *s.zoom);
+    let root = if top + right + bottom + left > 0.0 { root.pt(top).pr(right).pb(bottom).pl(left).fill(p.bg_deep) } else { root };
     // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
     let root = root.dir(ui_direction());

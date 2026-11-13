@@ -1,24 +1,52 @@
 <!doctype html>
 <html lang="en" data-wasm-bytes="0">
 <meta charset="utf-8">
+<!-- Every URL here is relative to the page, so it runs wherever it's mounted (`/rune/` behind a
+     proxy that strips it). Opened without the folder's slash, they'd resolve one level up. -->
+<script>if (!/\/$|\.html$/.test(location.pathname)) location.replace(`${location.pathname}/${location.search}${location.hash}`);</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
-<link rel="icon" href="data:,">
+<!-- On a phone's Home Screen: the app's icon and name, opened without the browser's bars, its
+     colour under the status bar (the app keeps its content inside the safe area), and no launch
+     image: iOS shows the window's colour until the first frame. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="96x96" href="icons/favicon-96.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#080808">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OpenCode">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>OpenCode (Rune)</title>
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
-  body { font: 13px/18px system-ui, sans-serif; background: Canvas; color: CanvasText; }
+  /* The app's window colour (bg-deep), so nothing flashes between the launch screen and the first frame. */
+  html { background: #fafafa; }
+  @media (prefers-color-scheme: dark) { html { background: #080808; } }
+  body { font: 13px/18px system-ui, sans-serif; color: CanvasText; }
   .box { box-sizing: border-box; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); background: Canvas; }
-  #connect { display: none; max-width: 380px; margin: 96px auto; padding: 16px; }
+  #connect { display: none; max-width: 380px; margin: max(96px, env(safe-area-inset-top)) auto; padding: 16px; }
   #connect h1 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
   #connect label { display: block; margin: 8px 0 4px; color: color-mix(in srgb, CanvasText 60%, transparent); }
   #connect input { box-sizing: border-box; width: 100%; height: 28px; padding: 0 8px; font: 11px/16px ui-monospace, monospace; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 0; background: Canvas; color: CanvasText; }
+  #connect .error { display: none; margin: 8px 0 0; color: #e5484d; }
   button { height: 28px; padding: 0 12px; font: inherit; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; cursor: pointer; }
   .limits { margin: 12px 0 0; color: color-mix(in srgb, CanvasText 60%, transparent); }
   #status { position: fixed; inset: 0; display: grid; place-items: center; color: color-mix(in srgb, CanvasText 60%, transparent); pointer-events: none; }
-  #notice { position: fixed; right: 12px; bottom: 12px; z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
+  #notice { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
   #notice button { margin-top: 8px; height: 24px; }
+  /* A finger: 44 px targets, and 16 px text so iOS doesn't zoom into a field it focuses. */
+  @media (pointer: coarse) {
+    #connect { margin: max(48px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); max-width: none; }
+    #connect input { height: 44px; font-size: 16px; }
+    #connect button { width: 100%; height: 44px; margin-top: 16px; font-size: 16px; }
+    /* Below the title row, not over the composer at the screen's foot. */
+    #notice { top: calc(env(safe-area-inset-top) + 52px); bottom: auto; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); max-width: none; }
+    #notice button { height: 44px; padding: 0 20px; }
+  }
 </style>
 <form id="connect" class="box" method="post" action="#">
   <h1>Connect to an OpenCode server</h1>
@@ -28,6 +56,7 @@
   <input name="username" autocomplete="username" value="opencode" hidden>
   <label for="password">Password (if it has one)</label>
   <input id="password" name="password" type="password" autocomplete="current-password">
+  <p class="error" id="connect-error" role="alert"></p>
   <p class="limits" id="limits-form"></p>
   <button type="submit">Connect</button>
 </form>
@@ -88,16 +117,21 @@
     // Only a head start: the app reads for itself when this can't.
     try { startFirstReads(); } catch {}
     try {
-      // The app's work waits on the network on fibers (JS Promise Integration): Chrome and Edge 137+.
-      if (!('Suspending' in WebAssembly)) throw new Error('This page needs JS Promise Integration: use Chrome or Edge 137 or newer.');
+      // The app's work waits on the network on fibers (JS Promise Integration).
+      if (!('Suspending' in WebAssembly)) throw new Error('This page needs WebAssembly JS Promise Integration: Chrome or Edge 137, Firefox 153, or Safari 27 (iOS 27) or newer.');
       const app = await import('./app.js');
       await app.default({ module_or_path: download(new URL('app_bg.wasm', import.meta.url)) });
-      // "Loading" stays until the first frame is on screen, and the notice comes with it.
+      // "Loading" stays until the first frame is on screen, and the notice comes with it, until
+      // its OK is pressed once (the connect form says the same each time it shows).
       document.addEventListener('runepresent', () => {
         status.remove();
         const notice = document.querySelector('#notice');
+        try { if (localStorage.getItem(NOTICE_KEY)) { notice.remove(); return; } } catch {}
         notice.style.display = 'block';
-        notice.querySelector('button').onclick = () => notice.remove();
+        notice.querySelector('button').onclick = () => {
+          notice.remove();
+          try { localStorage.setItem(NOTICE_KEY, '1'); } catch {}
+        };
       }, { once: true });
       app.start(password ?? undefined);
       password = null;
@@ -106,21 +140,70 @@
       console.error(error);
     }
   }
-  if (params.has('server')) {
-    boot();
-  } else {
-    // The page never guesses a server: it asks, and starts without reloading, so the password
-    // never enters an address.
-    const form = document.querySelector('#connect');
-    form.style.display = 'block';
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      params.set('server', document.querySelector('#server').value.trim());
-      password = document.querySelector('#password').value || null;
-      history.replaceState(null, '', `${location.pathname}?${params}`);
-      form.remove();
-      boot();
-    });
+  // The last server this page connected to: its URL only, never the password. An app on a
+  // phone's Home Screen opens at the manifest's start (no `?server=`), with storage of its own.
+  const SERVER_KEY = 'opencode-rune.server';
+  const NOTICE_KEY = 'opencode-rune.notice-seen';
+  const remembered = () => { try { return localStorage.getItem(SERVER_KEY); } catch { return null; } };
+  const basic = pw => `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`opencode:${pw.trim()}`)))}`;
+  // What the server says to this credential: 'ok', 'password' (it wants one, or another), or
+  // 'unreachable'.
+  async function knock(server, pw) {
+    try {
+      const response = await fetch(`${server.trim().replace(/\/+$/, '')}/api/info`, { headers: pw?.trim() ? { Authorization: basic(pw) } : {}, cache: 'no-store' });
+      return response.status === 401 ? 'password' : 'ok';
+    } catch {
+      return 'unreachable';
+    }
   }
+  // Remembered only once it answered, so a mistyped address never becomes the next start.
+  function connect(server, answered) {
+    params.set('server', server);
+    history.replaceState(null, '', `${location.pathname}?${params}`);
+    if (answered) try { localStorage.setItem(SERVER_KEY, server); } catch {}
+    boot();
+  }
+  // The page never guesses a server: it asks (offering the address it was opened from when that
+  // isn't this machine), and starts without reloading, so the password never enters an address.
+  // A server that wants a password and has none is asked for one here, before the app starts.
+  function ask(server, error) {
+    const form = document.querySelector('#connect');
+    const url = document.querySelector('#server');
+    const field = document.querySelector('#password');
+    const message = document.querySelector('#connect-error');
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    url.value = server ?? (local ? '' : location.origin);
+    message.textContent = error ?? '';
+    message.style.display = error ? 'block' : 'none';
+    form.style.display = 'block';
+    (url.value ? field : url).focus();
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const next = url.value.trim();
+      const typed = field.value || null;
+      const answer = await knock(next, typed);
+      if (answer !== 'ok') {
+        message.textContent = answer === 'unreachable' ? 'Couldn\u2019t reach that server: check the address, and that the server is running.'
+          : typed ? 'That password didn\u2019t work.' : 'This server needs its password.';
+        message.style.display = 'block';
+        (answer === 'unreachable' ? url : field).focus();
+        return;
+      }
+      password = typed;
+      form.remove();
+      connect(next, true);
+    };
+  }
+  // An address that came with its password, or a server with none, starts at once; one that
+  // turns the page's credential down asks for its password first. A server that doesn't answer
+  // starts too: the app says it can't reach it, and keeps trying.
+  async function open(server) {
+    const answer = await knock(server, password);
+    if (answer === 'password') ask(server, password ? 'That password didn\u2019t work.' : 'This server needs its password.');
+    else connect(server, answer === 'ok');
+  }
+  const server = params.get('server') ?? remembered();
+  if (server) open(server);
+  else ask(null, null);
 </script>
 </html>

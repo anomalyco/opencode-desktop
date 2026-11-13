@@ -123,6 +123,8 @@ if (-not $NoBuild) {
   }
   # The sound effects the page plays when they're asked for (sounds.rs).
   Copy-Item -Recurse (Join-Path $root 'apps/desktop/assets/sounds') (Join-Path $next 'sounds')
+  # What a phone's Home Screen reads: the web app manifest and the app's icons (`apps/web/pwa`).
+  Copy-Item -Recurse (Join-Path $root 'apps/web/pwa/*') $next
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out
   $size = (Get-Item (Join-Path $Out 'app_bg.wasm')).Length
