@@ -42,6 +42,10 @@ self.addEventListener('fetch', event => {
   // The page itself, whatever its query (`?server=…&session=…`): the folder's index.
   const page = request.mode === 'navigate' && (path === '' || path === 'index.html');
   if (!page && !SHELL.includes(path) && !LATER.test(path)) return;
+  // The module goes to the browser's own fetch while there's a network: Chrome keeps its compiled
+  // code only beside the HTTP cache's copy, so one answered from here compiles again on every open
+  // (11,250 functions, 290-450 ms; from the HTTP cache, about 450 and 45 ms). Offline, it's here.
+  if (path === 'app_bg.wasm' && self.navigator.onLine) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const key = page ? new URL('./', scope) : new URL(path, scope);
