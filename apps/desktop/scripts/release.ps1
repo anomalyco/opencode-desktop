@@ -36,20 +36,19 @@ $before = [Environment]::GetEnvironmentVariable($name)
 if (Test-Path $profdata) {
     # Functions changed since the training run keep no counts and build as without a profile; LLVM
     # would warn once per such function.
-    [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
     $stamp = Join-Path $root "apps/desktop/pgo/$triple.txt"
     $trained = if (Test-Path $stamp) { (Get-Content $stamp | Select-String '^commit ').Line -replace '^commit ', '' }
     # Commits to the app since the training commit; none when the stamp or that commit is missing
     # (a shallow clone, as CI's checkout is, has no history to count).
     $known = $false
     if ($trained) { git -C $root cat-file -e "$trained^{commit}" 2>$null; $known = $LASTEXITCODE -eq 0 }
-    $since = if ($known) { [int](git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.lock) } else { $null }
+    $since = if ($known) { [int](git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.toml Cargo.lock ':(exclude)apps/desktop/pgo/**') } else { $null }
     $age = if ($null -ne $since) { "$since commits to the app since" } else { 'its age unknown (the training commit is not in this clone)' }
     Write-Host "profile-guided: $triple.profdata, trained at $(if ($trained) { $trained.Substring(0, 12) } else { '?' }), $age"
     if ($null -eq $since -or $since -ge 20) {
         $why = "the profile-guided optimisation profile is stale ($age): it no longer names most of the code, so the build keeps a quarter of its speed-up. Retrain it (apps/desktop/scripts/pgo.ps1, apps/desktop/pgo/README.md)"
         $ok = $StaleProfileOk -or $env:OPENCODE_RUNE_STALE_PROFILE_OK -eq '1'
-        if ($env:OPENCODE_RUNE_BUILD_CHANNEL) {
+        if ($env:GITHUB_ACTIONS -eq 'true' -and $env:OPENCODE_RUNE_BUILD_CHANNEL) {
             # The release workflow's call (docs/releasing.md); refusing there is its owner's decision.
             if ($env:GITHUB_ACTIONS) { Write-Host "::warning::$why" } else { Write-Warning $why }
         } elseif ($ok) {
@@ -62,6 +61,9 @@ if (Test-Path $profdata) {
     Write-Host "no profile for ${triple}: building without profile-guided optimisation"
 }
 try {
+    if (Test-Path $profdata) {
+        [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
+    }
     $parts = $Cargo -split ' '
     $targetArgs = @('--target', $triple)
     $featureArgs = if ($Features) { @('--features', $Features) } else { @() }
