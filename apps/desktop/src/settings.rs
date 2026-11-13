@@ -136,7 +136,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             open: false,
-            show_agent: true,
+            show_agent: false,
             scheme: Scheme::default(),
             fold_user: false,
             terminal_placement: crate::panels::DockPlacement::Side,
@@ -226,7 +226,7 @@ impl Settings {
         let d = Settings::default();
         Settings {
             open: false,
-            show_agent: v["showAgentPicker"].as_bool().unwrap_or(true),
+            show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(d.fold_user),
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
@@ -505,4 +505,3 @@ pub mod search;
 mod shell;
 mod stored;
 mod stories;
-

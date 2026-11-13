@@ -34,7 +34,9 @@ impl Delivery {
 pub(in crate::view) fn bar(s: &App, p: &Pal) -> Option<El> {
     if !mounted(s) { return None; }
     let shell = s.add.shell();
-    let mut bar = row().key("composer-touch-bar").w_full().min_h(57.0).h(57.0).pt(1.0).px(8.0).gap(4.0).center_y()
+    // The shell's p-px inset is outside the dock (shell.tsx). Keep it below the targets
+    // too: at a height of 844 the 44-point targets start at 793, not 794.
+    let mut bar = row().key("composer-touch-bar").w_full().min_h(58.0).h(58.0).pt(1.0).pb(1.0).px(9.0).gap(4.0).center_y()
         .fill(p.bg_base).border_sides([1.0, 0.0, 0.0, 0.0], p.border);
     if shell {
         bar = bar.child(control(p, "exit-shell", t!("ui.promptInput.exitShell"))

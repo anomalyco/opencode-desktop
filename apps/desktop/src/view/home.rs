@@ -92,7 +92,8 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
     let mut page = col().key("home-page").grow(1.0).w_full().h_full();
     if tier == Tier::Narrow {
         // `relative z-40 -mb-3 shrink-0 px-3 pt-3`.
-        page = page.child(row().key("home-projects-bar").w_full().px(12.0).pt(12.0).mb(-12.0).child(projects::dropdown_trigger(s, p, selected)).raise());
+        // Stacks over the Home scroller only, not over the shell's drawer scrim.
+        page = page.child(row().key("home-projects-bar").w_full().px(12.0).pt(12.0).mb(-12.0).child(projects::dropdown_trigger(s, p, selected)).paint_order(1));
     }
     // The scroller takes what the dropdown and the foot leave.
     page = page.child(scroller);

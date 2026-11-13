@@ -274,7 +274,7 @@ pub fn header_with(p: &Pal, title: &str, description: &str, actions: Option<El>)
     row().key("settings-tab-header").w_full().gap(16.0)
         .child(col().grow(1.0).shrink().min_w(0.0).gap(4.0)
             .child(text(title.to_owned()).font(TITLE).color(p.text))
-            .child(text(description.to_owned()).font(DESCRIPTION).color(p.muted)))
+            .child(text(description.to_owned()).font(DESCRIPTION).color(p.muted).w_full().wrap()))
         .children(actions.map(|a| row().key("settings-tab-header-actions").h(20.0).gap(8.0).center_y().self_start().child(a)))
 }
 
