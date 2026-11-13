@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Kunne ikke sende. Prøv igjen.",
   "rune.web.check.works": "Virker",
   "rune.web.check.failed": "Mislyktes",
-  "rune.web.check.none": "Ikke målt"
+  "rune.web.check.none": "Ikke målt",
+  "rune.storage.notSaving.title": "Endringer lagres ikke",
+  "rune.storage.writeFailed.description": "OpenCode kunne ikke lagre ({{why}}). Det du endrer, blir værende mens det kjører, og lagres så snart det går.",
+  "rune.storage.diskFull.title": "Disken er full",
+  "rune.storage.diskFull.description": "Endringer lagres ikke. Det du endrer, blir værende mens OpenCode kjører, og lagres så snart det er plass. Frigjør litt plass på denne disken."
 }

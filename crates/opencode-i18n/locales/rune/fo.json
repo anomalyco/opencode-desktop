@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Kundi ikki senda. Royn aftur.",
   "rune.web.check.works": "Virkar",
   "rune.web.check.failed": "Miseydnaðist",
-  "rune.web.check.none": "Ikki mátað"
+  "rune.web.check.none": "Ikki mátað",
+  "rune.storage.notSaving.title": "Broytingar verða ikki goymdar",
+  "rune.storage.writeFailed.description": "OpenCode kundi ikki goyma ({{why}}). Tað, tú broytir, verður verandi, meðan tað koyrir, og verður goymt, so skjótt sum gjørligt.",
+  "rune.storage.diskFull.title": "Diskurin er fullur",
+  "rune.storage.diskFull.description": "Broytingar verða ikki goymdar. Tað, tú broytir, verður verandi, meðan OpenCode koyrir, og verður goymt, so skjótt sum pláss er. Frígev eitt sindur av plássi á hesum diski."
 }

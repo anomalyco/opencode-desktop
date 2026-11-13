@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Pošiljanje ni uspelo. Poskusite znova.",
   "rune.web.check.works": "Deluje",
   "rune.web.check.failed": "Ni uspelo",
-  "rune.web.check.none": "Ni izmerjeno"
+  "rune.web.check.none": "Ni izmerjeno",
+  "rune.storage.notSaving.title": "Spremembe se ne shranjujejo",
+  "rune.storage.writeFailed.description": "OpenCode ni mogel shraniti ({{why}}). Vaše spremembe ostanejo, dokler teče, in se shranijo, takoj ko bo mogoče.",
+  "rune.storage.diskFull.title": "Disk je poln",
+  "rune.storage.diskFull.description": "Spremembe se ne shranjujejo. Vaše spremembe ostanejo, dokler OpenCode teče, in se shranijo, takoj ko bo prostor. Sprostite nekaj prostora na tem disku."
 }

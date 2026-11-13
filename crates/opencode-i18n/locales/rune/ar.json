@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "تعذّر الإرسال. حاول مرة أخرى.",
   "rune.web.check.works": "يعمل",
   "rune.web.check.failed": "فشل",
-  "rune.web.check.none": "لم يُقَس"
+  "rune.web.check.none": "لم يُقَس",
+  "rune.storage.notSaving.title": "لا يتم حفظ التغييرات",
+  "rune.storage.writeFailed.description": "تعذّر على OpenCode الحفظ (⁨{{why}}⁩). تبقى تغييراتك ما دام يعمل، وتُحفظ فور الإمكان.",
+  "rune.storage.diskFull.title": "القرص ممتلئ",
+  "rune.storage.diskFull.description": "لا يتم حفظ التغييرات. تبقى تغييراتك ما دام OpenCode يعمل، وتُحفظ فور توفر مساحة. حرّر بعض المساحة على هذا القرص."
 }

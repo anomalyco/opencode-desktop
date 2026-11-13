@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Odoslanie zlyhalo. Skúste to znova.",
   "rune.web.check.works": "Funguje",
   "rune.web.check.failed": "Zlyhalo",
-  "rune.web.check.none": "Nemerané"
+  "rune.web.check.none": "Nemerané",
+  "rune.storage.notSaving.title": "Zmeny sa neukladajú",
+  "rune.storage.writeFailed.description": "OpenCode nemohol ukladať ({{why}}). Vaše zmeny zostanú, kým beží, a uložia sa, len čo to pôjde.",
+  "rune.storage.diskFull.title": "Disk je plný",
+  "rune.storage.diskFull.description": "Zmeny sa neukladajú. Vaše zmeny zostanú, kým OpenCode beží, a uložia sa, len čo bude miesto. Uvoľnite na tomto disku trochu miesta."
 }

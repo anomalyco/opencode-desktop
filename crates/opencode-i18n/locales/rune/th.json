@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "ส่งไม่ได้ ลองอีกครั้ง",
   "rune.web.check.works": "ใช้งานได้",
   "rune.web.check.failed": "ล้มเหลว",
-  "rune.web.check.none": "ไม่ได้วัด"
+  "rune.web.check.none": "ไม่ได้วัด",
+  "rune.storage.notSaving.title": "ไม่ได้บันทึกการเปลี่ยนแปลง",
+  "rune.storage.writeFailed.description": "OpenCode บันทึกไม่ได้ ({{why}}) การเปลี่ยนแปลงของคุณยังอยู่ขณะที่ทำงาน และจะบันทึกทันทีที่ทำได้",
+  "rune.storage.diskFull.title": "ดิสก์เต็ม",
+  "rune.storage.diskFull.description": "ไม่ได้บันทึกการเปลี่ยนแปลง การเปลี่ยนแปลงของคุณยังอยู่ขณะที่ OpenCode ทำงาน และจะบันทึกทันทีที่มีพื้นที่ โปรดเพิ่มพื้นที่ว่างในดิสก์นี้"
 }

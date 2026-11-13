@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Nu s-a putut trimite. Încearcă din nou.",
   "rune.web.check.works": "Funcționează",
   "rune.web.check.failed": "Eșuat",
-  "rune.web.check.none": "Nemăsurat"
+  "rune.web.check.none": "Nemăsurat",
+  "rune.storage.notSaving.title": "Modificările nu se salvează",
+  "rune.storage.writeFailed.description": "OpenCode nu a putut salva ({{why}}). Ce modifici rămâne cât timp rulează și se salvează imediat ce se poate.",
+  "rune.storage.diskFull.title": "Discul este plin",
+  "rune.storage.diskFull.description": "Modificările nu se salvează. Ce modifici rămâne cât timp OpenCode rulează și se salvează imediat ce există spațiu. Eliberează puțin spațiu pe acest disc."
 }

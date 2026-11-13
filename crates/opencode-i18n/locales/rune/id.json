@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Tidak dapat mengirim. Coba lagi.",
   "rune.web.check.works": "Berfungsi",
   "rune.web.check.failed": "Gagal",
-  "rune.web.check.none": "Tidak diukur"
+  "rune.web.check.none": "Tidak diukur",
+  "rune.storage.notSaving.title": "Perubahan tidak disimpan",
+  "rune.storage.writeFailed.description": "OpenCode tidak dapat menyimpan ({{why}}). Perubahan Anda tetap ada selama berjalan, dan disimpan begitu memungkinkan.",
+  "rune.storage.diskFull.title": "Disk penuh",
+  "rune.storage.diskFull.description": "Perubahan tidak disimpan. Perubahan Anda tetap ada selama OpenCode berjalan, dan disimpan begitu ada ruang. Kosongkan sebagian ruang di disk ini."
 }

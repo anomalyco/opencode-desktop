@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Lähetys epäonnistui. Yritä uudelleen.",
   "rune.web.check.works": "Toimii",
   "rune.web.check.failed": "Epäonnistui",
-  "rune.web.check.none": "Ei mitattu"
+  "rune.web.check.none": "Ei mitattu",
+  "rune.storage.notSaving.title": "Muutoksia ei tallenneta",
+  "rune.storage.writeFailed.description": "OpenCode ei voinut tallentaa ({{why}}). Muutoksesi säilyvät, kun se on käynnissä, ja tallentuvat heti, kun se onnistuu.",
+  "rune.storage.diskFull.title": "Levy on täynnä",
+  "rune.storage.diskFull.description": "Muutoksia ei tallenneta. Muutoksesi säilyvät, kun OpenCode on käynnissä, ja tallentuvat heti, kun tilaa on. Vapauta tilaa tältä levyltä."
 }

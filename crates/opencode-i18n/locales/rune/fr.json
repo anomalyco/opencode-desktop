@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Envoi impossible. Réessayez.",
   "rune.web.check.works": "Fonctionne",
   "rune.web.check.failed": "Échec",
-  "rune.web.check.none": "Non mesuré"
+  "rune.web.check.none": "Non mesuré",
+  "rune.storage.notSaving.title": "Les modifications ne sont pas enregistrées",
+  "rune.storage.writeFailed.description": "OpenCode n’a pas pu enregistrer ({{why}}). Vos modifications restent tant qu’il est ouvert et sont enregistrées dès que possible.",
+  "rune.storage.diskFull.title": "Le disque est plein",
+  "rune.storage.diskFull.description": "Les modifications ne sont pas enregistrées. Vos modifications restent tant qu’OpenCode est ouvert et sont enregistrées dès qu’il y a de la place. Libérez de l’espace sur ce disque."
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Tókst ekki að senda. Reyndu aftur.",
   "rune.web.check.works": "Virkar",
   "rune.web.check.failed": "Mistókst",
-  "rune.web.check.none": "Ekki mælt"
+  "rune.web.check.none": "Ekki mælt",
+  "rune.storage.notSaving.title": "Breytingar eru ekki vistaðar",
+  "rune.storage.writeFailed.description": "OpenCode gat ekki vistað ({{why}}). Breytingarnar þínar haldast á meðan það keyrir og eru vistaðar um leið og hægt er.",
+  "rune.storage.diskFull.title": "Diskurinn er fullur",
+  "rune.storage.diskFull.description": "Breytingar eru ekki vistaðar. Breytingarnar þínar haldast á meðan OpenCode keyrir og eru vistaðar um leið og pláss losnar. Losaðu pláss á þessum diski."
 }

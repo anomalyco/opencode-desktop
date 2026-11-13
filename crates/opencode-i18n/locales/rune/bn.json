@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "পাঠানো যায়নি। আবার চেষ্টা করুন।",
   "rune.web.check.works": "কাজ করে",
   "rune.web.check.failed": "ব্যর্থ",
-  "rune.web.check.none": "মাপা হয়নি"
+  "rune.web.check.none": "মাপা হয়নি",
+  "rune.storage.notSaving.title": "পরিবর্তন সংরক্ষণ হচ্ছে না",
+  "rune.storage.writeFailed.description": "OpenCode সংরক্ষণ করতে পারেনি ({{why}})। এটি চলা পর্যন্ত আপনার পরিবর্তন থাকবে, এবং সম্ভব হলেই সংরক্ষণ হবে।",
+  "rune.storage.diskFull.title": "ডিস্ক পূর্ণ",
+  "rune.storage.diskFull.description": "পরিবর্তন সংরক্ষণ হচ্ছে না। OpenCode চলা পর্যন্ত আপনার পরিবর্তন থাকবে, এবং জায়গা পেলেই সংরক্ষণ হবে। এই ডিস্কে কিছু জায়গা খালি করুন।"
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Nuk u dërgua. Provoni përsëri.",
   "rune.web.check.works": "Funksionon",
   "rune.web.check.failed": "Dështoi",
-  "rune.web.check.none": "Nuk u mat"
+  "rune.web.check.none": "Nuk u mat",
+  "rune.storage.notSaving.title": "Ndryshimet nuk po ruhen",
+  "rune.storage.writeFailed.description": "OpenCode nuk mundi të ruante ({{why}}). Ndryshimet e tua mbeten sa kohë që punon dhe ruhen sapo të jetë e mundur.",
+  "rune.storage.diskFull.title": "Disku është plot",
+  "rune.storage.diskFull.description": "Ndryshimet nuk po ruhen. Ndryshimet e tua mbeten sa kohë që OpenCode punon dhe ruhen sapo të ketë hapësirë. Liro pak hapësirë në këtë disk."
 }

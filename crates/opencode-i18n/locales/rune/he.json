@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "השליחה נכשלה. נסו שוב.",
   "rune.web.check.works": "עובד",
   "rune.web.check.failed": "נכשל",
-  "rune.web.check.none": "לא נמדד"
+  "rune.web.check.none": "לא נמדד",
+  "rune.storage.notSaving.title": "השינויים לא נשמרים",
+  "rune.storage.writeFailed.description": "OpenCode לא הצליח לשמור (⁨{{why}}⁩). השינויים שלך נשארים כל עוד הוא פועל, ונשמרים ברגע שאפשר.",
+  "rune.storage.diskFull.title": "הדיסק מלא",
+  "rune.storage.diskFull.description": "השינויים לא נשמרים. השינויים שלך נשארים כל עוד OpenCode פועל, ונשמרים ברגע שיש מקום. פנו מעט מקום בדיסק הזה."
 }

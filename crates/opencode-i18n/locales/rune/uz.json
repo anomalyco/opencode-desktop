@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Yuborib bo‘lmadi. Qayta urinib ko‘ring.",
   "rune.web.check.works": "Ishlaydi",
   "rune.web.check.failed": "Muvaffaqiyatsiz",
-  "rune.web.check.none": "O‘lchanmagan"
+  "rune.web.check.none": "O‘lchanmagan",
+  "rune.storage.notSaving.title": "O‘zgarishlar saqlanmayapti",
+  "rune.storage.writeFailed.description": "OpenCode saqlay olmadi ({{why}}). O‘zgarishlaringiz u ishlab turguncha qoladi va imkon bo‘lishi bilan saqlanadi.",
+  "rune.storage.diskFull.title": "Disk to‘la",
+  "rune.storage.diskFull.description": "O‘zgarishlar saqlanmayapti. O‘zgarishlaringiz OpenCode ishlab turguncha qoladi va joy bo‘shashi bilan saqlanadi. Bu diskda biroz joy bo‘shating."
 }

@@ -85,17 +85,23 @@ pub enum Notice {
     /// Another process holds the file and won't let it be read: a first-run screen; the saved
     /// state is untouched, and nothing is saved.
     FirstRun,
-    /// The file came free and still holds what the windows show: changes are saved again.
+    /// The file came free and still holds what the windows show, or writes that failed succeed
+    /// again: changes are saved again.
     Saving,
+    /// Writes to the database fail (`opencode_storage::write_trouble`): what changes stays in memory
+    /// and is written once a write succeeds. `full` when the disk is full, else the failure's words.
+    NotSaving { full: bool, why: String },
 }
 
 /// The notice owed to the windows, and whether the first frame showed a held file's stand-in.
 struct Told {
     owed: Option<Notice>,
     held: bool,
+    /// Whether the windows were last told writes fail (and of which kind: the disk full or not).
+    failing: Option<bool>,
 }
 
-static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false });
+static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false, failing: None });
 
 fn told() -> MutexGuard<'static, Told> {
     TOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -243,7 +249,23 @@ fn joined(opening: Opening) {
 /// What the windows must be told about their state, once: the first window to take it says so.
 /// A run in memory by design (headless, fixtures) has nothing to tell.
 pub fn take_notice() -> Option<Notice> {
-    told().owed.take()
+    let mut t = told();
+    if let Some(n) = t.owed.take() {
+        return Some(n);
+    }
+    // Writes that start or stop failing, told once each way (by the first window to poll).
+    let trouble = opencode_storage::write_trouble();
+    let failing = trouble.as_ref().map(|w| matches!(w, opencode_storage::WriteTrouble::DiskFull));
+    if failing == t.failing {
+        return None;
+    }
+    let was = std::mem::replace(&mut t.failing, failing);
+    match trouble {
+        Some(opencode_storage::WriteTrouble::DiskFull) => Some(Notice::NotSaving { full: true, why: String::new() }),
+        Some(opencode_storage::WriteTrouble::Failed(why)) => Some(Notice::NotSaving { full: false, why }),
+        None if was.is_some() => Some(Notice::Saving),
+        None => None,
+    }
 }
 
 /// This process is the app's one instance: the open may take the database's lock now (the

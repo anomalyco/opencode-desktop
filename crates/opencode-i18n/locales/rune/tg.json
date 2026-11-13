@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Фиристода нашуд. Бори дигар кӯшиш кунед.",
   "rune.web.check.works": "Кор мекунад",
   "rune.web.check.failed": "Ноком",
-  "rune.web.check.none": "Чен карда нашуд"
+  "rune.web.check.none": "Чен карда нашуд",
+  "rune.storage.notSaving.title": "Тағйирот нигоҳ дошта намешавад",
+  "rune.storage.writeFailed.description": "OpenCode нигоҳ дошта натавонист ({{why}}). Тағйироти шумо то даме ки он кор мекунад, мемонад ва ҳамин ки имкон шавад, нигоҳ дошта мешавад.",
+  "rune.storage.diskFull.title": "Диск пур аст",
+  "rune.storage.diskFull.description": "Тағйирот нигоҳ дошта намешавад. Тағйироти шумо то даме ки OpenCode кор мекунад, мемонад ва ҳамин ки ҷой пайдо шавад, нигоҳ дошта мешавад. Дар ин диск каме ҷой холӣ кунед."
 }

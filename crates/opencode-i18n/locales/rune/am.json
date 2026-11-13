@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "መላክ አልተቻለም። እንደገና ይሞክሩ።",
   "rune.web.check.works": "ይሰራል",
   "rune.web.check.failed": "አልተሳካም",
-  "rune.web.check.none": "አልተለካም"
+  "rune.web.check.none": "አልተለካም",
+  "rune.storage.notSaving.title": "ለውጦች እየተቀመጡ አይደሉም",
+  "rune.storage.writeFailed.description": "OpenCode ማስቀመጥ አልቻለም ({{why}})። የሚቀይሩት እስከሚሰራ ድረስ ይቆያል፣ እንደተቻለም ይቀመጣል።",
+  "rune.storage.diskFull.title": "ዲስኩ ሞልቷል",
+  "rune.storage.diskFull.description": "ለውጦች እየተቀመጡ አይደሉም። የሚቀይሩት OpenCode እስከሚሰራ ድረስ ይቆያል፣ ቦታ እንደተገኘም ይቀመጣል። በዚህ ዲስክ ላይ የተወሰነ ቦታ ያስለቅቁ።"
 }

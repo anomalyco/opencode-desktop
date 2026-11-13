@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Не може да се испрати. Обидете се повторно.",
   "rune.web.check.works": "Работи",
   "rune.web.check.failed": "Неуспешно",
-  "rune.web.check.none": "Не е измерено"
+  "rune.web.check.none": "Не е измерено",
+  "rune.storage.notSaving.title": "Промените не се зачувуваат",
+  "rune.storage.writeFailed.description": "OpenCode не можеше да зачува ({{why}}). Вашите промени остануваат додека работи и се зачувуваат штом е можно.",
+  "rune.storage.diskFull.title": "Дискот е полн",
+  "rune.storage.diskFull.description": "Промените не се зачувуваат. Вашите промени остануваат додека OpenCode работи и се зачувуваат штом има простор. Ослободете малку простор на овој диск."
 }

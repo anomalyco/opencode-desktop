@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "යැවිය නොහැකි විය. නැවත උත්සාහ කරන්න.",
   "rune.web.check.works": "ක්‍රියා කරයි",
   "rune.web.check.failed": "අසාර්ථකයි",
-  "rune.web.check.none": "මැන නැත"
+  "rune.web.check.none": "මැන නැත",
+  "rune.storage.notSaving.title": "වෙනස්කම් සුරැකෙන්නේ නැත",
+  "rune.storage.writeFailed.description": "OpenCode හට සුරැකීමට නොහැකි විය ({{why}}). එය ක්‍රියාත්මක වන තාක් ඔබේ වෙනස්කම් පවතින අතර, හැකි විගස සුරැකේ.",
+  "rune.storage.diskFull.title": "තැටිය පිරී ඇත",
+  "rune.storage.diskFull.description": "වෙනස්කම් සුරැකෙන්නේ නැත. OpenCode ක්‍රියාත්මක වන තාක් ඔබේ වෙනස්කම් පවතින අතර, ඉඩ ලැබුණු විගස සුරැකේ. මෙම තැටියේ ඉඩ ටිකක් නිදහස් කරන්න."
 }

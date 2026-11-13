@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Δεν ήταν δυνατή η αποστολή. Δοκιμάστε ξανά.",
   "rune.web.check.works": "Λειτουργεί",
   "rune.web.check.failed": "Απέτυχε",
-  "rune.web.check.none": "Δεν μετρήθηκε"
+  "rune.web.check.none": "Δεν μετρήθηκε",
+  "rune.storage.notSaving.title": "Οι αλλαγές δεν αποθηκεύονται",
+  "rune.storage.writeFailed.description": "Το OpenCode δεν μπόρεσε να αποθηκεύσει ({{why}}). Οι αλλαγές σας μένουν όσο εκτελείται και αποθηκεύονται μόλις γίνει δυνατό.",
+  "rune.storage.diskFull.title": "Ο δίσκος είναι πλήρης",
+  "rune.storage.diskFull.description": "Οι αλλαγές δεν αποθηκεύονται. Οι αλλαγές σας μένουν όσο εκτελείται το OpenCode και αποθηκεύονται μόλις υπάρξει χώρος. Ελευθερώστε λίγο χώρο σε αυτόν τον δίσκο."
 }

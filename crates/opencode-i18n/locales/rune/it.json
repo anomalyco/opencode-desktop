@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Impossibile inviare. Riprova.",
   "rune.web.check.works": "Funziona",
   "rune.web.check.failed": "Non riuscito",
-  "rune.web.check.none": "Non misurato"
+  "rune.web.check.none": "Non misurato",
+  "rune.storage.notSaving.title": "Le modifiche non vengono salvate",
+  "rune.storage.writeFailed.description": "OpenCode non è riuscito a salvare ({{why}}). Le tue modifiche restano finché è aperto e vengono salvate appena possibile.",
+  "rune.storage.diskFull.title": "Il disco è pieno",
+  "rune.storage.diskFull.description": "Le modifiche non vengono salvate. Le tue modifiche restano finché OpenCode è aperto e vengono salvate appena c’è spazio. Libera un po’ di spazio su questo disco."
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Не удалось отправить. Попробуйте ещё раз.",
   "rune.web.check.works": "Работает",
   "rune.web.check.failed": "Сбой",
-  "rune.web.check.none": "Не измерено"
+  "rune.web.check.none": "Не измерено",
+  "rune.storage.notSaving.title": "Изменения не сохраняются",
+  "rune.storage.writeFailed.description": "OpenCode не смог сохранить ({{why}}). Ваши изменения сохранятся, пока он работает, и запишутся, как только это станет возможно.",
+  "rune.storage.diskFull.title": "Диск заполнен",
+  "rune.storage.diskFull.description": "Изменения не сохраняются. Ваши изменения сохранятся, пока OpenCode работает, и запишутся, как только появится место. Освободите место на этом диске."
 }

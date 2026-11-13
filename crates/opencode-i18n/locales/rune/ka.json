@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "ვერ გაიგზავნა. სცადეთ ხელახლა.",
   "rune.web.check.works": "მუშაობს",
   "rune.web.check.failed": "ვერ მოხერხდა",
-  "rune.web.check.none": "არ გაზომილა"
+  "rune.web.check.none": "არ გაზომილა",
+  "rune.storage.notSaving.title": "ცვლილებები არ ინახება",
+  "rune.storage.writeFailed.description": "OpenCode-მა ვერ შეინახა ({{why}}). თქვენი ცვლილებები რჩება, სანამ ის მუშაობს, და შეინახება, როგორც კი შესაძლებელი იქნება.",
+  "rune.storage.diskFull.title": "დისკი სავსეა",
+  "rune.storage.diskFull.description": "ცვლილებები არ ინახება. თქვენი ცვლილებები რჩება, სანამ OpenCode მუშაობს, და შეინახება, როგორც კი ადგილი იქნება. გაათავისუფლეთ ადგილი ამ დისკზე."
 }

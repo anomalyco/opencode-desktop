@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Không gửi được. Hãy thử lại.",
   "rune.web.check.works": "Hoạt động",
   "rune.web.check.failed": "Thất bại",
-  "rune.web.check.none": "Chưa đo"
+  "rune.web.check.none": "Chưa đo",
+  "rune.storage.notSaving.title": "Các thay đổi không được lưu",
+  "rune.storage.writeFailed.description": "OpenCode không thể lưu ({{why}}). Các thay đổi của bạn vẫn giữ nguyên khi ứng dụng đang chạy và sẽ được lưu ngay khi có thể.",
+  "rune.storage.diskFull.title": "Ổ đĩa đã đầy",
+  "rune.storage.diskFull.description": "Các thay đổi không được lưu. Các thay đổi của bạn vẫn giữ nguyên khi OpenCode đang chạy và sẽ được lưu ngay khi có chỗ trống. Hãy giải phóng bớt dung lượng trên ổ đĩa này."
 }

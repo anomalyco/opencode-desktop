@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Saatmine ebaõnnestus. Proovi uuesti.",
   "rune.web.check.works": "Töötab",
   "rune.web.check.failed": "Ebaõnnestus",
-  "rune.web.check.none": "Mõõtmata"
+  "rune.web.check.none": "Mõõtmata",
+  "rune.storage.notSaving.title": "Muudatusi ei salvestata",
+  "rune.storage.writeFailed.description": "OpenCode ei saanud salvestada ({{why}}). Sinu muudatused säilivad, kuni see töötab, ja salvestatakse kohe, kui saab.",
+  "rune.storage.diskFull.title": "Ketas on täis",
+  "rune.storage.diskFull.description": "Muudatusi ei salvestata. Sinu muudatused säilivad, kuni OpenCode töötab, ja salvestatakse kohe, kui ruumi on. Vabasta sellel kettal veidi ruumi."
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Göndərmək olmadı. Yenidən cəhd edin.",
   "rune.web.check.works": "İşləyir",
   "rune.web.check.failed": "Alınmadı",
-  "rune.web.check.none": "Ölçülməyib"
+  "rune.web.check.none": "Ölçülməyib",
+  "rune.storage.notSaving.title": "Dəyişikliklər saxlanılmır",
+  "rune.storage.writeFailed.description": "OpenCode saxlaya bilmədi ({{why}}). Dəyişdikləriniz o işlədikcə qalır və mümkün olan kimi saxlanılır.",
+  "rune.storage.diskFull.title": "Disk doludur",
+  "rune.storage.diskFull.description": "Dəyişikliklər saxlanılmır. Dəyişdikləriniz OpenCode işlədikcə qalır və yer açılan kimi saxlanılır. Bu diskdə bir az yer boşaldın."
 }

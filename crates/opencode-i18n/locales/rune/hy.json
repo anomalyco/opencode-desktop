@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Չհաջողվեց ուղարկել։ Փորձեք կրկին։",
   "rune.web.check.works": "Աշխատում է",
   "rune.web.check.failed": "Ձախողվեց",
-  "rune.web.check.none": "Չափված չէ"
+  "rune.web.check.none": "Չափված չէ",
+  "rune.storage.notSaving.title": "Փոփոխությունները չեն պահվում",
+  "rune.storage.writeFailed.description": "OpenCode-ը չկարողացավ պահել ({{why}})։ Ձեր փոփոխությունները մնում են, քանի դեռ այն աշխատում է, և պահվում են հենց հնարավոր լինի։",
+  "rune.storage.diskFull.title": "Սկավառակը լի է",
+  "rune.storage.diskFull.description": "Փոփոխությունները չեն պահվում։ Ձեր փոփոխությունները մնում են, քանի դեռ OpenCode-ն աշխատում է, և պահվում են, երբ տեղ լինի։ Ազատեք որոշ տեղ այս սկավառակում։"
 }

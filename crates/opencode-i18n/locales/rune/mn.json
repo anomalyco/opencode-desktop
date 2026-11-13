@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Илгээж чадсангүй. Дахин оролдоно уу.",
   "rune.web.check.works": "Ажилладаг",
   "rune.web.check.failed": "Амжилтгүй",
-  "rune.web.check.none": "Хэмжээгүй"
+  "rune.web.check.none": "Хэмжээгүй",
+  "rune.storage.notSaving.title": "Өөрчлөлт хадгалагдахгүй байна",
+  "rune.storage.writeFailed.description": "OpenCode хадгалж чадсангүй ({{why}}). Таны өөрчлөлт ажиллаж байх хугацаанд хадгалагдаж, боломжтой болмогц бичигдэнэ.",
+  "rune.storage.diskFull.title": "Диск дүүрсэн",
+  "rune.storage.diskFull.description": "Өөрчлөлт хадгалагдахгүй байна. Таны өөрчлөлт OpenCode ажиллаж байх хугацаанд хадгалагдаж, зай гармагц бичигдэнэ. Энэ дискэнд зай гаргана уу."
 }

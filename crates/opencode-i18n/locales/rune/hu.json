@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Nem sikerült elküldeni. Próbáld újra.",
   "rune.web.check.works": "Működik",
   "rune.web.check.failed": "Sikertelen",
-  "rune.web.check.none": "Nem mért"
+  "rune.web.check.none": "Nem mért",
+  "rune.storage.notSaving.title": "A módosítások nincsenek mentve",
+  "rune.storage.writeFailed.description": "Az OpenCode nem tudott menteni ({{why}}). A módosításai megmaradnak, amíg fut, és amint lehet, mentésre kerülnek.",
+  "rune.storage.diskFull.title": "A lemez megtelt",
+  "rune.storage.diskFull.description": "A módosítások nincsenek mentve. A módosításai megmaradnak, amíg az OpenCode fut, és amint lesz hely, mentésre kerülnek. Szabadítson fel helyet ezen a lemezen."
 }

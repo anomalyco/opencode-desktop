@@ -118,6 +118,22 @@ pub(crate) struct Writer {
     written: usize,
 }
 
+/// A write's outcome for `write_trouble`: SQLite's own `SQLITE_FULL`, or the OS saying the disk
+/// has no space (Windows' ERROR_DISK_FULL / ERROR_HANDLE_DISK_FULL, ENOSPC) under an I/O error.
+fn note<T>(result: &rusqlite::Result<T>) {
+    crate::note_write(result.as_ref().err().map(|e| {
+        let why = e.to_string();
+        let lower = why.to_lowercase();
+        let full = matches!(e, rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::DiskFull)
+            || lower.contains("disk is full")
+            || lower.contains("not enough space")
+            || lower.contains("no space left")
+            || lower.contains("os error 112")
+            || lower.contains("os error 39");
+        (why, full)
+    }));
+}
+
 /// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
 #[allow(clippy::too_many_arguments)]
 fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut WriteBehindState<K, V>, event: WriteBehindEvent<K, V>, delay: u64, timer: &'static str, timers: &mut HashMap<&'static str, Armed>) -> Vec<(Attempt, IndexMap<K, V>)> {
@@ -302,6 +318,7 @@ impl Writer {
             }
             tx.commit()
         })();
+        note(&result);
         let ok = result.is_ok();
         let error = result.err().map(|e| e.to_string());
         for b in batches {
@@ -353,7 +370,9 @@ impl Writer {
             Cmd::Cache { key, value } => self.caches_event(WriteBehindEvent::Set { key, value }),
             Cmd::Blob { id, data } => {
                 let now = (self.clock)();
-                if sql::insert_blob(&self.conn, &id, &data, now).is_ok() {
+                let inserted = sql::insert_blob(&self.conn, &id, &data, now);
+                note(&inserted);
+                if inserted.is_ok() {
                     self.touched.insert(id, now);
                     self.wal_event(WalEvent::Committed { boot: false });
                     let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::BlobUploaded { at_ms: now });
@@ -450,6 +469,7 @@ impl Writer {
             f(&tx, now)?;
             tx.commit()
         })();
+        note(&result);
         self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
@@ -505,6 +525,7 @@ impl Writer {
             f(&tx, now)?;
             tx.commit()
         })();
+        note(&result);
         self.conn.execute_batch("PRAGMA synchronous = NORMAL").ok();
         match result {
             Ok(()) => {

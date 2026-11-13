@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "N'eus ket bet gallet kas. Klaskit en-dro.",
   "rune.web.check.works": "Mont a ra",
   "rune.web.check.failed": "C'hwitet",
-  "rune.web.check.none": "N'eo ket muzuliet"
+  "rune.web.check.none": "N'eo ket muzuliet",
+  "rune.storage.notSaving.title": "As alterações não estão sendo salvas",
+  "rune.storage.writeFailed.description": "O OpenCode não conseguiu salvar ({{why}}). O que você alterar fica enquanto ele estiver aberto e é salvo assim que possível.",
+  "rune.storage.diskFull.title": "O disco está cheio",
+  "rune.storage.diskFull.description": "As alterações não estão sendo salvas. O que você alterar fica enquanto o OpenCode estiver aberto e é salvo assim que houver espaço. Libere espaço neste disco."
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "无法发送。请重试。",
   "rune.web.check.works": "正常",
   "rune.web.check.failed": "失败",
-  "rune.web.check.none": "未测量"
+  "rune.web.check.none": "未测量",
+  "rune.storage.notSaving.title": "更改未保存",
+  "rune.storage.writeFailed.description": "OpenCode 无法保存（{{why}}）。运行期间你的更改会保留，一旦可以就会保存。",
+  "rune.storage.diskFull.title": "磁盘已满",
+  "rune.storage.diskFull.description": "更改未保存。OpenCode 运行期间你的更改会保留，一有空间就会保存。请在此磁盘上释放一些空间。"
 }

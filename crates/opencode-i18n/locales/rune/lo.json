@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "ບໍ່ສາມາດສົ່ງໄດ້. ລອງໃໝ່.",
   "rune.web.check.works": "ໃຊ້ໄດ້",
   "rune.web.check.failed": "ລົ້ມເຫຼວ",
-  "rune.web.check.none": "ບໍ່ໄດ້ວັດແທກ"
+  "rune.web.check.none": "ບໍ່ໄດ້ວັດແທກ",
+  "rune.storage.notSaving.title": "ການປ່ຽນແປງບໍ່ໄດ້ຖືກບັນທຶກ",
+  "rune.storage.writeFailed.description": "OpenCode ບັນທຶກບໍ່ໄດ້ ({{why}}). ການປ່ຽນແປງຂອງທ່ານຍັງຢູ່ ຕາບໃດທີ່ມັນກຳລັງເຮັດວຽກ ແລະ ຈະຖືກບັນທຶກທັນທີທີ່ເຮັດໄດ້.",
+  "rune.storage.diskFull.title": "ດິສເຕັມແລ້ວ",
+  "rune.storage.diskFull.description": "ການປ່ຽນແປງບໍ່ໄດ້ຖືກບັນທຶກ. ການປ່ຽນແປງຂອງທ່ານຍັງຢູ່ ຕາບໃດທີ່ OpenCode ກຳລັງເຮັດວຽກ ແລະ ຈະຖືກບັນທຶກທັນທີທີ່ມີບ່ອນວ່າງ. ກະລຸນາເຮັດໃຫ້ມີບ່ອນວ່າງໃນດິສນີ້."
 }

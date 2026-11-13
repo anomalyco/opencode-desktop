@@ -224,6 +224,8 @@ impl App {
             Some(Notice::Checkpoint) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.checkpoint.description")),
             Some(Notice::FirstRun) => crate::status_toast::fail(self, t!("rune.storage.memoryOnly.title"), t!("rune.storage.firstRun.description")),
             Some(Notice::Saving) => crate::status_toast::succeed(self, t!("rune.storage.saving.title"), ""),
+            Some(Notice::NotSaving { full: true, .. }) => crate::status_toast::fail(self, t!("rune.storage.diskFull.title"), t!("rune.storage.diskFull.description")),
+            Some(Notice::NotSaving { full: false, why }) => crate::status_toast::fail(self, t!("rune.storage.notSaving.title"), t!("rune.storage.writeFailed.description", why = crate::status_toast::plain(&why))),
             None => return false,
         }
         true

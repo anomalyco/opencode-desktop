@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "ارسال نشد. دوباره تلاش کنید.",
   "rune.web.check.works": "کار می‌کند",
   "rune.web.check.failed": "ناموفق",
-  "rune.web.check.none": "اندازه‌گیری نشد"
+  "rune.web.check.none": "اندازه‌گیری نشد",
+  "rune.storage.notSaving.title": "تغییرات ذخیره نمی‌شوند",
+  "rune.storage.writeFailed.description": "OpenCode نتوانست ذخیره کند ({{why}}). تغییرات شما تا وقتی باز است می‌ماند و به‌محض امکان ذخیره می‌شود.",
+  "rune.storage.diskFull.title": "دیسک پر است",
+  "rune.storage.diskFull.description": "تغییرات ذخیره نمی‌شوند. تغییرات شما تا وقتی OpenCode باز است می‌ماند و به‌محض آزاد شدن فضا ذخیره می‌شود. کمی از فضای این دیسک را آزاد کنید."
 }

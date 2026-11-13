@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Senden fehlgeschlagen. Versuchen Sie es erneut.",
   "rune.web.check.works": "Funktioniert",
   "rune.web.check.failed": "Fehlgeschlagen",
-  "rune.web.check.none": "Nicht gemessen"
+  "rune.web.check.none": "Nicht gemessen",
+  "rune.storage.notSaving.title": "Änderungen werden nicht gespeichert",
+  "rune.storage.writeFailed.description": "OpenCode konnte nicht speichern ({{why}}). Ihre Änderungen bleiben erhalten, solange es läuft, und werden gespeichert, sobald es geht.",
+  "rune.storage.diskFull.title": "Der Datenträger ist voll",
+  "rune.storage.diskFull.description": "Änderungen werden nicht gespeichert. Ihre Änderungen bleiben erhalten, solange OpenCode läuft, und werden gespeichert, sobald Platz frei ist. Geben Sie auf diesem Datenträger Speicherplatz frei."
 }

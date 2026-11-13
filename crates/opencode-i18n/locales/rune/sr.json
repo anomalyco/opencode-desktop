@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Слање није успело. Покушајте поново.",
   "rune.web.check.works": "Ради",
   "rune.web.check.failed": "Није успело",
-  "rune.web.check.none": "Није измерено"
+  "rune.web.check.none": "Није измерено",
+  "rune.storage.notSaving.title": "Измене се не чувају",
+  "rune.storage.writeFailed.description": "OpenCode није могао да сачува ({{why}}). Ваше измене остају док ради и чувају се чим буде могуће.",
+  "rune.storage.diskFull.title": "Диск је пун",
+  "rune.storage.diskFull.description": "Измене се не чувају. Ваше измене остају док OpenCode ради и чувају се чим буде простора. Ослободите мало простора на овом диску."
 }

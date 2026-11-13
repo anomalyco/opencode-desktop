@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "មិនអាចផ្ញើបានទេ។ សូមព្យាយាមម្ដងទៀត។",
   "rune.web.check.works": "ដំណើរការ",
   "rune.web.check.failed": "បរាជ័យ",
-  "rune.web.check.none": "មិនបានវាស់"
+  "rune.web.check.none": "មិនបានវាស់",
+  "rune.storage.notSaving.title": "ការផ្លាស់ប្តូរមិនកំពុងរក្សាទុកទេ",
+  "rune.storage.writeFailed.description": "OpenCode មិនអាចរក្សាទុកបានទេ ({{why}})។ ការផ្លាស់ប្តូររបស់អ្នកនៅដដែល ពេលវាកំពុងដំណើរការ ហើយនឹងរក្សាទុកភ្លាមៗពេលអាចធ្វើបាន។",
+  "rune.storage.diskFull.title": "ថាសពេញហើយ",
+  "rune.storage.diskFull.description": "ការផ្លាស់ប្តូរមិនកំពុងរក្សាទុកទេ។ ការផ្លាស់ប្តូររបស់អ្នកនៅដដែល ពេល OpenCode កំពុងដំណើរការ ហើយនឹងរក្សាទុកភ្លាមៗពេលមានទំហំ។ សូមដោះទំហំខ្លះនៅលើថាសនេះ។"
 }

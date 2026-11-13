@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "ပို့၍မရပါ။ ထပ်စမ်းကြည့်ပါ။",
   "rune.web.check.works": "အလုပ်လုပ်သည်",
   "rune.web.check.failed": "မအောင်မြင်ပါ",
-  "rune.web.check.none": "မတိုင်းတာရသေး"
+  "rune.web.check.none": "မတိုင်းတာရသေး",
+  "rune.storage.notSaving.title": "ပြောင်းလဲမှုများ မသိမ်းဆည်းနိုင်ပါ",
+  "rune.storage.writeFailed.description": "OpenCode သိမ်း၍ မရပါ ({{why}})။ လည်ပတ်နေသရွေ့ သင့်ပြောင်းလဲမှုများ ရှိနေမည်ဖြစ်ပြီး ဖြစ်နိုင်သည်နှင့် သိမ်းဆည်းပါမည်။",
+  "rune.storage.diskFull.title": "ဒစ်ပြည့်နေသည်",
+  "rune.storage.diskFull.description": "ပြောင်းလဲမှုများ မသိမ်းဆည်းနိုင်ပါ။ OpenCode လည်ပတ်နေသရွေ့ သင့်ပြောင်းလဲမှုများ ရှိနေမည်ဖြစ်ပြီး နေရာရသည်နှင့် သိမ်းဆည်းပါမည်။ ဤဒစ်ပေါ်တွင် နေရာအချို့ လွတ်အောင်လုပ်ပါ။"
 }

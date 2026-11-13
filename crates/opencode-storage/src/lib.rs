@@ -34,6 +34,30 @@ pub use outbox::{OutboxBuild, OutboxEntry, OutboxPut, OutboxRead, OutboxStore, O
 pub use plugins::{HOST_KEY_PREFIX, PluginRecord, PluginStore};
 pub use stores::{CacheStore, DocumentStore, PreviewStore, StateStore, WindowStore};
 
+/// Why writes to the database fail, while they keep failing: the disk is full, or something else
+/// (the error's words). What failed stays in memory and is written again once a write succeeds
+/// (the write-behind buffers retry; an outbox row that couldn't be saved is answered as not
+/// saved). A failed transaction rolls back whole, so what was saved before stays as it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WriteTrouble {
+    DiskFull,
+    Failed(String),
+}
+
+static TROUBLE: Mutex<Option<WriteTrouble>> = Mutex::new(None);
+
+/// The trouble writes are in now: `None` once the last write succeeded.
+pub fn write_trouble() -> Option<WriteTrouble> {
+    TROUBLE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
+/// A write's outcome, for [`write_trouble`]: `error` is the failure's words, `full` when it says
+/// the disk is full.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(crate) fn note_write(error: Option<(String, bool)>) {
+    *TROUBLE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = error.map(|(why, full)| if full { WriteTrouble::DiskFull } else { WriteTrouble::Failed(why) });
+}
+
 // The same names on both targets: what differs is behind the backend.
 #[cfg(not(target_arch = "wasm32"))]
 use native::Backend;

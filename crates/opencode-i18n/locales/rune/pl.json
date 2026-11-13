@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Nie udało się wysłać. Spróbuj ponownie.",
   "rune.web.check.works": "Działa",
   "rune.web.check.failed": "Niepowodzenie",
-  "rune.web.check.none": "Nie zmierzono"
+  "rune.web.check.none": "Nie zmierzono",
+  "rune.storage.notSaving.title": "Zmiany nie są zapisywane",
+  "rune.storage.writeFailed.description": "OpenCode nie mógł zapisać ({{why}}). Twoje zmiany zostają, dopóki działa, i zostaną zapisane, gdy tylko będzie to możliwe.",
+  "rune.storage.diskFull.title": "Dysk jest pełny",
+  "rune.storage.diskFull.description": "Zmiany nie są zapisywane. Twoje zmiany zostają, dopóki działa OpenCode, i zostaną zapisane, gdy tylko będzie miejsce. Zwolnij trochę miejsca na tym dysku."
 }

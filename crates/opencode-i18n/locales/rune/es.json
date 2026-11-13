@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "No se pudo enviar. Inténtalo de nuevo.",
   "rune.web.check.works": "Funciona",
   "rune.web.check.failed": "Falló",
-  "rune.web.check.none": "Sin medir"
+  "rune.web.check.none": "Sin medir",
+  "rune.storage.notSaving.title": "Los cambios no se están guardando",
+  "rune.storage.writeFailed.description": "OpenCode no pudo guardar ({{why}}). Lo que cambies se conserva mientras esté abierto y se guarda en cuanto se pueda.",
+  "rune.storage.diskFull.title": "El disco está lleno",
+  "rune.storage.diskFull.description": "Los cambios no se están guardando. Lo que cambies se conserva mientras OpenCode esté abierto y se guarda en cuanto haya espacio. Libera espacio en este disco."
 }

@@ -222,5 +222,9 @@
   "rune.web.check.notSent": "Nepavyko išsiųsti. Bandykite dar kartą.",
   "rune.web.check.works": "Veikia",
   "rune.web.check.failed": "Nepavyko",
-  "rune.web.check.none": "Neišmatuota"
+  "rune.web.check.none": "Neišmatuota",
+  "rune.storage.notSaving.title": "Pakeitimai neišsaugomi",
+  "rune.storage.writeFailed.description": "OpenCode nepavyko išsaugoti ({{why}}). Jūsų pakeitimai išlieka, kol jis veikia, ir išsaugomi, kai tik galima.",
+  "rune.storage.diskFull.title": "Diskas pilnas",
+  "rune.storage.diskFull.description": "Pakeitimai neišsaugomi. Jūsų pakeitimai išlieka, kol veikia OpenCode, ir išsaugomi, kai tik atsiranda vietos. Atlaisvinkite vietos šiame diske."
 }
