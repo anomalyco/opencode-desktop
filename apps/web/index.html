@@ -37,41 +37,80 @@
   button { height: 28px; padding: 0 12px; font: inherit; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; cursor: pointer; }
   .limits { margin: 12px 0 0; color: color-mix(in srgb, CanvasText 60%, transparent); }
   #status { position: fixed; inset: 0; display: grid; place-items: center; color: color-mix(in srgb, CanvasText 60%, transparent); pointer-events: none; }
-  #notice { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
+  #notice, #stay { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
   #notice button { margin-top: 8px; height: 24px; }
+  #stay h2 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+  #stay p { margin: 0 0 8px; color: color-mix(in srgb, CanvasText 70%, transparent); }
+  #stay .actions { display: flex; gap: 8px; }
+  button.quiet { border-color: color-mix(in srgb, CanvasText 20%, transparent); background: Canvas; color: CanvasText; }
   /* A finger: 44 px targets, and 16 px text so iOS doesn't zoom into a field it focuses. */
   @media (pointer: coarse) {
     #connect { margin: max(48px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); max-width: none; }
     #connect input { height: 44px; font-size: 16px; }
     #connect button { width: 100%; height: 44px; margin-top: 16px; font-size: 16px; }
     /* Below the title row, not over the composer at the screen's foot. */
-    #notice { top: calc(env(safe-area-inset-top) + 52px); bottom: auto; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); max-width: none; }
-    #notice button { height: 44px; padding: 0 20px; }
+    #notice, #stay { top: calc(env(safe-area-inset-top) + 52px); bottom: auto; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); max-width: none; padding: 12px; }
+    #notice button, #stay button { height: 44px; padding: 0 20px; font-size: 16px; }
+    #stay .actions button { flex: 1; }
   }
 </style>
 <form id="connect" class="box" method="post" action="#">
-  <h1>Connect to an OpenCode server</h1>
-  <label for="server">Server URL</label>
+  <h1 data-say="rune.web.connect.title"></h1>
+  <label for="server" data-say="rune.web.connect.server"></label>
   <input id="server" name="url" type="url" autocomplete="url" placeholder="http://127.0.0.1:4096" required>
   <!-- The server's user is always opencode: here so a password manager saves and fills the pair. -->
   <input name="username" autocomplete="username" value="opencode" hidden>
-  <label for="password">Password (if it has one)</label>
+  <label for="password" data-say="rune.web.connect.password"></label>
   <input id="password" name="password" type="password" autocomplete="current-password">
   <p class="error" id="connect-error" role="alert"></p>
-  <p class="limits" id="limits-form"></p>
-  <button type="submit">Connect</button>
+  <button type="button" id="use-origin" class="quiet" hidden></button>
+  <p class="limits" data-say="rune.web.limits"></p>
+  <button type="submit" data-say="common.connect"></button>
 </form>
-<div id="notice" class="box" role="status"><span id="limits-notice"></span><br><button type="button">OK</button></div>
+<div id="stay" class="box" role="dialog" aria-labelledby="stay-title" aria-describedby="stay-body">
+  <h2 id="stay-title" data-say="rune.web.stay.title"></h2>
+  <p id="stay-body"></p>
+  <div class="actions"><button type="button" id="stay-yes" data-say="rune.web.stay.yes"></button><button type="button" id="stay-no" class="quiet" data-say="rune.web.stay.no"></button></div>
+</div>
+<div id="notice" class="box" role="status"><span data-say="rune.web.limits"></span><br><button type="button" data-say="common.ok"></button></div>
 <div id="status"></div>
+<script id="page" type="application/json">{}</script>
 <script type="module">
-  // What this build can't do yet, said where it shows, not only in the notes.
-  const limits = 'A preview: the embedded browser, dictation and updates don\u2019t work in the browser yet. Sessions you open are the server\u2019s own: what you send, rename and delete reaches it.';
-  document.querySelector('#limits-form').textContent = limits;
-  document.querySelector('#limits-notice').textContent = limits;
+  // The page's messages: English is in the page (`scripts/web-page.ts` writes it from the
+  // catalog), the user's language comes from its catalog beside the page, which the module reads
+  // a moment later too. Until it's here the page shows nothing that has words.
+  const PAGE = JSON.parse(document.querySelector('#page').textContent);
+  let messages = PAGE.en ?? {};
+  const say = (key, vars = {}) => (messages[key] ?? PAGE.en?.[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, name) => vars[name] ?? '');
+  // The browser's languages in order, as the app picks one when none is chosen: the full tag,
+  // then its language alone.
+  function localeId() {
+    const tags = PAGE.locales ?? [];
+    for (const wanted of navigator.languages ?? [navigator.language]) {
+      const w = wanted.toLowerCase();
+      const exact = tags.find(([, tag]) => tag.toLowerCase() === w);
+      if (exact) return exact[0];
+      if (w.startsWith('zh')) return /hant|-tw|-hk|-mo/.test(w) ? 'zht' : 'zh';
+      const base = tags.find(([id, tag]) => tag.toLowerCase() === w.split('-')[0] || id === w.split('-')[0]);
+      if (base) return base[0];
+    }
+    return 'en';
+  }
+  const messagesReady = (async () => {
+    const id = localeId();
+    if (id !== 'en') {
+      try {
+        const response = await fetch(`i18n/${id}.json`);
+        if (response.ok) messages = await response.json();
+      } catch {}
+    }
+    for (const el of document.querySelectorAll('[data-say]')) el.textContent = say(el.dataset.say);
+  })();
   const status = document.querySelector('#status');
   const params = new URLSearchParams(location.search);
-  // A password never stays in the address: taken out before anything loads, kept only in this
-  // page's memory (the app sends it as the Authorization header), never stored.
+  // A password never stays in the address: taken out before anything loads, and kept only in
+  // this page's memory (the app sends it as the Authorization header) unless the user asks to
+  // stay signed in.
   let password = params.get('password') ?? params.get('auth_token');
   if (password !== null) {
     params.delete('password');
@@ -96,7 +135,7 @@
         loaded += value.byteLength;
         if (loaded - shown > 524288 && status.isConnected) {
           shown = loaded;
-          status.textContent = total >= loaded ? `Loading\u2026 ${mb(loaded)} of ${mb(total)} MB` : `Loading\u2026 ${mb(loaded)} MB`;
+          status.textContent = total >= loaded ? say('rune.web.loadingOf', { loaded: mb(loaded), total: mb(total) }) : say('rune.web.loadingMb', { loaded: mb(loaded) });
         }
       }
     }).catch(() => {});
@@ -124,69 +163,218 @@
     }));
   }
   async function boot() {
-    status.textContent = 'Loading\u2026';
+    await messagesReady;
+    status.textContent = say('rune.web.loading');
     // Only a head start: the app reads for itself when this can't.
     try { startFirstReads(); } catch {}
     const module = download(new URL('app_bg.wasm', import.meta.url));
     try {
       // The app's work waits on the network on fibers (JS Promise Integration).
-      if (!('Suspending' in WebAssembly)) throw new Error('This page needs WebAssembly JS Promise Integration: Chrome or Edge 137, Firefox 153, or Safari 27 (iOS 27) or newer.');
+      if (!('Suspending' in WebAssembly)) throw new Error(say('rune.web.needsJspi'));
       const app = await import('./app.js');
       // The module's exports, for a measuring harness (its linear memory's size).
       globalThis.__runeWasm = await app.default({ module_or_path: module });
-      // "Loading" stays until the first frame is on screen, and the notice comes with it, until
-      // its OK is pressed once (the connect form says the same each time it shows).
+      // "Loading" stays until the first frame is on screen. Then the page offers to stay signed
+      // in, once, if this open came with a password; then the preview notice, until its OK is
+      // pressed once (the connect form says the same each time it shows).
+      const offer = signIn === 'offer' && !readJson(DECLINED_KEY, []).includes(server) ? { server, password } : null;
       document.addEventListener('runepresent', () => {
         status.remove();
-        const notice = document.querySelector('#notice');
-        try { if (localStorage.getItem(NOTICE_KEY)) { notice.remove(); return; } } catch {}
-        notice.style.display = 'block';
-        notice.querySelector('button').onclick = () => {
-          notice.remove();
-          try { localStorage.setItem(NOTICE_KEY, '1'); } catch {}
+        const notice = () => {
+          const box = document.querySelector('#notice');
+          try { if (localStorage.getItem(NOTICE_KEY)) { box.remove(); return; } } catch {}
+          box.style.display = 'block';
+          box.querySelector('button').onclick = () => {
+            box.remove();
+            try { localStorage.setItem(NOTICE_KEY, '1'); } catch {}
+          };
+        };
+        // The page's files on the device, once the first frame is up (`sw.js`).
+        navigator.serviceWorker?.register('sw.js', { scope: './' }).catch(() => {});
+        if (!offer) { notice(); return; }
+        const box = document.querySelector('#stay');
+        document.querySelector('#stay-body').textContent = say('rune.web.stay.body', { server: offer.server });
+        box.style.display = 'block';
+        document.querySelector('#stay-yes').onclick = async () => {
+          box.remove();
+          await keep(offer.server, offer.password);
+          notice();
+        };
+        document.querySelector('#stay-no').onclick = () => {
+          box.remove();
+          writeJson(DECLINED_KEY, [...readJson(DECLINED_KEY, []), offer.server]);
+          notice();
         };
       }, { once: true });
       app.start(password ?? undefined);
       password = null;
     } catch (error) {
-      status.textContent = String(error);
+      status.textContent = error instanceof Error ? error.message : String(error);
       console.error(error);
     }
   }
   // The last server this page connected to: its URL only, never the password. An app on a
-  // phone's Home Screen opens at the manifest's start (no `?server=`), with storage of its own.
+  // phone's Home Screen opens at the manifest's start (no `?server=`), with storage of its own:
+  // iOS copies a tab's cookies, and nothing else, into one added from it, so the URL is in a
+  // cookie of the page's folder too.
   const SERVER_KEY = 'opencode-rune.server';
+  const SERVER_COOKIE = 'opencode-rune-server';
   const NOTICE_KEY = 'opencode-rune.notice-seen';
-  const remembered = () => { try { return localStorage.getItem(SERVER_KEY); } catch { return null; } };
+  // Stay signed in, only when the user says so: the password for a server, on this device, in
+  // this page's storage and in a cookie of the page's folder, because iOS copies a tab's cookies,
+  // and nothing else, into a Home Screen app added from it, which then opens signed in. The cookie
+  // is renewed on each open (Safari keeps a script's cookie for 7 days). Sign out (Settings ›
+  // Server) and a password the server turns down remove it. Where the browser has a password
+  // store a page can offer to (`PasswordCredential`: Chrome, Edge, Android) it's offered there
+  // too, so its own autofill has it, but never relied on: `store()` resolves whether or not the
+  // user saved it, and a silent `get()` answers nothing without the browser's auto sign-in.
+  const SIGNIN_KEY = 'opencode-rune.signin';
+  const DECLINED_KEY = 'opencode-rune.signin-declined';
+  const COOKIE = 'opencode-rune-signin';
+  const folder = location.pathname.replace(/[^/]*$/, '');
+  const credentials = 'PasswordCredential' in window && !!navigator.credentials;
+  const readJson = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
+  const writeJson = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+  function readCookie(name) {
+    const found = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+    return found ? decodeURIComponent(found[1]) : null;
+  }
+  // `null` removes it.
+  function writeCookie(name, value) {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${name}=${value === null ? '' : encodeURIComponent(value)}; Path=${folder}; Max-Age=${value === null ? 0 : 34560000}; SameSite=Strict${secure}`;
+  }
+  function cookieKept() {
+    try { return JSON.parse(readCookie(COOKIE) ?? '{}') ?? {}; } catch { return {}; }
+  }
+  const setCookie = kept => writeCookie(COOKIE, Object.keys(kept).length ? JSON.stringify(kept) : null);
+  async function keptPassword(server) {
+    const page = readJson(SIGNIN_KEY, {});
+    // A Home Screen app's first open: nothing in its own storage, the cookie copied from Safari.
+    const kept = page[server] ?? cookieKept()[server] ?? null;
+    if (kept) {
+      writeJson(SIGNIN_KEY, { ...page, [server]: kept });
+      setCookie({ ...cookieKept(), [server]: kept });
+      return kept;
+    }
+    if (!credentials) return null;
+    const found = await navigator.credentials.get({ password: true, mediation: 'silent' }).catch(() => null);
+    return found?.id === 'opencode' && found.name === server ? found.password : null;
+  }
+  async function keep(server, pw) {
+    writeJson(SIGNIN_KEY, { ...readJson(SIGNIN_KEY, {}), [server]: pw });
+    setCookie({ ...cookieKept(), [server]: pw });
+    if (credentials) await navigator.credentials.store(new PasswordCredential({ id: 'opencode', password: pw, name: server })).catch(() => {});
+  }
+  async function forget(server) {
+    const page = readJson(SIGNIN_KEY, {});
+    delete page[server];
+    writeJson(SIGNIN_KEY, page);
+    const cookie = cookieKept();
+    delete cookie[server];
+    setCookie(cookie);
+    if (credentials) await navigator.credentials.preventSilentAccess().catch(() => {});
+  }
+  const remembered = () => { try { return localStorage.getItem(SERVER_KEY) ?? readCookie(SERVER_COOKIE); } catch { return readCookie(SERVER_COOKIE); } };
   const basic = pw => `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`opencode:${pw.trim()}`)))}`;
-  // What the server says to this credential: 'ok', 'password' (it wants one, or another), or
-  // 'unreachable'.
+  const hostOf = at => at.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  // What the server says to this credential: 'ok' (an OpenCode server's `/api/info`: 200 with
+  // its version), 'password' (it wants one, or another), 'notServer' (the address answers, but
+  // not as an OpenCode server), 'insecure' (this page is on https and the server's address is
+  // http, which the browser won't let a page call) or 'unreachable'. What the last answer looked
+  // like stays for `report`.
+  let lastKnock = null;
+  const loopback = host => ['localhost', '127.0.0.1', '[::1]'].includes(host);
   async function knock(server, pw) {
+    const base = server.trim().replace(/\/+$/, '');
+    lastKnock = { status: 0, challenge: false, bodyTag: '' };
+    if (location.protocol === 'https:' && /^http:\/\//i.test(base) && !loopback(URL.parse(base)?.hostname ?? '')) return 'insecure';
     try {
-      const response = await fetch(`${server.trim().replace(/\/+$/, '')}/api/info`, { headers: pw?.trim() ? { Authorization: basic(pw) } : {}, cache: 'no-store' });
-      return response.status === 401 ? 'password' : 'ok';
+      const response = await fetch(`${base}/api/info`, { headers: pw?.trim() ? { Authorization: basic(pw) } : {}, cache: 'no-store' });
+      lastKnock = { status: response.status, challenge: response.headers.has('www-authenticate'), bodyTag: '' };
+      if (response.status === 401) lastKnock.bodyTag = await response.json().then(b => String(b?._tag ?? ''), () => 'not-json');
+      if (response.status === 401) return 'password';
+      const info = response.ok ? await response.json().catch(() => null) : null;
+      return typeof info?.version === 'string' ? 'ok' : 'notServer';
     } catch {
       return 'unreachable';
     }
   }
+  // Why the form asks again, for an answer that isn't 'ok' or 'password'.
+  const problem = answer => say({ unreachable: 'rune.web.connect.unreachable', notServer: 'rune.web.connect.notServer', insecure: 'rune.web.connect.insecure' }[answer]);
+  // A pasted password often comes with quotes, spaces, a line break or invisible characters
+  // around or inside it, or with its hyphens turned into dashes by the app it was copied from: the
+  // password as given is tried first, then without them. A server that turns both down but
+  // answers with no password at all (the browser's own sign-in to it, or the server's session
+  // cookie) is used as it is.
+  const tidy = pw => pw.replace(/\u2014/g, '--').replace(/[\u2010-\u2013\u2212]/g, '-').replace(/[\s\u00A0\u200B-\u200D\u2060\uFEFF]/g, '').replace(/^["'\u2018\u2019\u201C\u201D`]+|["'\u2018\u2019\u201C\u201D`]+$/g, '');
+  async function knockAny(server, pw) {
+    const first = await knock(server, pw);
+    if (first !== 'password' || !pw) return { answer: first, pw };
+    if (tidy(pw) !== pw.trim() && await knock(server, tidy(pw)) === 'ok') return { answer: 'ok', pw: tidy(pw) };
+    const seen = lastKnock;
+    if (await knock(server, null) === 'ok') return { answer: 'ok', pw: null };
+    lastKnock = seen;
+    return { answer: first, pw };
+  }
+  // Which server turned the password down, and how long the password it was sent was, so a wrong
+  // server or a partial paste shows.
+  const refused = (server, pw) => say('rune.web.connect.refused', { host: hostOf(server), count: String([...pw.trim()].length) });
+  // What a refused sign-in looked like, for the page's server log (`POST diag`, `web-serve.ts`):
+  // never the password, nor anything made from it but its length.
+  async function report(stage, server, pw, source) {
+    const seen = lastKnock ?? {};
+    const bare = await knock(server, null);
+    const body = { stage, source, host: hostOf(server), status: seen.status ?? 0, bodyTag: seen.bodyTag ?? '', challenge: !!seen.challenge, length: [...(pw ?? '').trim()].length, tidied: !!pw && tidy(pw) !== pw.trim(), bare, ua: navigator.userAgent, standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true };
+    fetch('diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(() => {});
+  }
+  // How this open signed in: 'offer' (with a password typed or in the address: the page offers to
+  // keep it), 'kept' (with the one kept on the device) or 'none'.
+  let signIn = 'none';
+  let server = params.get('server') ?? remembered();
+  // Settings › Server › Sign out (the app calls it): the kept password goes, and the page asks again.
+  window.opencodeSignOut = async () => {
+    if (server) await forget(server);
+    location.replace(server ? `${folder}?server=${encodeURIComponent(server)}` : folder);
+  };
   // Remembered only once it answered, so a mistyped address never becomes the next start.
-  function connect(server, answered) {
-    params.set('server', server);
+  function connect(next, answered) {
+    server = next;
+    params.set('server', next);
     history.replaceState(null, '', `${location.pathname}?${params}`);
-    if (answered) try { localStorage.setItem(SERVER_KEY, server); } catch {}
+    if (answered) {
+      try { localStorage.setItem(SERVER_KEY, next); } catch {}
+      writeCookie(SERVER_COOKIE, next);
+    }
     boot();
   }
   // The page never guesses a server: it asks (offering the address it was opened from when that
   // isn't this machine), and starts without reloading, so the password never enters an address.
   // A server that wants a password and has none is asked for one here, before the app starts.
-  function ask(server, error) {
+  // `error` says why it asks: a function of the page's messages, which may not be in yet.
+  async function ask(at, error) {
+    await messagesReady;
     const form = document.querySelector('#connect');
     const url = document.querySelector('#server');
     const field = document.querySelector('#password');
     const message = document.querySelector('#connect-error');
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-    url.value = server ?? (local ? '' : location.origin);
-    message.textContent = error ?? '';
+    url.value = at ?? (local ? '' : location.origin);
+    const useOrigin = document.querySelector('#use-origin');
+    useOrigin.onclick = () => {
+      url.value = location.origin;
+      useOrigin.hidden = true;
+      form.requestSubmit();
+    };
+    // An http address of this page's own host, which an https page can't call: its https
+    // address is one tap away.
+    const offerOrigin = address => {
+      const same = location.protocol === 'https:' && /^http:\/\//i.test(address ?? '') && URL.parse(address)?.hostname === location.hostname;
+      useOrigin.hidden = !same;
+      if (same) useOrigin.textContent = say('rune.web.connect.useOrigin', { origin: location.origin });
+    };
+    offerOrigin(at);
+    message.textContent = error ? error() : '';
     message.style.display = error ? 'block' : 'none';
     form.style.display = 'block';
     (url.value ? field : url).focus();
@@ -194,28 +382,45 @@
       event.preventDefault();
       const next = url.value.trim();
       const typed = field.value || null;
-      const answer = await knock(next, typed);
-      if (answer !== 'ok') {
-        message.textContent = answer === 'unreachable' ? 'Couldn\u2019t reach that server: check the address, and that the server is running.'
-          : typed ? 'That password didn\u2019t work.' : 'This server needs its password.';
+      const result = await knockAny(next, typed);
+      if (result.answer !== 'ok') {
+        if (result.answer === 'password' && typed) report('form', next, typed, 'form');
+        message.textContent = result.answer !== 'password' ? problem(result.answer) : typed ? refused(next, typed) : say('rune.web.connect.needsPassword');
         message.style.display = 'block';
-        (answer === 'unreachable' ? url : field).focus();
+        offerOrigin(next);
+
+        (result.answer === 'password' ? field : url).focus();
         return;
       }
-      password = typed;
+      password = result.pw;
+      signIn = result.pw ? 'offer' : 'none';
       form.remove();
       connect(next, true);
     };
   }
-  // An address that came with its password, or a server with none, starts at once; one that
-  // turns the page's credential down asks for its password first. A server that doesn't answer
-  // starts too: the app says it can't reach it, and keeps trying.
-  async function open(server) {
-    const answer = await knock(server, password);
-    if (answer === 'password') ask(server, password ? 'That password didn\u2019t work.' : 'This server needs its password.');
-    else connect(server, answer === 'ok');
+  // An address that came with its password, a server with none, or one whose password is kept
+  // here starts at once; one that turns the credential down asks for its password first (and a
+  // kept one it turned down is forgotten). A server that doesn't answer starts too: the app says
+  // it can't reach it, and keeps trying.
+  async function open(at) {
+    const kept = password?.trim() ? null : await keptPassword(at);
+    const given = password?.trim() ? password : kept;
+    const result = await knockAny(at, given);
+    if (result.answer === 'password') {
+      if (given) report('open', at, given, kept ? 'kept' : 'address');
+      if (kept) await forget(at);
+      ask(at, given ? () => refused(at, given) : () => say('rune.web.connect.needsPassword'));
+      return;
+    }
+    // An address that isn't an OpenCode server, or that this page may not call, never starts the app.
+    if (result.answer === 'notServer' || result.answer === 'insecure') {
+      ask(at, () => problem(result.answer));
+      return;
+    }
+    password = result.pw;
+    signIn = kept && result.pw === kept ? 'kept' : result.pw ? 'offer' : 'none';
+    connect(at, result.answer === 'ok');
   }
-  const server = params.get('server') ?? remembered();
   if (server) open(server);
   else ask(null, null);
 </script>

@@ -146,6 +146,7 @@ mod odometer_stories;
 mod title_change;
 mod open_in;
 mod open_story;
+mod page_sign_in;
 pub mod panels;
 mod permission;
 mod pickers;

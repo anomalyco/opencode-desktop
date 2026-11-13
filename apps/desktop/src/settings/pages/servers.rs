@@ -237,10 +237,12 @@ fn own_row(p: &Pal, server: &Server) -> El {
             let menu = Menu::new(t!("settings.section.server")).align(Align::End).group(t!("settings.section.server"))
                 .item(Item::new("edit", t!("dialog.server.menu.edit")).enabled(false))
                 .item(Item::new("copy", t!("rune.settings.server.copyAddress")).enabled(!url.is_empty()));
-            popup::open(s, menu, "settings-server-menu", tx, move |_: &mut App, picked, tx| {
-                if picked == Some("copy") {
-                    tx.copy(url.clone());
-                }
+            // In a browser the page's server is signed in to by the page, which can sign out.
+            let menu = if crate::page_sign_in::can_sign_out() { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
+            popup::open(s, menu, "settings-server-menu", tx, move |_: &mut App, picked, tx| match picked {
+                Some("copy") => { tx.copy(url.clone()); }
+                Some("sign-out") => crate::page_sign_in::sign_out(),
+                _ => {}
             });
         })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
@@ -269,8 +271,10 @@ pub(crate) fn http_row(p: &Pal, server: &crate::servers::Server) -> El {
                 .item(Item::new("edit", t!("dialog.server.menu.edit")))
                 .separator()
                 .item(Item::new("remove", t!("dialog.server.menu.remove")));
+            let menu = if crate::page_sign_in::is_page_server(&url) { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
             let url = url.clone();
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| match picked {
+                Some("sign-out") => crate::page_sign_in::sign_out(),
                 Some("edit") => crate::servers::dialog::open(s, Some(&url), tx),
                 Some("remove") => {
                     tx.instant();

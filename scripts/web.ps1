@@ -101,9 +101,6 @@ if (-not $NoBuild) {
   if (-not $Dev -and -not $Names) { $bindgen += '--remove-name-section' }
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
-  # The page shows the module's download against its size (`data-wasm-bytes`).
-  $wasmBytes = (Get-Item (Join-Path $next 'app_bg.wasm')).Length
-  (Get-Content (Join-Path $root 'apps/web/index.html') -Raw).Replace('data-wasm-bytes="0"', "data-wasm-bytes=`"$wasmBytes`"") | Set-Content (Join-Path $next 'index.html') -NoNewline
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
   Copy-Item (Join-Path $root 'apps/desktop/assets/fonts/*') (Join-Path $next 'fonts') -Include 'CommitMono-*.otf', 'JetBrainsMonoNerdFontMono-*.ttf'
@@ -125,6 +122,9 @@ if (-not $NoBuild) {
   Copy-Item -Recurse (Join-Path $root 'apps/desktop/assets/sounds') (Join-Path $next 'sounds')
   # What a phone's Home Screen reads: the web app manifest and the app's icons (`apps/web/pwa`).
   Copy-Item -Recurse (Join-Path $root 'apps/web/pwa/*') $next
+  # The page (with the module's size, the build's id and its English messages) and its service worker.
+  & bun (Join-Path $PSScriptRoot 'web-page.ts') $next
+  if ($LASTEXITCODE) { throw "web-page failed ($LASTEXITCODE)" }
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out
   $size = (Get-Item (Join-Path $Out 'app_bg.wasm')).Length

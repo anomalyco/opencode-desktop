@@ -53,5 +53,8 @@
   "rune.subagent.background": "{{title}} (རྒྱབ་ཐག)",
   "rune.tabs.reopen": "{{title}} ལོག་ཁ་ཕྱེ།",
   "rune.terminal.find": "འཚོལ།",
-  "rune.tool.failed": "{{tool}} འཐུས་ཤོར།"
+  "rune.tool.failed": "{{tool}} འཐུས་ཤོར།",
+  "rune.web.connect.server": "སར་བར་ཁ་བྱང་།",
+  "rune.web.connect.password": "ཆོག་ཡིག་ (གདམ་ཁ་ཅན།)",
+  "rune.web.loading": "མངོན་གསལ་འབད་དོ།…"
 }
