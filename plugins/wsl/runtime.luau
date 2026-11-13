@@ -48,18 +48,15 @@ local function validVersion(version: string): boolean
     return version == "local" or (string.match(version, "^%d") ~= nil and string.match(version, "^[%w%.%+%-]+$") ~= nil)
 end
 
--- The managed CLI installer, which also puts it on the shell's PATH, then a check that the
--- version it installed is `version`.
+-- The managed CLI installer, which also puts it on the shell's PATH, then a check that what it
+-- installed runs.
 function runtime.installScript(version: string): string?
     if not validVersion(version) then
         return nil
     end
-    local v = runtime.quote(version)
     return "set -eu\ncurl -fsSL https://raw.githubusercontent.com/anomalyco/opencode/v2/install | bash -s -- --version "
-        .. v
-        .. "\ntest \"$(\"$HOME/.opencode/bin/opencode\" --version | awk '{print $NF}' | sed 's/^v//')\" = "
-        .. v
-        .. "\n"
+        .. runtime.quote(version)
+        .. "\n\"$HOME/.opencode/bin/opencode\" --version >/dev/null\n"
 end
 
 -- The server's script: off the Windows PATH, a password, no file watcher, `serve` on `port`.

@@ -191,7 +191,7 @@ done
 
 -- The CLI on PATH, the managed one, or one this app installed, then its service's registration.
 function command.discoverScript(): string
-    return 'set -eu\ncli=$(command -v opencode || true)\nif [ -z "$cli" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli="$HOME/.opencode/bin/opencode"; fi\nif [ -z "$cli" ]; then\n  for binary in "$HOME"/\'.opencode/desktop-ssh\'/\'0.0.0-beta-\'*/opencode; do\n    if [ -x "$binary" ]; then cli="$binary"; fi\n  done\nfi\nif [ -n "$cli" ]; then printf \'%s\\n\' "$cli"; fi\nif [ -z "$cli" ]; then exit 0; fi\n'
+    return 'set -eu\ncli=$(command -v opencode || true)\nif [ -z "$cli" ] && [ -x "$HOME/.opencode/bin/opencode" ]; then cli="$HOME/.opencode/bin/opencode"; fi\nif [ -z "$cli" ]; then\n  for binary in "$HOME"/\'.opencode/desktop-ssh\'/*/opencode; do\n    if [ -x "$binary" ]; then cli="$binary"; fi\n  done\nfi\nif [ -n "$cli" ]; then printf \'%s\\n\' "$cli"; fi\nif [ -z "$cli" ]; then exit 0; fi\n'
         .. REGISTRATION
 end
 
