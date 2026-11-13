@@ -92,7 +92,7 @@ env:
 jobs:
   plan:
     if: github.ref == 'refs/heads/dev' && inputs.channel != 'engine-linux'
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
     outputs:
@@ -127,7 +127,7 @@ jobs:
   # which fails if either is empty.
   credentials:
     needs: plan
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     environment: release
     outputs:
@@ -199,7 +199,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(needs.plan.outputs.windows-arches) }}
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
     timeout-minutes: 120
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
@@ -249,7 +249,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(needs.plan.outputs.windows-arches) }}
-    runs-on: windows-latest
+    runs-on: blacksmith-8vcpu-windows-2025
     timeout-minutes: 60
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
@@ -302,7 +302,7 @@ jobs:
       ${{ !cancelled() && needs.credentials.outputs.azure == 'true'
       && needs.plan.outputs.windows-arches != '[]'
       && needs.build-windows.result == 'success' }}
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 30
     environment: release
     permissions:
@@ -397,7 +397,7 @@ jobs:
   sign-windows-setup:
     needs: [plan, sign-windows, package-windows]
     if: ${{ !cancelled() && needs.sign-windows.result == 'success' && needs.package-windows.result == 'success' }}
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 30
     environment: release
     permissions:
@@ -446,7 +446,7 @@ jobs:
       ${{ !cancelled() && needs.plan.outputs.macos == 'true'
       && needs.credentials.outputs.apple == 'true'
       && needs.build-macos.result == 'success' }}
-    runs-on: macos-26
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 90
     environment: release
     permissions:
@@ -544,7 +544,7 @@ jobs:
   verify-windows:
     needs: [plan, sign-windows-setup]
     if: ${{ !cancelled() && needs.sign-windows-setup.result == 'success' }}
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
     timeout-minutes: 20
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
@@ -595,7 +595,7 @@ jobs:
           && (needs.verify-macos.result == 'success' || needs.verify-windows.result == 'success'))
         || (needs.plan.outputs.channel == 'stable'
           && needs.verify-macos.result == 'success' && needs.verify-windows.result == 'success')) }}
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     environment: release
     permissions:
       contents: read
@@ -659,7 +659,7 @@ jobs:
   build-engine-linux:
     timeout-minutes: 45
     if: github.ref == 'refs/heads/dev' && inputs.channel == 'engine-linux'
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       digest: ${{ steps.upload.outputs.digest }}
     steps:
@@ -677,7 +677,7 @@ jobs:
   publish-engine-linux:
     timeout-minutes: 20
     needs: build-engine-linux
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     environment: release
     permissions:
       contents: write
@@ -708,7 +708,7 @@ jobs:
       ${{ !cancelled()
       && needs.plan.outputs.channel == 'dev'
       && needs.build-windows.outputs.digest-x64 != '' }}
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:
       contents: write
@@ -774,7 +774,7 @@ jobs:
         (needs.plan.outputs.channel == 'stable' && needs.publish-desktop.result == 'success')
         || (needs.plan.outputs.channel == 'check' && needs.verify-windows.result == 'success'
             && (needs.verify-macos.result == 'success' || needs.plan.outputs.macos != 'true'))) }}
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:
       contents: write

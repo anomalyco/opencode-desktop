@@ -51,7 +51,7 @@ jobs:
     if: >-
       github.event.action != 'closed'
       && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       pr-number: ${{ steps.plan.outputs.pr-number }}
       head-sha: ${{ steps.plan.outputs.head-sha }}
@@ -133,7 +133,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
-    runs-on: windows-latest
+    runs-on: blacksmith-16vcpu-windows-2025
     timeout-minutes: 120
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.version }}
@@ -182,7 +182,7 @@ jobs:
   publish-pr-build:
     needs: [plan, build-macos, build-windows]
     if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:
       contents: write
@@ -278,7 +278,7 @@ jobs:
     if: >-
       github.event.action == 'closed'
       && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: write
