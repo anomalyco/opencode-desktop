@@ -1394,6 +1394,7 @@
       { "name": "opened", "type": "((sessionId: string) -> boolean)?", "doc": "`session.panel`: what it opens is already in the session's strip, so the New tab view leaves it out." },
       { "name": "detail", "type": "((sessionId: string) -> string?)?", "doc": "`session.panel`: muted detail for the session, instead of `description`." },
       { "name": "enabled", "type": "((target: string) -> boolean)?", "doc": "`server.row`: shows it disabled while it returns false." },
+      { "name": "hover", "type": "((sessionId: string) -> ())?", "doc": "`session.panel`: runs once when the pointer comes onto its row in the + menu or the New tab view, before any press: the moment to get ready for it, such as `Browser:Prepare`." },
       { "name": "run", "type": "(target: string?) -> ()", "doc": "Runs it. `server.row` passes the row's server key." }
     ] },
     { "name": "MenubarItemSpec", "kind": "record", "rust": true, "official": "MenubarItem", "doc": "An item of the app menu bar.", "fields": [
@@ -1771,6 +1772,7 @@
       { "name": "Focused", "kind": "method", "sig": "() -> BrowserTab?", "doc": "The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's." },
       { "name": "Available", "kind": "method", "sig": "() -> boolean", "doc": "Pages can open here: this build has a browser engine for its platform." },
       { "name": "Engine", "kind": "method", "sig": "() -> BrowserEngine", "doc": "Where the browser engine stands." },
+      { "name": "Prepare", "kind": "method", "sig": "(seconds: number?) -> ()", "doc": "A page is likely to open within `seconds` (5 by default, at most 60): the pointer is on a launcher for one, or an agent that uses the browser starts a turn. The engine's process starts now, so the page doesn't wait for it, and stops again once `seconds` pass with no page opened; a later call's `seconds` replace the earlier's. Does nothing while a page is open or the engine runs, and never downloads it: call it on a sign of intent, not at launch or on a timer." },
       { "name": "Changed", "kind": "signal", "payload": "string", "doc": "Fires with a page's id when its address, title or loading changes, or it closes." },
       { "name": "Picked", "kind": "signal", "payload": "BrowserPick", "doc": "Fires when the element picker picks an element." }
     ] },

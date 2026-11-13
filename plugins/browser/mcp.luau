@@ -74,12 +74,31 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return tab
     end
 
+    -- Sessions whose agent used these tools, and which of them run a turn: such a session's next
+    -- turn may well open a page again, so the engine starts as the turn does when none of its
+    -- pages is open (every turn would start it for the many that never open one).
+    local used: { [string]: boolean } = {}
+    local busy: { [string]: boolean } = {}
+    local Sessions = ctx:GetService("Sessions")
+    Sessions.Changed:Connect(function(session: Session)
+        if not used[session.id] then
+            return
+        end
+        local started = session.busy and not busy[session.id]
+        busy[session.id] = if session.busy then true else nil
+        if started and #Browser:Tabs(session.id) == 0 then
+            Browser:Prepare(30)
+        end
+    end)
+
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
         ctx:AddMcpTool({
             name = name,
             description = description,
             inputSchema = { type = "object", properties = properties, required = required, additionalProperties = false },
             call = function(args, context)
+                used[context.sessionId] = true
+                busy[context.sessionId] = true
                 return call(args, context.sessionId)
             end,
         })

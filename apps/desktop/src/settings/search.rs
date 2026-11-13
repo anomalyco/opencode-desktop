@@ -158,9 +158,6 @@ pub fn index(s: &App) -> Vec<Entry> {
     if cfg!(target_os = "macos") {
         add(Page::General, "terminal-option-meta", key!("rune.settings.general.row.terminalOptionMeta.title"), None, None, "terminal option alt meta esc keyboard");
     }
-    if !s.browser_unsupported() {
-        add(Page::General, "prefetch-browser", key!("rune.settings.general.row.prefetchBrowser.title"), None, None, "browser engine download cef");
-    }
     add(Page::General, "terminal-placement", key!("rune.settings.general.row.terminalPlacement.title"), None, Some(key!("rune.settings.general.row.terminalPlacement.description")), "terminal dock side bottom");
     add(Page::Experimental, "record-glitches", key!("rune.settings.developer.rewind.title"), Some(key!("rune.settings.developer.title")), None, "glitch record frames developer");
     for (tab, id, title, keywords) in [(ExtensionsTab::Mcps, "mcps", t!("settings.extensions.tab.mcps"), "model context protocol tools"), (ExtensionsTab::Plugins, "plugins", t!("settings.extensions.tab.plugins"), "extension gui built-in"), (ExtensionsTab::Skills, "skills", t!("settings.extensions.tab.skills"), "")] {

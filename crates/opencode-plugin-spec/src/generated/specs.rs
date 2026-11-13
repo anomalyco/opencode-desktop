@@ -210,7 +210,7 @@ pub struct MenuItemSpec {
     /// `session.panel`: + runs this item directly.
     pub primary: Option<bool>,
 }
-impl_record!(MenuItemSpec, ["menu", "id", "title", "order", "icon", "keybind", "description", "primary"], ["when", "opened", "detail", "enabled", "run"], []);
+impl_record!(MenuItemSpec, ["menu", "id", "title", "order", "icon", "keybind", "description", "primary"], ["when", "opened", "detail", "enabled", "hover", "run"], []);
 
 /// An item of the app menu bar.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

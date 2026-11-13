@@ -262,7 +262,7 @@ impl ServiceName {
             Self::Workspace => &["ReadFileAsync", "SaveDownloadAsync", "OpenDocument", "OpenTree", "OpenInApps", "OpenIn", "Relative", "OpenFile", "FileChanged"],
             Self::Diff => &["Open", "Mode", "SetMode"],
             Self::Terminal => &["Create", "Attach", "List", "Available", "New", "Toggle", "Select", "OpenAsync"],
-            Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "Changed", "Picked"],
+            Self::Browser => &["OpenAsync", "Tabs", "Get", "List", "Active", "Selected", "Focused", "Available", "Engine", "Prepare", "Changed", "Picked"],
             Self::Composer => &["InsertPill"],
             Self::Office => &["OpenAsync", "Version", "SetSheet", "Sheet", "Close"],
             Self::Updater => &["State", "CheckAsync", "InstallAsync", "StateChanged"],

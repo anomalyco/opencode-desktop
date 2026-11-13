@@ -38,6 +38,8 @@ pub(crate) const ERR_INSTALL: &str = "Couldn't install the browser. Check availa
 pub(crate) const ERR_DISK_FULL: &str = "There isn't enough disk space to install the browser. Free some space and try again.";
 pub(crate) const ERR_NO_SOURCE: &str = "Browser isn't available for this platform yet.";
 pub const ERR_STOPPED: &str = "The browser stopped unexpectedly.";
+/// The engine runs but hasn't answered a request in time (Retry ends it and starts a new one).
+pub const ERR_HUNG: &str = "The browser isn't responding.";
 
 /// Not enough room for the download and what it unpacks to, said before it starts.
 pub(crate) fn err_disk_space(need: u64, free: u64) -> String {
@@ -63,22 +65,22 @@ pub(crate) fn err_untrusted(why: &str) -> String {
 ///                  ▼   │    ▼                     └─ found on disk at launch
 ///             Paused(reason)  Failed(retry_at) ─► Downloading (at retry_at, or Retry)
 ///                                  ▲
-///                                  └─ the engine process went away (Retry starts it again)
+///                                  └─ the engine process went away, or stopped answering
+///                                     (Retry starts it again; a late answer takes it back)
 /// ```
 ///
-/// `Downloading` is the same job whether the idle prefetch started it or the pane asked for it;
-/// opening the pane only lifts its throttle. An update downloads beside the running engine and
-/// never shows here.
+/// `Downloading` is the download a page waits for (full speed, one try). An update downloads
+/// beside the running engine, once a run after its first page opens, and never shows here. Nothing
+/// of this runs before a page opens: no request, timer or thread.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineStatus {
     /// This build has no engine for its platform (it is built without the `engine` feature, or
     /// for a platform without a Unix-socket engine), so the pane never downloads or starts one.
     Unsupported,
-    /// Not looked for yet: a launch touches nothing of the engine (its files, its socket) until a
-    /// page opens or the background download starts, which then find out.
+    /// Not looked for yet: a launch touches nothing of the engine (its files, its socket, its
+    /// source) until a page opens (or BrowserHost::prepare starts it), which then finds out.
     Unchecked,
-    /// Looking for an installed engine, off the UI thread (`BrowserHost::status_checked`).
-    Checking,
+
     NotInstalled,
     Downloading { downloaded_bytes: u64, total_bytes: Option<u64> },
     /// The archive is in; its hash and signatures are checked and it moves into place.
@@ -98,6 +100,13 @@ pub enum EngineStatus {
 pub struct Failure {
     pub message: String,
     pub retry_at: Option<Instant>,
+}
+
+impl EngineStatus {
+    /// The engine runs but didn't answer a request in time.
+    pub fn is_hung(&self) -> bool {
+        matches!(self, Self::Failed(f) if f.message == ERR_HUNG)
+    }
 }
 
 impl Failure {

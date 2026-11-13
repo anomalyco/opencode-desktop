@@ -55,7 +55,7 @@ pub(crate) fn tar_zst(archive: &mut dyn Read, dest: &Path, unpacked: &mut dyn Fn
                 while left > 0 {
                     let n = buf.len().min(left as usize);
                     read_exact(&mut zstd, &mut buf[..n])?;
-                    out.write_all(&buf[..n]).map_err(|e| UnpackError::Write(err_write(&e)))?;
+                    write(&mut out, &buf[..n]).map_err(|e| UnpackError::Write(err_write(&e)))?;
                     left -= n as u64;
                 }
                 out.flush().map_err(|e| UnpackError::Write(err_write(&e)))?;
@@ -66,6 +66,33 @@ pub(crate) fn tar_zst(archive: &mut dyn Read, dest: &Path, unpacked: &mut dyn Fn
         // Entries end on a 512-byte boundary.
         let pad = (512 - entry.size % 512) % 512;
         read_exact(&mut zstd, &mut buf[..pad as usize])?;
+    }
+}
+
+fn write(out: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(feature = "faults")]
+    fault::write()?;
+    out.write_all(bytes)
+}
+
+/// Harness builds only (the `faults` feature): `OPENCODE_BROWSER_FAULT_DISK_FULL=<n>` makes the
+/// process's nth unpack write fail as a full disk does (ERROR_DISK_FULL, ENOSPC), once, so the
+/// pane's disk-full case can be shown without filling a disk.
+#[cfg(feature = "faults")]
+mod fault {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+
+    pub(super) fn write() -> std::io::Result<()> {
+        let fail_at = std::env::var_os("OPENCODE_BROWSER_FAULT_DISK_FULL").and_then(|n| n.to_str()?.parse::<u64>().ok());
+        if fail_at != Some(WRITES.fetch_add(1, Ordering::Relaxed) + 1) {
+            return Ok(());
+        }
+        #[cfg(windows)]
+        return Err(std::io::Error::from_raw_os_error(112));
+        #[cfg(unix)]
+        return Err(std::io::Error::from_raw_os_error(libc::ENOSPC));
     }
 }
 

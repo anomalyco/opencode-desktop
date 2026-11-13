@@ -22,6 +22,10 @@ use crate::App;
 /// How long a DevTools call may take before it fails.
 const DEVTOOLS_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// `Browser:Prepare`: how long the engine it starts waits for a page by default, and at most.
+const PREPARE_HOLD_S: f64 = 5.0;
+const PREPARE_HOLD_MAX_S: f64 = 60.0;
+
 /// The `Browser` service.
 pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Tabs", |lua, sid: Option<String>| {
@@ -99,6 +103,15 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let app = app_now("Browser:Engine")?;
         let (state, message) = engine(app);
         mlua::IntoLua::into_lua(map([("state", Data::String(state.into())), ("message", message.map_or(Data::Nil, Data::String))]), lua)
+    })?;
+    method(lua, t, "Prepare", |_, seconds: Option<f64>| {
+        let hold = Duration::from_secs_f64(seconds.unwrap_or(PREPARE_HOLD_S).clamp(1.0, PREPARE_HOLD_MAX_S));
+        app_now("Browser:Prepare")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
+            if !s.use_mock_browser() && !s.browser_unsupported() {
+                s.browser.host.prepare(hold);
+            }
+        }));
+        Ok(())
     })?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
@@ -190,7 +203,7 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
         EngineStatus::Verifying => ("verifying", None),
         EngineStatus::Paused(_) => ("paused", None),
         EngineStatus::Failed(f) => ("failed", Some(f.message)),
-        EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
+        EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
         EngineStatus::Ready => ("ready", None),
     }
 }
@@ -381,9 +394,9 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     Ok(col().grow(1.0).min_h(0.0).w_full().child(surface))
 }
 
-/// The engine's messages, the background download, DevTools answers and picks.
+/// The engine's messages, DevTools answers and picks.
 pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
-    let mut changed = app.poll_browser(tx);
+    let mut changed = app.poll_browser();
     let now = Instant::now();
     let requests: Vec<u64> = app.browser.devtools.keys().copied().collect();
     for request in requests {

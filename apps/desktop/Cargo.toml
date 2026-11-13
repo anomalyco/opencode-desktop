@@ -13,6 +13,8 @@ default = ["knobs", "office"]
 office = ["dep:office-preview", "dep:vello", "dep:bytemuck"]
 # The embedded browser's engine. Always on for macOS and Windows (see the target dependencies below).
 browser = ["browser-pane/engine"]
+# Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
+browser-faults = ["browser-pane/faults"]
 hot = ["rune/hot"]
 # Measuring builds: heap dumps by allocation site, with the GPU's allocations, each plugin VM's
 # Luau heap and SQLite's (procwatch `alloc-sites`).

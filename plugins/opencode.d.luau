@@ -4380,6 +4380,8 @@ export type MenuItemSpec = {
     detail: ((sessionId: string) -> string?)?,
     --- `server.row`: shows it disabled while it returns false.
     enabled: ((target: string) -> boolean)?,
+    --- `session.panel`: runs once when the pointer comes onto its row in the + menu or the New tab view, before any press: the moment to get ready for it, such as `Browser:Prepare`.
+    hover: ((sessionId: string) -> ())?,
     --- Runs it. `server.row` passes the row's server key.
     run: (target: string?) -> (),
 }
@@ -5070,6 +5072,8 @@ export type BrowserService = {
     Available: (self: BrowserService) -> boolean,
     --- Where the browser engine stands.
     Engine: (self: BrowserService) -> BrowserEngine,
+    --- A page is likely to open within `seconds` (5 by default, at most 60): the pointer is on a launcher for one, or an agent that uses the browser starts a turn. The engine's process starts now, so the page doesn't wait for it, and stops again once `seconds` pass with no page opened; a later call's `seconds` replace the earlier's. Does nothing while a page is open or the engine runs, and never downloads it: call it on a sign of intent, not at launch or on a timer.
+    Prepare: (self: BrowserService, seconds: number?) -> (),
     --- Fires with a page's id when its address, title or loading changes, or it closes.
     Changed: Signal<string>,
     --- Fires when the element picker picks an element.

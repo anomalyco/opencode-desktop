@@ -48,6 +48,11 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
                 tx.instant();
                 launch.run(s, id, pane, tx);
             })
+            .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                if inside {
+                    launch.hover(s, id, tx);
+                }
+            })
             .child(left);
         // Its shortcut as Desktop's neutral `Keybind` chips.
         let caps = desc.keycaps(s);
@@ -204,10 +209,15 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                 l if l.is_empty() => desc.command.and_then(|c| keymap::command_chord(s, c)).map(keymap::label).unwrap_or_default(),
                 l => l,
             };
-            rows = rows.child(menu_row(p, &key, Some(desc.icon), &desc.title, &hint, true, move |s: &mut App, tx: &mut Tx| {
+            let row = menu_row(p, &key, Some(desc.icon), &desc.title, &hint, true, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.add_menu = None;
                 launch.run(s, id, pane, tx);
+            });
+            rows = rows.child(row.on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
+                if inside {
+                    launch.hover(s, id, tx);
+                }
             }));
         }
         let menu = popover::surface::<App>(p, MENU, "side-add-menu", opencode_i18n::t!("session.tab.new")).w(220.0).child(rows);

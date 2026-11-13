@@ -71,7 +71,7 @@ pub struct BrowserHost {
     cdp_responses: HashMap<u64, Result<Value, Value>>,
     picked: VecDeque<PickedElement>,
     site_zoom: SiteZoom,
-    keep_engine: bool,
+    pub(crate) keep_engine: bool,
     /// The scheme pages draw in: 0 not given yet, 1 light, 2 dark.
     color_scheme: std::sync::atomic::AtomicU8,
     /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
@@ -81,6 +81,19 @@ pub struct BrowserHost {
     /// The engine download job, background or asked for.
     #[cfg(feature = "engine")]
     pub(crate) prefetch: Arc<crate::prefetch::Prefetch>,
+    /// Whether this run looked for a newer engine yet (`check_for_update_once`).
+    #[cfg(feature = "engine")]
+    pub(crate) update_checked: bool,
+    /// The engine this app started, while it runs (`transport::end_engine`).
+    #[cfg(feature = "engine")]
+    pub(crate) engine: Arc<Mutex<Option<u32>>>,
+    /// The waiting tabs a connect sent itself (`flush_pending_opens` skips them).
+    pub(crate) early: EarlyOpens,
+    /// Tabs opened so far, and `prepare` calls: an engine started for a page that didn't come
+    /// stops once its hold ends with neither changed.
+    pub(crate) opened: Arc<std::sync::atomic::AtomicU64>,
+    #[cfg(feature = "engine")]
+    pub(crate) prepared: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Default for BrowserHost {
@@ -120,6 +133,14 @@ impl BrowserHost {
             mach: None,
             #[cfg(feature = "engine")]
             prefetch: Arc::default(),
+            #[cfg(feature = "engine")]
+            update_checked: false,
+            #[cfg(feature = "engine")]
+            engine: Arc::default(),
+            early: Arc::default(),
+            opened: Arc::default(),
+            #[cfg(feature = "engine")]
+            prepared: Arc::default(),
         }
     }
 
@@ -268,6 +289,7 @@ impl BrowserHost {
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
         rune::marks::mark("browser.tab.open");
+        self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let url = resolve_address(raw_url);
         let id = self.alloc_tab_id();
         let surface = NativeSurface::new();
@@ -337,6 +359,7 @@ impl BrowserHost {
 
     pub fn navigate(&mut self, tab_id: u64, raw_url: &str) {
         rune::marks::mark("browser.page.navigate");
+        NAVIGATED.store(true, std::sync::atomic::Ordering::Relaxed);
         let url = resolve_address(raw_url);
         // The page shows where it is until the engine says it went: the address field holds what
         // was submitted meanwhile, as Desktop's does (an address set here at once ended that hold,
@@ -450,13 +473,47 @@ impl BrowserHost {
         if !self.is_connected() {
             return;
         }
-        for (tab_id, url) in std::mem::take(&mut self.pending_opens) {
+        // Those the connect sent already (`transport::Link::opens`): one closed meanwhile closes;
+        // one given another address or laid out at another size meanwhile gets them.
+        let early = std::mem::take(&mut *self.early.lock().unwrap());
+        for (&tab_id, (sent_url, sent_size)) in &early {
+            let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
+                self.send(HostMsg::CloseTab { tab_id });
+                continue;
+            };
+            let size = (t.viewport_pt.0, t.viewport_pt.1, t.scale);
+            t.sent_resize = Some(size);
+            if size != *sent_size {
+                self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
+            }
+            if let Some((_, url)) = self.pending_opens.iter().find(|(id, _)| *id == tab_id)
+                && url != sent_url
+            {
+                self.send(HostMsg::Navigate { tab_id, url: url.clone() });
+            }
+        }
+        for (tab_id, url) in std::mem::take(&mut self.pending_opens).into_iter().filter(|(id, _)| !early.contains_key(id)) {
             let ((width_pt, height_pt), scale) = self.tabs.iter_mut().find(|t| t.id == tab_id).map_or(((800.0, 600.0), 2.0), |t| {
                 t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
                 (t.viewport_pt, t.scale)
             });
             self.send(HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused: self.focused_tab == Some(tab_id) });
         }
+    }
+
+    /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
+    /// itself.
+    #[cfg_attr(not(feature = "engine"), allow(dead_code))]
+    pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, HostMsg)> {
+        let focused = self.focused_tab;
+        self.pending_opens
+            .iter()
+            .cloned()
+            .map(|(tab_id, url)| {
+                let ((width_pt, height_pt), scale) = self.tabs.iter().find(|t| t.id == tab_id).map_or(((800.0, 600.0), 2.0), |t| (t.viewport_pt, t.scale));
+                (tab_id, HostMsg::OpenTab { tab_id, url, width_pt, height_pt, scale, focused: focused == Some(tab_id) })
+            })
+            .collect()
     }
 
     /// Processes incoming messages from the sidecar; returns `true` only when visible UI metadata changed.
@@ -484,8 +541,7 @@ impl BrowserHost {
                         0 => {}
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
                     }
-                    #[cfg(feature = "engine")]
-                    self.check_for_update();
+
                     // Tabs opened before it: their size again (a reconnect forgets it).
                     for t in &mut self.tabs {
                         if !self.pending_opens.iter().any(|(id, _)| *id == t.id) {
@@ -553,6 +609,8 @@ impl BrowserHost {
                 }
             }
         }
+        #[cfg(feature = "engine")]
+        self.check_for_update_once();
         // A download finished while a tab waited for it (and one still running hurries).
         if !self.pending_opens.is_empty()
             && !self.is_connected()
@@ -724,16 +782,18 @@ impl BrowserHost {
         EngineStatus::Unsupported
     }
 
-    pub fn status_checked(&self) -> EngineStatus {
-        self.status()
-    }
-
     /// No engine runs on this platform yet: tabs stay mock-only and the status stays as it is.
     pub fn start_install(&mut self) {}
 
-    pub fn prefetch(&mut self) {}
-
-    pub fn stop_prefetch(&mut self) {}
-
     pub(crate) fn ensure_connected(&mut self) {}
+
+    pub fn prepare(&mut self, _hold: std::time::Duration) {}
 }
+
+/// Tabs a connect sent itself, by id: the address and size (width, height in points, scale)
+/// each opened at.
+pub(crate) type EarlyOpens = Arc<Mutex<HashMap<u64, (String, (f32, f32, f32))>>>;
+
+/// A page was asked for this run, so the next frame is a page's (the launch trace's
+/// `browser.page.painted`).
+pub(crate) static NAVIGATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

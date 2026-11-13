@@ -83,8 +83,6 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
-    /// Download the browser engine while the app is idle (`browser::prefetch`); on by default.
-    pub prefetch_browser: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
     /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
     /// on the Mac; Desktop's terminal (ghostty-web) treats Option as Meta.
@@ -154,7 +152,6 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: Default::default(),
             new_question_ui: false,
-            prefetch_browser: true,
             terminal_option_meta: false,
             language: None,
             default_destination: Destination::default(),
@@ -199,7 +196,6 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
-            "browser": { "prefetch": self.prefetch_browser },
             "terminal": { "optionAsMeta": self.terminal_option_meta },
             "language": self.language,
             "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
@@ -247,7 +243,6 @@ impl Settings {
             // `appearance`, which here is the colour scheme.
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
-            prefetch_browser: v["browser"]["prefetch"].as_bool().unwrap_or(true),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),
             default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),

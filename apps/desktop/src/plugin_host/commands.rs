@@ -256,6 +256,14 @@ pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) -> boo
     true
 }
 
+/// Runs menu item `key`'s `hover`, when it has one, for `target`.
+pub fn hover_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
+    let found = app.plugins.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().menu_items.iter().find(|c| c.key == key)?.f("hover")?.clone())));
+    if let Some((i, f)) = found {
+        spawn(app, i, &f, target.to_owned(), tx);
+    }
+}
+
 /// Opens `href` with the first Luau link handler whose `match` takes it, highest priority first.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
     let mut handlers: Vec<(usize, i64, Function, Function)> = app

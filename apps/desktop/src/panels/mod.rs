@@ -279,6 +279,11 @@ impl Launch {
     pub fn run(self, s: &mut App, id: &str, pane: SessionPane, tx: &mut Tx) {
         crate::plugin_host::panels::open_entry(s, self.0, id, pane, tx);
     }
+
+    /// The pointer came onto entry `id`'s row: its `session.panel` item's `hover` runs.
+    pub fn hover(self, s: &mut App, id: &str, tx: &mut Tx) {
+        crate::plugin_host::panels::hover_entry(s, self.0, id, tx);
+    }
 }
 
 /// Metadata saved when a user closes a tab so `⌘⇧T` and `"Recently closed"` can bring it back.

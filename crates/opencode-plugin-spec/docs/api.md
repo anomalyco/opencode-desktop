@@ -417,6 +417,7 @@ Pages in this window's embedded browser, each a tab of a session's side region. 
 | `:Focused` | `() -> BrowserTab?` | The routed session's selected page while the keyboard is in its pane: its page, or a field of this plugin's. |
 | `:Available` | `() -> boolean` | Pages can open here: this build has a browser engine for its platform. |
 | `:Engine` | `() -> BrowserEngine` | Where the browser engine stands. |
+| `:Prepare` | `(seconds: number?) -> ()` | A page is likely to open within `seconds` (5 by default, at most 60): the pointer is on a launcher for one, or an agent that uses the browser starts a turn. The engine's process starts now, so the page doesn't wait for it, and stops again once `seconds` pass with no page opened; a later call's `seconds` replace the earlier's. Does nothing while a page is open or the engine runs, and never downloads it: call it on a sign of intent, not at launch or on a timer. |
 | `.Changed` | `Signal<string>` | Fires with a page's id when its address, title or loading changes, or it closes. |
 | `.Picked` | `Signal<BrowserPick>` | Fires when the element picker picks an element. |
 
@@ -3004,6 +3005,7 @@ An item of a host menu. Desktop's plugin API calls it `MenuItem`.
 | `opened` | `((sessionId: string) -> boolean)?` | `session.panel`: what it opens is already in the session's strip, so the New tab view leaves it out. |
 | `detail` | `((sessionId: string) -> string?)?` | `session.panel`: muted detail for the session, instead of `description`. |
 | `enabled` | `((target: string) -> boolean)?` | `server.row`: shows it disabled while it returns false. |
+| `hover` | `((sessionId: string) -> ())?` | `session.panel`: runs once when the pointer comes onto its row in the + menu or the New tab view, before any press: the moment to get ready for it, such as `Browser:Prepare`. |
 | `run` | `(target: string?) -> ()` | Runs it. `server.row` passes the row's server key. |
 
 ### MenubarItemSpec

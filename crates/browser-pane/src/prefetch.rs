@@ -1,8 +1,8 @@
-//! The one engine download job: started quietly by the idle prefetch, by the pane, or after an
-//! engine starts to fetch a newer release, and never twice. In the background it runs at low
-//! priority, throttled, waits while the OS reports a metered connection or battery power, and
-//! retries with backoff; when the pane asks (`hurry`) the same download goes on at full speed and
-//! normal priority. It reads the source's index, then streams the archive into place: the bytes
+//! The one engine download job: started by a page that waits for the engine, or once a run after
+//! the first page opens to fetch a newer release, and never twice. Nothing starts it before a
+//! page opens. An update runs at low priority, throttled, waits while the OS reports a metered
+//! connection or battery power, and retries with backoff; when a page waits (`hurry`) the
+//! download goes on at full speed and normal priority. It reads the source's index, then streams the archive into place: the bytes
 //! land in a partial file that a later try resumes, unpack as they arrive, and the folder moves
 //! into place only once the archive's hash and the trust rule pass.
 
@@ -27,7 +27,7 @@ const BACKGROUND_RATE: u64 = 2_000_000;
 const PAUSE_CHECK: Duration = Duration::from_secs(5);
 /// How often a paused download asks again.
 const PAUSED_RECHECK: Duration = Duration::from_secs(60);
-/// Background tries before it waits for the pane (or the next launch).
+/// An update's tries before it waits for the next run.
 const MAX_ATTEMPTS: u32 = 6;
 /// The background progress wakes the UI at most this often (the pane, when open, every 256 KB).
 const QUIET_WAKE: Duration = Duration::from_secs(2);
@@ -37,8 +37,6 @@ static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
 /// What a job is for, which sets its pace and what it reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
-    /// The idle prefetch: no engine yet, nobody waiting.
-    Background,
     /// A page waits for the engine: full speed, normal priority, no pausing, one try.
     Urgent,
     /// An engine runs; a newer release installs beside it for its next start, at background
@@ -51,15 +49,12 @@ pub(crate) enum Mode {
 enum State {
     Idle,
     Running(Mode),
-    /// A background download was turned off: it stops at its next read, keeping its bytes.
-    Cancelling,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum Event {
     Start(Mode),
     Hurry,
-    CancelBackground,
     Finished,
 }
 
@@ -74,9 +69,7 @@ fn step(state: State, event: Event) -> (State, Option<Effect>) {
     match (state, event) {
         (State::Idle, Event::Start(mode)) => (State::Running(mode), Some(Effect::Spawn(mode))),
         (State::Idle, _) => (State::Idle, None),
-        (State::Running(_) | State::Cancelling, Event::Start(Mode::Urgent) | Event::Hurry) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
-        (State::Cancelling, Event::Start(Mode::Background)) => (State::Running(Mode::Background), None),
-        (State::Running(Mode::Background), Event::CancelBackground) => (State::Cancelling, Some(Effect::Nudge)),
+        (State::Running(_), Event::Start(Mode::Urgent) | Event::Hurry) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
         (_, Event::Finished) => (State::Idle, None),
         (other, _) => (other, None),
     }
@@ -118,11 +111,6 @@ impl Prefetch {
         self.event(Event::Hurry);
     }
 
-    /// Stops a background download, keeping its bytes for later. A download the pane asked for
-    /// goes on.
-    pub(crate) fn cancel_background(&self) {
-        self.event(Event::CancelBackground);
-    }
 
     fn event(&self, event: Event) -> Option<Effect> {
         let mut state = self.state.lock().unwrap();
@@ -141,7 +129,7 @@ impl Prefetch {
     /// Waits `for_`, or until the job hurries or stops.
     fn wait(&self, for_: Duration) {
         let state = self.state.lock().unwrap();
-        let _ = self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Background | Mode::Update)));
+        let _ = self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Update)));
     }
 }
 
@@ -160,7 +148,7 @@ impl Job {
         loop {
             let mode = match self.ctl.state() {
                 State::Running(mode) => mode,
-                State::Idle | State::Cancelling => {
+                State::Idle => {
                     self.report(EngineStatus::NotInstalled);
                     break;
                 }
@@ -289,7 +277,7 @@ impl Job {
         let mut checked = Instant::now();
         let mut pace = || {
             let urgent = match self.ctl.state() {
-                State::Cancelling | State::Idle => return Pace::Stop,
+                State::Idle => return Pace::Stop,
                 State::Running(mode) => mode == Mode::Urgent,
             };
             if *low == urgent {

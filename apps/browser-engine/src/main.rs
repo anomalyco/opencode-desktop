@@ -38,13 +38,24 @@ use crate::wire::{EngineMsg, HostMsg};
 const RECONNECT_GRACE: Duration = Duration::from_secs(15);
 /// How long the engine stays up with no tab open, so a page opened again soon starts at once.
 const EMPTY_GRACE: Duration = Duration::from_secs(60);
-/// The longest the loop sleeps between CEF's work calls, as cefclient's external pump does in
-/// case a scheduling call is missed.
+/// The longest the loop sleeps between CEF's work calls while it's idle, in case a scheduling
+/// call is missed.
 #[cfg(not(target_os = "macos"))]
 const MAX_PUMP_DELAY: Duration = Duration::from_secs(1);
+/// ...and for `BUSY_FOR` after the app asks for something: Chromium doesn't announce all of a new
+/// page's work (cefclient pumps every 33 ms for that reason, always), and with only the 1 s cap
+/// a new tab's first frame came 1.3-2.4 s after it opened instead of ~0.4 s.
+#[cfg(not(target_os = "macos"))]
+const BUSY_PUMP_DELAY: Duration = Duration::from_millis(33);
+#[cfg(not(target_os = "macos"))]
+const BUSY_FOR: Duration = Duration::from_secs(3);
 /// macOS also pumps the AppKit run loop between CEF's work calls, every 4 ms as before.
 #[cfg(target_os = "macos")]
 const MAX_PUMP_DELAY: Duration = Duration::from_millis(4);
+#[cfg(target_os = "macos")]
+const BUSY_PUMP_DELAY: Duration = MAX_PUMP_DELAY;
+#[cfg(target_os = "macos")]
+const BUSY_FOR: Duration = Duration::ZERO;
 /// While a tab waits for the app to free a frame texture, how often it looks.
 const FRAME_RETRY: Duration = Duration::from_millis(4);
 
@@ -93,14 +104,17 @@ fn main() {
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
-    // `--trace-startup`: each start step's µs since main, on stderr (the probe harness reads them).
+    // `--trace-startup` (or OPENCODE_BROWSER_ENGINE_TRACE in the environment, which reaches an
+    // engine the app starts): each start step's µs since main and its wall time, on stderr.
     let entered = Instant::now();
-    let trace = args.iter().any(|a| a == "--trace-startup");
+    let trace = args.iter().any(|a| a == "--trace-startup") || std::env::var_os("OPENCODE_BROWSER_ENGINE_TRACE").is_some();
     let step = |name: &str| {
         if trace {
-            eprintln!("engine-startup {name} {:.1}", entered.elapsed().as_secs_f64() * 1e6);
+            let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+            eprintln!("engine-startup {name} {:.1} unix {:.6}", entered.elapsed().as_secs_f64() * 1e6, wall.as_secs_f64());
         }
     };
+    step("main");
 
     #[cfg(windows)]
     end_children_with_engine();
@@ -171,6 +185,8 @@ fn main() {
     let start = Instant::now();
     let (mut client, mut tabs) = (Presence::AbsentSince(start), Presence::AbsentSince(start));
     let mut pump_at = Some(start);
+    // Until when the app's last request keeps CEF's work calls close together.
+    let mut busy_until = start + BUSY_FOR;
 
     // One event: false when the engine should stop.
     macro_rules! dispatch {
@@ -188,6 +204,7 @@ fn main() {
                     true
                 }
                 Event::Host(msg) => {
+                    busy_until = Instant::now() + BUSY_FOR;
                     if std::mem::take(&mut first_message) {
                         step("first_message");
                     }
@@ -233,7 +250,8 @@ fn main() {
         if quit_at.is_some_and(|at| at <= now) {
             break;
         }
-        let wake = [Some(pump_at.unwrap_or(now + MAX_PUMP_DELAY)), quit_at, manager.waits_for_texture().then(|| now + FRAME_RETRY)]
+        let cap = if now < busy_until { BUSY_PUMP_DELAY } else { MAX_PUMP_DELAY };
+        let wake = [Some(pump_at.unwrap_or(now + cap)), quit_at, manager.waits_for_texture().then(|| now + FRAME_RETRY)]
             .into_iter()
             .flatten()
             .min()

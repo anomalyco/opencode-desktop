@@ -299,6 +299,13 @@ pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: 
     }
 }
 
+/// The pointer came onto entry `id` of plugin `plugin`: its `session.panel` item's `hover` runs
+/// with the session.
+pub fn hover_entry(app: &mut App, plugin: &str, id: &str, tx: &mut Tx) {
+    let session = app.active_session_id().unwrap_or_default().to_owned();
+    super::commands::hover_menu_item(app, &format!("{plugin}.{id}"), &session, tx);
+}
+
 /// Tab `tab` of `session` became selected, or the side region opened onto it: its panel's
 /// `onFocus` runs at the next poll.
 pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: bool) {

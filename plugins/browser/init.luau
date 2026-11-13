@@ -531,6 +531,10 @@ return plugin.defineWindow(function(ctx)
         when = function(sid: string): boolean
             return Sessions:Get(sid) ~= nil and Browser:Available()
         end,
+        -- The pointer on the row comes 150-400 ms before its click: the engine starts then.
+        hover = function()
+            Browser:Prepare()
+        end,
         run = function(sid: string?)
             openNew(sid, "address")
         end,

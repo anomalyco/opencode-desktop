@@ -3,7 +3,6 @@
 //! The browser plugin (`plugins/browser`) draws the pane, its address bar and its menus over
 //! this through the `Browser` service and `ui.browserSurface` (`plugin_host::native::browser`).
 
-pub mod prefetch;
 pub mod view;
 
 use std::collections::HashMap;
@@ -24,7 +23,6 @@ pub struct BrowserPane {
     pub host: BrowserHost,
     /// Each session's pages, oldest first.
     pub session_tabs: HashMap<String, Vec<u64>>,
-    pub prefetch: prefetch::IdleGate,
     /// DevTools calls a plugin waits on, by the engine's request id: who to answer and when to
     /// give up.
     pub devtools: HashMap<u64, (rune_luau::Completer, Instant)>,
@@ -239,10 +237,9 @@ impl App {
         self.browser.host.start_install();
     }
 
-    /// The engine's messages, the background download, and the page the engine paints: the
+    /// The engine's messages and the page the engine paints: the
     /// routed session's selected one. True when what the pane shows changed.
-    pub fn poll_browser(&mut self, tx: &mut Tx) -> bool {
-        self.poll_browser_prefetch(tx);
+    pub fn poll_browser(&mut self) -> bool {
         // Every poll comes here: the pane is written only when the engine has something.
         let mut changed = !self.browser.host.quiet() && self.browser.host.poll();
         // The engine paints only its focused tab, so the page on screen must be that tab (after a

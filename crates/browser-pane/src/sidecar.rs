@@ -22,63 +22,63 @@ impl BrowserHost {
         EngineStatus::Unchecked
     }
 
-    /// The status for a view that shows it without a page (Settings): an unchecked engine is
-    /// looked for on a thread of its own, and the view hears the answer through the waker.
-    pub fn status_checked(&self) -> EngineStatus {
-        let mut status = self.status.lock().unwrap();
-        if *status != EngineStatus::Unchecked {
-            return status.clone();
-        }
-        *status = EngineStatus::Checking;
-        let (shared, waker) = (self.status.clone(), self.waker.clone());
-        let spawned = std::thread::Builder::new().name("opencode-browser-check".into()).spawn(move || {
-            let found = if installer::installed().is_some() { EngineStatus::Installed } else { EngineStatus::NotInstalled };
-            let mut status = shared.lock().unwrap();
-            if *status == EngineStatus::Checking {
-                *status = found;
-            }
-            drop(status);
-            if let Some(w) = waker {
-                w();
-            }
-        });
-        if spawned.is_err() {
-            *status = EngineStatus::Unchecked;
-        }
-        status.clone()
-    }
-
     /// Starts (or retries) the engine: connects to this app's running one, starts the installed
     /// one, or downloads it first (a download already running goes on at full speed instead).
     /// Queued tabs open once it's ready (`poll`).
     pub fn start_install(&mut self) {
+        // One that stopped answering is ended: its pages open again in a new one.
+        if self.status().is_hung() {
+            *self.outbox.lock().unwrap() = None;
+            crate::transport::end_engine(&self.engine);
+            let _ = std::fs::remove_file(self.socket_override.clone().unwrap_or_else(installer::socket_path));
+        }
         if self.is_connected() || self.status() == EngineStatus::Connecting {
             return;
         }
         self.requeue_tabs();
-        self.connect();
+        self.connect(Start::ForPage);
     }
 
-    /// Downloads the engine in the background when it isn't installed, without starting it, so
-    /// the first page opens without a wait: at low priority, throttled, pausing on a metered
-    /// connection or battery power, retrying with backoff. Nothing shows unless the pane opens,
-    /// which then shows this download's progress. Does nothing without a download source.
-    pub fn prefetch(&mut self) {
-        // The job looks for an installed engine first, on its own thread.
-        if !matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Checking | EngineStatus::NotInstalled) {
+    /// A page is likely within `hold` (the pointer on a launcher for one, an agent's turn): the
+    /// installed engine's process starts now, so the page doesn't wait for it, and it stops again
+    /// once `hold` passes with no tab opened. Nothing starts while a tab is open, an engine runs
+    /// or starts, or none is installed, and nothing downloads. One sleeping thread per call
+    /// keeps the hold; the next call's hold replaces it.
+    pub fn prepare(&mut self, hold: std::time::Duration) {
+        use std::sync::atomic::Ordering;
+        if !self.tabs.is_empty() || !matches!(self.status(), EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Ready | EngineStatus::Connecting) {
             return;
         }
-        self.prefetch.start(Mode::Background, self.status.clone(), self.waker.clone());
+        rune::marks::mark("browser.engine.prepare");
+        let call = self.prepared.fetch_add(1, Ordering::Relaxed) + 1;
+        if !self.is_connected() && self.status() != EngineStatus::Connecting {
+            self.connect(Start::Only);
+        }
+        if self.keep_engine {
+            return;
+        }
+        let (opened, prepared, outbox) = (self.opened.clone(), self.prepared.clone(), self.outbox.clone());
+        let tabs = opened.load(Ordering::Relaxed);
+        let _ = std::thread::Builder::new().name("opencode-browser-hold".into()).spawn(move || {
+            std::thread::sleep(hold);
+            if prepared.load(Ordering::Relaxed) == call && opened.load(Ordering::Relaxed) == tabs {
+                let mut outbox = outbox.lock().unwrap();
+                if let Some(tx) = outbox.take() {
+                    rune::marks::mark("browser.engine.unprepared");
+                    let _ = tx.send(crate::protocol::HostMsg::Shutdown);
+                }
+            }
+        });
     }
 
-    /// Stops the background download (its bytes stay for later); one the pane asked for goes on.
-    pub fn stop_prefetch(&mut self) {
-        self.prefetch.cancel_background();
-    }
-
-    /// An engine is up: a newer release the source offers downloads beside it, quietly, for its
-    /// next start.
-    pub(crate) fn check_for_update(&self) {
+    /// The first page of the run is open on a running engine: a newer release the source offers
+    /// downloads beside it, quietly, for its next start. Once a run; before that page, the
+    /// installer and the updater do nothing at all (no request, timer or thread).
+    pub(crate) fn check_for_update_once(&mut self) {
+        if self.update_checked || self.tabs.is_empty() || self.status() != EngineStatus::Ready {
+            return;
+        }
+        self.update_checked = true;
         self.prefetch.start(Mode::Update, self.status.clone(), self.waker.clone());
     }
 
@@ -105,13 +105,13 @@ impl BrowserHost {
             EngineStatus::Connecting | EngineStatus::Failed(_) => {}
             // A tab waits for the download running in the background: let it finish, at full speed.
             EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_) => self.prefetch.hurry(),
-            _ => self.connect(),
+            _ => self.connect(Start::ForPage),
         }
     }
 
     /// Hands the connect to a thread: this app's running engine (a UI hot reload), else the
     /// installed one, started, else a download that a page waits for.
-    fn connect(&mut self) {
+    fn connect(&mut self, start: Start) {
         *self.status.lock().unwrap() = EngineStatus::Connecting;
         let mach_service = self.ensure_mach_receiver();
         let sock = self.socket_override.clone().unwrap_or_else(installer::socket_path);
@@ -122,6 +122,10 @@ impl BrowserHost {
             inbox_tx: self.inbox_tx.clone(),
             surfaces: self.surfaces.clone(),
             waker: self.waker.clone(),
+            engine: self.engine.clone(),
+            sock: sock.clone(),
+            opens: self.pending_open_msgs(),
+            early: self.early.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {
@@ -130,12 +134,18 @@ impl BrowserHost {
             }
             let Some(engine) = installer::installed() else {
                 *link.status.lock().unwrap() = EngineStatus::NotInstalled;
+                if start == Start::Only {
+                    return link.set(EngineStatus::NotInstalled);
+                }
                 return prefetch.start(Mode::Urgent, link.status.clone(), link.waker.clone());
             };
             rune::marks::mark("browser.engine.spawn");
             spawn_and_attach(&engine.bin, &sock, &profile, mach_service, &link);
-            // Earlier versions this one replaces, now nothing starts them.
-            if let Some(version) = engine.version {
+            // Earlier versions this one replaces, now nothing starts them (for a page only: an
+            // engine started ahead of one leaves the folder alone).
+            if start == Start::ForPage
+                && let Some(version) = engine.version
+            {
                 installer::remove_old(&installer::engines_root(), version);
             }
         });
@@ -143,4 +153,12 @@ impl BrowserHost {
             *self.status.lock().unwrap() = EngineStatus::Failed(installer::ERR_STOPPED.into());
         }
     }
+}
+
+/// Why the engine starts: a page waits for it (downloading it first if need be), or one is
+/// likely soon (`prepare`: the installed engine or nothing).
+#[derive(Clone, Copy, PartialEq)]
+enum Start {
+    ForPage,
+    Only,
 }
