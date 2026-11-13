@@ -32,6 +32,13 @@ fn store() -> &'static Mutex<HashMap<String, Arc<[UserMention]>>> {
     STORE.get_or_init(Default::default)
 }
 
+/// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
+pub(crate) fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
+    store().lock().unwrap().retain(|id, _| keep(id));
+    created_store().lock().unwrap().retain(|id, _| keep(id));
+    path_store().lock().unwrap().retain(|id, _| keep(id));
+}
+
 /// The mentions on user message `id`, sorted and apart (empty when it has none).
 pub fn user_mentions(id: &str) -> Arc<[UserMention]> {
     store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))

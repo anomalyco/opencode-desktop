@@ -292,6 +292,21 @@ impl MediaStore {
         self.images.borrow_mut().retain(|_, p| Arc::strong_count(&p.bytes) > 1);
     }
 
+    /// A window at rest with no session to show: decoded `media:` refs and markdown pictures let
+    /// go of their pixels. Each keeps its encoded bytes and its size (its box keeps its shape), so
+    /// a session opened again decodes them without fetching.
+    pub fn rest_pixels(&self) {
+        let bytes = self.ref_bytes.borrow();
+        let mut state = self.media.state.lock().unwrap_or_else(|e| e.into_inner());
+        for (hash, _) in self.refs.borrow_mut().drain() {
+            match bytes.get(&hash) {
+                Some(b) => { state.insert(hash, Fetched::Ready(b.clone())); }
+                None => { state.remove(&hash); }
+            }
+        }
+        self.markdown.rest();
+    }
+
     pub fn adopt(&self, prepared: &[PreparedImage]) {
         let mut images = self.images.borrow_mut();
         // A refreshed page has new byte addresses. Release handles once neither a page nor

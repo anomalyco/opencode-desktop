@@ -251,6 +251,11 @@ fn store() -> &'static Mutex<HashMap<String, Arc<[PromptComment]>>> {
     STORE.get_or_init(Default::default)
 }
 
+/// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
+pub(crate) fn retain_user_comments(keep: &dyn Fn(&str) -> bool) {
+    store().lock().unwrap().retain(|id, _| keep(id));
+}
+
 /// The comments on user message `id` (empty when it has none).
 pub fn user_comments(id: &str) -> Arc<[PromptComment]> {
     store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))

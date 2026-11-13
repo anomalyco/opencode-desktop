@@ -110,6 +110,11 @@ fn user_file_store() -> &'static Mutex<HashMap<String, Arc<[Attachment]>>> {
     STORE.get_or_init(Default::default)
 }
 
+/// Keeps only the user messages `keep` says are still held (`model::retain_user_messages`).
+pub(crate) fn retain_user_files(keep: &dyn Fn(&str) -> bool) {
+    user_file_store().lock().unwrap().retain(|id, _| keep(id));
+}
+
 /// The files on user message `id` (empty when it has none).
 pub fn user_files(id: &str) -> Arc<[Attachment]> {
     user_file_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))

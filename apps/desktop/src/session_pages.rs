@@ -56,6 +56,13 @@ impl State {
         if let Some(pool) = &self.pool { pool.shared.0.lock().unwrap().ready.retain(|p| keep(&p.key.id)); }
     }
 
+    /// The user messages of the pages in the reader's cache, which a tab shows when it opens.
+    pub fn user_message_ids(&self) -> Vec<String> {
+        let Some(pool) = &self.pool else { return Vec::new() };
+        let q = pool.shared.0.lock().unwrap();
+        q.ready.iter().flat_map(|p| p.messages.iter()).filter_map(|m| match m { Message::User { id, .. } => Some(id.clone()), _ => None }).collect()
+    }
+
     pub fn has_pool(&self) -> bool {
         self.pool.is_some()
     }

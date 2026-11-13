@@ -29,6 +29,9 @@ enum Slot {
     Fetching,
     /// The decoding picture and its encoded bytes, which a drag out writes to a file.
     Decoding(Image, Arc<[u8]>),
+    /// Its encoded bytes only: a window at rest with no session let go of its pixels (`rest`).
+    /// The next ask decodes them again, with no fetch.
+    Held(Arc<[u8]>),
     Failed,
 }
 
@@ -160,7 +163,7 @@ impl MdStore {
     /// Markdown image `src`'s encoded bytes, once they've landed.
     pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
         match self.slots.borrow().get(&image_source(directory, src)?)? {
-            Slot::Decoding(_, bytes) => Some(bytes.clone()),
+            Slot::Decoding(_, bytes) | Slot::Held(bytes) => Some(bytes.clone()),
             Slot::Fetching | Slot::Failed => None,
         }
     }
@@ -195,16 +198,30 @@ impl MdStore {
 
     fn get(&self, source: Source) -> Option<Image> {
         self.land();
-        if let Some(slot) = self.slots.borrow().get(&source) {
-            return match slot {
-                Slot::Decoding(image, _) => Some(image.clone()),
-                Slot::Fetching | Slot::Failed => None,
-            };
+        let held = match self.slots.borrow().get(&source) {
+            Some(Slot::Decoding(image, _)) => return Some(image.clone()),
+            Some(Slot::Fetching | Slot::Failed) => return None,
+            Some(Slot::Held(bytes)) => Some(bytes.clone()),
+            None => None,
+        };
+        if let Some(bytes) = held {
+            let image = self.cache()?.load(bytes.clone());
+            self.slots.borrow_mut().insert(source, Slot::Decoding(image.clone(), bytes));
+            return Some(image);
         }
         let jobs = self.jobs()?;
         let slot = if jobs.send(source.clone()).is_ok() { Slot::Fetching } else { Slot::Failed };
         self.slots.borrow_mut().insert(source, slot);
         None
+    }
+
+    /// A window at rest with no session: every picture lets go of its pixels and keeps its
+    /// encoded bytes, so a session opened again decodes them without fetching.
+    pub fn rest(&self) {
+        self.land();
+        for slot in self.slots.borrow_mut().values_mut() {
+            if let Slot::Decoding(_, bytes) = slot { *slot = Slot::Held(bytes.clone()); }
+        }
     }
 
     /// Takes what the readers fetched: each picture already decoding.

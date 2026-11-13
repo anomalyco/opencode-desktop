@@ -232,6 +232,16 @@ fn user_created_store() -> &'static Mutex<HashMap<String, i64>> {
     STORE.get_or_init(Default::default)
 }
 
+/// What the stores beside `Message::User` keep by message id (its files, creation times, mentions,
+/// path attachments, comments), kept only for the messages `keep` names: an app that lets go of a
+/// transcript calls it, so those go too. A message parsed again fills them again.
+pub fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
+    attachment::retain_user_files(keep);
+    user_created_store().lock().unwrap().retain(|id, _| keep(id));
+    crate::mention::retain_user_messages(keep);
+    crate::quote::retain_user_comments(keep);
+}
+
 /// When user message `id` was sent (ms), once known: a reply's duration runs from it.
 pub fn user_created(id: &str) -> Option<i64> {
     user_created_store().lock().unwrap().get(id).copied()

@@ -33,7 +33,8 @@ fn commit_pages_on_demand() {
     }
 }
 
-/// `App::rest`: mimalloc collects this thread's heap and purges every free page now.
+/// `App::rest`: mimalloc collects this thread's heap and purges every free page now; on Windows
+/// the process heap compacts too.
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unsafe_code)]
 fn purge_free_pages() {
@@ -42,6 +43,13 @@ fn purge_free_pages() {
     }
     // SAFETY: a plain call into the linked mimalloc, on the UI thread.
     unsafe { mi_collect(true) }
+    // The process heap (UI Automation, COM, the D3D runtime and driver) keeps freed pages
+    // committed; compacting it gives its large free blocks back.
+    #[cfg(windows)]
+    // SAFETY: the process heap lives as long as the process; HeapCompact takes its lock.
+    unsafe {
+        windows_sys::Win32::System::Memory::HeapCompact(windows_sys::Win32::System::Memory::GetProcessHeap(), 0);
+    }
 }
 
 // A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
@@ -1157,13 +1165,28 @@ impl App {
         let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
         let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
         let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
+        let review_gone: Vec<String> = s.review.sessions.keys().filter(|id| !kept(id)).cloned().collect();
+        let files_gone: Vec<String> = s.files.sessions.keys().filter(|id| !kept(id)).cloned().collect();
         s.pages.rest(&kept);
         if !gone.is_empty() {
             let transcripts = &mut *s.transcripts;
             for id in &gone { transcripts.remove(id); }
         }
+        // A closed session's diffs and open files (their source lines, highlight chunks, images).
+        if !review_gone.is_empty() { for id in &review_gone { s.review.sessions.remove(id); } }
+        if !files_gone.is_empty() { for id in &files_gone { s.files.sessions.remove(id); } }
+        // What `opencode_kit` keeps beside each user message (files, mentions, comments, times):
+        // only for the messages of the transcripts left.
+        let cached = s.pages.user_message_ids();
+        let messages: HashSet<&str> = s.transcripts.values().flat_map(|t| t.messages.iter()).filter_map(|m| match m { opencode_kit::model::Message::User { id, .. } => Some(id.as_str()), _ => None }).chain(cached.iter().map(String::as_str)).collect();
+        opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
         s.attach.store.rest();
+        // No session tab or draft and not on a session: pictures keep their encoded bytes, not
+        // their pixels.
+        if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) { s.attach.store.rest_pixels(); }
         plugin_host::memory::collect_garbage(s);
+        #[cfg(feature = "alloc-sites")]
+        plugin_host::memory::publish_vms(s);
         // What all that freed: mimalloc purges freed pages only when some thread next allocates,
         // and an app at rest doesn't. Forced, it gives them back now.
         #[cfg(not(target_arch = "wasm32"))]
