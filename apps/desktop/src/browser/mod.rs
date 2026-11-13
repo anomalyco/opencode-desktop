@@ -3,6 +3,7 @@
 //! The browser plugin (`plugins/browser`) draws the pane, its address bar and its menus over
 //! this through the `Browser` service and `ui.browserSurface` (`plugin_host::native::browser`).
 
+mod scene;
 pub mod view;
 
 use std::collections::HashMap;
@@ -140,6 +141,17 @@ impl App {
         (field || in_pane).then_some(pane)
     }
 
+    /// A press on page `id`: the keyboard is in its pane now, as a click inside Desktop's side
+    /// region makes it, so ⌘W, ⌘L and ⌘T act on the browser rather than the session's tab.
+    pub fn focus_browser_page(&mut self, id: u64) {
+        let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
+        let key = panel_key(PLUGIN, &id.to_string());
+        let Some(st) = self.side.sessions.get(&sid) else { return };
+        self.side.active_pane_focus = crate::panels::tabs::session_tab_pane(&st.tab_state.tabs, &key);
+        self.side.focused = true;
+        self.composer.focused = false;
+    }
+
     pub fn open_new_browser_tab(&mut self, url: &str) -> u64 {
         self.open_new_browser_tab_in(url, None)
     }
@@ -208,9 +220,10 @@ impl App {
     }
 
     pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
-        let saved_focus = (self.composer.focused, self.side.focused);
+        let (composer, side) = (self.composer.focused, self.side.focused);
         let key = panel_key(PLUGIN, &id.to_string());
-        if self.active_session_id() == Some(sid) {
+        let routed = self.active_session_id() == Some(sid);
+        if routed {
             self.close_side_tab(&key, tx);
         } else {
             let st = self.session_side_mut(sid);
@@ -220,7 +233,16 @@ impl App {
             }
         }
         self.forget_browser_tab(id);
-        (self.composer.focused, self.side.focused) = saved_focus;
+        // The keyboard stays where it was, unless it was in the panel this just closed: then it
+        // leaves with the panel, and the next ⌘W is held as after the strip's last tab closes,
+        // so one press too many doesn't close the session.
+        self.composer.focused = composer;
+        if routed && side && !self.side_open() {
+            self.side.focused = false;
+            self.side.emptied_guard = true;
+        } else {
+            self.side.focused = side;
+        }
     }
 
     /// Page `id`'s tab left its strip: the page closes.
