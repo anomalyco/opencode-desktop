@@ -840,7 +840,8 @@ fn grid_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, scale: f3
         sp.end > sp.start
     });
 
-    let mut row = GridRow::new(line_text, line_spans, base_style);
+    // A line the terminal wrapped at the edge reads on into the next row as one line.
+    let mut row = GridRow::new(line_text, line_spans, base_style).wraps(row_data.wrapped);
     for span in &row_data.bg_spans {
         if let Some(bg) = span.color {
             row = row.fill(span.start_col, span.end_col, bg.to_rune());
