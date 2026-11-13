@@ -620,6 +620,8 @@ string_enum! {
     pub enum UiEventKind {
         /// A click, a tap, or Enter or Space on a focused element.
         Press = "press",
+        /// A middle click: the wheel button went down on the element and came up over it.
+        MiddlePress = "middle-press",
         /// The pointer entered or left. `entered` says which.
         Hover = "hover",
         /// Enter in a field. `text` holds its text.

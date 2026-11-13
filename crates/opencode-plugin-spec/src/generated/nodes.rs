@@ -181,6 +181,7 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
     PropSpec::new("focusable", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
+    PropSpec::new("onMiddlePress", PropType::Handler, false),
     PropSpec::new("onHover", PropType::Handler, false),
     PropSpec::new("hoverTransition", PropType::Enum("HoverTransition"), false),
     PropSpec::new("hoverGroup", PropType::Bool, false),

@@ -155,6 +155,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         }
         words = words
             .on_link(|s: &mut S, link: &str, tx: &mut Tx| {
+                // A chip, not an address: a middle click on it does nothing.
+                if tx.button() == rune::PointerButton::Middle {
+                    return;
+                }
                 if let Some(sid) = crate::user_parts::session_of_link(link) {
                     s.open_session(sid, tx);
                 }

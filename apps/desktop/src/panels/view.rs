@@ -2,8 +2,8 @@
 //! (`packages/app/src/runtime/plugin/side-region.tsx`, `closed-tabs-view.tsx`).
 
 use rune::{
-    Anim, AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Phase, PointerButton,
-    PointerPress, ScrollSpec, Spring, Tx, col, el, icon, row, text,
+    Anim, AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Phase, PointerPress,
+    ScrollSpec, Spring, Tx, col, el, icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
 
@@ -385,6 +385,7 @@ fn tab_bar(
     for nt in live_new {
         let nid = nt.id.clone();
         let close_nid = nt.id.clone();
+        let middle_nid = nt.id.clone();
         let active = shown_new_id == Some(nid.as_str());
         let trigger = row()
             .key(format!("side-new-{}", nid))
@@ -401,13 +402,8 @@ fn tab_bar(
             .fill(if active { p.layer2 } else { Color::TRANSPARENT })
             .hover(if active { p.layer2 } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
-            // A middle click closes it, as its × does (`side-region.tsx`'s `onMiddleClick`).
-            .pointer_buttons([PointerButton::Middle])
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
-                if tx.button() == PointerButton::Middle {
-                    return s.dismiss_side_new_tab(&nid);
-                }
                 s.side.chosen_new_tab.insert(pane, nid.clone());
                 s.side.focused = true;
                 s.side.active_pane_focus = pane;
@@ -421,7 +417,12 @@ fn tab_bar(
             .child(close_button(p, format!("side-new-close-{close_nid}"), active, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.dismiss_side_new_tab(&close_nid);
-            }));
+            }))
+            // A middle click closes it, as its × does (`side-region.tsx`'s `onMiddleClick`).
+            .on_middle_press(move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.dismiss_side_new_tab(&middle_nid);
+            });
         strip = strip.child(trigger);
     }
 
@@ -496,7 +497,6 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
     let menu_key = entry.key.clone();
     let close_key = entry.key.clone();
     let middle_key = entry.key.clone();
-    let closable = entry.tab.can_close();
     let drag_key = entry.key.clone();
     let drag_title = entry.tab.title.clone();
     let safe_id = safe_id(&entry.key);
@@ -528,11 +528,6 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
         .hover_motion(INSTANT, INSTANT)
         .opacity(if dragging { 0.4 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            // A middle click closes a tab that can close, on its release over the tab
-            // (`panel-trigger.tsx`'s `onMiddleClick`, Desktop's `auxclick`).
-            if tx.button() == PointerButton::Middle {
-                return s.close_side_tab(&middle_key, tx);
-            }
             // The release that ends a drag isn't a click on the tab under it.
             if !s.side.pane_drag.take_suppressed() {
                 s.select_side_tab(&select_key, tx);
@@ -545,16 +540,13 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
             tx.instant();
             s.side.tab_menu = Some((menu_key.clone(), ev.x, ev.y));
         });
-    if closable {
-        pill = pill.pointer_buttons([PointerButton::Middle]);
+    // A middle click closes a tab that can close, on its release over the tab
+    // (`panel-trigger.tsx`'s `onMiddleClick`, Desktop's `auxclick`).
+    if entry.tab.can_close() {
+        pill = pill.on_middle_press(move |s: &mut App, tx: &mut Tx| s.close_side_tab(&middle_key, tx));
     }
     if !entry.tab.pinned && entry.tab.draggable {
-        // Only the primary button drags (`pane-drag-machine.ts`).
-        pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
-            if tx.button() == PointerButton::Primary {
-                s.pane_drag_gesture(&drag_key, &drag_title, d, tx);
-            }
-        });
+        pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx));
     }
 
     // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.

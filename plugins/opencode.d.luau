@@ -190,7 +190,7 @@ export type OfficeSignature = "zip" | "compound" | "other" | "unreadable"
 export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "installing" | "error"
 
 --- What a `UiEvent` reports.
-export type UiEventKind = "press" | "hover" | "submit" | "change" | "select" | "visible-rows"
+export type UiEventKind = "press" | "middle-press" | "hover" | "submit" | "change" | "select" | "visible-rows"
 
 --- A kind of menu entry.
 export type MenuEntryKind = "item" | "group" | "separator"
@@ -548,6 +548,8 @@ export type UiBoxProps = {
     disabled: boolean?,
     --- Runs on a press.
     onPress: UiHandler?,
+    --- Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys.
+    onMiddlePress: UiHandler?,
     --- Runs as the pointer enters and leaves.
     onHover: UiHandler?,
     --- How hover and press fills change.

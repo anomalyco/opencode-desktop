@@ -1140,6 +1140,7 @@ What a `UiEvent` reports.
 | Value | Meaning |
 |---|---|
 | `"press"` | A click, a tap, or Enter or Space on a focused element. |
+| `"middle-press"` | A middle click: the wheel button went down on the element and came up over it. |
 | `"hover"` | The pointer entered or left. `entered` says which. |
 | `"submit"` | Enter in a field. `text` holds its text. |
 | `"change"` | A switch or radio changed. `checked` holds the new state. |
@@ -1492,6 +1493,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `focusable` | `boolean?` | Takes keyboard focus. |
 | `disabled` | `boolean?` | Takes no presses. |
 | `onPress` | `UiHandler?` | Runs on a press. |
+| `onMiddlePress` | `UiHandler?` | Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys. |
 | `onHover` | `UiHandler?` | Runs as the pointer enters and leaves. |
 | `hoverTransition` | `HoverTransition?` | How hover and press fills change. |
 | `hoverGroup` | `boolean?` | Starts a hover group: descendants with `hoverGroupColor` or `revealOnHover` react while this box is hovered. |

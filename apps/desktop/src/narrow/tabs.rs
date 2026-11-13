@@ -167,11 +167,8 @@ fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab) -> El {
         .center_y()
         .radius(6.0)
         // A middle click closes it, as the titlebar's tabs do (`TabNavItem`'s `auxclick`).
-        .pointer_buttons([rune::PointerButton::Middle])
+        .on_middle_press(move |s: &mut App, tx: &mut Tx| s.close_tab(&middle, tx))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            if tx.button() == rune::PointerButton::Middle {
-                return s.close_tab(&middle, tx);
-            }
             s.select_tab(&select, tx);
             s.tabs_drawer(TabsEvent::Close, tx);
         })

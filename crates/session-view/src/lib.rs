@@ -412,6 +412,15 @@ pub fn overlays<S: TimelineHost>(s: &S, p: &palette::Pal, cx: &mut Cx<S>) -> Vec
     out
 }
 
+/// A press with no modifier key held. A link to another session in the timeline opens only on
+/// one: Desktop's `navigate` returns on `altKey || ctrlKey || metaKey || shiftKey`
+/// (`tool-renderer.tsx`, `session-timeline-row.tsx`), and its window-open handler refuses the
+/// app's own address a modified click would open.
+pub(crate) fn plain_click(tx: &Tx) -> bool {
+    let m = tx.mods();
+    !(m.shift || m.alt || m.ctrl || m.cmd || m.logo)
+}
+
 /// Advances all shared timeline animations and timers for one frame.
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;

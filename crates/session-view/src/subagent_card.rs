@@ -179,7 +179,10 @@ fn clickable<S: TimelineHost>(parent: &str, call: &str, child: &str, title: &str
             }
         })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            tx.instant();
-            s.open_subagent(&parent, &child, &title, &agent, tx);
+            // A click with a modifier opens nothing (`tool-renderer.tsx` `navigate`).
+            if crate::plain_click(tx) {
+                tx.instant();
+                s.open_subagent(&parent, &child, &title, &agent, tx);
+            }
         })
 }

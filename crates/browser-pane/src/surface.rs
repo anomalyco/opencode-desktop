@@ -33,7 +33,9 @@ impl BrowserHost {
             .w_full()
             .focusable(true)
             .cursor(tab.cursor.to_rune())
-            .pointer_buttons([PointerButton::Middle, PointerButton::Back, PointerButton::Forward]);
+            // The engine takes the primary, middle and secondary buttons (CEF has no others): a
+            // Back or Forward press would reach the page as a primary click on what's under it.
+            .pointer_buttons([PointerButton::Middle]);
         crate::frame::draw(page, &tab.surface)
             .surface_anchor(Align::Start, Align::Start)
             .surface_unscaled(true)

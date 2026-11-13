@@ -194,6 +194,10 @@ pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
                 .spans(vec![Span::new(at, full_len(&words, action)).weight(530.0).color(p.text)])
                 .link(Link::new(at..full_len(&words, action), "switch-model").role("button").label(action).hover(LinkPaint::new().underline(p.text)))
                 .on_link(|s: &mut S, _: &str, tx: &mut Tx| {
+                    // A button: a middle click on it does nothing.
+                    if tx.button() == rune::PointerButton::Middle {
+                        return;
+                    }
                     tx.instant();
                     s.switch_model(tx);
                 });
@@ -296,7 +300,7 @@ fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) 
         line = line.child(if child.is_some() { data.group_color(p.text) } else { data });
     }
     let Some(child) = child else { return line };
-    line.hover_group().role("link").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_session(&child, tx))
+    line.hover_group().role("link").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| if crate::plain_click(tx) { s.open_session(&child, tx) })
 }
 
 /// What came back, on one line: a shell's call's own description when it has one, else the

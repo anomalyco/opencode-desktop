@@ -363,6 +363,9 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied))
         .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
+            // A session's chip is the app's own address: a middle click opens nothing (Desktop's
+            // window-open handler refuses its own pages).
+            Some(_) if tx.button() == rune::PointerButton::Middle => {}
             Some(id) => s.open_session(id, tx),
             None => s.open_link(url, tx),
         })

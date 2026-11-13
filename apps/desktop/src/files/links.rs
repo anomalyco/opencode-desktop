@@ -209,6 +209,9 @@ impl App {
 
     /// Follows `href` clicked in the open session's timeline (a reply, a note, a card).
     pub fn open_reply_link(&mut self, href: &str, tx: &mut Tx) {
+        if tx.button() == rune::PointerButton::Middle {
+            return self.open_middle_link(href, tx);
+        }
         // A plugin's link handler (`LinkHandler`) takes the links it matches first.
         if crate::plugin_host::open_link(self, href, tx) {
             return;
@@ -228,6 +231,17 @@ impl App {
         }
     }
 
+    /// A middle click on `href`: a web or mail address opens in its app, as Desktop's anchor does
+    /// (`target="_blank"`, which its window-open handler hands to `openExternalURL`, http, https and
+    /// mailto only). A file link has no address there (`markdown-cache.tsx` drops its `href`), and
+    /// no plugin's link handler hears it, so it does nothing.
+    fn open_middle_link(&mut self, href: &str, tx: &mut Tx) {
+        let web = ["http:", "https:", "mailto:"].iter().any(|s| href.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s)));
+        if web {
+            self.open_web(href, tx);
+        }
+    }
+
     fn open_web(&self, url: &str, tx: &mut Tx) {
         if self.live() {
             let _ = tx.open_url(url);
@@ -237,6 +251,9 @@ impl App {
     /// Follows `href` clicked in session `sid`'s timeline, or in its file `from` (`Some`) rendered
     /// in the viewer, whose folder relative links resolve against.
     pub fn open_link(&mut self, sid: &str, from: Option<&str>, href: &str, tx: &mut Tx) {
+        if tx.button() == rune::PointerButton::Middle {
+            return self.open_middle_link(href, tx);
+        }
         if from.is_some() && crate::plugin_host::open_link(self, href, tx) {
             return;
         }
