@@ -358,12 +358,23 @@ pub fn request_with_headers(method: &str, url: &str, headers: &[(&str, &str)], b
 }
 
 /// A GET [`start_get`] began, for the next GET of `url` with `auth` from task work to take up.
+/// `entry` is `{ promise, done }`: the promise resolves to `{ status, headers, body }` once the
+/// whole answer is in, and `done` holds that same answer from then on, so a read that comes after
+/// takes it without waiting at all (the page's first reads, asked before the module loaded, are
+/// usually in before its first frame).
 struct Started {
     url: String,
     /// Its `Authorization`, empty for none.
     auth: String,
     at: Instant,
-    promise: js_sys::Promise,
+    entry: JsValue,
+}
+
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = "export function readAhead(promise) { const entry = { done: undefined }; entry.promise = promise.then(async (r) => { const done = { status: r.status, headers: [...r.headers], body: new Uint8Array(await r.arrayBuffer()) }; entry.done = done; return done; }); entry.promise.catch(() => {}); return entry; }")]
+extern "C" {
+    /// `{ promise, done }` for a `fetch`'s promise (see [`Started`]).
+    #[wasm_bindgen(js_name = readAhead)]
+    fn read_ahead(promise: &js_sys::Promise) -> JsValue;
 }
 
 thread_local! {
@@ -376,12 +387,13 @@ const STARTED_KEEP: Duration = Duration::from_secs(10);
 
 /// Starts a GET of `url` now, with the headers the request that wants it will send: the browser
 /// makes it while the page does other work (loads, draws its first frame, or waits on another
-/// request), and the next GET of `url` from task work waits on this one instead of asking again.
+/// request), and the next GET of `url` from task work takes its answer instead of asking again.
 /// Several started at once are answered at once, where task work asks one after another. Not
 /// again while one for `url` is waiting to be taken up.
 ///
 /// The page may have asked before the module loaded (`window.opencodeStarted`, a `Map` of URL to
-/// `{ auth, promise }`): the first call takes all of those over, from then on as if started here.
+/// `{ auth, promise, done }`, as [`Started`]): the first call takes all of those over, from then
+/// on as if started here.
 pub fn start_get(url: &str, headers: &[(&str, &str)]) {
     let Some(window) = web_sys::window() else { return };
     let auth = authorization(headers).to_owned();
@@ -392,7 +404,7 @@ pub fn start_get(url: &str, headers: &[(&str, &str)]) {
             return;
         }
         if let Ok(request) = build("GET", url, headers, None) {
-            started.push(Started { url: url.to_owned(), auth, at: Instant::now(), promise: window.fetch_with_request(&request) });
+            started.push(Started { url: url.to_owned(), auth, at: Instant::now(), entry: read_ahead(&window.fetch_with_request(&request)) });
         }
     });
 }
@@ -402,13 +414,16 @@ fn page_started(window: &web_sys::Window) -> Vec<Started> {
     let name = JsValue::from_str("opencodeStarted");
     let Some(map) = js_sys::Reflect::get(window, &name).ok().and_then(|m| m.dyn_into::<js_sys::Map>().ok()) else { return Vec::new() };
     let _ = js_sys::Reflect::delete_property(window, &name);
-    let field = |entry: &JsValue, name: &str| js_sys::Reflect::get(entry, &JsValue::from_str(name)).ok();
     let mut out = Vec::new();
     map.for_each(&mut |entry, url| {
-        let (Some(url), Some(auth), Some(promise)) = (url.as_string(), field(&entry, "auth").and_then(|a| a.as_string()), field(&entry, "promise").and_then(|p| p.dyn_into::<js_sys::Promise>().ok())) else { return };
-        out.push(Started { url, auth, at: Instant::now(), promise });
+        let (Some(url), Some(auth)) = (url.as_string(), field(&entry, "auth").as_string()) else { return };
+        out.push(Started { url, auth, at: Instant::now(), entry });
     });
     out
+}
+
+fn field(object: &JsValue, name: &str) -> JsValue {
+    js_sys::Reflect::get(object, &JsValue::from_str(name)).unwrap_or(JsValue::UNDEFINED)
 }
 
 fn authorization<'a>(headers: &[(&str, &'a str)]) -> &'a str {
@@ -421,15 +436,36 @@ pub fn forget_started() {
     STARTED.with_borrow_mut(Vec::clear);
 }
 
-fn take_started(url: &str, headers: &[(&str, &str)]) -> Option<js_sys::Promise> {
+/// Whether every GET of `urls` with `headers` was started and has its whole answer in: a read of
+/// each then takes it at once, even outside task work (`request_with_headers`).
+pub fn started_in(urls: &[String], headers: &[(&str, &str)]) -> bool {
+    let Some(window) = web_sys::window() else { return false };
     let auth = authorization(headers);
     STARTED.with_borrow_mut(|started| {
-        started.retain(|s| s.at.elapsed() < STARTED_KEEP);
-        let i = started.iter().position(|s| s.url == url && s.auth == auth)?;
-        Some(started.swap_remove(i).promise)
+        started.extend(page_started(&window));
+        urls.iter().all(|url| started.iter().any(|s| s.url == *url && s.auth == auth && s.at.elapsed() < STARTED_KEEP && field(&s.entry, "done").is_object()))
     })
 }
 
+/// The started GET of `url`, taken up: only one whose answer is in, unless the caller can wait.
+fn take_started(url: &str, headers: &[(&str, &str)], can_wait: bool) -> Option<JsValue> {
+    let auth = authorization(headers);
+    STARTED.with_borrow_mut(|started| {
+        started.retain(|s| s.at.elapsed() < STARTED_KEEP);
+        let i = started.iter().position(|s| s.url == url && s.auth == auth && (can_wait || field(&s.entry, "done").is_object()))?;
+        Some(started.swap_remove(i).entry)
+    })
+}
+
+/// A started GET's answer (`{ status, headers, body }`, [`Started`]).
+fn answer(done: &JsValue) -> (u16, Vec<(String, String)>, Vec<u8>) {
+    let status = field(done, "status").as_f64().unwrap_or(0.0) as u16;
+    let headers = js_sys::Array::from(&field(done, "headers")).iter().filter_map(|pair| {
+        let pair = js_sys::Array::from(&pair);
+        Some((pair.get(0).as_string()?.to_ascii_lowercase(), pair.get(1).as_string()?))
+    }).collect();
+    (status, headers, js_sys::Uint8Array::new(&field(done, "body")).to_vec())
+}
 fn build(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<web_sys::Request, JsValue> {
     let init = web_sys::RequestInit::new();
     init.set_method(method);
@@ -444,21 +480,26 @@ fn build(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>)
     web_sys::Request::new_with_str_and_init(url, &init)
 }
 
-/// The request as a `fetch` the task work waits on; `None` outside task work.
+/// The request as a `fetch` the task work waits on, or a started GET's answer already in;
+/// `None` outside task work otherwise.
 fn fetch(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Option<Result<(u16, Vec<(String, String)>, Vec<u8>), JsValue>> {
+    let can_wait = rune::task::can_wait();
+    if let Some(entry) = (method == "GET" && body.is_none()).then(|| take_started(url, headers, can_wait)).flatten() {
+        // In already: no wait at all.
+        let done = field(&entry, "done");
+        if done.is_object() { return Some(Ok(answer(&done))); }
+        let promise: js_sys::Promise = field(&entry, "promise").unchecked_into();
+        return Some(rune::task::wait(&promise)?.map(|done| answer(&done)));
+    }
     // Outside task work nothing can wait for a fetch: it would go out, and the XMLHttpRequest
     // after it too.
-    if !rune::task::can_wait() {
+    if !can_wait {
         return None;
     }
     let window = web_sys::window()?;
-    let started = if method == "GET" && body.is_none() { take_started(url, headers) } else { None };
-    let promise = match started {
-        Some(promise) => promise,
-        None => match build(method, url, headers, body) {
-            Ok(request) => window.fetch_with_request(&request),
-            Err(e) => return Some(Err(e)),
-        },
+    let promise = match build(method, url, headers, body) {
+        Ok(request) => window.fetch_with_request(&request),
+        Err(e) => return Some(Err(e)),
     };
     let response = match rune::task::wait(&promise)? {
         Ok(r) => r.unchecked_into::<web_sys::Response>(),

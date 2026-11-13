@@ -30,6 +30,14 @@ impl Server {
         }
     }
 
+    /// Whether every GET of `paths` was started and its answer is in, so `get`s of them return
+    /// at once, outside task work too (`ureq_web::started_in`).
+    pub fn gets_in(&self, paths: &[&str]) -> bool {
+        let auth = self.auth.as_deref().map(|a| ("Authorization", a));
+        let urls: Vec<String> = paths.iter().map(|path| format!("{}{path}", self.base)).collect();
+        ureq_web::started_in(&urls, auth.as_slice())
+    }
+
     /// Drops what [`Server::start_gets`] began that no `get` took up.
     pub fn forget_gets(&self) {
         ureq_web::forget_started();

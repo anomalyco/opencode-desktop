@@ -432,6 +432,12 @@ pub fn setup(s: &mut App) {
     if matches!(window_phase(s), None | Some(Phase::Connected)) {
         start(s, &mut Tx::default());
     }
+    // A page asked for the first reads as it started (index.html): its probe takes the answers up
+    // now, so when they're in before the first frame, that frame is Home with its sessions.
+    #[cfg(target_arch = "wasm32")]
+    if matches!(window_phase(s), Some(Phase::Waiting { .. })) {
+        start(s, &mut Tx::default());
+    }
 }
 
 /// The server the window works against now (`servers::runtime`'s checkout), keyed as
@@ -551,7 +557,14 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     let own = crate::servers::runtime::active(s).is_sidecar();
     let fallback = s.launch.fallback_fixture && own;
     let discover_local = own && crate::arg("--server").is_none();
-    rune::task::spawn("opencode-first", move || {
+    // A page whose first reads are all in (index.html asked as it started) takes them now, so the
+    // next frame, the first one usually, is Home with its sessions: as task work it'd wait for the
+    // page's next turn, after that frame.
+    #[cfg(target_arch = "wasm32")]
+    let now = server.gets_in(&FIRST_READS);
+    #[cfg(not(target_arch = "wasm32"))]
+    let now = false;
+    let work = move || {
         let (actual, reached) = probe(&server, discover_local, grace);
         let ready = if !reached {
             if fallback {
@@ -575,8 +588,12 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
         if let Some(w) = wake {
             w();
         }
-    })
-    .expect("spawn first reads");
+    };
+    if now {
+        work();
+    } else {
+        rune::task::spawn("opencode-first", work).expect("spawn first reads");
+    }
     rx
 }
 

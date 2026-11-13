@@ -20,6 +20,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="OpenCode">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="modulepreload" href="app.js">
 <title>OpenCode (Rune)</title>
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: none; }
@@ -77,25 +78,29 @@
     params.delete('auth_token');
     history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : ''));
   }
-  // The module as it downloads (compiled as it streams in), with how much of it has come.
-  async function download(url) {
-    const response = await fetch(url);
-    if (!response.ok || !response.body) return response;
-    // The module's own size (`scripts/web.ps1` writes it): a compressed reply's length isn't.
-    const total = Number(document.documentElement.dataset.wasmBytes) || Number(response.headers.get('content-length')) || 0;
-    let loaded = 0, shown = 0;
-    const mb = n => (n / 1048576).toFixed(1);
-    const counted = response.body.pipeThrough(new TransformStream({
-      transform(chunk, controller) {
-        loaded += chunk.byteLength;
-        if (loaded - shown > 524288) {
+  // The module, fetched as the page starts so it downloads while app.js loads. Chrome compiles it
+  // as it streams in and keeps the compiled code beside its cached copy for the next visit, both
+  // only for the fetch's own response (`instantiateStreaming`): the progress reads a clone.
+  function download(url) {
+    const response = fetch(url);
+    response.then(async (r) => {
+      if (!r.ok || !r.body) return;
+      // The module's own size (`scripts/web.ps1` writes it): a compressed reply's length isn't.
+      const total = Number(document.documentElement.dataset.wasmBytes) || Number(r.headers.get('content-length')) || 0;
+      const reader = r.clone().body.getReader();
+      let loaded = 0, shown = 0;
+      const mb = n => (n / 1048576).toFixed(1);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        loaded += value.byteLength;
+        if (loaded - shown > 524288 && status.isConnected) {
           shown = loaded;
           status.textContent = total >= loaded ? `Loading\u2026 ${mb(loaded)} of ${mb(total)} MB` : `Loading\u2026 ${mb(loaded)} MB`;
         }
-        controller.enqueue(chunk);
-      },
-    }));
-    return new Response(counted, { headers: { 'content-type': 'application/wasm' } });
+      }
+    }).catch(() => {});
+    return response;
   }
   // The app's first reads (`launch.rs`'s FIRST_READS), asked for now, so the server answers while
   // the module downloads; the app takes the answers up when it reads them with the same
@@ -106,21 +111,29 @@
     const headers = auth ? { Authorization: auth } : {};
     const paths = ['/api/project', '/api/session?limit=120', '/api/model', '/api/agent', '/api/provider', '/api/session/active', '/api/config'];
     window.opencodeStarted = new Map(paths.map(path => {
-      const promise = fetch(base + path, { headers });
+      // Read whole as it comes: `done` holds the answer once it's in, so the app takes it at once
+      // (`ureq_web::Started`), usually before its first frame.
+      const entry = { auth, done: undefined };
+      entry.promise = fetch(base + path, { headers }).then(async (r) => {
+        entry.done = { status: r.status, headers: [...r.headers], body: new Uint8Array(await r.arrayBuffer()) };
+        return entry.done;
+      });
       // Seen here so one nobody takes up isn't an unhandled rejection; the app's read still sees it fail.
-      promise.catch(() => {});
-      return [base + path, { auth, promise }];
+      entry.promise.catch(() => {});
+      return [base + path, entry];
     }));
   }
   async function boot() {
     status.textContent = 'Loading\u2026';
     // Only a head start: the app reads for itself when this can't.
     try { startFirstReads(); } catch {}
+    const module = download(new URL('app_bg.wasm', import.meta.url));
     try {
       // The app's work waits on the network on fibers (JS Promise Integration).
       if (!('Suspending' in WebAssembly)) throw new Error('This page needs WebAssembly JS Promise Integration: Chrome or Edge 137, Firefox 153, or Safari 27 (iOS 27) or newer.');
       const app = await import('./app.js');
-      await app.default({ module_or_path: download(new URL('app_bg.wasm', import.meta.url)) });
+      // The module's exports, for a measuring harness (its linear memory's size).
+      globalThis.__runeWasm = await app.default({ module_or_path: module });
       // "Loading" stays until the first frame is on screen, and the notice comes with it, until
       // its OK is pressed once (the connect form says the same each time it shows).
       document.addEventListener('runepresent', () => {

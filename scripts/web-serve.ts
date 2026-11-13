@@ -1,6 +1,8 @@
-// Serves the browser build's folder on 127.0.0.1 (scripts/web.ps1 runs it): files only, never
-// cached, the wasm with its own type so the browser compiles it as it streams in, and Brotli-
-// compressed where the build left a copy (a release).
+// Serves the browser build's folder on 127.0.0.1 (scripts/web.ps1 runs it): files only, as a
+// static host does: each with an ETag the browser revalidates on every use (`no-cache`), so a
+// repeat visit takes the module from its cache, compiled code included, and a rebuild is fetched
+// again; the wasm with its own type so the browser compiles it as it streams in; Brotli-compressed
+// where the build left a copy (a release).
 // Usage: bun scripts/web-serve.ts <folder> <port>
 import { resolve, sep } from "node:path"
 
@@ -28,12 +30,13 @@ Bun.serve({
     const body = Bun.file(file)
     if (!(await body.exists())) return new Response("not found", { status: 404 })
     const ext = file.slice(file.lastIndexOf("."))
-    const headers: Record<string, string> = { "content-type": types[ext] ?? "application/octet-stream", "cache-control": "no-store" }
-    // A release's module and fonts have a Brotli copy beside them: sent to a browser that takes br, as a host would.
     const br = Bun.file(file + ".br")
-    if (/\bbr\b/.test(request.headers.get("accept-encoding") ?? "") && (await br.exists())) {
-      return new Response(br, { headers: { ...headers, "content-encoding": "br", vary: "accept-encoding" } })
-    }
+    const brotli = /\bbr\b/.test(request.headers.get("accept-encoding") ?? "") && (await br.exists())
+    const tag = `\"${body.size.toString(36)}-${body.lastModified.toString(36)}${brotli ? "-br" : ""}\"`
+    const headers: Record<string, string> = { "content-type": types[ext] ?? "application/octet-stream", "cache-control": "no-cache", etag: tag, vary: "accept-encoding" }
+    if (request.headers.get("if-none-match") === tag) return new Response(null, { status: 304, headers })
+    // A release's module and fonts have a Brotli copy beside them: sent to a browser that takes br, as a host would.
+    if (brotli) return new Response(br, { headers: { ...headers, "content-encoding": "br" } })
     return new Response(body, { headers })
   },
 })
