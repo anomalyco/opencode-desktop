@@ -12,6 +12,9 @@ use opencode_i18n::t;
 /// `dialog-title`: 15 on 20 at 530, -0.13 tracking.
 const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 
+/// Room past a hugging title field's text for Rune's 1.5 pt caret, with rounding slack.
+const CARET_ROOM: f32 = 2.0;
+
 /// `s`'s title field, in `style`, when `target` is the one being renamed. Outside a tab it hugs
 /// its text, so what follows stays put and moves only as the title gets longer; one too long for
 /// the room scrolls inside it and fades at the edge. It stands one line of `style` tall, so its
@@ -21,7 +24,14 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
         return None;
     }
     let input = text_input(&s.menus.edit, style).key("rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).truncate_fade().h(style.line_px());
-    let input = if target.spot == Spot::Tab { input.grow(1.0) } else { input };
+    // Outside a tab the field hugs its text, but a focused single-line input reserves 1.5 pt for
+    // the caret and scrolls the text left by that much when the caret is at the end, clipping the
+    // first glyph. Room past the text (and any composition) keeps it in view; it still shrinks
+    // and scrolls when the title is longer than the room.
+    let input = match target.spot {
+        Spot::Tab => input.grow(1.0),
+        _ => input.w(rune::text::measure(&s.menus.edit.display().0, &[], style, None).0 + CARET_ROOM),
+    };
     Some(
         input
             .color(p.text)
