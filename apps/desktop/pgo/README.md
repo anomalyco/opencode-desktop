@@ -25,4 +25,4 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
   files. A stale profile is never wrong: a function whose code changed since loses its counts and
   builds as it would without a profile.
-- **macOS and Linux** have no profile yet, so they build without one.
+- **Apple silicon:** `build-app.sh` uses the native `aarch64-apple-darwin` profile. Its training run captured Home, session, demo, queue, settings and tab badges, in English and German. The profile-use build drew the same session capture. There is no measured Mac speed-up here. Intel macOS, Windows ARM64 and Linux do not use a profile.
