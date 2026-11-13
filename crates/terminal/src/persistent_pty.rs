@@ -144,19 +144,31 @@ pub(crate) fn run_persistent_worker(
 /// or how the attachment ends before it starts.
 fn fetch(server: &Server, pty_id: &str, id: &str, observer: bool) -> Result<(PersistentPtySnapshot, String), SessionStatus> {
     let snapshot = server.terminal_snapshot(pty_id).map_err(|e| gone(&e))?;
-    let url = server.terminal_connect_url(pty_id, snapshot.info.tail, id, observer).map_err(|e| gone(&e))?;
+    let from = if replays_all(&snapshot) { 0 } else { snapshot.info.tail };
+    let url = server.terminal_connect_url(pty_id, from, id, observer).map_err(|e| gone(&e))?;
     Ok((snapshot, url))
 }
 
-/// The emulator with the snapshot's checkpoint on it, at the server's size, published; `None`
-/// when the emulator can't start.
+/// Whether the server still has every byte the terminal wrote (`head` 0), so the attachment
+/// replays it all instead of starting from the checkpoint. The checkpoint is the server's
+/// emulator, whose 2 MiB holds about 1,700 lines of scrollback; its raw output buffer's 2 MiB
+/// holds far more, so a terminal reopened after a restart gets back its whole scrollback (up
+/// to this window's own cap) until the server first drops output.
+fn replays_all(snapshot: &PersistentPtySnapshot) -> bool {
+    snapshot.info.head == 0
+}
+
+/// The emulator with the snapshot's checkpoint on it (unless the whole output replays), at the
+/// server's size, published; `None` when the emulator can't start.
 fn restore(config: &TerminalConfig, snapshot: &PersistentPtySnapshot, shared: &SharedState, waker: &Waker) -> Option<(Screen, Grid)> {
     let core = build_core(config, None).ok()?;
     let mut screen = Screen::new(core, false);
     let mut grid = Grid { cell_px: (config.cell_w_px.max(1), config.cell_h_px.max(1)), size: (config.cols.max(1), config.rows.max(1)) };
     grid.resize(&mut screen.core, snapshot.info.size);
     screen.core.feed(DEFAULT_CURSOR);
-    screen.core.feed(&snapshot.checkpoint);
+    if !replays_all(snapshot) {
+        screen.core.feed(&snapshot.checkpoint);
+    }
     let _ = screen.core.take_pty_writes();
     screen.changed(shared, waker);
     Some((screen, grid))

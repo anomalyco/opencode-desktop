@@ -25,6 +25,8 @@ pub struct PersistentPtyInfo {
     pub size: (u16, u16),
     /// The byte offset just past the last output, where an attachment's replay ends.
     pub tail: i64,
+    /// The oldest output byte the server still keeps (`output.head`): 0 while it has all of it.
+    pub head: i64,
 }
 
 /// What `GET /api/experimental/persistent-pty/:id/snapshot` restores a screen from.
@@ -84,6 +86,7 @@ pub fn parse_persistent_pty_info(v: &Value) -> Option<PersistentPtyInfo> {
         status: if d["status"].as_str() == Some("exited") { PtyStatus::Exited } else { PtyStatus::Running },
         size: (dim("cols").unwrap_or(80), dim("rows").unwrap_or(24)),
         tail: d["output"]["tail"].as_i64().unwrap_or(0),
+        head: d["output"]["head"].as_i64().unwrap_or(-1),
     })
 }
 

@@ -46,6 +46,11 @@ pub const TERMINAL_KEYS: &[Trigger] = &[
         label: "New terminal tab",
         run: new_tab,
     },
+    Trigger {
+        key: 'p',
+        label: "Paste a script",
+        run: paste_script,
+    },
 ];
 
 const STORY_WS: &str = "story\0/workspace/seer";
@@ -170,6 +175,14 @@ fn scroll_bottom(s: &mut App, _play: &mut Play<'_, App>) {
     {
         tab.session.scroll(ScrollOp::Bottom);
     }
+}
+
+/// A three-line script pasted into the story's shell, which hasn't asked for bracketed paste:
+/// the terminal asks before it runs (`paste.rs`).
+fn paste_script(s: &mut App, play: &mut Play<'_, App>) {
+    let Some(tab) = s.terminal.workspaces.get(STORY_WS).and_then(|ws| ws.active.clone()) else { return };
+    let script = "git fetch origin\r\ngit reset --hard origin/main\r\ncargo build --release\r\n".to_owned();
+    s.paste_into_terminal(STORY_WS, &tab, script, play);
 }
 
 fn new_tab(s: &mut App, _play: &mut Play<'_, App>) {

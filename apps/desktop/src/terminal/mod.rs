@@ -7,6 +7,7 @@ pub mod grid;
 pub mod input;
 mod links;
 mod menu;
+pub mod paste;
 pub mod narrow;
 pub mod persist;
 mod rename;
@@ -169,6 +170,8 @@ pub struct TerminalPane {
     /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
     /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
     pub claim_focus: bool,
+    /// A paste waiting for the user to say it may run (`paste.rs`).
+    pub pending_paste: Option<paste::Pending>,
 }
 
 impl Default for TerminalPane {
@@ -190,6 +193,7 @@ impl Default for TerminalPane {
             connections: 0,
             spare_field: rune::TextEdit::default(),
             claim_focus: false,
+            pending_paste: None,
         }
     }
 }

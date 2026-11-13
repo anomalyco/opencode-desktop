@@ -199,9 +199,13 @@ fn looks_like_path(p: &str) -> bool {
 }
 
 /// The shell's folder as a path: OSC 7's `file://host/path` (percent-decoded; `/C:/x` is `C:/x`),
-/// else the folder the terminal started in.
+/// or the plain path of Windows Terminal's OSC 9;9 (Nushell and PowerShell prompts send it,
+/// sometimes quoted), else the folder the terminal started in.
 pub fn shell_folder(snap: &TerminalSnapshot, started_in: &str) -> String {
-    let Some(rest) = snap.pwd.strip_prefix("file://") else { return started_in.to_owned() };
+    let Some(rest) = snap.pwd.strip_prefix("file://") else {
+        let plain = snap.pwd.trim().trim_matches('"');
+        return if plain.is_empty() { started_in.to_owned() } else { plain.to_owned() };
+    };
     let path = rest.find('/').map_or("", |i| &rest[i..]);
     let decoded = percent_decode(path);
     let b = decoded.as_bytes();
@@ -257,4 +261,19 @@ pub(super) fn follow(app: &mut crate::App, wk: &str, tid: &str, col: u16, row: u
         }
     };
     app.open_link(&sid, None, &href, tx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shell_folder_comes_from_osc_7_or_osc_9_9() {
+        let mut snap = TerminalSnapshot::blank(80, 24, &terminal::TerminalTheme::default());
+        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\start");
+        snap.pwd = "file://host/C:/a%20b".into();
+        assert_eq!(shell_folder(&snap, "C:\\start"), "C:/a b");
+        snap.pwd = "\"C:\\Users\\x\"".into();
+        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\Users\\x", "OSC 9;9, quoted");
+    }
 }

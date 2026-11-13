@@ -69,4 +69,6 @@ pub enum TextDrag {
     #[default]
     Idle,
     Selecting { anchor: (u16, u16) },
+    /// A Shift+press moving the selection's end.
+    Extending,
 }

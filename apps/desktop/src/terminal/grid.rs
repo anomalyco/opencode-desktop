@@ -17,7 +17,7 @@ use terminal::{
 
 use super::find;
 use super::mount::TextDrag;
-use super::draw::{draw_box_or_block, draw_special_underline};
+use super::draw::{draw_cell_art, draw_special_underline};
 use super::{TERM_FONT, TERM_SIZE, TerminalTab};
 use crate::App;
 use crate::palette::Pal;
@@ -32,7 +32,7 @@ pub(crate) const SCREEN_KEY: &str = "terminal-rows";
 const INSTANT: Anim = Anim::INSTANT;
 
 /// Rows key: the terminal row's id and content hash, the font and cell, and the theme.
-type RowKey = (u128, u64, (u8, u32, u32, u32), bool);
+type RowKey = (u128, u64, (u8, u32, u32, u32, u32), bool);
 
 thread_local! {
     /// Each terminal's shaped rows from its last frame, by tab: a row that is still on screen
@@ -206,6 +206,7 @@ pub fn render_terminal_pane(
         font_choice,
         cell_w,
         cell_h,
+        scale,
         fit_cols,
         body_h,
         focused,
@@ -269,11 +270,12 @@ fn render_viewport(
     font_choice: u8,
     cell_w: f32,
     cell_h: f32,
+    scale: f32,
     fit_cols: u16,
     body_h: f32,
     focused: bool,
 ) -> El {
-    let style_key = (font_choice, style.size.to_bits(), cell_w.to_bits(), cell_h.to_bits());
+    let style_key = (font_choice, style.size.to_bits(), cell_w.to_bits(), cell_h.to_bits(), scale.to_bits());
     let avail_h = body_h.max(cell_h);
     let slot_rows = (((avail_h / cell_h).ceil() as usize) + 1).max(snap.screen_rows.len());
     let clip_w = f32::from(fit_cols) * cell_w;
@@ -292,7 +294,7 @@ fn render_viewport(
             .map(|idx| {
                 let key = snap.screen_rows.get(idx).map_or(key_of(0, 0), |r| key_of(r.id, r.content_hash));
                 let row = cache.remove(&key).or_else(|| kept.get(&key).cloned()).unwrap_or_else(|| {
-                    Rc::new(snap.screen_rows.get(idx).map_or_else(|| GridRow::new(String::new(), Vec::new(), style), |r| grid_row(r, p, cell_w, cell_h, style)))
+                    Rc::new(snap.screen_rows.get(idx).map_or_else(|| GridRow::new(String::new(), Vec::new(), style), |r| grid_row(r, p, cell_w, cell_h, scale, style)))
                 });
                 kept.insert(key, row.clone());
                 row
@@ -312,6 +314,8 @@ fn render_viewport(
             title = if tab.custom_title { tab.title.clone() } else { opencode_i18n::t!("plugin.terminal.title.numbered", number = tab.title_number.max(1)) }
         ))
         .description(opencode_i18n::t!("rune.a11y.terminal.leave"));
+    // The cursor's cell is the reader's caret while the program shows its cursor.
+    let rows_col = if snap.cursor.visible && snap.cursor.in_viewport { rows_col.grid_caret(snap.cursor.col, snap.cursor.row) } else { rows_col };
     let mut canvas_layer = el()
         .key(format!("terminal-canvas-{}", tab.id))
         .w(clip_w)
@@ -371,11 +375,13 @@ fn render_viewport(
 
     // The input method's caret (dead keys, CJK, the emoji panel, dictation) at the cursor's cell,
     // whether or not the program shows its cursor; a password prompt keeps the input method off.
+    // Not inert: Rune gives the input method only to a caret that may take input. It has no
+    // handlers, so presses and the pointer's shape still come from the viewport around it.
     if focused && !snap.cursor.password_input {
         let (col, row) = if snap.cursor.in_viewport { (snap.cursor.col, snap.cursor.row) } else { (0, snap.rows.saturating_sub(1)) };
         let (x, y) = (f32::from(col) * cell_w, f32::from(row) * cell_h);
         canvas_layer = canvas_layer
-            .child(el().key("terminal-ime").absolute(x, y).size(cell_w, cell_h).inert().a11y_hidden().ime_cursor())
+            .child(el().key("terminal-ime").absolute(x, y).size(cell_w, cell_h).a11y_hidden().ime_cursor().ime_option_as_alt(s.settings.terminal_option_meta))
             .children(tab.preedit.as_ref().map(|pre| render_preedit(pre, snap, x, y, cell_h, style)));
     }
 
@@ -443,6 +449,12 @@ fn render_viewport(
                 return;
             }
             match d.phase {
+                // Shift+press moves the end of the selection there, and dragging keeps moving it.
+                Phase::Down if mods.shift && d.clicks == 1 && t.session.selected_text().is_some() => {
+                    t.drag = TextDrag::Extending;
+                    t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row }));
+                }
+                Phase::Move if t.drag == TextDrag::Extending => t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row })),
                 Phase::Down => {
                     t.drag = TextDrag::Selecting { anchor: (col, row) };
                     match d.clicks {
@@ -747,7 +759,7 @@ fn render_scrollbar(
 /// A terminal row as the grid draws it: background and selection runs, the narrow cells' text
 /// in one styled line, cells that must sit exactly on their column (wide, emoji, other scripts)
 /// on their own, and box drawing, curly and double underlines and strikethrough as vectors.
-fn grid_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_style: TextStyle) -> GridRow {
+fn grid_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, scale: f32, base_style: TextStyle) -> GridRow {
     let mut shape = Shape::new();
     let mut line_text = String::with_capacity(row_data.cells.len());
     let mut line_spans: Vec<Span> = Vec::new();
@@ -771,7 +783,7 @@ fn grid_row(row_data: &TerminalRow, p: &Pal, cell_w: f32, cell_h: f32, base_styl
             shape = draw_special_underline(shape, cell.underline, f32::from(col_idx) * cell_w, f32::from(cell.width.max(1)) * cell_w, cell_h, ul_c);
         }
         if let Some(ch) = single_char(&cell.grapheme)
-            && draw_box_or_block(&mut shape, ch, f32::from(col_idx) * cell_w, cell_w, cell_h, fg)
+            && draw_cell_art(&mut shape, ch, f32::from(col_idx) * cell_w, cell_w, cell_h, scale, fg)
         {
             line_text.push(' ');
             continue;

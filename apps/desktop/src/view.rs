@@ -150,6 +150,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::diagram::view(s, p, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));
     inner = inner.children(crate::session_menu_view::confirm(s, p));
+    inner = inner.children(crate::terminal::paste::dialog(s, p));
     inner = inner.children(crate::settings::pages::worktrees::dialog(s, p));
     inner = inner.children(crate::quote::editor::view(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));

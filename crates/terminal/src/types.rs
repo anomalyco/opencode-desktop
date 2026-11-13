@@ -265,6 +265,11 @@ pub enum SelectionOp {
     Line(GridPoint),
     All,
     Clear,
+    /// Moves the selection's end to the point (Shift+click): from whichever end stays put, so a
+    /// point before the selection grows it backwards.
+    Extend(GridPoint),
+    /// Moves the selection's end by cells and rows (Shift+arrows), across line ends.
+    Nudge { dx: i16, dy: i16 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -45,6 +45,10 @@ impl VtCore {
         });
         unsafe {
             ffi::ghostty_key_encoder_setopt_from_terminal(self.key_encoder, self.term);
+            // Taking the terminal's options resets Option-as-Alt to Ghostty's default (off), and on
+            // macOS that drops the Esc an Alt chord (Option as Meta) sends: Option+B wrote "b".
+            let opt_alt = GHOSTTY_OPTION_AS_ALT_TRUE;
+            ffi::ghostty_key_encoder_setopt(self.key_encoder, GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT, (&opt_alt as *const c_int).cast());
             ffi::ghostty_key_event_set_action(self.key_event, action);
             ffi::ghostty_key_event_set_key(self.key_event, input.key);
             ffi::ghostty_key_event_set_mods(self.key_event, mods);

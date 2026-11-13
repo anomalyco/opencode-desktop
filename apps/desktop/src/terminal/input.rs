@@ -131,6 +131,18 @@ pub fn dispatch_key(
         return KeyOutcome::Ignored;
     }
 
+    // Shift+arrows move the end of a selection by a cell or a line, as in Windows Terminal;
+    // with no selection they're the program's (a shell's own selection, an editor's).
+    if m.shift && !m.ctrl && !m.alt && !m.cmd && matches!(ev.key, Key::Left | Key::Right | Key::Up | Key::Down) && session.selected_text().is_some() {
+        let (dx, dy) = match ev.key {
+            Key::Left => (-1, 0),
+            Key::Right => (1, 0),
+            Key::Up => (0, -1),
+            _ => (0, 1),
+        };
+        session.select(SelectionOp::Nudge { dx, dy });
+        return KeyOutcome::Consumed;
+    }
     // `Shift+PageUp` / `Shift+PageDown` / `Shift+Home` / `Shift+End` scroll terminal scrollback.
     if m.shift && !m.ctrl && !m.alt {
         let page = viewport_rows.saturating_sub(2).max(1) as isize;
@@ -194,25 +206,13 @@ pub(super) fn copy_selection(session: &TerminalSession, tx: &mut Tx) {
 }
 
 pub(super) fn paste_into(ws_key: Option<String>, tab_id: Option<String>, tx: &mut Tx) {
-    tx.read_clipboard(move |app: &mut App, content, _tx| {
+    tx.read_clipboard(move |app: &mut App, content, tx| {
         let text = content.text();
         if text.is_empty() {
             return;
         }
-        if let (Some(wk), Some(tid)) = (&ws_key, &tab_id)
-            && let Some(tab) = app
-                .terminal
-                .workspaces
-                .get(wk)
-                .and_then(|w| w.tabs.iter().find(|t| &t.id == tid))
-        {
-            tab.session.paste(text);
-            if tab.fixture_shell
-                && let Some(st) = &tab.stream
-            {
-                st.feed(text.as_bytes());
-            }
-            app.terminal.reset_blink(*app.clock);
+        if let (Some(wk), Some(tid)) = (&ws_key, &tab_id) {
+            app.paste_into_terminal(wk, tid, text.to_owned(), tx);
         }
     });
 }

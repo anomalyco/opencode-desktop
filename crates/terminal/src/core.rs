@@ -581,7 +581,50 @@ impl VtCore {
                     self.apply_selection(&sel);
                 }
             }
+            SelectionOp::Extend(to) => {
+                let (Some((a, b, rectangular)), Some(p)) = (self.selection_points(), self.screen_point(to)) else { return };
+                let at = |q: (u16, u32)| (q.1, q.0);
+                let (first, last) = if at(a) <= at(b) { (a, b) } else { (b, a) };
+                let anchor = if at(p) < at(first) { last } else { first };
+                self.select(SelectionOp::Range { start: GridPoint::Screen { col: anchor.0, row: anchor.1 }, end: GridPoint::Screen { col: p.0, row: p.1 }, rectangular });
+            }
+            SelectionOp::Nudge { dx, dy } => {
+                let Some((a, b, rectangular)) = self.selection_points() else { return };
+                let (mut cols, mut bar) = (0u16, GhosttyTerminalScrollbar::default());
+                unsafe {
+                    let _ = ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_COLS, (&mut cols as *mut u16).cast());
+                    let _ = ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_SCROLLBAR, (&mut bar as *mut GhosttyTerminalScrollbar).cast());
+                }
+                let (cols, total) = (i64::from(cols.max(1)), (bar.total as i64).max(1));
+                let cell = (i64::from(b.1) * cols + i64::from(b.0) + i64::from(dx) + i64::from(dy) * cols).clamp(0, total * cols - 1);
+                let end = GridPoint::Screen { col: (cell % cols) as u16, row: (cell / cols) as u32 };
+                self.select(SelectionOp::Range { start: GridPoint::Screen { col: a.0, row: a.1 }, end, rectangular });
+            }
         }
+    }
+
+    /// The selection's two ends as (column, row from the top of the scrollback), and whether
+    /// it's a block.
+    fn selection_points(&self) -> Option<((u16, u32), (u16, u32), bool)> {
+        if !self.has_selection {
+            return None;
+        }
+        let mut sel = GhosttySelection::default();
+        if unsafe { ffi::ghostty_terminal_get(self.term, GHOSTTY_TERMINAL_DATA_SELECTION, (&mut sel as *mut GhosttySelection).cast()) } != GHOSTTY_SUCCESS {
+            return None;
+        }
+        Some((self.ref_point(&sel.start)?, self.ref_point(&sel.end)?, sel.rectangle))
+    }
+
+    fn screen_point(&self, p: GridPoint) -> Option<(u16, u32)> {
+        let mut gref = GhosttyGridRef::default();
+        (unsafe { ffi::ghostty_terminal_grid_ref(self.term, p.to_ffi(), &mut gref) } == GHOSTTY_SUCCESS).then_some(())?;
+        self.ref_point(&gref)
+    }
+
+    fn ref_point(&self, r: &GhosttyGridRef) -> Option<(u16, u32)> {
+        let mut c = GhosttyPointCoordinate::default();
+        (unsafe { ffi::ghostty_terminal_point_from_grid_ref(self.term, r, GHOSTTY_POINT_TAG_SCREEN, &mut c) } == GHOSTTY_SUCCESS).then_some((c.x, c.y))
     }
 
     fn apply_selection(&mut self, sel: &GhosttySelection) {
