@@ -455,8 +455,8 @@ impl Parts {
         // reads (a left-to-right name in a right-to-left row would otherwise sit at the row's far end).
         let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(UI).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
         if stacked && show_project {
-            // The labels' column keeps to the row's top; the avatar stays centred.
-            let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().child(title).children(project_el.clone());
+            // Official centres its 32 pt labels in the 48 pt row (`items-center`): 8 above them.
+            let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().mt(8.0).child(title).children(project_el.clone());
             return Parts { avatar, labels, project: project_el, ring: busy.then(|| activity_ring(p).key("ring")) };
         }
         let title = if show_project { title.max_w((labels_w * 0.7).min(480.0)) } else { title.grow(1.0) };
