@@ -32,6 +32,7 @@ macro_rules! choice {
         }
     };
 }
+pub(crate) use choice;
 
 choice! {
     /// Where a new session starts (`workspaces.defaultDestination`).
@@ -65,8 +66,27 @@ choice! {
 }
 
 choice! {
-    /// How side tabs list sessions (`general.sidebarOrganize`).
-    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects" } default List
+    /// How side tabs list sessions (`general.sidebarOrganize`, `settings/model.tsx:141`): one
+    /// list of tabs, Projects above them, Customize's grouped, sorted and filtered sections, or
+    /// Recent's pinned and recent sessions in place of tabs.
+    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent" } default List
+}
+
+impl Organize {
+    /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx:352-357`): Recent only
+    /// in local and dev builds (`recentSessionsAvailable`).
+    pub fn options() -> &'static [Organize] {
+        match crate::updater::build_channel() {
+            "local" | "dev" => &[Organize::List, Organize::Projects, Organize::Customize, Organize::Recent],
+            _ => &[Organize::List, Organize::Projects, Organize::Customize],
+        }
+    }
+
+    /// The saved choice when this build offers it, else One list; the saved one stays saved, so
+    /// a build that offers it shows it again (`sidebarOrganize`, `settings/model.tsx:451-455`).
+    pub fn effective(self) -> Organize {
+        if Organize::options().contains(&self) { self } else { Organize::default() }
+    }
 }
 
 /// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.

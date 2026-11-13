@@ -117,6 +117,43 @@ rune_register::register!(SCENE_LIST: Scene = [
             s.project_state.organize_expanded.insert(key);
         }
     }),
+    // Settings > Experimental > Organize vertical sidebar: One list.
+    ("sidebar-list", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::List;
+    }),
+    // Settings > Experimental > Organize vertical sidebar: Customize, grouped by project.
+    ("sidebar-customized", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Customize;
+    }),
+    // Customize in one list, by last update, subagents shown.
+    ("sidebar-customized-list", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Customize;
+        let c = &mut s.project_state.customize;
+        c.grouping = crate::view::sidebar::grouping::Grouping::None;
+        c.ordering = crate::view::sidebar::grouping::Ordering::Updated;
+        c.show.subagents = true;
+    }),
+    // Settings > Experimental > Organize vertical sidebar: Recent, two sessions pinned.
+    ("sidebar-recent", |s| {
+        open_scene(s);
+        s.finish_stream();
+        side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Recent;
+        let server = crate::servers::runtime::active(s).as_str().to_owned();
+        let ids: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none()).skip(2).take(2).map(|i| i.id.clone()).collect();
+        for id in ids {
+            s.project_state.recent.pin(crate::view::sidebar::state::key(&server, &id));
+        }
+    }),
     // Top tabs past what the titlebar holds: they shrink to icons, then scroll.
     ("tab-overflow", |s| {
         open_scene(s);

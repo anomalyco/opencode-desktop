@@ -49,6 +49,10 @@ pub struct ProjectsState {
     pub organize_heights: std::collections::HashMap<String, f32>,
     /// A drag just ended on a project row, whose release then doesn't toggle it.
     pub organize_dropped: bool,
+    /// The Customize sidebar's view, filters and Show more counts (`sidebar-customized.tsx`).
+    pub customize: crate::view::sidebar::state::Customize,
+    /// The Recent sidebar's pins and Show more count (`recent-sessions.tsx`).
+    pub recent: crate::view::sidebar::state::Recent,
 }
 
 pub(crate) fn clean_dir(raw: &str) -> String {
@@ -168,7 +172,7 @@ impl App {
     /// order"). It waits for the server's projects.
     pub(crate) fn freeze_organize_order(&mut self) {
         let shown = self.tab_layout() == crate::layout_state::TabLayout::Vertical
-            && self.settings.sidebar_organize == crate::settings::Organize::Projects
+            && self.settings.sidebar_organize.effective() == crate::settings::Organize::Projects
             && !self.project_state.organize_collapsed;
         if !shown || self.projects.is_empty() {
             return;

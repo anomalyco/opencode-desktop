@@ -157,6 +157,8 @@ impl App {
         let global = |key: &str| crate::storage::json(GLOBAL, key).unwrap_or(Value::Null);
         self.restore.inbox = InboxUi::from_json(&global("sidebar.inbox"));
         self.restore_organize(&global("sidebar.organize"));
+        self.project_state.customize.restore(&global("sidebar.view"));
+        self.project_state.recent.restore(&global("sidebar.recent"));
         let saved = match doc.last_active_url.as_deref().and_then(route_from) {
             Some(Saved::Route(route)) => Some(route),
             Some(Saved::Settings(tab)) => {
@@ -382,9 +384,10 @@ impl App {
     }
 
     /// Every window's rows this one shares (Desktop's global `layout` sidebar, `sidebar.inbox`,
-    /// `sidebar.organize`).
-    fn global_keys(&self) -> [(&'static str, Value); 3] {
-        [("layout.sidebar", json!({ "opened": self.sidebar_open, "width": self.sidebar_w })), ("sidebar.inbox", self.restore.inbox.to_json()), ("sidebar.organize", self.organize_json())]
+    /// `sidebar.organize`, `sidebar.view`, `sidebar.recent`).
+    fn global_keys(&self) -> [(&'static str, Value); 5] {
+        let st = &self.project_state;
+        [("layout.sidebar", json!({ "opened": self.sidebar_open, "width": self.sidebar_w })), ("sidebar.inbox", self.restore.inbox.to_json()), ("sidebar.organize", self.organize_json()), ("sidebar.view", st.customize.to_json()), ("sidebar.recent", st.recent.to_json())]
     }
 
     /// Each draft's document under its tab's key (`draft:<id>`, or the session's server and
@@ -456,7 +459,8 @@ impl App {
         self.settings.open.then(|| self.settings_pages.page.id().to_owned()).hash(&mut h);
         self.side.stamp_hash(&mut h);
         let st = &self.project_state;
-        (st.organize_collapsed, organize_expanded(st), &st.organize_order).hash(&mut h);
+        (st.organize_collapsed, organize_expanded(st), &st.organize_order, &st.recent.pins).hash(&mut h);
+        st.customize.stamp(&mut h);
         h.finish()
     }
 
