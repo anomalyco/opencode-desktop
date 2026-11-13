@@ -160,8 +160,9 @@ pub fn timeline_top() -> f32 {
     8.0
 }
 
-/// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`.
-pub const BUBBLE_MAX: f32 = 565.0;
+/// 64ch of the bubble's 14 px Inter: Desktop caps a bubble at `min(82%, 64ch)`, which Chromium
+/// computes as `min(82%, 570.5px)` (64 advances of its `0`).
+pub const BUBBLE_MAX: f32 = 570.5;
 
 pub const ACTIVE_KEY: &str = "find-active";
 
