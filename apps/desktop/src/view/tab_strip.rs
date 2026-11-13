@@ -59,6 +59,9 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
         .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
+        // A mouse selects a top tab as it goes down, as Desktop's do; a finger only on a tap, so
+        // a long press opens the tab's menu and selects nothing.
+        .select_on_drag_start(!vertical && !session_view::style::touch_controls())
         .on_select(|s: &mut App, id, tx| s.select_tab(id, tx))
         .on_close(|s: &mut App, id, tx| s.close_tab(id, tx))
         .on_double_click(|s: &mut App, id, tx| {
