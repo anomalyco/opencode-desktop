@@ -163,7 +163,7 @@ pub fn prepare(origin: &Origin, m: &opencode_plugin_spec::Manifest) -> Result<Pr
     let start = Instant::now();
     let files = origin.dir().map_or_else(|| origin.files(), sources::read_files);
     let folder = origin.dir().and_then(|d| d.file_name()).map_or_else(|| m.id.clone(), |n| n.to_string_lossy().into_owned());
-    let sources = sources::script_sources(&files, &folder, &m.entry);
+    let sources = origin.scripts(&files, &folder, &m.entry);
     let compiled = sources.compile().map_err(|e| e.message)?;
     Ok(Prepared { sources, compiled, compile: start.elapsed(), catalogs: origin.catalogs(&files), hash: sources::content_hash(&files), files })
 }

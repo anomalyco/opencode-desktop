@@ -26,14 +26,13 @@ thread_local! {
 }
 
 /// Starts plugin `manifest`'s app half from `entry`, unless it runs already.
-pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], catalogs: super::Catalogs, entry: &str) {
+pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], catalogs: super::Catalogs, sources: rune_luau::Sources) {
     if HALVES.with_borrow(|h| h.iter().any(|a| *a.half.id == *manifest.id)) {
         return;
     }
     let half = Half::new(&manifest.id, Kind::App);
     *half.catalogs.borrow_mut() = catalogs;
     super::sources::intern_icons(&manifest.id, files);
-    let sources = super::sources::script_sources(files, &manifest.id, entry);
     let script = cx::with_app(app, || Script::with_options(&format!("{}@app", manifest.id), sources, vm::options(half.clone())));
     if let Some(w) = app.plugins.waker.clone() {
         script.set_waker(w);

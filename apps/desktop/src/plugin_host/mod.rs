@@ -303,8 +303,6 @@ pub fn setup(app: &mut App, waker: Waker) {
     // What the user turned off and trusted: in memory, or in the boot record. A launch whose
     // plugin files weren't imported yet knows them only from stage B, so nothing starts before it.
     let known = refresh_records(app) || (crate::storage::need() && refresh_records(app));
-    // The built-ins start from the bytecode compiled with the binary, not by compiling their source.
-    rune_luau::precompiled(sources::precompiled());
     // Plugins start processes and compare against the app's own server's version.
     process::warm();
     servers::read_own_version(app);
@@ -568,10 +566,10 @@ fn start_loaded(app: &mut App, i: usize) {
     *p.half.catalogs.borrow_mut() = catalogs.clone();
     sources::intern_icons(&id, &files);
     if let Some(entry) = &manifest.app {
-        app_half::ensure(app, &manifest, &files, catalogs, entry);
+        app_half::ensure(app, &manifest, &files, catalogs, p.origin.scripts(&files, &manifest.id, entry));
     }
     let folder = p.origin.dir().and_then(|d| d.file_name()).map_or_else(|| id.clone(), |n| n.to_string_lossy().into_owned());
-    let sources = sources::script_sources(&files, &folder, &manifest.entry);
+    let sources = p.origin.scripts(&files, &folder, &manifest.entry);
     let options = vm::options(p.half.clone());
     let script = cx::with_app(app, || Script::with_options(&id, sources, options));
     if let Some(w) = app.plugins.waker.clone() {

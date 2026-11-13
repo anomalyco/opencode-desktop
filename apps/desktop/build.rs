@@ -63,7 +63,7 @@ fn main() {
 
 /// The built-in plugins (every `plugins/<id>/` with a `plugin.toml`), embedded file by file as
 /// `luau_builtins.rs`: the fallback when no folder on disk has them. Each `.luau` file's bytecode
-/// comes with it (`PRECOMPILED`, for `rune_luau::precompiled`), compiled here with Rune's settings,
+/// replaces its text in the module table, compiled here with Rune's settings,
 /// so a launch doesn't compile them: compiling was most of each plugin's start (about 120,000 µs of
 /// the 175,000 µs plugins took before the first frame on blade).
 fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
@@ -73,7 +73,8 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     let compiler = mlua::chunk::Compiler::new().set_optimization_level(2).set_type_info_level(1).set_debug_level(1);
     let bytecode = out.join("luau-bytecode");
     std::fs::create_dir_all(&bytecode).ok();
-    let (mut consts, mut precompiled) = (String::new(), String::from("pub static PRECOMPILED: &[(&str, &[u8])] = &[\n"));
+    let mut consts = String::new();
+    let mut precompiled = String::from("pub static MODULES: &[(&str, &[(&str, &[u8], bool)])] = &[\n");
     let mut code = String::from("pub static BUILTINS: &[(&str, &[(&str, &str)], &[u8])] = &[\n");
     // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
     // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
@@ -109,19 +110,25 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         kinds.sort();
         kinds.dedup();
         writeln!(contributions, "    ({id:?}, &{kinds:?}),").ok();
-        for (rel, path) in files {
+        writeln!(precompiled, "    ({id:?}, &[").ok();
+        for (index, (rel, path)) in files.into_iter().enumerate() {
             println!("cargo:rerun-if-changed={}", path.display());
+            if rel.ends_with(".luau") && !rel.ends_with(".config.luau") {
+                let source = std::fs::read_to_string(&path).expect("read built-in Luau module");
+                // Keep source on compile failure: the plugin console should show the original syntax error.
+                if let Ok(compiled) = compiler.compile(&source) {
+                    let native = source.lines().map(str::trim).take_while(|l| l.is_empty() || l.starts_with("--")).any(|l| l.starts_with("--!native"));
+                    let file = bytecode.join(format!("{id}-{index}.luauc"));
+                    std::fs::write(&file, compiled).expect("write built-in bytecode");
+                    writeln!(precompiled, "        ({rel:?}, include_bytes!({:?}), {native}),", file.display().to_string()).ok();
+                    continue;
+                }
+            }
             let name = format!("FILE_{}", consts.lines().count());
             writeln!(consts, "const {name}: &str = include_str!({:?});", path.display().to_string()).ok();
             writeln!(code, "        ({rel:?}, {name}),").ok();
-            // A file that doesn't compile is left to the launch, which reports the error.
-            let compiled = (rel.ends_with(".luau") && !rel.ends_with(".config.luau")).then(|| std::fs::read(&path).ok()).flatten().and_then(|src| compiler.compile(src).ok());
-            if let Some(luauc) = compiled {
-                let file = bytecode.join(format!("{name}.luauc"));
-                std::fs::write(&file, luauc).ok();
-                writeln!(precompiled, "    ({name}, include_bytes!({:?})),", file.display().to_string()).ok();
-            }
         }
+        precompiled.push_str("    ]),\n");
         writeln!(code, "    ], include_bytes!({:?})),", catalog.display().to_string()).ok();
     }
     code.push_str("];\n");
