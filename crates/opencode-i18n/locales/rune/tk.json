@@ -197,5 +197,15 @@
   "rune.web.signOut": "Çykmak",
   "rune.web.connect.notServer": "Ol salgy jogap berýär, ýöne OpenCode serweri däl: salgyny barlaň.",
   "rune.web.connect.insecure": "Bu sahypa https-de we brauzer oňa ýönekeý http-däki serwere ýetmäge rugsat bermeýär. Serweriň https salgysyny ulanyň.",
-  "rune.web.connect.useOrigin": "{{origin}} ulan"
+  "rune.web.connect.useOrigin": "{{origin}} ulan",
+  "rune.fork.slow": "Serwere garaşylýar…",
+  "rune.queue.changeFailed": "Nobaty üýtgedip bolmady",
+  "rune.review.readFailed": "Üýtgeşmeleri okap bolmady",
+  "rune.send.slow": "Iberilýär · serwer entek jogap bermedi · ol saklanýar we jogap gelmese barlanar",
+  "rune.session.reconnecting": "Täzeden birikdirilýär…",
+  "rune.session.slowCopy": "Bu serwer haýal jogap berýär · saklanan görkezilýär",
+  "rune.undo.commentDiscarded": "Teswir ýatyryldy",
+  "rune.undo.queueRemoved": "Nobatdan aýryldy",
+  "rune.undo.sessionDeleted": "Sessiýa pozuldy",
+  "rune.toast.renameNoAnswer": "Serwer täze ady wagtynda tassyklamady, şonuň üçin iň soňky kabul eden ady yzyna gaýtaryldy. Birazdan täzeden synanyşyň."
 }

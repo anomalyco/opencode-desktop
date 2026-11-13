@@ -241,13 +241,9 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             FilePayload::Binary(sz) => doc.set_binary(sz),
             FilePayload::Image(bytes) => doc.set_binary(bytes.len()),
             FilePayload::Missing => doc.set_missing(),
-            FilePayload::Failed(raw) => {
+            FilePayload::Failed(wire) => {
                 let what = opencode_i18n::t!("rune.file.readFailed", path = opencode_kit::path::basename(&path)).to_owned();
-                let server = &server_label;
-                let words = match opencode_kit::wire_error::WireError::parse(&raw) {
-                    Some(w) => crate::errors::UserError::from_wire(&what, server, &w).description(),
-                    None => crate::status_toast::plain(&raw),
-                };
+                let words = crate::errors::UserError::from_wire(&what, &server_label, &wire).description();
                 doc.set_failed(what, words);
             }
         }

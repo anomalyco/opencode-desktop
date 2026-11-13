@@ -197,5 +197,15 @@
   "rune.web.signOut": "Kirjaudu ulos",
   "rune.web.connect.notServer": "Osoite vastaa, mutta se ei ole OpenCode-palvelin: tarkista osoite.",
   "rune.web.connect.insecure": "Tämä sivu on https:ssä, eikä selain anna sen tavoittaa pelkän http:n palvelinta. Käytä palvelimen https-osoitetta.",
-  "rune.web.connect.useOrigin": "Käytä osoitetta {{origin}}"
+  "rune.web.connect.useOrigin": "Käytä osoitetta {{origin}}",
+  "rune.fork.slow": "Odotetaan palvelinta…",
+  "rune.queue.changeFailed": "Jonoa ei voitu muuttaa",
+  "rune.review.readFailed": "Muutoksia ei voitu lukea",
+  "rune.send.slow": "Lähetetään · palvelin ei ole vielä vastannut · viesti on tallessa ja se tarkistetaan, jos vastausta ei tule",
+  "rune.session.reconnecting": "Yhdistetään uudelleen…",
+  "rune.session.slowCopy": "Tämä palvelin vastaa hitaasti · näytetään tallennettu sisältö",
+  "rune.undo.commentDiscarded": "Kommentti hylätty",
+  "rune.undo.queueRemoved": "Poistettu jonosta",
+  "rune.undo.sessionDeleted": "Istunto poistettu",
+  "rune.toast.renameNoAnswer": "Palvelin ei vahvistanut uutta otsikkoa ajoissa, joten sen viimeksi hyväksymä otsikko palautettiin. Yritä hetken kuluttua uudelleen."
 }

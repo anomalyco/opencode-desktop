@@ -197,5 +197,15 @@
   "rune.web.signOut": "سائن آؤٹ",
   "rune.web.connect.notServer": "وہ پتہ جواب دیتا ہے، مگر وہ OpenCode سرور نہیں ہے: پتہ دیکھیں۔",
   "rune.web.connect.insecure": "یہ صفحہ https پر ہے، اور براؤزر اسے سادہ http والے سرور تک پہنچنے نہیں دیتا۔ سرور کا https پتہ استعمال کریں۔",
-  "rune.web.connect.useOrigin": "{{origin}} استعمال کریں"
+  "rune.web.connect.useOrigin": "{{origin}} استعمال کریں",
+  "rune.fork.slow": "سرور کا انتظار ہو رہا ہے…",
+  "rune.queue.changeFailed": "قطار تبدیل نہیں ہو سکی",
+  "rune.review.readFailed": "تبدیلیاں پڑھی نہیں جا سکیں",
+  "rune.send.slow": "بھیجا جا رہا ہے · سرور نے ابھی جواب نہیں دیا · یہ محفوظ ہے، اور جواب نہ آنے پر جانچا جائے گا",
+  "rune.session.reconnecting": "دوبارہ جڑ رہا ہے…",
+  "rune.session.slowCopy": "یہ سرور جواب دینے میں سست ہے · جو محفوظ کیا گیا تھا وہ دکھایا جا رہا ہے",
+  "rune.undo.commentDiscarded": "تبصرہ رد کر دیا گیا",
+  "rune.undo.queueRemoved": "قطار سے ہٹا دیا گیا",
+  "rune.undo.sessionDeleted": "سیشن حذف کر دیا گیا",
+  "rune.toast.renameNoAnswer": "سرور نے نئے عنوان کی بروقت تصدیق نہیں کی، اس لیے آخری قبول شدہ عنوان واپس آ گیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔"
 }

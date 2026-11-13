@@ -25,7 +25,7 @@ impl Server {
     pub fn upload(&self, directory: &str, name: &str, body: &mut dyn Read, size: u64, sent: &mut dyn FnMut(u64) -> bool) -> Result<String, UploadError> {
         // What Desktop's request rejects with (`destination.ts:60-64`): its status, or nothing more.
         let failed = |status: Option<u16>| UploadError::Failed(status.map_or_else(|| "Upload failed".to_owned(), |n| format!("Upload failed with status {n}")));
-        let info = self.get("/api/info").map_err(UploadError::Failed)?;
+        let info = self.get("/api/info").map_err(|e| UploadError::Failed(e.to_string()))?;
         let tmp = info["paths"]["tmp"].as_str().ok_or_else(|| UploadError::Failed("GET /api/info: no paths.tmp".into()))?;
         let target = format!("{}/uploads/{}/{name}", tmp.trim_end_matches('/'), message_id());
         let path = format!(

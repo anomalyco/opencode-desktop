@@ -26,7 +26,7 @@ pub struct FetchedDiffs {
     pub mode: ChangeMode,
     pub revision: u64,
     /// The server's diff, or why it couldn't be read (in the client's words).
-    pub raw_diff: Result<Value, String>,
+    pub raw_diff: Result<Value, opencode_kit::wire_error::WireError>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     pub no_git: bool,

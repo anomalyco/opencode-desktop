@@ -213,6 +213,14 @@ pub struct Ready {
     pub refused: bool,
 }
 
+/// When the probe's thread found the server taking connections, set once from that thread.
+pub type Accepted = std::sync::Arc<std::sync::OnceLock<Instant>>;
+
+/// How long the launch's first reads may wait on a server that took their connection before the
+/// window says it's slow (`Link::Slow`): a server that accepts and holds every request would
+/// otherwise say nothing until the reads time out (about 10 s).
+pub const FIRST_PATIENCE: Duration = Duration::from_millis(1500);
+
 /// A server that didn't answer, trying it again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Again {
@@ -233,7 +241,9 @@ pub enum Phase {
     /// has none and shows Home, as Desktop's does.
     Waiting { beta_tabs: bool },
     /// The probe and first reads are on their way; `again` while the server didn't answer before.
-    Probing { rx: Receiver<Ready>, again: Option<Again> },
+    /// `accepted`: when the server took the probe's connection, so the reads that follow are
+    /// waiting on it (`FIRST_PATIENCE`).
+    Probing { rx: Receiver<Ready>, again: Option<Again>, accepted: Accepted },
     /// No server answered: the next try is at `retry_at` (`App::clock`), or, when nothing
     /// accepted a connection there (`retry_at` infinite), once its health says it answers.
     Offline { retries: u32, retry_at: f64 },
@@ -368,7 +378,7 @@ pub(crate) fn story_offline(s: &mut App, checking: bool) {
         let (answer, rx) = std::sync::mpsc::channel();
         // The story's probe stays on its way: its sender lives as long as the app.
         std::mem::forget(answer);
-        Phase::Probing { rx, again: Some(Again { retries: 0, quiet: false }) }
+        Phase::Probing { rx, again: Some(Again { retries: 0, quiet: false }), accepted: Accepted::default() }
     } else {
         Phase::Offline { retries: 0, retry_at: f64::INFINITY }
     };
@@ -528,8 +538,8 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     for effect in effects {
         match effect {
             LaunchEffect::Probe { beta_tabs, again, grace } => {
-                let rx = spawn_probe(s, beta_tabs, grace);
-                s.launch.set_phase(&server, Phase::Probing { rx, again });
+                let (rx, accepted) = spawn_probe(s, beta_tabs, grace);
+                s.launch.set_phase(&server, Phase::Probing { rx, again, accepted });
             }
             LaunchEffect::Connect => connect(s, tx),
             LaunchEffect::Unreachable => {
@@ -548,9 +558,11 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
 }
 
 /// The probe, Desktop Beta's tabs and the first reads, on a thread; the window wakes for them.
-fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
+fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> (Receiver<Ready>, Accepted) {
     let (out, rx) = std::sync::mpsc::channel();
-    let Source::Live { server, .. } = &*s.source else { return rx };
+    let accepted = Accepted::default();
+    let Source::Live { server, .. } = &*s.source else { return (rx, accepted) };
+    let took = accepted.clone();
     let (server, wake) = (server.clone(), s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()));
     // Only the app's own server may stand down for the fixture, or move to the port
     // `service.json` names.
@@ -580,6 +592,11 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
                 Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused }
             }
         } else {
+            // The window counts its patience from here (`poll`).
+            let _ = took.set(Instant::now());
+            if let Some(w) = &wake {
+                w();
+            }
             let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
             let first = First::fetch(&actual);
             Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false }
@@ -594,7 +611,45 @@ fn spawn_probe(s: &App, beta_tabs: bool, grace: Duration) -> Receiver<Ready> {
     } else {
         rune::task::spawn("opencode-first", work).expect("spawn first reads");
     }
-    rx
+    (rx, accepted)
+}
+
+/// `--harness-network-change <secs>`: the OS's network change or wake, stood in for once (`network::simulate`).
+fn harness_network_change(s: &App, tx: &mut Tx) {
+    static AT: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Some(at) = *AT.get_or_init(|| crate::arg("--harness-network-change").and_then(|v| v.parse().ok())) else { return };
+    if DONE.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    if *s.clock + 1e-9 < at {
+        tx.wake_at(at);
+        return;
+    }
+    DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+    rune::marks::mark("harness.network_change");
+    network::simulate();
+}
+
+/// The launch's first reads have waited `FIRST_PATIENCE` on a server that took their connection:
+/// the window shows what it saved and says the server is slow (`Link::Slow`), the same machine
+/// that says offline or reconnecting. Woken once for it, when it's due. True when the header changed.
+fn first_reads_slow(s: &mut App, tx: &mut Tx) -> bool {
+    let Some(Phase::Probing { again: None, accepted, .. }) = window_phase(s) else { return false };
+    let Some(at) = accepted.get() else { return false };
+    let left = (*at + FIRST_PATIENCE).saturating_duration_since(Instant::now());
+    if !left.is_zero() {
+        tx.wake_after(left);
+        return false;
+    }
+    let Some(server) = window_server(s) else { return false };
+    use opencode_kit::servers::link::{Event, Link};
+    if !matches!(crate::reconnect::link_of(s, &server), Link::Online | Link::Connecting) {
+        return false;
+    }
+    let now = *s.clock;
+    rune::marks::mark("link.slow");
+    crate::reconnect::step_link(s, &server, Event::FirstReadsSlow { now }, tx)
 }
 
 /// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
@@ -605,6 +660,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         if crate::plugin_host::first_frame(s) { tx.instant(); }
     }
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
+    harness_network_change(s, tx);
     let now = *s.clock;
     if s.live() && crate::attended() {
         step(s, LaunchEvent::Tick { now }, tx);
@@ -614,11 +670,12 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
             step(s, LaunchEvent::Answering, tx);
         }
     }
+    let slow = first_reads_slow(s, tx);
     // Every poll comes here: the window's key is borrowed, not copied.
-    let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return false };
+    let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return slow };
     let ready = match rx.try_recv() {
         Ok(r) => r,
-        Err(TryRecvError::Empty) => return false,
+        Err(TryRecvError::Empty) => return slow,
         Err(TryRecvError::Disconnected) => Ready {
             server: None,
             beta_tabs: None,
@@ -690,14 +747,14 @@ impl App {
     pub(crate) fn set_media_fetch(&mut self) {
         let Source::Live { server, .. } = &*self.source else { return };
         let media = server.clone();
-        self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash)));
+        self.attach.set_fetch(std::sync::Arc::new(move |hash: &str| media.media(hash).map_err(|e| e.to_string())));
         // Markdown images read through the server as Desktop's `readLocalImage` does; web
         // images and link favicons come from the web, as the browser fetches them for Desktop.
         let files = server.clone();
         self.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
                 let encoded = crate::review::data::encode_fs_path(path);
-                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory)))
+                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory))).map_err(|e| e.to_string())
             }),
             std::sync::Arc::new(crate::web_fetch::get),
         );

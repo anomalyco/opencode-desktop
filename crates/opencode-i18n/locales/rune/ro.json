@@ -197,5 +197,15 @@
   "rune.web.signOut": "Deconectează-te",
   "rune.web.connect.notServer": "Adresa răspunde, dar nu e un server OpenCode: verifică adresa.",
   "rune.web.connect.insecure": "Această pagină e pe https, iar browserul n-o lasă să ajungă la un server pe http simplu. Folosește adresa https a serverului.",
-  "rune.web.connect.useOrigin": "Folosește {{origin}}"
+  "rune.web.connect.useOrigin": "Folosește {{origin}}",
+  "rune.fork.slow": "Se așteaptă serverul…",
+  "rune.queue.changeFailed": "Nu s-a putut modifica coada",
+  "rune.review.readFailed": "Nu s-au putut citi modificările",
+  "rune.send.slow": "Se trimite · serverul nu a răspuns încă · mesajul este păstrat și va fi verificat dacă nu vine niciun răspuns",
+  "rune.session.reconnecting": "Se reconectează…",
+  "rune.session.slowCopy": "Acest server răspunde lent · se afișează ce s-a salvat",
+  "rune.undo.commentDiscarded": "Comentariul a fost eliminat",
+  "rune.undo.queueRemoved": "Eliminat din coadă",
+  "rune.undo.sessionDeleted": "Sesiune ștearsă",
+  "rune.toast.renameNoAnswer": "Serverul nu a confirmat noul titlu la timp, așa că a revenit ultimul titlu pe care l-a acceptat. Încearcă din nou peste un moment."
 }

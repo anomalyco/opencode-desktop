@@ -80,3 +80,10 @@ fn sentence(m: &str) -> String {
     }
     out
 }
+
+/// What a surface with one line of its own says about `e` (a row's status, a dialog's note):
+/// why, the server's words and what next, one after another, built from the typed error.
+pub fn said(s: &crate::App, what: &str, e: &WireError) -> String {
+    let server = crate::servers::runtime::label(crate::servers::runtime::active(s));
+    UserError::from_wire(what, &server, e).description().replace('\n', " ")
+}

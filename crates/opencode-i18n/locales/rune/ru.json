@@ -197,5 +197,15 @@
   "rune.web.signOut": "Выйти",
   "rune.web.connect.notServer": "Этот адрес отвечает, но это не сервер OpenCode: проверьте адрес.",
   "rune.web.connect.insecure": "Эта страница открыта по https, и браузер не даёт ей обращаться к серверу по обычному http. Используйте https-адрес сервера.",
-  "rune.web.connect.useOrigin": "Использовать {{origin}}"
+  "rune.web.connect.useOrigin": "Использовать {{origin}}",
+  "rune.fork.slow": "Ожидание сервера…",
+  "rune.queue.changeFailed": "Не удалось изменить очередь",
+  "rune.review.readFailed": "Не удалось прочитать изменения",
+  "rune.send.slow": "Отправка · сервер ещё не ответил · сообщение сохранено и будет проверено, если ответа не будет",
+  "rune.session.reconnecting": "Повторное подключение…",
+  "rune.session.slowCopy": "Этот сервер отвечает медленно · показано то, что было сохранено",
+  "rune.undo.commentDiscarded": "Комментарий отменён",
+  "rune.undo.queueRemoved": "Удалено из очереди",
+  "rune.undo.sessionDeleted": "Сессия удалена",
+  "rune.toast.renameNoAnswer": "Сервер не подтвердил новое название вовремя, поэтому вернулось название, которое он принял последним. Повторите попытку чуть позже."
 }

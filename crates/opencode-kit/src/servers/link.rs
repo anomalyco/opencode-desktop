@@ -31,6 +31,10 @@ pub enum Link {
     /// it has lasted [`QUIET`]. Any answer clears it, and so does the stream outliving its idle
     /// limit without dropping ([`SUSPECT_FOR`]).
     Suspect { since: f64, shown: bool },
+    /// It took the connection at launch but hasn't answered the first reads since `since`: the
+    /// window shows what it saved and says the server is slow, rather than nothing until the
+    /// reads time out.
+    Slow { since: f64 },
     /// Nothing answers: `why` in the client's words (no connection, no answer in time).
     Offline { since: f64, why: Offline },
     /// Something else answers in its place: a captive portal's sign-in page, a proxy.
@@ -57,6 +61,9 @@ pub enum Event {
     StreamDown { now: f64, error: Option<WireError> },
     /// The launch's first reads found nothing answering.
     Unreachable { now: f64 },
+    /// The server took the launch's connection at `now` minus the app's patience and hasn't answered
+    /// the first reads.
+    FirstReadsSlow { now: f64 },
     /// A health probe: it answers (and its version is usable or not), or refused our credentials.
     Healthy { compatible: bool },
     Unauthorized,
@@ -66,6 +73,9 @@ pub enum Event {
     CallFailed { now: f64 },
     /// The server answered something.
     Heard,
+    /// After a network change or a wake, the server didn't answer a check at `now`, with what it
+    /// failed with: whatever the stream looked like, it's offline now.
+    Unanswered { now: f64, error: Option<WireError> },
     Tick { now: f64 },
 }
 
@@ -132,7 +142,20 @@ impl Link {
                 *self = Link::Offline { since: now, why: Offline::Refused };
                 Effects::none()
             }
-            (Link::Offline { .. } | Link::Intercepted { .. } | Link::Reopening { .. } | Link::Suspect { .. } | Link::Connecting, Event::NetworkChanged) => {
+            // Only a link nothing else has spoken for: a stream that opened, or a probe that said
+            // otherwise, knows better.
+            (Link::Online | Link::Connecting, Event::FirstReadsSlow { now }) => {
+                *self = Link::Slow { since: now };
+                Effects::none()
+            }
+            // Said at once, without the quiet grace a drop gets: the check already waited its bound.
+            (Link::SignedOut | Link::Incompatible, Event::Unanswered { .. }) => Effects::none(),
+            (_, Event::Unanswered { now, error }) => {
+                let why = if matches!(error.as_ref().map(|e| &e.kind), Some(WireKind::Unreachable(_))) { Offline::Refused } else { Offline::Silent };
+                *self = Link::Offline { since: now, why };
+                Effects::none()
+            }
+            (Link::Offline { .. } | Link::Intercepted { .. } | Link::Reopening { .. } | Link::Suspect { .. } | Link::Slow { .. } | Link::Connecting, Event::NetworkChanged) => {
                 *self = Link::Connecting;
                 Effects::one(Reconnect)
             }
@@ -193,5 +216,38 @@ impl Link {
     /// The event stream dropped, or something else answers in the server's place.
     pub fn dropped(&self) -> bool {
         matches!(self, Link::Reopening { .. } | Link::Offline { .. } | Link::Intercepted { .. })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_launch_that_waits_on_a_slow_server_says_so_until_the_stream_opens() {
+        let mut link = Link::Online;
+        let fx: Vec<Effect> = link.step(Event::FirstReadsSlow { now: 1.5 }).into_iter().collect();
+        assert_eq!(link, Link::Slow { since: 1.5 });
+        assert!(fx.contains(&Effect::Repaint) && link.shown());
+        let _ = link.step(Event::StreamUp);
+        assert_eq!(link, Link::Online);
+    }
+
+    #[test]
+    fn a_slow_launch_whose_reads_fail_is_offline() {
+        let mut link = Link::Slow { since: 1.5 };
+        let _ = link.step(Event::Unreachable { now: 10.0 });
+        assert!(matches!(link, Link::Offline { .. }));
+    }
+
+    #[test]
+    fn a_server_that_does_not_answer_the_check_after_a_wake_is_offline_at_once() {
+        let mut link = Link::Online;
+        let error = WireError::new("GET", "/api/info", WireKind::TimedOut);
+        let _ = link.step(Event::Unanswered { now: 3.0, error: Some(error) });
+        assert_eq!(link, Link::Offline { since: 3.0, why: Offline::Silent });
+        let mut signed_out = Link::SignedOut;
+        let _ = signed_out.step(Event::Unanswered { now: 3.0, error: None });
+        assert_eq!(signed_out, Link::SignedOut);
     }
 }

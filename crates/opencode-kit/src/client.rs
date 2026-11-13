@@ -19,7 +19,7 @@ use rune::Waker;
 use serde_json::Value;
 
 use crate::model::{self, Delivery, Pending, SessionInfo};
-use crate::wire_error::WireError;
+use crate::wire_error::{WireError, WireKind};
 
 mod downloads;
 mod http;
@@ -28,6 +28,8 @@ mod ids;
 mod mentions;
 #[cfg(not(target_arch = "wasm32"))]
 mod reach;
+#[cfg(not(target_arch = "wasm32"))]
+mod streams;
 pub mod rewrite;
 mod upload;
 #[cfg(target_arch = "wasm32")]
@@ -40,6 +42,12 @@ pub use hub::{EventHub, HUB_AT, connect_workers, heard_at};
 pub use ids::{message_id, session_id};
 #[cfg(not(target_arch = "wasm32"))]
 pub use reach::reach_back;
+#[cfg(not(target_arch = "wasm32"))]
+pub use streams::verify as verify_streams;
+
+/// In a browser the page's own connection is the stream: nothing to verify.
+#[cfg(target_arch = "wasm32")]
+pub fn verify_streams() {}
 
 /// In a browser no address is watched: the page's own requests find a server back.
 #[cfg(target_arch = "wasm32")]
@@ -194,7 +202,7 @@ impl Server {
     }
 
     /// A read `connect` makes: with the capability header when opted in.
-    pub fn read(&self, path: &str) -> Result<Value, String> {
+    pub fn read(&self, path: &str) -> Result<Value, WireError> {
         self.get_with(path, self.media_refs.then_some(MEDIA_CAPABILITY))
     }
 
@@ -227,15 +235,15 @@ impl Server {
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     }
 
-    pub fn get(&self, path: &str) -> Result<Value, String> {
+    pub fn get(&self, path: &str) -> Result<Value, WireError> {
         self.get_with(path, None)
     }
 
     /// `get`, waiting out a server that answers 503 while it starts: `GET /api/skill` waits for
     /// the server's plugins and refuses with `ServiceUnavailableError` until they've loaded. It
     /// tries again after 0.25, 0.5, 1, 2 and 4 s, so off the app's thread only.
-    pub fn get_ready(&self, path: &str) -> Result<Value, String> {
-        self.ready(|| self.get_json(path, None, Duration::from_secs(15)).map(|(v, _)| v)).map_err(String::from)
+    pub fn get_ready(&self, path: &str) -> Result<Value, WireError> {
+        self.ready(|| self.get_json(path, None, Duration::from_secs(15)).map(|(v, _)| v))
     }
 
     /// `f`, again while it's refused with 503.
@@ -251,19 +259,19 @@ impl Server {
         f()
     }
 
-    fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, String> {
+    fn get_with(&self, path: &str, capabilities: Option<&str>) -> Result<Value, WireError> {
         self.get_timed(path, capabilities).map(|(v, _)| v)
     }
 
     /// `get_text`, waiting out a server that answers 503 while it starts, as [`Self::get_ready`]
     /// does: off the app's thread only.
-    pub fn get_text_ready(&self, path: &str) -> Result<String, String> {
-        self.ready(|| self.json_text(path)).map_err(String::from)
+    pub fn get_text_ready(&self, path: &str) -> Result<String, WireError> {
+        self.ready(|| self.json_text(path))
     }
 
     /// `GET path`'s JSON as the server wrote it, unparsed (its keys in the server's order).
-    pub fn get_text(&self, path: &str) -> Result<String, String> {
-        self.json_text(path).map_err(String::from)
+    pub fn get_text(&self, path: &str) -> Result<String, WireError> {
+        self.json_text(path)
     }
 
     fn json_text(&self, path: &str) -> Result<String, WireError> {
@@ -274,12 +282,12 @@ impl Server {
     }
 
     /// `read`, with when its response started, its body size and when parsing started.
-    pub fn read_timed(&self, path: &str) -> Result<(Value, ReadTiming), String> {
+    pub fn read_timed(&self, path: &str) -> Result<(Value, ReadTiming), WireError> {
         self.get_timed(path, self.media_refs.then_some(MEDIA_CAPABILITY))
     }
 
-    fn get_timed(&self, path: &str, capabilities: Option<&str>) -> Result<(Value, ReadTiming), String> {
-        self.get_json(path, capabilities, Duration::from_secs(15)).map_err(String::from)
+    fn get_timed(&self, path: &str, capabilities: Option<&str>) -> Result<(Value, ReadTiming), WireError> {
+        self.get_json(path, capabilities, Duration::from_secs(15))
     }
 
     /// A GET of OpenCode's JSON within `timeout`.
@@ -300,7 +308,7 @@ impl Server {
 
     /// The bytes behind a `media:<hash>` ref (`GET /api/experimental/media/:hash`). They never
     /// change, so callers cache them by hash; a 404 means nothing references them anymore.
-    pub fn media(&self, hash: &str) -> Result<Vec<u8>, String> {
+    pub fn media(&self, hash: &str) -> Result<Vec<u8>, WireError> {
         self.get_bytes(&format!("/api/experimental/media/{hash}"))
     }
 
@@ -315,19 +323,19 @@ impl Server {
     }
 
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).
-    pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
-        self.exchange("GET", path, None, Some(Duration::from_secs(60)), &[])?.bytes("GET", path).map_err(String::from)
+    pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, WireError> {
+        self.exchange("GET", path, None, Some(Duration::from_secs(60)), &[])?.bytes("GET", path)
     }
 
     /// A write: `method` with an optional JSON body; OpenCode's empty (204) reply is `Value::Null`.
-    pub fn write(&self, method: &'static str, path: &str, body: Option<Value>) -> Result<Value, String> {
+    pub fn write(&self, method: &'static str, path: &str, body: Option<Value>) -> Result<Value, WireError> {
         self.write_within(method, path, body, Duration::from_secs(15))
     }
 
     /// A prompt's or command's POST (`body` already made, `Prompt::body_bytes`), taken only on an
     /// answer that proves OpenCode took it: OpenCode's JSON (`http::Answer::json`) of the shape
     /// `expect` names. Anything else is an error, so the prompt's outbox row stays.
-    pub(crate) fn write_bytes(&self, path: &str, body: Vec<u8>, expect: Expect) -> Result<Value, String> {
+    pub(crate) fn write_bytes(&self, path: &str, body: Vec<u8>, expect: Expect) -> Result<Value, WireError> {
         rune::marks::mark("net.sending");
         let answer = self.exchange("POST", path, Some(&body), Some(Duration::from_secs(15)), &[])?;
         let status = answer.status;
@@ -342,25 +350,25 @@ impl Server {
     }
 
     /// `write`, waiting up to `timeout` for the reply.
-    pub(crate) fn write_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, String> {
+    pub(crate) fn write_within(&self, method: &'static str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value, WireError> {
         self.write_raw(method, path, body.map(|b| b.to_string().into_bytes()), timeout)
     }
 
     /// A write that counts only when OpenCode answers it: never a redirect followed to a sign-in
     /// page, never a 200 that isn't OpenCode's JSON (`http::Answer::json`).
-    fn write_raw(&self, method: &'static str, path: &str, body: Option<Vec<u8>>, timeout: Duration) -> Result<Value, String> {
+    fn write_raw(&self, method: &'static str, path: &str, body: Option<Vec<u8>>, timeout: Duration) -> Result<Value, WireError> {
         let answer = self.exchange(method, path, body.as_deref(), Some(timeout), &[])?;
         Ok(answer.json(method, path)?.0)
     }
 
     /// `POST /session/:id/prompt`. Tests point this at a local mock, never the live server.
-    pub fn send_prompt(&self, session: &str, text: &str) -> Result<(), String> {
+    pub fn send_prompt(&self, session: &str, text: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/prompt"), Some(serde_json::json!({ "text": text }))).map(|_| ())
     }
 
     /// `POST /session/:id/prompt` with an id and files; returns the id the server gave the
     /// message (`data.id`), which is `prompt.id` when that was set.
-    pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
+    pub fn send(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, WireError> {
         let request = self.prepare(session, prompt);
         self.send_prepared(session, prompt, request)
     }
@@ -378,7 +386,7 @@ impl Server {
     }
 
     /// Sends what [`Server::prepare`] made: the agent and model switches, then the prompt.
-    pub fn send_prepared(&self, session: &str, prompt: &Prompt, request: Prepared) -> Result<Option<String>, String> {
+    pub fn send_prepared(&self, session: &str, prompt: &Prompt, request: Prepared) -> Result<Option<String>, WireError> {
         self.apply_choice(session, prompt)?;
         match request {
             Prepared::Command(body) => self.write_bytes(&format!("/api/session/{session}/command"), body, Expect::Command).map(|_| None),
@@ -392,7 +400,7 @@ impl Server {
     /// Desktop's `applySelection`: a prompt that runs now (a steer, or any prompt to an idle
     /// session) switches the session's agent, then its model, before it's admitted. A queued one
     /// mustn't reconfigure the turn it waits behind, so it only records its choice.
-    fn apply_choice(&self, session: &str, prompt: &Prompt) -> Result<(), String> {
+    fn apply_choice(&self, session: &str, prompt: &Prompt) -> Result<(), WireError> {
         if prompt.delivery == Some(Delivery::Queue) {
             return Ok(());
         }
@@ -406,13 +414,13 @@ impl Server {
     }
 
     /// `session.switchAgent`: `{"agent": …}`.
-    pub fn switch_agent(&self, session: &str, agent: &str) -> Result<(), String> {
+    pub fn switch_agent(&self, session: &str, agent: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/agent"), Some(serde_json::json!({ "agent": agent }))).map(|_| ())
     }
 
     /// `session.switchModel`: `{"model": {id, providerID, variant?}}`, no variant for the model's
     /// default.
-    pub fn switch_model(&self, session: &str, m: &model::ModelRef) -> Result<(), String> {
+    pub fn switch_model(&self, session: &str, m: &model::ModelRef) -> Result<(), WireError> {
         let mut v = serde_json::json!({ "id": m.id, "providerID": m.provider });
         if !m.variant.is_empty() {
             v["variant"] = m.variant.clone().into();
@@ -421,7 +429,7 @@ impl Server {
     }
 
     /// Runs `command` in the session's directory; the server reports it as `shell.*` events.
-    pub fn shell(&self, session: &str, id: Option<&str>, command: &str) -> Result<(), String> {
+    pub fn shell(&self, session: &str, id: Option<&str>, command: &str) -> Result<(), WireError> {
         let mut body = serde_json::json!({ "command": command });
         if let Some(id) = id {
             body["id"] = id.into();
@@ -430,59 +438,59 @@ impl Server {
     }
 
     /// `decision`: `once`, `always` or `reject`.
-    pub fn reply_permission(&self, session: &str, request: &str, decision: &str) -> Result<(), String> {
+    pub fn reply_permission(&self, session: &str, request: &str, decision: &str) -> Result<(), WireError> {
         let path = format!("/api/session/{session}/permission/{request}/reply");
         self.write("POST", &path, Some(serde_json::json!({ "decision": decision }))).map(|_| ())
     }
 
     /// `answer` maps each field key to a string, number, bool or list of strings.
-    pub fn reply_form(&self, session: &str, form: &str, answer: Value) -> Result<(), String> {
+    pub fn reply_form(&self, session: &str, form: &str, answer: Value) -> Result<(), WireError> {
         let path = format!("/api/session/{session}/form/{form}/reply");
         self.write("POST", &path, Some(serde_json::json!({ "answer": answer }))).map(|_| ())
     }
 
-    pub fn cancel_form(&self, session: &str, form: &str) -> Result<(), String> {
+    pub fn cancel_form(&self, session: &str, form: &str) -> Result<(), WireError> {
         self.write("DELETE", &format!("/api/session/{session}/form/{form}"), None).map(|_| ())
     }
 
     /// Stops the session's current run.
-    pub fn interrupt(&self, session: &str) -> Result<(), String> {
+    pub fn interrupt(&self, session: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|_| ())
     }
 
     /// Like `interrupt`, preserving whether a run was interrupted. `false` means idle or
     /// already stopping; `None` is an older server that doesn't return an acknowledgement.
-    pub fn interrupt_ack(&self, session: &str) -> Result<Option<bool>, String> {
+    pub fn interrupt_ack(&self, session: &str) -> Result<Option<bool>, WireError> {
         self.write("POST", &format!("/api/session/{session}/interrupt"), None).map(|v| v["interrupted"].as_bool())
     }
 
     /// Stop, as Desktop's composer asks it (`session/composer/adapter.ts:56-60`): `interrupt_ack`
     /// with `resume=true`, so the server goes on with the steers already waiting (and manual
     /// compactions and moves) while queued prompts stay parked.
-    pub fn stop(&self, session: &str) -> Result<Option<bool>, String> {
+    pub fn stop(&self, session: &str) -> Result<Option<bool>, WireError> {
         self.write("POST", &format!("/api/session/{session}/interrupt?resume=true"), None).map(|v| v["interrupted"].as_bool())
     }
 
     /// `session.background`: moves the session's running shells and subagents that block its run
     /// to the background, so the run goes on to its next step. The server moves each job once
     /// and ignores the call when nothing blocks.
-    pub fn background(&self, session: &str) -> Result<(), String> {
+    pub fn background(&self, session: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/background"), None).map(|_| ())
     }
 
     /// `session.compact`: asks the server to summarize the session now. It admits the compaction
     /// to the session's inbox, steering a running turn as Desktop's does.
-    pub fn compact(&self, session: &str) -> Result<(), String> {
+    pub fn compact(&self, session: &str) -> Result<(), WireError> {
         self.write("POST", &format!("/api/session/{session}/compact"), Some(serde_json::json!({}))).map(|_| ())
     }
 
-    pub fn create_session(&self, directory: &str) -> Result<SessionInfo, String> {
+    pub fn create_session(&self, directory: &str) -> Result<SessionInfo, WireError> {
         self.create(serde_json::json!({ "location": { "directory": directory } }))
     }
 
     /// `create_session` under `id`, running `agent` and `model` from the start (Desktop's
     /// `session.create` from the new-session page), so its first prompt needs no switches.
-    pub fn create_session_as(&self, id: &str, directory: &str, agent: Option<&str>, model: Option<&model::ModelRef>) -> Result<SessionInfo, String> {
+    pub fn create_session_as(&self, id: &str, directory: &str, agent: Option<&str>, model: Option<&model::ModelRef>) -> Result<SessionInfo, WireError> {
         let mut body = serde_json::json!({ "id": id, "location": { "directory": directory } });
         if let Some(agent) = agent {
             body["agent"] = agent.into();
@@ -496,18 +504,18 @@ impl Server {
         self.create(body)
     }
 
-    fn create(&self, body: Value) -> Result<SessionInfo, String> {
+    fn create(&self, body: Value) -> Result<SessionInfo, WireError> {
         let v = self.write("POST", "/api/session", Some(body))?;
         let info = model::parse_session(v.get("data").unwrap_or(&v));
-        if info.id.is_empty() { Err("POST /api/session: no session in the reply".into()) } else { Ok(info) }
+        if info.id.is_empty() { Err(WireError::new("POST", "/api/session", WireKind::Shape("no session in the reply".into()))) } else { Ok(info) }
     }
 
     /// Create and admit the first prompt. Only roll back a definitely rejected prompt:
     /// after a lost reply the client needs the session intact to check its receipt.
-    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, String> {
+    pub fn start_as(&self, id: &str, directory: &str, prompt: &Prompt) -> Result<SessionInfo, WireError> {
         let created = self.create_session_as(id, directory, prompt.agent.as_deref(), prompt.model.as_ref());
         // The create already chose the agent and model, so no switches before the prompt.
-        let sent = created.as_ref().map_err(String::clone).and_then(|_| {
+        let sent = created.as_ref().map_err(WireError::clone).and_then(|_| {
             let prompt = self.with_mentions(Some(directory), id, prompt);
             self.write_bytes(&format!("/api/session/{id}/prompt"), prompt.body_bytes(), Expect::Prompt(prompt.id.as_deref()))
         });
@@ -516,7 +524,7 @@ impl Server {
             Err(e) => {
                 // A lost reply may be the only missing part of a successful first turn.
                 // Deleting the session then destroys both the message and its receipt.
-                if created.is_ok() && e.contains("http status: 4") && !["408","409","425","429"].iter().any(|n| e.ends_with(n)) {
+                if created.is_ok() && matches!(e.kind, WireKind::Status { status, .. } if (400..500).contains(&status) && ![408, 409, 425, 429].contains(&status)) {
                     let _ = self.delete_session(id);
                 }
                 Err(e)
@@ -527,31 +535,31 @@ impl Server {
     /// `worktree.create`: a new worktree of `project` from the checkout `from`, on `branch` or
     /// the checkout's current one; returns its directory. The server runs the project's setup
     /// script before it answers (often a dependency install), so this waits up to ten minutes.
-    pub fn create_worktree(&self, project: &str, from: &str, branch: Option<&str>) -> Result<String, String> {
+    pub fn create_worktree(&self, project: &str, from: &str, branch: Option<&str>) -> Result<String, WireError> {
         let mut body = serde_json::json!({ "projectID": project, "from": from });
         if let Some(b) = branch {
             body["branch"] = b.into();
         }
         let v = self.write_within("POST", "/api/worktree", Some(body), Duration::from_secs(600))?;
-        v.get("data").unwrap_or(&v)["directory"].as_str().map(str::to_owned).ok_or_else(|| "POST /api/worktree: no directory in the reply".into())
+        v.get("data").unwrap_or(&v)["directory"].as_str().map(str::to_owned).ok_or_else(|| WireError::new("POST", "/api/worktree", WireKind::Shape("no directory in the reply".into())))
     }
 
     /// `worktree.remove`, forced: deletes the worktree `directory` of `project` and every file in
     /// it, waiting up to two minutes (Desktop's `WORKSPACE_REMOVE_TIMEOUT_MS`).
-    pub fn remove_worktree(&self, project: &str, directory: &str) -> Result<(), String> {
+    pub fn remove_worktree(&self, project: &str, directory: &str) -> Result<(), WireError> {
         let body = serde_json::json!({ "projectID": project, "directory": directory, "force": true });
         self.write_within("DELETE", "/api/worktree", Some(body), Duration::from_secs(120)).map(|_| ())
     }
 
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
-    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce()) -> Result<SessionInfo, String> {
+    pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce()) -> Result<SessionInfo, WireError> {
         let directory = self.create_worktree(project, from, branch)?;
         made();
         self.start_as(id, &directory, prompt)
     }
 
     /// `vcs.branch.list`: up to 50 branches at `directory` whose names hold `search`.
-    pub fn branches(&self, directory: &str, search: &str) -> Result<Vec<String>, String> {
+    pub fn branches(&self, directory: &str, search: &str) -> Result<Vec<String>, WireError> {
         let path = format!("/api/vcs/branch?location%5Bdirectory%5D={}&search={}&limit=50", encode_component(directory), encode_component(search));
         let v = self.get(&path)?;
         Ok(list(&v).iter().filter_map(|b| b.as_str().map(str::to_owned)).collect())
@@ -559,20 +567,20 @@ impl Server {
 
     /// Resolves `directory` (`GET /api/location?location[directory]=…`), registering its project
     /// on the server as Desktop's `projects.add` does.
-    pub fn resolve_location(&self, directory: &str) -> Result<model::LocationInfo, String> {
+    pub fn resolve_location(&self, directory: &str) -> Result<model::LocationInfo, WireError> {
         let path = format!("/api/location?location%5Bdirectory%5D={}", encode_component(directory));
         let v = self.get(&path)?;
-        model::parse_location(&v).ok_or_else(|| format!("GET {path}: no location in the reply"))
+        model::parse_location(&v).ok_or_else(|| WireError::new("GET", &path, WireKind::Shape("no location in the reply".into())))
     }
 
     /// Lists the server's non-archived projects (`GET /api/project`).
-    pub fn projects(&self) -> Result<Vec<model::Project>, String> {
+    pub fn projects(&self) -> Result<Vec<model::Project>, WireError> {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
 
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).
-    pub fn children(&self, session: &str) -> Result<Vec<model::SessionInfo>, String> {
+    pub fn children(&self, session: &str) -> Result<Vec<model::SessionInfo>, WireError> {
         const PAGE: usize = 200;
         let mut out = Vec::new();
         let mut path = format!("/api/session?parentID={}&order=desc&limit={PAGE}", encode_component(session));
@@ -590,24 +598,24 @@ impl Server {
 
     /// Registers `directory` as a project on the server and returns its resolved location and the
     /// refreshed project list.
-    pub fn open_project(&self, directory: &str) -> Result<(model::LocationInfo, Vec<model::Project>), String> {
+    pub fn open_project(&self, directory: &str) -> Result<(model::LocationInfo, Vec<model::Project>), WireError> {
         let location = self.resolve_location(directory)?;
         let projects = self.projects()?;
         Ok((location, projects))
     }
 
     /// `session.update` with a title: the body is `{"title": …}` and nothing else.
-    pub fn rename_session(&self, session: &str, title: &str) -> Result<(), String> {
+    pub fn rename_session(&self, session: &str, title: &str) -> Result<(), WireError> {
         self.write("PATCH", &format!("/api/session/{session}"), Some(serde_json::json!({ "title": title }))).map(|_| ())
     }
 
-    pub fn delete_session(&self, session: &str) -> Result<(), String> {
+    pub fn delete_session(&self, session: &str) -> Result<(), WireError> {
         self.write("DELETE", &format!("/api/session/{session}"), None).map(|_| ())
     }
 
     /// What Desktop's Export saves: `{ info, messages }`, the messages oldest first in pages of
     /// 200, with the file name it gives it.
-    pub fn export_session(&self, session: &str) -> Result<(String, String), String> {
+    pub fn export_session(&self, session: &str) -> Result<(String, String), WireError> {
         let v = self.get(&format!("/api/session/{session}"))?;
         let info = v.get("data").unwrap_or(&v).clone();
         let mut messages = Vec::new();
@@ -626,15 +634,15 @@ impl Server {
             }
         }
         let name = export_filename(&info, session);
-        let json = serde_json::to_string_pretty(&serde_json::json!({ "info": info, "messages": messages })).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string_pretty(&serde_json::json!({ "info": info, "messages": messages })).map_err(|e| WireError::new("GET", &format!("/api/session/{session}/message"), WireKind::Other(e.to_string())))?;
         Ok((name, json))
     }
 
-    pub fn cancel_inbox(&self, session: &str, item: &str) -> Result<(), String> {
+    pub fn cancel_inbox(&self, session: &str, item: &str) -> Result<(), WireError> {
         self.write("DELETE", &format!("/api/session/{session}/inbox/{item}"), None).map(|_| ())
     }
 
-    pub fn set_delivery(&self, session: &str, item: &str, delivery: Delivery) -> Result<(), String> {
+    pub fn set_delivery(&self, session: &str, item: &str, delivery: Delivery) -> Result<(), WireError> {
         let body = serde_json::json!({ "delivery": delivery.as_str() });
         self.write("PATCH", &format!("/api/session/{session}/inbox/{item}"), Some(body)).map(|_| ())
     }
@@ -655,38 +663,46 @@ impl Server {
     /// got as far as OpenCode's `server.connected`. Only then is it connected, so a stream a
     /// captive portal answers (a redirect, a web page) is a failure, not a reconnect.
     #[cfg(not(target_arch = "wasm32"))]
-    fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), String> {
-        use crate::wire_error::{WireKind, transport};
+    /// `live` says whether this stream still speaks for its server: one replaced after a network
+    /// change or a wake (`streams::verify`) ends quietly, sending nothing more; `heard` is told of
+    /// every line, heartbeats included.
+    fn events(&self, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool, live: &dyn Fn() -> bool, heard: &dyn Fn()) -> Result<(), WireError> {
+        use crate::wire_error::{read_failure, transport};
+        let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
         let config = ureq::Agent::config_builder().timeout_per_read(Some(idle)).http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {
             req = req.header("Authorization", a);
         }
-        let mut resp = req.call().map_err(|e| format!("events: {}", transport(e)))?;
+        let mut resp = req.call().map_err(|e| down(transport(e)))?;
         let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
         if resp.status().as_u16() != 200 {
             let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_owned);
             let body = resp.body_mut().with_config().limit(64 << 10).read_to_vec().unwrap_or_default();
             let answer = http::Answer { status: resp.status().as_u16(), content_type, location, body, first_byte: Instant::now() };
-            return Err(format!("events: {}", answer.json("GET", "/api/event").err().map_or_else(|| "an empty answer".to_owned(), |e| e.kind.to_string())));
+            return Err(answer.json("GET", "/api/event").err().unwrap_or_else(|| down(WireKind::Shape("an empty answer".into()))));
         }
         if !content_type.trim_start().to_ascii_lowercase().starts_with("text/event-stream") {
-            return Err(format!("events: {}", WireKind::NotOpenCode { status: 200, what: http::kind_of(&content_type, false) }));
+            return Err(down(WireKind::NotOpenCode { status: 200, what: http::kind_of(&content_type, false) }));
         }
         let mut connected = false;
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
-            let line = line.map_err(|e| format!("events: {e}"))?;
+            if !live() {
+                return Ok(());
+            }
+            let line = line.map_err(|e| down(read_failure(e)))?;
+            heard();
             let Some(event) = event_line(&line) else { continue };
             if !connected {
                 // OpenCode's first event, as Desktop waits for it (`connection.ts`).
                 if !matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected") {
-                    return Err(format!("events: {}", WireKind::NotOpenCode { status: 200, what: "an event stream that didn't start with server.connected".into() }));
+                    return Err(down(WireKind::NotOpenCode { status: 200, what: "an event stream that didn't start with server.connected".into() }));
                 }
                 connected = true;
                 *opened = true;
-                if resumed && inbox.send(Incoming::Reconnected).is_err() {
+                if inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
                     return Ok(());
                 }
             }
@@ -695,7 +711,7 @@ impl Server {
             }
             wake();
         }
-        Err("events: stream ended".into())
+        Err(down(WireKind::Dropped("the stream ended".into())))
     }
 }
 

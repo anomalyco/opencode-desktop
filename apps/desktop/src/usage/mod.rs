@@ -145,7 +145,7 @@ impl App {
         });
         self.job(move |srv| {
             let path = format!("/api/experimental/usage/limits?location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
-            let answer = srv.get(&path);
+            let answer = srv.get(&path).map_err(|e| e.to_string());
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 loaded(s, attempt, &directory, answer);

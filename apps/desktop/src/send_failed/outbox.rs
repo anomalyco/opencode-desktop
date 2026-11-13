@@ -227,16 +227,22 @@ impl App {
     }
 
     pub(crate) fn tick_outbox(&mut self, tx: &mut rune::Tx) -> bool {
-        if !self.unsent.waiting_for_link() {
-            return false;
+        // A prompt sending past `SLOW_SEND` says so whether or not the link is up: a server that
+        // took the POST and holds it is the case it's for.
+        let now = *self.clock;
+        let (mut changed, slow_at) = self.unsent.tell_slow(now);
+        if let Some(at) = slow_at {
+            tx.wake_at(at);
         }
-        let mut changed = false;
+        if !self.unsent.waiting_for_link() {
+            return changed;
+        }
         let due = match self.unsent.retry {
             Retry::Ready => *self.clock,
             Retry::Backoff { until, .. } => until,
         };
         if *self.clock >= due {
-            changed = self.pump_outbox();
+            changed |= self.pump_outbox();
             self.defer_outbox();
         }
         let next = match self.unsent.retry {

@@ -197,5 +197,15 @@
   "rune.web.signOut": "Odjava",
   "rune.web.connect.notServer": "Ta naslov odgovarja, vendar ni strežnik OpenCode: preverite naslov.",
   "rune.web.connect.insecure": "Ta stran je na https, brskalnik pa ji ne dovoli doseči strežnika na navadnem http. Uporabite naslov https strežnika.",
-  "rune.web.connect.useOrigin": "Uporabi {{origin}}"
+  "rune.web.connect.useOrigin": "Uporabi {{origin}}",
+  "rune.fork.slow": "Čakanje na strežnik…",
+  "rune.queue.changeFailed": "Čakalne vrste ni bilo mogoče spremeniti",
+  "rune.review.readFailed": "Sprememb ni bilo mogoče prebrati",
+  "rune.send.slow": "Pošiljanje · strežnik še ni odgovoril · sporočilo je shranjeno in bo preverjeno, če odgovor ne pride",
+  "rune.session.reconnecting": "Vnovično povezovanje…",
+  "rune.session.slowCopy": "Ta strežnik se odziva počasi · prikazano je, kar je bilo shranjeno",
+  "rune.undo.commentDiscarded": "Komentar zavržen",
+  "rune.undo.queueRemoved": "Odstranjeno iz čakalne vrste",
+  "rune.undo.sessionDeleted": "Seja izbrisana",
+  "rune.toast.renameNoAnswer": "Strežnik novega naslova ni pravočasno potrdil, zato je vrnjen naslov, ki ga je nazadnje sprejel. Poskusite znova čez trenutek."
 }

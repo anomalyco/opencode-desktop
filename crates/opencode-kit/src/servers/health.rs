@@ -119,6 +119,9 @@ pub struct Waiter {
 pub struct State {
     pub entries: Vec<(ServerKey, Slot)>,
     pub waiters: Vec<Waiter>,
+    /// Servers whose event stream is up: its 15 s heartbeat already says they're alive, so the
+    /// poll leaves them be (beyond Desktop, which polls every server every 10 s regardless).
+    pub streaming: Vec<ServerKey>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,6 +132,8 @@ pub enum Event {
     /// Something other than a probe says server `key` went away or came back (its event stream
     /// dropped or reopened): probe it now rather than at the next poll.
     Nudged(ServerKey),
+    /// Server `key`'s event stream opened (`true`) or dropped (`false`).
+    Streaming { key: ServerKey, up: bool },
     ProbeSettled { key: ServerKey, attempt: Attempt, result: ProbeResult },
     Disposed,
 }
@@ -160,9 +165,10 @@ impl State {
         self.get(key).map(Slot::health)
     }
 
-    /// `polling` (`:347-349`): any server has an endpoint.
+    /// `polling` (`:347-349`): any server has an endpoint, and its event stream isn't up to say
+    /// it's alive.
     pub fn polling(&self) -> bool {
-        self.entries.iter().any(|(_, s)| !matches!(s, Slot::Staged { .. }))
+        self.entries.iter().any(|(k, s)| !matches!(s, Slot::Staged { .. }) && !self.streaming.contains(k))
     }
 }
 
@@ -173,6 +179,7 @@ pub fn step(state: &mut State, event: Event) -> Effects<Effect> {
         Event::PollDue => polled(state),
         Event::RetryRequested(id) => retried(state, id),
         Event::Nudged(key) => nudged(state, &key),
+        Event::Streaming { key, up } => streaming(state, key, up),
         Event::ProbeSettled { key, attempt, result } => answered(state, key, attempt, result),
         // Stop polling and release every `retry` caller.
         Event::Disposed => {
@@ -242,6 +249,9 @@ fn listed(slot: Option<&Slot>, input: &Input) -> Slot {
 fn polled(state: &mut State) -> Effects<Effect> {
     let mut fx = Effects::none();
     for (key, slot) in &mut state.entries {
+        if state.streaming.contains(key) {
+            continue;
+        }
         if let Slot::Settled { endpoint, result, attempt } = slot {
             let attempt = Attempt(attempt.0 + 1);
             fx.push(Effect::Probe { key: key.clone(), attempt, http: endpoint.http.clone() });
@@ -290,6 +300,30 @@ fn nudged(state: &mut State, key: &ServerKey) -> Effects<Effect> {
     let (Slot::Checking { endpoint, attempt } | Slot::Refreshing { endpoint, attempt, .. }) = &next else { return Effects::none() };
     let fx = Effects::one(Effect::Probe { key: key.clone(), attempt: *attempt, http: endpoint.http.clone() });
     *slot = next;
+    fx
+}
+
+/// A server's event stream opened or dropped: one that opened needs no poll while it stays up;
+/// one that dropped is probed now and polled again.
+fn streaming(state: &mut State, key: ServerKey, up: bool) -> Effects<Effect> {
+    if state.streaming.contains(&key) == up {
+        return Effects::none();
+    }
+    let was = state.polling();
+    if up {
+        state.streaming.push(key.clone());
+    } else {
+        state.streaming.retain(|k| *k != key);
+    }
+    // One that opened while its last probe said otherwise (unreachable, signed out) is asked once
+    // more, so what Home shows catches up with the stream.
+    let stale = !matches!(state.health(&key), Some(Health::Probe(ProbeResult::Healthy { .. })));
+    let mut fx = if up && !stale { Effects::none() } else { nudged(state, &key) };
+    match (was, state.polling()) {
+        (false, true) => fx.push(Effect::TimerStart { interval_ms: SERVER_HEALTH_POLL_MS }),
+        (true, false) => fx.push(Effect::TimerStop),
+        _ => {}
+    }
     fx
 }
 
@@ -425,5 +459,44 @@ pub fn indicator(health: Option<&Health>) -> Indicator {
         Some(Health::Probe(ProbeResult::Healthy { .. })) => Indicator::Healthy,
         Some(Health::Probe(ProbeResult::Unreachable)) => Indicator::Unreachable,
         Some(Health::Incompatible) => Indicator::Incompatible,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn listed(state: &mut State, key: &ServerKey) -> Attempt {
+        let fx = step(state, Event::ServersSynced(vec![Input::Endpoint { key: key.clone(), http: HttpBase::new("http://127.0.0.1:1"), managed: false }]));
+        fx.into_iter().find_map(|e| if let Effect::Probe { attempt, .. } = e { Some(attempt) } else { None }).expect("a first probe")
+    }
+
+    fn probes(fx: Effects<Effect>) -> usize {
+        fx.into_iter().filter(|e| matches!(e, Effect::Probe { .. })).count()
+    }
+
+    #[test]
+    fn a_streaming_server_is_not_polled() {
+        let (mut state, key) = (State::default(), ServerKey::new("http://127.0.0.1:1"));
+        let attempt = listed(&mut state, &key);
+        let healthy = ProbeResult::Healthy { version: None, hostname: None };
+        let fx = step(&mut state, Event::ProbeSettled { key: key.clone(), attempt, result: healthy });
+        assert!(fx.into_iter().any(|e| matches!(e, Effect::TimerStart { .. })));
+        let fx: Vec<Effect> = step(&mut state, Event::Streaming { key: key.clone(), up: true }).into_iter().collect();
+        assert_eq!(fx, vec![Effect::TimerStop]);
+        assert!(!state.polling());
+        assert_eq!(probes(step(&mut state, Event::PollDue)), 0);
+        // Dropped: probed now, and polled again.
+        let fx: Vec<Effect> = step(&mut state, Event::Streaming { key: key.clone(), up: false }).into_iter().collect();
+        assert_eq!(fx.iter().filter(|e| matches!(e, Effect::Probe { .. })).count(), 1);
+        assert!(fx.contains(&Effect::TimerStart { interval_ms: SERVER_HEALTH_POLL_MS }));
+    }
+
+    #[test]
+    fn a_stream_that_opens_over_an_unreachable_probe_asks_once_more() {
+        let (mut state, key) = (State::default(), ServerKey::new("http://127.0.0.1:1"));
+        let attempt = listed(&mut state, &key);
+        let _ = step(&mut state, Event::ProbeSettled { key: key.clone(), attempt, result: ProbeResult::Unreachable });
+        assert_eq!(probes(step(&mut state, Event::Streaming { key, up: true })), 1);
     }
 }

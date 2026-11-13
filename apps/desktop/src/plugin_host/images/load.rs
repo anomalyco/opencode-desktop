@@ -93,7 +93,7 @@ impl Source {
     pub fn read(self) -> Result<Vec<u8>, String> {
         match self {
             Source::Web(url) => crate::web_fetch::get(&url),
-            Source::Server { server, path } => server.get_bytes(&path),
+            Source::Server { server, path } => server.get_bytes(&path).map_err(|e| e.to_string()),
             Source::Data(url) => data_url(&url),
             Source::File(path) => std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display())),
             Source::Embedded(text) => Ok(text.as_bytes().to_vec()),

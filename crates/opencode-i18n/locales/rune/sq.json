@@ -197,5 +197,15 @@
   "rune.web.signOut": "Dil",
   "rune.web.connect.notServer": "Ajo adresë përgjigjet, por nuk është server OpenCode: kontrolloni adresën.",
   "rune.web.connect.insecure": "Kjo faqe është në https dhe shfletuesi nuk e lejon të arrijë një server në http të thjeshtë. Përdorni adresën https të serverit.",
-  "rune.web.connect.useOrigin": "Përdor {{origin}}"
+  "rune.web.connect.useOrigin": "Përdor {{origin}}",
+  "rune.fork.slow": "Në pritje të serverit…",
+  "rune.queue.changeFailed": "Radha nuk u ndryshua dot",
+  "rune.review.readFailed": "Ndryshimet nuk u lexuan dot",
+  "rune.send.slow": "Po dërgohet · serveri nuk është përgjigjur ende · mesazhi ruhet dhe do të kontrollohet nëse nuk vjen përgjigje",
+  "rune.session.reconnecting": "Po rilidhet…",
+  "rune.session.slowCopy": "Ky server përgjigjet ngadalë · po shfaqet ajo që u ruajt",
+  "rune.undo.commentDiscarded": "Komenti u hodh poshtë",
+  "rune.undo.queueRemoved": "U hoq nga radha",
+  "rune.undo.sessionDeleted": "Sesioni u fshi",
+  "rune.toast.renameNoAnswer": "Serveri nuk e konfirmoi titullin e ri në kohë, prandaj u rikthye titulli që pranoi së fundi. Provo sërish pas pak."
 }

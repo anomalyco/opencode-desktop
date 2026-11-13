@@ -196,7 +196,12 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     use opencode_kit::servers::home_load::{Failure, ListView, Unavailable};
     let list = match crate::projects::home::list_view(s) {
         ListView::Ready { .. } => list,
-        ListView::Loading { skeleton } => col().key("groups").w_full().children(skeleton.then(|| placeholder_rows(p, tier, show_project))),
+        ListView::Loading { skeleton } => {
+            // A server that took the launch's connection and hasn't answered says so (`Link::Slow`).
+            let slow = matches!(crate::reconnect::link_of(s, crate::servers::runtime::active(s).as_str()), opencode_kit::servers::link::Link::Slow { .. });
+            let note = slow.then(|| rune::text(t!("rune.session.slowCopy").to_owned()).key("home-slow").font(crate::view::UI_SMALL).color(p.faint).mb(8.0));
+            col().key("groups").w_full().children(note).children(skeleton.then(|| placeholder_rows(p, tier, show_project)))
+        }
         ListView::Unavailable(reason) => {
             let title = match reason {
                 Unavailable::Offline => t!("session.error.unreachable"),

@@ -134,9 +134,6 @@ pub fn missing(s: &mut App, id: &str, tx: &mut Tx) -> bool {
     run(s, effects, tx)
 }
 
-/// A read's error says the session isn't on its server.
-pub fn not_found_error(e: &str) -> bool { e.contains("http status: 404") }
-
 /// The server came back: what didn't resolve tries again.
 pub fn reconnected(s: &mut App, tx: &mut Tx) {
     let (server, now) = (server(s), *s.clock);
@@ -218,7 +215,9 @@ pub fn status(s: &App, p: &Pal) -> Option<El> {
         // Something on the network answers in the server's place (a sign-in page).
         Link::Intercepted { .. } => Some(small(opencode_i18n::t!("rune.session.interceptedCopy"))),
         Link::Offline { .. } => Some(small(opencode_i18n::t!("rune.session.offlineCopy"))),
-        link if link.reconnecting() => Some(small(crate::reconnect::RECONNECTING)),
+        // It took the launch's connection and hasn't answered since (`launch::FIRST_PATIENCE`).
+        Link::Slow { .. } => Some(small(opencode_i18n::t!("rune.session.slowCopy"))),
+        link if link.reconnecting() => Some(small(opencode_i18n::t!("rune.session.reconnecting"))),
         _ => None,
     }
 }

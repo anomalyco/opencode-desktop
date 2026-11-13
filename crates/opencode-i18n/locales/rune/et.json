@@ -197,5 +197,15 @@
   "rune.web.signOut": "Logi välja",
   "rune.web.connect.notServer": "See aadress vastab, kuid see pole OpenCode'i server: kontrolli aadressi.",
   "rune.web.connect.insecure": "See leht on https-is ja brauser ei lase tal jõuda tavalise http serverini. Kasuta serveri https-aadressi.",
-  "rune.web.connect.useOrigin": "Kasuta {{origin}}"
+  "rune.web.connect.useOrigin": "Kasuta {{origin}}",
+  "rune.fork.slow": "Serverit oodatakse…",
+  "rune.queue.changeFailed": "Järjekorda ei saanud muuta",
+  "rune.review.readFailed": "Muudatusi ei saanud lugeda",
+  "rune.send.slow": "Saatmine · server pole veel vastanud · sõnum on alles ja seda kontrollitakse, kui vastust ei tule",
+  "rune.session.reconnecting": "Ühendatakse uuesti…",
+  "rune.session.slowCopy": "See server vastab aeglaselt · kuvatakse salvestatud sisu",
+  "rune.undo.commentDiscarded": "Kommentaarist loobuti",
+  "rune.undo.queueRemoved": "Järjekorrast eemaldatud",
+  "rune.undo.sessionDeleted": "Seanss kustutatud",
+  "rune.toast.renameNoAnswer": "Server ei kinnitanud uut pealkirja õigel ajal, seega taastati viimati vastu võetud pealkiri. Proovi hetke pärast uuesti."
 }

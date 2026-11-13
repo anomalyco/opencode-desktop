@@ -197,5 +197,15 @@
   "rune.web.signOut": "Uitloggen",
   "rune.web.connect.notServer": "Dat adres antwoordt, maar het is geen OpenCode-server: controleer het adres.",
   "rune.web.connect.insecure": "Deze pagina staat op https, en de browser laat haar geen server op gewoon http bereiken. Gebruik het https-adres van de server.",
-  "rune.web.connect.useOrigin": "{{origin}} gebruiken"
+  "rune.web.connect.useOrigin": "{{origin}} gebruiken",
+  "rune.fork.slow": "Wachten op de server…",
+  "rune.queue.changeFailed": "Kan de wachtrij niet wijzigen",
+  "rune.review.readFailed": "Kan de wijzigingen niet lezen",
+  "rune.send.slow": "Verzenden · de server heeft nog niet geantwoord · het bericht blijft bewaard en wordt gecontroleerd als er geen antwoord komt",
+  "rune.session.reconnecting": "Opnieuw verbinden…",
+  "rune.session.slowCopy": "Deze server reageert traag · toont wat bewaard was",
+  "rune.undo.commentDiscarded": "Opmerking verworpen",
+  "rune.undo.queueRemoved": "Uit de wachtrij verwijderd",
+  "rune.undo.sessionDeleted": "Sessie verwijderd",
+  "rune.toast.renameNoAnswer": "De server heeft de nieuwe titel niet op tijd bevestigd, dus de titel die hij het laatst accepteerde is terug. Probeer het zo meteen opnieuw."
 }

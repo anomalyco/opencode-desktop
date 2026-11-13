@@ -58,11 +58,11 @@ impl App {
         };
         // Fixture runs act locally, as if the server agreed at once.
         if matches!(*self.source, Source::Fixture) {
-            return self.queue_settled(session, attempt.0, true);
+            return self.queue_settled(session, attempt.0, Ok(()));
         }
         let ticket = Ticket { kind: TicketKind::Inbox, session: session.to_owned(), attempt: attempt.0 };
         if !self.write(Write::Tracked { ticket, write: Box::new(write) }) {
-            self.queue_settled(session, attempt.0, false);
+            self.queue_settled(session, attempt.0, Err(None));
         }
     }
 
@@ -75,7 +75,7 @@ impl App {
         }
         if !self.can_write() {
             let (s, now) = (session.to_owned(), *self.clock);
-            return self.later(Box::new(move |app: &mut App, _| app.step_queue(&s, Event::Failed { attempt, hidden: Vec::new(), now: now })));
+            return self.later(Box::new(move |app: &mut App, _| app.step_queue(&s, Event::Failed { attempt, hidden: Vec::new(), why: None, now: now })));
         }
         let run = Arc::new(Mutex::new(Run::default()));
         let abort = run.lock().unwrap().abort.clone();
@@ -112,7 +112,8 @@ impl App {
                 }
                 _ => Ok(()),
             };
-            let ok = result.is_ok();
+            let why = result.err();
+            let ok = why.is_none();
             if ok {
                 run.lock().unwrap().stage = Stage::Settled;
             }
@@ -126,7 +127,7 @@ impl App {
                         app.apply_event("session.inbox.listed", &serde_json::json!({ "sessionID": session, "items": items }));
                     }
                     let now = *app.clock;
-                    app.step_queue(&session, if ok { Event::Succeeded { attempt, now: now } } else { Event::Failed { attempt, hidden, now: now } });
+                    app.step_queue(&session, if ok { Event::Succeeded { attempt, now: now } } else { Event::Failed { attempt, hidden, why, now: now } });
                 });
             })
         });

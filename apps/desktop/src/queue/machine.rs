@@ -192,8 +192,9 @@ pub enum Event {
     Moved { attempt: Attempt, moved: Vec<(String, String)> },
     Admitted { attempt: Attempt },
     Succeeded { attempt: Attempt, now: f64 },
-    /// `hidden`: the inbox ids the failed change already withdrew or cancelled.
-    Failed { attempt: Attempt, hidden: Vec<String>, now: f64 },
+    /// `hidden`: the inbox ids the failed change already withdrew or cancelled; `why`, the
+    /// client's error when it had one.
+    Failed { attempt: Attempt, hidden: Vec<String>, why: Option<opencode_kit::wire_error::WireError>, now: f64 },
     /// The clock: expired gone rows show again, and a change past its bound ends as it got.
     Tick { now: f64, stage: Stage, hidden: Vec<String> },
     /// The composer goes to another page: an open edit gives the composer its draft back.
@@ -221,8 +222,8 @@ pub enum Effect {
     Run { attempt: Attempt, operation: Operation },
     /// Stops the change at its next step; a request already sent still finishes.
     Abort { attempt: Attempt },
-    /// "Request failed".
-    Failed,
+    /// The change failed: its typed error (`status_toast::failed_wire`), or none when it was never sent.
+    Failed(Option<opencode_kit::wire_error::WireError>),
     /// "Redo the revert before you reorder or edit queued prompts".
     Reverted,
     /// "Leave shell mode before undoing a queued prompt".
@@ -396,7 +397,7 @@ impl Queue {
                 Effects::none()
             }
             Event::Succeeded { attempt, now } => self.succeeded(attempt, now),
-            Event::Failed { attempt, hidden, now } => self.failed(attempt, hidden, now),
+            Event::Failed { attempt, hidden, why, now } => self.failed(attempt, hidden, why, now),
             Event::Tick { now, stage, hidden } => {
                 self.gone.retain(|(_, expiry)| *expiry > now);
                 self.doubt.take_if(|d| d.expiry <= now);
@@ -410,7 +411,7 @@ impl Queue {
                     return Effects::none();
                 }
                 let mut effects = Effects::one(Effect::Abort { attempt });
-                effects.extend(if stage == Stage::Settled { self.succeeded(attempt, now) } else { self.failed(attempt, hidden, now) });
+                effects.extend(if stage == Stage::Settled { self.succeeded(attempt, now) } else { self.failed(attempt, hidden, Some(opencode_kit::wire_error::WireError::new("", "", opencode_kit::wire_error::WireKind::TimedOut)), now) });
                 effects
             }
         }
@@ -598,10 +599,10 @@ impl Queue {
         effects
     }
 
-    fn failed(&mut self, attempt: Attempt, hidden: Vec<String>, now: f64) -> Effects<Effect> {
+    fn failed(&mut self, attempt: Attempt, hidden: Vec<String>, why: Option<opencode_kit::wire_error::WireError>, now: f64) -> Effects<Effect> {
         let Some(active) = self.active().filter(|a| a.attempt == attempt).cloned() else { return Effects::none() };
         self.hide(hidden, now);
-        let mut effects = Effects::one(Effect::Failed);
+        let mut effects = Effects::one(Effect::Failed(why));
         // Nothing typed is lost: an edit that never reached the server returns to the composer,
         // merged into what it holds now, or into the draft an open edit stashed.
         let returned = match active.operation {

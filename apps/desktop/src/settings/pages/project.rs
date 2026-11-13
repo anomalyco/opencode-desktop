@@ -547,7 +547,7 @@ impl App {
                             s.apply_project(updated);
                         }
                     }
-                    Err(e) => crate::status_toast::say(s, t!("common.requestFailed"), &e),
+                    Err(e) => crate::status_toast::failed_wire(s, t!("rune.settings.project.saveFailed"), &e),
                 }
             }) as Apply
         });

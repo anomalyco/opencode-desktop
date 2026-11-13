@@ -197,5 +197,15 @@
   "rune.web.signOut": "වරන්න",
   "rune.web.connect.notServer": "එම ලිපිනය ප්‍රතිචාර දක්වයි, නමුත් එය OpenCode සේවාදායකයක් නොවේ: ලිපිනය පරීක්ෂා කරන්න.",
   "rune.web.connect.insecure": "මෙම පිටුව https මත ඇති අතර, සාමාන්‍ය http සේවාදායකයකට ළඟා වීමට බ්‍රවුසරය ඉඩ නොදේ. සේවාදායකයේ https ලිපිනය භාවිත කරන්න.",
-  "rune.web.connect.useOrigin": "{{origin}} භාවිත කරන්න"
+  "rune.web.connect.useOrigin": "{{origin}} භාවිත කරන්න",
+  "rune.fork.slow": "සේවාදායකය එනතුරු රැඳී සිටිමින්…",
+  "rune.queue.changeFailed": "පෝලිම වෙනස් කළ නොහැකි විය",
+  "rune.review.readFailed": "වෙනස්කම් කියවිය නොහැකි විය",
+  "rune.send.slow": "යවමින් · සේවාදායකය තවම පිළිතුරු දී නැත · එය තබා ඇති අතර පිළිතුරක් නොලැබුණහොත් පරීක්ෂා කෙරේ",
+  "rune.session.reconnecting": "නැවත සම්බන්ධ වෙමින්…",
+  "rune.session.slowCopy": "මෙම සේවාදායකය පිළිතුරු දීමට ප්‍රමාදයි · සුරැකි දේ පෙන්වමින්",
+  "rune.undo.commentDiscarded": "අදහස ඉවත දැමිණි",
+  "rune.undo.queueRemoved": "පෝලිමෙන් ඉවත් කෙරිණි",
+  "rune.undo.sessionDeleted": "සැසිය මකා දැමිණි",
+  "rune.toast.renameNoAnswer": "සේවාදායකය නව මාතෘකාව නියමිත වේලාවට තහවුරු නොකළ නිසා, එය අවසන් වරට පිළිගත් මාතෘකාව නැවත පැමිණ ඇත. මොහොතකින් නැවත උත්සාහ කරන්න."
 }

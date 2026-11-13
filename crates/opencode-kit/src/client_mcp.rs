@@ -407,7 +407,7 @@ impl Server {
     }
 
     /// Performs a JSON `GET` with an explicit timeout instead of the default 15s read timeout.
-    pub fn get_timeout(&self, path: &str, timeout: Duration) -> Result<Value, String> {
+    pub fn get_timeout(&self, path: &str, timeout: Duration) -> Result<Value, crate::wire_error::WireError> {
         Ok(self.get_json(path, None, timeout)?.0)
     }
 }

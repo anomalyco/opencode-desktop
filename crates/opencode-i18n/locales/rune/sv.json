@@ -197,5 +197,15 @@
   "rune.web.signOut": "Logga ut",
   "rune.web.connect.notServer": "Adressen svarar, men det är ingen OpenCode-server: kontrollera adressen.",
   "rune.web.connect.insecure": "Den här sidan är på https, och webbläsaren låter den inte nå en server på vanlig http. Använd serverns https-adress.",
-  "rune.web.connect.useOrigin": "Använd {{origin}}"
+  "rune.web.connect.useOrigin": "Använd {{origin}}",
+  "rune.fork.slow": "Väntar på servern…",
+  "rune.queue.changeFailed": "Det gick inte att ändra kön",
+  "rune.review.readFailed": "Det gick inte att läsa ändringarna",
+  "rune.send.slow": "Skickar · servern har inte svarat än · meddelandet sparas och kontrolleras om inget svar kommer",
+  "rune.session.reconnecting": "Återansluter…",
+  "rune.session.slowCopy": "Den här servern svarar långsamt · visar det som sparades",
+  "rune.undo.commentDiscarded": "Kommentaren förkastades",
+  "rune.undo.queueRemoved": "Borttaget från kön",
+  "rune.undo.sessionDeleted": "Sessionen togs bort",
+  "rune.toast.renameNoAnswer": "Servern bekräftade inte den nya titeln i tid, så titeln den senast godkände är tillbaka. Försök igen om en stund."
 }

@@ -197,5 +197,15 @@
   "rune.web.signOut": "התנתקות",
   "rune.web.connect.notServer": "הכתובת הזו עונה, אבל היא לא שרת OpenCode: בדקו את הכתובת.",
   "rune.web.connect.insecure": "הדף הזה ב-https, והדפדפן לא מרשה לו להגיע לשרת ב-http רגיל. השתמשו בכתובת ה-https של השרת.",
-  "rune.web.connect.useOrigin": "שימוש ב-{{origin}}"
+  "rune.web.connect.useOrigin": "שימוש ב-{{origin}}",
+  "rune.fork.slow": "ממתין לשרת…",
+  "rune.queue.changeFailed": "לא ניתן היה לשנות את התור",
+  "rune.review.readFailed": "לא ניתן היה לקרוא את השינויים",
+  "rune.send.slow": "שולח · השרת עדיין לא ענה · ההודעה נשמרת ותיבדק אם לא תגיע תשובה",
+  "rune.session.reconnecting": "מתחבר מחדש…",
+  "rune.session.slowCopy": "השרת הזה איטי בתגובה · מוצג מה שנשמר",
+  "rune.undo.commentDiscarded": "ההערה בוטלה",
+  "rune.undo.queueRemoved": "הוסר מהתור",
+  "rune.undo.sessionDeleted": "ההפעלה נמחקה",
+  "rune.toast.renameNoAnswer": "השרת לא אישר את הכותרת החדשה בזמן, ולכן חזרה הכותרת האחרונה שהוא קיבל. נסו שוב בעוד רגע."
 }

@@ -8,6 +8,8 @@ pub fn footer(s: &App, p: &Pal, id: &str) -> Option<El> {
         let label = match &sent.phase {
             Phase::Sending { then: Some(AfterCheck::Edit), .. } | Phase::Unconfirmed { then: Some(AfterCheck::Edit), .. } => "Checking delivery before editing".into(),
             Phase::Sending { then: Some(AfterCheck::Delete), .. } | Phase::Unconfirmed { then: Some(AfterCheck::Delete), .. } => "Checking delivery before deleting".into(),
+            // Past `SLOW_SEND` it says why the wait goes on: the server hasn't answered yet.
+            Phase::Sending { then: None, .. } if s.unsent.slow(id) => opencode_i18n::t!("rune.send.slow").into(),
             Phase::Sending { then: None, .. } => "Sending…".into(),
             Phase::Waiting { why } if why == "waiting for connection" => "Not sent · waiting for connection".into(),
             Phase::Waiting { why } if !why.is_empty() => format!("Not sent · {why} · retrying"),

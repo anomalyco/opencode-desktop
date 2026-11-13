@@ -197,5 +197,15 @@
   "rune.web.signOut": "سائن آؤٹ",
   "rune.web.connect.notServer": "اوہ پتہ جواب دیندا اے، پر اوہ OpenCode سرور نہیں اے: پتہ ویکھو۔",
   "rune.web.connect.insecure": "ایہہ صفحہ https تے اے، تے براؤزر ایہنوں سادے http والے سرور تیکر اپڑن نہیں دیندا۔ سرور دا https پتہ ورتو۔",
-  "rune.web.connect.useOrigin": "{{origin}} ورتو"
+  "rune.web.connect.useOrigin": "{{origin}} ورتو",
+  "rune.fork.slow": "سرور دی اُڈیک ہو رہی اے…",
+  "rune.queue.changeFailed": "قطار نئیں بدلی جا سکی",
+  "rune.review.readFailed": "تبدیلیاں نئیں پڑھیاں جا سکیاں",
+  "rune.send.slow": "بھیجیا جا رہیا اے · سرور نے ہلے جواب نئیں دتا · ایہہ رکھیا ہویا اے، تے جواب نہ آیا تے جانچیا جاوے گا",
+  "rune.session.reconnecting": "مڑ جُڑ رہیا اے…",
+  "rune.session.slowCopy": "ایہہ سرور جواب دین وچ ہولی اے · جو محفوظ کیتا سی اوہ وکھایا جا رہیا اے",
+  "rune.undo.commentDiscarded": "تبصرہ چھڈ دتا گیا",
+  "rune.undo.queueRemoved": "قطار وچوں ہٹا دتا گیا",
+  "rune.undo.sessionDeleted": "سیشن مٹا دتا گیا",
+  "rune.toast.renameNoAnswer": "سرور نے نویں سرخی دی ویلے سر تصدیق نئیں کیتی، ایس لئی آخری منی ہوئی سرخی واپس آ گئی اے۔ تھوڑی دیر بعد فیر کوشش کرو۔"
 }

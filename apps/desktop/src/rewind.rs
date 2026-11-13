@@ -357,11 +357,11 @@ impl App {
     }
 
     /// `Incoming::Settled` for a revert ticket.
-    pub(crate) fn revert_settled(&mut self, session: &str, attempt: u32, result: Result<(), String>) {
+    pub(crate) fn revert_settled(&mut self, session: &str, attempt: u32, result: Result<(), opencode_kit::wire_error::WireError>) {
         let attempt = Attempt(attempt);
         let event = match result {
             Ok(()) => Event::Succeeded { attempt },
-            Err(why) => Event::Failed { attempt, why, now: *self.clock },
+            Err(e) => Event::Failed { attempt, why: crate::errors::said(self, "", &e), now: *self.clock },
         };
         self.step_revert(session, event);
     }

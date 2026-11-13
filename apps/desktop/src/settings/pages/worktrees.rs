@@ -398,7 +398,7 @@ fn run(s: &mut App, effect: Effect) {
                     Some(reason) => Err(reason),
                     None => {
                         let body = json!({ "projectID": target.project, "directory": target.directory, "force": force });
-                        srv.write("DELETE", "/api/worktree", Some(body)).map(|_| ()).map_err(|e| Skip::Failed(Some(e)))
+                        srv.write("DELETE", "/api/worktree", Some(body)).map(|_| ()).map_err(|e| Skip::Failed(Some(e.to_string())))
                     }
                 };
                 Box::new(move |s: &mut App, tx: &mut Tx| {

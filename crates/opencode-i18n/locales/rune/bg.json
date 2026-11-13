@@ -197,5 +197,15 @@
   "rune.web.signOut": "Изход",
   "rune.web.connect.notServer": "Този адрес отговаря, но не е сървър на OpenCode: проверете адреса.",
   "rune.web.connect.insecure": "Тази страница е на https и браузърът не ѝ позволява да стигне до сървър на обикновен http. Използвайте https адреса на сървъра.",
-  "rune.web.connect.useOrigin": "Използвай {{origin}}"
+  "rune.web.connect.useOrigin": "Използвай {{origin}}",
+  "rune.fork.slow": "Изчакване на сървъра…",
+  "rune.queue.changeFailed": "Опашката не можа да се промени",
+  "rune.review.readFailed": "Промените не могат да се прочетат",
+  "rune.send.slow": "Изпраща се · сървърът още не е отговорил · съобщението е запазено и ще бъде проверено, ако няма отговор",
+  "rune.session.reconnecting": "Повторно свързване…",
+  "rune.session.slowCopy": "Този сървър отговаря бавно · показва се запазеното",
+  "rune.undo.commentDiscarded": "Коментарът е отхвърлен",
+  "rune.undo.queueRemoved": "Премахнато от опашката",
+  "rune.undo.sessionDeleted": "Сесията е изтрита",
+  "rune.toast.renameNoAnswer": "Сървърът не потвърди новото заглавие навреме, затова последното прието заглавие е върнато. Опитайте отново след малко."
 }

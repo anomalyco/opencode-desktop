@@ -197,5 +197,15 @@
   "rune.web.signOut": "ထွက်ရန်",
   "rune.web.connect.notServer": "ထိုလိပ်စာက တုံ့ပြန်သော်လည်း OpenCode ဆာဗာ မဟုတ်ပါ- လိပ်စာကို စစ်ဆေးပါ။",
   "rune.web.connect.insecure": "ဤစာမျက်နှာသည် https ပေါ်တွင်ရှိပြီး ဘရောက်ဇာက သာမန် http ဆာဗာသို့ ရောက်ခွင့်မပေးပါ။ ဆာဗာ၏ https လိပ်စာကို သုံးပါ။",
-  "rune.web.connect.useOrigin": "{{origin}} ကို သုံးရန်"
+  "rune.web.connect.useOrigin": "{{origin}} ကို သုံးရန်",
+  "rune.fork.slow": "ဆာဗာကို စောင့်နေသည်…",
+  "rune.queue.changeFailed": "တန်းစီကို ပြောင်း၍ မရပါ",
+  "rune.review.readFailed": "ပြောင်းလဲမှုများကို ဖတ်၍ မရပါ",
+  "rune.send.slow": "ပို့နေသည် · ဆာဗာက မဖြေရသေးပါ · သိမ်းထားပြီး အဖြေမလာပါက စစ်ဆေးပါမည်",
+  "rune.session.reconnecting": "ပြန်လည်ချိတ်ဆက်နေသည်…",
+  "rune.session.slowCopy": "ဤဆာဗာသည် ဖြေရန် နှေးနေသည် · သိမ်းထားသည်ကို ပြနေသည်",
+  "rune.undo.commentDiscarded": "မှတ်ချက်ကို ပယ်လိုက်ပြီ",
+  "rune.undo.queueRemoved": "တန်းစီမှ ဖယ်ရှားလိုက်ပြီ",
+  "rune.undo.sessionDeleted": "အပိုင်းကို ဖျက်လိုက်ပြီ",
+  "rune.toast.renameNoAnswer": "ဆာဗာက ခေါင်းစဉ်အသစ်ကို အချိန်မီ အတည်မပြုသဖြင့် နောက်ဆုံးလက်ခံထားသော ခေါင်းစဉ် ပြန်ရောက်လာပါပြီ။ ခဏနေမှ ထပ်စမ်းကြည့်ပါ။"
 }

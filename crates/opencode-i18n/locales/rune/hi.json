@@ -197,5 +197,15 @@
   "rune.web.signOut": "साइन आउट",
   "rune.web.connect.notServer": "वह पता जवाब देता है, पर वह OpenCode सर्वर नहीं है: पता जांचें।",
   "rune.web.connect.insecure": "यह पेज https पर है, और ब्राउज़र इसे सादे http वाले सर्वर तक पहुंचने नहीं देता। सर्वर का https पता इस्तेमाल करें।",
-  "rune.web.connect.useOrigin": "{{origin}} इस्तेमाल करें"
+  "rune.web.connect.useOrigin": "{{origin}} इस्तेमाल करें",
+  "rune.fork.slow": "सर्वर का इंतज़ार हो रहा है…",
+  "rune.queue.changeFailed": "कतार नहीं बदली जा सकी",
+  "rune.review.readFailed": "बदलाव पढ़े नहीं जा सके",
+  "rune.send.slow": "भेजा जा रहा है · सर्वर ने अभी तक जवाब नहीं दिया · यह सुरक्षित है, और जवाब न आने पर जांचा जाएगा",
+  "rune.session.reconnecting": "फिर से कनेक्ट हो रहा है…",
+  "rune.session.slowCopy": "यह सर्वर जवाब देने में धीमा है · जो सहेजा गया था वह दिख रहा है",
+  "rune.undo.commentDiscarded": "टिप्पणी हटा दी गई",
+  "rune.undo.queueRemoved": "कतार से हटाया गया",
+  "rune.undo.sessionDeleted": "सेशन हटा दिया गया",
+  "rune.toast.renameNoAnswer": "सर्वर ने नए शीर्षक की समय पर पुष्टि नहीं की, इसलिए पिछला स्वीकार किया गया शीर्षक वापस आ गया है। थोड़ी देर में फिर कोशिश करें।"
 }

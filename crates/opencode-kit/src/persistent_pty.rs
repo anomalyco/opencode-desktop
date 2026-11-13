@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::client::{Server, encode_component};
+use crate::wire_error::{WireError, WireKind};
 use crate::pty::PtyStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,14 +119,14 @@ pub fn attachment_id() -> String {
 
 impl Server {
     /// A session's terminals (`GET /api/experimental/session/:id/terminal`).
-    pub fn terminal_list(&self, session_id: &str) -> Result<Vec<PersistentPtyInfo>, String> {
+    pub fn terminal_list(&self, session_id: &str) -> Result<Vec<PersistentPtyInfo>, WireError> {
         let v = self.get(&format!("/api/experimental/session/{}/terminal", encode_component(session_id)))?;
         let items = v["data"].as_array().or_else(|| v.as_array());
         Ok(items.into_iter().flatten().filter_map(parse_persistent_pty_info).collect())
     }
 
     /// Starts the server's shell for a session (`POST /api/experimental/session/:id/terminal`).
-    pub fn terminal_create(&self, session_id: &str, input: &TerminalCreate) -> Result<PersistentPtyInfo, String> {
+    pub fn terminal_create(&self, session_id: &str, input: &TerminalCreate) -> Result<PersistentPtyInfo, WireError> {
         let path = format!("/api/experimental/session/{}/terminal", encode_component(session_id));
         let env: serde_json::Map<String, Value> = input.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
         let mut body = json!({ "args": input.args, "title": input.title, "env": env });
@@ -139,27 +140,27 @@ impl Server {
             body["size"] = json!({ "cols": cols.max(1), "rows": rows.max(1) });
         }
         let v = self.write("POST", &path, Some(body))?;
-        parse_persistent_pty_info(&v).ok_or_else(|| format!("POST {path}: missing terminal in reply"))
+        parse_persistent_pty_info(&v).ok_or_else(|| WireError::new("POST", &path, WireKind::Shape("missing terminal in reply".into())))
     }
 
     /// Renames a terminal; `None` gives it back the shell's title (`PUT /api/experimental/persistent-pty/:id`).
-    pub fn terminal_rename(&self, pty_id: &str, title: Option<&str>) -> Result<PersistentPtyInfo, String> {
+    pub fn terminal_rename(&self, pty_id: &str, title: Option<&str>) -> Result<PersistentPtyInfo, WireError> {
         let path = format!("/api/experimental/persistent-pty/{}", encode_component(pty_id));
         let v = self.write("PUT", &path, Some(json!({ "title": title })))?;
-        parse_persistent_pty_info(&v).ok_or_else(|| format!("PUT {path}: missing terminal in reply"))
+        parse_persistent_pty_info(&v).ok_or_else(|| WireError::new("PUT", &path, WireKind::Shape("missing terminal in reply".into())))
     }
 
     /// Ends the shell and forgets the terminal (`DELETE /api/experimental/persistent-pty/:id`).
-    pub fn terminal_remove(&self, pty_id: &str) -> Result<(), String> {
+    pub fn terminal_remove(&self, pty_id: &str) -> Result<(), WireError> {
         self.write("DELETE", &format!("/api/experimental/persistent-pty/{}", encode_component(pty_id)), None).map(|_| ())
     }
 
     /// The screen to restore before attaching (`GET /api/experimental/persistent-pty/:id/snapshot`).
-    pub fn terminal_snapshot(&self, pty_id: &str) -> Result<PersistentPtySnapshot, String> {
+    pub fn terminal_snapshot(&self, pty_id: &str) -> Result<PersistentPtySnapshot, WireError> {
         let path = format!("/api/experimental/persistent-pty/{}/snapshot", encode_component(pty_id));
         let v = self.get(&path)?;
         let d = &v["data"];
-        let info = parse_persistent_pty_info(&d["info"]).ok_or_else(|| format!("GET {path}: missing terminal in reply"))?;
+        let info = parse_persistent_pty_info(&d["info"]).ok_or_else(|| WireError::new("GET", &path, WireKind::Shape("missing terminal in reply".into())))?;
         let checkpoint = d["checkpoint"].as_str().and_then(crate::model::base64_decode).unwrap_or_default();
         Ok(PersistentPtySnapshot { info, checkpoint })
     }
@@ -167,7 +168,7 @@ impl Server {
     /// Mints a single-use ticket and returns the `ws://` URL that attaches to a terminal from
     /// `cursor`, with framed input (`input_protocol=1`). An observer only watches; a controller
     /// takes over the size and the keyboard.
-    pub fn terminal_connect_url(&self, pty_id: &str, cursor: i64, attachment_id: &str, observer: bool) -> Result<String, String> {
+    pub fn terminal_connect_url(&self, pty_id: &str, cursor: i64, attachment_id: &str, observer: bool) -> Result<String, WireError> {
         let id = encode_component(pty_id);
         let path = format!("/api/experimental/persistent-pty/{id}/connect-token");
         let (v, ..) = self.exchange("POST", &path, Some(&b"{}"[..]), Some(Duration::from_secs(15)), &[("x-opencode-ticket", "1")])?.json("POST", &path)?;
@@ -175,7 +176,7 @@ impl Server {
             .as_str()
             .or_else(|| v["ticket"].as_str())
             .filter(|t| !t.is_empty())
-            .ok_or_else(|| format!("POST {path}: missing ticket in reply"))?;
+            .ok_or_else(|| WireError::new("POST", &path, WireKind::Shape("missing ticket in reply".into())))?;
         let ws = match self.base.split_once("://") {
             Some(("https", rest)) => format!("wss://{rest}"),
             Some((_, rest)) => format!("ws://{rest}"),

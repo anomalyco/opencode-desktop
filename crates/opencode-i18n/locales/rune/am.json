@@ -197,5 +197,15 @@
   "rune.web.signOut": "ውጣ",
   "rune.web.connect.notServer": "ያ አድራሻ ምላሽ ይሰጣል፣ ግን የOpenCode አገልጋይ አይደለም፦ አድራሻውን ያረጋግጡ።",
   "rune.web.connect.insecure": "ይህ ገጽ በhttps ላይ ነው፣ አሳሹም በተራ http ላይ ያለ አገልጋይ እንዲደርስ አይፈቅድለትም። የአገልጋዩን https አድራሻ ይጠቀሙ።",
-  "rune.web.connect.useOrigin": "{{origin}} ይጠቀሙ"
+  "rune.web.connect.useOrigin": "{{origin}} ይጠቀሙ",
+  "rune.fork.slow": "አገልጋዩን በመጠበቅ ላይ…",
+  "rune.queue.changeFailed": "ወረፋውን መቀየር አልተቻለም",
+  "rune.review.readFailed": "ለውጦቹን ማንበብ አልተቻለም",
+  "rune.send.slow": "በመላክ ላይ · አገልጋዩ እስካሁን አልመለሰም · ተቀምጧል፣ መልስ ካልመጣ ይረጋገጣል",
+  "rune.session.reconnecting": "እንደገና በመገናኘት ላይ…",
+  "rune.session.slowCopy": "ይህ አገልጋይ ለመመለስ ዘግይቷል · የተቀመጠው እየታየ ነው",
+  "rune.undo.commentDiscarded": "አስተያየቱ ተሰርዟል",
+  "rune.undo.queueRemoved": "ከወረፋው ተወግዷል",
+  "rune.undo.sessionDeleted": "ክፍለ ጊዜው ተሰርዟል",
+  "rune.toast.renameNoAnswer": "አገልጋዩ አዲሱን ርዕስ በጊዜ አላረጋገጠም፣ ስለዚህ የመጨረሻው የተቀበለው ርዕስ ተመልሷል። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።"
 }

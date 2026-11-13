@@ -282,7 +282,7 @@ impl App {
                 Effect::CreateWorktree { attempt, project, from, branch } => {
                     let (session, key) = (id.to_owned(), crate::servers::runtime::active(self).clone());
                     self.job(move |srv| {
-                        let result = srv.create_worktree(&project, &from, branch.as_deref());
+                        let result = srv.create_worktree(&project, &from, branch.as_deref()).map_err(|e| e.to_string());
                         Box::new(move |s: &mut App, tx: &mut Tx| {
                             crate::servers::runtime::with_server(s, &key, |s| {
                                 if result.is_ok() {
@@ -338,11 +338,11 @@ impl App {
     /// `Incoming::SendFailed` for a start: the session goes (the server has deleted whatever it
     /// made), and the new-session page comes back with the prompt in its composer. False when
     /// `session` isn't starting.
-    pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &str, tx: &mut Tx) -> bool {
+    pub(crate) fn start_failed(&mut self, session: &str, prompt: &str, error: &opencode_kit::wire_error::WireError, tx: &mut Tx) -> bool {
         let effects = self.starts.step(session, Event::Failed);
         let Some(Effect::Rollback { directory, draft, worktree, .. }) = effects.into_iter().next() else { return false };
         let held = Some(Held { id: prompt.to_owned() });
-        let why = Why::Failed { title: FAILED, message: error.split_once(": ").map_or(error, |(_, why)| why).to_owned() };
+        let why = Why::Failed { title: FAILED, message: crate::errors::said(self, "", error) };
         self.roll_back_start(session, directory, draft, held, worktree, why, tx);
         true
     }

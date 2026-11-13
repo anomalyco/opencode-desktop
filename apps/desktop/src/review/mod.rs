@@ -356,12 +356,8 @@ impl App {
             Err(e) => {
                 let what = opencode_i18n::t!("rune.review.readFailed").to_owned();
                 let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
-                let wire = opencode_kit::wire_error::WireError::parse(&e);
-                let offline = wire.as_ref().is_some_and(|w| matches!(w.kind, opencode_kit::wire_error::WireKind::Unreachable(_) | opencode_kit::wire_error::WireKind::TimedOut));
-                let why = match wire {
-                    Some(w) => crate::errors::UserError::from_wire(&what, &server, &w).description(),
-                    None => crate::status_toast::plain(&e),
-                };
+                let offline = matches!(e.kind, opencode_kit::wire_error::WireKind::Unreachable(_) | opencode_kit::wire_error::WireKind::TimedOut);
+                let why = crate::errors::UserError::from_wire(&what, &server, &e).description();
                 let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
                 if sr.mode == fetched.mode {
                     sr.load.failed_with(fetched.mode, fetched.revision, why, offline);

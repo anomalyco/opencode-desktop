@@ -197,5 +197,15 @@
   "rune.web.signOut": "サインアウト",
   "rune.web.connect.notServer": "そのアドレスは応答しますが、OpenCode サーバーではありません。アドレスを確認してください。",
   "rune.web.connect.insecure": "このページは https のため、ブラウザは通常の http のサーバーへの接続を許可しません。サーバーの https アドレスを使ってください。",
-  "rune.web.connect.useOrigin": "{{origin}} を使う"
+  "rune.web.connect.useOrigin": "{{origin}} を使う",
+  "rune.fork.slow": "サーバーを待っています…",
+  "rune.queue.changeFailed": "キューを変更できませんでした",
+  "rune.review.readFailed": "変更内容を読み取れませんでした",
+  "rune.send.slow": "送信中 · サーバーはまだ応答していません · 保持されており、応答がなければ確認します",
+  "rune.session.reconnecting": "再接続しています…",
+  "rune.session.slowCopy": "このサーバーの応答が遅れています · 保存済みの内容を表示しています",
+  "rune.undo.commentDiscarded": "コメントを破棄しました",
+  "rune.undo.queueRemoved": "キューから削除しました",
+  "rune.undo.sessionDeleted": "セッションを削除しました",
+  "rune.toast.renameNoAnswer": "サーバーが新しいタイトルを時間内に確認しなかったため、最後に受け付けたタイトルに戻しました。少し待ってからもう一度お試しください。"
 }

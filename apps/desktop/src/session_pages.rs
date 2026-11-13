@@ -129,18 +129,18 @@ struct Queue {
 }
 
 type Shared = Arc<(Mutex<Queue>, Condvar)>;
-pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, String> + Send + Sync>;
+pub type Fetch = Arc<dyn Fn(&str) -> Result<Value, opencode_kit::wire_error::WireError> + Send + Sync>;
 
 pub struct Pages {
     shared: Shared,
-    pub results: Receiver<Result<Arc<Page>, (Key, String)>>,
+    pub results: Receiver<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>,
     wake: Option<Waker>,
     /// The server it reads (its base URL; empty for a fixture's or a test's).
     server: String,
     /// What the web's lanes read with: a page has no threads to wait on the queue, so each
     /// request starts a task that reads what's queued.
     #[cfg(target_arch = "wasm32")]
-    lanes: Option<(Fetch, Sender<Result<Arc<Page>, (Key, String)>>, Waker)>,
+    lanes: Option<(Fetch, Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, Waker)>,
 }
 
 impl Drop for Pages {
@@ -152,7 +152,7 @@ impl Drop for Pages {
 
 impl Pages {
     /// In-process delivery for deterministic stories/tests; no server or worker is started.
-    pub(crate) fn fixture(ready: Option<Arc<Page>>) -> (Self, Sender<Result<Arc<Page>, (Key, String)>>) {
+    pub(crate) fn fixture(ready: Option<Arc<Page>>) -> (Self, Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>) {
         let (send, results) = channel();
         let mut q = Queue::default();
         q.ready.extend(ready);
@@ -251,7 +251,7 @@ fn now() -> Instant {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn worker(q: Shared, fetch: Fetch, out: Sender<Result<Arc<Page>, (Key, String)>>, wake: Waker, foreground: bool) {
+fn worker(q: Shared, fetch: Fetch, out: Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, wake: Waker, foreground: bool) {
     let images = rune::ImageCache::new(wake.clone());
     loop {
         let job = {
@@ -285,7 +285,7 @@ fn take_now(q: &Shared, foreground: bool) -> Option<Job> {
 /// Reads `job` from the server and hands each page to `out`; false
 /// when the pool stopped meanwhile.
 #[allow(clippy::too_many_arguments)]
-fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, String)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
+fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>, wake: &Waker, images: &rune::ImageCache, foreground: bool, job: Job) -> bool {
     {
         let publish = |value: &Value, mut read: crate::telemetry::Read| {
             let parsing = Instant::now();
@@ -327,7 +327,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<Result<Arc<Page>, (Key, String)>
         // session stays as it is; the app speaks up only if the silence lasts (`State::stalled`).
         for attempt in 0.. {
             let Err(error) = &answer else { break };
-            if !foreground || !opencode_kit::plain_error::is_transient(error) { break; }
+            if !foreground || !error.transient() { break; }
             eprintln!("opencode-rune: session read failed, retrying: {error}");
             q.0.lock().unwrap().stalled.get_or_insert_with(now);
             wake();
@@ -576,24 +576,27 @@ impl super::App {
             }
             match result {
                 Ok(page) if self.route == super::Route::here(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
-                Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && crate::session_state::not_found_error(&error) => {
+                Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) && error.status() == Some(404) => {
                     *self.opening = None;
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
                 Err((key, error)) if self.opening.as_ref().is_some_and(|o| o.id == key.id) => {
-                    *self.status = error.clone();
-                    if let Some(o) = &mut *self.opening { o.step(OpenEvent::Failed(error)); }
+                    *self.status = error.to_string();
+                    // What the timeline's loading row says: why, from the typed error (`crate::errors`).
+                    let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
+                    let why = crate::errors::UserError::from_wire("Couldn't load this session", &server, &error).description().replace('\n', " ");
+                    if let Some(o) = &mut *self.opening { o.step(OpenEvent::Failed(why)); }
                     changed = true;
                 }
-                Err((key, error)) if self.route == super::Route::here(key.id.clone()) && crate::session_state::not_found_error(&error) => {
+                Err((key, error)) if self.route == super::Route::here(key.id.clone()) && error.status() == Some(404) => {
                     changed |= crate::session_state::missing(self, &key.id, tx);
                 }
                 Err((key, error)) if self.route == super::Route::here(key.id.clone()) => {
                     // A failure while its older page loads fails that page (its cooldown, then a retry).
                     changed |= self.step_history(&key.id, HistoryEvent::Failed { now: Instant::now() }, tx);
                     // A busy server is waited out; only silence that lasts is told (below).
-                    if opencode_kit::plain_error::is_transient(&error) { eprintln!("opencode-rune: session read failed: {error}"); continue; }
-                    crate::status_toast::fail(self, "Couldn't load this session", crate::status_toast::plain(error.split_once(": ").map_or(error.as_str(), |(_, why)| why)));
+                    if error.transient() { eprintln!("opencode-rune: session read failed: {error}"); continue; }
+                    crate::status_toast::failed_wire(self, "Couldn't load this session", &error);
                     changed = true;
                 }
                 _ => {}

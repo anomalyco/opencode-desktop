@@ -11,7 +11,7 @@ const MEDIA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 pub struct Demo {
     page: Arc<Page>,
-    send: Sender<Result<Arc<Page>, (Key, String)>>,
+    send: Sender<Result<Arc<Page>, (Key, opencode_kit::wire_error::WireError)>>,
     png: Vec<u8>,
     at: usize,
     // The "Switch at once" variant: a faithful replay of the old route switch.

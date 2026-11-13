@@ -197,5 +197,15 @@
   "rune.web.signOut": "Вийти",
   "rune.web.connect.notServer": "Ця адреса відповідає, але це не сервер OpenCode: перевірте адресу.",
   "rune.web.connect.insecure": "Ця сторінка відкрита через https, і браузер не дає їй звертатися до сервера через звичайний http. Використайте https-адресу сервера.",
-  "rune.web.connect.useOrigin": "Використати {{origin}}"
+  "rune.web.connect.useOrigin": "Використати {{origin}}",
+  "rune.fork.slow": "Очікування сервера…",
+  "rune.queue.changeFailed": "Не вдалося змінити чергу",
+  "rune.review.readFailed": "Не вдалося прочитати зміни",
+  "rune.send.slow": "Надсилання · сервер ще не відповів · повідомлення збережено, і його буде перевірено, якщо відповіді не буде",
+  "rune.session.reconnecting": "Повторне підключення…",
+  "rune.session.slowCopy": "Цей сервер відповідає повільно · показано те, що було збережено",
+  "rune.undo.commentDiscarded": "Коментар скасовано",
+  "rune.undo.queueRemoved": "Вилучено з черги",
+  "rune.undo.sessionDeleted": "Сесію видалено",
+  "rune.toast.renameNoAnswer": "Сервер не підтвердив нову назву вчасно, тому повернулася назва, яку він прийняв останньою. Спробуйте ще раз трохи згодом."
 }

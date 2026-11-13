@@ -197,5 +197,15 @@
   "rune.web.signOut": "Atsijungti",
   "rune.web.connect.notServer": "Šis adresas atsako, bet tai ne OpenCode serveris: patikrinkite adresą.",
   "rune.web.connect.insecure": "Šis puslapis yra per https, o naršyklė neleidžia jam pasiekti serverio per paprastą http. Naudokite serverio https adresą.",
-  "rune.web.connect.useOrigin": "Naudoti {{origin}}"
+  "rune.web.connect.useOrigin": "Naudoti {{origin}}",
+  "rune.fork.slow": "Laukiama serverio…",
+  "rune.queue.changeFailed": "Nepavyko pakeisti eilės",
+  "rune.review.readFailed": "Nepavyko perskaityti pakeitimų",
+  "rune.send.slow": "Siunčiama · serveris dar neatsakė · žinutė išsaugota ir bus patikrinta, jei atsakymas neateis",
+  "rune.session.reconnecting": "Jungiamasi iš naujo…",
+  "rune.session.slowCopy": "Šis serveris lėtai atsako · rodoma tai, kas išsaugota",
+  "rune.undo.commentDiscarded": "Komentaras atmestas",
+  "rune.undo.queueRemoved": "Pašalinta iš eilės",
+  "rune.undo.sessionDeleted": "Seansas ištrintas",
+  "rune.toast.renameNoAnswer": "Serveris laiku nepatvirtino naujo pavadinimo, todėl grąžintas paskutinis jo priimtas pavadinimas. Bandykite dar kartą po akimirkos."
 }

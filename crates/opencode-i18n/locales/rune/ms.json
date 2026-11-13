@@ -197,5 +197,15 @@
   "rune.web.signOut": "Log keluar",
   "rune.web.connect.notServer": "Alamat itu menjawab, tetapi ia bukan pelayan OpenCode: semak alamat.",
   "rune.web.connect.insecure": "Halaman ini pada https, dan pelayar tidak membenarkannya mencapai pelayan pada http biasa. Gunakan alamat https pelayan.",
-  "rune.web.connect.useOrigin": "Guna {{origin}}"
+  "rune.web.connect.useOrigin": "Guna {{origin}}",
+  "rune.fork.slow": "Menunggu pelayan…",
+  "rune.queue.changeFailed": "Tidak dapat mengubah baris gilir",
+  "rune.review.readFailed": "Tidak dapat membaca perubahan",
+  "rune.send.slow": "Menghantar · pelayan belum menjawab · mesej disimpan dan akan disemak jika tiada jawapan",
+  "rune.session.reconnecting": "Menyambung semula…",
+  "rune.session.slowCopy": "Pelayan ini lambat menjawab · menunjukkan apa yang disimpan",
+  "rune.undo.commentDiscarded": "Ulasan dibuang",
+  "rune.undo.queueRemoved": "Dialih keluar daripada baris gilir",
+  "rune.undo.sessionDeleted": "Sesi dipadamkan",
+  "rune.toast.renameNoAnswer": "Pelayan tidak mengesahkan tajuk baharu tepat pada masanya, jadi tajuk yang terakhir diterimanya dikembalikan. Cuba lagi sebentar nanti."
 }

@@ -69,7 +69,7 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
     }
     let send = move |srv: &opencode_kit::client::Server, path: &str| {
         let answer = if method.eq_ignore_ascii_case("GET") {
-            srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text))
+            srv.get_text_ready(path).map(|text| (serde_json::from_str(&text).ok(), text)).map_err(|e| e.to_string())
         } else {
             let method = match method.to_ascii_uppercase().as_str() {
                 "PATCH" => "PATCH",

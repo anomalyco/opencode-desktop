@@ -632,8 +632,7 @@ impl App {
             // Restored after the dialog stopped waiting: it shows as restored, and no tab opens.
             match ok {
                 true => self.unarchive_session_locally(&id),
-                // An Unarchive from the Inbox says it failed as any write does.
-                false if !why.is_empty() => crate::status_toast::from_server(self, why.to_owned()),
+                // An Unarchive from the Inbox says it failed as any write does (`session_write_replied`).
                 false => {}
             }
             return;

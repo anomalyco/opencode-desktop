@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use super::Prompt;
 use crate::model::{self, Delivery, Message, Pending, SessionInfo};
+use crate::wire_error::WireError;
 
 #[derive(Clone)]
 pub enum Incoming {
@@ -14,16 +15,32 @@ pub enum Incoming {
     Children { parent: String, sessions: Vec<SessionInfo> },
     Messages { session: String, messages: Vec<Message> },
     Event { ty: String, data: Value },
+    /// A line for the debug bar or a toast that isn't a failure (`Saved session to …`).
     Status(String),
+    /// The event stream dropped, or failed to open, with what it failed with. Its reader tries
+    /// again on its own.
+    StreamDown(WireError),
+    /// After a network change or a wake, the stream's server didn't answer a check
+    /// (`streams::verify`): it's offline now, whatever its stream looked like.
+    Unanswered(WireError),
+    /// A read or write that failed, as the client knows it: the call and what answered, typed.
+    /// The UI builds what it says from this, never from text.
+    Failed(WireError),
     /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
-    /// with the id the prompt was sent under and the raw error.
-    SendFailed { session: String, id: String, error: String },
+    /// with the id the prompt was sent under and its error.
+    SendFailed { session: String, id: String, error: WireError },
+    /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
+    /// error when it failed.
+    SessionWrite { data: Value, error: Option<WireError> },
     /// A session's open permission requests and forms.
     Pending { session: String, items: Vec<Pending> },
     /// A session this app just created (its first prompt is already sent).
     Created(SessionInfo),
     /// The event stream is back after a drop: anything may have changed in the gap.
     Reconnected,
+    /// The event stream opened for the first time (`server.connected`): the server is alive for as
+    /// long as it stays up, so its health needn't be polled.
+    Opened,
     /// The sessions running right now (the reply to `Request::Active`).
     Active(Vec<String>),
     /// The server's project list (`/api/project`).
@@ -33,7 +50,7 @@ pub enum Incoming {
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
     /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
     /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
-    Settled { ticket: Ticket, result: Result<Option<SessionInfo>, String> },
+    Settled { ticket: Ticket, result: Result<Option<SessionInfo>, WireError> },
 }
 
 /// Which machine asked for a tracked write, for which session, at which attempt: the write's

@@ -68,6 +68,9 @@ pub struct Menus {
     rename: rename::Edit,
     pub edit: TextEdit,
     save: rename::Save,
+    /// The save this window stopped waiting for and already said so (session, title): its late
+    /// failure says nothing more.
+    gave_up: Option<(String, String)>,
     seq: Seq,
     /// Delete's confirmation.
     delete: delete::Delete,
@@ -247,6 +250,10 @@ impl App {
     /// Runs `event` through the rename machine and carries out what it asks.
     fn rename_event(&mut self, event: rename::Event<'_>, why: &str) {
         let m = &mut *self.menus;
+        let waiting = match &m.save {
+            rename::Save::Saving { session, optimistic, .. } => Some((session.clone(), optimistic.clone())),
+            _ => None,
+        };
         for effect in rename::step(&mut m.seq, &mut m.rename, &mut m.save, event) {
             match effect {
                 rename::Effect::Arm(title) => {
@@ -277,12 +284,20 @@ impl App {
                     })
                     .unwrap_or((false, None));
                     if self.stage.is_some() || !sent {
+                        let why = if sent { why } else { opencode_i18n::t!("rune.send.disconnected") };
                         return self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() }, why);
                     }
                 }
                 // `poll_rename` keeps the save's deadline.
                 rename::Effect::WakeAt(_) => {}
-                rename::Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), if why.is_empty() { opencode_i18n::t!("common.requestFailed") } else { why }),
+                // A refusal in the server's words has its own toast (`from_server`, in
+                // `session_write_replied`); this says the rest: not sent, or no answer in time.
+                rename::Effect::Failed if why.is_empty() => {
+                    self.menus.gave_up = waiting.clone();
+                    crate::status_toast::fail(self, opencode_i18n::t!("rune.toast.renameFailed"), opencode_i18n::t!("rune.toast.renameNoAnswer"));
+                }
+                rename::Effect::Failed if why == opencode_i18n::t!("rune.send.disconnected") => crate::status_toast::fail(self, opencode_i18n::t!("rune.toast.renameFailed"), why),
+                rename::Effect::Failed => {}
             }
         }
     }
@@ -329,10 +344,12 @@ impl App {
     }
 
     /// The server answered a rename, a delete or a restore this window sent (`client.session.write`).
-    pub(crate) fn session_write_replied(&mut self, data: &serde_json::Value, tx: &mut Tx) {
+    pub(crate) fn session_write_replied(&mut self, data: &serde_json::Value, error: Option<opencode_kit::wire_error::WireError>, tx: &mut Tx) {
         let session = data["sessionID"].as_str().unwrap_or_default().to_owned();
         let ok = data["ok"].as_bool() == Some(true);
-        let why = data["error"].as_str().map(crate::status_toast::plain).unwrap_or_default();
+        // What the machines below keep of a failure (an inline note); the toast is said from the
+        // typed error itself, once, at the end.
+        let why = error.as_ref().map(|e| crate::errors::said(self, "", e)).unwrap_or_default();
         let why = why.as_str();
         match data["kind"].as_str() {
             Some("rename") => {
@@ -340,10 +357,13 @@ impl App {
                 // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
                 let server = crate::servers::runtime::active(self).clone();
                 let current = self.session(&session).map(|i| i.title.clone());
-                let ours = matches!(&self.menus.save, rename::Save::Saving { session: s, server: k, optimistic, .. } if *s == session && *k == server && *optimistic == title);
-                // A rename this edit didn't send (the rename dialog's) says so as any write does.
-                if !ours && !ok {
-                    crate::status_toast::from_server(self, why.to_owned());
+                // A save this window already gave up on (and said so) says nothing more when it fails late.
+                if self.menus.gave_up.as_ref().is_some_and(|(s, t)| *s == session && *t == title) {
+                    self.menus.gave_up = None;
+                    if !ok {
+                        self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() }, why);
+                        return;
+                    }
                 }
                 self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() }, why);
             }
@@ -354,8 +374,8 @@ impl App {
             Some("unarchive") => self.switcher_restore_replied(session, ok, why, tx),
             _ => {}
         }
-        if !ok && let Some(e) = data["error"].as_str() {
-            crate::status_toast::from_server(self, e.to_owned());
+        if let Some(e) = error {
+            crate::status_toast::from_wire(self, e);
         }
     }
 

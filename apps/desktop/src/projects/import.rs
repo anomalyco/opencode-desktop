@@ -180,7 +180,7 @@ impl App {
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let event = match made {
                     Ok(v) => Event::Imported { attempt, session: opencode_kit::model::parse_session(v.get("data").unwrap_or(&v)), here: (*s.route).clone() },
-                    Err(why) => Event::Failed { attempt, why },
+                    Err(e) => Event::Failed { attempt, why: crate::errors::said(s, "", &e) },
                 };
                 s.import_step(event, tx);
             }) as crate::jobs::Apply

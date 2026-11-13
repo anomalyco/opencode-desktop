@@ -197,5 +197,15 @@
   "rune.web.signOut": "Odjava",
   "rune.web.connect.notServer": "Ta adresa odgovara, ali nije OpenCode server: provjerite adresu.",
   "rune.web.connect.insecure": "Ova stranica je na https-u, a preglednik joj ne dozvoljava da dođe do servera na običnom http-u. Koristite https adresu servera.",
-  "rune.web.connect.useOrigin": "Koristi {{origin}}"
+  "rune.web.connect.useOrigin": "Koristi {{origin}}",
+  "rune.fork.slow": "Čeka se server…",
+  "rune.queue.changeFailed": "Red čekanja nije moguće promijeniti",
+  "rune.review.readFailed": "Promjene nije moguće pročitati",
+  "rune.send.slow": "Šalje se · server još nije odgovorio · poruka je sačuvana i bit će provjerena ako odgovor ne stigne",
+  "rune.session.reconnecting": "Ponovno povezivanje…",
+  "rune.session.slowCopy": "Ovaj server sporo odgovara · prikazano je što je sačuvano",
+  "rune.undo.commentDiscarded": "Komentar odbačen",
+  "rune.undo.queueRemoved": "Uklonjeno iz reda čekanja",
+  "rune.undo.sessionDeleted": "Sesija izbrisana",
+  "rune.toast.renameNoAnswer": "Server nije na vrijeme potvrdio novi naslov, pa je vraćen naslov koji je posljednji prihvatio. Pokušajte ponovo za trenutak."
 }

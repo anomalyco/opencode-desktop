@@ -797,7 +797,8 @@ impl session_view::TimelineHost for App {
         if let Some(s) = self.unsent.durable(id) {
             use std::hash::{DefaultHasher, Hash, Hasher};
             let mut version = DefaultHasher::new();
-            (s.state(), s.then(), s.why()).hash(&mut version);
+            // Past `SLOW_SEND` the footer says why the wait goes on: a new version.
+            (s.state(), s.then(), s.why(), self.unsent.slow(id)).hash(&mut version);
             return version.finish() | 8;
         }
         match self.unsent.state(id) {

@@ -197,5 +197,15 @@
   "rune.web.signOut": "Oturumu kapat",
   "rune.web.connect.notServer": "Bu adres yanıt veriyor ama bir OpenCode sunucusu değil: adresi kontrol edin.",
   "rune.web.connect.insecure": "Bu sayfa https üzerinde ve tarayıcı düz http üzerindeki bir sunucuya ulaşmasına izin vermiyor. Sunucunun https adresini kullanın.",
-  "rune.web.connect.useOrigin": "{{origin}} kullan"
+  "rune.web.connect.useOrigin": "{{origin}} kullan",
+  "rune.fork.slow": "Sunucu bekleniyor…",
+  "rune.queue.changeFailed": "Sıra değiştirilemedi",
+  "rune.review.readFailed": "Değişiklikler okunamadı",
+  "rune.send.slow": "Gönderiliyor · sunucu henüz yanıt vermedi · ileti saklanıyor ve yanıt gelmezse kontrol edilecek",
+  "rune.session.reconnecting": "Yeniden bağlanılıyor…",
+  "rune.session.slowCopy": "Bu sunucu yavaş yanıt veriyor · kaydedilenler gösteriliyor",
+  "rune.undo.commentDiscarded": "Yorum atıldı",
+  "rune.undo.queueRemoved": "Sıradan kaldırıldı",
+  "rune.undo.sessionDeleted": "Oturum silindi",
+  "rune.toast.renameNoAnswer": "Sunucu yeni başlığı zamanında onaylamadı, bu yüzden en son kabul ettiği başlık geri geldi. Birazdan yeniden deneyin."
 }

@@ -197,5 +197,15 @@
   "rune.web.signOut": "Izrakstīties",
   "rune.web.connect.notServer": "Šī adrese atbild, bet tas nav OpenCode serveris: pārbaudiet adresi.",
   "rune.web.connect.insecure": "Šī lapa ir https, un pārlūks neļauj tai sasniegt serveri ar parastu http. Izmantojiet servera https adresi.",
-  "rune.web.connect.useOrigin": "Izmantot {{origin}}"
+  "rune.web.connect.useOrigin": "Izmantot {{origin}}",
+  "rune.fork.slow": "Gaida serveri…",
+  "rune.queue.changeFailed": "Neizdevās mainīt rindu",
+  "rune.review.readFailed": "Neizdevās nolasīt izmaiņas",
+  "rune.send.slow": "Sūta · serveris vēl nav atbildējis · ziņojums ir saglabāts un tiks pārbaudīts, ja atbilde nepienāks",
+  "rune.session.reconnecting": "Atkārtoti savienojas…",
+  "rune.session.slowCopy": "Šis serveris atbild lēni · rāda saglabāto",
+  "rune.undo.commentDiscarded": "Komentārs atmests",
+  "rune.undo.queueRemoved": "Noņemts no rindas",
+  "rune.undo.sessionDeleted": "Sesija izdzēsta",
+  "rune.toast.renameNoAnswer": "Serveris laikus neapstiprināja jauno nosaukumu, tāpēc ir atjaunots pēdējais tā pieņemtais nosaukums. Mēģiniet vēlreiz pēc brīža."
 }

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde_json::{Map, Value, json};
 
 use super::{Prompt, Server, list, message_id};
+use crate::wire_error::WireError;
 
 /// How far a rewrite got (`MutationProgress` and the `mutation.*` events).
 #[derive(Clone, Debug, PartialEq)]
@@ -36,7 +37,7 @@ pub struct Replace {
 
 impl Server {
     /// The session's inbox as the server lists it now, raw.
-    pub fn inbox_items(&self, session: &str) -> Result<Vec<Value>, String> {
+    pub fn inbox_items(&self, session: &str) -> Result<Vec<Value>, WireError> {
         self.read(&format!("/api/session/{session}/inbox")).map(|v| list(&v))
     }
 
@@ -47,7 +48,7 @@ impl Server {
     }
 
     /// Admits `body` under `id` (`data.session.prompt`).
-    fn admit(&self, session: &str, id: &str, body: &Value) -> Result<(), String> {
+    fn admit(&self, session: &str, id: &str, body: &Value) -> Result<(), WireError> {
         let mut body = body.clone();
         body["id"] = id.into();
         self.write("POST", &format!("/api/session/{session}/prompt"), Some(body)).map(|_| ())
@@ -64,7 +65,7 @@ impl Server {
         replace: Option<&Replace>,
         abort: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
-    ) -> Result<(), String> {
+    ) -> Result<(), WireError> {
         let aborted = || abort.load(Ordering::SeqCst);
         if aborted() {
             return Err("aborted".into());
@@ -148,7 +149,7 @@ impl Server {
 
     /// A steered edit: `admission` steers under `id` in place of `original`, which then goes. An
     /// original the server delivered meanwhile keeps the edit draft instead of sending twice.
-    pub fn steer_edit(&self, session: &str, original: &str, id: &str, admission: &Value, abort: &AtomicBool, progress: &mut dyn FnMut(Progress)) -> Result<(), String> {
+    pub fn steer_edit(&self, session: &str, original: &str, id: &str, admission: &Value, abort: &AtomicBool, progress: &mut dyn FnMut(Progress)) -> Result<(), WireError> {
         if abort.load(Ordering::SeqCst) {
             return Err("aborted".into());
         }

@@ -279,29 +279,38 @@ pub fn succeed(s: &mut App, title: impl Into<String>, description: impl Into<Str
     show(s, e, Some(DURATION));
 }
 
-/// A line from the server's worker threads (`Incoming::Status`) that revert, fork and stop
-/// didn't claim. A failed write shows Desktop's toast for it; a failed read or a dropped event
-/// stream stays in the debug bar, since the app retries those itself.
+/// A line from the server's worker threads (`Incoming::Status`) that isn't a failure: an export
+/// saved, the configuration reloaded, or the event stream's own line (the link said it already).
 pub fn from_server(s: &mut App, e: String) {
     if let Some(path) = e.strip_prefix("Saved session to ") {
         let line = opencode_i18n::t!("toast.session.export.success.description", filename = path);
         return succeed(s, opencode_i18n::t!("toast.session.export.success.title"), line);
     }
-    let Some((call, why)) = e.split_once(": ") else {
-        return fail(s, opencode_i18n::t!("common.requestFailed"), e);
-    };
-    let (method, path) = call.split_once(' ').unwrap_or(("", call));
-    if method == "GET" || call == "events" {
-        *s.status = e;
+    if e == "Configuration reloaded" {
+        *s.status = String::new();
+        return succeed(s, opencode_i18n::t!("command.config.reload.done"), String::new());
+    }
+    // A failure comes typed (`Incoming::Failed`, `from_wire`); what's left is a line for the
+    // debug bar (the event stream's own, which the link already said).
+    *s.status = e;
+}
+/// A call titled `what` failed with `wire`: why and what next, the server's words quoted where
+/// it gave them, built from the typed error (`crate::errors`).
+pub fn failed_wire(s: &mut App, what: &str, wire: &opencode_kit::wire_error::WireError) {
+    let server = crate::servers::runtime::label(crate::servers::runtime::active(s));
+    error(s, &crate::errors::UserError::from_wire(what, &server, wire));
+}
+
+/// A read or write that failed (`Incoming::Failed`): a write shows Desktop's toast for it, said
+/// from the typed error; a read stays in the debug bar, since the app retries those itself.
+pub fn from_wire(s: &mut App, e: opencode_kit::wire_error::WireError) {
+    if e.method == "GET" {
+        *s.status = e.to_string();
         return;
     }
-    // What the call was and what answered, said as one honest message (`crate::errors`).
-    if let Some(wire) = opencode_kit::wire_error::WireError::parse(&e) {
-        let server = crate::servers::runtime::label(crate::servers::runtime::active(s));
-        return error(s, &crate::errors::UserError::from_wire(write_title(method, path), &server, &wire));
-    }
-    let why = plain(why);
-    fail(s, write_title(method, path), why);
+    let server = crate::servers::runtime::label(crate::servers::runtime::active(s));
+    let title = if e.method.is_empty() { opencode_i18n::t!("common.requestFailed") } else { write_title(e.method, &e.path) };
+    error(s, &crate::errors::UserError::from_wire(title, &server, &e));
 }
 
 /// Shows `e`: what happened, why and what to do, with Copy details, until dismissed.
@@ -328,6 +337,7 @@ fn write_title(method: &str, path: &str) -> &'static str {
         ("POST", "command") => opencode_i18n::t!("prompt.toast.commandSendFailed.title"),
         ("POST", "shell") => opencode_i18n::t!("prompt.toast.shellSendFailed.title"),
         ("POST", "session") => opencode_i18n::t!("prompt.toast.sessionCreateFailed.title"),
+        ("POST", "reload") => opencode_i18n::t!("command.config.reload.failed"),
         ("PATCH", _) if session_only => opencode_i18n::t!("rune.toast.renameFailed"),
         ("DELETE", _) if session_only => opencode_i18n::t!("session.delete.failed.title"),
         // Desktop's ⌃B move, and anything else, says only this.

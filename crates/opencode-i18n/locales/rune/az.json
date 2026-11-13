@@ -197,5 +197,15 @@
   "rune.web.signOut": "Çıxış",
   "rune.web.connect.notServer": "Bu ünvan cavab verir, amma OpenCode serveri deyil: ünvanı yoxlayın.",
   "rune.web.connect.insecure": "Bu səhifə https üzərindədir və brauzer ona adi http üzərindəki serverə çatmağa icazə vermir. Serverin https ünvanından istifadə edin.",
-  "rune.web.connect.useOrigin": "{{origin}} istifadə et"
+  "rune.web.connect.useOrigin": "{{origin}} istifadə et",
+  "rune.fork.slow": "Server gözlənilir…",
+  "rune.queue.changeFailed": "Növbəni dəyişmək olmadı",
+  "rune.review.readFailed": "Dəyişikliklər oxunmadı",
+  "rune.send.slow": "Göndərilir · server hələ cavab verməyib · saxlanılıb və cavab gəlməsə yoxlanılacaq",
+  "rune.session.reconnecting": "Yenidən qoşulur…",
+  "rune.session.slowCopy": "Bu server gec cavab verir · saxlanılanlar göstərilir",
+  "rune.undo.commentDiscarded": "Şərh ləğv edildi",
+  "rune.undo.queueRemoved": "Növbədən çıxarıldı",
+  "rune.undo.sessionDeleted": "Sessiya silindi",
+  "rune.toast.renameNoAnswer": "Server yeni başlığı vaxtında təsdiqləmədi, ona görə də son qəbul etdiyi başlıq geri qaytarıldı. Bir azdan yenidən cəhd edin."
 }

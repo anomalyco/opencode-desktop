@@ -197,5 +197,15 @@
   "rune.web.signOut": "Одјави се",
   "rune.web.connect.notServer": "Таа адреса одговара, но не е OpenCode сервер: проверете ја адресата.",
   "rune.web.connect.insecure": "Оваа страница е на https и прелистувачот не ѝ дозволува да стигне до сервер на обичен http. Користете ја https адресата на серверот.",
-  "rune.web.connect.useOrigin": "Користи {{origin}}"
+  "rune.web.connect.useOrigin": "Користи {{origin}}",
+  "rune.fork.slow": "Се чека серверот…",
+  "rune.queue.changeFailed": "Редот не може да се промени",
+  "rune.review.readFailed": "Промените не може да се прочитаат",
+  "rune.send.slow": "Се испраќа · серверот сè уште не одговорил · пораката е зачувана и ќе се провери ако не стигне одговор",
+  "rune.session.reconnecting": "Повторно поврзување…",
+  "rune.session.slowCopy": "Овој сервер бавно одговара · се прикажува зачуваното",
+  "rune.undo.commentDiscarded": "Коментарот е отфрлен",
+  "rune.undo.queueRemoved": "Отстрането од редот",
+  "rune.undo.sessionDeleted": "Сесијата е избришана",
+  "rune.toast.renameNoAnswer": "Серверот не го потврди новиот наслов навреме, па се врати насловот што последно го прифати. Обидете се повторно за момент."
 }

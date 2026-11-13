@@ -4,7 +4,6 @@
 //! admission and the exact message before replaying a journaled request with its original ID.
 use opencode_kit::client::{PathAttachment, Prompt};
 use opencode_kit::model::{Attachment, Message};
-use opencode_kit::plain_error::failed_for_sure;
 
 use crate::prompt_history::Entry;
 use crate::{App, Source};
@@ -23,6 +22,9 @@ pub use view::footer;
 use machine::{Effect, Event, Found, Verdict};
 
 const KEEP: usize = 32;
+/// How long a prompt sends before its footer says the server hasn't answered yet: a send that
+/// takes this long is no longer a moment's wait, and nothing else on screen says why.
+pub(crate) const SLOW_SEND: f64 = 5.0;
 
 /// A prompt's phase without its data, as the timeline and tests ask about it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -70,6 +72,8 @@ pub struct Sent {
     row: store::Row,
     /// How many times it was handed to a writer (`Phase::Sending`'s `handoff`).
     handoffs: u32,
+    /// When (`App::clock`) its current `Sending` began, and whether the footer says it's slow.
+    sending: Option<(f64, bool)>,
     /// The composer draft its words left, cleared in the transaction of its first row, so a crash
     /// never finds them both in the outbox and back in the composer (a second send).
     left_draft: Option<String>,
@@ -97,7 +101,7 @@ pub struct Log {
     store: store::Store,
     retry: Retry,
     sent: Vec<Sent>,
-    receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, String>)>>,
+    receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, opencode_kit::wire_error::WireError>)>>,
     check: Check,
 }
 
@@ -126,6 +130,34 @@ impl Log {
 
     pub(crate) fn durable(&self, id: &str) -> Option<&Sent> { self.sent.iter().find(|s| s.journaled && s.id == id && s.phase != Phase::Accepted) }
     pub(crate) fn journaled(&self, id: &str) -> bool { self.sent.iter().any(|s| s.id == id && s.journaled) }
+
+    /// Each poll: a prompt sending longer than [`SLOW_SEND`] says so (`view::footer`); when the
+    /// next one will. True when a footer changed.
+    pub(crate) fn tell_slow(&mut self, now: f64) -> (bool, Option<f64>) {
+        let mut changed = false;
+        let mut next: Option<f64> = None;
+        for s in &mut self.sent {
+            if !matches!(s.phase, Phase::Sending { .. }) {
+                continue;
+            }
+            let (since, told) = *s.sending.get_or_insert((now, false));
+            if told {
+                continue;
+            }
+            if now + 1e-9 >= since + SLOW_SEND {
+                s.sending = Some((since, true));
+                changed = true;
+            } else {
+                next = Some(next.map_or(since + SLOW_SEND, |n: f64| n.min(since + SLOW_SEND)));
+            }
+        }
+        (changed, next)
+    }
+
+    /// Whether prompt `id` has been sending past [`SLOW_SEND`].
+    pub(crate) fn slow(&self, id: &str) -> bool {
+        self.get(id).is_some_and(|s| matches!(s.sending, Some((_, true))))
+    }
 
     pub fn sending(&self, id: &str) -> bool { self.state(id) == Some(State::Unconfirmed) }
 
@@ -173,6 +205,7 @@ impl Sent {
             seq: store::next_seq(),
             row: store::Row::None,
             handoffs: 0,
+            sending: None,
             left_draft: None,
         }
     }
@@ -224,6 +257,12 @@ impl App {
         let before = s.result();
         let effects = machine::step(s, event);
         let after = s.result();
+        let now = *self.clock;
+        s.sending = match (&s.phase, s.sending) {
+            (Phase::Sending { .. }, Some(kept)) => Some(kept),
+            (Phase::Sending { .. }, None) => Some((now, false)),
+            _ => None,
+        };
         let changed = !effects.is_empty();
         for effect in effects {
             self.send_effect(id, effect);
@@ -267,34 +306,32 @@ impl App {
     }
 
     /// A prompt write's error (`Incoming::SendFailed`).
-    pub fn send_failed(&mut self, id: &str, error: &str) -> bool {
+    pub fn send_failed(&mut self, id: &str, error: &opencode_kit::wire_error::WireError) -> bool {
         let Some(sent) = self.unsent.get(id) else { return false };
         if sent.phase == Phase::Accepted { return true; }
         eprintln!("opencode-rune: prompt send failed: {error}");
         let (why, verdict) = if sent.journaled {
-            let code = reason::status(error);
+            let code = error.status();
             crate::telemetry::send_receipt(&sent.session, id, "write failed", code.unwrap_or(0));
             let not_started = match sent.operation {
-                outbox::Operation::Start(_) => error.starts_with("POST /api/session:"),
+                outbox::Operation::Start(_) => error.method == "POST" && error.path == "/api/session",
                 outbox::Operation::Worktree { .. } | outbox::Operation::Revert => false,
                 _ => true,
             };
             let verdict = if code.is_some_and(|n| (400..500).contains(&n) && !matches!(n, 408 | 425 | 429)) {
                 Verdict::Rejected
-            } else if code.is_none() && failed_for_sure(error) && not_started {
+            } else if code.is_none() && error.failed_for_sure() && not_started {
                 Verdict::Unsent
             } else {
                 Verdict::Lost
             };
             (reason::words(error).to_owned(), verdict)
         } else {
-            let why = error.split_once(": ").map_or(error, |(_, why)| why);
-            (crate::status_toast::plain(why), if failed_for_sure(error) { Verdict::Unsent } else { Verdict::Lost })
+            (reason::words(error).to_owned(), if error.failed_for_sure() { Verdict::Unsent } else { Verdict::Lost })
         };
         self.step_send(id, Event::WriteFailed { why, verdict });
         true
     }
-
     /// A successful read or reconnect retries receipts, with at most one bounded batch in flight.
     pub fn check_sends(&mut self) {
         if let Check::Checking { again } = &mut self.unsent.check { *again = true; return; }
@@ -315,7 +352,7 @@ impl App {
         true
     }
 
-    fn apply_receipts(&mut self, receipts: Vec<(String, Result<receipt::Receipt, String>)>) {
+    fn apply_receipts(&mut self, receipts: Vec<(String, Result<receipt::Receipt, opencode_kit::wire_error::WireError>)>) {
         let again = matches!(std::mem::take(&mut self.unsent.check), Check::Checking { again: true });
         for (id, result) in receipts {
             // A newer SSE receipt always wins over an older absent read.
@@ -332,7 +369,7 @@ impl App {
                     continue;
                 }
                 Ok(receipt::Receipt::Missing) => Found::Missing,
-                Err(error) if error.ends_with("http status: 404") => Found::NoSession,
+                Err(error) if error.status() == Some(404) => Found::NoSession,
                 Err(error) => {
                     eprintln!("opencode-rune: prompt receipt unavailable: {error}");
                     Found::Unknown(reason::words(&error))
@@ -415,7 +452,7 @@ impl Sent {
 }
 
 /// Each prompt's receipt in turn, stopping at the first the server can't answer.
-fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, String>, ask: Vec<(String, String)>) -> Vec<(String, Result<receipt::Receipt, String>)> {
+fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, opencode_kit::wire_error::WireError>, ask: Vec<(String, String)>) -> Vec<(String, Result<receipt::Receipt, opencode_kit::wire_error::WireError>)> {
     let mut results = Vec::new();
     for (session, id) in ask {
         let result = receipt::read(fetch, &session, &id);

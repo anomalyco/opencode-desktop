@@ -197,5 +197,15 @@
   "rune.web.signOut": "Chiqish",
   "rune.web.connect.notServer": "Bu manzil javob beradi, lekin u OpenCode serveri emas: manzilni tekshiring.",
   "rune.web.connect.insecure": "Bu sahifa https'da, va brauzer unga oddiy http'dagi serverga ulanishga ruxsat bermaydi. Serverning https manzilidan foydalaning.",
-  "rune.web.connect.useOrigin": "{{origin}} dan foydalanish"
+  "rune.web.connect.useOrigin": "{{origin}} dan foydalanish",
+  "rune.fork.slow": "Server kutilmoqda…",
+  "rune.queue.changeFailed": "Navbatni o‘zgartirib bo‘lmadi",
+  "rune.review.readFailed": "O‘zgarishlarni o‘qib bo‘lmadi",
+  "rune.send.slow": "Yuborilmoqda · server hali javob bermadi · u saqlanadi va javob kelmasa tekshiriladi",
+  "rune.session.reconnecting": "Qayta ulanmoqda…",
+  "rune.session.slowCopy": "Bu server sekin javob bermoqda · saqlangani ko‘rsatilmoqda",
+  "rune.undo.commentDiscarded": "Izoh bekor qilindi",
+  "rune.undo.queueRemoved": "Navbatdan olib tashlandi",
+  "rune.undo.sessionDeleted": "Sessiya o‘chirildi",
+  "rune.toast.renameNoAnswer": "Server yangi sarlavhani o‘z vaqtida tasdiqlamadi, shuning uchun u oxirgi qabul qilgan sarlavha qaytarildi. Birozdan keyin qayta urinib ko‘ring."
 }

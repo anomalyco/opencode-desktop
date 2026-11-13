@@ -197,5 +197,15 @@
   "rune.web.signOut": "გასვლა",
   "rune.web.connect.notServer": "ეს მისამართი პასუხობს, მაგრამ OpenCode სერვერი არ არის: შეამოწმეთ მისამართი.",
   "rune.web.connect.insecure": "ეს გვერდი https-ზეა და ბრაუზერი არ აძლევს მას ჩვეულებრივ http-ზე მყოფ სერვერთან დაკავშირების ნებას. გამოიყენეთ სერვერის https მისამართი.",
-  "rune.web.connect.useOrigin": "{{origin}}-ის გამოყენება"
+  "rune.web.connect.useOrigin": "{{origin}}-ის გამოყენება",
+  "rune.fork.slow": "სერვერს ველოდებით…",
+  "rune.queue.changeFailed": "რიგის შეცვლა ვერ მოხერხდა",
+  "rune.review.readFailed": "ცვლილებების წაკითხვა ვერ მოხერხდა",
+  "rune.send.slow": "იგზავნება · სერვერს ჯერ არ უპასუხია · შეტყობინება შენახულია და შემოწმდება, თუ პასუხი არ მოვა",
+  "rune.session.reconnecting": "ხელახლა დაკავშირება…",
+  "rune.session.slowCopy": "ეს სერვერი ნელა პასუხობს · ნაჩვენებია შენახული",
+  "rune.undo.commentDiscarded": "კომენტარი გაუქმდა",
+  "rune.undo.queueRemoved": "რიგიდან ამოიშალა",
+  "rune.undo.sessionDeleted": "სესია წაიშალა",
+  "rune.toast.renameNoAnswer": "სერვერმა ახალი სათაური დროულად არ დაადასტურა, ამიტომ დაბრუნდა მის მიერ ბოლოს მიღებული სათაური. სცადეთ ხელახლა ცოტა ხანში."
 }

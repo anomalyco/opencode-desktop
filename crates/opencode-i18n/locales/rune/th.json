@@ -197,5 +197,15 @@
   "rune.web.signOut": "ออกจากระบบ",
   "rune.web.connect.notServer": "ที่อยู่นั้นตอบกลับ แต่ไม่ใช่เซิร์ฟเวอร์ OpenCode: ตรวจสอบที่อยู่",
   "rune.web.connect.insecure": "หน้านี้ใช้ https และเบราว์เซอร์ไม่อนุญาตให้เข้าถึงเซิร์ฟเวอร์ที่ใช้ http ธรรมดา ใช้ที่อยู่ https ของเซิร์ฟเวอร์",
-  "rune.web.connect.useOrigin": "ใช้ {{origin}}"
+  "rune.web.connect.useOrigin": "ใช้ {{origin}}",
+  "rune.fork.slow": "กำลังรอเซิร์ฟเวอร์…",
+  "rune.queue.changeFailed": "เปลี่ยนคิวไม่ได้",
+  "rune.review.readFailed": "อ่านการเปลี่ยนแปลงไม่ได้",
+  "rune.send.slow": "กำลังส่ง · เซิร์ฟเวอร์ยังไม่ตอบ · เก็บไว้แล้ว และจะตรวจสอบหากไม่มีคำตอบ",
+  "rune.session.reconnecting": "กำลังเชื่อมต่อใหม่…",
+  "rune.session.slowCopy": "เซิร์ฟเวอร์นี้ตอบช้า · กำลังแสดงสิ่งที่บันทึกไว้",
+  "rune.undo.commentDiscarded": "ทิ้งความคิดเห็นแล้ว",
+  "rune.undo.queueRemoved": "นำออกจากคิวแล้ว",
+  "rune.undo.sessionDeleted": "ลบเซสชันแล้ว",
+  "rune.toast.renameNoAnswer": "เซิร์ฟเวอร์ไม่ได้ยืนยันชื่อใหม่ทันเวลา จึงกลับไปใช้ชื่อที่ยอมรับล่าสุด ลองอีกครั้งในอีกสักครู่"
 }

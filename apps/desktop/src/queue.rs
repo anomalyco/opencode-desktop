@@ -131,7 +131,9 @@ impl App {
             match effect {
                 Effect::Run { attempt, operation } => self.run_queue_op(session, attempt, operation),
                 Effect::Abort { attempt } => self.queue_runs.abort(session, attempt),
-                Effect::Failed => crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), ""),
+                Effect::Failed(Some(e)) => crate::status_toast::failed_wire(self, opencode_i18n::t!("rune.queue.changeFailed"), &e),
+                // Never sent: this window has no connection to write through.
+                Effect::Failed(None) => crate::status_toast::fail(self, opencode_i18n::t!("rune.queue.changeFailed"), opencode_i18n::t!("rune.send.disconnected")),
                 Effect::Reverted => crate::status_toast::say(self, opencode_i18n::t!("session.queue.reverted"), ""),
                 Effect::UndoShell => crate::status_toast::say(self, opencode_i18n::t!("session.queue.undoShell"), ""),
                 Effect::Load(_) | Effect::Restore { .. } | Effect::Merge { .. } => {}
@@ -140,14 +142,18 @@ impl App {
     }
 
     /// `Incoming::Settled` for a queue change of `session`. A change the server took shows at
-    /// once, as its event will say.
-    pub(crate) fn queue_settled(&mut self, session: &str, attempt: u32, ok: bool) {
+    /// once, as its event will say; one it refused says why (none when it was never sent).
+    pub(crate) fn queue_settled(&mut self, session: &str, attempt: u32, result: Result<(), Option<opencode_kit::wire_error::WireError>>) {
         let (attempt, now) = (Attempt(attempt), *self.clock);
         let Some((a, active)) = self.queue_ops.get(session).and_then(|q| q.running()).map(|(a, o)| (a, o.clone())) else { return };
         if a != attempt {
             return;
         }
-        if ok {
+        let why = match result {
+            Ok(()) => None,
+            Err(why) => Some(why),
+        };
+        if why.is_none() {
             let inbox = self.inboxes.entry(session.to_owned()).or_default();
             match &active {
                 Operation::Steer { id } => {
@@ -177,7 +183,7 @@ impl App {
             crate::windows::peer::touch(self);
             return self.step_queue(session, Event::Succeeded { attempt, now: now });
         }
-        self.step_queue(session, Event::Failed { attempt, hidden: Vec::new(), now: now });
+        self.step_queue(session, Event::Failed { attempt, hidden: Vec::new(), why: why.flatten(), now: now });
     }
 
     /// Each frame: confirmed rows' hiding expires and a change past its bound ends as it got.

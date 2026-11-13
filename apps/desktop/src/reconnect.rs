@@ -23,7 +23,6 @@ use crate::{App, Route, Source};
 
 /// A short drop says nothing; the stream thread already retries after 250 ms.
 pub const QUIET: f64 = opencode_kit::servers::link::QUIET;
-pub const RECONNECTING: &str = "Reconnecting…";
 /// The event stream is reopened after this long with nothing on it. The server sends a
 /// heartbeat every 15 s, so a tunnel that accepts but never answers is caught here.
 pub const STREAM_IDLE: Duration = Duration::from_secs(25);
@@ -80,6 +79,7 @@ pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::
     use opencode_kit::servers::link::Effect;
     let mut state = s.server_links.state(server);
     let was = state.dropped();
+    let opened = matches!(event, Event::StreamUp);
     let effects = state.step(event);
     let dropped = state.dropped();
     if state == Link::Online {
@@ -87,9 +87,11 @@ pub fn step_link(s: &mut App, server: &str, event: opencode_kit::servers::link::
     } else {
         s.server_links.states.insert(server.to_owned(), state);
     }
-    // The stream dropping or reopening is the first word that the server went or came back.
-    if was != dropped {
-        crate::servers::health::nudge(s, &opencode_kit::servers::ServerKey::new(server), tx);
+    // The stream opening says the server's alive for as long as it stays up (its heartbeat), so
+    // the health poll leaves it be; its dropping is the first word that the server went, and the
+    // poll asks at once and again every 10 s.
+    if opened || was != dropped {
+        crate::servers::health::streaming(s, &opencode_kit::servers::ServerKey::new(server), !dropped, tx);
     }
     let mut changed = false;
     for effect in effects {
@@ -113,34 +115,36 @@ pub fn link_of(s: &App, server: &str) -> Link {
     s.server_links.state(server)
 }
 
-/// An `events: <why>` line's typed error, when the client wrote one.
-fn stream_error(e: &str) -> Option<opencode_kit::wire_error::WireError> {
-    opencode_kit::wire_error::WireError::parse(&format!("GET /api/event: {}", e.strip_prefix("events: ")?))
-}
-
-/// A failure of the link itself, not the server's answer (a 5xx is a busy server, not a drop).
-pub fn link_error(e: &str) -> bool {
-    !e.contains("http status") && (opencode_kit::plain_error::is_transient(e) || opencode_kit::plain_error::failed_for_sure(e))
-}
-
-/// Notes a worker line (`Incoming::Status`). True when it was the event stream's own
-/// (`"events: …"`), which it claims; another call that failed on the link only marks it suspect.
-pub fn dropped(s: &mut App, e: &str, tx: &mut Tx) -> bool {
-    let Some(server) = server_of(s) else { return false };
+/// The event stream dropped or failed to open (`Incoming::StreamDown`), with its typed error.
+pub fn stream_down(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut Tx) {
+    let Some(server) = server_of(s) else { return };
     let now = *s.clock;
-    if e.starts_with("events:") {
-        // What was mid-text when it dropped grows again only from whole text (the barrier).
-        for (sid, t) in s.transcripts.iter() {
-            s.stream_gaps.entry(sid.clone()).or_default().extend(t.open_steps());
-        }
-        step_link(s, &server, Event::StreamDown { now, error: stream_error(e) }, tx);
-        *s.status = e.to_owned();
-        return true;
+    // What was mid-text when it dropped grows again only from whole text (the barrier).
+    for (sid, t) in s.transcripts.iter() {
+        s.stream_gaps.entry(sid.clone()).or_default().extend(t.open_steps());
     }
-    if link_error(e) {
+    *s.status = e.to_string();
+    step_link(s, &server, Event::StreamDown { now, error: Some(e) }, tx);
+}
+
+/// After a network change or a wake, the server didn't answer a check (`client::streams`):
+/// offline now, said at once.
+pub fn unanswered(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut Tx) {
+    let Some(server) = server_of(s) else { return };
+    let now = *s.clock;
+    *s.status = e.to_string();
+    step_link(s, &server, Event::Unanswered { now, error: Some(e) }, tx);
+}
+
+/// Another call failed: one that failed on the link itself (no connection, no answer in time,
+/// dropped), not on the server's answer, makes the link suspect.
+pub fn call_failed(s: &mut App, e: &opencode_kit::wire_error::WireError, tx: &mut Tx) {
+    use opencode_kit::wire_error::WireKind;
+    let Some(server) = server_of(s) else { return };
+    if matches!(e.kind, WireKind::Unreachable(_) | WireKind::TimedOut | WireKind::Dropped(_)) {
+        let now = *s.clock;
         step_link(s, &server, Event::CallFailed { now }, tx);
     }
-    false
 }
 
 /// The stream is back.

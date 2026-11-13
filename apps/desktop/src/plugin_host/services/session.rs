@@ -243,7 +243,7 @@ fn server(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     // Split off the UI thread: a long list's JSON is too much to decode in a frame.
                     let items = if items { split_items(&text) } else { None };
                     Fetched { text, items }
-                });
+                }).map_err(|e| e.to_string());
                 Box::new(move |s: &mut App, tx: &mut Tx| land(s, &plugin, &key, asked, answer, tx)) as crate::jobs::Apply
             });
         }

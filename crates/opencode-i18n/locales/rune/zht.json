@@ -197,5 +197,15 @@
   "rune.web.signOut": "登出",
   "rune.web.connect.notServer": "該位址有回應，但不是 OpenCode 伺服器：請檢查位址。",
   "rune.web.connect.insecure": "此頁面使用 https，瀏覽器不允許它連線到使用一般 http 的伺服器。請使用伺服器的 https 位址。",
-  "rune.web.connect.useOrigin": "使用 {{origin}}"
+  "rune.web.connect.useOrigin": "使用 {{origin}}",
+  "rune.fork.slow": "正在等待伺服器…",
+  "rune.queue.changeFailed": "無法變更佇列",
+  "rune.review.readFailed": "無法讀取變更",
+  "rune.send.slow": "正在傳送 · 伺服器尚未回應 · 已保留，若無回應將進行核對",
+  "rune.session.reconnecting": "正在重新連線…",
+  "rune.session.slowCopy": "此伺服器回應緩慢 · 正在顯示已儲存的內容",
+  "rune.undo.commentDiscarded": "已捨棄留言",
+  "rune.undo.queueRemoved": "已從佇列中移除",
+  "rune.undo.sessionDeleted": "已刪除工作階段",
+  "rune.toast.renameNoAnswer": "伺服器未及時確認新標題，因此已恢復為它最後接受的標題。請稍後再試。"
 }

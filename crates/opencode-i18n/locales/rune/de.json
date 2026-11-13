@@ -197,5 +197,15 @@
   "rune.web.signOut": "Abmelden",
   "rune.web.connect.notServer": "Diese Adresse antwortet, ist aber kein OpenCode-Server: Prüfe die Adresse.",
   "rune.web.connect.insecure": "Diese Seite läuft über https, und der Browser lässt sie keinen Server über reines http erreichen. Nutze die https-Adresse des Servers.",
-  "rune.web.connect.useOrigin": "{{origin}} verwenden"
+  "rune.web.connect.useOrigin": "{{origin}} verwenden",
+  "rune.fork.slow": "Warten auf den Server…",
+  "rune.queue.changeFailed": "Warteschlange konnte nicht geändert werden",
+  "rune.review.readFailed": "Änderungen konnten nicht gelesen werden",
+  "rune.send.slow": "Wird gesendet · der Server hat noch nicht geantwortet · die Nachricht bleibt erhalten und wird geprüft, falls keine Antwort kommt",
+  "rune.session.reconnecting": "Erneut verbinden…",
+  "rune.session.slowCopy": "Dieser Server antwortet langsam · zeigt, was gespeichert wurde",
+  "rune.undo.commentDiscarded": "Kommentar verworfen",
+  "rune.undo.queueRemoved": "Aus der Warteschlange entfernt",
+  "rune.undo.sessionDeleted": "Sitzung gelöscht",
+  "rune.toast.renameNoAnswer": "Der Server hat den neuen Titel nicht rechtzeitig bestätigt, daher ist der zuletzt akzeptierte Titel zurück. Versuchen Sie es gleich noch einmal."
 }

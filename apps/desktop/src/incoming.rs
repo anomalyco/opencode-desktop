@@ -26,7 +26,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx, arrivals: &mut Option<arrivals::Arr
         arrivals.get_or_insert_with(|| arrivals::Arrivals::before(s));
     }
     for h in heard {
-        if !matches!(&*h, crate::events::Heard::Message(Incoming::Status(_))) {
+        if !matches!(&*h, crate::events::Heard::Message(Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))) {
             changed |= reconnect::heard(s);
         }
         changed |= match &*h {
@@ -59,36 +59,45 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.check_sends();
             s.resync_view();
         }
-        Incoming::Status(e) => status(s, e, tx),
+        // The first open: the link was never down, but the health poll can stand down now.
+        Incoming::Opened => reconnect::back(s),
+        Incoming::Status(e) => status_toast::from_server(s, e),
+        Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
+        Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
         _ => {}
     }
     true
 }
 
-fn status(s: &mut App, e: String, tx: &mut Tx) {
-    if !reconnect::dropped(s, &e, tx) && !permission::failed(s, &e) {
-        status_toast::from_server(s, e);
+/// A read or write that failed: the link hears it, a reply's dock takes its own, and the rest
+/// is the toast for a failed write (a read stays in the debug bar: the app retries those).
+fn failed(s: &mut App, e: opencode_kit::wire_error::WireError, tx: &mut Tx) {
+    reconnect::call_failed(s, &e, tx);
+    if permission::failed(s, &e) {
+        return;
     }
+    status_toast::from_wire(s, e);
 }
 
 /// A tracked write's outcome, for the machine that asked under the attempt it asked with.
-fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, String>, tx: &mut Tx) {
+fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, opencode_kit::wire_error::WireError>, tx: &mut Tx) {
     let (session, attempt) = (ticket.session.as_str(), ticket.attempt);
     match ticket.kind {
         TicketKind::Stop => {
-            if let Err(why) = result {
-                stop::failed(s, session, attempt, &why);
+            if let Err(e) = result {
+                stop::failed(s, session, attempt, &e);
             }
         }
         TicketKind::Revert => s.revert_settled(session, attempt, result.map(|_| ())),
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
-        TicketKind::Inbox => s.queue_settled(session, attempt, result.is_ok()),
+        TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
     }
 }
 
 /// One reply to this window's own reads and writes.
 fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::Arrivals>) -> bool {
-    if !matches!(m, Incoming::Status(_) | Incoming::SendFailed { .. }) {
+    if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
         reconnect::heard(s);
     }
     match m {
@@ -159,19 +168,22 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 s.pump_outbox();
                 return admitted;
             }
-            if ty == "client.session.write" {
-                s.session_write_replied(&data, tx);
-                return true;
-            }
             if crate::motion_log::wanted() { s.motion_events.note(&ty); }
             return s.apply_event(&ty, &data);
         }
-        Incoming::Status(e) => status(s, e, tx),
+        Incoming::Status(e) => status_toast::from_server(s, e),
+        Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
+        Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
+        Incoming::SessionWrite { data, error } => {
+            s.session_write_replied(&data, error, tx);
+            return true;
+        }
         Incoming::SendFailed { session, id, error } => {
             if s.unsent.journaled(&id) {
                 s.send_failed(&id, &error);
             } else if !s.start_failed(&session, &id, &error, tx) && !s.send_failed(&id, &error) {
-                status_toast::from_server(s, error);
+                status_toast::from_wire(s, error);
             }
         }
         Incoming::Pending { session, items } => {
@@ -187,6 +199,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
             s.resync_shared();
             return message(s, Incoming::Reconnected, tx);
         }
+        Incoming::Opened => return message(s, Incoming::Opened, tx),
         Incoming::Active(ids) => {
             tx.instant();
             s.stops.reconcile(&ids);

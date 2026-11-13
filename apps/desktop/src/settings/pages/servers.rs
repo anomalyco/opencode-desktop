@@ -125,7 +125,7 @@ fn set_shell(s: &mut App, key: &ServerKey, value: &str) {
                 if let Some(e) = failed {
                     tx.instant();
                     s.settings_pages.servers.shells.entry(back).or_default().current = previous;
-                    crate::status_toast::say(s, t!("common.requestFailed"), &e);
+                    crate::status_toast::failed_wire(s, t!("common.requestFailed"), &e);
                 }
             }) as Apply
         });

@@ -197,5 +197,15 @@
   "rune.web.signOut": "ອອກຈາກລະບົບ",
   "rune.web.connect.notServer": "ທີ່ຢູ່ນັ້ນຕອບກັບ, ແຕ່ບໍ່ແມ່ນເຊີບເວີ OpenCode: ກວດສອບທີ່ຢູ່.",
   "rune.web.connect.insecure": "ໜ້ານີ້ໃຊ້ https, ແລະ ບຣາວເຊີບໍ່ອະນຸຍາດໃຫ້ມັນເຂົ້າເຖິງເຊີບເວີທີ່ໃຊ້ http ທຳມະດາ. ໃຊ້ທີ່ຢູ່ https ຂອງເຊີບເວີ.",
-  "rune.web.connect.useOrigin": "ໃຊ້ {{origin}}"
+  "rune.web.connect.useOrigin": "ໃຊ້ {{origin}}",
+  "rune.fork.slow": "ກຳລັງລໍຖ້າເຊີບເວີ…",
+  "rune.queue.changeFailed": "ປ່ຽນຄິວບໍ່ໄດ້",
+  "rune.review.readFailed": "ອ່ານການປ່ຽນແປງບໍ່ໄດ້",
+  "rune.send.slow": "ກຳລັງສົ່ງ · ເຊີບເວີຍັງບໍ່ໄດ້ຕອບ · ມັນຖືກເກັບໄວ້ ແລະ ຈະຖືກກວດສອບຖ້າບໍ່ມີຄຳຕອບ",
+  "rune.session.reconnecting": "ກຳລັງເຊື່ອມຕໍ່ຄືນ…",
+  "rune.session.slowCopy": "ເຊີບເວີນີ້ຕອບຊ້າ · ກຳລັງສະແດງສິ່ງທີ່ບັນທຶກໄວ້",
+  "rune.undo.commentDiscarded": "ຍົກເລີກຄຳເຫັນແລ້ວ",
+  "rune.undo.queueRemoved": "ລຶບອອກຈາກຄິວແລ້ວ",
+  "rune.undo.sessionDeleted": "ລຶບເຊດຊັນແລ້ວ",
+  "rune.toast.renameNoAnswer": "ເຊີບເວີບໍ່ໄດ້ຢືນຢັນຫົວຂໍ້ໃໝ່ທັນເວລາ ສະນັ້ນຫົວຂໍ້ທີ່ມັນຮັບເອົາຫຼ້າສຸດຈຶ່ງກັບມາ. ລອງໃໝ່ອີກຄັ້ງໃນອີກບໍ່ດົນ."
 }

@@ -479,7 +479,7 @@ impl App {
         self.terminal.touch_lru(ws_key);
         let mut ws = TerminalWorkspace { directory, ..TerminalWorkspace::default() };
         match srv.terminal_list(&session_id) {
-            Err(e) => ws.failure = Some(e),
+            Err(e) => ws.failure = Some(e.to_string()),
             Ok(mut list) => {
                 list.retain(|info| info.status == opencode_kit::pty::PtyStatus::Running);
                 let rank = |id: &str| stored.all.iter().position(|p| p.id == id).unwrap_or(usize::MAX);

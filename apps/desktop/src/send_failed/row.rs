@@ -160,6 +160,7 @@ pub(super) fn sent(entry: OutboxEntry) -> Sent {
         seq: row.seq,
         row: super::store::Row::Written,
         handoffs: 0,
+        sending: None,
         left_draft: None,
     }
 }

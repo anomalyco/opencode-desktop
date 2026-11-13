@@ -214,11 +214,14 @@ fn run(s: &mut App, effects: Vec<Effect>) {
 
 /// The server's error as a failure; the client's own timeout (30 s for a move, two minutes for
 /// a delete, Desktop's `op.timed-out`) as one that took too long.
-fn failure(e: String) -> Reason {
-    if e.to_lowercase().contains("timeout") || e.to_lowercase().contains("timed out") {
-        return Reason::TimedOut;
+fn failure(e: opencode_kit::wire_error::WireError) -> Reason {
+    use opencode_kit::wire_error::WireKind;
+    match e.kind {
+        WireKind::TimedOut => Reason::TimedOut,
+        // The server's own words when it gave them, else what the client knows.
+        WireKind::Status { message: Some(m), .. } => Reason::Failed(m),
+        kind => Reason::Failed(kind.to_string()),
     }
-    Reason::Failed(e)
 }
 
 fn reason_text(reason: &Reason) -> String {

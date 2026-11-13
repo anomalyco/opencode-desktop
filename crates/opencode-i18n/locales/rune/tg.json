@@ -197,5 +197,15 @@
   "rune.web.signOut": "Баромадан",
   "rune.web.connect.notServer": "Ин суроға ҷавоб медиҳад, вале сервери OpenCode нест: суроғаро санҷед.",
   "rune.web.connect.insecure": "Ин саҳифа дар https аст ва браузер ба он иҷозат намедиҳад, ки ба сервер дар http-и оддӣ расад. Суроғаи https-и серверро истифода баред.",
-  "rune.web.connect.useOrigin": "Истифодаи {{origin}}"
+  "rune.web.connect.useOrigin": "Истифодаи {{origin}}",
+  "rune.fork.slow": "Интизори сервер…",
+  "rune.queue.changeFailed": "Навбатро иваз кардан нашуд",
+  "rune.review.readFailed": "Тағйиротро хондан нашуд",
+  "rune.send.slow": "Фиристода мешавад · сервер ҳанӯз ҷавоб надодааст · паём нигоҳ дошта шудааст ва агар ҷавоб наояд, санҷида мешавад",
+  "rune.session.reconnecting": "Аз нав пайваст шуда истодааст…",
+  "rune.session.slowCopy": "Ин сервер суст ҷавоб медиҳад · он чи нигоҳ дошта шуда буд, нишон дода мешавад",
+  "rune.undo.commentDiscarded": "Шарҳ партофта шуд",
+  "rune.undo.queueRemoved": "Аз навбат хориҷ карда шуд",
+  "rune.undo.sessionDeleted": "Сессия нест карда шуд",
+  "rune.toast.renameNoAnswer": "Сервер унвони навро сари вақт тасдиқ накард, бинобар ин унвоне, ки охирин бор қабул карда буд, баргашт. Пас аз лаҳзае дубора кӯшиш кунед."
 }

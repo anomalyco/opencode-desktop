@@ -197,5 +197,15 @@
   "rune.web.signOut": "Rita út",
   "rune.web.connect.notServer": "Henda adressan svarar, men hon er ikki ein OpenCode-ambætari: kanna adressuna.",
   "rune.web.connect.insecure": "Henda síðan er á https, og kagin loyvir henni ikki at røkka ein ambætara á vanligum http. Nýt https-adressuna hjá ambætaranum.",
-  "rune.web.connect.useOrigin": "Nýt {{origin}}"
+  "rune.web.connect.useOrigin": "Nýt {{origin}}",
+  "rune.fork.slow": "Bíðar eftir ambætaranum…",
+  "rune.queue.changeFailed": "Ikki møguligt at broyta bíðirøðina",
+  "rune.review.readFailed": "Kundi ikki lesa broytingarnar",
+  "rune.send.slow": "Sendir · ambætarin hevur ikki svarað enn · boðini eru goymd og verða kannað, um einki svar kemur",
+  "rune.session.reconnecting": "Bindur aftur…",
+  "rune.session.slowCopy": "Hesin ambætarin er seinur at svara · vísir tað, sum varð goymt",
+  "rune.undo.commentDiscarded": "Viðmerking strikað",
+  "rune.undo.queueRemoved": "Tikið úr bíðirøðini",
+  "rune.undo.sessionDeleted": "Seta strikað",
+  "rune.toast.renameNoAnswer": "Ambætarin váttaði ikki nýggja heitið í tíð, so heitið, hann seinast góðtók, er aftur. Royn aftur um eina løtu."
 }

@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::client::{Server, encode_component};
+use crate::wire_error::{WireError, WireKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PtyStatus {
@@ -77,7 +78,7 @@ fn dir_query(directory: &str) -> String {
 
 impl Server {
     /// Lists PTY sessions for `directory` (`GET /api/pty`), including exited ones retained until removal.
-    pub fn pty_list(&self, directory: &str) -> Result<Vec<PtyInfo>, String> {
+    pub fn pty_list(&self, directory: &str) -> Result<Vec<PtyInfo>, WireError> {
         let path = format!("/api/pty{}", dir_query(directory));
         let v = self.get(&path)?;
         let arr = v["data"].as_array().or_else(|| v.as_array());
@@ -85,7 +86,7 @@ impl Server {
     }
 
     /// Creates a new PTY session in `directory` (`POST /api/pty`).
-    pub fn pty_create(&self, directory: &str, input: &PtyCreate) -> Result<PtyInfo, String> {
+    pub fn pty_create(&self, directory: &str, input: &PtyCreate) -> Result<PtyInfo, WireError> {
         let path = format!("/api/pty{}", dir_query(directory));
         let mut body = serde_json::Map::new();
         if let Some(title) = &input.title {
@@ -104,14 +105,14 @@ impl Server {
             body.insert("env".into(), json!(input.env));
         }
         let v = self.write("POST", &path, Some(Value::Object(body)))?;
-        parse_pty_info(&v).ok_or_else(|| format!("POST {path}: missing PTY info in reply"))
+        parse_pty_info(&v).ok_or_else(|| WireError::new("POST", &path, WireKind::Shape("missing PTY info in reply".into())))
     }
 
     /// Inspects one PTY session (`GET /api/pty/:ptyID`).
-    pub fn pty_get(&self, directory: &str, pty_id: &str) -> Result<PtyInfo, String> {
+    pub fn pty_get(&self, directory: &str, pty_id: &str) -> Result<PtyInfo, WireError> {
         let path = format!("/api/pty/{}{}", encode_component(pty_id), dir_query(directory));
         let v = self.get(&path)?;
-        parse_pty_info(&v).ok_or_else(|| format!("GET {path}: missing PTY info in reply"))
+        parse_pty_info(&v).ok_or_else(|| WireError::new("GET", &path, WireKind::Shape("missing PTY info in reply".into())))
     }
 
     /// Updates a PTY session's title and/or `(cols, rows)` size (`PUT /api/pty/:ptyID`).
@@ -121,7 +122,7 @@ impl Server {
         pty_id: &str,
         title: Option<&str>,
         size: Option<(u16, u16)>,
-    ) -> Result<PtyInfo, String> {
+    ) -> Result<PtyInfo, WireError> {
         let path = format!("/api/pty/{}{}", encode_component(pty_id), dir_query(directory));
         let mut body = serde_json::Map::new();
         if let Some(t) = title {
@@ -131,11 +132,11 @@ impl Server {
             body.insert("size".into(), json!({ "cols": cols, "rows": rows }));
         }
         let v = self.write("PUT", &path, Some(Value::Object(body)))?;
-        parse_pty_info(&v).ok_or_else(|| format!("PUT {path}: missing PTY info in reply"))
+        parse_pty_info(&v).ok_or_else(|| WireError::new("PUT", &path, WireKind::Shape("missing PTY info in reply".into())))
     }
 
     /// Terminates and removes a PTY session (`DELETE /api/pty/:ptyID`).
-    pub fn pty_remove(&self, directory: &str, pty_id: &str) -> Result<(), String> {
+    pub fn pty_remove(&self, directory: &str, pty_id: &str) -> Result<(), WireError> {
         let path = format!("/api/pty/{}{}", encode_component(pty_id), dir_query(directory));
         self.write("DELETE", &path, None).map(|_| ())
     }
@@ -147,7 +148,7 @@ impl Server {
         directory: &str,
         pty_id: &str,
         cursor: Option<i64>,
-    ) -> Result<String, String> {
+    ) -> Result<String, WireError> {
         let path = format!(
             "/api/pty/{}/connect-token{}",
             encode_component(pty_id),
@@ -158,7 +159,7 @@ impl Server {
             .as_str()
             .or_else(|| v["ticket"].as_str())
             .filter(|t| !t.is_empty())
-            .ok_or_else(|| format!("POST {path}: missing ticket in reply"))?;
+            .ok_or_else(|| WireError::new("POST", &path, WireKind::Shape("missing ticket in reply".into())))?;
 
         let ws_base = if let Some(rest) = self.base.strip_prefix("https://") {
             format!("wss://{rest}")

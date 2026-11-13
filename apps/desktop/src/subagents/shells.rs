@@ -280,7 +280,7 @@ fn run_follow(s: &mut App, effects: Vec<shell_follow::Effect>) {
                 let path = format!("/api/shell/{}/output?{}&cursor={cursor}", crate::switcher::encode(&e.id), location(&e.directory));
                 let (id, generation) = (e.id, e.generation);
                 request(s, move |server| {
-                    let page = server.get(&path).map(|v| page_of(&v)).map_err(|e| e.contains("404"));
+                    let page = server.get(&path).map(|v| page_of(&v)).map_err(|e| e.status() == Some(404));
                     Landed::Follow { id, generation, attempt, page }
                 });
             }
@@ -303,7 +303,7 @@ fn run(s: &mut App, effect: Effect) {
             let path = format!("/api/shell/{}/output?{}&cursor={cursor}", crate::switcher::encode(&sh.id), location(&sh.directory));
             let id = sh.id.clone();
             request(s, move |server| {
-                let page = server.get(&path).map(|v| page_of(&v)).map_err(|e| e.contains("404"));
+                let page = server.get(&path).map(|v| page_of(&v)).map_err(|e| e.status() == Some(404));
                 Landed::Output { id, attempt, page }
             });
         }

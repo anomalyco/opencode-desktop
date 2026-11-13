@@ -225,16 +225,17 @@ pub fn event(s: &mut App, ty: &str, data: &Value) -> bool {
 
 /// A failed write from the server's worker: a dock's reply the server refused. False when it
 /// isn't one.
-pub fn failed(s: &mut App, e: &str) -> bool {
-    let (path, why) = e.split_once(": ").unwrap_or((e, ""));
-    let id = path
-        .strip_prefix("POST /api/session/")
-        .and_then(|r| r.strip_suffix("/reply"))
-        .and_then(|r| r.split_once("/permission/").or_else(|| r.split_once("/form/")))
-        .or_else(|| path.strip_prefix("DELETE /api/session/").and_then(|r| r.split_once("/form/")))
-        .map(|(_, id)| id.to_owned());
+pub fn failed(s: &mut App, e: &opencode_kit::wire_error::WireError) -> bool {
+    let path = e.path.as_str();
+    let id = match e.method {
+        "POST" => path.strip_prefix("/api/session/").and_then(|r| r.strip_suffix("/reply")).and_then(|r| r.split_once("/permission/").or_else(|| r.split_once("/form/"))),
+        "DELETE" => path.strip_prefix("/api/session/").and_then(|r| r.split_once("/form/")),
+        _ => None,
+    }
+    .map(|(_, id)| id.to_owned());
     let Some(id) = id.filter(|id| s.permission_sent.0.contains_key(id)) else { return false };
-    s.reply_answered(&id, Err(why));
+    let why = crate::errors::said(s, "", e);
+    let why = why.as_str();    s.reply_answered(&id, Err(why));
     true
 }
 

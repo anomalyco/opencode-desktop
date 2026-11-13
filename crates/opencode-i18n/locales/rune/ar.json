@@ -197,5 +197,15 @@
   "rune.web.signOut": "تسجيل الخروج",
   "rune.web.connect.notServer": "هذا العنوان يستجيب، لكنه ليس خادم OpenCode: تحقّق من العنوان.",
   "rune.web.connect.insecure": "هذه الصفحة على https، ولا يسمح لها المتصفح بالوصول إلى خادم على http العادي. استخدم عنوان https للخادم.",
-  "rune.web.connect.useOrigin": "استخدام {{origin}}"
+  "rune.web.connect.useOrigin": "استخدام {{origin}}",
+  "rune.fork.slow": "في انتظار الخادم…",
+  "rune.queue.changeFailed": "تعذّر تغيير قائمة الانتظار",
+  "rune.review.readFailed": "تعذّرت قراءة التغييرات",
+  "rune.send.slow": "جارٍ الإرسال · لم يردّ الخادم بعد · تم الاحتفاظ بالرسالة، وسيتم التحقق منها إن لم يصل رد",
+  "rune.session.reconnecting": "جارٍ إعادة الاتصال…",
+  "rune.session.slowCopy": "هذا الخادم بطيء في الرد · يُعرض ما تم حفظه",
+  "rune.undo.commentDiscarded": "تم تجاهل التعليق",
+  "rune.undo.queueRemoved": "تمت الإزالة من قائمة الانتظار",
+  "rune.undo.sessionDeleted": "تم حذف الجلسة",
+  "rune.toast.renameNoAnswer": "لم يؤكد الخادم العنوان الجديد في الوقت المناسب، لذا عاد العنوان الذي قبله آخر مرة. حاول مرة أخرى بعد قليل."
 }

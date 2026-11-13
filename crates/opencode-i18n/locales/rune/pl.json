@@ -197,5 +197,15 @@
   "rune.web.signOut": "Wyloguj",
   "rune.web.connect.notServer": "Ten adres odpowiada, ale to nie jest serwer OpenCode: sprawdź adres.",
   "rune.web.connect.insecure": "Ta strona działa przez https, a przeglądarka nie pozwala jej łączyć się z serwerem przez zwykłe http. Użyj adresu https serwera.",
-  "rune.web.connect.useOrigin": "Użyj {{origin}}"
+  "rune.web.connect.useOrigin": "Użyj {{origin}}",
+  "rune.fork.slow": "Oczekiwanie na serwer…",
+  "rune.queue.changeFailed": "Nie udało się zmienić kolejki",
+  "rune.review.readFailed": "Nie można odczytać zmian",
+  "rune.send.slow": "Wysyłanie · serwer jeszcze nie odpowiedział · wiadomość jest zachowana i zostanie sprawdzona, jeśli odpowiedź nie nadejdzie",
+  "rune.session.reconnecting": "Ponowne łączenie…",
+  "rune.session.slowCopy": "Ten serwer wolno odpowiada · pokazuję to, co zostało zapisane",
+  "rune.undo.commentDiscarded": "Odrzucono komentarz",
+  "rune.undo.queueRemoved": "Usunięto z kolejki",
+  "rune.undo.sessionDeleted": "Usunięto sesję",
+  "rune.toast.renameNoAnswer": "Serwer nie potwierdził nowego tytułu na czas, więc wrócił tytuł, który zaakceptował ostatnio. Spróbuj ponownie za chwilę."
 }

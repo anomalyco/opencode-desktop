@@ -84,7 +84,7 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     }
     let url = format!("/api/fs/read/{}?location%5Bdirectory%5D={}", crate::review::data::encode_fs_path(&relative(&path, &directory)), crate::switcher::encode(&directory));
     app.job(move |srv| {
-        let bytes = srv.get_bytes(&url);
+        let bytes = srv.get_bytes(&url).map_err(|e| e.to_string());
         Box::new(move |_: &mut App, _: &mut rune::Tx| opened(bytes)) as crate::jobs::Apply
     });
     Ok(())

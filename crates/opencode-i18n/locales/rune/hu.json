@@ -197,5 +197,15 @@
   "rune.web.signOut": "Kijelentkezés",
   "rune.web.connect.notServer": "Ez a cím válaszol, de nem OpenCode-kiszolgáló: ellenőrizze a címet.",
   "rune.web.connect.insecure": "Ez az oldal https-en fut, és a böngésző nem engedi, hogy sima http-n futó kiszolgálót érjen el. Használja a kiszolgáló https címét.",
-  "rune.web.connect.useOrigin": "{{origin}} használata"
+  "rune.web.connect.useOrigin": "{{origin}} használata",
+  "rune.fork.slow": "Várakozás a kiszolgálóra…",
+  "rune.queue.changeFailed": "Nem sikerült módosítani a sort",
+  "rune.review.readFailed": "Nem sikerült beolvasni a módosításokat",
+  "rune.send.slow": "Küldés · a kiszolgáló még nem válaszolt · az üzenet megmarad, és ellenőrizzük, ha nem jön válasz",
+  "rune.session.reconnecting": "Újracsatlakozás…",
+  "rune.session.slowCopy": "Ez a kiszolgáló lassan válaszol · a mentett tartalom látható",
+  "rune.undo.commentDiscarded": "Megjegyzés elvetve",
+  "rune.undo.queueRemoved": "Eltávolítva a sorból",
+  "rune.undo.sessionDeleted": "Munkamenet törölve",
+  "rune.toast.renameNoAnswer": "A kiszolgáló nem erősítette meg időben az új címet, ezért visszaállt az utoljára elfogadott cím. Próbálja újra egy pillanat múlva."
 }

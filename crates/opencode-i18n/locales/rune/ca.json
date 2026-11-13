@@ -197,5 +197,15 @@
   "rune.web.signOut": "Tanca la sessió",
   "rune.web.connect.notServer": "Aquesta adreça respon, però no és un servidor d'OpenCode: comprova l'adreça.",
   "rune.web.connect.insecure": "Aquesta pàgina és en https i el navegador no la deixa arribar a un servidor en http simple. Fes servir l'adreça https del servidor.",
-  "rune.web.connect.useOrigin": "Fes servir {{origin}}"
+  "rune.web.connect.useOrigin": "Fes servir {{origin}}",
+  "rune.fork.slow": "S'està esperant el servidor…",
+  "rune.queue.changeFailed": "No s'ha pogut canviar la cua",
+  "rune.review.readFailed": "No s'han pogut llegir els canvis",
+  "rune.send.slow": "S'està enviant · el servidor encara no ha respost · es conserva i es comprovarà si no arriba cap resposta",
+  "rune.session.reconnecting": "S'està tornant a connectar…",
+  "rune.session.slowCopy": "Aquest servidor tarda a respondre · es mostra el que s'ha desat",
+  "rune.undo.commentDiscarded": "S'ha descartat el comentari",
+  "rune.undo.queueRemoved": "S'ha tret de la cua",
+  "rune.undo.sessionDeleted": "S'ha suprimit la sessió",
+  "rune.toast.renameNoAnswer": "El servidor no ha confirmat el títol nou a temps, així que ha tornat l'últim títol que va acceptar. Torneu-ho a provar d'aquí a un moment."
 }

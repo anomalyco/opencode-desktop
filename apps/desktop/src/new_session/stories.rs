@@ -33,7 +33,7 @@ fn fail(s: &mut App, tx: &mut Tx) {
     let directory = s.draft_dir().to_owned();
     s.starts.starts.insert(id.clone(), super::Start::Creating { directory, draft: None, created: false });
     s.unsent.note(crate::send_failed::Sent::new(&id, &prompt, crate::prompt_history::Entry::of(&rune::TextEdit::new(&text)), vec![], vec![], false));
-    s.start_failed(&id, &prompt, "POST /api/session: Connection refused", tx);
+    s.start_failed(&id, &prompt, &opencode_kit::wire_error::WireError::new("POST", "/api/session", opencode_kit::wire_error::WireKind::Unreachable("Connection refused".into())), tx);
 }
 
 fn view(s: &App, p: &Pal) -> El {

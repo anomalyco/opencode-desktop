@@ -21,6 +21,25 @@ pub(super) fn subscribe(_: rune::Waker) -> Option<Arc<Change>> {
     None
 }
 
+/// Windows' notifications ring here; the one thread hears them (below).
+#[cfg(target_os = "windows")]
+static BELL: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>> = std::sync::Mutex::new(None);
+
+#[cfg(target_os = "windows")]
+fn ring() {
+    if let Some(tx) = BELL.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        let _ = tx.send(());
+    }
+}
+
+/// `--harness-network-change <secs>` (the resilience harness): rings as the OS's notification
+/// would, `secs` after launch, since a harness can't make Windows wake from sleep or change its
+/// network. Nothing else differs from the real event.
+pub(super) fn simulate() {
+    #[cfg(target_os = "windows")]
+    ring();
+}
+
 /// Windows: the network's reach changed (`NotifyNetworkConnectivityHintChange`: none, local,
 /// internet, constrained), or the machine woke (`PowerRegisterSuspendResumeNotification`, the
 /// window-less form of `WM_POWERBROADCAST`'s `PBT_APMRESUMEAUTOMATIC` / `PBT_APMRESUMESUSPEND`).
@@ -43,13 +62,7 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
     use windows_sys::Win32::System::Power::{DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS, PowerRegisterSuspendResumeNotification};
     use windows_sys::Win32::UI::WindowsAndMessaging::{DEVICE_NOTIFY_CALLBACK, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND};
     static WINDOWS: Mutex<Vec<Weak<Change>>> = Mutex::new(Vec::new());
-    static BELL: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
     static WATCH: OnceLock<bool> = OnceLock::new();
-    fn ring() {
-        if let Some(tx) = BELL.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            let _ = tx.send(());
-        }
-    }
     /// The reach last heard, so a hint that says the same again (its cost, say) is no change.
     static LEVEL: AtomicI32 = AtomicI32::new(-1);
     unsafe extern "system" fn reach_changed(_: *const c_void, hint: NL_NETWORK_CONNECTIVITY_HINT) {
@@ -75,6 +88,9 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
             while rx.recv().is_ok() {
                 while rx.recv_timeout(Duration::from_millis(150)).is_ok() {}
                 opencode_kit::client::Server::wake_reconnects();
+                // No stream that looks up can be trusted now: each is checked, and replaced unless it
+                // speaks (`client::streams`).
+                opencode_kit::client::verify_streams();
                 WINDOWS.lock().unwrap_or_else(|e| e.into_inner()).retain(|w| {
                     let Some(w) = w.upgrade() else { return false };
                     w.changed.store(true, Ordering::Release);
@@ -136,6 +152,7 @@ pub(super) fn subscribe(wake: rune::Waker) -> Option<Arc<Change>> {
                 let mut file = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
                 while file.read_exact(&mut [0; 4]).is_ok() {
                     opencode_kit::client::Server::wake_reconnects();
+                    opencode_kit::client::verify_streams();
                     WINDOWS.lock().unwrap().retain(|w| {
                         if let Some(w) = w.upgrade() {
                             w.changed.store(true, Ordering::Release);

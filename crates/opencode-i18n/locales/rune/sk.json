@@ -197,5 +197,15 @@
   "rune.web.signOut": "Odhlásiť sa",
   "rune.web.connect.notServer": "Tá adresa odpovedá, ale nie je to server OpenCode: skontrolujte adresu.",
   "rune.web.connect.insecure": "Táto stránka beží cez https a prehliadač jej nedovolí dostať sa k serveru cez obyčajné http. Použite https adresu servera.",
-  "rune.web.connect.useOrigin": "Použiť {{origin}}"
+  "rune.web.connect.useOrigin": "Použiť {{origin}}",
+  "rune.fork.slow": "Čaká sa na server…",
+  "rune.queue.changeFailed": "Front sa nepodarilo zmeniť",
+  "rune.review.readFailed": "Zmeny sa nepodarilo prečítať",
+  "rune.send.slow": "Odosiela sa · server zatiaľ neodpovedal · správa je uložená a overí sa, ak odpoveď nepríde",
+  "rune.session.reconnecting": "Opätovné pripájanie…",
+  "rune.session.slowCopy": "Tento server odpovedá pomaly · zobrazuje sa, čo sa uložilo",
+  "rune.undo.commentDiscarded": "Komentár zahodený",
+  "rune.undo.queueRemoved": "Odstránené z frontu",
+  "rune.undo.sessionDeleted": "Relácia odstránená",
+  "rune.toast.renameNoAnswer": "Server nový názov včas nepotvrdil, preto sa vrátil názov, ktorý naposledy prijal. Skúste to o chvíľu znova."
 }

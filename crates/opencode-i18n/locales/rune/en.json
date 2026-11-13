@@ -218,5 +218,11 @@
   "rune.web.signOut": "Sign out",
   "rune.web.connect.notServer": "That address answers, but it isn't an OpenCode server: check the address.",
   "rune.web.connect.insecure": "This page is on https, and the browser won't let it reach a server on plain http. Use the server's https address.",
-  "rune.web.connect.useOrigin": "Use {{origin}}"
+  "rune.web.connect.useOrigin": "Use {{origin}}",
+  "rune.fork.slow": "Waiting for the server…",
+  "rune.queue.changeFailed": "Couldn't change the queue",
+  "rune.send.slow": "Sending · the server hasn't answered yet · it's kept, and checked if no answer comes",
+  "rune.session.reconnecting": "Reconnecting…",
+  "rune.session.slowCopy": "This server is slow to answer · showing what was saved",
+  "rune.toast.renameNoAnswer": "The server didn't confirm the new title in time, so the title it last accepted is back. Try again in a moment."
 }

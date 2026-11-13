@@ -197,5 +197,15 @@
   "rune.web.signOut": "Ելք",
   "rune.web.connect.notServer": "Այդ հասցեն պատասխանում է, բայց OpenCode սերվեր չէ. ստուգեք հասցեն։",
   "rune.web.connect.insecure": "Այս էջը https-ով է, և դիտարկիչը թույլ չի տալիս այն հասնել սովորական http-ով սերվերի։ Օգտագործեք սերվերի https հասցեն։",
-  "rune.web.connect.useOrigin": "Օգտագործել {{origin}}"
+  "rune.web.connect.useOrigin": "Օգտագործել {{origin}}",
+  "rune.fork.slow": "Սպասում ենք սերվերին…",
+  "rune.queue.changeFailed": "Չհաջողվեց փոխել հերթը",
+  "rune.review.readFailed": "Չհաջողվեց կարդալ փոփոխությունները",
+  "rune.send.slow": "Ուղարկվում է · սերվերը դեռ չի պատասխանել · այն պահված է և կստուգվի, եթե պատասխան չգա",
+  "rune.session.reconnecting": "Վերամիացում…",
+  "rune.session.slowCopy": "Այս սերվերը դանդաղ է պատասխանում · ցուցադրվում է պահվածը",
+  "rune.undo.commentDiscarded": "Մեկնաբանությունը չեղարկվեց",
+  "rune.undo.queueRemoved": "Հեռացվեց հերթից",
+  "rune.undo.sessionDeleted": "Նիստը ջնջվեց",
+  "rune.toast.renameNoAnswer": "Սերվերը ժամանակին չհաստատեց նոր վերնագիրը, ուստի վերադարձվեց վերջին ընդունված վերնագիրը։ Փորձեք կրկին մի պահից։"
 }

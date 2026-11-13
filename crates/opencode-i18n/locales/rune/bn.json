@@ -197,5 +197,15 @@
   "rune.web.signOut": "সাইন আউট",
   "rune.web.connect.notServer": "ওই ঠিকানা সাড়া দেয়, কিন্তু এটি OpenCode সার্ভার নয়: ঠিকানাটি দেখুন।",
   "rune.web.connect.insecure": "এই পেজটি https-এ, এবং ব্রাউজার এটিকে সাধারণ http-এর সার্ভারে পৌঁছাতে দেয় না। সার্ভারের https ঠিকানা ব্যবহার করুন।",
-  "rune.web.connect.useOrigin": "{{origin}} ব্যবহার করুন"
+  "rune.web.connect.useOrigin": "{{origin}} ব্যবহার করুন",
+  "rune.fork.slow": "সার্ভারের জন্য অপেক্ষা করা হচ্ছে…",
+  "rune.queue.changeFailed": "সারি বদলানো যায়নি",
+  "rune.review.readFailed": "পরিবর্তনগুলো পড়া যায়নি",
+  "rune.send.slow": "পাঠানো হচ্ছে · সার্ভার এখনও উত্তর দেয়নি · এটি রাখা আছে, উত্তর না এলে যাচাই করা হবে",
+  "rune.session.reconnecting": "আবার সংযোগ করা হচ্ছে…",
+  "rune.session.slowCopy": "এই সার্ভার উত্তর দিতে দেরি করছে · যা সংরক্ষিত ছিল তা দেখানো হচ্ছে",
+  "rune.undo.commentDiscarded": "মন্তব্য বাতিল হয়েছে",
+  "rune.undo.queueRemoved": "সারি থেকে সরানো হয়েছে",
+  "rune.undo.sessionDeleted": "সেশন মুছে ফেলা হয়েছে",
+  "rune.toast.renameNoAnswer": "সার্ভার সময়মতো নতুন শিরোনাম নিশ্চিত করেনি, তাই এটি শেষবার যে শিরোনাম গ্রহণ করেছিল সেটি ফিরে এসেছে। একটু পরে আবার চেষ্টা করুন।"
 }

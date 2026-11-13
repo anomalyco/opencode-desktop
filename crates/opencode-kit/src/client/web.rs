@@ -14,6 +14,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 use super::{Incoming, Server};
+use crate::wire_error::{WireError, WireKind};
 
 impl Server {
     /// A browser can't open a socket to ask; the first request says.
@@ -63,7 +64,7 @@ pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Inc
             match events(&server, idle, &inbox_tx, &wake, resumed, &mut opened).await {
                 Ok(()) => return,
                 Err(e) => {
-                    if inbox_tx.send(Incoming::Status(e)).is_err() {
+                    if inbox_tx.send(Incoming::StreamDown(e)).is_err() {
                         return;
                     }
                     wake();
@@ -84,40 +85,42 @@ pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Inc
 }
 
 /// One open of `/api/event`: `Ok` when the inbox closed, else why the stream ended.
-async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), String> {
-    let window = web_sys::window().ok_or("events: no window")?;
-    let abort = web_sys::AbortController::new().map_err(|_| "events: no AbortController")?;
+async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake: &Waker, resumed: bool, opened: &mut bool) -> Result<(), WireError> {
+    let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
+    let page = |what: &str| down(WireKind::Other(what.to_owned()));
+    let window = web_sys::window().ok_or_else(|| page("no window"))?;
+    let abort = web_sys::AbortController::new().map_err(|_| page("no AbortController"))?;
     let init = web_sys::RequestInit::new();
     init.set_method("GET");
     init.set_signal(Some(&abort.signal()));
-    let headers = web_sys::Headers::new().map_err(|_| "events: no Headers")?;
+    let headers = web_sys::Headers::new().map_err(|_| page("no Headers"))?;
     let _ = headers.set("Accept", "text/event-stream");
     if let Some(a) = &server.auth {
         let _ = headers.set("Authorization", a);
     }
     init.set_headers(&headers);
-    let request = web_sys::Request::new_with_str_and_init(&format!("{}/api/event", server.base), &init).map_err(|_| "events: bad request")?;
+    let request = web_sys::Request::new_with_str_and_init(&format!("{}/api/event", server.base), &init).map_err(|_| page("bad request"))?;
     let response = with_idle(window.fetch_with_request(&request), idle, &abort)
         .await
-        .map_err(|e| format!("events: {e}"))?;
-    let response: web_sys::Response = response.dyn_into().map_err(|_| "events: not a response")?;
+        .map_err(|e| down(e.unwrap_or_else(WireKind::Unreachable)))?;
+    let response: web_sys::Response = response.dyn_into().map_err(|_| page("not a response"))?;
     if !response.ok() {
-        return Err(format!("events: http status: {}", response.status()));
+        return Err(down(WireKind::Status { status: response.status(), tag: None, message: None }));
     }
     let content_type = response.headers().get("content-type").ok().flatten().unwrap_or_default();
     if !content_type.trim_start().to_ascii_lowercase().starts_with("text/event-stream") {
         let what = super::http::kind_of(&content_type, false);
-        return Err(format!("events: {}", crate::wire_error::WireKind::NotOpenCode { status: response.status(), what }));
+        return Err(down(WireKind::NotOpenCode { status: response.status(), what }));
     }
     let reader: web_sys::ReadableStreamDefaultReader =
-        response.body().ok_or("events: no body")?.get_reader().dyn_into().map_err(|_| "events: no reader")?;
+        response.body().ok_or_else(|| page("no body"))?.get_reader().dyn_into().map_err(|_| page("no reader"))?;
     // Connected only once OpenCode's first event (`server.connected`) is in.
     let mut connected = false;
     let mut pending: Vec<u8> = Vec::new();
     loop {
-        let chunk = with_idle(reader.read(), idle, &abort).await.map_err(|e| format!("events: {e}"))?;
+        let chunk = with_idle(reader.read(), idle, &abort).await.map_err(|e| down(e.unwrap_or_else(WireKind::Dropped)))?;
         if js_sys::Reflect::get(&chunk, &"done".into()).ok().and_then(|d| d.as_bool()).unwrap_or(true) {
-            return Err("events: stream ended".into());
+            return Err(down(WireKind::Dropped("the stream ended".into())));
         }
         let bytes = js_sys::Reflect::get(&chunk, &"value".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
         pending.extend_from_slice(&bytes);
@@ -129,11 +132,11 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
             if !connected {
                 if !matches!(&message, Incoming::Event { ty, .. } if ty == "server.connected") {
                     let what = "an event stream that didn't start with server.connected".to_owned();
-                    return Err(format!("events: {}", crate::wire_error::WireKind::NotOpenCode { status: 200, what }));
+                    return Err(down(WireKind::NotOpenCode { status: 200, what }));
                 }
                 connected = true;
                 *opened = true;
-                if resumed && inbox.send(Incoming::Reconnected).is_err() {
+                if inbox.send(if resumed { Incoming::Reconnected } else { Incoming::Opened }).is_err() {
                     return Ok(());
                 }
             }
@@ -148,8 +151,9 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
     }
 }
 
-/// `future`, or a timeout error (aborting the request) after `idle` without an answer.
-async fn with_idle(promise: js_sys::Promise, idle: Duration, abort: &web_sys::AbortController) -> Result<JsValue, String> {
+/// `future`, or a timeout (aborting the request) after `idle` without an answer: `Ok(TimedOut)`;
+/// `Err` is what the browser said when the promise failed, for the caller to type.
+async fn with_idle(promise: js_sys::Promise, idle: Duration, abort: &web_sys::AbortController) -> Result<JsValue, Result<WireKind, String>> {
     let timer = js_sys::Promise::new(&mut |resolve, _| {
         if let Some(window) = web_sys::window() {
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_1(&resolve, idle.as_millis() as i32, &JsValue::from_str("idle"));
@@ -159,12 +163,12 @@ async fn with_idle(promise: js_sys::Promise, idle: Duration, abort: &web_sys::Ab
     match JsFuture::from(raced).await {
         Ok(v) if v.as_string().as_deref() == Some("idle") => {
             abort.abort();
-            Err("timeout: no data".into())
+            Err(Ok(WireKind::TimedOut))
         }
         Ok(v) => Ok(v),
         Err(e) => {
             abort.abort();
-            Err(e.as_string().or_else(|| js_sys::Reflect::get(&e, &"message".into()).ok().and_then(|m| m.as_string())).unwrap_or_else(|| "connection failed".into()))
+            Err(Err(e.as_string().or_else(|| js_sys::Reflect::get(&e, &"message".into()).ok().and_then(|m| m.as_string())).unwrap_or_else(|| "connection failed".into())))
         }
     }
 }

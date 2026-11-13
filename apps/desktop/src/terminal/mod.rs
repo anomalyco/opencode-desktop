@@ -464,7 +464,7 @@ impl App {
             {
                 self.terminal.server_shells.borrow_mut().insert(srv.base.clone(), Some(info.command.clone()));
             }
-            let tab = created.and_then(|info| self.persistent_tab(srv, info));
+            let tab = created.map_err(|e| e.to_string()).and_then(|info| self.persistent_tab(srv, info));
             let ws = self.terminal.workspaces.get_mut(ws_key)?;
             return match tab {
                 Ok(tab) => {
@@ -528,7 +528,7 @@ impl App {
         let wk = self.terminal_workspace_key_for_session(sid);
         let title = title.filter(|t| !t.is_empty()).unwrap_or_else(|| format!("Terminal {}", self.terminal.workspaces.get(&wk).map_or(1, TerminalWorkspace::next_title_number)));
         let cwd = cwd.filter(|c| !c.is_empty()).or_else(|| self.session(sid).map(|s| s.directory.clone()));
-        srv.terminal_create(sid, &self.terminal_launch(&srv, TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())), command, args))
+        srv.terminal_create(sid, &self.terminal_launch(&srv, TerminalCreate::new(title).cwd(cwd).size(Some(self.estimated_terminal_grid())), command, args)).map_err(|e| e.to_string())
     }
 
     /// What a new terminal on `srv` runs: `command` with `args`, or the server's own shell, with

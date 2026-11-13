@@ -123,6 +123,17 @@ pub fn nudge(s: &App, key: &ServerKey, tx: &mut Tx) {
     run(s, fx, tx);
 }
 
+/// Server `key`'s event stream opened (`up`) or dropped: while it's up the 10 s poll leaves the
+/// server be, so a window idle on a live server wakes for nothing (its heartbeat says enough);
+/// dropped, it's probed now and polled again.
+pub fn streaming(s: &App, key: &ServerKey, up: bool, tx: &mut Tx) {
+    if !s.live() {
+        return;
+    }
+    let fx = HEALTH.with_borrow_mut(|h| health::step(&mut h.state, Event::Streaming { key: key.clone(), up }));
+    run(s, fx, tx);
+}
+
 /// Whether `retry` caller `id`'s probes have all answered (it's forgotten once asked).
 pub fn resolved(id: u64) -> bool {
     HEALTH.with_borrow_mut(|h| h.resolved.remove(&id))
@@ -270,7 +281,7 @@ fn probe(s: &App, key: &ServerKey, attempt: Attempt) -> Option<ProbeResult> {
                     let text = |k: &str| v[k].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
                     ProbeResult::Healthy { version: text("version"), hostname: text("hostname") }
                 }
-                Err(e) if e.ends_with("http status: 401") => ProbeResult::Unauthorized,
+                Err(e) if e.status() == Some(401) => ProbeResult::Unauthorized,
                 Err(_) => ProbeResult::Unreachable,
             };
             if !patient || result != ProbeResult::Unreachable || started.elapsed() >= PATIENCE {

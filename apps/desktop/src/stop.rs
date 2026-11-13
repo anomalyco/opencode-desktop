@@ -220,13 +220,12 @@ pub fn confirmed(s: &mut App, sid: &str) {
 
 /// Stop `attempt`'s interrupt failed (`Incoming::Settled`): when it's still the session's stop,
 /// the run shows again and the toast says why.
-pub fn failed(s: &mut App, sid: &str, attempt: u32, why: &str) {
+pub fn failed(s: &mut App, sid: &str, attempt: u32, e: &opencode_kit::wire_error::WireError) {
     for effect in s.stops.step(sid, Event::Failed { attempt: Attempt(attempt) }) {
         if effect == (Effect::Resume { failed: true }) {
             s.running.insert(sid.to_owned());
             crate::windows::peer::touch(s);
-            let why = why.split_once(": ").map_or(why, |(_, why)| why);
-            crate::status_toast::fail(s, opencode_i18n::t!("rune.stop.failed"), why);
+            crate::status_toast::failed_wire(s, opencode_i18n::t!("rune.stop.failed"), e);
         }
     }
 }

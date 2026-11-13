@@ -197,5 +197,15 @@
   "rune.web.signOut": "ចាកចេញ",
   "rune.web.connect.notServer": "អាសយដ្ឋាននោះឆ្លើយតប ប៉ុន្តែវាមិនមែនជាម៉ាស៊ីនមេ OpenCode ទេ៖ ពិនិត្យអាសយដ្ឋាន។",
   "rune.web.connect.insecure": "ទំព័រនេះប្រើ https ហើយកម្មវិធីរុករកមិនអនុញ្ញាតឲ្យវាទៅដល់ម៉ាស៊ីនមេដែលប្រើ http ធម្មតាទេ។ ប្រើអាសយដ្ឋាន https របស់ម៉ាស៊ីនមេ។",
-  "rune.web.connect.useOrigin": "ប្រើ {{origin}}"
+  "rune.web.connect.useOrigin": "ប្រើ {{origin}}",
+  "rune.fork.slow": "កំពុងរង់ចាំម៉ាស៊ីនមេ…",
+  "rune.queue.changeFailed": "មិនអាចប្តូរជួរបានទេ",
+  "rune.review.readFailed": "មិនអាចអានការផ្លាស់ប្តូរបានទេ",
+  "rune.send.slow": "កំពុងផ្ញើ · ម៉ាស៊ីនមេមិនទាន់ឆ្លើយតបទេ · វាត្រូវបានរក្សាទុក ហើយនឹងត្រូវពិនិត្យ ប្រសិនបើគ្មានចម្លើយ",
+  "rune.session.reconnecting": "កំពុងភ្ជាប់ឡើងវិញ…",
+  "rune.session.slowCopy": "ម៉ាស៊ីនមេនេះឆ្លើយតបយឺត · កំពុងបង្ហាញអ្វីដែលបានរក្សាទុក",
+  "rune.undo.commentDiscarded": "បានបោះបង់មតិ",
+  "rune.undo.queueRemoved": "បានដកចេញពីជួរ",
+  "rune.undo.sessionDeleted": "បានលុបសម័យ",
+  "rune.toast.renameNoAnswer": "ម៉ាស៊ីនមេមិនបានបញ្ជាក់ចំណងជើងថ្មីទាន់ពេលទេ ដូច្នេះចំណងជើងដែលវាបានទទួលយកចុងក្រោយត្រូវបានស្ដារវិញ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
 }

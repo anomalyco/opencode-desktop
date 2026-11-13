@@ -197,5 +197,15 @@
   "rune.web.signOut": "Keluar",
   "rune.web.connect.notServer": "Alamat itu menjawab, tetapi bukan server OpenCode: periksa alamatnya.",
   "rune.web.connect.insecure": "Halaman ini memakai https, dan browser tidak mengizinkannya menjangkau server di http biasa. Gunakan alamat https server.",
-  "rune.web.connect.useOrigin": "Gunakan {{origin}}"
+  "rune.web.connect.useOrigin": "Gunakan {{origin}}",
+  "rune.fork.slow": "Menunggu server…",
+  "rune.queue.changeFailed": "Tidak dapat mengubah antrean",
+  "rune.review.readFailed": "Tidak dapat membaca perubahan",
+  "rune.send.slow": "Mengirim · server belum menjawab · pesan disimpan dan akan diperiksa jika tidak ada jawaban",
+  "rune.session.reconnecting": "Menghubungkan ulang…",
+  "rune.session.slowCopy": "Server ini lambat menjawab · menampilkan yang tersimpan",
+  "rune.undo.commentDiscarded": "Komentar dibuang",
+  "rune.undo.queueRemoved": "Dihapus dari antrean",
+  "rune.undo.sessionDeleted": "Sesi dihapus",
+  "rune.toast.renameNoAnswer": "Server tidak mengonfirmasi judul baru tepat waktu, jadi judul yang terakhir diterimanya dikembalikan. Coba lagi sebentar lagi."
 }

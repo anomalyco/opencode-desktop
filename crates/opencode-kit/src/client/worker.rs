@@ -9,6 +9,7 @@ use rune::Waker;
 
 use super::{Incoming, Request, Server, Write, encode_component, list, save_download};
 use crate::model;
+use crate::wire_error::WireError;
 
 /// How long the event stream may stay silent before it's dropped and reopened, as Desktop's
 /// `defaultIdleTimeout`. The server writes a heartbeat every 15 s. A connection that died while
@@ -48,10 +49,12 @@ pub fn connect_with_idle(server: Server, wake: Waker, idle: Duration) -> (Sender
     (req_tx, write_tx, inbox)
 }
 
-/// The event stream, reopened with backoff after each drop, until `inbox` closes.
+/// The event stream, reopened with backoff after each drop, until `inbox` closes (or, after a
+/// network change or a wake, until a fresh thread takes it over: `streams::verify`).
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Incoming>, wake: &Waker) {
-    retry_events(server,idle,inbox_tx,wake,250);
+    let stream = super::streams::Stream::new(server.clone(), idle, inbox_tx.clone(), wake.clone());
+    run_stream(&stream, stream.epoch(), false);
 }
 
 /// How long a stream whose server refuses connections waits before trying on its own: the
@@ -60,18 +63,25 @@ pub(super) fn read_events(server: &Server, idle: Duration, inbox_tx: &Sender<Inc
 #[cfg(not(target_arch = "wasm32"))]
 const PARKED: Duration = Duration::from_secs(30);
 
+/// Reads `stream` as `epoch` for as long as that's the thread that speaks for it; `resumed` when
+/// it takes over from an earlier read (its first open is a reconnect, and resyncs).
 #[cfg(not(target_arch = "wasm32"))]
-fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Waker, mut backoff:u64) {
-    let mut resumed = false;
+pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, mut resumed: bool) {
+    let (server, idle, inbox_tx, wake) = (&stream.server, stream.idle, &stream.inbox, &stream.wake);
+    let mut backoff: u64 = 250;
     // The failure the window last heard of: the same one again tells it nothing, so it isn't woken.
-    let mut said: Option<String> = None;
+    let mut said: Option<WireError> = None;
     loop {
         let mut opened = false;
         let generation = *RETRY.0.lock().unwrap();
-        if let Err(e) = server.events(idle, inbox_tx, wake, resumed, &mut opened) {
-            let news = opened || said.as_deref() != Some(e.as_str());
+        let result = server.events(idle, inbox_tx, wake, resumed, &mut opened, &|| stream.live(epoch), &|| stream.heard());
+        if !stream.live(epoch) {
+            return;
+        }
+        if let Err(e) = result {
+            let news = opened || said.as_ref() != Some(&e);
             // Sent either way: a closed inbox is how this thread learns its window went.
-            if inbox_tx.send(Incoming::Status(e.clone())).is_err() {
+            if inbox_tx.send(Incoming::StreamDown(e.clone())).is_err() {
                 return;
             }
             if news {
@@ -89,7 +99,6 @@ fn retry_events(server:&Server,idle:Duration,inbox_tx:&Sender<Incoming>,wake:&Wa
         backoff = (backoff * 2).min(3000);
     }
 }
-
 /// Whether a held write may go: its gate's answer (`false` when the gate is gone), or at once.
 fn released(gate: &mut Option<std::sync::mpsc::Receiver<bool>>) -> bool {
     gate.take().is_none_or(|g| g.recv().unwrap_or(false))
@@ -205,15 +214,14 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Unarchive(session) => server.unarchive(&session),
                         Write::View { session, idle } => server.view(&session, idle),
                         Write::Metadata { session, metadata } => server.set_metadata(&session, metadata),
-                        Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json)).map(|path| {
+                        Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json).map_err(WireError::from)).map(|path| {
                             let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
                         }),
                         Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
                         Write::Compact(session) => server.compact(&session),
                         // `command.config.reload.done` and `.failed` (`composer/commands.tsx:75-82`).
                         Write::Reload => server.write("POST", "/api/location/reload", None)
-                            .map(|_| { let _ = inbox_tx.send(Incoming::Status("Configuration reloaded".into())); })
-                            .map_err(|e| format!("Couldn't reload configuration: {e}")),
+                            .map(|_| { let _ = inbox_tx.send(Incoming::Status("Configuration reloaded".into())); }),
                         Write::OpenProject { directory, start_session } => server.open_project(&directory).and_then(|(location, projects)| {
                             let session = if start_session { Some(server.create_session(&location.directory)?) } else { None };
                             let _ = inbox_tx.send(Incoming::ProjectOpened { location, projects, session });
@@ -246,10 +254,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     }
                     if let Some(mut data) = session_write {
                         data["ok"] = serde_json::json!(result.is_ok());
-                        if let Err(e) = &result {
-                            data["error"] = serde_json::json!(e);
-                        }
-                        if inbox_tx.send(Incoming::Event { ty: "client.session.write".into(), data }).is_err() {
+                        if inbox_tx.send(Incoming::SessionWrite { data, error: result.err() }).is_err() {
                             return ControlFlow::Break(());
                         }
                         wake();
@@ -258,7 +263,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     if let Err(e) = result {
                         let told = match prompt_id {
                             Some((session, id)) => inbox_tx.send(Incoming::SendFailed { session, id, error: e }),
-                            None => inbox_tx.send(Incoming::Status(e)),
+                            None => inbox_tx.send(Incoming::Failed(e)),
                         };
                         if told.is_err() {
                             return ControlFlow::Break(());
@@ -284,25 +289,25 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     let ok = match r {
                         Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
                             Ok(v) => send(Incoming::Messages { session: id, messages: model::parse_messages(&v) }),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Sessions => match sessions(&server) {
                             Ok(list) => send(Incoming::Sessions(list)),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::ProjectSessions(project) => {
                             match server.get(&format!("/api/session?project={}&archived=false&limit=200", encode_component(&project))) {
                                 Ok(v) => send(Incoming::Sessions(model::parse_sessions(&v))),
-                                Err(e) => send(Incoming::Status(e)),
+                                Err(e) => send(Incoming::Failed(e)),
                             }
                         }
                         Request::Projects => match server.projects() {
                             Ok(list) => send(Incoming::Projects(list)),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         // A miss (deleted, another server's) says so quietly, not as a status.
                         Request::Lookup(id) => match server.get(&format!("/api/session/{id}")) {
@@ -314,7 +319,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                                 let map = v.get("data").unwrap_or(&v);
                                 send(Incoming::Active(map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect()))
                             }
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
                         Request::Config(dir) => {
@@ -328,7 +333,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                                 ty: "worktree.listed".into(),
                                 data: serde_json::json!({ "projectID": project, "directories": model::parse_worktrees(&v, &root) }),
                             }),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Branches { directory, search } => {
                             let data = match server.branches(&directory, &search) {
@@ -342,7 +347,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                                 ty: "session.inbox.listed".into(),
                                 data: serde_json::json!({ "sessionID": id, "items": list(&v) }),
                             }),
-                            Err(e) => send(Incoming::Status(e)),
+                            Err(e) => send(Incoming::Failed(e)),
                         },
                         // As Desktop's family sync, a failed read leaves the family as it was.
                         Request::Children(id) => match server.children(&id) {

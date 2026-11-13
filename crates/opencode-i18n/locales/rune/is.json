@@ -197,5 +197,15 @@
   "rune.web.signOut": "Skrá út",
   "rune.web.connect.notServer": "Þetta vistfang svarar, en það er ekki OpenCode-netþjónn: athugaðu vistfangið.",
   "rune.web.connect.insecure": "Þessi síða er á https og vafrinn leyfir henni ekki að ná í netþjón á venjulegu http. Notaðu https-vistfang netþjónsins.",
-  "rune.web.connect.useOrigin": "Nota {{origin}}"
+  "rune.web.connect.useOrigin": "Nota {{origin}}",
+  "rune.fork.slow": "Bíð eftir netþjóninum…",
+  "rune.queue.changeFailed": "Ekki tókst að breyta biðröðinni",
+  "rune.review.readFailed": "Ekki tókst að lesa breytingarnar",
+  "rune.send.slow": "Sendi · netþjónninn hefur ekki svarað enn · skilaboðin eru geymd og verða athuguð ef ekkert svar berst",
+  "rune.session.reconnecting": "Tengist aftur…",
+  "rune.session.slowCopy": "Þessi netþjónn er seinn að svara · sýni það sem var vistað",
+  "rune.undo.commentDiscarded": "Athugasemd fleygt",
+  "rune.undo.queueRemoved": "Fjarlægt úr biðröð",
+  "rune.undo.sessionDeleted": "Lotu eytt",
+  "rune.toast.renameNoAnswer": "Netþjónninn staðfesti ekki nýja titilinn í tæka tíð, svo titillinn sem hann samþykkti síðast er kominn aftur. Reyndu aftur eftir smástund."
 }

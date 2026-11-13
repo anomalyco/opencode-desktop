@@ -197,5 +197,15 @@
   "rune.web.signOut": "Esci",
   "rune.web.connect.notServer": "Quell'indirizzo risponde, ma non è un server OpenCode: controlla l'indirizzo.",
   "rune.web.connect.insecure": "Questa pagina è in https e il browser non le permette di raggiungere un server in http semplice. Usa l'indirizzo https del server.",
-  "rune.web.connect.useOrigin": "Usa {{origin}}"
+  "rune.web.connect.useOrigin": "Usa {{origin}}",
+  "rune.fork.slow": "In attesa del server…",
+  "rune.queue.changeFailed": "Impossibile modificare la coda",
+  "rune.review.readFailed": "Impossibile leggere le modifiche",
+  "rune.send.slow": "Invio in corso · il server non ha ancora risposto · il messaggio è conservato e verrà controllato se non arriva risposta",
+  "rune.session.reconnecting": "Riconnessione…",
+  "rune.session.slowCopy": "Questo server è lento a rispondere · mostra ciò che è stato salvato",
+  "rune.undo.commentDiscarded": "Commento scartato",
+  "rune.undo.queueRemoved": "Rimosso dalla coda",
+  "rune.undo.sessionDeleted": "Sessione eliminata",
+  "rune.toast.renameNoAnswer": "Il server non ha confermato il nuovo titolo in tempo, quindi è tornato l’ultimo titolo che aveva accettato. Riprova tra un momento."
 }

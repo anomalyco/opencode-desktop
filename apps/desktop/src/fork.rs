@@ -42,7 +42,12 @@ pub struct ForkState {
     machine: machine::Fork,
     /// Fixture forks made so far, for their ids.
     made: u32,
+    /// The fork on its way has taken longer than [`SLOW`]: its row says so.
+    slow: bool,
 }
+
+/// How long a fork runs before its row says the server is still working on it.
+const SLOW: f64 = 5.0;
 
 impl ForkState {
     /// The prompt a fork is on its way from: the picker holds still and shows it pending.
@@ -291,7 +296,7 @@ impl App {
 
 /// A fork's `Incoming::Settled`: the session it made is remembered, and opens with the forked
 /// prompt in its composer when this fork is still the one on its way.
-pub fn settled(s: &mut App, attempt: u32, result: Result<Option<SessionInfo>, String>, tx: &mut Tx) {
+pub fn settled(s: &mut App, attempt: u32, result: Result<Option<SessionInfo>, opencode_kit::wire_error::WireError>, tx: &mut Tx) {
     let attempt = Attempt(attempt);
     let event = match result {
         Ok(Some(forked)) => {
@@ -303,7 +308,7 @@ pub fn settled(s: &mut App, attempt: u32, result: Result<Option<SessionInfo>, St
             Event::Succeeded { attempt, forked: id }
         }
         Ok(None) => Event::Failed { attempt, why: String::new() },
-        Err(why) => Event::Failed { attempt, why },
+        Err(e) => Event::Failed { attempt, why: crate::errors::said(s, "", &e) },
     };
     s.step_fork(event, tx);
 }
@@ -311,7 +316,9 @@ pub fn settled(s: &mut App, attempt: u32, result: Result<Option<SessionInfo>, St
 /// Each frame: a fork past its 30 s bound fails, and one whose session isn't open any more is
 /// dropped. True when either happened.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let machine::State::Forking { session, due, .. } = &s.fork.machine.state else { return false };
+    let machine::State::Forking { session, due, .. } = &s.fork.machine.state else {
+        return std::mem::take(&mut s.fork.slow);
+    };
     if s.route != Route::here(session.clone()) {
         return s.step_fork(Event::Left, tx);
     }
@@ -319,8 +326,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if now + 1e-9 >= due {
         return s.step_fork(Event::Due { now: now }, tx);
     }
-    tx.wake_after(std::time::Duration::from_secs_f64(due - now));
-    false
+    let slow_at = due - machine::TIMEOUT_SECS + SLOW;
+    let slow = now + 1e-9 >= slow_at;
+    let changed = slow != std::mem::replace(&mut s.fork.slow, slow);
+    tx.wake_after(std::time::Duration::from_secs_f64(if slow { due - now } else { slow_at - now }));
+    changed
 }
 
 /// When a prompt was sent, as `toLocaleTimeString(undefined, { timeStyle: "short" })` reads it:
@@ -425,7 +435,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
             let is_active = active == Some(&item.id);
             let (sid, mid, hover_id) = (session.clone(), item.id.clone(), item.id.clone());
             let trailing = if pending == Some(item.id.as_str()) {
-                Some(session_view::style::activity_ring_sized(p, 12.0))
+                // Past `SLOW` the wait says what it waits for (Desktop's loader says nothing).
+                let words = s.fork.slow.then(|| text(opencode_i18n::t!("rune.fork.slow")).key("slow").font(UI).color(p.muted));
+                Some(row().key("pending").gap(6.0).center_y().children(words).child(session_view::style::activity_ring_sized(p, 12.0)))
             } else {
                 (!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(UI.features("\"tnum\"")).color(p.muted))
             };

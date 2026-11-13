@@ -430,8 +430,8 @@ fn size_of(v: &Value) -> Option<Size> {
     Some((dim("cols")?, dim("rows")?))
 }
 
-fn gone(err: &str) -> SessionStatus {
-    if err.contains("404") {
+fn gone(err: &opencode_kit::wire_error::WireError) -> SessionStatus {
+    if err.status() == Some(404) {
         SessionStatus::Exited { code: None }
     } else {
         failed(Failure::Failed)

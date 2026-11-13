@@ -197,5 +197,15 @@
   "rune.web.signOut": "Гарах",
   "rune.web.connect.notServer": "Тэр хаяг хариулдаг ч OpenCode сервер биш: хаягаа шалгана уу.",
   "rune.web.connect.insecure": "Энэ хуудас https дээр байгаа тул хөтөч энгийн http сервер рүү хандахыг зөвшөөрөхгүй. Серверийн https хаягийг ашиглана уу.",
-  "rune.web.connect.useOrigin": "{{origin}} ашиглах"
+  "rune.web.connect.useOrigin": "{{origin}} ашиглах",
+  "rune.fork.slow": "Серверийг хүлээж байна…",
+  "rune.queue.changeFailed": "Дарааллыг өөрчилж чадсангүй",
+  "rune.review.readFailed": "Өөрчлөлтүүдийг уншиж чадсангүй",
+  "rune.send.slow": "Илгээж байна · сервер хараахан хариулаагүй · хадгалагдсан бөгөөд хариу ирэхгүй бол шалгана",
+  "rune.session.reconnecting": "Дахин холбогдож байна…",
+  "rune.session.slowCopy": "Энэ сервер удаан хариулж байна · хадгалсан зүйлийг харуулж байна",
+  "rune.undo.commentDiscarded": "Сэтгэгдлийг хаслаа",
+  "rune.undo.queueRemoved": "Дарааллаас хасагдлаа",
+  "rune.undo.sessionDeleted": "Сесс устгагдлаа",
+  "rune.toast.renameNoAnswer": "Сервер шинэ гарчгийг цагтаа баталгаажуулаагүй тул сүүлд хүлээн авсан гарчиг сэргэлээ. Хэсэг хугацааны дараа дахин оролдоно уу."
 }

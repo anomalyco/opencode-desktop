@@ -17,7 +17,7 @@ pub(crate) fn setup(s: &mut App) {
         let prompt = opencode_kit::client::Prompt { id: Some(id.into()), text: body.into(), ..Default::default() };
         let sent = Sent::new(&sid, id, Entry::of(&TextEdit::new(body)), vec![], vec![], false).with_prompt(&prompt);
         s.unsent.note(sent);
-        s.send_failed(id, "POST /prompt: timeout: global");
+        s.send_failed(id, &opencode_kit::wire_error::WireError::new("POST", "/prompt", opencode_kit::wire_error::WireKind::TimedOut));
     }
 }
 
@@ -51,7 +51,7 @@ pub(crate) fn queued_long(s: &mut App) {
     }
     let prompt = opencode_kit::client::Prompt { id: Some(FIRST.into()), text: LONG.into(), ..Default::default() };
     s.unsent.note(Sent::new(&sid, FIRST, Entry::of(&TextEdit::new(LONG)), vec![], vec![], true).with_prompt(&prompt));
-    s.send_failed(FIRST, "POST /prompt: timeout: global");
+    s.send_failed(FIRST, &opencode_kit::wire_error::WireError::new("POST", "/prompt", opencode_kit::wire_error::WireKind::TimedOut));
 }
 
 fn open(s: &mut App, _: &mut Play<App>) { setup(s); }
@@ -68,7 +68,7 @@ fn offline(s:&mut App) {
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("send-unconfirmed", setup),
     ("outbox-offline", offline),
-    ("outbox-rejected", |s| { offline(s); s.send_failed(FIRST, "POST /prompt: http status: 403"); }),
+    ("outbox-rejected", |s| { offline(s); s.send_failed(FIRST, &opencode_kit::wire_error::WireError::new("POST", "/prompt", opencode_kit::wire_error::WireKind::Status { status: 403, tag: None, message: None })); }),
     ("send-failed", |s| { setup(s); confirmed(s); }),
     ("send-queued-long", queued_long),
 ]);

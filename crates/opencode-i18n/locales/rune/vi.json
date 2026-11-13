@@ -197,5 +197,15 @@
   "rune.web.signOut": "Đăng xuất",
   "rune.web.connect.notServer": "Địa chỉ đó có phản hồi, nhưng không phải máy chủ OpenCode: kiểm tra địa chỉ.",
   "rune.web.connect.insecure": "Trang này dùng https, và trình duyệt không cho nó kết nối máy chủ dùng http thường. Hãy dùng địa chỉ https của máy chủ.",
-  "rune.web.connect.useOrigin": "Dùng {{origin}}"
+  "rune.web.connect.useOrigin": "Dùng {{origin}}",
+  "rune.fork.slow": "Đang chờ máy chủ…",
+  "rune.queue.changeFailed": "Không thể thay đổi hàng đợi",
+  "rune.review.readFailed": "Không thể đọc các thay đổi",
+  "rune.send.slow": "Đang gửi · máy chủ chưa trả lời · tin nhắn được giữ lại và sẽ được kiểm tra nếu không có phản hồi",
+  "rune.session.reconnecting": "Đang kết nối lại…",
+  "rune.session.slowCopy": "Máy chủ này phản hồi chậm · đang hiển thị nội dung đã lưu",
+  "rune.undo.commentDiscarded": "Đã bỏ bình luận",
+  "rune.undo.queueRemoved": "Đã xóa khỏi hàng đợi",
+  "rune.undo.sessionDeleted": "Đã xóa phiên",
+  "rune.toast.renameNoAnswer": "Máy chủ không xác nhận tiêu đề mới kịp thời, nên tiêu đề được chấp nhận gần nhất đã được khôi phục. Hãy thử lại sau giây lát."
 }

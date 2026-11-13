@@ -8,25 +8,29 @@
 use serde_json::{Value, json};
 
 use crate::client::{Prompt, Server};
+use crate::wire_error::{WireError, WireKind};
 
 impl Server {
     /// Moves `session` to `directory` (`POST /api/session/:id/move`), waiting up to 30 s
     /// (Desktop's `WORKSPACE_MOVE_TIMEOUT_MS`).
-    pub fn move_session(&self, session: &str, directory: &str) -> Result<(), String> {
+    pub fn move_session(&self, session: &str, directory: &str) -> Result<(), WireError> {
         self.write_within("POST", &format!("/api/session/{session}/move"), Some(json!({ "directory": directory })), std::time::Duration::from_secs(30)).map(|_| ())
     }
 
     /// [`Server::send`], and when the prompt 404s because the session's folder is gone, moves the
     /// session to its project's main checkout and sends again, the prompt led by a line telling
     /// the agent where it is now. Every error keeps `send`'s `POST …/prompt:` start.
-    pub fn send_moving_home(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, String> {
+    pub fn send_moving_home(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, WireError> {
         let first = match self.send(session, prompt) {
-            Err(e) if e.contains("404") => e,
+            Err(e) if e.status() == Some(404) => e,
             done => return done,
         };
         let info = match self.get(&format!("/api/session/{session}")) {
             Ok(v) => v,
-            Err(e) if e.contains("404") => return Err(format!("POST /api/session/{session}/prompt: {GONE}")),
+            Err(e) if e.status() == Some(404) => {
+                let kind = WireKind::Status { status: 404, tag: Some("SessionNotFoundError".into()), message: Some(GONE.into()) };
+                return Err(WireError::new("POST", &format!("/api/session/{session}/prompt"), kind));
+            }
             Err(_) => return Err(first),
         };
         let info = info.get("data").unwrap_or(&info);
@@ -34,7 +38,7 @@ impl Server {
         let Some(home) = self.project_home(info["projectID"].as_str().unwrap_or_default()).filter(|h| h != was) else {
             return Err(first);
         };
-        self.move_session(session, &home).map_err(|e| format!("{first}; moving it to {home}: {e}"))?;
+        self.move_session(session, &home).map_err(|e| WireError { kind: WireKind::Other(format!("{}; moving it to {home}: {e}", first.kind)), ..first.clone() })?;
         let mut moved = prompt.clone();
         moved.text = format!("{}\n\n{}", moved_note(was, &home), prompt.text);
         self.send(session, &moved)

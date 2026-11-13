@@ -197,5 +197,15 @@
   "rune.web.signOut": "Se déconnecter",
   "rune.web.connect.notServer": "Cette adresse répond, mais ce n'est pas un serveur OpenCode : vérifiez l'adresse.",
   "rune.web.connect.insecure": "Cette page est en https, et le navigateur ne la laisse pas joindre un serveur en http simple. Utilisez l'adresse https du serveur.",
-  "rune.web.connect.useOrigin": "Utiliser {{origin}}"
+  "rune.web.connect.useOrigin": "Utiliser {{origin}}",
+  "rune.fork.slow": "En attente du serveur…",
+  "rune.queue.changeFailed": "Impossible de modifier la file d’attente",
+  "rune.review.readFailed": "Impossible de lire les modifications",
+  "rune.send.slow": "Envoi en cours · le serveur n’a pas encore répondu · le message est conservé et sera vérifié si aucune réponse n’arrive",
+  "rune.session.reconnecting": "Reconnexion…",
+  "rune.session.slowCopy": "Ce serveur tarde à répondre · affichage de ce qui a été enregistré",
+  "rune.undo.commentDiscarded": "Commentaire abandonné",
+  "rune.undo.queueRemoved": "Retiré de la file d’attente",
+  "rune.undo.sessionDeleted": "Session supprimée",
+  "rune.toast.renameNoAnswer": "Le serveur n’a pas confirmé le nouveau titre à temps, le dernier titre qu’il a accepté est donc rétabli. Réessayez dans un instant."
 }

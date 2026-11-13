@@ -197,5 +197,15 @@
   "rune.web.signOut": "خروج",
   "rune.web.connect.notServer": "این آدرس پاسخ می‌دهد، اما سرور OpenCode نیست: آدرس را بررسی کنید.",
   "rune.web.connect.insecure": "این صفحه روی https است و مرورگر اجازه نمی‌دهد به سروری روی http ساده برسد. از آدرس https سرور استفاده کنید.",
-  "rune.web.connect.useOrigin": "استفاده از {{origin}}"
+  "rune.web.connect.useOrigin": "استفاده از {{origin}}",
+  "rune.fork.slow": "در انتظار سرور…",
+  "rune.queue.changeFailed": "تغییر صف ممکن نشد",
+  "rune.review.readFailed": "خواندن تغییرات ممکن نشد",
+  "rune.send.slow": "در حال ارسال · سرور هنوز پاسخ نداده است · پیام نگه داشته شده و اگر پاسخی نیاید بررسی می‌شود",
+  "rune.session.reconnecting": "در حال اتصال دوباره…",
+  "rune.session.slowCopy": "این سرور دیر پاسخ می‌دهد · آنچه ذخیره شده نمایش داده می‌شود",
+  "rune.undo.commentDiscarded": "نظر کنار گذاشته شد",
+  "rune.undo.queueRemoved": "از صف حذف شد",
+  "rune.undo.sessionDeleted": "جلسه حذف شد",
+  "rune.toast.renameNoAnswer": "سرور عنوان جدید را به‌موقع تأیید نکرد، بنابراین عنوانی که آخرین بار پذیرفته بود برگشت. کمی بعد دوباره امتحان کنید."
 }
