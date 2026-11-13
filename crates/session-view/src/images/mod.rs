@@ -286,6 +286,12 @@ impl MediaStore {
         self.images.borrow().values().map(|p| p.image.clone()).chain(self.refs.borrow().values().cloned()).collect()
     }
 
+    /// A window at rest: lets go of decoded images whose source no page or transcript holds
+    /// any more, as the next `adopt` would.
+    pub fn rest(&self) {
+        self.images.borrow_mut().retain(|_, p| Arc::strong_count(&p.bytes) > 1);
+    }
+
     pub fn adopt(&self, prepared: &[PreparedImage]) {
         let mut images = self.images.borrow_mut();
         // A refreshed page has new byte addresses. Release handles once neither a page nor

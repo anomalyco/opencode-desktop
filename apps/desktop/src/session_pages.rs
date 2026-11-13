@@ -51,6 +51,11 @@ impl State {
         self.pool = Some(pages);
     }
 
+    /// `App::rest`: the reader's cache keeps only the pages of sessions `keep` says are shown.
+    pub fn rest(&self, keep: &dyn Fn(&str) -> bool) {
+        if let Some(pool) = &self.pool { pool.shared.0.lock().unwrap().ready.retain(|p| keep(&p.key.id)); }
+    }
+
     pub fn has_pool(&self) -> bool {
         self.pool.is_some()
     }

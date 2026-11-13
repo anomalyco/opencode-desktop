@@ -210,7 +210,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_close(|s, _| {
             s.updater.closing();
             s.save_on_close();
-        });
+        })
+        .on_rest(crate::App::rest);
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
     // A harness's launch on the visible desktop: a process the user didn't start can't come to
     // the front, so its window would open behind theirs, covered, and stop drawing. Above every

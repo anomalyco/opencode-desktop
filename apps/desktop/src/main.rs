@@ -33,6 +33,17 @@ fn commit_pages_on_demand() {
     }
 }
 
+/// `App::rest`: mimalloc collects this thread's heap and purges every free page now.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unsafe_code)]
+fn purge_free_pages() {
+    unsafe extern "C" {
+        fn mi_collect(force: bool);
+    }
+    // SAFETY: a plain call into the linked mimalloc, on the UI thread.
+    unsafe { mi_collect(true) }
+}
+
 // A browser's requests speak ureq's API too (ureq-web), so the request code is the same there.
 #[cfg(target_arch = "wasm32")]
 extern crate ureq_web as ureq;
@@ -1105,6 +1116,28 @@ impl App {
     }
 
     /// `id` and its loaded parents, up to 32 steps.
+    /// `App::on_rest`: the window rests (10 s without a frame, or out of sight). What it holds
+    /// for sessions no tab, route or run shows goes: their transcripts, their pages in the
+    /// reader's cache, and the images only those held. A session opened again is read again,
+    /// as one opened for the first time is. Nothing on screen changes.
+    pub(crate) fn rest(s: &mut App, _: &mut rune::Tx) -> bool {
+        let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
+        let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
+        let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
+        s.pages.rest(&kept);
+        if !gone.is_empty() {
+            let transcripts = &mut *s.transcripts;
+            for id in &gone { transcripts.remove(id); }
+        }
+        s.attach.store.rest();
+        plugin_host::memory::collect_garbage(s);
+        // What all that freed: mimalloc purges freed pages only when some thread next allocates,
+        // and an app at rest doesn't. Forced, it gives them back now.
+        #[cfg(not(target_arch = "wasm32"))]
+        purge_free_pages();
+        false
+    }
+
     pub(crate) fn ancestors<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a str> {
         std::iter::successors(Some(id), |cur| self.session(cur)?.parent.as_deref()).take(33)
     }
@@ -1593,7 +1626,8 @@ fn main() {
             .on_close(|s, _| {
                 s.updater.closing();
                 s.save_on_close();
-            });
+            })
+            .on_rest(App::rest);
         app.run();
         storage::close();
         diagnostics.shutdown();

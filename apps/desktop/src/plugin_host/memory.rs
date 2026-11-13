@@ -23,6 +23,12 @@ pub fn report() -> String {
 #[cfg(feature = "alloc-sites")]
 static VMS: std::sync::Mutex<Vec<(String, usize)>> = std::sync::Mutex::new(Vec::new());
 
+/// `App::rest`: every running VM (window halves and app halves) collects its garbage in full.
+pub fn collect_garbage(app: &crate::App) {
+    for p in app.plugins.list.iter() { if let Some(s) = p.script() { s.collect_garbage(); } }
+    super::app_half::each(|a| { a.script.collect_garbage(); None::<()> });
+}
+
 /// Notes each running VM's Luau heap (window halves and app halves), for [`register_reports`].
 #[cfg(feature = "alloc-sites")]
 pub fn publish_vms(app: &crate::App) {
