@@ -74,13 +74,13 @@ local function sourceLabel(env: Env, mode: DiffSource): string
 end
 
 -- The source picker (`ReviewTitle`: select-v2 inline, 24 tall, 8 4 in, 4 round): the source in
--- 13 / 16 at 530 and select-v2's 16 pt chevron, which lists the sources this folder has; with
--- one source, just its name (`ps-2 pe-1`).
+-- 13 / 16 at 530 in select-v2's text-text-base and its 16 pt chevron, which lists the sources
+-- this folder has; with one source, just its name (`ps-2 pe-1`).
 function panel.title(env: Env, view: View, sid: string, key: string): ui.Node
     local doc = panel.doc(env, sid)
     local sources = doc:Sources()
     local current = doc:Source()
-    local label = ui.text(sourceLabel(env, current), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text", fadeOut = true })
+    local label = ui.text(sourceLabel(env, current), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", fadeOut = true })
     if #sources <= 1 then
         return ui.row({ key = `{key}-static`, h = 24, pl = 8, pr = 4, align = "center" }, { label })
     end
