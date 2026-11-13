@@ -81,7 +81,7 @@ fn leading_pad(top: bool, lights: f32, zoom: f32) -> f32 {
 }
 
 /// A titlebar icon button (`IconButton` ghost-muted large, `!w-9`): 36 × 28, the hover wash,
-/// the pressed wash and base ink while `pressed`.
+/// a press brightening the icon to base ink, and the pressed wash with base ink while `pressed`.
 fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bool) -> El {
     let b = row()
         .key(key.to_owned())
@@ -91,7 +91,9 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
         .radius(6.0)
         .center()
         .hover(if pressed { p.pressed } else { p.hover })
-        .press(p.pressed)
+        // `ghost-muted`'s `:active` brightens the icon to `icon-base`; its pressed wash loses to the
+        // hover rule, whose `:not([data-expanded])` makes it the more specific, so the hover wash stays.
+        .press_color(p.icon)
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(if pressed { p.icon } else { p.icon_muted }));
     if pressed { b.fill(p.pressed) } else { b }
@@ -128,7 +130,8 @@ fn new_button(p: &Pal) -> El {
         .radius(6.0)
         .center()
         .hover(p.hover)
-        .press(p.pressed)
+        // As `nav_button`: pressed, the icon brightens and the hover wash stays.
+        .press_color(p.icon)
         .hover_motion(INSTANT, INSTANT)
         .help(t!("command.session.new")).help_keys(crate::keymap::Bind::TabNew.keycaps())
         .matched(NAV_NEW).matched_crop().motion(GLIDE)
