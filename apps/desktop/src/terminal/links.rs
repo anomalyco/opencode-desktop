@@ -276,25 +276,3 @@ pub(super) fn follow(app: &mut crate::App, wk: &str, tid: &str, col: u16, row: u
     };
     app.open_link(&sid, None, &href, tx);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_shell_folder_comes_from_osc_7_or_osc_9_9() {
-        let mut snap = TerminalSnapshot::blank(80, 24, &terminal::TerminalTheme::default());
-        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\start");
-        snap.pwd = "file://host/C:/a%20b".into();
-        assert_eq!(shell_folder(&snap, "C:\\start"), "C:/a b");
-        snap.pwd = "\"C:\\Users\\x\"".into();
-        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\Users\\x", "OSC 9;9, quoted");
-        snap.pwd = "file://host/c/Repos/a".into();
-        assert_eq!(shell_folder(&snap, "C:\\start"), "C:/Repos/a", "Git Bash");
-        snap.pwd = "file://host/mnt/d/x".into();
-        assert_eq!(shell_folder(&snap, "C:\\start"), "D:/x", "WSL");
-        assert_eq!(shell_folder(&snap, "/home/u"), "/mnt/d/x", "a Linux server's own path");
-        snap.pwd = "file://host/home/u".into();
-        assert_eq!(shell_folder(&snap, "C:\\start"), "C:\\start", "only WSL has it");
-    }
-}

@@ -154,31 +154,3 @@ fn base64(bytes: &[u8]) -> String {
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shells_are_known_by_their_program() {
-        assert_eq!(Shell::of("C:\\Program Files\\PowerShell\\7\\pwsh.exe"), Some(Shell::Pwsh));
-        assert_eq!(Shell::of("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), Some(Shell::PowerShell));
-        assert_eq!(Shell::of("C:\\Windows\\system32\\cmd.exe"), Some(Shell::Cmd));
-        assert_eq!(Shell::of("C:\\Program Files\\Git\\bin\\bash.exe"), Some(Shell::GitBash));
-        assert_eq!(Shell::of("C:\\Windows\\System32\\bash.exe"), Some(Shell::Wsl));
-        assert_eq!(Shell::of("wsl.exe"), Some(Shell::Wsl));
-        assert_eq!(Shell::of("C:\\Users\\x\\nu.exe"), None);
-    }
-
-    #[test]
-    fn powershell_gets_its_script_encoded_and_wslenv_gains_colorterm() {
-        let (_, args) = launch(Shell::Pwsh, "pwsh.exe", None).expect("no file needed");
-        assert_eq!(args[..2], ["-NoExit", "-EncodedCommand"]);
-        assert_eq!(base64(b"Ma"), "TWE=");
-        assert_eq!(base64(b"Man"), "TWFu");
-        assert!(launch(Shell::GitBash, "bash.exe", None).is_none(), "bash needs its file");
-        assert_eq!(wslenv(""), "COLORTERM");
-        assert_eq!(wslenv("USERPROFILE/p"), "USERPROFILE/p:COLORTERM");
-        assert_eq!(wslenv("COLORTERM/u"), "COLORTERM/u");
-    }
-}

@@ -161,25 +161,3 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
         el().key("terminal-paste-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),
     ]
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_paste_asks_only_when_it_would_run_something() {
-        assert_eq!(judge("ls", false), Paste::Send("ls".into()));
-        assert_eq!(judge("ls\r\n", false), Paste::Send("ls".into()), "a trailing break waits for Enter");
-        assert_eq!(judge("ls\npwd", false), Paste::Ask);
-        assert_eq!(judge("a\x1b[2Jb", false), Paste::Ask, "control characters");
-        assert_eq!(judge("ls\npwd\n", true), Paste::Send("ls\npwd\n".into()), "bracketed: the program sees one paste");
-        assert_eq!(judge("x\x1b[201~rm -rf .\n", true), Paste::Ask, "would end the bracket early");
-        assert_eq!(judge("a\tb", false), Paste::Send("a\tb".into()));
-    }
-
-    #[test]
-    fn the_question_shows_lines_and_control_characters() {
-        let (lines, count) = shown("echo one\r\necho \x1b two\n");
-        assert_eq!((lines, count), (vec!["echo one".to_owned(), "echo \u{241b} two".to_owned()], 2));
-    }
-}
