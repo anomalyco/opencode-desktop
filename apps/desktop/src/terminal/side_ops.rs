@@ -28,7 +28,10 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
             .center_y()
             .min_w(0.0)
             .on_secondary_press(move |s: &mut App, press: PointerPress, tx: &mut Tx| super::rename::menu(s, &menu_id, press, tx))
-            .child(icon(&grid::TERMINAL_ICON, 16.0).color(if active { p.icon } else { p.icon_muted }))
+            // At the strip's narrowest the glyph gives way with the title, each by its share of
+            // their width, as Desktop's `<Icon>` and `truncate` span shrink in their flex row: a
+            // 72-wide tab shows a dot and "C…".
+            .child(icon(&grid::TERMINAL_ICON, 16.0).shrink().min_w(0.0).color(if active { p.icon } else { p.icon_muted }))
             .child(
                 text(title.to_owned())
                     .key("terminal-tab-title")
@@ -90,6 +93,9 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if [Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) {
+        return false;
+    }
+    if crate::plugin_host::commands::takes_chord(s, ev, tx) {
         return false;
     }
 

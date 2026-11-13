@@ -62,7 +62,7 @@ rune_register::register!(crate::knobs::GROUP_LIST: Group = [
 ]);
 
 pub(crate) use rename::stamp as rename_stamp;
-pub(crate) use side_ops::{ime_terminal, key_terminal, poll_panel, surface, tab_label};
+pub(crate) use side_ops::{PLUGIN, ime_terminal, key_terminal, poll_panel, surface, tab_label};
 
 impl App {
     /// Makes terminal `id` session `sid`'s active one; with `focus` it takes the keyboard (a tab

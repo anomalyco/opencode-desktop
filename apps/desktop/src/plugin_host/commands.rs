@@ -201,6 +201,14 @@ pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     hit.is_some_and(|c| run(app, c.id, None, tx))
 }
 
+/// Whether `ev` is the chord (with Ctrl, Alt or the primary key) of a command a plugin offers
+/// here: a focused terminal lets it go to the app (New terminal, Toggle terminal), as Desktop's
+/// keymap takes a modified chord on the document's capture phase before the terminal sees it
+/// (`command.tsx` `handleKeyDown`).
+pub fn takes_chord(app: &App, ev: &KeyEvent, tx: &Tx) -> bool {
+    (ev.mods.cmd || ev.mods.ctrl || ev.mods.alt) && all(app).iter().any(|c| offered(app, c) && c.keybind.as_ref().is_some_and(|k| k.matches_tx(ev, tx)))
+}
+
 /// A chord (with Ctrl, Alt or the primary key) of a command of a plugin with panels, ahead of the
 /// pane that has the keyboard, as the side region's own commands are: Toggle terminal and New
 /// terminal answer inside a focused terminal, Open review inside a focused file.

@@ -3,7 +3,7 @@
 
 use rune::{
     Anim, AnimExt, Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Phase, PointerPress,
-    ScrollSpec, Spring, Tx, col, el, icon, row, text,
+    Spring, Tx, col, el, icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
 
@@ -279,6 +279,7 @@ pub(super) fn pane_box(
         s,
         p,
         pane,
+        (&reg.session_id, pane_size.0),
         &entries,
         pane_active.as_deref(),
         preview_key,
@@ -344,6 +345,7 @@ fn tab_bar(
     s: &App,
     p: &Pal,
     pane: SessionPane,
+    (session_id, pane_w): (&str, f32),
     entries: &[&ResolvedEntry],
     pane_active: Option<&str>,
     _preview_key: Option<&str>,
@@ -352,15 +354,42 @@ fn tab_bar(
     reserve_toggle: bool,
 ) -> El {
     // Desktop's panel strip (`tabs.css`, `#review-panel` / `#bottom-panel`): 28 tall tabs 8 apart
-    // from a 12 inset, the "+" flush after the last, fading at the strip's end.
-    let mut strip = row()
-        .key(format!("side-tabs-{}", pane_slug(pane)))
+    // from a 12 inset, the "+" after the last. The tabs share the room evenly, none wider than
+    // its content nor narrower than 72 (`tabs.css:501`); past that the strip scrolls, the "+"
+    // staying at its end, and each edge feathers by as much as is scrolled past it, up to 24
+    // (`tab-strip-scroll.ts`).
+    let slug = pane_slug(pane);
+    let controls = pane == SessionPane::Bottom || reserve_toggle;
+    let room = pane_w - 24.0 - if controls { 36.0 } else { 0.0 } - 36.0;
+    let new_natural = 10.0 + rune::text::measure(opencode_i18n::t!("session.tab.new"), &[], UI, None).0 + 30.0;
+    let active_of = |e: &ResolvedEntry| shown_new_id.is_none() && pane_active == Some(e.key.as_str());
+    // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
+    let leads: Vec<Option<El>> = entries.iter().map(|e| e.provider.lead(s, p, &e.tab, active_of(e))).collect();
+    let naturals: Vec<f32> = entries.iter().zip(&leads).map(|(e, l)| tab_natural(e, l.is_some()))
+        .chain(live_new.iter().map(|_| new_natural)).collect();
+    let gaps = 8.0 * naturals.len().saturating_sub(1) as f32;
+    let mut widths = strip_widths(&naturals, room - gaps).into_iter();
+    let lead = entries.iter().find(|e| !e.tab.pinned).is_some_and(|e| e.tab.first);
+    let scroll_key = format!("side-tab-scroll-{slug}");
+    let at = s.side.strips.clone();
+    let (wheel_at, laid_at) = (at.clone(), at.clone());
+    let (wheel_key, laid_key) = (scroll_key.clone(), scroll_key.clone());
+    let (slot, sid) = (pane as usize, session_id.to_owned());
+    let mut list = row()
+        .key(format!("side-tab-list-{slug}"))
         .gap(8.0)
         .center_y()
-        .grow(1.0)
-        .min_w(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .clip_fade(0.0, 0.0, 8.0, 0.0);
+        // A strip that grows glides to its end, to show the new tab, or to its start when the
+        // tab opened at its lead (`nextTabStripScrollLeft`); the first layout of a session's
+        // strip only notes where it stands.
+        .on_layout_tx(move |_: &mut App, [_, _, w, _]: [f32; 4], tx: &mut Tx| {
+            let laid = laid_at[slot].laid.replace(Some((sid.clone(), w, lead)));
+            let Some((_, was_w, was_lead)) = laid.filter(|l| l.0 == sid) else { return };
+            if w <= was_w {
+                return;
+            }
+            tx.scroll_to(laid_key.clone(), if !was_lead && lead { 0.0 } else { w }, 0.0);
+        });
 
     // While the keyboard is the chat's, or a menu's (Desktop's side focus is the last focus, click
     // or key inside `#review-panel`; a menu's items sit in a portal outside it), the selected tab
@@ -375,11 +404,10 @@ fn tab_bar(
     // region on every keystroke in it.
     let composing = rune::Tracked::untracked(&s.composer).focused;
     let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !composing && !s.popup.holds_focus();
-    for entry in entries {
-        let key = entry.key.clone();
-        let active = shown_new_id.is_none() && pane_active == Some(key.as_str());
-        let dragging = s.side.pane_drag.dragging() == Some(key.as_str());
-        strip = strip.child(tab_trigger(s, p, entry, active, focused, dragging));
+    for (entry, lead) in entries.iter().zip(leads) {
+        let dragging = s.side.pane_drag.dragging() == Some(entry.key.as_str());
+        let width = widths.next().unwrap_or(72.0);
+        list = list.child(tab_trigger(p, entry, lead, width, active_of(entry), focused, dragging));
     }
 
     for nt in live_new {
@@ -392,7 +420,7 @@ fn tab_bar(
             .role("tab")
             .label_static(opencode_i18n::t!("session.tab.new"))
             .h(28.0)
-            .min_w(72.0)
+            .w(widths.next().unwrap_or(72.0))
             .pl(10.0)
             .pr(4.0)
             .gap(6.0)
@@ -412,7 +440,8 @@ fn tab_bar(
                 text(opencode_i18n::t!("session.tab.new"))
                     .font(UI)
                     .color(if active && focused { p.text } else { p.muted })
-                    .truncate_fade(),
+                    .truncate_fade()
+                    .shrink(),
             )
             .child(close_button(p, format!("side-new-close-{close_nid}"), active, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -423,12 +452,42 @@ fn tab_bar(
                 tx.instant();
                 s.dismiss_side_new_tab(&middle_nid);
             });
-        strip = strip.child(trigger);
+        list = list.child(trigger);
     }
 
-    // `+` button right after the tabs, as in Desktop's `side-region.tsx`.
-    strip = strip.child(
-        el().key(format!("side-add-{}", pane_slug(pane)))
+    let viewport = row()
+        .key(scroll_key)
+        .h(28.0)
+        .shrink()
+        .min_w(0.0)
+        .scroll_x()
+        .scroll_fade(rune::ScrollFade::feather(24.0))
+        .on_scroll_offset(move |pos| at[slot].x.set(pos.offset[0]))
+        // A notch of an upright wheel moves the strip 50 sideways, down to the right
+        // (`tab-strip-scroll.ts`); a sideways one scrolls it as any horizontal viewport.
+        .on_wheel(move |_: &mut App, e: rune::WheelEvent, tx: &mut Tx| {
+            // Off macOS Shift turns a wheel sideways, but Chromium hands the page its upright delta.
+            let shifted = !cfg!(target_os = "macos") && e.mods.shift && e.dy == 0.0;
+            let (dx, dy) = if shifted { (0.0, e.dx) } else { (e.dx, e.dy) };
+            if dy.abs() <= dx.abs() {
+                return false;
+            }
+            tx.scroll_to_x(wheel_key.clone(), wheel_at[slot].x.get() + if dy < 0.0 { 50.0 } else { -50.0 });
+            true
+        })
+        .child(list);
+
+    // The `+` right after the tabs, and at the strip's end once they scroll (`side-region.tsx`,
+    // the list's sticky last child).
+    let strip = row()
+        .key(format!("side-tabs-{slug}"))
+        .gap(8.0)
+        .center_y()
+        .grow(1.0)
+        .min_w(0.0)
+        .child(viewport);
+    let strip = strip.child(
+        el().key(format!("side-add-{slug}"))
             .role("button")
             .label_static(opencode_i18n::t!("session.tab.new"))
             .size(28.0, 28.0)
@@ -482,6 +541,44 @@ fn tab_bar(
     bar
 }
 
+/// How wide a strip's tabs are, given each one's content width and the room they share (the
+/// strip's, less its gaps): Desktop's `flex: 1 1 0; min-width: 72px; max-width: max-content`
+/// (`tabs.css:501`). The room is shared evenly; a tab whose content needs less than its share
+/// keeps to its content and leaves the rest to the others; none is narrower than 72, so past 72
+/// each the strip is wider than its room and scrolls.
+fn strip_widths(naturals: &[f32], room: f32) -> Vec<f32> {
+    let mut order: Vec<usize> = (0..naturals.len()).collect();
+    order.sort_by(|&a, &b| naturals[a].total_cmp(&naturals[b]));
+    let mut out = vec![TAB_MIN_W; naturals.len()];
+    let (mut left, mut rest) = (room, naturals.len());
+    for i in order {
+        let w = naturals[i].min(left / rest as f32).max(TAB_MIN_W);
+        out[i] = w;
+        left -= w;
+        rest -= 1;
+    }
+    out
+}
+
+/// A strip's narrowest tab (`tabs.css:503`).
+const TAB_MIN_W: f32 = 72.0;
+
+/// The width tab `entry`'s content takes unshrunk (CSS `max-content`), as `tab_trigger` lays
+/// it out: 10 in, the icon and 6, the title, the badge, then the close button 4 from the end or
+/// 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
+/// terminal's title stops at 160 (`TerminalTabLabel`).
+fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
+    let title = rune::text::measure(&entry.tab.title, &[], UI, None).0;
+    let body = match (lead, entry.tab.icon) {
+        (true, _) if entry.plugin == crate::terminal::PLUGIN => 22.0 + title.min(160.0),
+        (true, _) | (false, Some(_)) => 22.0 + title,
+        (false, None) => title,
+    };
+    let badge = entry.tab.badge.as_ref().map_or(0.0, |b| 6.0 + rune::text::measure(b, &[], UI_SMALL, None).0);
+    let end = if entry.tab.can_close() { 30.0 } else { 10.0 };
+    10.0 + body + badge + end
+}
+
 /// A tab key as an element key.
 pub(super) fn safe_id(key: &str) -> String {
     key.replace(':', "-").replace('/', "_")
@@ -491,7 +588,7 @@ pub(super) fn safe_id(key: &str) -> String {
 /// selected one on `layer-02`; 13/440 labels in the muted ink, the selected one's in the base
 /// ink while its pane has the keyboard; the 20 pt close button 4 from its end. A press selects
 /// it, a drag moves it between panes, a right click opens its menu.
-fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: bool, dragging: bool) -> El {
+fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, active: bool, focused: bool, dragging: bool) -> El {
     let select_key = entry.key.clone();
     let promote_key = entry.key.clone();
     let menu_key = entry.key.clone();
@@ -514,9 +611,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
         .role("tab")
         .label(entry.tab.title.clone())
         .h(28.0)
-        .min_w(72.0)
-        .max_w(320.0)
-        .shrink()
+        .w(width)
         .pl(10.0)
         .pr(if entry.tab.can_close() { 4.0 } else { 10.0 })
         .gap(6.0)
@@ -549,8 +644,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
         pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx));
     }
 
-    // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
-    if let Some(label) = entry.provider.lead(s, p, &entry.tab, active) {
+    if let Some(label) = lead {
         pill = pill.child(label.shrink().min_w(0.0));
     } else {
         match entry.tab.icon {

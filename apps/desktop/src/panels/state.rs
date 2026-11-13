@@ -130,6 +130,9 @@ pub struct SideState {
     pub tab_menu: Option<(String, f32, f32)>,
     /// `+` launcher dropdown menu anchor `(pane, x, y)`.
     pub add_menu: Option<(SessionPane, f32, f32)>,
+    /// Each pane's tab strip scroll (by `SessionPane as usize`): what its handlers read, which a
+    /// build never does.
+    pub strips: Rc<[StripScroll; 3]>,
     pub sessions: HashMap<String, SessionSideState>,
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
@@ -157,6 +160,7 @@ impl Default for SideState {
             closing: Default::default(),
             tab_menu: None,
             add_menu: None,
+            strips: Rc::default(),
             resolved: Default::default(),
             sessions: HashMap::new(),
             adding: Vec::new(),
@@ -164,6 +168,15 @@ impl Default for SideState {
             next_new_serial: 1,
         }
     }
+}
+
+/// A tab strip's scroll, as `tab-strip-scroll.ts` keeps it: the offset a wheel notch moves on
+/// from, and the session, width and lead tab it last laid out with, so a strip that grows glides
+/// to its new tab.
+#[derive(Default)]
+pub struct StripScroll {
+    pub x: std::cell::Cell<f32>,
+    pub laid: std::cell::RefCell<Option<(String, f32, bool)>>,
 }
 
 #[derive(Clone)]
@@ -741,6 +754,9 @@ impl App {
         self.side.adding.retain(|n| !(n.session_id == sid && n.pane == pane));
         self.side.focused = true;
         self.side.active_pane_focus = pane;
+        // A tab picked past the strip's edge, by a key or a click on its visible part, scrolls
+        // into view, as Desktop's focused trigger does.
+        tx.scroll_into_view_in(format!("side-tab-scroll-{}", pane.name()), format!("side-tab-{}", super::view::safe_id(key)));
 
         if let Some((plugin, tab_id)) = split_panel_key(key)
             && let Some(prov) = self.find_panel(plugin)

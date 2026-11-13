@@ -91,7 +91,8 @@ pub fn bottom_dock(s: &App, reg: Option<&ResolvedRegion>, p: &Pal, cx: &mut Cx<A
                 .grow(1.0)
                 .min_h(0.0)
                 .clip_rounded(10.0)
-                .child(pane_box(s, p, reg, SessionPane::Bottom, (800.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
+                // The dock spans the window past the sidebar, 8 in from each side.
+                .child(pane_box(s, p, reg, SessionPane::Bottom, (s.side.laid_w.get() - s.sidebar_shown_w() - 16.0, h), cx.env().scale, false).grow(1.0).min_h(0.0)),
         );
 
     // Hidden rather than unmounted, so its terminals keep their screens (`screen.tsx:544`); its

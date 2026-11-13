@@ -294,6 +294,14 @@ impl Worker<'_> {
                         dirty = true;
                         continue;
                     }
+                    // The title the shell set before this attached (a fresh cmd names itself at
+                    // once) comes only with the attach: Desktop reads it from the list it loads
+                    // after every create (`machine.ts` `create.succeeded` → `refresh`).
+                    if msg["type"].as_str() == Some("attached")
+                        && let Some(title) = msg["info"]["title"].as_str().filter(|t| !t.is_empty())
+                    {
+                        self.shared.events.lock().push(VtEvent::TitleChanged(title.to_owned()));
+                    }
                     let Some(event) = message(&msg, self.id) else { continue };
                     event
                 }
