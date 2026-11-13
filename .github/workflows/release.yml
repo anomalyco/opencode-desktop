@@ -750,8 +750,10 @@ jobs:
           title="OpenCode (Rune) for Windows, dev ($VERSION)"
           notes="Unsigned Windows setups from dev: x64 rebuilt four times a day when dev changes, arm64 nightly. This update:$built @ ${SHA:0:9} ($VERSION). SHA256SUMS covers every setup here. Windows SmartScreen warns about unsigned apps: choose More info, then Run anyway."
 
+          # The tag stays where it is; the notes name the build's commit. GITHUB_TOKEN can't move a
+          # ref across commits that change .github/workflows/ (it has no `workflows` permission),
+          # so moving it failed with 403 whenever the workflows changed in between.
           if [ "$exists" = true ]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$SHA" -F force=true >/dev/null
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
           else
