@@ -11,6 +11,7 @@ members = [
     "crates/opencode-i18n",
     "crates/opencode-kit",
     "crates/opencode-plugin-spec",
+    "crates/opencode-search",
     "crates/opencode-storage",
     "crates/otlp-lite",
     "crates/project-icon",
@@ -128,4 +129,3 @@ unwrap_used = "warn"
 let_underscore_must_use = "warn"
 disallowed_methods = "warn"
 undocumented_unsafe_blocks = "warn"
-

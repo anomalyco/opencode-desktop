@@ -1,0 +1,14 @@
+[package]
+name = "opencode-search"
+version = "0.0.1"
+description = "Local list search and document find over original UTF-8 text"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
+memchr = "2"
+unicode-segmentation = "1"
+
+[lints]
+workspace = true
