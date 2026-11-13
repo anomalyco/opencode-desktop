@@ -17,6 +17,10 @@ socket2 = "0.6"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 ureq.workspace = true
 
+# Windows: how long a connect keeps sending its SYN (`TCP_MAXRTMS`, `client::reach`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
+
 # In a browser the connection is the page's own: XMLHttpRequest for requests (ureq-web), a
 # streamed fetch for the event stream.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

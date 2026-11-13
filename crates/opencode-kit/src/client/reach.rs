@@ -360,6 +360,27 @@ fn keep(e: &mut Entry, check: Check, came: &mut Vec<String>, woken: &mut Vec<Wak
     }
 }
 
+/// How long a connect may keep sending its SYN (Windows' `TCP_MAXRTMS`), past the longest gap
+/// between two looks at it (two ticks). A refused loopback connect still ends about a second in
+/// whatever this says (measured: 1,030-1,043 ms at 0, 2,500 and 20,000), but with it Winsock's
+/// helper thread wakes far less for the connects this thread keeps in flight: 0.6-0.7 times a
+/// second against 2.2-3.0 with 8 refusing servers (release-quick, MS-6's idle method).
+#[cfg(windows)]
+const KEEP_TRYING_MS: u32 = 2500;
+
+#[cfg(windows)]
+fn keep_trying(sock: &Socket) {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{IPPROTO_TCP, TCP_MAXRTMS, setsockopt};
+    let ms = KEEP_TRYING_MS;
+    // SAFETY: a live socket, and a u32 the call reads for its length.
+    #[allow(unsafe_code)]
+    let _ = unsafe { setsockopt(sock.as_raw_socket() as usize, IPPROTO_TCP, TCP_MAXRTMS, (&raw const ms).cast(), std::mem::size_of::<u32>() as i32) };
+}
+
+#[cfg(not(windows))]
+fn keep_trying(_: &Socket) {}
+
 /// A zero-length send succeeds only on a connected socket. (Windows names the peer of a connect
 /// still in flight, so `peer_addr` can't tell.)
 fn connected(sock: &Socket) -> bool {
@@ -373,6 +394,7 @@ fn start(addr: SocketAddr) -> Try {
     if sock.set_nonblocking(true).is_err() {
         return Try::Failed;
     }
+    keep_trying(&sock);
     let _ = sock.connect(&addr.into());
     if let Some(p) = poller() {
         // SAFETY: `Armed` deletes it from the poller before the socket closes.
