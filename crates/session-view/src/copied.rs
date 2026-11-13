@@ -81,12 +81,18 @@ pub fn mark_copied<S: TimelineHost>(s: &mut S, key: impl Into<String>, tx: &mut 
 
 /// Whether copy button `key` shows its tick.
 pub fn is_copied<S: TimelineHost>(s: &S, key: &str) -> bool {
-    s.copied_state().shows(key, s.clock())
+    // Only a button showing its tick reads the clock, which moves every frame.
+    s.copied_state().0.contains_key(key) && s.copied_state().shows(key, s.clock())
 }
 
 /// The copy buttons showing their ticks now, in order: a row that draws any of them builds
 /// again as they change.
 pub fn current<S: TimelineHost>(s: &S) -> Vec<String> {
+    // The clock moves every frame: a row that reads it can't be kept as it was while nothing
+    // shows a tick.
+    if s.copied_state().0.is_empty() {
+        return Vec::new();
+    }
     let now = s.clock();
     let mut keys: Vec<String> = s.copied_state().0.keys().filter(|k| s.copied_state().shows(k, now)).cloned().collect();
     keys.sort();
