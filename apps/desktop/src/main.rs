@@ -1397,13 +1397,15 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 /// The app's fonts. Desktop sets every IBM Plex Mono weight below 600 in its Text cut and the rest
-/// in its Bold cut (`index.css`), which a Markdown heading in a diff takes. JetBrains Mono is
-/// desktop's terminal face (`terminalDefault`), Nerd Font glyphs included for prompts.
+/// in its Bold cut (`index.css`), which a Markdown heading in a diff takes, and italic Plex in its
+/// Text Italic cut (inline code in emphasis). JetBrains Mono is desktop's terminal face
+/// (`terminalDefault`), Nerd Font glyphs included for prompts.
 #[cfg(not(target_arch = "wasm32"))]
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/InterVariable.ttf"),
     include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
     include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
+    include_bytes!("../assets/fonts/IBMPlexMono-TextItalic.ttf"),
     include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
     include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
     include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
@@ -1411,8 +1413,8 @@ const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
 ];
-/// In a browser, only the fonts the default appearance draws in: the page fetches Commit Mono once
-/// its first frame is up (`LATE_FONTS`), and JetBrains Mono, the terminal's (4.8 MB), when a
+/// In a browser, only the fonts the default appearance draws in: the page fetches Plex's italic and
+/// Commit Mono once its first frame is up (`LATE_FONTS`), and JetBrains Mono, the terminal's (4.8 MB), when a
 /// terminal first attaches (`TERMINAL_FONTS`).
 #[cfg(target_arch = "wasm32")]
 const FONTS: &[&[u8]] = &[
@@ -1424,6 +1426,7 @@ const FONTS: &[&[u8]] = &[
 /// beside the page (`scripts/web.ps1`).
 #[cfg(target_arch = "wasm32")]
 pub(crate) const LATE_FONTS: &[&str] = &[
+    "fonts/IBMPlexMono-TextItalic.ttf",
     "fonts/CommitMono-400-Regular.otf",
     "fonts/CommitMono-700-Regular.otf",
     "fonts/CommitMono-400-Italic.otf",
