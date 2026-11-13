@@ -1267,6 +1267,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= session_view::images::poll(s, now, tx);
     changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
+    changed |= background::poll(s, tx);
     changed |= find::poll(s);
     changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
