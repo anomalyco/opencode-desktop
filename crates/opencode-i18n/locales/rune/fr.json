@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Impossible de joindre ce serveur : vérifiez l'adresse et que le serveur est lancé.",
   "rune.web.limits": "Un aperçu : le navigateur intégré, la dictée et les mises à jour ne fonctionnent pas encore dans le navigateur. Les sessions que vous ouvrez sont celles du serveur : ce que vous envoyez, renommez et supprimez l'atteint.",
   "rune.web.loading": "Chargement…",
-  "rune.web.loadingOf": "Chargement… {{loaded}} sur {{total}} Mo",
-  "rune.web.loadingMb": "Chargement… {{loaded}} Mo",
   "rune.web.needsJspi": "Cette page nécessite WebAssembly JS Promise Integration : Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ou plus récent.",
   "rune.web.stay.title": "Rester connecté sur cet appareil ?",
   "rune.web.stay.body": "Ce navigateur garde votre mot de passe pour {{server}} sur cet appareil, et une app d'écran d'accueil ajoutée d'ici le reçoit aussi : elle s'ouvre sans le demander. Toute personne pouvant utiliser cet appareil déverrouillé peut s'en servir. Se déconnecter, dans Réglages › Serveur, le supprime.",

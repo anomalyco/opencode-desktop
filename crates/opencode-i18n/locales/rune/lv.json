@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Serveris nav sasniedzams: pārbaudiet adresi un vai serveris darbojas.",
   "rune.web.limits": "Priekšskatījums: iebūvētais pārlūks, diktēšana un atjauninājumi pārlūkā vēl nedarbojas. Jūsu atvērtās sesijas pieder serverim: tas, ko sūtāt, pārdēvējat un dzēšat, nonāk pie tā.",
   "rune.web.loading": "Ielādējas…",
-  "rune.web.loadingOf": "Ielādējas… {{loaded}} no {{total}} MB",
-  "rune.web.loadingMb": "Ielādējas… {{loaded}} MB",
   "rune.web.needsJspi": "Šai lapai vajag WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) vai jaunāku.",
   "rune.web.stay.title": "Palikt pierakstītam šajā ierīcē?",
   "rune.web.stay.body": "Šis pārlūks glabā jūsu {{server}} paroli šajā ierīcē, un no šejienes sākuma ekrānam pievienotā lietotne to arī saņem, tāpēc tā atveras bez jautāšanas. Ikviens, kas var lietot atbloķētu ierīci, to var izmantot. Izrakstīšanās sadaļā Iestatījumi › Serveris to noņem.",

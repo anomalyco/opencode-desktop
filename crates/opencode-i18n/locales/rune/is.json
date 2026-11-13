@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Náði ekki sambandi við netþjóninn: athugaðu vistfangið og að netþjónninn sé í gangi.",
   "rune.web.limits": "Forútgáfa: innbyggði vafrinn, uppskrift og uppfærslur virka ekki enn í vafranum. Lotur sem þú opnar eru netþjónsins: það sem þú sendir, endurnefnir og eyðir berst til hans.",
   "rune.web.loading": "Hleður…",
-  "rune.web.loadingOf": "Hleður… {{loaded}} af {{total}} MB",
-  "rune.web.loadingMb": "Hleður… {{loaded}} MB",
   "rune.web.needsJspi": "Þessi síða þarf WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) eða nýrra.",
   "rune.web.stay.title": "Vera áfram innskráð(ur) á þessu tæki?",
   "rune.web.stay.body": "Þessi vafri geymir lykilorðið þitt fyrir {{server}} á þessu tæki, og heimaskjásforrit sem þú bætir við héðan fær það líka, svo það opnast án þess að spyrja. Hver sem getur notað tækið ólæst getur notað það. Útskráning, í Stillingum › Netþjónn, fjarlægir það.",

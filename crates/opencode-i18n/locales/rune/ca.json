@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "No s'ha pogut arribar al servidor: comprova l'adreça i que el servidor estigui en marxa.",
   "rune.web.limits": "Una vista prèvia: el navegador integrat, el dictat i les actualitzacions encara no funcionen al navegador. Les sessions que obres són del servidor: el que envies, reanomenes i suprimeixes hi arriba.",
   "rune.web.loading": "Carregant…",
-  "rune.web.loadingOf": "Carregant… {{loaded}} de {{total}} MB",
-  "rune.web.loadingMb": "Carregant… {{loaded}} MB",
   "rune.web.needsJspi": "Aquesta pàgina necessita WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) o posterior.",
   "rune.web.stay.title": "Vols mantenir la sessió iniciada en aquest dispositiu?",
   "rune.web.stay.body": "Aquest navegador desa la teva contrasenya de {{server}} en aquest dispositiu, i una app de la pantalla d'inici que hi afegeixis des d'aquí també la rep, així que s'obre sense demanar-la. Qualsevol que pugui fer servir aquest dispositiu desbloquejat la pot fer servir. Tanca la sessió, a Configuració › Servidor, l'elimina.",

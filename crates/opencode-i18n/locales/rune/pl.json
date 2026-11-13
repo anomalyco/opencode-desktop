@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Nie udało się połączyć z serwerem: sprawdź adres i czy serwer działa.",
   "rune.web.limits": "Wersja zapoznawcza: wbudowana przeglądarka, dyktowanie i aktualizacje nie działają jeszcze w przeglądarce. Otwierane sesje należą do serwera: to, co wysyłasz, zmieniasz i usuwasz, trafia do niego.",
   "rune.web.loading": "Ładowanie…",
-  "rune.web.loadingOf": "Ładowanie… {{loaded}} z {{total}} MB",
-  "rune.web.loadingMb": "Ładowanie… {{loaded}} MB",
   "rune.web.needsJspi": "Ta strona wymaga WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) lub nowszej.",
   "rune.web.stay.title": "Pozostać zalogowanym na tym urządzeniu?",
   "rune.web.stay.body": "Ta przeglądarka przechowuje Twoje hasło do {{server}} na tym urządzeniu, a aplikacja dodana stąd do ekranu początkowego też je dostaje, więc otwiera się bez pytania. Każdy, kto może używać odblokowanego urządzenia, może z niego skorzystać. Wylogowanie w Ustawieniach › Serwer je usuwa.",

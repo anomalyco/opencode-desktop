@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Nepavyko pasiekti serverio: patikrinkite adresą ir ar serveris veikia.",
   "rune.web.limits": "Peržiūra: įtaisyta naršyklė, diktavimas ir naujinimai naršyklėje dar neveikia. Jūsų atidarytos sesijos priklauso serveriui: tai, ką siunčiate, pervadinate ir ištrinate, pasiekia jį.",
   "rune.web.loading": "Įkeliama…",
-  "rune.web.loadingOf": "Įkeliama… {{loaded}} iš {{total}} MB",
-  "rune.web.loadingMb": "Įkeliama… {{loaded}} MB",
   "rune.web.needsJspi": "Šiam puslapiui reikia WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) arba naujesnės.",
   "rune.web.stay.title": "Likti prisijungus šiame įrenginyje?",
   "rune.web.stay.body": "Ši naršyklė saugo jūsų {{server}} slaptažodį šiame įrenginyje, o iš čia į pradžios ekraną pridėta programa jį taip pat gauna, todėl atsidaro neklausdama. Bet kas, galintis naudotis atrakintu įrenginiu, gali juo pasinaudoti. Atsijungimas, Nustatymuose › Serveris, jį pašalina.",

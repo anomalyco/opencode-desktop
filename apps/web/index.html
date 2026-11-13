@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-wasm-bytes="0">
+<html lang="en">
 <meta charset="utf-8">
 <!-- Every URL here is relative to the page, so it runs wherever it's mounted (`/rune/` behind a
      proxy that strips it). Opened without the folder's slash, they'd resolve one level up. -->
@@ -119,28 +119,13 @@
   }
   // The module, fetched as the page starts so it downloads while app.js loads. Chrome compiles it
   // as it streams in and keeps the compiled code beside its cached copy for the next visit, both
-  // only for the fetch's own response (`instantiateStreaming`): the progress reads a clone.
-  function download(url) {
-    const response = fetch(url);
-    response.then(async (r) => {
-      if (!r.ok || !r.body) return;
-      // The module's own size (`scripts/web.ps1` writes it): a compressed reply's length isn't.
-      const total = Number(document.documentElement.dataset.wasmBytes) || Number(r.headers.get('content-length')) || 0;
-      const reader = r.clone().body.getReader();
-      let loaded = 0, shown = 0;
-      const mb = n => (n / 1048576).toFixed(1);
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        loaded += value.byteLength;
-        if (loaded - shown > 524288 && status.isConnected) {
-          shown = loaded;
-          status.textContent = total >= loaded ? say('rune.web.loadingOf', { loaded: mb(loaded), total: mb(total) }) : say('rune.web.loadingMb', { loaded: mb(loaded) });
-        }
-      }
-    }).catch(() => {});
-    return response;
-  }
+  // only for the fetch's own response (`instantiateStreaming`). Nothing else reads it: counting
+  // its bytes for a progress line took a clone, and the clone's copy of the module stayed in the
+  // page's memory until its next garbage collection (about 58 MB).
+  const download = url => fetch(url);
+  // From the page's start, while it checks its server and asks for a password if it needs one.
+  const module = download(new URL('app_bg.wasm', import.meta.url));
+
   // The app's first reads (`launch.rs`'s FIRST_READS), asked for now, so the server answers while
   // the module downloads; the app takes the answers up when it reads them with the same
   // credential (`ureq_web::start_get`), and reads again otherwise.
@@ -163,11 +148,11 @@
     }));
   }
   async function boot() {
+    // Only a head start: the app reads for itself when this can't. It goes out before the page's
+    // messages are in, as the module did: a language other than English fetches its catalog first.
+    try { startFirstReads(); } catch {}
     await messagesReady;
     status.textContent = say('rune.web.loading');
-    // Only a head start: the app reads for itself when this can't.
-    try { startFirstReads(); } catch {}
-    const module = download(new URL('app_bg.wasm', import.meta.url));
     try {
       // The app's work waits on the network on fibers (JS Promise Integration).
       if (!('Suspending' in WebAssembly)) throw new Error(say('rune.web.needsJspi'));

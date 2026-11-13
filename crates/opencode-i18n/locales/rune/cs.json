@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Server je nedostupný: zkontrolujte adresu a zda server běží.",
   "rune.web.limits": "Náhled: vestavěný prohlížeč, diktování a aktualizace v prohlížeči zatím nefungují. Relace, které otevřete, patří serveru: co odešlete, přejmenujete a smažete, se k němu dostane.",
   "rune.web.loading": "Načítání…",
-  "rune.web.loadingOf": "Načítání… {{loaded}} z {{total}} MB",
-  "rune.web.loadingMb": "Načítání… {{loaded}} MB",
   "rune.web.needsJspi": "Tato stránka potřebuje WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) nebo novější.",
   "rune.web.stay.title": "Zůstat přihlášeni na tomto zařízení?",
   "rune.web.stay.body": "Tento prohlížeč uchová vaše heslo k {{server}} na tomto zařízení a aplikace na ploše přidaná odsud ho dostane také, takže se otevře bez ptaní. Kdokoli, kdo může odemčené zařízení používat, ho může použít. Odhlášení v Nastavení › Server ho odstraní.",

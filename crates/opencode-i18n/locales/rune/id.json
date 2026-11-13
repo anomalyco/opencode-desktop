@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Tidak dapat menjangkau server: periksa alamatnya, dan pastikan server berjalan.",
   "rune.web.limits": "Pratinjau: browser bawaan, dikte, dan pembaruan belum berfungsi di browser. Sesi yang Anda buka milik server: yang Anda kirim, ganti nama, dan hapus sampai ke server.",
   "rune.web.loading": "Memuat…",
-  "rune.web.loadingOf": "Memuat… {{loaded}} dari {{total}} MB",
-  "rune.web.loadingMb": "Memuat… {{loaded}} MB",
   "rune.web.needsJspi": "Halaman ini memerlukan WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) atau lebih baru.",
   "rune.web.stay.title": "Tetap masuk di perangkat ini?",
   "rune.web.stay.body": "Browser ini menyimpan kata sandi Anda untuk {{server}} di perangkat ini, dan aplikasi Layar Utama yang Anda tambahkan dari sini juga mendapatkannya, jadi aplikasi terbuka tanpa bertanya. Siapa pun yang dapat memakai perangkat ini dalam keadaan tidak terkunci dapat menggunakannya. Keluar, di Pengaturan › Server, menghapusnya.",

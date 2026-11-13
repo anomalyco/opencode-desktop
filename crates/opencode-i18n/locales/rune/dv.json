@@ -95,6 +95,5 @@
   "rune.web.connect.server": "ސަރވަރ އެޑްރެސް",
   "rune.web.connect.password": "ޕާސްވޯޑް (އިޚްތިޔާރީ)",
   "rune.web.loading": "ލޯޑިންގ…",
-  "rune.web.loadingOf": "ލޯޑިންގ… {{loaded}} / {{total}} MB",
   "rune.web.loadingMb": "ލޯޑިންގ… {{loaded}} MB"
 }

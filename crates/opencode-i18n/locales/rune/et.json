@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Serverini ei jõutud: kontrolli aadressi ja et server töötab.",
   "rune.web.limits": "Eelvaade: sisseehitatud brauser, dikteerimine ja uuendused ei tööta brauseris veel. Sinu avatud seansid on serveri omad: see, mida saadad, ümber nimetad ja kustutad, jõuab sinna.",
   "rune.web.loading": "Laadimine…",
-  "rune.web.loadingOf": "Laadimine… {{loaded}} / {{total}} MB",
-  "rune.web.loadingMb": "Laadimine… {{loaded}} MB",
   "rune.web.needsJspi": "See leht vajab WebAssembly JS Promise Integrationit: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) või uuem.",
   "rune.web.stay.title": "Kas jääda selles seadmes sisselogituks?",
   "rune.web.stay.body": "See brauser hoiab sinu {{server}} parooli selles seadmes ja siit avakuvale lisatud rakendus saab selle samuti, nii et rakendus avaneb küsimata. Igaüks, kes saab seda seadet lukustamata kasutada, saab seda kasutada. Väljalogimine menüüs Seaded › Server eemaldab selle.",

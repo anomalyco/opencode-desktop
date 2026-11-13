@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Serverul nu poate fi contactat: verifică adresa și dacă serverul rulează.",
   "rune.web.limits": "O previzualizare: browserul încorporat, dictarea și actualizările încă nu funcționează în browser. Sesiunile pe care le deschizi sunt ale serverului: ce trimiți, redenumești și ștergi ajunge la el.",
   "rune.web.loading": "Se încarcă…",
-  "rune.web.loadingOf": "Se încarcă… {{loaded}} din {{total}} MB",
-  "rune.web.loadingMb": "Se încarcă… {{loaded}} MB",
   "rune.web.needsJspi": "Această pagină necesită WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) sau mai nou.",
   "rune.web.stay.title": "Rămâi conectat pe acest dispozitiv?",
   "rune.web.stay.body": "Acest browser păstrează parola ta pentru {{server}} pe acest dispozitiv, iar o aplicație de pe ecranul principal adăugată de aici o primește și ea, așa că se deschide fără să întrebe. Oricine poate folosi dispozitivul deblocat o poate folosi. Deconectarea, din Setări › Server, o elimină.",

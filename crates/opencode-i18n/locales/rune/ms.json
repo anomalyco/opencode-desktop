@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "Tidak dapat mencapai pelayan: semak alamat, dan pastikan pelayan sedang berjalan.",
   "rune.web.limits": "Pratonton: pelayar terbenam, imlak dan kemas kini belum berfungsi dalam pelayar. Sesi yang anda buka milik pelayan: apa yang anda hantar, namakan semula dan padam sampai kepadanya.",
   "rune.web.loading": "Memuatkan…",
-  "rune.web.loadingOf": "Memuatkan… {{loaded}} daripada {{total}} MB",
-  "rune.web.loadingMb": "Memuatkan… {{loaded}} MB",
   "rune.web.needsJspi": "Halaman ini memerlukan WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) atau lebih baharu.",
   "rune.web.stay.title": "Kekal log masuk pada peranti ini?",
   "rune.web.stay.body": "Pelayar ini menyimpan kata laluan anda untuk {{server}} pada peranti ini, dan apl Skrin Utama yang anda tambah dari sini turut menerimanya, jadi apl dibuka tanpa bertanya. Sesiapa yang boleh menggunakan peranti ini tanpa kunci boleh menggunakannya. Log keluar, dalam Tetapan › Pelayan, membuangnya.",

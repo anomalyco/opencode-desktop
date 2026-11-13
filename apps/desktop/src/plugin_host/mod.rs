@@ -379,8 +379,27 @@ fn start_later(app: &mut App) {
     stores::load(app, ids, true, |app, tx| {
         // Stage B is in: what the record couldn't say about overrides and trust, it does now.
         refresh_records(app);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = tx;
+            next_later(app, PAGE_LATER_AFTER);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         start_one_later(app, tx);
     });
+}
+
+/// In a page, how long after the first frame its other built-ins start: a key typed in that time
+/// isn't held behind their Luau start-up on the page's one thread (about 200 ms in all).
+#[cfg(target_arch = "wasm32")]
+const PAGE_LATER_AFTER: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// In a page, the next built-in starts from a timer task of its own: the page takes the input that
+/// came meanwhile first, where the next turn (`App::later`) runs before it.
+#[cfg(target_arch = "wasm32")]
+fn next_later(app: &App, after: std::time::Duration) {
+    let deliver = app.deliverer();
+    let _ = rune::task::spawn_after("plugin-later", after, move || deliver(Box::new(start_one_later)));
 }
 
 /// The plugin folders (`--plugin-dir`, overrides, installed plugins) of a window: not read yet,
@@ -415,6 +434,9 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
     let found = app.plugins.later.remove(0);
     adopt(app, vec![found]);
     if !app.plugins.later.is_empty() {
+        #[cfg(target_arch = "wasm32")]
+        next_later(app, std::time::Duration::ZERO);
+        #[cfg(not(target_arch = "wasm32"))]
         app.later(Box::new(start_one_later));
     }
     tx.instant();

@@ -209,8 +209,6 @@
   "rune.web.connect.unreachable": "Couldn't reach that server: check the address, and that the server is running.",
   "rune.web.limits": "A preview: the embedded browser, dictation and updates don't work in the browser yet. Sessions you open are the server's own: what you send, rename and delete reaches it.",
   "rune.web.loading": "Loading…",
-  "rune.web.loadingOf": "Loading… {{loaded}} of {{total}} MB",
-  "rune.web.loadingMb": "Loading… {{loaded}} MB",
   "rune.web.needsJspi": "This page needs WebAssembly JS Promise Integration: Chrome or Edge 137, Firefox 153, or Safari 27 (iOS 27) or newer.",
   "rune.web.stay.title": "Stay signed in on this device?",
   "rune.web.stay.body": "This browser keeps your password for {{server}} on this device, and a Home Screen app you add from here gets it too, so the app opens without asking for it. Anyone who can use this device unlocked can use it. Sign out, in Settings › Server, removes it.",

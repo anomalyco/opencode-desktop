@@ -188,8 +188,6 @@
   "rune.web.connect.unreachable": "無法連線到該伺服器：請檢查位址，並確認伺服器正在執行。",
   "rune.web.limits": "預覽版：內建瀏覽器、聽寫和更新在瀏覽器中暫不可用。你開啟的工作階段屬於伺服器本身：你傳送、重新命名和刪除的內容都會同步到伺服器。",
   "rune.web.loading": "載入中…",
-  "rune.web.loadingOf": "載入中… {{loaded}} / {{total}} MB",
-  "rune.web.loadingMb": "載入中… {{loaded}} MB",
   "rune.web.needsJspi": "此頁面需要 WebAssembly JS Promise Integration：Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) 或更新版本。",
   "rune.web.stay.title": "在此裝置上保持登入？",
   "rune.web.stay.body": "此瀏覽器會在此裝置上保存你在 {{server}} 的密碼，從這裡加入主畫面的 App 也會取得它，因此 App 開啟時不再詢問密碼。任何能使用這台已解鎖裝置的人都可以使用它。在「設定 › 伺服器」中登出即可將其移除。",

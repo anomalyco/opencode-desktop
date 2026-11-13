@@ -1,8 +1,8 @@
 // Writes the page (index.html) and its service worker (sw.js) into a built web folder:
-// - the page gets the module's size (its download shows against it), the build's id, and the
-//   English messages it shows before the module is in (the `rune.web.*` keys and the shared ones
-//   it uses), with the catalog's locales, so it picks the user's language as the app does and
-//   fetches that locale's `i18n/<id>.json` (the module reads the same file a moment later);
+// - the page gets the build's id and the English messages it shows before the module is in
+//   (the `rune.web.*` keys and the shared ones it uses), with the catalog's locales, so it picks
+//   the user's language as the app does and fetches that locale's `i18n/<id>.json` (the module
+//   reads the same file a moment later);
 // - the worker gets the build's id and the files the first frame needs.
 // Usage: bun scripts/web-page.ts <built folder>
 import { createHash } from "node:crypto"
@@ -34,7 +34,6 @@ const page = {
 // `</` can't end the script element early: JSON never needs it raw.
 const json = JSON.stringify(page).replaceAll("</", "<\\/")
 const html = readFileSync(join(root, "apps", "web", "index.html"), "utf8")
-  .replace('data-wasm-bytes="0"', `data-wasm-bytes="${wasm.length}"`)
   .replace('<script id="page" type="application/json">{}</script>', `<script id="page" type="application/json">${json}</script>`)
 writeFileSync(join(out, "index.html"), html)
 
