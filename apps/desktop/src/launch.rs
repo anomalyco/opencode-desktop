@@ -495,6 +495,9 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
+    // On the web setup already started the probe, and its first poll may already have
+    // connected. Sending Start to Connected would attach workers and prefetch a second time.
+    #[cfg(not(target_arch = "wasm32"))]
     start(s, tx);
     // The built-ins the first screen didn't show start now; plugins from folders (`--plugin-dir`,
     // overrides, installed) are read on a worker. Redraw for their panels and commands without
@@ -887,4 +890,3 @@ fn connect(s: &mut App, tx: &mut Tx) {
         }
     }
 }
-
