@@ -224,5 +224,7 @@
   "rune.send.slow": "Sending · the server hasn't answered yet · it's kept, and checked if no answer comes",
   "rune.session.reconnecting": "Reconnecting…",
   "rune.session.slowCopy": "This server is slow to answer · showing what was saved",
-  "rune.toast.renameNoAnswer": "The server didn't confirm the new title in time, so the title it last accepted is back. Try again in a moment."
+  "rune.toast.renameNoAnswer": "The server didn't confirm the new title in time, so the title it last accepted is back. Try again in a moment.",
+  "rune.dictation.timedOut": "Dictation didn't finish. The words heard so far are in the draft.",
+  "rune.dictation.timedOutEmpty": "Dictation didn't finish, and no words were heard. Try again."
 }

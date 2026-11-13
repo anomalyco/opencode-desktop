@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Commentaire abandonné",
   "rune.undo.queueRemoved": "Retiré de la file d’attente",
   "rune.undo.sessionDeleted": "Session supprimée",
-  "rune.toast.renameNoAnswer": "Le serveur n’a pas confirmé le nouveau titre à temps, le dernier titre qu’il a accepté est donc rétabli. Réessayez dans un instant."
+  "rune.toast.renameNoAnswer": "Le serveur n’a pas confirmé le nouveau titre à temps, le dernier titre qu’il a accepté est donc rétabli. Réessayez dans un instant.",
+  "rune.dictation.timedOut": "La dictée ne s’est pas terminée. Les mots entendus jusqu’ici sont dans le brouillon.",
+  "rune.dictation.timedOutEmpty": "La dictée ne s’est pas terminée et aucun mot n’a été entendu. Réessayez."
 }

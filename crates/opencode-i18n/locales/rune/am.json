@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "አስተያየቱ ተሰርዟል",
   "rune.undo.queueRemoved": "ከወረፋው ተወግዷል",
   "rune.undo.sessionDeleted": "ክፍለ ጊዜው ተሰርዟል",
-  "rune.toast.renameNoAnswer": "አገልጋዩ አዲሱን ርዕስ በጊዜ አላረጋገጠም፣ ስለዚህ የመጨረሻው የተቀበለው ርዕስ ተመልሷል። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።"
+  "rune.toast.renameNoAnswer": "አገልጋዩ አዲሱን ርዕስ በጊዜ አላረጋገጠም፣ ስለዚህ የመጨረሻው የተቀበለው ርዕስ ተመልሷል። ከትንሽ ቆይታ በኋላ እንደገና ይሞክሩ።",
+  "rune.dictation.timedOut": "ማስጻፉ አልተጠናቀቀም። እስካሁን የተሰሙት ቃላት በረቂቁ ውስጥ ናቸው።",
+  "rune.dictation.timedOutEmpty": "ማስጻፉ አልተጠናቀቀም፣ ምንም ቃል አልተሰማም። እንደገና ይሞክሩ።"
 }

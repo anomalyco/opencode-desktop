@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentaren förkastades",
   "rune.undo.queueRemoved": "Borttaget från kön",
   "rune.undo.sessionDeleted": "Sessionen togs bort",
-  "rune.toast.renameNoAnswer": "Servern bekräftade inte den nya titeln i tid, så titeln den senast godkände är tillbaka. Försök igen om en stund."
+  "rune.toast.renameNoAnswer": "Servern bekräftade inte den nya titeln i tid, så titeln den senast godkände är tillbaka. Försök igen om en stund.",
+  "rune.dictation.timedOut": "Dikteringen blev inte klar. Orden som hörts hittills finns i utkastet.",
+  "rune.dictation.timedOutEmpty": "Dikteringen blev inte klar och inga ord hördes. Försök igen."
 }

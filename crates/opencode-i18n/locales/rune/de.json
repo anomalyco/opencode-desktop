@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentar verworfen",
   "rune.undo.queueRemoved": "Aus der Warteschlange entfernt",
   "rune.undo.sessionDeleted": "Sitzung gelöscht",
-  "rune.toast.renameNoAnswer": "Der Server hat den neuen Titel nicht rechtzeitig bestätigt, daher ist der zuletzt akzeptierte Titel zurück. Versuchen Sie es gleich noch einmal."
+  "rune.toast.renameNoAnswer": "Der Server hat den neuen Titel nicht rechtzeitig bestätigt, daher ist der zuletzt akzeptierte Titel zurück. Versuchen Sie es gleich noch einmal.",
+  "rune.dictation.timedOut": "Das Diktat wurde nicht abgeschlossen. Die bisher erkannten Wörter stehen im Entwurf.",
+  "rune.dictation.timedOutEmpty": "Das Diktat wurde nicht abgeschlossen, und es wurden keine Wörter erkannt. Versuchen Sie es erneut."
 }

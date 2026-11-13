@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentar forkastet",
   "rune.undo.queueRemoved": "Fjernet fra køen",
   "rune.undo.sessionDeleted": "Sesjon slettet",
-  "rune.toast.renameNoAnswer": "Serveren bekreftet ikke den nye tittelen i tide, så tittelen den sist godtok, er tilbake. Prøv igjen om et øyeblikk."
+  "rune.toast.renameNoAnswer": "Serveren bekreftet ikke den nye tittelen i tide, så tittelen den sist godtok, er tilbake. Prøv igjen om et øyeblikk.",
+  "rune.dictation.timedOut": "Dikteringen ble ikke ferdig. Ordene som er hørt så langt, står i utkastet.",
+  "rune.dictation.timedOutEmpty": "Dikteringen ble ikke ferdig, og ingen ord ble hørt. Prøv igjen."
 }

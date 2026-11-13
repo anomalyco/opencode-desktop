@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Commento scartato",
   "rune.undo.queueRemoved": "Rimosso dalla coda",
   "rune.undo.sessionDeleted": "Sessione eliminata",
-  "rune.toast.renameNoAnswer": "Il server non ha confermato il nuovo titolo in tempo, quindi è tornato l’ultimo titolo che aveva accettato. Riprova tra un momento."
+  "rune.toast.renameNoAnswer": "Il server non ha confermato il nuovo titolo in tempo, quindi è tornato l’ultimo titolo che aveva accettato. Riprova tra un momento.",
+  "rune.dictation.timedOut": "La dettatura non è terminata. Le parole sentite finora sono nella bozza.",
+  "rune.dictation.timedOutEmpty": "La dettatura non è terminata e non è stata sentita nessuna parola. Riprova."
 }

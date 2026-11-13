@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Athugasemd fleygt",
   "rune.undo.queueRemoved": "Fjarlægt úr biðröð",
   "rune.undo.sessionDeleted": "Lotu eytt",
-  "rune.toast.renameNoAnswer": "Netþjónninn staðfesti ekki nýja titilinn í tæka tíð, svo titillinn sem hann samþykkti síðast er kominn aftur. Reyndu aftur eftir smástund."
+  "rune.toast.renameNoAnswer": "Netþjónninn staðfesti ekki nýja titilinn í tæka tíð, svo titillinn sem hann samþykkti síðast er kominn aftur. Reyndu aftur eftir smástund.",
+  "rune.dictation.timedOut": "Upplestrinum lauk ekki. Orðin sem heyrðust hingað til eru í drögunum.",
+  "rune.dictation.timedOutEmpty": "Upplestrinum lauk ekki og engin orð heyrðust. Reyndu aftur."
 }

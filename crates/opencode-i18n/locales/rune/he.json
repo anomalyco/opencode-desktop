@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "ההערה בוטלה",
   "rune.undo.queueRemoved": "הוסר מהתור",
   "rune.undo.sessionDeleted": "ההפעלה נמחקה",
-  "rune.toast.renameNoAnswer": "השרת לא אישר את הכותרת החדשה בזמן, ולכן חזרה הכותרת האחרונה שהוא קיבל. נסו שוב בעוד רגע."
+  "rune.toast.renameNoAnswer": "השרת לא אישר את הכותרת החדשה בזמן, ולכן חזרה הכותרת האחרונה שהוא קיבל. נסו שוב בעוד רגע.",
+  "rune.dictation.timedOut": "ההכתבה לא הסתיימה. המילים שנשמעו עד עכשיו נמצאות בטיוטה.",
+  "rune.dictation.timedOutEmpty": "ההכתבה לא הסתיימה ולא נשמעו מילים. נסו שוב."
 }

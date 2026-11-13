@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Şərh ləğv edildi",
   "rune.undo.queueRemoved": "Növbədən çıxarıldı",
   "rune.undo.sessionDeleted": "Sessiya silindi",
-  "rune.toast.renameNoAnswer": "Server yeni başlığı vaxtında təsdiqləmədi, ona görə də son qəbul etdiyi başlıq geri qaytarıldı. Bir azdan yenidən cəhd edin."
+  "rune.toast.renameNoAnswer": "Server yeni başlığı vaxtında təsdiqləmədi, ona görə də son qəbul etdiyi başlıq geri qaytarıldı. Bir azdan yenidən cəhd edin.",
+  "rune.dictation.timedOut": "Diktə tamamlanmadı. İndiyədək eşidilən sözlər qaralamadadır.",
+  "rune.dictation.timedOutEmpty": "Diktə tamamlanmadı və heç bir söz eşidilmədi. Yenidən cəhd edin."
 }

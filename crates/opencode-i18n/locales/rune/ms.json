@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Ulasan dibuang",
   "rune.undo.queueRemoved": "Dialih keluar daripada baris gilir",
   "rune.undo.sessionDeleted": "Sesi dipadamkan",
-  "rune.toast.renameNoAnswer": "Pelayan tidak mengesahkan tajuk baharu tepat pada masanya, jadi tajuk yang terakhir diterimanya dikembalikan. Cuba lagi sebentar nanti."
+  "rune.toast.renameNoAnswer": "Pelayan tidak mengesahkan tajuk baharu tepat pada masanya, jadi tajuk yang terakhir diterimanya dikembalikan. Cuba lagi sebentar nanti.",
+  "rune.dictation.timedOut": "Imlak tidak selesai. Perkataan yang didengar setakat ini ada dalam draf.",
+  "rune.dictation.timedOutEmpty": "Imlak tidak selesai dan tiada perkataan didengar. Cuba lagi."
 }

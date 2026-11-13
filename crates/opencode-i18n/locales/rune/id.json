@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentar dibuang",
   "rune.undo.queueRemoved": "Dihapus dari antrean",
   "rune.undo.sessionDeleted": "Sesi dihapus",
-  "rune.toast.renameNoAnswer": "Server tidak mengonfirmasi judul baru tepat waktu, jadi judul yang terakhir diterimanya dikembalikan. Coba lagi sebentar lagi."
+  "rune.toast.renameNoAnswer": "Server tidak mengonfirmasi judul baru tepat waktu, jadi judul yang terakhir diterimanya dikembalikan. Coba lagi sebentar lagi.",
+  "rune.dictation.timedOut": "Dikte tidak selesai. Kata-kata yang terdengar sejauh ini ada di draf.",
+  "rune.dictation.timedOutEmpty": "Dikte tidak selesai, dan tidak ada kata yang terdengar. Coba lagi."
 }

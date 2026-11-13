@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "已捨棄留言",
   "rune.undo.queueRemoved": "已從佇列中移除",
   "rune.undo.sessionDeleted": "已刪除工作階段",
-  "rune.toast.renameNoAnswer": "伺服器未及時確認新標題，因此已恢復為它最後接受的標題。請稍後再試。"
+  "rune.toast.renameNoAnswer": "伺服器未及時確認新標題，因此已恢復為它最後接受的標題。請稍後再試。",
+  "rune.dictation.timedOut": "聽寫未完成。目前聽到的內容已放入草稿。",
+  "rune.dictation.timedOutEmpty": "聽寫未完成，也沒有聽到任何內容。請再試一次。"
 }

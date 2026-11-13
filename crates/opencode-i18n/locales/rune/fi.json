@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentti hylätty",
   "rune.undo.queueRemoved": "Poistettu jonosta",
   "rune.undo.sessionDeleted": "Istunto poistettu",
-  "rune.toast.renameNoAnswer": "Palvelin ei vahvistanut uutta otsikkoa ajoissa, joten sen viimeksi hyväksymä otsikko palautettiin. Yritä hetken kuluttua uudelleen."
+  "rune.toast.renameNoAnswer": "Palvelin ei vahvistanut uutta otsikkoa ajoissa, joten sen viimeksi hyväksymä otsikko palautettiin. Yritä hetken kuluttua uudelleen.",
+  "rune.dictation.timedOut": "Sanelu ei valmistunut. Tähän mennessä kuullut sanat ovat luonnoksessa.",
+  "rune.dictation.timedOutEmpty": "Sanelu ei valmistunut, eikä sanoja kuultu. Yritä uudelleen."
 }

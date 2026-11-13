@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Đã bỏ bình luận",
   "rune.undo.queueRemoved": "Đã xóa khỏi hàng đợi",
   "rune.undo.sessionDeleted": "Đã xóa phiên",
-  "rune.toast.renameNoAnswer": "Máy chủ không xác nhận tiêu đề mới kịp thời, nên tiêu đề được chấp nhận gần nhất đã được khôi phục. Hãy thử lại sau giây lát."
+  "rune.toast.renameNoAnswer": "Máy chủ không xác nhận tiêu đề mới kịp thời, nên tiêu đề được chấp nhận gần nhất đã được khôi phục. Hãy thử lại sau giây lát.",
+  "rune.dictation.timedOut": "Đọc chính tả chưa hoàn tất. Những từ nghe được đến giờ đã có trong bản nháp.",
+  "rune.dictation.timedOutEmpty": "Đọc chính tả chưa hoàn tất và không nghe được từ nào. Hãy thử lại."
 }

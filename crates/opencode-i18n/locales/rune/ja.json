@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "コメントを破棄しました",
   "rune.undo.queueRemoved": "キューから削除しました",
   "rune.undo.sessionDeleted": "セッションを削除しました",
-  "rune.toast.renameNoAnswer": "サーバーが新しいタイトルを時間内に確認しなかったため、最後に受け付けたタイトルに戻しました。少し待ってからもう一度お試しください。"
+  "rune.toast.renameNoAnswer": "サーバーが新しいタイトルを時間内に確認しなかったため、最後に受け付けたタイトルに戻しました。少し待ってからもう一度お試しください。",
+  "rune.dictation.timedOut": "音声入力が終わりませんでした。ここまでに聞き取れた言葉は下書きに入っています。",
+  "rune.dictation.timedOutEmpty": "音声入力が終わらず、言葉も聞き取れませんでした。もう一度お試しください。"
 }

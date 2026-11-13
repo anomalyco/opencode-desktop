@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentar odbačen",
   "rune.undo.queueRemoved": "Uklonjeno iz reda čekanja",
   "rune.undo.sessionDeleted": "Sesija izbrisana",
-  "rune.toast.renameNoAnswer": "Server nije na vrijeme potvrdio novi naslov, pa je vraćen naslov koji je posljednji prihvatio. Pokušajte ponovo za trenutak."
+  "rune.toast.renameNoAnswer": "Server nije na vrijeme potvrdio novi naslov, pa je vraćen naslov koji je posljednji prihvatio. Pokušajte ponovo za trenutak.",
+  "rune.dictation.timedOut": "Diktiranje nije završeno. Dosad čute riječi su u skici.",
+  "rune.dictation.timedOutEmpty": "Diktiranje nije završeno i nijedna riječ nije čuta. Pokušajte ponovo."
 }

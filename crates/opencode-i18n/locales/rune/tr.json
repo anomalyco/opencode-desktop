@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Yorum atıldı",
   "rune.undo.queueRemoved": "Sıradan kaldırıldı",
   "rune.undo.sessionDeleted": "Oturum silindi",
-  "rune.toast.renameNoAnswer": "Sunucu yeni başlığı zamanında onaylamadı, bu yüzden en son kabul ettiği başlık geri geldi. Birazdan yeniden deneyin."
+  "rune.toast.renameNoAnswer": "Sunucu yeni başlığı zamanında onaylamadı, bu yüzden en son kabul ettiği başlık geri geldi. Birazdan yeniden deneyin.",
+  "rune.dictation.timedOut": "Dikte tamamlanmadı. Şimdiye kadar duyulan sözcükler taslakta.",
+  "rune.dictation.timedOutEmpty": "Dikte tamamlanmadı ve hiç sözcük duyulmadı. Yeniden deneyin."
 }

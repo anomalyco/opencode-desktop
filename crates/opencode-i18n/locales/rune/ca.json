@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "S'ha descartat el comentari",
   "rune.undo.queueRemoved": "S'ha tret de la cua",
   "rune.undo.sessionDeleted": "S'ha suprimit la sessió",
-  "rune.toast.renameNoAnswer": "El servidor no ha confirmat el títol nou a temps, així que ha tornat l'últim títol que va acceptar. Torneu-ho a provar d'aquí a un moment."
+  "rune.toast.renameNoAnswer": "El servidor no ha confirmat el títol nou a temps, així que ha tornat l'últim títol que va acceptar. Torneu-ho a provar d'aquí a un moment.",
+  "rune.dictation.timedOut": "El dictat no s'ha acabat. Les paraules sentides fins ara són a l'esborrany.",
+  "rune.dictation.timedOutEmpty": "El dictat no s'ha acabat i no s'ha sentit cap paraula. Torneu-ho a provar."
 }

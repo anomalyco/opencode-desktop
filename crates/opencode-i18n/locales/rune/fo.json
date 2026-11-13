@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Viðmerking strikað",
   "rune.undo.queueRemoved": "Tikið úr bíðirøðini",
   "rune.undo.sessionDeleted": "Seta strikað",
-  "rune.toast.renameNoAnswer": "Ambætarin váttaði ikki nýggja heitið í tíð, so heitið, hann seinast góðtók, er aftur. Royn aftur um eina løtu."
+  "rune.toast.renameNoAnswer": "Ambætarin váttaði ikki nýggja heitið í tíð, so heitið, hann seinast góðtók, er aftur. Royn aftur um eina løtu.",
+  "rune.dictation.timedOut": "Upplesturin varð ikki liðugur. Orðini, sum hava verið hoyrd higartil, eru í kladduni.",
+  "rune.dictation.timedOutEmpty": "Upplesturin varð ikki liðugur, og eingi orð vórðu hoyrd. Royn aftur."
 }

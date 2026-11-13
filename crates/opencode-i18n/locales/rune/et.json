@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentaarist loobuti",
   "rune.undo.queueRemoved": "Järjekorrast eemaldatud",
   "rune.undo.sessionDeleted": "Seanss kustutatud",
-  "rune.toast.renameNoAnswer": "Server ei kinnitanud uut pealkirja õigel ajal, seega taastati viimati vastu võetud pealkiri. Proovi hetke pärast uuesti."
+  "rune.toast.renameNoAnswer": "Server ei kinnitanud uut pealkirja õigel ajal, seega taastati viimati vastu võetud pealkiri. Proovi hetke pärast uuesti.",
+  "rune.dictation.timedOut": "Dikteerimine ei lõppenud. Seni kuuldud sõnad on mustandis.",
+  "rune.dictation.timedOutEmpty": "Dikteerimine ei lõppenud ja ühtegi sõna ei kuuldud. Proovi uuesti."
 }

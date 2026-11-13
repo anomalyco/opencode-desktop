@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Comentariul a fost eliminat",
   "rune.undo.queueRemoved": "Eliminat din coadă",
   "rune.undo.sessionDeleted": "Sesiune ștearsă",
-  "rune.toast.renameNoAnswer": "Serverul nu a confirmat noul titlu la timp, așa că a revenit ultimul titlu pe care l-a acceptat. Încearcă din nou peste un moment."
+  "rune.toast.renameNoAnswer": "Serverul nu a confirmat noul titlu la timp, așa că a revenit ultimul titlu pe care l-a acceptat. Încearcă din nou peste un moment.",
+  "rune.dictation.timedOut": "Dictarea nu s-a terminat. Cuvintele auzite până acum sunt în ciornă.",
+  "rune.dictation.timedOutEmpty": "Dictarea nu s-a terminat și nu s-a auzit niciun cuvânt. Încearcă din nou."
 }

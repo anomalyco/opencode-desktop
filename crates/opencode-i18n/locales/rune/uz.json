@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Izoh bekor qilindi",
   "rune.undo.queueRemoved": "Navbatdan olib tashlandi",
   "rune.undo.sessionDeleted": "Sessiya o‘chirildi",
-  "rune.toast.renameNoAnswer": "Server yangi sarlavhani o‘z vaqtida tasdiqlamadi, shuning uchun u oxirgi qabul qilgan sarlavha qaytarildi. Birozdan keyin qayta urinib ko‘ring."
+  "rune.toast.renameNoAnswer": "Server yangi sarlavhani o‘z vaqtida tasdiqlamadi, shuning uchun u oxirgi qabul qilgan sarlavha qaytarildi. Birozdan keyin qayta urinib ko‘ring.",
+  "rune.dictation.timedOut": "Diktovka yakunlanmadi. Hozirgacha eshitilgan so‘zlar qoralamada.",
+  "rune.dictation.timedOutEmpty": "Diktovka yakunlanmadi va hech qanday so‘z eshitilmadi. Qayta urinib ko‘ring."
 }

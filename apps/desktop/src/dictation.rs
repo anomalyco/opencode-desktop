@@ -44,6 +44,10 @@ const PREPARING_AFTER: f64 = 0.25;
 
 /// The fake's transcription time.
 const FAKE_TRANSCRIBE: f64 = 0.6;
+/// How long the words may take after the stop. Hex transcribes on this computer, a long
+/// dictation in a few seconds; past this it isn't coming: the words heard so far go into the
+/// draft and the line says it didn't finish, rather than a spinner that never ends.
+const FINISH_LIMIT: f64 = 30.0;
 /// The fake's start when the storybook asks for a slow one.
 const FAKE_SLOW_START: f64 = 1.2;
 pub const FAKE_WORDS: &str = "keep the retry budget as it is and add a test for the reconnect";
@@ -195,6 +199,8 @@ pub struct Dictation {
     seq: Seq,
     /// Seconds the fake takes to start.
     prepare: f64,
+    /// The fake never sends its words (the storybook's "never finishes", `SEER_FAKE_STALL`).
+    stall: bool,
 }
 
 impl Default for Dictation {
@@ -206,7 +212,8 @@ impl Default for Dictation {
 impl Dictation {
     fn with(backend: Backend) -> Dictation {
         let presence = matches!(backend, Backend::Fake).then_some(Presence::Running);
-        Dictation { backend, presence, watching: std::cell::Cell::new(false), wakes: false, phase: Phase::Idle, heard: Arc::default(), seq: Seq::default(), prepare: 0.0 }
+        let stall = std::env::var_os("SEER_FAKE_STALL").is_some();
+        Dictation { backend, presence, watching: std::cell::Cell::new(false), wakes: false, phase: Phase::Idle, heard: Arc::default(), seq: Seq::default(), prepare: 0.0, stall }
     }
 
     /// The storybook's Hex, whatever the app runs on.
@@ -504,7 +511,11 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // The fake answers on its own clock: ready after `prepare`, words `FAKE_TRANSCRIBE` after
     // the stop.
     let words_due = match &d.phase {
-        Phase::Finishing { stopped, .. } if fake => Some(stopped + FAKE_TRANSCRIBE),
+        Phase::Finishing { stopped, .. } if fake && !d.stall => Some(stopped + FAKE_TRANSCRIBE),
+        _ => None,
+    };
+    let gives_up = match &d.phase {
+        Phase::Finishing { stopped, .. } => Some(stopped + FINISH_LIMIT),
         _ => None,
     };
     if fake && starting && now - since >= d.prepare {
@@ -525,6 +536,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if let Some(t) = words_due {
         next = next.min(t);
     }
+    if let Some(t) = gives_up {
+        next = next.min(t);
+    }
     if next.is_finite() {
         tx.wake_at(next.max(now + 0.001));
     }
@@ -534,6 +548,19 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     {
         *slow = true;
         changed = true;
+    }
+    // The words never came: what was heard goes into the draft (never sent on its own, though a
+    // send asked for it: the user hasn't seen it), and the line says so.
+    if gives_up.is_some_and(|t| now + 1e-9 >= t) && heard.is_empty() {
+        let words = match &d.phase {
+            Phase::Finishing { heard: Some(w), .. } => format!("{}{}", w.stable, w.tentative),
+            _ => String::new(),
+        };
+        let says = if words.trim().is_empty() { opencode_i18n::t!("rune.dictation.timedOutEmpty") } else { opencode_i18n::t!("rune.dictation.timedOut") };
+        // Hex's thread is told to stop; a late answer is fenced off by the recording's attempt.
+        d.fail(Problem { says: says.to_owned(), fix: None });
+        insert(s, &words);
+        return true;
     }
     for h in heard {
         changed = true;
@@ -695,6 +722,11 @@ pub const STORY_KEYS: &[crate::stories::Trigger] = &[
     } },
     crate::stories::Trigger { key: 'f', label: "Finish", run: |s, tx| {
         tx.instant();
+        stop(s);
+    } },
+    crate::stories::Trigger { key: 'n', label: "Finish, words never come", run: |s, tx| {
+        tx.instant();
+        s.dictation.stall = true;
         stop(s);
     } },
     crate::stories::Trigger { key: 'e', label: "Next error", run: |s, tx| {

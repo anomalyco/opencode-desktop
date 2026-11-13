@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentārs atmests",
   "rune.undo.queueRemoved": "Noņemts no rindas",
   "rune.undo.sessionDeleted": "Sesija izdzēsta",
-  "rune.toast.renameNoAnswer": "Serveris laikus neapstiprināja jauno nosaukumu, tāpēc ir atjaunots pēdējais tā pieņemtais nosaukums. Mēģiniet vēlreiz pēc brīža."
+  "rune.toast.renameNoAnswer": "Serveris laikus neapstiprināja jauno nosaukumu, tāpēc ir atjaunots pēdējais tā pieņemtais nosaukums. Mēģiniet vēlreiz pēc brīža.",
+  "rune.dictation.timedOut": "Diktēšana netika pabeigta. Līdz šim sadzirdētie vārdi ir melnrakstā.",
+  "rune.dictation.timedOutEmpty": "Diktēšana netika pabeigta, un netika sadzirdēts neviens vārds. Mēģiniet vēlreiz."
 }

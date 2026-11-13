@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Kommentar kasseret",
   "rune.undo.queueRemoved": "Fjernet fra køen",
   "rune.undo.sessionDeleted": "Session slettet",
-  "rune.toast.renameNoAnswer": "Serveren bekræftede ikke den nye titel i tide, så den titel, den sidst accepterede, er tilbage. Prøv igen om et øjeblik."
+  "rune.toast.renameNoAnswer": "Serveren bekræftede ikke den nye titel i tide, så den titel, den sidst accepterede, er tilbage. Prøv igen om et øjeblik.",
+  "rune.dictation.timedOut": "Dikteringen blev ikke færdig. De ord, der er hørt indtil nu, står i kladden.",
+  "rune.dictation.timedOutEmpty": "Dikteringen blev ikke færdig, og der blev ikke hørt nogen ord. Prøv igen."
 }

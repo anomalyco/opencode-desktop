@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Odrzucono komentarz",
   "rune.undo.queueRemoved": "Usunięto z kolejki",
   "rune.undo.sessionDeleted": "Usunięto sesję",
-  "rune.toast.renameNoAnswer": "Serwer nie potwierdził nowego tytułu na czas, więc wrócił tytuł, który zaakceptował ostatnio. Spróbuj ponownie za chwilę."
+  "rune.toast.renameNoAnswer": "Serwer nie potwierdził nowego tytułu na czas, więc wrócił tytuł, który zaakceptował ostatnio. Spróbuj ponownie za chwilę.",
+  "rune.dictation.timedOut": "Dyktowanie nie zostało ukończone. Usłyszane dotąd słowa są w wersji roboczej.",
+  "rune.dictation.timedOutEmpty": "Dyktowanie nie zostało ukończone i nie usłyszano żadnych słów. Spróbuj ponownie."
 }

@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentar zavržen",
   "rune.undo.queueRemoved": "Odstranjeno iz čakalne vrste",
   "rune.undo.sessionDeleted": "Seja izbrisana",
-  "rune.toast.renameNoAnswer": "Strežnik novega naslova ni pravočasno potrdil, zato je vrnjen naslov, ki ga je nazadnje sprejel. Poskusite znova čez trenutek."
+  "rune.toast.renameNoAnswer": "Strežnik novega naslova ni pravočasno potrdil, zato je vrnjen naslov, ki ga je nazadnje sprejel. Poskusite znova čez trenutek.",
+  "rune.dictation.timedOut": "Narek se ni končal. Doslej slišane besede so v osnutku.",
+  "rune.dictation.timedOutEmpty": "Narek se ni končal in nobena beseda ni bila slišana. Poskusite znova."
 }

@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Megjegyzés elvetve",
   "rune.undo.queueRemoved": "Eltávolítva a sorból",
   "rune.undo.sessionDeleted": "Munkamenet törölve",
-  "rune.toast.renameNoAnswer": "A kiszolgáló nem erősítette meg időben az új címet, ezért visszaállt az utoljára elfogadott cím. Próbálja újra egy pillanat múlva."
+  "rune.toast.renameNoAnswer": "A kiszolgáló nem erősítette meg időben az új címet, ezért visszaállt az utoljára elfogadott cím. Próbálja újra egy pillanat múlva.",
+  "rune.dictation.timedOut": "A diktálás nem fejeződött be. Az eddig hallott szavak a piszkozatban vannak.",
+  "rune.dictation.timedOutEmpty": "A diktálás nem fejeződött be, és egy szó sem hallatszott. Próbálja újra."
 }

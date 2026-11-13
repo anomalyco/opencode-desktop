@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "코멘트 삭제됨",
   "rune.undo.queueRemoved": "대기열에서 제거됨",
   "rune.undo.sessionDeleted": "세션 삭제됨",
-  "rune.toast.renameNoAnswer": "서버가 새 제목을 제때 확인하지 않아 마지막으로 수락한 제목으로 돌아갔습니다. 잠시 후 다시 시도하세요."
+  "rune.toast.renameNoAnswer": "서버가 새 제목을 제때 확인하지 않아 마지막으로 수락한 제목으로 돌아갔습니다. 잠시 후 다시 시도하세요.",
+  "rune.dictation.timedOut": "받아쓰기가 끝나지 않았습니다. 지금까지 들린 단어는 초안에 있습니다.",
+  "rune.dictation.timedOutEmpty": "받아쓰기가 끝나지 않았고 들린 단어가 없습니다. 다시 시도하세요."
 }

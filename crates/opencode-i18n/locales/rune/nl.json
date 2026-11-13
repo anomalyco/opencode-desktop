@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Opmerking verworpen",
   "rune.undo.queueRemoved": "Uit de wachtrij verwijderd",
   "rune.undo.sessionDeleted": "Sessie verwijderd",
-  "rune.toast.renameNoAnswer": "De server heeft de nieuwe titel niet op tijd bevestigd, dus de titel die hij het laatst accepteerde is terug. Probeer het zo meteen opnieuw."
+  "rune.toast.renameNoAnswer": "De server heeft de nieuwe titel niet op tijd bevestigd, dus de titel die hij het laatst accepteerde is terug. Probeer het zo meteen opnieuw.",
+  "rune.dictation.timedOut": "Het dicteren is niet afgerond. De woorden die tot nu toe zijn gehoord, staan in het concept.",
+  "rune.dictation.timedOutEmpty": "Het dicteren is niet afgerond en er zijn geen woorden gehoord. Probeer het opnieuw."
 }

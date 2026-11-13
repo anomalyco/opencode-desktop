@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentář zahozen",
   "rune.undo.queueRemoved": "Odebráno z fronty",
   "rune.undo.sessionDeleted": "Relace smazána",
-  "rune.toast.renameNoAnswer": "Server nový název včas nepotvrdil, proto se vrátil název, který naposledy přijal. Zkuste to za chvíli znovu."
+  "rune.toast.renameNoAnswer": "Server nový název včas nepotvrdil, proto se vrátil název, který naposledy přijal. Zkuste to za chvíli znovu.",
+  "rune.dictation.timedOut": "Diktování nebylo dokončeno. Dosud slyšená slova jsou v konceptu.",
+  "rune.dictation.timedOutEmpty": "Diktování nebylo dokončeno a žádná slova nebyla slyšet. Zkuste to znovu."
 }

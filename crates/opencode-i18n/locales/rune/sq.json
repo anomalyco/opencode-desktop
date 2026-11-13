@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komenti u hodh poshtë",
   "rune.undo.queueRemoved": "U hoq nga radha",
   "rune.undo.sessionDeleted": "Sesioni u fshi",
-  "rune.toast.renameNoAnswer": "Serveri nuk e konfirmoi titullin e ri në kohë, prandaj u rikthye titulli që pranoi së fundi. Provo sërish pas pak."
+  "rune.toast.renameNoAnswer": "Serveri nuk e konfirmoi titullin e ri në kohë, prandaj u rikthye titulli që pranoi së fundi. Provo sërish pas pak.",
+  "rune.dictation.timedOut": "Diktimi nuk përfundoi. Fjalët e dëgjuara deri tani janë në draft.",
+  "rune.dictation.timedOutEmpty": "Diktimi nuk përfundoi dhe nuk u dëgjua asnjë fjalë. Provo sërish."
 }

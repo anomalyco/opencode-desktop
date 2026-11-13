@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Komentaras atmestas",
   "rune.undo.queueRemoved": "Pašalinta iš eilės",
   "rune.undo.sessionDeleted": "Seansas ištrintas",
-  "rune.toast.renameNoAnswer": "Serveris laiku nepatvirtino naujo pavadinimo, todėl grąžintas paskutinis jo priimtas pavadinimas. Bandykite dar kartą po akimirkos."
+  "rune.toast.renameNoAnswer": "Serveris laiku nepatvirtino naujo pavadinimo, todėl grąžintas paskutinis jo priimtas pavadinimas. Bandykite dar kartą po akimirkos.",
+  "rune.dictation.timedOut": "Diktavimas nebaigtas. Iki šiol išgirsti žodžiai yra juodraštyje.",
+  "rune.dictation.timedOutEmpty": "Diktavimas nebaigtas ir nebuvo išgirsta jokių žodžių. Bandykite dar kartą."
 }

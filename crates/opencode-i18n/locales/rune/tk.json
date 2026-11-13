@@ -207,5 +207,7 @@
   "rune.undo.commentDiscarded": "Teswir ýatyryldy",
   "rune.undo.queueRemoved": "Nobatdan aýryldy",
   "rune.undo.sessionDeleted": "Sessiýa pozuldy",
-  "rune.toast.renameNoAnswer": "Serwer täze ady wagtynda tassyklamady, şonuň üçin iň soňky kabul eden ady yzyna gaýtaryldy. Birazdan täzeden synanyşyň."
+  "rune.toast.renameNoAnswer": "Serwer täze ady wagtynda tassyklamady, şonuň üçin iň soňky kabul eden ady yzyna gaýtaryldy. Birazdan täzeden synanyşyň.",
+  "rune.dictation.timedOut": "Aýdyp ýazmak tamamlanmady. Şu wagta çenli eşidilen sözler garalamada.",
+  "rune.dictation.timedOutEmpty": "Aýdyp ýazmak tamamlanmady we hiç bir söz eşidilmedi. Täzeden synanyşyň."
 }
