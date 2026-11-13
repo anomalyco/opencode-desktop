@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Käivitab {{shell}} skriptiga, mis märgib iga käsu, selle tulemuse ja kausta, et saaksid nende vahel hüpata. Sinu käivitusfaile ei muudeta. Ainult selle arvuti serveri puhul.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Käivitab cmd viibaga, mis märgib iga käsu ja selle kausta, et saaksid nende vahel hüpata. cmd ei oska öelda, kuidas käsk lõppes. Sinu viip jääb alles.",
   "rune.settings.general.row.terminalMarks.search": "Märgi käsud terminalis",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Kui kaust on ligipääsetav ainult WSL-is, avaneb uus kaart praeguse terminali algkaustas.",
   "rune.settings.general.row.terminalMarks.title": "Märgi käsud: {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ja klahv saadavad Esc ja klahvi, kesta sõnakiirklahvide jaoks. Väljas: Option sisestab klaviatuuri märgi, näiteks é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Kasuta terminalis Optionit Meta-klahvina",

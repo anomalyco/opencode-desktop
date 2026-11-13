@@ -163,6 +163,14 @@ impl VtCore {
             return Vec::new();
         }
         let bracketed = self.mode_enabled(GHOSTTY_MODE_BRACKETED_PASTE);
+        // Windows clipboard text uses CRLF for one break. Ghostty maps an unbracketed LF
+        // to CR; passing it the pair would therefore send two Enters. Fold just pairs,
+        // before framing (also for bracketed pastes), not consecutive independent breaks.
+        let normalized;
+        let text = if text.contains("\r\n") {
+            normalized = text.replace("\r\n", "\r");
+            normalized.as_str()
+        } else { text };
         let mut mutable_in = text.as_bytes().to_vec();
         let mut out = vec![0u8; mutable_in.len() + 32];
         let mut written = 0usize;

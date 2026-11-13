@@ -154,6 +154,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Starts {{shell}} with a script that marks each command, how it ended and the folder it ran in, so you can jump between them. Your startup files aren't changed. Only for a server on this computer.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Starts cmd with a prompt that marks each command and the folder it ran in, so you can jump between them. cmd can't say how a command ended. Your own prompt is kept.",
   "rune.settings.general.row.terminalMarks.search": "Mark commands in the terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "If a folder is only accessible in WSL, a new tab opens where the current terminal started.",
   "rune.settings.general.row.terminalMarks.title": "Mark commands in {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option and a key send Esc and the key, for the shell's word shortcuts. Off, Option types the keyboard's character, such as é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Use Option as Meta in the terminal",

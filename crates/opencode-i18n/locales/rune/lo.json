@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "ເລີ່ມ {{shell}} ພ້ອມສະຄຣິບທີ່ໝາຍແຕ່ລະຄຳສັ່ງ, ຜົນ ແລະ ໂຟນເດີ ເພື່ອໃຫ້ກະໂດດລະຫວ່າງຄຳສັ່ງໄດ້. ໄຟລ໌ເລີ່ມຕົ້ນຂອງທ່ານບໍ່ຖືກປ່ຽນ. ສຳລັບເຊີບເວີໃນຄອມພິວເຕີນີ້ເທົ່ານັ້ນ.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "ເລີ່ມ cmd ພ້ອມພຣອມທີ່ໝາຍແຕ່ລະຄຳສັ່ງ ແລະ ໂຟນເດີ ເພື່ອໃຫ້ກະໂດດລະຫວ່າງຄຳສັ່ງໄດ້. cmd ບອກບໍ່ໄດ້ວ່າຄຳສັ່ງຈົບແນວໃດ. ພຣອມຂອງທ່ານຍັງຄົງຢູ່.",
   "rune.settings.general.row.terminalMarks.search": "ໝາຍຄຳສັ່ງໃນເທີມິນອນ",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "ຖ້າເຂົ້າເຖິງໂຟນເດີໄດ້ສະເພາະໃນ WSL, ແຖບໃໝ່ຈະເປີດໃນໂຟນເດີທີ່ເລີ່ມເທີມິນອນປັດຈຸບັນ.",
   "rune.settings.general.row.terminalMarks.title": "ໝາຍຄຳສັ່ງໃນ {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ກັບປຸ່ມໜຶ່ງຈະສົ່ງ Esc ແລະ ປຸ່ມນັ້ນ ສຳລັບທາງລັດລະດັບຄຳຂອງເຊວ. ເມື່ອປິດ, Option ຈະພິມຕົວອັກສອນຂອງແປ້ນພິມ ເຊັ່ນ é.",
   "rune.settings.general.row.terminalOptionMeta.title": "ໃຊ້ Option ເປັນ Meta ໃນເທີມິນອນ",

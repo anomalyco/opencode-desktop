@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Стартира {{shell}} със скрипт, който отбелязва всяка команда, как е завършила и папката ѝ, за да прескачате между тях. Стартовите ви файлове не се променят. Само за сървър на този компютър.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Стартира cmd с подкана, която отбелязва всяка команда и папката ѝ, за да прескачате между тях. cmd не може да каже как е завършила командата. Вашата подкана се запазва.",
   "rune.settings.general.row.terminalMarks.search": "Отбелязване на командите в терминала",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ако папката е достъпна само в WSL, новият раздел се отваря в началната папка на текущия терминал.",
   "rune.settings.general.row.terminalMarks.title": "Отбелязване на командите в {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option и клавиш изпращат Esc и клавиша, за клавишните комбинации за думи в обвивката. Изключено: Option въвежда знака от клавиатурата, напр. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option като Meta в терминала",

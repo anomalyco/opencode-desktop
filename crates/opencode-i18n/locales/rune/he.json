@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "מפעיל את {{shell}} עם סקריפט שמסמן כל פקודה, איך הסתיימה ואת התיקייה שבה רצה, כדי שתוכל לקפוץ ביניהן. קובצי ההפעלה שלך לא משתנים. רק לשרת במחשב הזה.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "מפעיל את cmd עם הנחיה שמסמנת כל פקודה ואת התיקייה שלה, כדי שתוכל לקפוץ ביניהן. ‏cmd לא יכול לדעת איך פקודה הסתיימה. ההנחיה שלך נשמרת.",
   "rune.settings.general.row.terminalMarks.search": "סימון פקודות במסוף",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "אם התיקייה נגישה רק מתוך WSL, הלשונית החדשה נפתחת בתיקייה שבה הופעל המסוף הנוכחי.",
   "rune.settings.general.row.terminalMarks.title": "סימון פקודות ב־{{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "‏Option ומקש שולחים Esc ואת המקש, לקיצורי המילים של המעטפת. כשכבוי, ‏Option מקליד את התו של המקלדת, כמו é.",
   "rune.settings.general.row.terminalOptionMeta.title": "שימוש ב־Option כ־Meta במסוף",

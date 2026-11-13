@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "ចាប់ផ្ដើម {{shell}} ជាមួយស្គ្រីបដែលសម្គាល់ពាក្យបញ្ជានីមួយៗ របៀបដែលវាបញ្ចប់ និងថតរបស់វា ដើម្បីឱ្យអ្នកលោតរវាងពួកវាបាន។ ឯកសារចាប់ផ្ដើមរបស់អ្នកមិនត្រូវបានផ្លាស់ប្ដូរទេ។ សម្រាប់ម៉ាស៊ីនមេនៅលើកុំព្យូទ័រនេះតែប៉ុណ្ណោះ។",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "ចាប់ផ្ដើម cmd ជាមួយប្រអប់បញ្ចូលដែលសម្គាល់ពាក្យបញ្ជានីមួយៗ និងថតរបស់វា ដើម្បីឱ្យអ្នកលោតរវាងពួកវាបាន។ cmd មិនអាចប្រាប់ថាពាក្យបញ្ជាបញ្ចប់យ៉ាងដូចម្ដេចទេ។ ប្រអប់បញ្ចូលរបស់អ្នកនៅដដែល។",
   "rune.settings.general.row.terminalMarks.search": "សម្គាល់ពាក្យបញ្ជានៅក្នុងទែមីណាល់",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "បើថតអាចចូលបានតែក្នុង WSL ផ្ទាំងថ្មីនឹងបើកនៅថតដែលស្ថានីយបច្ចុប្បន្នបានចាប់ផ្ដើម។",
   "rune.settings.general.row.terminalMarks.title": "សម្គាល់ពាក្យបញ្ជានៅក្នុង {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option និងគ្រាប់ចុចមួយផ្ញើ Esc និងគ្រាប់ចុចនោះ សម្រាប់ផ្លូវកាត់តាមពាក្យរបស់សែល។ ពេលបិទ Option វាយតួអក្សររបស់ក្ដារចុច ដូចជា é។",
   "rune.settings.general.row.terminalOptionMeta.title": "ប្រើ Option ជា Meta នៅក្នុងទែមីណាល់",

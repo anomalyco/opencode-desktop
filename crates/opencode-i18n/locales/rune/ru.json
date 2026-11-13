@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Запускает {{shell}} со скриптом, который отмечает каждую команду, её результат и папку, чтобы переходить между ними. Ваши файлы запуска не меняются. Только для сервера на этом компьютере.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Запускает cmd с приглашением, которое отмечает каждую команду и её папку, чтобы переходить между ними. cmd не сообщает, чем закончилась команда. Ваше приглашение сохраняется.",
   "rune.settings.general.row.terminalMarks.search": "Отмечать команды в терминале",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Если папка доступна только в WSL, новая вкладка открывается в папке, из которой запущен текущий терминал.",
   "rune.settings.general.row.terminalMarks.title": "Отмечать команды в {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option и клавиша отправляют Esc и эту клавишу, для сочетаний оболочки по словам. Если выключено, Option вводит символ раскладки, например é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option как Meta в терминале",

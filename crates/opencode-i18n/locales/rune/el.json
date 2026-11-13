@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Εκκινεί το {{shell}} με ένα σενάριο που σημαίνει κάθε εντολή, πώς τελείωσε και τον φάκελό της, για να μεταβαίνετε ανάμεσά τους. Τα αρχεία εκκίνησής σας δεν αλλάζουν. Μόνο για διακομιστή σε αυτόν τον υπολογιστή.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Εκκινεί το cmd με μια προτροπή που σημαίνει κάθε εντολή και τον φάκελό της, για να μεταβαίνετε ανάμεσά τους. Το cmd δεν μπορεί να πει πώς τελείωσε μια εντολή. Η δική σας προτροπή διατηρείται.",
   "rune.settings.general.row.terminalMarks.search": "Σήμανση εντολών στο τερματικό",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Αν ο φάκελος είναι προσβάσιμος μόνο στο WSL, η νέα καρτέλα ανοίγει στον φάκελο εκκίνησης του τρέχοντος τερματικού.",
   "rune.settings.general.row.terminalMarks.title": "Σήμανση εντολών στο {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Το Option και ένα πλήκτρο στέλνουν Esc και το πλήκτρο, για τις συντομεύσεις λέξεων του κελύφους. Ανενεργό: το Option πληκτρολογεί τον χαρακτήρα του πληκτρολογίου, π.χ. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Χρήση του Option ως Meta στο τερματικό",

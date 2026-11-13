@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Pokreće {{shell}} sa skriptom koja označava svaku komandu, kako je završila i njen folder, da možete skakati između njih. Vaše startne datoteke se ne mijenjaju. Samo za server na ovom računaru.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Pokreće cmd s promptom koji označava svaku komandu i njen folder, da možete skakati između njih. cmd ne može reći kako je komanda završila. Vaš prompt ostaje.",
   "rune.settings.general.row.terminalMarks.search": "Označi komande u terminalu",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ako je folder dostupan samo u WSL-u, nova kartica se otvara u početnom folderu trenutnog terminala.",
   "rune.settings.general.row.terminalMarks.title": "Označi komande u {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option i tipka šalju Esc i tipku, za prečice riječi u ljusci. Isključeno: Option upisuje znak s tastature, npr. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Koristi Option kao Meta u terminalu",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Zažene {{shell}} s skriptom, ki označi vsak ukaz, kako se je končal in njegovo mapo, da lahko skačete med njimi. Vaše zagonske datoteke se ne spremenijo. Samo za strežnik na tem računalniku.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Zažene cmd s pozivom, ki označi vsak ukaz in njegovo mapo, da lahko skačete med njimi. cmd ne zna povedati, kako se je ukaz končal. Vaš poziv ostane.",
   "rune.settings.general.row.terminalMarks.search": "Označi ukaze v terminalu",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Če je mapa dostopna le v WSL, se novi zavihek odpre v mapi, v kateri je bil zagnan trenutni terminal.",
   "rune.settings.general.row.terminalMarks.title": "Označi ukaze v {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option in tipka pošljeta Esc in tipko, za besedne bližnjice lupine. Izklopljeno: Option natipka znak tipkovnice, na primer é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Uporabi Option kot Meta v terminalu",

@@ -74,6 +74,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "ކޮންމެ ކޮމާންޑެއް، އެއީ ނިމުނު ގޮތާއި ފޯލްޑަރު ފާހަގަކުރާ ސްކްރިޕްޓަކާއެކު {{shell}} ފަށާނެ، ކޮމާންޑުތަކުގެ ދެމެދު ފުންމާލެވޭނެހެން. ތިބާގެ ސްޓާޓަޕް ފައިލްތައް ބަދަލެއް ނުކުރެވޭނެ. މި ކޮމްޕިއުޓަރުގެ ސާވަރަށް އެކަނި.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "ކޮންމެ ކޮމާންޑެއްއާއި ފޯލްޑަރު ފާހަގަކުރާ ޕްރޮމްޕްޓަކާއެކު cmd ފަށާނެ. cmd އަށް ކޮމާންޑެއް ނިމުނު ގޮތެއް ނުބުނެވޭނެ. ތިބާގެ ޕްރޮމްޕްޓް ބާކީ ހުންނާނެ.",
   "rune.settings.general.row.terminalMarks.search": "ޓާމިނަލްގައި ކޮމާންޑުތައް ފާހަގަކުރުން",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "ފޯލްޑަރު ހުރީ WSL ގައި އެކަނި ނަމަ، އާ ޓެބު ހުޅުވޭނީ މި ޓާމިނަލް ފެށި ފޯލްޑަރުގައެވެ.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} ގައި ކޮމާންޑުތައް ފާހަގަކުރުން",
   "rune.settings.general.row.terminalOptionMeta.description": "Option އާއި ކީއެއް، ޝެލްގެ ބަސް ޝޯޓްކަޓްތަކަށް Esc އާއި އެ ކީ ފޮނުވާނެ. ނިއްވާލާފައިވާނަމަ، Option އިން ކީބޯޑުގެ އަކުރު ލިޔާނެ، މިސާލަކަށް é.",
   "rune.settings.general.row.terminalOptionMeta.title": "ޓާމިނަލްގައި Option އަކީ Meta ގެ ގޮތުގައި ބޭނުންކުރުން",

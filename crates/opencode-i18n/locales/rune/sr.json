@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Покреће {{shell}} са скриптом која означава сваку команду, како је завршила и њену фасциклу, да можете да скачете између њих. Ваше датотеке за покретање се не мењају. Само за сервер на овом рачунару.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Покреће cmd са одзивом који означава сваку команду и њену фасциклу, да можете да скачете између њих. cmd не може да каже како је команда завршила. Ваш одзив остаје.",
   "rune.settings.general.row.terminalMarks.search": "Означи команде у терминалу",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ако је фасцикла доступна само у WSL-у, нова картица се отвара у фасцикли у којој је покренут тренутни терминал.",
   "rune.settings.general.row.terminalMarks.title": "Означи команде у {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option и тастер шаљу Esc и тастер, за пречице речи у љусци. Искључено: Option уписује знак са тастатуре, нпр. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Користи Option као Meta у терминалу",

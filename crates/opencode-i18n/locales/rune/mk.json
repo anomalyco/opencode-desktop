@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Го стартува {{shell}} со скрипта што ја означува секоја команда, како завршила и нејзината папка, за да скокате меѓу нив. Вашите датотеки за стартување не се менуваат. Само за сервер на овој компјутер.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Го стартува cmd со поттик што ја означува секоја команда и нејзината папка, за да скокате меѓу нив. cmd не може да каже како завршила командата. Вашиот поттик останува.",
   "rune.settings.general.row.terminalMarks.search": "Означи ги командите во терминалот",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ако папката е достапна само во WSL, новото јазиче се отвора во почетната папка на тековниот терминал.",
   "rune.settings.general.row.terminalMarks.title": "Означи ги командите во {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option и копче испраќаат Esc и копчето, за кратенките за зборови на школката. Исклучено: Option го пишува знакот од тастатурата, на пр. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Користи Option како Meta во терминалот",

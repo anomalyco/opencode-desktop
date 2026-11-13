@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Palaiž {{shell}} ar skriptu, kas atzīmē katru komandu, tās iznākumu un mapi, lai varētu pārlēkt starp tām. Jūsu startēšanas faili netiek mainīti. Tikai serverim šajā datorā.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Palaiž cmd ar uzvedni, kas atzīmē katru komandu un tās mapi, lai varētu pārlēkt starp tām. cmd nevar pateikt, kā komanda beidzās. Jūsu uzvedne saglabājas.",
   "rune.settings.general.row.terminalMarks.search": "Atzīmēt komandas terminālī",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ja mape ir pieejama tikai WSL, jauna cilne tiek atvērta mapē, kurā tika palaists pašreizējais terminālis.",
   "rune.settings.general.row.terminalMarks.title": "Atzīmēt komandas: {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option un taustiņš sūta Esc un taustiņu, čaulas vārdu īsinājumiem. Izslēgts: Option ievada tastatūras rakstzīmi, piemēram, é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Izmantot Option kā Meta terminālī",

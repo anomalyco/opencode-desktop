@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "各コマンドとその終了状態、実行したフォルダーに印を付けるスクリプト付きで {{shell}} を起動し、コマンド間を移動できるようにします。起動ファイルは変更しません。このコンピューター上のサーバーのみ。",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "各コマンドと実行したフォルダーに印を付けるプロンプトで cmd を起動し、コマンド間を移動できるようにします。cmd はコマンドの終了状態を伝えられません。独自のプロンプトはそのまま残ります。",
   "rune.settings.general.row.terminalMarks.search": "ターミナルのコマンドに印を付ける",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "WSL 内でしかアクセスできないフォルダーの場合、新しいタブは現在のターミナルを起動したフォルダーで開きます。",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} のコマンドに印を付ける",
   "rune.settings.general.row.terminalOptionMeta.description": "Option とキーで Esc とそのキーを送り、シェルの単語単位のショートカットに使えます。オフのときは Option でキーボードの文字（é など）を入力します。",
   "rune.settings.general.row.terminalOptionMeta.title": "ターミナルで Option を Meta として使う",

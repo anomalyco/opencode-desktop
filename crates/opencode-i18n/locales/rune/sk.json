@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Spustí {{shell}} so skriptom, ktorý označí každý príkaz, ako skončil a jeho priečinok, aby ste medzi nimi mohli preskakovať. Vaše spúšťacie súbory sa nemenia. Len pre server na tomto počítači.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Spustí cmd s výzvou, ktorá označí každý príkaz a jeho priečinok, aby ste medzi nimi mohli preskakovať. cmd nevie povedať, ako príkaz skončil. Vaša výzva zostane.",
   "rune.settings.general.row.terminalMarks.search": "Označovať príkazy v termináli",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ak je priečinok dostupný len vo WSL, nová karta sa otvorí v priečinku, v ktorom bol spustený aktuálny terminál.",
   "rune.settings.general.row.terminalMarks.title": "Označovať príkazy v {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option a kláves pošlú Esc a kláves, pre slovné skratky shellu. Vypnuté: Option napíše znak klávesnice, napríklad é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Používať Option ako Meta v termináli",

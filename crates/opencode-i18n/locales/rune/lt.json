@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Paleidžia {{shell}} su scenarijumi, kuris pažymi kiekvieną komandą, jos baigtį ir aplanką, kad galėtumėte šokinėti tarp jų. Jūsų paleidimo failai nekeičiami. Tik šio kompiuterio serveriui.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Paleidžia cmd su raginimu, kuris pažymi kiekvieną komandą ir jos aplanką, kad galėtumėte šokinėti tarp jų. cmd negali pasakyti, kaip baigėsi komanda. Jūsų raginimas išlieka.",
   "rune.settings.general.row.terminalMarks.search": "Žymėti komandas terminale",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jei aplankas pasiekiamas tik WSL, nauja kortelė atveriama aplanke, kuriame buvo paleistas dabartinis terminalas.",
   "rune.settings.general.row.terminalMarks.title": "Žymėti komandas: {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ir klavišas siunčia Esc ir klavišą, apvalkalo žodžių sparčiiesiems klavišams. Išjungus Option įveda klaviatūros simbolį, pvz., é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Naudoti Option kaip Meta terminale",

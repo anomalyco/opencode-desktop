@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "እያንዳንዱን ትዕዛዝ፣ እንዴት እንዳበቃ እና አቃፊውን ምልክት በሚያደርግ ስክሪፕት {{shell}}ን ያስጀምራል፣ በመካከላቸው እንዲዘሉ። የማስጀመሪያ ፋይሎችዎ አይቀየሩም። በዚህ ኮምፒውተር ላይ ላለ አገልጋይ ብቻ።",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "እያንዳንዱን ትዕዛዝ እና አቃፊውን ምልክት በሚያደርግ ጥያቄ cmdን ያስጀምራል፣ በመካከላቸው እንዲዘሉ። cmd ትዕዛዝ እንዴት እንዳበቃ መናገር አይችልም። የራስዎ ጥያቄ ይቆያል።",
   "rune.settings.general.row.terminalMarks.search": "በተርሚናሉ ውስጥ ትዕዛዞችን ምልክት አድርግ",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "አቃፊው በWSL ብቻ ከሚገኝ፣ አዲስ ትር የአሁኑ ተርሚናል በተጀመረበት አቃፊ ይከፈታል።",
   "rune.settings.general.row.terminalMarks.title": "በ{{shell}} ውስጥ ትዕዛዞችን ምልክት አድርግ",
   "rune.settings.general.row.terminalOptionMeta.description": "Option እና አንድ ቁልፍ ለሼሉ የቃል አቋራጮች Escን እና ቁልፉን ይልካሉ። ሲጠፋ Option የቁልፍ ሰሌዳውን ቁምፊ ይተይባል፣ ለምሳሌ é።",
   "rune.settings.general.row.terminalOptionMeta.title": "በተርሚናሉ ውስጥ Optionን እንደ Meta ተጠቀም",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}}-ро бо скрипте оғоз мекунад, ки ҳар фармон, чӣ гуна анҷом ёфтан ва ҷузвдони онро қайд мекунад, то байни онҳо гузаред. Файлҳои оғозии шумо тағйир намеёбанд. Танҳо барои сервер дар ҳамин компютер.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd-ро бо даъвате оғоз мекунад, ки ҳар фармон ва ҷузвдони онро қайд мекунад, то байни онҳо гузаред. cmd гуфта наметавонад, ки фармон чӣ гуна анҷом ёфт. Даъвати худатон боқӣ мемонад.",
   "rune.settings.general.row.terminalMarks.search": "Қайд кардани фармонҳо дар терминал",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Агар ҷузвдон танҳо дар WSL дастрас бошад, варақаи нав дар ҷузвдоне кушода мешавад, ки терминали ҷорӣ аз он оғоз шуд.",
   "rune.settings.general.row.terminalMarks.title": "Қайд кардани фармонҳо дар {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ва тугма барои миёнбурҳои калимавии шел Esc ва ҳамон тугмаро мефиристанд. Ҳангоми хомӯш Option аломати клавиатураро менависад, масалан é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option ҳамчун Meta дар терминал",

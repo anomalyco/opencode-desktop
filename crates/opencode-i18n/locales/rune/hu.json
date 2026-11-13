@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "A(z) {{shell}} egy olyan szkripttel indul, amely megjelöli minden parancsot, az eredményét és a mappáját, hogy ugrálhass köztük. Az indítófájljaid nem változnak. Csak ezen a számítógépen futó szerverhez.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "A cmd olyan parancssorral indul, amely megjelöli minden parancsot és a mappáját, hogy ugrálhass köztük. A cmd nem tudja jelezni, hogyan végződött egy parancs. A saját parancssorod megmarad.",
   "rune.settings.general.row.terminalMarks.search": "Parancsok jelölése a terminálban",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ha a mappa csak a WSL-ben érhető el, az új lap az aktuális terminál indítási mappájában nyílik meg.",
   "rune.settings.general.row.terminalMarks.title": "Parancsok jelölése: {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Az Option és egy billentyű Esc-et és a billentyűt küldi a shell szóparancsaihoz. Kikapcsolva az Option a billentyűzet karakterét írja, például é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option használata Metaként a terminálban",

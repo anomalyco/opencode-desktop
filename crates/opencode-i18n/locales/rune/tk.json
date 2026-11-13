@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}}-i her buýrugy, onuň nähili tamamlananyny we bukjasyny belleýän skript bilen başladýar, olaryň arasynda geçip bilersiňiz. Başlangyç faýllaryňyz üýtgemeýär. Diňe şu kompýuterdäki serwer üçin.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd-i her buýrugy we bukjasyny belleýän çakylyk bilen başladýar, olaryň arasynda geçip bilersiňiz. cmd buýrugyň nähili tamamlananyny aýdyp bilmeýär. Öz çakylygyňyz saklanýar.",
   "rune.settings.general.row.terminalMarks.search": "Terminalda buýruklary belle",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Bukja diňe WSL-de elýeterli bolsa, täze goýma häzirki terminalyň başlanan bukjasynda açylýar.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} içinde buýruklary belle",
   "rune.settings.general.row.terminalOptionMeta.description": "Option we bir düwme shell-iň söz gysga ýollary üçin Esc we şol düwmäni iberýär. Öçürilende Option klawiaturanyň nyşanyny ýazýar, meselem é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Terminalda Option-y Meta hökmünde ulan",

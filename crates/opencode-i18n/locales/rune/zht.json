@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "以一個指令碼啟動 {{shell}}，標記每個命令、其結束方式和所在資料夾，方便在命令之間跳轉。不會修改你的啟動檔案。僅適用於本機上的伺服器。",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "以一個提示字元啟動 cmd，標記每個命令及其所在資料夾，方便在命令之間跳轉。cmd 無法回報命令的結束方式。會保留你自己的提示字元。",
   "rune.settings.general.row.terminalMarks.search": "在終端機中標記命令",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "如果資料夾只能在 WSL 中存取，新分頁會在目前終端機啟動時所在的資料夾中開啟。",
   "rune.settings.general.row.terminalMarks.title": "在 {{shell}} 中標記命令",
   "rune.settings.general.row.terminalOptionMeta.description": "Option 加一個按鍵會送出 Esc 和該按鍵，供 Shell 的逐字快速鍵使用。關閉時，Option 會輸入鍵盤上的字元，例如 é。",
   "rune.settings.general.row.terminalOptionMeta.title": "在終端機中將 Option 當作 Meta",

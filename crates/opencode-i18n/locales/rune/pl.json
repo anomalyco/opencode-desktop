@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Uruchamia {{shell}} ze skryptem, który oznacza każde polecenie, jego wynik i folder, aby można było między nimi przeskakiwać. Twoje pliki startowe nie są zmieniane. Tylko dla serwera na tym komputerze.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Uruchamia cmd z monitem, który oznacza każde polecenie i jego folder, aby można było między nimi przeskakiwać. cmd nie potrafi podać, jak zakończyło się polecenie. Twój monit zostaje zachowany.",
   "rune.settings.general.row.terminalMarks.search": "Oznaczaj polecenia w terminalu",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jeśli folder jest dostępny tylko w WSL, nowa karta otwiera się w folderze, w którym uruchomiono bieżący terminal.",
   "rune.settings.general.row.terminalMarks.title": "Oznaczaj polecenia w {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option i klawisz wysyłają Esc i ten klawisz, dla skrótów słownych powłoki. Gdy wyłączone, Option wpisuje znak z klawiatury, np. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Używaj Option jako Meta w terminalu",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Memulakan {{shell}} dengan skrip yang menandakan setiap arahan, cara ia berakhir dan foldernya, supaya anda boleh melompat antaranya. Fail permulaan anda tidak diubah. Hanya untuk pelayan pada komputer ini.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Memulakan cmd dengan gesaan yang menandakan setiap arahan dan foldernya, supaya anda boleh melompat antaranya. cmd tidak dapat memberitahu cara arahan berakhir. Gesaan anda dikekalkan.",
   "rune.settings.general.row.terminalMarks.search": "Tandakan arahan dalam terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jika folder hanya boleh dicapai dalam WSL, tab baharu dibuka dalam folder tempat terminal semasa dimulakan.",
   "rune.settings.general.row.terminalMarks.title": "Tandakan arahan dalam {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option dan satu kekunci menghantar Esc dan kekunci itu, untuk pintasan perkataan shell. Jika dimatikan, Option menaip aksara papan kekunci, seperti é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Gunakan Option sebagai Meta dalam terminal",

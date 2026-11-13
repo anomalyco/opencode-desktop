@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Byrjar {{shell}} við einum skripti, ið merkir hvørja skipan, hvussu hon endaði og mappuna, so tú kanst leypa ímillum tær. Byrjunarfílur tínar verða ikki broyttar. Bert fyri ein ambætara á hesi telduni.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Byrjar cmd við eini ábending, ið merkir hvørja skipan og mappuna, so tú kanst leypa ímillum tær. cmd kann ikki siga, hvussu ein skipan endaði. Tín egna ábending verður verandi.",
   "rune.settings.general.row.terminalMarks.search": "Merk skipanir í terminalinum",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Er mappan bert tøk í WSL, letur ein nýggjur flipa upp í mappuni, har núverandi terminalur byrjaði.",
   "rune.settings.general.row.terminalMarks.title": "Merk skipanir í {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option og ein knøttur senda Esc og knøttin, til orðasnarvegir skelarinnar. Sløkt: Option skrivar tekn knappaborðsins, t.d. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Brúka Option sum Meta í terminalinum",

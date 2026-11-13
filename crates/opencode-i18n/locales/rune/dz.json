@@ -43,6 +43,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "བརྡ་བཀོད་རེ་རེ་དང་ དེ་ག་དེ་སྦེ་མཇུག་བསྡུ་ཡི་ག་ དེའི་སྣོད་འཛིན་ཚུ་ རྟགས་བཀལ་མི་ ཡིག་ཚུགས་དང་གཅིག་ཁར་ {{shell}} འགོ་བཙུགསཔ་ཨིན། ཁྱོད་ཀྱི་ འགོ་བཙུགས་ཡིག་སྣོད་ མི་བསྒྱུར། གློག་རིག་འདི་གི་ སར་བར་ཁོ་ན་གི་དོན་ལུ།",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "བརྡ་བཀོད་རེ་རེ་དང་ དེའི་སྣོད་འཛིན་ རྟགས་བཀལ་མི་ འགྲུལ་སྐུལ་དང་གཅིག་ཁར་ cmd འགོ་བཙུགསཔ་ཨིན། cmd གིས་ བརྡ་བཀོད་ག་དེ་སྦེ་མཇུག་བསྡུ་ཡི་ག་ སླབ་མི་ཚུགས། ཁྱོད་རའི་ འགྲུལ་སྐུལ་ ལུསཔ་ཨིན།",
   "rune.settings.general.row.terminalMarks.search": "ཊར་མི་ནཱལ་ནང་ བརྡ་བཀོད་ཚུ་ རྟགས་བཀལ།",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "སྣོད་འཛིན་དེ་ WSL ནང་རྐྱངམ་ཅིག་ཐོབ་ཚུགས་པ་ཅིན་ ཨེབ་ལྡེ་གསརཔ་དེ་ ད་ལྟོའི་ཊར་མི་ནཱལ་འགོ་བཙུགས་སའི་སྣོད་འཛིན་ནང་ཁ་ཕྱེཝ་ཨིན།",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} ནང་ བརྡ་བཀོད་ཚུ་ རྟགས་བཀལ།",
   "rune.settings.general.row.terminalOptionMeta.description": "Option དང་ ལྡེ་མིག་གཅིག་གིས་ ཤེལ་གྱི་ ཚིག་གི་མགྱོགས་ཐབས་ཀྱི་དོན་ལུ་ Esc དང་ ལྡེ་མིག་དེ་ གཏང་ཨིན། ཁ་བསྡམས་པ་ཅིན་ Option གིས་ ལྡེ་སྒྲོམ་གྱི་ཡིག་འབྲུ་ (དཔེར་ན་ é) བཙུགསཔ་ཨིན།",
   "rune.settings.general.row.terminalOptionMeta.title": "ཊར་མི་ནཱལ་ནང་ Option འདི་ Meta སྦེ་ ལག་ལེན་འཐབ།",

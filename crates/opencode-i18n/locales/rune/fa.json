@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "‏{{shell}} را با اسکریپتی اجرا می‌کند که هر فرمان، نحوهٔ پایانش و پوشه‌اش را علامت می‌زند تا بین فرمان‌ها جابه‌جا شوید. فایل‌های راه‌اندازی شما تغییر نمی‌کنند. فقط برای کارسازی روی همین رایانه.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "‏cmd را با اعلانی اجرا می‌کند که هر فرمان و پوشه‌اش را علامت می‌زند تا بین فرمان‌ها جابه‌جا شوید. ‏cmd نمی‌تواند بگوید فرمان چگونه تمام شد. اعلان خودتان حفظ می‌شود.",
   "rune.settings.general.row.terminalMarks.search": "علامت‌گذاری فرمان‌ها در پایانه",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "اگر پوشه فقط در WSL در دسترس باشد، زبانهٔ جدید در پوشه‌ای باز می‌شود که پایانهٔ کنونی در آن آغاز شد.",
   "rune.settings.general.row.terminalMarks.title": "علامت‌گذاری فرمان‌ها در {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option و یک کلید، Esc و آن کلید را برای میان‌برهای کلمه‌ای پوسته می‌فرستند. وقتی خاموش است، Option نویسهٔ صفحه‌کلید را تایپ می‌کند، مانند é.",
   "rune.settings.general.row.terminalOptionMeta.title": "استفاده از Option به‌عنوان Meta در پایانه",

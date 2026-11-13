@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Запускає {{shell}} зі скриптом, який позначає кожну команду, її результат і теку, щоб переходити між ними. Ваші файли запуску не змінюються. Лише для сервера на цьому комп'ютері.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Запускає cmd із запрошенням, яке позначає кожну команду та її теку, щоб переходити між ними. cmd не повідомляє, чим завершилася команда. Ваше запрошення зберігається.",
   "rune.settings.general.row.terminalMarks.search": "Позначати команди в терміналі",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Якщо тека доступна лише у WSL, нова вкладка відкривається в теці, з якої запущено поточний термінал.",
   "rune.settings.general.row.terminalMarks.title": "Позначати команди в {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option і клавіша надсилають Esc і цю клавішу, для комбінацій оболонки за словами. Якщо вимкнено, Option вводить символ розкладки, наприклад é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option як Meta в терміналі",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}} लाई हरेक आदेश, त्यो कसरी सकियो र त्यसको फोल्डर चिन्ह लगाउने स्क्रिप्टसहित सुरु गर्छ, ताकि तपाईं तिनका बीच जान सक्नुहुन्छ। तपाईंका सुरुआती फाइलहरू परिवर्तन हुँदैनन्। यो कम्प्युटरको सर्भरका लागि मात्र।",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd लाई हरेक आदेश र त्यसको फोल्डर चिन्ह लगाउने प्रम्प्टसहित सुरु गर्छ, ताकि तपाईं तिनका बीच जान सक्नुहुन्छ। cmd ले आदेश कसरी सकियो भन्न सक्दैन। तपाईंको आफ्नै प्रम्प्ट रहन्छ।",
   "rune.settings.general.row.terminalMarks.search": "टर्मिनलमा आदेशहरू चिन्ह लगाउनुहोस्",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "फोल्डर WSL मा मात्र उपलब्ध भएमा नयाँ ट्याब हालको टर्मिनल सुरु भएको फोल्डरमा खुल्छ।",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} मा आदेशहरू चिन्ह लगाउनुहोस्",
   "rune.settings.general.row.terminalOptionMeta.description": "Option र एउटा कुञ्जीले शेलका शब्द सर्टकटका लागि Esc र त्यो कुञ्जी पठाउँछन्। बन्द हुँदा Option ले किबोर्डको वर्ण टाइप गर्छ, जस्तै é।",
   "rune.settings.general.row.terminalOptionMeta.title": "टर्मिनलमा Option लाई Meta का रूपमा प्रयोग गर्नुहोस्",

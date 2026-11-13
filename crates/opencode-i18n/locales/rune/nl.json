@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Start {{shell}} met een script dat elke opdracht, de afloop en de map markeert, zodat je ertussen kunt springen. Je opstartbestanden blijven ongewijzigd. Alleen voor een server op deze computer.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Start cmd met een prompt die elke opdracht en de map markeert, zodat je ertussen kunt springen. cmd kan niet melden hoe een opdracht afliep. Je eigen prompt blijft.",
   "rune.settings.general.row.terminalMarks.search": "Opdrachten markeren in de terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Als de map alleen in WSL toegankelijk is, opent een nieuw tabblad in de map waarin de huidige terminal is gestart.",
   "rune.settings.general.row.terminalMarks.title": "Opdrachten markeren in {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option en een toets sturen Esc en de toets, voor de woordsneltoetsen van de shell. Uit: Option typt het teken van het toetsenbord, zoals é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option als Meta gebruiken in de terminal",

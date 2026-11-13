@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Inicia {{shell}} con un script que marca cada comando, cómo terminó y su carpeta, para saltar entre ellos. Tus archivos de inicio no cambian. Solo para un servidor en este equipo.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Inicia cmd con un símbolo del sistema que marca cada comando y su carpeta, para saltar entre ellos. cmd no puede indicar cómo terminó un comando. Se conserva tu propio símbolo.",
   "rune.settings.general.row.terminalMarks.search": "Marcar comandos en la terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Si la carpeta solo es accesible desde WSL, la nueva pestaña se abre donde se inició el terminal actual.",
   "rune.settings.general.row.terminalMarks.title": "Marcar comandos en {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Opción y una tecla envían Esc y la tecla, para los atajos de palabra del shell. Desactivado, Opción escribe el carácter del teclado, como é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Usar Opción como Meta en la terminal",

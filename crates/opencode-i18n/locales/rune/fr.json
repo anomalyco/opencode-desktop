@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Lance {{shell}} avec un script qui marque chaque commande, son résultat et son dossier, pour passer de l'une à l'autre. Vos fichiers de démarrage ne sont pas modifiés. Uniquement pour un serveur sur cet ordinateur.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Lance cmd avec une invite qui marque chaque commande et son dossier, pour passer de l'une à l'autre. cmd ne peut pas indiquer comment une commande s'est terminée. Votre invite est conservée.",
   "rune.settings.general.row.terminalMarks.search": "Marquer les commandes dans le terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Si le dossier n’est accessible que dans WSL, le nouvel onglet s’ouvre dans le dossier de démarrage du terminal actuel.",
   "rune.settings.general.row.terminalMarks.title": "Marquer les commandes dans {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option et une touche envoient Échap puis la touche, pour les raccourcis de mots du shell. Désactivé, Option tape le caractère du clavier, comme é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Utiliser Option comme Méta dans le terminal",

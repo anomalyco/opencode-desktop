@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Startet {{shell}} mit einem Skript, das jeden Befehl, sein Ergebnis und seinen Ordner markiert, damit du zwischen Befehlen springen kannst. Deine Startdateien bleiben unverändert. Nur für einen Server auf diesem Computer.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Startet cmd mit einer Eingabeaufforderung, die jeden Befehl und seinen Ordner markiert, damit du zwischen Befehlen springen kannst. cmd kann nicht melden, wie ein Befehl endete. Deine eigene Eingabeaufforderung bleibt erhalten.",
   "rune.settings.general.row.terminalMarks.search": "Befehle im Terminal markieren",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ist der Ordner nur in WSL verfügbar, öffnet sich ein neuer Tab im Startordner des aktuellen Terminals.",
   "rune.settings.general.row.terminalMarks.title": "Befehle in {{shell}} markieren",
   "rune.settings.general.row.terminalOptionMeta.description": "Die Wahltaste und eine Taste senden Esc und die Taste, für die Wort-Kurzbefehle der Shell. Aus: Die Wahltaste tippt das Zeichen der Tastatur, etwa é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Wahltaste im Terminal als Meta verwenden",

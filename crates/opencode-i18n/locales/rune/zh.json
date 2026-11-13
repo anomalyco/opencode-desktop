@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "以一个脚本启动 {{shell}}，标记每条命令、其结束方式和所在文件夹，便于在命令之间跳转。不会修改你的启动文件。仅适用于本机上的服务器。",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "以一个提示符启动 cmd，标记每条命令及其所在文件夹，便于在命令之间跳转。cmd 无法报告命令的结束方式。会保留你自己的提示符。",
   "rune.settings.general.row.terminalMarks.search": "在终端中标记命令",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "如果文件夹只能在 WSL 中访问，新标签页会在当前终端启动时所在的文件夹中打开。",
   "rune.settings.general.row.terminalMarks.title": "在 {{shell}} 中标记命令",
   "rune.settings.general.row.terminalOptionMeta.description": "Option 加一个键会发送 Esc 和该键，用于 Shell 的按词快捷键。关闭时，Option 输入键盘上的字符，例如 é。",
   "rune.settings.general.row.terminalOptionMeta.title": "在终端中将 Option 用作 Meta",

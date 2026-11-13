@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Avvia {{shell}} con uno script che segna ogni comando, come è finito e la sua cartella, per saltare da uno all'altro. I tuoi file di avvio non cambiano. Solo per un server su questo computer.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Avvia cmd con un prompt che segna ogni comando e la sua cartella, per saltare da uno all'altro. cmd non può dire come è finito un comando. Il tuo prompt resta.",
   "rune.settings.general.row.terminalMarks.search": "Segna i comandi nel terminale",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Se la cartella è accessibile solo in WSL, la nuova scheda si apre nella cartella in cui è stato avviato il terminale corrente.",
   "rune.settings.general.row.terminalMarks.title": "Segna i comandi in {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Opzione e un tasto inviano Esc e il tasto, per le scorciatoie di parola della shell. Disattivato, Opzione digita il carattere della tastiera, come é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Usa Opzione come Meta nel terminale",

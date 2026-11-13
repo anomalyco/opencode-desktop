@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Inicia {{shell}} amb un script que marca cada ordre, com ha acabat i la seva carpeta, per saltar d'una a l'altra. Els vostres fitxers d'inici no canvien. Només per a un servidor en aquest ordinador.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Inicia cmd amb un indicador que marca cada ordre i la seva carpeta, per saltar d'una a l'altra. cmd no pot dir com ha acabat una ordre. Es conserva el vostre indicador.",
   "rune.settings.general.row.terminalMarks.search": "Marca les ordres al terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Si la carpeta només és accessible des del WSL, la pestanya nova s’obre a la carpeta inicial del terminal actual.",
   "rune.settings.general.row.terminalMarks.title": "Marca les ordres a {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Opció i una tecla envien Esc i la tecla, per a les dreceres de paraula del shell. Desactivat, Opció escriu el caràcter del teclat, com ara é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Utilitza Opció com a Meta al terminal",

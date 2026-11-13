@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}} uygulamasını her komutu, nasıl bittiğini ve klasörünü işaretleyen bir betikle başlatır; böylece komutlar arasında atlayabilirsiniz. Başlangıç dosyalarınız değişmez. Yalnızca bu bilgisayardaki bir sunucu için.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd'yi her komutu ve klasörünü işaretleyen bir istemle başlatır; böylece komutlar arasında atlayabilirsiniz. cmd bir komutun nasıl bittiğini söyleyemez. Kendi isteminiz korunur.",
   "rune.settings.general.row.terminalMarks.search": "Terminalde komutları işaretle",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Klasöre yalnızca WSL içinden erişilebiliyorsa yeni sekme, geçerli terminalin başlatıldığı klasörde açılır.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} içinde komutları işaretle",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ve bir tuş, kabuğun kelime kısayolları için Esc ve tuşu gönderir. Kapalıyken Option klavyenin karakterini yazar, örneğin é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Terminalde Option'ı Meta olarak kullan",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "เริ่ม {{shell}} พร้อมสคริปต์ที่ทำเครื่องหมายแต่ละคำสั่ง ผลลัพธ์ และโฟลเดอร์ เพื่อให้กระโดดไปมาระหว่างคำสั่งได้ ไฟล์เริ่มต้นของคุณจะไม่ถูกแก้ไข ใช้ได้กับเซิร์ฟเวอร์บนคอมพิวเตอร์เครื่องนี้เท่านั้น",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "เริ่ม cmd พร้อมพรอมต์ที่ทำเครื่องหมายแต่ละคำสั่งและโฟลเดอร์ เพื่อให้กระโดดไปมาระหว่างคำสั่งได้ cmd บอกไม่ได้ว่าคำสั่งจบอย่างไร พรอมต์ของคุณยังคงอยู่",
   "rune.settings.general.row.terminalMarks.search": "ทำเครื่องหมายคำสั่งในเทอร์มินัล",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "หากเข้าถึงโฟลเดอร์ได้เฉพาะใน WSL แท็บใหม่จะเปิดในโฟลเดอร์ที่ใช้เริ่มเทอร์มินัลปัจจุบัน",
   "rune.settings.general.row.terminalMarks.title": "ทำเครื่องหมายคำสั่งใน {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option กับปุ่มหนึ่งจะส่ง Esc และปุ่มนั้น สำหรับทางลัดระดับคำของเชลล์ เมื่อปิด Option จะพิมพ์อักขระของแป้นพิมพ์ เช่น é",
   "rune.settings.general.row.terminalOptionMeta.title": "ใช้ Option เป็น Meta ในเทอร์มินัล",

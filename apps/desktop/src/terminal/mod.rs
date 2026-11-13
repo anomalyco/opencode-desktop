@@ -448,10 +448,12 @@ impl App {
             if observer {
                 return None;
             }
-            // A new terminal starts where the shown one's shell is (its OSC 7 folder), as a new tab
-            // does in every native terminal; the session's folder when it hasn't said.
+            // Reuse the shown terminal's cwd report, or its own server-side launch folder
+            // (e.g. WSL reports /home/me). Only the first tab needs the session folder.
             let shown = self.terminal.workspaces.get(ws_key).and_then(|ws| ws.active.as_deref().and_then(|id| ws.tabs.iter().find(|t| t.id == id)));
-            let directory = shown.map_or_else(|| directory.clone(), |t| links::shell_folder(&t.session.peek(), &directory));
+            let directory = shown.map_or_else(|| directory.clone(), |t| {
+                links::shell_folder(&t.session.peek(), if t.cwd.is_empty() { &directory } else { &t.cwd })
+            });
             let create = self.terminal_launch(&srv, TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))), None, Vec::new());
             let created = srv.terminal_create(&session_id, &create);
             // A terminal started as the server's own: its program is that server's shell (which the

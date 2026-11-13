@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Ræsir {{shell}} með skriftu sem merkir hverja skipun, hvernig hún endaði og möppu hennar, svo þú getir hoppað á milli þeirra. Ræsiskrám þínum er ekki breytt. Aðeins fyrir netþjón á þessari tölvu.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Ræsir cmd með kvaðningu sem merkir hverja skipun og möppu hennar, svo þú getir hoppað á milli þeirra. cmd getur ekki sagt hvernig skipun endaði. Þín eigin kvaðning helst.",
   "rune.settings.general.row.terminalMarks.search": "Merkja skipanir í útstöðinni",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ef mappan er aðeins aðgengileg í WSL opnast nýr flipi í möppunni þar sem núverandi útstöð var ræst.",
   "rune.settings.general.row.terminalMarks.title": "Merkja skipanir í {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option og lykill senda Esc og lykilinn, fyrir orðaflýtileiðir skeljarinnar. Slökkt: Option skrifar staf lyklaborðsins, t.d. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Nota Option sem Meta í útstöðinni",

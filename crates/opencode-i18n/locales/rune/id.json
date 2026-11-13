@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Memulai {{shell}} dengan skrip yang menandai setiap perintah, cara berakhirnya, dan foldernya, agar Anda bisa melompat di antaranya. File startup Anda tidak diubah. Hanya untuk server di komputer ini.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Memulai cmd dengan prompt yang menandai setiap perintah dan foldernya, agar Anda bisa melompat di antaranya. cmd tidak bisa memberi tahu cara perintah berakhir. Prompt Anda tetap dipakai.",
   "rune.settings.general.row.terminalMarks.search": "Tandai perintah di terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jika folder hanya dapat diakses di WSL, tab baru dibuka di folder awal terminal saat ini.",
   "rune.settings.general.row.terminalMarks.title": "Tandai perintah di {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option dan sebuah tombol mengirim Esc dan tombol itu, untuk pintasan kata di shell. Jika nonaktif, Option mengetik karakter keyboard, seperti é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Gunakan Option sebagai Meta di terminal",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Startar {{shell}} med ett skript som markerar varje kommando, hur det slutade och mappen det kördes i, så att du kan hoppa mellan dem. Dina startfiler ändras inte. Bara för en server på den här datorn.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Startar cmd med en prompt som markerar varje kommando och mappen, så att du kan hoppa mellan dem. cmd kan inte säga hur ett kommando slutade. Din egen prompt behålls.",
   "rune.settings.general.row.terminalMarks.search": "Markera kommandon i terminalen",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Om mappen bara är tillgänglig i WSL öppnas en ny flik i mappen där den nuvarande terminalen startades.",
   "rune.settings.general.row.terminalMarks.title": "Markera kommandon i {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Alternativ och en tangent skickar Esc och tangenten, för skalets ordgenvägar. Av: Alternativ skriver tangentbordets tecken, till exempel é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Använd Alternativ som Meta i terminalen",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Starter {{shell}} med et skript som merker hver kommando, hvordan den endte og mappen den kjørte i, så du kan hoppe mellom dem. Oppstartsfilene dine endres ikke. Bare for en server på denne datamaskinen.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Starter cmd med en ledetekst som merker hver kommando og mappen, så du kan hoppe mellom dem. cmd kan ikke si hvordan en kommando endte. Din egen ledetekst beholdes.",
   "rune.settings.general.row.terminalMarks.search": "Merk kommandoer i terminalen",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Hvis mappen bare er tilgjengelig i WSL, åpnes en ny fane i mappen der den gjeldende terminalen ble startet.",
   "rune.settings.general.row.terminalMarks.title": "Merk kommandoer i {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option og en tast sender Esc og tasten, for skallets ordsnarveier. Av: Option skriver tastaturets tegn, for eksempel é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Bruk Option som Meta i terminalen",

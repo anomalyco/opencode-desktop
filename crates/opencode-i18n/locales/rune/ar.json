@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "يشغّل {{shell}} مع نص برمجي يعلّم كل أمر وكيف انتهى والمجلد الذي نُفّذ فيه، لتنتقل بين الأوامر. لا تتغيّر ملفات بدء التشغيل الخاصة بك. لخادم على هذا الكمبيوتر فقط.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "يشغّل cmd بموجّه يعلّم كل أمر والمجلد الذي نُفّذ فيه، لتنتقل بين الأوامر. لا يستطيع cmd أن يخبر كيف انتهى الأمر. يبقى موجّهك كما هو.",
   "rune.settings.general.row.terminalMarks.search": "تعليم الأوامر في الطرفية",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "إذا كان المجلد متاحًا داخل WSL فقط، يُفتح التبويب الجديد في المجلد الذي بدأت فيه الطرفية الحالية.",
   "rune.settings.general.row.terminalMarks.title": "تعليم الأوامر في {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "يرسل Option مع مفتاح Esc ثم المفتاح، لاختصارات الكلمات في الصدفة. عند الإيقاف، يكتب Option حرف لوحة المفاتيح، مثل é.",
   "rune.settings.general.row.terminalOptionMeta.title": "استخدام Option كمفتاح Meta في الطرفية",

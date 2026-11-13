@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Գործարկում է {{shell}}-ը սկրիպտով, որը նշում է յուրաքանչյուր հրաման, ինչպես ավարտվեց և դրա թղթապանակը, որպեսզի անցնեք դրանց միջև։ Ձեր մեկնարկային ֆայլերը չեն փոխվում։ Միայն այս համակարգչի սերվերի համար։",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Գործարկում է cmd-ն հուշումով, որը նշում է յուրաքանչյուր հրաման և դրա թղթապանակը, որպեսզի անցնեք դրանց միջև։ cmd-ն չի կարող ասել, թե ինչպես ավարտվեց հրամանը։ Ձեր հուշումը պահպանվում է։",
   "rune.settings.general.row.terminalMarks.search": "Նշել հրամանները տերմինալում",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Եթե պանակը հասանելի է միայն WSL-ում, նոր ներդիրը բացվում է այն պանակում, որտեղ գործարկվել է ընթացիկ տերմինալը։",
   "rune.settings.general.row.terminalMarks.title": "Նշել հրամանները {{shell}}-ում",
   "rune.settings.general.row.terminalOptionMeta.description": "Option-ը և ստեղնը ուղարկում են Esc և այդ ստեղնը՝ շելի բառային դյուրանցումների համար։ Անջատված վիճակում Option-ը մուտքագրում է ստեղնաշարի նիշը, օրինակ՝ é։",
   "rune.settings.general.row.terminalOptionMeta.title": "Օգտագործել Option-ը որպես Meta տերմինալում",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}} को एक स्क्रिप्ट के साथ शुरू करता है जो हर कमांड, वह कैसे ख़त्म हुई और उसका फ़ोल्डर चिह्नित करती है, ताकि आप उनके बीच जा सकें। आपकी स्टार्टअप फ़ाइलें नहीं बदलतीं। केवल इस कंप्यूटर के सर्वर के लिए।",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd को एक प्रॉम्प्ट के साथ शुरू करता है जो हर कमांड और उसका फ़ोल्डर चिह्नित करता है, ताकि आप उनके बीच जा सकें। cmd नहीं बता सकता कि कमांड कैसे ख़त्म हुई। आपका अपना प्रॉम्प्ट बना रहता है।",
   "rune.settings.general.row.terminalMarks.search": "टर्मिनल में कमांड चिह्नित करें",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "अगर फ़ोल्डर केवल WSL में उपलब्ध है, तो नया टैब उस फ़ोल्डर में खुलता है जहाँ मौजूदा टर्मिनल शुरू हुआ था।",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} में कमांड चिह्नित करें",
   "rune.settings.general.row.terminalOptionMeta.description": "Option और कोई कुंजी, शेल के शब्द वाले शॉर्टकट के लिए Esc और वह कुंजी भेजते हैं। बंद होने पर Option कीबोर्ड का वर्ण टाइप करता है, जैसे é।",
   "rune.settings.general.row.terminalOptionMeta.title": "टर्मिनल में Option को Meta की तरह इस्तेमाल करें",

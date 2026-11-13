@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}}-i hər əmri, necə bitdiyini və qovluğunu işarələyən skriptlə başladır ki, onların arasında keçə biləsiniz. Başlanğıc fayllarınız dəyişmir. Yalnız bu kompüterdəki server üçün.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd-ni hər əmri və qovluğunu işarələyən sorğu ilə başladır ki, onların arasında keçə biləsiniz. cmd əmrin necə bitdiyini deyə bilmir. Öz sorğunuz qalır.",
   "rune.settings.general.row.terminalMarks.search": "Terminalda əmrləri işarələ",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Qovluq yalnız WSL-də əlçatandırsa, yeni vərəq cari terminalın başladığı qovluqda açılır.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} daxilində əmrləri işarələ",
   "rune.settings.general.row.terminalOptionMeta.description": "Option və bir düymə shell-in söz qısayolları üçün Esc və həmin düyməni göndərir. Söndürüləndə Option klaviaturanın simvolunu yazır, məsələn é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Terminalda Option-u Meta kimi istifadə et",

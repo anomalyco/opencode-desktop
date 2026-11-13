@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "‏{{shell}} کو ایک اسکرپٹ کے ساتھ شروع کرتا ہے جو ہر کمانڈ، اس کے اختتام اور اس کے فولڈر پر نشان لگاتا ہے، تاکہ آپ ان کے درمیان جا سکیں۔ آپ کی آغاز فائلیں تبدیل نہیں ہوتیں۔ صرف اس کمپیوٹر کے سرور کے لیے۔",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "‏cmd کو ایک پرامپٹ کے ساتھ شروع کرتا ہے جو ہر کمانڈ اور اس کے فولڈر پر نشان لگاتا ہے، تاکہ آپ ان کے درمیان جا سکیں۔ ‏cmd یہ نہیں بتا سکتا کہ کمانڈ کیسے ختم ہوئی۔ آپ کا اپنا پرامپٹ برقرار رہتا ہے۔",
   "rune.settings.general.row.terminalMarks.search": "ٹرمینل میں کمانڈز پر نشان لگائیں",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "اگر فولڈر صرف WSL میں دستیاب ہو تو نیا ٹیب اس فولڈر میں کھلتا ہے جہاں موجودہ ٹرمینل شروع ہوا تھا۔",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} میں کمانڈز پر نشان لگائیں",
   "rune.settings.general.row.terminalOptionMeta.description": "Option اور ایک کلید، شیل کے لفظی شارٹ کٹس کے لیے Esc اور وہ کلید بھیجتے ہیں۔ بند ہونے پر Option کی بورڈ کا حرف ٹائپ کرتا ہے، جیسے é۔",
   "rune.settings.general.row.terminalOptionMeta.title": "ٹرمینل میں Option کو Meta کے طور پر استعمال کریں",

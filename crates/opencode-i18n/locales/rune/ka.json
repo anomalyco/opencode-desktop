@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "უშვებს {{shell}}-ს სკრიპტით, რომელიც მონიშნავს ყოველ ბრძანებას, როგორ დასრულდა და მის საქაღალდეს, რომ მათ შორის გადახტეთ. თქვენი გაშვების ფაილები არ იცვლება. მხოლოდ ამ კომპიუტერის სერვერისთვის.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "უშვებს cmd-ს მოთხოვნით, რომელიც მონიშნავს ყოველ ბრძანებას და მის საქაღალდეს, რომ მათ შორის გადახტეთ. cmd ვერ იტყვის, როგორ დასრულდა ბრძანება. თქვენი მოთხოვნა რჩება.",
   "rune.settings.general.row.terminalMarks.search": "ბრძანებების მონიშვნა ტერმინალში",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "თუ საქაღალდე მხოლოდ WSL-შია ხელმისაწვდომი, ახალი ჩანართი გაიხსნება იმ საქაღალდეში, სადაც მიმდინარე ტერმინალი გაეშვა.",
   "rune.settings.general.row.terminalMarks.title": "ბრძანებების მონიშვნა {{shell}}-ში",
   "rune.settings.general.row.terminalOptionMeta.description": "Option და კლავიში აგზავნის Esc-სა და კლავიშს, გარსის სიტყვების მალსახმობებისთვის. გამორთულისას Option კლავიატურის სიმბოლოს წერს, მაგ. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Option-ის Meta-დ გამოყენება ტერმინალში",

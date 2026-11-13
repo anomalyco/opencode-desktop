@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}} এমন একটি স্ক্রিপ্ট দিয়ে চালু করে যা প্রতিটি কমান্ড, সেটি কীভাবে শেষ হলো ও তার ফোল্ডার চিহ্নিত করে, যাতে আপনি এগুলোর মধ্যে যেতে পারেন। আপনার স্টার্টআপ ফাইল বদলায় না। শুধু এই কম্পিউটারের সার্ভারের জন্য।",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd এমন একটি প্রম্পট দিয়ে চালু করে যা প্রতিটি কমান্ড ও তার ফোল্ডার চিহ্নিত করে, যাতে আপনি এগুলোর মধ্যে যেতে পারেন। cmd বলতে পারে না কমান্ড কীভাবে শেষ হলো। আপনার নিজের প্রম্পট থেকে যায়।",
   "rune.settings.general.row.terminalMarks.search": "টার্মিনালে কমান্ড চিহ্নিত করুন",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "ফোল্ডারটি শুধু WSL-এ থাকলে নতুন ট্যাবটি বর্তমান টার্মিনালের শুরুর ফোল্ডারে খুলবে।",
   "rune.settings.general.row.terminalMarks.title": "{{shell}}-এ কমান্ড চিহ্নিত করুন",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ও একটি কী শেলের শব্দভিত্তিক শর্টকাটের জন্য Esc ও সেই কী পাঠায়। বন্ধ থাকলে Option কীবোর্ডের অক্ষর টাইপ করে, যেমন é।",
   "rune.settings.general.row.terminalOptionMeta.title": "টার্মিনালে Option-কে Meta হিসেবে ব্যবহার করুন",

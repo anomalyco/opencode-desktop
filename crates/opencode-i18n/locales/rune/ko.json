@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "각 명령과 종료 상태, 실행한 폴더를 표시하는 스크립트와 함께 {{shell}}을(를) 시작해 명령 사이를 이동할 수 있게 합니다. 시작 파일은 바뀌지 않습니다. 이 컴퓨터의 서버에서만 작동합니다.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "각 명령과 실행한 폴더를 표시하는 프롬프트로 cmd를 시작해 명령 사이를 이동할 수 있게 합니다. cmd는 명령이 어떻게 끝났는지 알릴 수 없습니다. 사용자 프롬프트는 그대로 유지됩니다.",
   "rune.settings.general.row.terminalMarks.search": "터미널에서 명령 표시",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "WSL에서만 접근할 수 있는 폴더라면 현재 터미널을 시작한 폴더에서 새 탭이 열립니다.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}}에서 명령 표시",
   "rune.settings.general.row.terminalOptionMeta.description": "Option과 키를 누르면 셸의 단어 단위 단축키를 위해 Esc와 그 키를 보냅니다. 끄면 Option으로 키보드의 문자(예: é)를 입력합니다.",
   "rune.settings.general.row.terminalOptionMeta.title": "터미널에서 Option을 Meta로 사용",

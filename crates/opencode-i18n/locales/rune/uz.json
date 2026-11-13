@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}}ni har bir buyruq, u qanday tugagani va jildini belgilaydigan skript bilan ishga tushiradi, ular orasida o‘tishingiz uchun. Ishga tushirish fayllaringiz o‘zgarmaydi. Faqat shu kompyuterdagi server uchun.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd’ni har bir buyruq va jildini belgilaydigan taklif bilan ishga tushiradi, ular orasida o‘tishingiz uchun. cmd buyruq qanday tugaganini ayta olmaydi. O‘z taklifingiz saqlanadi.",
   "rune.settings.general.row.terminalMarks.search": "Terminalda buyruqlarni belgilash",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jildga faqat WSL ichidan kirish mumkin bo‘lsa, yangi varaq joriy terminal ishga tushgan jildda ochiladi.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} ichida buyruqlarni belgilash",
   "rune.settings.general.row.terminalOptionMeta.description": "Option va tugma shell’ning so‘z yorliqlari uchun Esc va o‘sha tugmani yuboradi. O‘chiq bo‘lsa, Option klaviatura belgisini yozadi, masalan é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Terminalda Option tugmasini Meta sifatida ishlatish",

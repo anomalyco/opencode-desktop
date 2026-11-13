@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Loc'hañ a ra {{shell}} gant ur skript a verk pep urzhiad, penaos eo echuet hag e deuliad, evit lammat etrezo. N'eo ket kemmet ho restroù loc'hañ. Evit ur servijer war an urzhiataer-mañ hepken.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Loc'hañ a ra cmd gant ur pedadenn a verk pep urzhiad hag e deuliad, evit lammat etrezo. N'hall ket cmd lavaret penaos eo echuet un urzhiad. Ho pedadenn deoc'h a chom.",
   "rune.settings.general.row.terminalMarks.search": "Merkañ an urzhiadoù en dermenell",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ma n'eo hegerz an teuliad nemet e WSL e vo digoret an ivinell nevez e teuliad loc'hañ an dermenell vremanel.",
   "rune.settings.general.row.terminalMarks.title": "Merkañ an urzhiadoù e {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option hag un alc'hwez a gas Esc hag an alc'hwez, evit berradennoù gerioù an shell. Pa vez lazhet, Option a skriv arouezenn ar c'hlavier, evel é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Implijout Option evel Meta en dermenell",

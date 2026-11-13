@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Käynnistää kohteen {{shell}} skriptillä, joka merkitsee jokaisen komennon, sen tuloksen ja kansion, jotta voit hypätä niiden välillä. Käynnistystiedostojasi ei muuteta. Vain tämän tietokoneen palvelimelle.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Käynnistää cmd:n kehotteella, joka merkitsee jokaisen komennon ja sen kansion, jotta voit hypätä niiden välillä. cmd ei kerro, miten komento päättyi. Oma kehotteesi säilyy.",
   "rune.settings.general.row.terminalMarks.search": "Merkitse komennot päätteessä",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Jos kansioon pääsee vain WSL:ssä, uusi välilehti avautuu nykyisen päätteen aloituskansioon.",
   "rune.settings.general.row.terminalMarks.title": "Merkitse komennot: {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option ja näppäin lähettävät Escin ja näppäimen komentotulkin sanapikanäppäimiä varten. Pois päältä Option kirjoittaa näppäimistön merkin, kuten é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Käytä Optionia Meta-näppäimenä päätteessä",

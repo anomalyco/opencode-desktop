@@ -46,9 +46,11 @@ pub fn view(s: &App, p: &Pal) -> El {
         });
         rows.push(("settings-mobile-titlebar-bottom", setting(p, "settings-mobile-titlebar-bottom", t!("settings.general.row.mobileTitlebarBottom.title"), t!("settings.general.row.mobileTitlebarBottom.description"), control)));
     }
-    rows.extend([
-        ("terminal-placement", setting(p, "terminal-placement", t!("rune.settings.general.row.terminalPlacement.title"), t!("rune.settings.general.row.terminalPlacement.description"), placement(s, p))),
-    ]);
+    let placement_help = t!("rune.settings.general.row.terminalPlacement.description");
+    let placement_help = if cfg!(windows) {
+        format!("{placement_help} {}", t!("rune.settings.general.row.terminalPlacement.wslFolder"))
+    } else { placement_help.to_owned() };
+    rows.push(("terminal-placement", setting(p, "terminal-placement", t!("rune.settings.general.row.terminalPlacement.title"), &placement_help, placement(s, p))));
     // Only a Mac has Option; Alt elsewhere is already Meta in the terminal.
     if cfg!(target_os = "macos") {
         let control = switch(p, "terminal-option-meta-switch", st.terminal_option_meta).on_press(|s: &mut App| s.change_settings(|x| x.terminal_option_meta = !x.terminal_option_meta));

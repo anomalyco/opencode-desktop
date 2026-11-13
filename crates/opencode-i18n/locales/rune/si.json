@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "සෑම විධානයක්ම, එය අවසන් වූ ආකාරය සහ එහි ෆෝල්ඩරය සලකුණු කරන ස්ක්‍රිප්ටයක් සමඟ {{shell}} ආරම්භ කරයි, ඒවා අතර පැනීමට. ඔබේ ආරම්භක ගොනු වෙනස් නොවේ. මෙම පරිගණකයේ සේවාදායකයකට පමණි.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "සෑම විධානයක්ම සහ එහි ෆෝල්ඩරය සලකුණු කරන විමසුමක් සමඟ cmd ආරම්භ කරයි, ඒවා අතර පැනීමට. විධානයක් අවසන් වූ ආකාරය cmd ට කිව නොහැක. ඔබේම විමසුම රැඳේ.",
   "rune.settings.general.row.terminalMarks.search": "ටර්මිනලයේ විධාන සලකුණු කරන්න",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "ෆෝල්ඩරයට පිවිසිය හැක්කේ WSL තුළ පමණක් නම්, නව ටැබය විවෘත වන්නේ වත්මන් ටර්මිනලය ආරම්භ කළ ෆෝල්ඩරය තුළය.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} හි විධාන සලකුණු කරන්න",
   "rune.settings.general.row.terminalOptionMeta.description": "Option සහ යතුරක් ෂෙල් එකේ වචන කෙටිමං සඳහා Esc සහ එම යතුර යවයි. අක්‍රිය විට Option යතුරුපුවරුවේ අක්ෂරය ටයිප් කරයි, උදා. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "ටර්මිනලයේ Option, Meta ලෙස භාවිත කරන්න",

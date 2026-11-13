@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Khởi động {{shell}} với một tập lệnh đánh dấu mỗi lệnh, cách nó kết thúc và thư mục của nó, để bạn nhảy giữa các lệnh. Các tệp khởi động của bạn không bị thay đổi. Chỉ cho máy chủ trên máy tính này.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Khởi động cmd với dấu nhắc đánh dấu mỗi lệnh và thư mục của nó, để bạn nhảy giữa các lệnh. cmd không thể cho biết lệnh kết thúc thế nào. Dấu nhắc của bạn được giữ nguyên.",
   "rune.settings.general.row.terminalMarks.search": "Đánh dấu lệnh trong terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Nếu chỉ có thể truy cập thư mục trong WSL, thẻ mới sẽ mở tại thư mục khởi động của terminal hiện tại.",
   "rune.settings.general.row.terminalMarks.title": "Đánh dấu lệnh trong {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option và một phím gửi Esc và phím đó, cho các phím tắt theo từ của shell. Khi tắt, Option gõ ký tự của bàn phím, như é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Dùng Option làm Meta trong terminal",

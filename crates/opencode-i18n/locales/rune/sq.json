@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Nis {{shell}} me një skript që shënon çdo komandë, si përfundoi dhe dosjen e saj, që të kalosh mes tyre. Skedarët e tu të nisjes nuk ndryshojnë. Vetëm për një server në këtë kompjuter.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Nis cmd me një kërkesë që shënon çdo komandë dhe dosjen e saj, që të kalosh mes tyre. cmd nuk mund të thotë si përfundoi një komandë. Kërkesa jote mbetet.",
   "rune.settings.general.row.terminalMarks.search": "Shëno komandat në terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Nëse dosja është e arritshme vetëm në WSL, skeda e re hapet në dosjen ku u nis terminali aktual.",
   "rune.settings.general.row.terminalMarks.title": "Shëno komandat në {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option dhe një tast dërgojnë Esc dhe tastin, për shkurtoret e fjalëve të shell-it. Joaktiv: Option shkruan karakterin e tastierës, p.sh. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Përdor Option si Meta në terminal",

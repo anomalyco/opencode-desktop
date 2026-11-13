@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "{{shell}}-ийг тушаал бүр, хэрхэн дууссан, хавтсыг нь тэмдэглэх скрипттэйгээр эхлүүлж, тэдгээрийн хооронд үсрэх боломж олгоно. Таны эхлэлийн файлууд өөрчлөгдөхгүй. Зөвхөн энэ компьютер дээрх серверт.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "cmd-г тушаал бүр болон хавтсыг нь тэмдэглэх хүлээлгийн мөрөөр эхлүүлж, тэдгээрийн хооронд үсрэх боломж олгоно. cmd тушаал хэрхэн дууссаныг хэлж чадахгүй. Таны өөрийн хүлээлгийн мөр хэвээр үлдэнэ.",
   "rune.settings.general.row.terminalMarks.search": "Терминал дахь тушаалуудыг тэмдэглэх",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Хавтас зөвхөн WSL дотор нээгддэг бол шинэ таб одоогийн терминалыг эхлүүлсэн хавтсанд нээгдэнэ.",
   "rune.settings.general.row.terminalMarks.title": "{{shell}} дахь тушаалуудыг тэмдэглэх",
   "rune.settings.general.row.terminalOptionMeta.description": "Option болон товч нь шеллийн үгийн товчлолд зориулж Esc болон тэр товчийг илгээнэ. Унтраасан үед Option гарын тэмдэгтийг бичнэ, жишээ нь é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Терминалд Option-ийг Meta болгон ашиглах",

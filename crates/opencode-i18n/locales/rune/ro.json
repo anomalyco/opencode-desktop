@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Pornește {{shell}} cu un script care marchează fiecare comandă, cum s-a încheiat și dosarul ei, ca să poți sări între ele. Fișierele tale de pornire nu se schimbă. Doar pentru un server de pe acest computer.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Pornește cmd cu un prompt care marchează fiecare comandă și dosarul ei, ca să poți sări între ele. cmd nu poate spune cum s-a încheiat o comandă. Promptul tău se păstrează.",
   "rune.settings.general.row.terminalMarks.search": "Marchează comenzile în terminal",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Dacă dosarul este accesibil doar în WSL, noua filă se deschide în dosarul din care a pornit terminalul curent.",
   "rune.settings.general.row.terminalMarks.title": "Marchează comenzile în {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option și o tastă trimit Esc și tasta, pentru scurtăturile de cuvinte ale shell-ului. Dezactivat, Option scrie caracterul tastaturii, de exemplu é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Folosește Option ca Meta în terminal",

@@ -149,6 +149,7 @@
   "rune.settings.general.row.terminalMarks.descriptionBash": "Pokreće {{shell}} sa skriptom koja označava svaku naredbu, kako je završila i njezinu mapu, da možete skakati između njih. Vaše datoteke za pokretanje se ne mijenjaju. Samo za poslužitelj na ovom računalu.",
   "rune.settings.general.row.terminalMarks.descriptionCmd": "Pokreće cmd s odzivom koji označava svaku naredbu i njezinu mapu, da možete skakati između njih. cmd ne može reći kako je naredba završila. Vaš odziv ostaje.",
   "rune.settings.general.row.terminalMarks.search": "Označi naredbe u terminalu",
+  "rune.settings.general.row.terminalPlacement.wslFolder": "Ako je mapa dostupna samo u WSL-u, nova kartica otvara se u početnoj mapi trenutačnog terminala.",
   "rune.settings.general.row.terminalMarks.title": "Označi naredbe u {{shell}}",
   "rune.settings.general.row.terminalOptionMeta.description": "Option i tipka šalju Esc i tipku, za prečace riječi u ljusci. Isključeno: Option upisuje znak s tipkovnice, npr. é.",
   "rune.settings.general.row.terminalOptionMeta.title": "Koristi Option kao Meta u terminalu",
