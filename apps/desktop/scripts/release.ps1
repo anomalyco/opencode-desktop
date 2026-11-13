@@ -4,7 +4,14 @@
 # and so should any release build that times the app: without the profile it's 14-22 % slower per
 # frame (notes in apps/desktop/pgo/README.md).
 #
-#   pwsh apps/desktop/scripts/release.ps1 [-Target <triple>] [-Cargo <command>] [-Package <name>] [-Features <list>]
+#   pwsh apps/desktop/scripts/release.ps1 [-Target <triple>] [-Cargo <command>] [-Package <name>] [-Features <list>] [-StaleProfileOk]
+#
+# A profile 20 or more app commits older than the code (or one whose training commit isn't in this
+# clone's history) is stale: it keeps a quarter of its gain (a day of commits gave 4-8 % per frame
+# instead of 23-30 %). Outside the release workflow this refuses to build with one: retrain it first
+# (apps/desktop/scripts/pgo.ps1), or pass
+# -StaleProfileOk (or set OPENCODE_RUNE_STALE_PROFILE_OK=1, which reaches it through package.ps1) for a
+# build whose speed doesn't matter. The release workflow (OPENCODE_RUNE_BUILD_CHANNEL set) only warns.
 #
 # -Cargo runs cargo another way, such as a build throttle ("pwsh tools/cargo.ps1"). The profile
 # rides on CARGO_TARGET_<TRIPLE>_RUSTFLAGS, which cargo joins with .cargo/config.toml's flags for
@@ -16,7 +23,8 @@ param(
     [string] $Target = '',
     [string] $Cargo = 'cargo',
     [string] $Package = 'opencode-desktop',
-    [string] $Features = ''
+    [string] $Features = '',
+    [switch] $StaleProfileOk
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
@@ -31,12 +39,24 @@ if (Test-Path $profdata) {
     [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
     $stamp = Join-Path $root "apps/desktop/pgo/$triple.txt"
     $trained = if (Test-Path $stamp) { (Get-Content $stamp | Select-String '^commit ').Line -replace '^commit ', '' }
-    if ($trained) {
-        $since = (git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.lock 2>$null)
-        Write-Host "profile-guided: $triple.profdata, trained at $($trained.Substring(0, 12)), $since commits to the app since"
-        # A day of commits (58, with Rune bumps) left a profile worth 4-9 % per frame where a fresh one gave
-        # 23-30 %: the functions it names have changed. Retrain before a release.
-        if ([int]$since -ge 20) { Write-Warning "the profile is $since commits old and mostly no longer matches the code: retrain it (apps/desktop/scripts/pgo.ps1) before a release" }
+    # Commits to the app since the training commit; none when the stamp or that commit is missing
+    # (a shallow clone, as CI's checkout is, has no history to count).
+    $known = $false
+    if ($trained) { git -C $root cat-file -e "$trained^{commit}" 2>$null; $known = $LASTEXITCODE -eq 0 }
+    $since = if ($known) { [int](git -C $root rev-list --count "$trained..HEAD" -- apps crates Cargo.lock) } else { $null }
+    $age = if ($null -ne $since) { "$since commits to the app since" } else { 'its age unknown (the training commit is not in this clone)' }
+    Write-Host "profile-guided: $triple.profdata, trained at $(if ($trained) { $trained.Substring(0, 12) } else { '?' }), $age"
+    if ($null -eq $since -or $since -ge 20) {
+        $why = "the profile-guided optimisation profile is stale ($age): it no longer names most of the code, so the build keeps a quarter of its speed-up. Retrain it (apps/desktop/scripts/pgo.ps1, apps/desktop/pgo/README.md)"
+        $ok = $StaleProfileOk -or $env:OPENCODE_RUNE_STALE_PROFILE_OK -eq '1'
+        if ($env:OPENCODE_RUNE_BUILD_CHANNEL) {
+            # The release workflow's call (docs/releasing.md); refusing there is its owner's decision.
+            if ($env:GITHUB_ACTIONS) { Write-Host "::warning::$why" } else { Write-Warning $why }
+        } elseif ($ok) {
+            Write-Warning "$why (building anyway: -StaleProfileOk)"
+        } else {
+            throw "$why; or pass -StaleProfileOk (OPENCODE_RUNE_STALE_PROFILE_OK=1) for a build whose speed doesn't matter"
+        }
     }
 } else {
     Write-Host "no profile for ${triple}: building without profile-guided optimisation"

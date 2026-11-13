@@ -16,8 +16,10 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   Settings, a German run, and a launch and quit in every part. Office previews and the terminal
   aren't in it yet, so they build as cold code.
 - **It goes stale fast:** a profile 58 commits old (a day, with Rune bumps) gave 4-9 % less CPU per
-  frame than a build without one; retrained on the same code, 23-30 %. `release.ps1` warns from 20
-  commits on.
+  frame than a build without one; retrained on the same code, 23-30 %. From 20 app commits on (or
+  when the training commit isn't in the clone), `release.ps1` refuses to build with it unless told
+  `-StaleProfileOk` (or `OPENCODE_RUNE_STALE_PROFILE_OK=1`, which reaches it through
+  `package.ps1`); in the release workflow (`OPENCODE_RUNE_BUILD_CHANNEL` set) it only warns.
 - **Refresh it** before a release, when the app or Rune changed since `<target>.txt`'s commit (`release.ps1`
   prints how many app commits there have been), or after a Rust toolchain bump (the file format
   follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
