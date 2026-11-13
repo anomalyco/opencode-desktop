@@ -41,6 +41,8 @@ struct Boot {
     created: u64,
     /// Page faults (soft and hard) before `main`'s first line: the loader and static initialisers.
     faults: u32,
+    /// The time-stamp counter at `at`, to learn its rate for [`process_cpu_ns`].
+    tsc: u64,
 }
 
 static BOOT: OnceLock<Boot> = OnceLock::new();
@@ -85,7 +87,7 @@ pub fn begin() {
     BOOT.get_or_init(|| {
         let at = Instant::now();
         let (created, now) = process_clock();
-        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults() }
+        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults(), tsc: tsc() }
     });
     mark("main.entered");
     #[cfg(target_os = "windows")]
@@ -388,11 +390,24 @@ fn io_counters() -> Io {
 }
 
 /// This process's page faults so far, soft and hard (`GetProcessMemoryInfo`).
-/// CPU time of every thread of this process so far, user and kernel, in ns (`GetProcessTimes`).
+/// CPU time of every thread of this process so far, user and kernel, in ns. `GetProcessTimes`
+/// counts in clock ticks (15,625 µs), too coarse for a launch: the process's cycle count
+/// (`QueryProcessCycleTime`, time-stamp counter cycles) is exact, converted at the counter's rate
+/// since [`begin`]. Ticks when the rate isn't known yet.
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 fn process_cpu_ns() -> u64 {
     use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::WindowsProgramming::QueryProcessCycleTime;
+    if let Some(boot) = BOOT.get() && boot.tsc != 0 {
+        let elapsed = boot.at.elapsed().as_nanos() as f64;
+        let per_ns = tsc().saturating_sub(boot.tsc) as f64 / elapsed.max(1.0);
+        let mut cycles = 0u64;
+        // SAFETY: a u64 this frame owns, for this process's pseudo-handle.
+        if elapsed >= 1e6 && per_ns > 0.0 && unsafe { QueryProcessCycleTime(windows_sys::Win32::System::Threading::GetCurrentProcess(), &mut cycles) } != 0 {
+            return (cycles as f64 / per_ns) as u64;
+        }
+    }
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
     let ft = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
     // SAFETY: four FILETIMEs this frame owns.
@@ -423,6 +438,19 @@ fn process_cpu_ns() -> u64 {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn process_cpu_ns() -> u64 {
+    0
+}
+
+/// The time-stamp counter (x86-64 Windows, where the process's cycle count is in its cycles); 0 elsewhere.
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+#[allow(unsafe_code)]
+fn tsc() -> u64 {
+    // SAFETY: RDTSC reads a counter every x86-64 CPU has.
+    unsafe { core::arch::x86_64::_rdtsc() }
+}
+
+#[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+fn tsc() -> u64 {
     0
 }
 
