@@ -57,13 +57,17 @@ struct Io {
     write_bytes: u64,
     other_ops: u64,
     faults: u32,
+    /// CPU time of every thread so far (user and kernel), in ns.
+    cpu_ns: u64,
 }
 
 impl Io {
     fn json(self) -> serde_json::Value {
-        serde_json::json!({ "read_ops": self.read_ops, "read_bytes": self.read_bytes, "write_ops": self.write_ops, "write_bytes": self.write_bytes, "other_ops": self.other_ops })
+        serde_json::json!({ "read_ops": self.read_ops, "read_bytes": self.read_bytes, "write_ops": self.write_ops, "write_bytes": self.write_bytes, "other_ops": self.other_ops, "cpu_ns": self.cpu_ns })
     }
 }
+/// When the first frame with live content drew: the process's IO and CPU so far.
+static LIVE_IO: OnceLock<Io> = OnceLock::new();
 static QUIT_SENT: AtomicBool = AtomicBool::new(false);
 /// The last frame drawn after `content.live`, until the window has been still for [`STILL`].
 static LAST_DRAWN: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
@@ -167,6 +171,7 @@ pub fn drawn(rt: &rune::Runtime<App>) {
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
         mark("content.live");
+        let _ = LIVE_IO.get_or_init(io_counters);
     }
     if STABLE.get().is_none() && rune::marks::marks().iter().any(|(n, _)| *n == "content.live") {
         use std::hash::{Hash, Hasher};
@@ -178,7 +183,9 @@ pub fn drawn(rt: &rune::Runtime<App>) {
             e.text.hash(&mut one);
             e.exiting.hash(&mut one);
             e.loop_phase.map(f64::to_bits).hash(&mut one);
-            e.rect.iter().chain([e.opacity, e.scale].iter()).for_each(|v| v.to_bits().hash(&mut one));
+            e.rect.iter().chain([e.opacity, e.scale, e.blur, e.radius, e.hover, e.press].iter()).for_each(|v| v.to_bits().hash(&mut one));
+            // Colours too: a fill or text colour easing (activation, a theme) changes pixels in place.
+            [e.fill].iter().chain(e.text_color.iter()).for_each(|k| [k.r, k.g, k.b, k.a].iter().for_each(|v| v.to_bits().hash(&mut one)));
             let one = one.finish();
             e.path.hash(&mut h);
             one.hash(&mut h);
@@ -295,6 +302,7 @@ pub fn finish(windows: usize) {
         "ui_tid": ui_thread(),
         "page_faults": { "main": boot.faults, "first_frame": FIRST_IO.get().map(|(io, _)| io.faults), "exit": page_faults() },
         "io_first_frame": FIRST_IO.get().map(|(io, _)| io.json()),
+        "io_live": LIVE_IO.get().map(|io| io.json()),
         "io_exit": io_counters().json(),
         "io": io_calls(&ns),
         "threads": FIRST_IO.get().map(|(_, t)| t.clone()).unwrap_or_default().into_iter().chain(if crate::flag("--launch-trace-threads") { threads() } else { Vec::new() }).map(|(id, name)| serde_json::json!([id, name])).collect::<Vec<_>>(),
@@ -371,15 +379,53 @@ fn io_counters() -> Io {
         GetProcessIoCounters(GetCurrentProcess(), &mut c);
         c
     };
-    Io { read_ops: c.ReadOperationCount, read_bytes: c.ReadTransferCount, write_ops: c.WriteOperationCount, write_bytes: c.WriteTransferCount, other_ops: c.OtherOperationCount, faults: page_faults() }
+    Io { read_ops: c.ReadOperationCount, read_bytes: c.ReadTransferCount, write_ops: c.WriteOperationCount, write_bytes: c.WriteTransferCount, other_ops: c.OtherOperationCount, faults: page_faults(), cpu_ns: process_cpu_ns() }
 }
 
 #[cfg(not(target_os = "windows"))]
 fn io_counters() -> Io {
-    Io::default()
+    Io { cpu_ns: process_cpu_ns(), ..Io::default() }
 }
 
 /// This process's page faults so far, soft and hard (`GetProcessMemoryInfo`).
+/// CPU time of every thread of this process so far, user and kernel, in ns (`GetProcessTimes`).
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn process_cpu_ns() -> u64 {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let ft = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+    // SAFETY: four FILETIMEs this frame owns.
+    unsafe {
+        let (mut created, mut exited, mut kernel, mut user): (FILETIME, FILETIME, FILETIME, FILETIME) = std::mem::zeroed();
+        if GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user) == 0 {
+            return 0;
+        }
+        (ft(kernel) + ft(user)).saturating_mul(100)
+    }
+}
+
+/// CPU time of every thread of this process so far, user and system, in ns (`getrusage`).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(unsafe_code)]
+fn process_cpu_ns() -> u64 {
+    // SAFETY: an rusage this frame owns.
+    let r = unsafe {
+        let mut r: libc::rusage = std::mem::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut r) != 0 {
+            return 0;
+        }
+        r
+    };
+    let ns = |t: libc::timeval| (t.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(t.tv_usec as u64 * 1_000);
+    ns(r.ru_utime).saturating_add(ns(r.ru_stime))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn process_cpu_ns() -> u64 {
+    0
+}
+
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]
 fn page_faults() -> u32 {
