@@ -323,7 +323,7 @@ pub fn layer(s: &App, p: &Pal) -> Vec<El> {
     let open_browser = form || matches!(failure, Some(Failure::Expired | Failure::Auth(_)));
     let locked = matches!(x.state, State::Submitting { .. } | State::Waiting { accepted: true, .. });
 
-    let close_button = el().key("mcp-sign-in-close").role("button").label(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    let close_button = el().key("mcp-sign-in-close").role("button").label_static(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(close)
         .child(icon(&widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted));

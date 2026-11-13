@@ -237,7 +237,7 @@ pub fn render_terminal_pane(
     col()
         .key("terminal-pane")
         .role("region")
-        .label(opencode_i18n::t!("plugin.terminal.tab.title"))
+        .label_static(opencode_i18n::t!("plugin.terminal.tab.title"))
         .w_full()
         .h_full()
         .fill(p.bg_base)
@@ -313,7 +313,7 @@ fn render_viewport(
             "rune.a11y.terminal",
             title = if tab.custom_title { tab.title.clone() } else { opencode_i18n::t!("plugin.terminal.title.numbered", number = tab.title_number.max(1)) }
         ))
-        .description(opencode_i18n::t!("rune.a11y.terminal.leave"));
+        .description_static(opencode_i18n::t!("rune.a11y.terminal.leave"));
     // The cursor's cell is the reader's caret while the program shows its cursor.
     let rows_col = if snap.cursor.visible && snap.cursor.in_viewport { rows_col.grid_caret(snap.cursor.col, snap.cursor.row) } else { rows_col };
     let mut canvas_layer = el()

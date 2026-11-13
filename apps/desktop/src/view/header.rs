@@ -196,7 +196,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             crate::session_menu::on(t, target)
         }
     };
-    let dots = el().key("header-more").role("button").label(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
+    let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     vec![title, dots]

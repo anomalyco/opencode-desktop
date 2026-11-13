@@ -147,14 +147,14 @@ pub fn title(s: &App) -> String {
 }
 
 fn close_button(p: &Pal) -> El {
-    el().key("connect-close").role("button").label(opencode_i18n::t!("common.close")).size(20.0, 20.0).radius(4.0).center()
+    el().key("connect-close").role("button").label_static(opencode_i18n::t!("common.close")).size(20.0, 20.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_connect(tx))
         .child(icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted))
 }
 
 fn back_button(p: &Pal) -> El {
-    el().key("connect-back").role("button").label(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).my(-2.0).ml(-2.0).radius(4.0).center()
+    el().key("connect-back").role("button").label_static(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).my(-2.0).ml(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();

@@ -153,7 +153,7 @@ pub(super) fn field(s: &App, p: &Pal, id: &str) -> Option<El> {
     Some(
         text_input(&r.field, crate::view::UI)
             .key("terminal-rename")
-            .label(t!("common.rename"))
+            .label_static(t!("common.rename"))
             .spellcheck(s.settings.spellcheck)
             .single_line()
             .pin(Some(20.0), Some(0.0), Some(0.0), Some(0.0))

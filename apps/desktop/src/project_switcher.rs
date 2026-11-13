@@ -639,7 +639,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
             row()
                 .key("project-switcher-back")
                 .role("button")
-                .label(t!("session.new.location.back"))
+                .label_static(t!("session.new.location.back"))
                 .h(28.0)
                 .px(6.0)
                 .center_y()

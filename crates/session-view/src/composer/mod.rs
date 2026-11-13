@@ -124,7 +124,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
     el()
         .key("add")
         .role("button")
-        .label(opencode_i18n::t!("ui.promptInput.add"))
+        .label_static(opencode_i18n::t!("ui.promptInput.add"))
         .help(format!("{} {}", opencode_i18n::t!("ui.promptInput.add"), crate::keymap::Bind::Attach.label()))
         .size(28.0, 28.0)
         .mr(2.0)
@@ -417,7 +417,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     let box_el = col()
         .key(key)
         .role("form")
-        .label(opencode_i18n::t!("ui.promptInput.label"))
+        .label_static(opencode_i18n::t!("ui.promptInput.label"))
         .w_full()
         .max_w(crate::style::dock_w())
         .min_h(88.0)
@@ -475,7 +475,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                         s.composer_shell_mode(),
                                     )
                                     .key("prompt")
-                                    .label(opencode_i18n::t!("ui.promptInput.label"))
+                                    .label_static(opencode_i18n::t!("ui.promptInput.label"))
                                     // Nothing highlighted names no row.
                                     .active_descendant(s.composer_active_option().unwrap_or_default())
                                     // `ps-4 pt-4`, and 12 less the gutter at the end

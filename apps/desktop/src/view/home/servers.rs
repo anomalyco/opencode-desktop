@@ -177,8 +177,8 @@ fn indicator(p: &Pal, mark: Indicator) -> El {
         Indicator::Healthy => dot(crate::widgets::status_ink(p, "connected")),
         Indicator::Unreachable => dot(crate::widgets::status_ink(p, "failed")),
         Indicator::Unknown => dot(p.icon_faint),
-        Indicator::Auth => row().key("lock").w(6.0).h(14.0).center().role("status").label(t!("server.status.authentication")).child(icon(&ic::LOCK, 14.0).color(p.icon_muted)),
-        Indicator::Connecting => row().key("loader").w(6.0).h(14.0).center().role("status").label(t!("server.status.connecting")).child(session_view::style::activity_ring_sized(p, 12.0)),
+        Indicator::Auth => row().key("lock").w(6.0).h(14.0).center().role("status").label_static(t!("server.status.authentication")).child(icon(&ic::LOCK, 14.0).color(p.icon_muted)),
+        Indicator::Connecting => row().key("loader").w(6.0).h(14.0).center().role("status").label_static(t!("server.status.connecting")).child(session_view::style::activity_ring_sized(p, 12.0)),
         Indicator::Incompatible => icon(&ic::WARNING, 14.0).key("warning").color(token("icon-warning-base", p.v1_icon_warning)),
     }
 }

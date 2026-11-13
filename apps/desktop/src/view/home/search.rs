@@ -45,7 +45,7 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
             row()
                 .key("search-clear")
                 .role("button")
-                .label(opencode_i18n::t!("common.clear"))
+                .label_static(opencode_i18n::t!("common.clear"))
                 .size(20.0, 20.0)
                 .center()
                 .radius(4.0)

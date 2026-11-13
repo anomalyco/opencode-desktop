@@ -22,8 +22,8 @@ pub fn mark(p: &Pal, indicator: Indicator) -> El {
         Indicator::Healthy => dot(crate::widgets::status_ink(p, "connected")),
         Indicator::Unreachable => dot(crate::widgets::status_ink(p, "failed")),
         Indicator::Unknown => dot(p.icon_faint),
-        Indicator::Auth => slot().label(opencode_i18n::t!("server.status.authentication")).child(icon(crate::plugin_host::icons::resolve("", "lock"), 12.0).color(p.icon_muted)),
-        Indicator::Connecting => slot().label(opencode_i18n::t!("server.status.connecting")).child(rune_kit::Loader::new().size(12.0).build(crate::palette::kit(p))),
+        Indicator::Auth => slot().label_static(opencode_i18n::t!("server.status.authentication")).child(icon(crate::plugin_host::icons::resolve("", "lock"), 12.0).color(p.icon_muted)),
+        Indicator::Connecting => slot().label_static(opencode_i18n::t!("server.status.connecting")).child(rune_kit::Loader::new().size(12.0).build(crate::palette::kit(p))),
         Indicator::Incompatible => icon(crate::plugin_host::icons::resolve("", "warning"), 16.0).color(p.v1_icon_warning),
     }
 }

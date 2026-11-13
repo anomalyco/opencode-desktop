@@ -83,7 +83,7 @@ fn empty(p: &Pal) -> El {
 
 /// Other projects' fold: the triangle, its title and the count badge.
 fn fold(p: &Pal, count: usize, open: bool) -> El {
-    row().key("settings-projects-others").role("button").label(t!("settings.projects.other")).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
+    row().key("settings-projects-others").role("button").label_static(t!("settings.projects.other")).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
         .hover(p.layer2)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -122,7 +122,7 @@ fn card(s: &App, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
     let st = &s.settings_pages.project;
     if st.renaming.as_deref() == Some(x.directory.as_str()) {
         let field = rune::text_input(&st.rename, NAME).key("settings-project-rename").spellcheck(s.settings.spellcheck).single_line().dir(rune::Direction::Auto).grow(1.0).shrink().min_w(0.0)
-            .color(p.text).caret(p.text, p.selection).selection_style(p.field_selection).label(t!("common.rename"))
+            .color(p.text).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("common.rename"))
             .on_edit(|s: &mut App| &mut s.settings_pages.project.rename)
             .on_submit(|s: &mut App, tx: &mut Tx| s.commit_project_rename(tx))
             .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {

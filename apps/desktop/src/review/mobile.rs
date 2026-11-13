@@ -280,7 +280,7 @@ fn summary(p: &Pal, m: &super::data::ReviewFileMeta) -> El {
     let open = row()
         .key("open-file")
         .role("button")
-        .label(t!("ui.sessionReview.openFile"))
+        .label_static(t!("ui.sessionReview.openFile"))
         .h(24.0)
         .px(9.0)
         .gap(6.0)

@@ -374,7 +374,7 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     } else {
         list
     };
-    shell.role("list").label(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(tray.child(list))
+    shell.role("list").label_static(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(tray.child(list))
 }
 /// The queue's rows (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
 fn shown_rows(s: &App, session: &str) -> Vec<QueueRow> {
@@ -525,7 +525,7 @@ fn marker(key: String) -> El {
 fn handle(p: &Pal, session: &str, id: &str, ids: &[String], index: usize, disabled: bool) -> El {
     let dot = || el().size(2.0, 2.0).fill(p.q.layer4);
     let column = || col().gap(2.25).child(dot()).child(dot()).child(dot());
-    let h = row().key("reorder").role("button").label(opencode_i18n::t!("session.queue.reorder")).padding(4.0).gap(2.0).child(column()).child(column()).child(marker(format!("reorder-{index}")));
+    let h = row().key("reorder").role("button").label_static(opencode_i18n::t!("session.queue.reorder")).padding(4.0).gap(2.0).child(column()).child(column()).child(marker(format!("reorder-{index}")));
     if disabled {
         return h;
     }

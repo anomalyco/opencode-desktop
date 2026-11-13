@@ -184,7 +184,7 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         .pb(8.0)
         .growth(GrowthSpec::default())
         .role("tree")
-        .label(opencode_i18n::t!("settings.timeline.row.turnDiffs.title"))
+        .label_static(opencode_i18n::t!("settings.timeline.row.turnDiffs.title"))
         // One Tab stop; Up and Down move through the rows, Right and Left open, close, step in and out.
         .focus_group()
         .on_key({

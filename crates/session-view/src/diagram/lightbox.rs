@@ -186,7 +186,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let body = el()
         .key("diagram-lightbox")
         .role("dialog")
-        .label(opencode_i18n::t!("rune.diagram.title"))
+        .label_static(opencode_i18n::t!("rune.diagram.title"))
         .absolute(card[0], card[1])
         .size(card[2], card[3])
         .radius(6.0)

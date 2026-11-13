@@ -91,7 +91,7 @@ fn tabs(s: &App, p: &Pal, id: &str, shown: &str, bottom: bool) -> El {
         .key("narrow-view-tabs")
         .role("tablist")
         .focus_group()
-        .label(t!("session.view.select"))
+        .label_static(t!("session.view.select"))
         .w_full()
         .h(36.0)
         .min_h(36.0)
@@ -241,7 +241,7 @@ pub fn more(s: &App, p: &Pal) -> El {
         let back = s.layout.narrow.more.nested().map(|_| {
             let title = all.iter().find(|v| v.id == view).map(|v| v.title.clone()).unwrap_or_default();
             let button = crate::widgets::button(title, rune_kit::ButtonVariant::Ghost).icon(crate::plugin_host::icons::resolve("", "arrow-left")).build(crate::palette::kit(p));
-            row().key("narrow-more-back").w_full().mb(8.0).child(button.key("narrow-more-back-button").label(t!("common.goBack")).on_press_tx(|s: &mut App, tx: &mut Tx| {
+            row().key("narrow-more-back").w_full().mb(8.0).child(button.key("narrow-more-back-button").label_static(t!("common.goBack")).on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.more_drawer(MoreEvent::Back, tx);
             }))

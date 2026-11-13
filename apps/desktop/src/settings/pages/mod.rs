@@ -355,7 +355,7 @@ pub fn filter_field(s: &App, p: &Pal, key: &str, placeholder: &str, edit: &TextE
     let _ = s;
     let typed = !edit.text.is_empty();
     let clear = typed.then(|| {
-        row().key("clear").role("button").label(t!("common.clear")).size(20.0, 20.0).center().radius(4.0)
+        row().key("clear").role("button").label_static(t!("common.clear")).size(20.0, 20.0).center().radius(4.0)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 let e = field(s);

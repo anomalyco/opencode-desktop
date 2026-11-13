@@ -79,7 +79,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let dialog = widgets::overlay(p, col())
         .key("mcp-dialog")
         .role("dialog")
-        .label(opencode_i18n::t!("dialog.mcp.title"))
+        .label_static(opencode_i18n::t!("dialog.mcp.title"))
         .w((win_w - 24.0).min(480.0))
         .max_h((win_h - 96.0).min(480.0))
         .radius(12.0)
@@ -98,7 +98,7 @@ fn list(s: &App, p: &Pal, dir: &str, tall: bool) -> El {
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(text_input(&open.search, crate::view::UI).key("mcp-search").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(opencode_i18n::t!("dialog.mcp.search.placeholder"), p.text.alpha(p.text.a * 0.5)).caret(p.text, p.selection).selection_style(p.field_selection)
-            .label(opencode_i18n::t!("dialog.mcp.search.placeholder"))
+            .label_static(opencode_i18n::t!("dialog.mcp.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.mcp.open.as_mut().expect("open").search)
             .on_input_change(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
@@ -196,14 +196,14 @@ fn action(p: &Pal, key: &str, label: &str, a11y: &str, busy: bool, press: impl F
 /// The error view: back, the server's name, "Connection failed", the error and its actions.
 fn detail(s: &App, p: &Pal, dir: &str, name: &str, error: &str, copied: bool) -> El {
     let busy = s.mcp_busy(dir, name) || s.mcp_servers(dir).and_then(|l| l.iter().find(|m| m.name == name)).is_some_and(|m| m.status == McpStatus::Pending);
-    let back = el().key("mcp-back").role("button").label(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).radius(4.0).center()
+    let back = el().key("mcp-back").role("button").label_static(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.close_mcp_detail();
         })
         .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.icon_muted));
-    let close = el().key("mcp-close").role("button").label(opencode_i18n::t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    let close = el().key("mcp-close").role("button").label_static(opencode_i18n::t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.close_mcp_dialog(tx))
         .child(icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted));

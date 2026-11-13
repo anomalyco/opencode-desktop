@@ -105,7 +105,7 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
 
 /// The header's close button: 20 square, 2 out at the top and end (`dialog-close-button`).
 fn close(p: &Pal, attempt: u64) -> El {
-    el().key("worktree-delete-close").role("button").label(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    el().key("worktree-delete-close").role("button").label_static(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();

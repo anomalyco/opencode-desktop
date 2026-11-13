@@ -396,7 +396,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .children(typed.then(|| {
             el().key("fork-clear")
                 .role("button")
-                .label(opencode_i18n::t!("common.clear"))
+                .label_static(opencode_i18n::t!("common.clear"))
                 .size(20.0, 20.0)
                 .radius(4.0)
                 .center()
@@ -465,7 +465,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let dialog = col()
         .key("fork-dialog")
         .role("dialog")
-        .label(opencode_i18n::t!("command.session.fork"))
+        .label_static(opencode_i18n::t!("command.session.fork"))
         .w(w)
         .h(HEAD_H + SECTION_H + scroll_h)
         .radius(12.0)

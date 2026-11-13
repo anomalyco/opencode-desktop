@@ -117,7 +117,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let dialog = overlay_shadow(p).into_iter().fold(col(), El::box_shadow)
         .key("manage-models")
         .role("dialog")
-        .label(opencode_i18n::t!("dialog.model.manage"))
+        .label_static(opencode_i18n::t!("dialog.model.manage"))
         .w(640.0)
         .h(480.0)
         .radius(12.0)

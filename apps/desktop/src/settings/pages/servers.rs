@@ -230,7 +230,7 @@ fn connection_row(s: &App, p: &Pal, server: &Server) -> El {
 /// the ⋯ menu (Edit is for servers added by address).
 fn own_row(p: &Pal, server: &Server) -> El {
     let url = server.address();
-    let dots = row().key("settings-server-menu").role("button").label(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
+    let dots = row().key("settings-server-menu").role("button").label_static(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
         .hover(p.hover).press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             let url = inventory::list(s).into_iter().next().map(|x| x.address()).unwrap_or_default();
@@ -264,7 +264,7 @@ pub(crate) fn http_row(p: &Pal, server: &crate::servers::Server) -> El {
     let health = crate::servers::health::get(&key);
     let anchor = format!("settings-server-menu-{}", server.url);
     let url = server.url.clone();
-    let dots = row().key(anchor.clone()).role("button").label(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
+    let dots = row().key(anchor.clone()).role("button").label_static(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
         .hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::new(t!("settings.section.server")).align(Align::End).group(t!("settings.section.server"))

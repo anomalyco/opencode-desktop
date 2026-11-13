@@ -455,7 +455,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // `scroll-view.tsx:546-548`), drawing no ring. The header's controls follow it.
         .focusable(true)
         .role("region")
-        .label(opencode_i18n::t!("ui.scrollView.ariaLabel"))
+        .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
         .no_focus_ring()
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so

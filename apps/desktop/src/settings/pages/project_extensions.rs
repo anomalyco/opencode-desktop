@@ -195,7 +195,7 @@ fn section(s: &App, p: &Pal, kind: &str, action: El, own: &[String], shared: &[S
     }
     if !shared.is_empty() {
         let open = s.settings_pages.project.extensions.shared;
-        let trigger = row().key("project-settings-shared-trigger").role("button").label(t!("project.settings.extensions.shared")).expanded(open).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
+        let trigger = row().key("project-settings-shared-trigger").role("button").label_static(t!("project.settings.extensions.shared")).expanded(open).h(28.0).pl(4.0).pr(8.0).gap(4.0).center_y().radius(4.0).self_start()
             .hover(p.layer2)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();

@@ -298,7 +298,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     if error.is_none() {
         description = format!("{description} {}", reason_text(reason));
     }
-    let close = el().key("move-recovery-close").role("button").label(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    let close = el().key("move-recovery-close").role("button").label_static(t!("common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover).press(p.pressed)
         .on_press_tx(keep)
         .child(icon(&widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted));
@@ -343,7 +343,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let dialog = widgets::overlay(p, col())
         .key("move-recovery")
         .role("dialog")
-        .label(t!("plugin.details.move.recovery.title"))
+        .label_static(t!("plugin.details.move.recovery.title"))
         .w(480.0)
         .radius(6.0)
         .fill(p.layer1)

@@ -55,7 +55,7 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     // The whole screen scrolls with no bar, as Desktop hides it (`.settings-screen > .settings`:
     // `scrollbar-width: none`, `settings.css:913-919`; the narrow `.settings-panel`, `:593-607`).
     let screen = |inner: El| {
-        session_view::scroller::scroller("settings").hidden(col().role("region").label(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0), inner)
+        session_view::scroller::scroller("settings").hidden(col().role("region").label_static(t!("command.category.settings")).w_full().grow(1.0).shrink().min_h(0.0), inner)
     };
 
     if narrow {

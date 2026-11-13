@@ -188,7 +188,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     // An upload's card and its cancel (`editor.tsx:880-899`).
     for (id, name, percent) in uploading {
         let gone = id.clone();
-        let cancel = remove_button(p, &name, 160.0, move |s: &mut S| s.composer_cancel_upload(&gone)).label(opencode_i18n::t!("ui.promptInput.cancelUpload"));
+        let cancel = remove_button(p, &name, 160.0, move |s: &mut S| s.composer_cancel_upload(&gone)).label_static(opencode_i18n::t!("ui.promptInput.cancelUpload"));
         r = r.child(el().key(format!("uploading-{id}")).hover_group().child(upload_card(p, &name, percent)).child(cancel));
     }
     // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
@@ -240,7 +240,7 @@ pub fn remove_button<S: 'static>(
     el()
         .key("remove")
         .role("button")
-        .label(opencode_i18n::t!("ui.promptInput.removeAttachment"))
+        .label_static(opencode_i18n::t!("ui.promptInput.removeAttachment"))
         .absolute(w - 12.0, -4.0)
         .size(16.0, 16.0)
         .radius(8.0)

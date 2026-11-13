@@ -62,7 +62,7 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
-        .label(opencode_i18n::t!("ui.promptInput.chooseAgent"))
+        .label_static(opencode_i18n::t!("ui.promptInput.chooseAgent"))
         .help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
         .size(28.0, 28.0)
         .radius(6.0)

@@ -389,7 +389,7 @@ fn tab_bar(
         let trigger = row()
             .key(format!("side-new-{}", nid))
             .role("tab")
-            .label(opencode_i18n::t!("session.tab.new"))
+            .label_static(opencode_i18n::t!("session.tab.new"))
             .h(28.0)
             .min_w(72.0)
             .pl(10.0)
@@ -429,7 +429,7 @@ fn tab_bar(
     strip = strip.child(
         el().key(format!("side-add-{}", pane_slug(pane)))
             .role("button")
-            .label(opencode_i18n::t!("session.tab.new"))
+            .label_static(opencode_i18n::t!("session.tab.new"))
             .size(28.0, 28.0)
             .radius(6.0)
             .center()
@@ -605,7 +605,7 @@ fn tab_trigger(s: &App, p: &Pal, entry: &ResolvedEntry, active: bool, focused: b
 fn close_button(p: &Pal, key: String, shown: bool, close: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     el().key(key)
         .role("button")
-        .label(opencode_i18n::t!("common.closeTab"))
+        .label_static(opencode_i18n::t!("common.closeTab"))
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
@@ -660,7 +660,7 @@ pub fn side_toggle(s: &App, p: &Pal) -> Option<El> {
         el().key("side-toggle")
             .role("button")
             // `SessionHeaderActions`: "Toggle review" and its keybind in the tooltip under it.
-            .label(opencode_i18n::t!("command.review.toggle"))
+            .label_static(opencode_i18n::t!("command.review.toggle"))
             .expanded(open)
             .help(opencode_i18n::t!("command.review.toggle"))
             .help_keys(crate::keymap::Bind::SideToggle.keycaps())

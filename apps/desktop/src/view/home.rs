@@ -80,7 +80,7 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
         Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
     // A Tab stop, as Desktop's `ScrollView` (`tabIndex={0}`), drawing no ring.
-    let viewport = col().w_full().shrink().min_h(0.0).clip_soft(0.0).focusable(true).role("region").label(opencode_i18n::t!("ui.scrollView.ariaLabel")).no_focus_ring();
+    let viewport = col().w_full().shrink().min_h(0.0).clip_soft(0.0).focusable(true).role("region").label_static(opencode_i18n::t!("ui.scrollView.ariaLabel")).no_focus_ring();
     // The thumb sits in the sessions column's 12 pt gutter under its sticky header, in a track as
     // long as the page below it, shown while the pointer is on that column (`route.tsx:34-40`,
     // `sessions/view.tsx`'s `home-session-scroll-track`).
@@ -224,7 +224,7 @@ fn new_session_button(p: &Pal) -> El {
     row()
         .key("new-session")
         .role("button")
-        .label(t!("command.session.new"))
+        .label_static(t!("command.session.new"))
         .h(28.0)
         .px(8.0)
         .gap(6.0)
@@ -254,7 +254,7 @@ fn empty(p: &Pal, can_create: bool) -> El {
             row()
                 .key("home-empty-new")
                 .role("button")
-                .label(t!("command.session.new"))
+                .label_static(t!("command.session.new"))
                 .h(28.0)
                 .px(11.0)
                 .gap(6.0)
@@ -539,7 +539,7 @@ fn no_server_home(s: &App, p: &Pal) -> El {
             row()
                 .key(copy_key)
                 .role("button")
-                .label(t!("rune.home.noServer.copyCommand"))
+                .label_static(t!("rune.home.noServer.copyCommand"))
                 .help(t!("rune.home.noServer.copyCommand"))
                 .size(24.0, 24.0)
                 .center()

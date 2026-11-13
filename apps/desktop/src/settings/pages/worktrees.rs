@@ -173,7 +173,7 @@ fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>, filter: 
     let busy = s.settings_pages.worktrees.delete.busy();
     let all: Vec<Target> = list.iter().map(Worktree::target).collect();
     let unused: Vec<Target> = list.iter().filter(|w| sessions_in(s, &w.dir).is_empty()).map(Worktree::target).collect();
-    let dots = row().key("settings-workspaces-more").role("button").label(t!("common.moreOptions")).size(20.0, 20.0).center().radius(4.0)
+    let dots = row().key("settings-workspaces-more").role("button").label_static(t!("common.moreOptions")).size(20.0, 20.0).center().radius(4.0)
         .child(icon(&ic::OUTLINE_DOTS, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
     let dots = if busy { dots.disabled(true) } else {
         dots.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {

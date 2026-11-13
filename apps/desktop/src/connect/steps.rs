@@ -204,7 +204,7 @@ fn copy_field(p: &Pal, key: &str, label: Option<&str>, description: Option<&str>
         // A value wider than the box runs past its end, clipped, as an input's does.
         .child(row().h(32.0).px(12.0).py(2.0).grow(1.0).shrink().min_w(0.0).center_y().clip_soft(0.0)
             .child(text(value).font(FIELD).color(p.standard.text).selectable(true)))
-        .child(el().key("copy").role("button").label(opencode_i18n::t!("ui.message.copy")).size(24.0, 24.0).mt(4.0).radius(6.0).center().hover(p.hover).press(p.pressed)
+        .child(el().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copy")).size(24.0, 24.0).mt(4.0).radius(6.0).center().hover(p.hover).press(p.pressed)
             .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(copy.clone()))
             .child(icon(&ic::COPY, 16.0).color(weak)));
     col().w_full().gap(8.0)
@@ -515,7 +515,7 @@ fn accounts(s: &App, p: &Pal) -> El {
     };
     let mut list: Vec<_> = s.integration_of(s.connect_dir(), &id).map(|i| i.accounts().into_iter().cloned().collect()).unwrap_or_default();
     list.sort_by(|a: &opencode_kit::integration::Connection, b| rune::text::compare_names(&a.label, &b.label).then(a.id.cmp(&b.id)));
-    let mut rows = col().key("provider-accounts").role("radiogroup").label(opencode_i18n::t!("dialog.provider.accounts.connected")).gap(2.0);
+    let mut rows = col().key("provider-accounts").role("radiogroup").label_static(opencode_i18n::t!("dialog.provider.accounts.connected")).gap(2.0);
     for a in list {
         if *action == AccountAction::Confirming(a.id.clone()) {
             let confirm = a.id.clone();
@@ -570,7 +570,7 @@ fn accounts(s: &App, p: &Pal) -> El {
         rows = rows.child(account_row);
     }
     let can_add = !busy && o.dialog.provider.as_ref().and_then(|p| p.step.connect()).and_then(conn::catalog).is_some_and(|c| !c.methods.is_empty());
-    let mut add = row().key("provider-account-add").role("button").label(opencode_i18n::t!("dialog.provider.accounts.add")).w_full().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(6.0)
+    let mut add = row().key("provider-account-add").role("button").label_static(opencode_i18n::t!("dialog.provider.accounts.add")).w_full().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(6.0)
         .hover(p.hover).press(p.pressed)
         .child(el().size(16.0, 16.0).center().child(icon(&ic::PLUS, 16.0).color(p.icon_muted)))
         .child(text(opencode_i18n::t!("dialog.provider.accounts.add")).font(BODY).color(p.muted));

@@ -58,7 +58,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
     let overflow = count > LIMIT;
     if failed || overflow {
         let (session, from) = (session.to_owned(), from.to_owned());
-        let retry = failed.then(|| text(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).key("turn-diff-retry").role("button").label(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).font(ACTION).color(p.accent)
+        let retry = failed.then(|| text(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).key("turn-diff-retry").role("button").label_static(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).font(ACTION).color(p.accent)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 s.retry_turn_diff(&session, &from);

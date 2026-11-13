@@ -21,7 +21,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     // folder-add button (disabled while it's down).
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(UI_MED).color(p.muted)).child(spacer());
     if s.home_state.servers.len() <= 1 {
-        let add = el().key("home-add-project").role("button").label(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
+        let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
         let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
@@ -283,7 +283,7 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
     row()
         .key("home-projects-trigger")
         .role("button")
-        .label(t!("home.projects"))
+        .label_static(t!("home.projects"))
         .w_full()
         .h(40.0)
         .px(6.0)
@@ -344,7 +344,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
     let menu = col()
         .key("home-projects-popover")
         .role("menu")
-        .label(t!("home.projects"))
+        .label_static(t!("home.projects"))
         .anchored("home-projects-trigger", Side::Bottom, Align::Start, 6.0)
         .w(width)
         .padding(6.0)

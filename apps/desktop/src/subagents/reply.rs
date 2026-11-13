@@ -91,7 +91,7 @@ pub fn status_line(s: &App, p: &Pal, id: &str) -> Option<El> {
     let back = row()
         .key("back")
         .role("button")
-        .label(opencode_i18n::t!("session.child.backToParent"))
+        .label_static(opencode_i18n::t!("session.child.backToParent"))
         .h(24.0)
         .px(6.0)
         .gap(6.0)

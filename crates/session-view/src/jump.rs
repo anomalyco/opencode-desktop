@@ -210,7 +210,7 @@ pub fn face(p: &Pal, radius: f32) -> El {
     el()
         .key("jump-latest")
         .role("button")
-        .label(opencode_i18n::t!("session.messages.jumpToLatest"))
+        .label_static(opencode_i18n::t!("session.messages.jumpToLatest"))
         // `w-8 h-7 rounded-lg` (`virtualizer.tsx:1141`).
         .size(32.0, 28.0)
         .radius(radius)

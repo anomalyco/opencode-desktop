@@ -595,10 +595,10 @@ pub fn toolbar(s: &App, p: &Pal) -> Option<El> {
         // Inside the composer's clip its keyboard ring sits 2 in (`editor.css:70-73`).
         .focus_ring(2.0, -2.0, p.v2.border_focus);
     b = match &d.phase {
-        Phase::Idle | Phase::Failed(_) => b.label(opencode_i18n::t!("rune.command.prompt.dictate")).help(opencode_i18n::t!("rune.command.prompt.dictate")).help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
-        Phase::Finishing { .. } => b.label(opencode_i18n::t!("rune.dictation.finishing")).fill(p.layer2).child(activity_ring_sized(p, 14.0)),
+        Phase::Idle | Phase::Failed(_) => b.label_static(opencode_i18n::t!("rune.command.prompt.dictate")).help(opencode_i18n::t!("rune.command.prompt.dictate")).help_keys(crate::keymap::Bind::Dictate.keycaps()).child(icon(&MIC, 16.0).color(p.icon_muted).motion(still)),
+        Phase::Finishing { .. } => b.label_static(opencode_i18n::t!("rune.dictation.finishing")).fill(p.layer2).child(activity_ring_sized(p, 14.0)),
         // iOS's stop.fill in a tertiary fill; the same square as the run's Stop.
-        Phase::Starting { .. } | Phase::Listening { .. } => b.label(opencode_i18n::t!("rune.dictation.stop")).help(opencode_i18n::t!("rune.dictation.stop")).help_keys(crate::keymap::Bind::Dictate.keycaps()).fill(p.layer2)
+        Phase::Starting { .. } | Phase::Listening { .. } => b.label_static(opencode_i18n::t!("rune.dictation.stop")).help(opencode_i18n::t!("rune.dictation.stop")).help_keys(crate::keymap::Bind::Dictate.keycaps()).fill(p.layer2)
             .child(el().key("stop-glyph").size(10.0, 10.0).radius(2.0).fill(p.text).motion(still)),
     };
     if !finishing {

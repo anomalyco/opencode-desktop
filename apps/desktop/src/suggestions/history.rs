@@ -40,7 +40,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let active = list.active.id();
     let font = if s.add.shell() { SHELL_TITLE } else { TITLE };
     let lit = if p.dark { Color::WHITE.alpha(0.10) } else { p.hover };
-    let mut items = col().key("history-list").role("listbox").label(opencode_i18n::t!("ui.promptInput.history")).w_full();
+    let mut items = col().key("history-list").role("listbox").label_static(opencode_i18n::t!("ui.promptInput.history")).w_full();
     if rows.is_empty() {
         items = items.child(row().key("empty").h(28.0).px(8.0).center_y().child(text(opencode_i18n::t!("ui.promptInput.noMatchingItems")).font(UI).color(p.muted)));
     }

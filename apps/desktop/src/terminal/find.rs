@@ -97,7 +97,7 @@ pub(super) fn bar(p: &Pal, wk: &str, tab: &super::TerminalTab, snap: &terminal::
                 row()
                     .key("terminal-find-close")
                     .role("button")
-                    .label(opencode_i18n::t!("common.close"))
+                    .label_static(opencode_i18n::t!("common.close"))
                     .size(20.0, 20.0)
                     .center()
                     .radius(2.0)

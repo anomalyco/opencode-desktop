@@ -51,7 +51,7 @@ pub fn sidebar_toggle(p: &Pal, key: &'static str, open: bool, disabled: bool, pr
         .center()
         .fill(if open { p.layer2 } else { Color::TRANSPARENT })
         .role("button")
-        .label(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar"))
+        .label_static(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar"))
         .help(opencode_i18n::t!("ui.sessionReviewV2.toggleSidebar")).help_keys(crate::keymap::Bind::TreeToggle.keycaps())
         .child(icon(&FILETREE, 16.0).color(p.icon));
     // A disabled IconButton draws at half opacity, its expanded fill too.
@@ -137,7 +137,7 @@ pub fn filter_field(
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
-                .label(opencode_i18n::t!("ui.list.clearFilter"))
+                .label_static(opencode_i18n::t!("ui.list.clearFilter"))
                 .on_press_tx(clear)
                 .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
         }));

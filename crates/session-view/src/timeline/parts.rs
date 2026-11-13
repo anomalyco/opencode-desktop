@@ -285,7 +285,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
-    let button = row().key("copy").role("button").label(opencode_i18n::t!("ui.message.copyResponse"))
+    let button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
         .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
@@ -362,7 +362,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
-    let mut button = row().key("copy").role("button").label(opencode_i18n::t!("ui.message.copyResponse"))
+    let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
         .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)

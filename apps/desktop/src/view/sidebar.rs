@@ -90,7 +90,7 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // The aside reaches into the gap before the panel, taking it back with its end margin so the
     // panel keeps its place: the organized list's thumb runs there, past the sidebar's end, inside
     // the aside's clip (`sidebar-organized.tsx:111-117`).
-    let aside = el().key("sidebar").role("navigation").label(opencode_i18n::t!("rune.a11y.sidebar")).h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
+    let aside = el().key("sidebar").role("navigation").label_static(opencode_i18n::t!("rune.a11y.sidebar")).h_full().mr(-GAP_ROOM).motion(if switching { GLIDE } else { SIDEBAR_SPRING });
     if !s.shows_sidebar() {
         return aside.w(GAP_ROOM).clip_soft(0.0);
     }

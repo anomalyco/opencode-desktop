@@ -84,7 +84,7 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
         r = r
             .child(if open { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
-            .label(opencode_i18n::t!("ui.tool.read"))
+            .label_static(opencode_i18n::t!("ui.tool.read"))
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{}", first.id)));
     }
     r

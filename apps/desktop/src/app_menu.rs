@@ -141,7 +141,7 @@ fn glyph_button(s: &App, p: &Pal) -> El {
     rune::el()
         .key(KEY)
         .role("button")
-        .label(opencode_i18n::t!("desktop.menu.ariaLabel"))
+        .label_static(opencode_i18n::t!("desktop.menu.ariaLabel"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()

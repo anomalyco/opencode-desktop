@@ -478,7 +478,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .role("button")
-        .label(opencode_i18n::t!("plugin.file.open.menu"))
+        .label_static(opencode_i18n::t!("plugin.file.open.menu"))
         .help(opencode_i18n::t!("plugin.file.open.menu"))
         .layer_opacity(if busy { 0.5 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {

@@ -124,7 +124,7 @@ impl<S: 'static> CodeViewer<S> {
             .growth(GrowthSpec::default())
             .selection_group(true)
             .role("list")
-            .label(opencode_i18n::t!("rune.file.contents"));
+            .label_static(opencode_i18n::t!("rune.file.contents"));
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }

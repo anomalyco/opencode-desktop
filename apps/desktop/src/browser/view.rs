@@ -37,7 +37,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             .child(
                 el().key("browser-download-btn")
                     .role("button")
-                    .label(opencode_i18n::t!("rune.browser.engine.download"))
+                    .label_static(opencode_i18n::t!("rune.browser.engine.download"))
                     .h(30.0)
                     .px(14.0)
                     .radius(6.0)
@@ -61,7 +61,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             .child(
                 el().key("browser-retry-btn")
                     .role("button")
-                    .label(opencode_i18n::t!("rune.browser.engine.retryDownload"))
+                    .label_static(opencode_i18n::t!("rune.browser.engine.retryDownload"))
                     .h(30.0)
                     .px(14.0)
                     .radius(6.0)

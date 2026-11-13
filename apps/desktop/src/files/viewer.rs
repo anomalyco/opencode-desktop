@@ -280,7 +280,7 @@ fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .role("button")
-                .label(opencode_i18n::t!("rune.find.close"))
+                .label_static(opencode_i18n::t!("rune.find.close"))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     if let Some(d) = s.files.sessions.get_mut(&sid_close).and_then(|w| w.docs.get_mut(&path_close)) {

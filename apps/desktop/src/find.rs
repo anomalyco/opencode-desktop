@@ -642,7 +642,7 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
                     .key("find-close")
                     .role("button")
                     // Desktop names it after the field and gives it no tooltip (`search-bar.tsx`).
-                    .label(opencode_i18n::t!("session.search.placeholder"))
+                    .label_static(opencode_i18n::t!("session.search.placeholder"))
                     .size(20.0, 20.0)
                     .center()
                     .radius(2.0)

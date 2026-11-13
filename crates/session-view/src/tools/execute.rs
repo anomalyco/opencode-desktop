@@ -180,7 +180,7 @@ fn view_code_button<S: TimelineHost>(p: &Pal, session: &str, id: &str) -> El {
     row()
         .key("view-code")
         .role("button")
-        .label(opencode_i18n::t!("ui.tool.execute.viewCode"))
+        .label_static(opencode_i18n::t!("ui.tool.execute.viewCode"))
         .help(opencode_i18n::t!("ui.tool.execute.viewCode"))
         .size(24.0, 24.0)
         .center()

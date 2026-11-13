@@ -69,7 +69,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let card = widgets::overlay(p, col())
         .key("chatgpt-welcome")
         .role("dialog")
-        .label(t!("provider.connect.chatgptWelcome.title"))
+        .label_static(t!("provider.connect.chatgptWelcome.title"))
         .w((win_w - 32.0).min(390.0))
         .radius(12.0)
         .fill(p.layer1)

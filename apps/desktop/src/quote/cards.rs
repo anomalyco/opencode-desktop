@@ -29,7 +29,7 @@ fn chip(s: &App, p: &Pal, item: &Pending) -> El {
     let active = s.quote.comment.key() == Some(key);
     let body = card(p, &item.comment, true, active, false)
         .role("button")
-        .label(opencode_i18n::t!("session.quote.add"))
+        .label_static(opencode_i18n::t!("session.quote.add"))
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             if s.quote.comment.key() == Some(key) { close_editor(s) } else { open_editor(s, key) }

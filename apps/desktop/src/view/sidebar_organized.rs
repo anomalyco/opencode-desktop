@@ -63,7 +63,7 @@ fn header(p: &Pal, collapsed: bool) -> El {
     row()
         .key("organize-header")
         .role("button")
-        .label(t!("sidebar.organize.projects"))
+        .label_static(t!("sidebar.organize.projects"))
         .expanded(!collapsed)
         .w_full()
         .h(24.0)
@@ -325,7 +325,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
         .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto))
         .child(el().key("status").size(16.0, 16.0).center().children(mark));
     if open_tab {
-        r = r.child(el().key("open-tab").label(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
+        r = r.child(el().key("open-tab").label_static(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
     }
     if active {
         r = r.fill(p.pressed);

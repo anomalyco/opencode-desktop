@@ -289,7 +289,7 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .child(text(quote.text.clone()).key("quote").font(FIELD).color(p.muted).wrap().max_lines(preview_lines).dir(rune::Direction::Auto).pl(12.0).shrink().min_w(0.0).grow(1.0));
     let input = text_input(draft, FIELD)
         .key("quote-comment-field")
-        .label(opencode_i18n::t!("ui.lineComment.submit"))
+        .label_static(opencode_i18n::t!("ui.lineComment.submit"))
         .color(p.text)
         .w_full()
         .min_h(20.0)

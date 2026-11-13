@@ -110,7 +110,7 @@ fn field_input(s: &App, p: &Pal, spot: &Spot, draft: &Draft, style: TextStyle, p
     let (edit, change, key) = (spot.clone(), spot.clone(), spot.clone());
     text_input(&draft.text, style)
         .key("line-comment-field")
-        .label(opencode_i18n::t!("ui.lineComment.submit"))
+        .label_static(opencode_i18n::t!("ui.lineComment.submit"))
         .color(p.text)
         .w_full()
         .placeholder(placeholder.to_owned(), p.faint)

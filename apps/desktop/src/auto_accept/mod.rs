@@ -68,7 +68,7 @@ pub fn indicator(s: &App, p: &Pal) -> Option<El> {
         row()
             .key("auto-accept")
             .role("button")
-            .label(opencode_i18n::t!("command.permissions.autoaccept.disable"))
+            .label_static(opencode_i18n::t!("command.permissions.autoaccept.disable"))
             .size(28.0, 28.0)
             .center()
             .radius(6.0)

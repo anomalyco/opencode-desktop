@@ -222,7 +222,7 @@ pub fn options_with(s: &App, p: &Pal, x: &Project, key: &str, size: f32, row_men
     let used = s.used_projects().iter().any(|u| u.id == x.id);
     let unread = used && s.project_has_unread(x);
     let anchor = key.to_owned();
-    row().key(key.to_owned()).role("button").label(t!("common.moreOptions")).size(size, size).center().radius(if size > 24.0 { 6.0 } else { 4.0 })
+    row().key(key.to_owned()).role("button").label_static(t!("common.moreOptions")).size(size, size).center().radius(if size > 24.0 { 6.0 } else { 4.0 })
         .hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::new(t!("rune.settings.project.menu")).align(rune::Align::End)
@@ -274,7 +274,7 @@ fn icon_button(s: &App, p: &Pal, x: &Project) -> El {
         .child(icon(if custom { &ic::XMARK_SMALL } else { &ic::SHARE }, 16.0).color(p.icon_contrast));
     let failed = s.settings_pages.project.failed.contains(&Field::Icon);
     let id = x.id.clone();
-    let button = el().key("settings-project-icon-button").role("button").label(t!("dialog.project.edit.icon.alt")).size(32.0, 32.0).radius(6.0).clip_rounded(6.0)
+    let button = el().key("settings-project-icon-button").role("button").label_static(t!("dialog.project.edit.icon.alt")).size(32.0, 32.0).radius(6.0).clip_rounded(6.0)
         .hover_group().hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -372,7 +372,7 @@ fn startup(s: &App, p: &Pal) -> El {
     // `textarea-v2`: five 17.55 pt mono lines 8 in, on the base fill under the neutral lift.
     let failed = st.failed.contains(&Field::Startup);
     let input = rune::text_input(&st.startup, STARTUP).key("settings-project-startup-input").w_full()
-        .color(p.text).placeholder(t!("dialog.project.edit.worktree.startup.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label(t!("dialog.project.edit.worktree.startup"))
+        .color(p.text).placeholder(t!("dialog.project.edit.worktree.startup.placeholder"), p.faint).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("dialog.project.edit.worktree.startup"))
         .on_edit(|s: &mut App| &mut s.settings_pages.project.startup);
     let input = match st.startup_h {
         Some(h) => input.h(h),
@@ -407,7 +407,7 @@ fn startup(s: &App, p: &Pal) -> El {
 fn save_failed(p: &Pal, field: Field) -> El {
     row().key("project-settings-save-failed").role("alert").gap(8.0).center_y().justify_end()
         .child(text(t!("common.requestFailed")).font(FAILED).color(p.danger))
-        .child(text(t!("common.retry")).key("project-settings-save-retry").role("button").label(t!("common.retry")).font(FAILED).color(p.text)
+        .child(text(t!("common.retry")).key("project-settings-save-retry").role("button").label_static(t!("common.retry")).font(FAILED).color(p.text)
             .spans(vec![rune::Span::new(0, t!("common.retry").len()).underline(p.text)])
             .on_press_tx(move |s: &mut App, tx: &mut Tx| save(s, field, tx)))
 }

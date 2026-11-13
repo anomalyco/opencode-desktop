@@ -65,7 +65,7 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
     col()
         .key("picker-model")
         .role("dialog")
-        .label(opencode_i18n::t!("dialog.model.select.title"))
+        .label_static(opencode_i18n::t!("dialog.model.select.title"))
         .w_full()
         .max_w(W)
         .h(H)

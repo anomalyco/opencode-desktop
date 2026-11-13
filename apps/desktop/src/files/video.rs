@@ -424,7 +424,7 @@ fn expand_button(p: &Pal, shown: bool) -> El {
         .opacity(if shown { 1.0 } else { 0.0 })
         .cursor(Cursor::Pointer)
         .role("button")
-        .label(opencode_i18n::t!("plugin.file.view.fullscreen"))
+        .label_static(opencode_i18n::t!("plugin.file.view.fullscreen"))
         .help(opencode_i18n::t!("plugin.file.view.fullscreen").to_owned())
         .child(el().size(HOVER_DISC, HOVER_DISC).radius(HOVER_DISC / 2.0).hover(Color::BLACK.alpha(0.55)).center().child(icon(&ic::OUTLINE_EXPAND, 20.0).color(Color::WHITE)))
 }

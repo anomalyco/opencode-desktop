@@ -142,7 +142,7 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
         .child(text(words).font(font).color(ink));
     let id = e.id.clone();
     let unbind = (recording && !keys.is_empty()).then(|| {
-        row().key("shortcut-unbind").role("button").label(t!("settings.shortcuts.unbind")).h(24.0).px(9.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
+        row().key("shortcut-unbind").role("button").label_static(t!("settings.shortcuts.unbind")).h(24.0).px(9.0).center_y().radius(4.0).hover(p.danger_bg).press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 bind(s, &id, "none");

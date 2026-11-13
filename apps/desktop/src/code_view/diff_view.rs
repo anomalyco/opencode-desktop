@@ -132,7 +132,7 @@ impl<S: 'static> DiffViewer<S> {
         let whole = self.whole && wrap;
         let inner = Rc::new(Inner { look, pal: *p, d: self });
         let count = st.rows.len();
-        let list = col().key("rows").w_full().selection_group(true).role("list").label(opencode_i18n::t!("rune.diff.label"));
+        let list = col().key("rows").w_full().selection_group(true).role("list").label_static(opencode_i18n::t!("rune.diff.label"));
         if whole {
             let root = col().key(root_key).w_full().fill(p.bg_base).child(list.children((0..count).map(|i| inner.row(s, i))));
             return match inner.d.notes.clone() {

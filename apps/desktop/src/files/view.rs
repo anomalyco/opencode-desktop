@@ -111,7 +111,7 @@ pub(crate) fn workspace_tree_view(
         .pb(8.0)
         .growth(GrowthSpec::default())
         .role("tree")
-        .label(opencode_i18n::t!("rune.files.tree"))
+        .label_static(opencode_i18n::t!("rune.files.tree"))
         // One Tab stop; Up and Down move through the rows, Right and Left open and close a folder
         // or step into and out of it, as a native tree does.
         .focus_group()

@@ -24,7 +24,7 @@ const TURN: Curve = Curve::tween(0.15, Easing::cubic(0.4, 0.0, 0.2, 1.0));
 pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     if s.sidebar_inbox.loading() {
         // Until the first load settles: Desktop's `Loader`, centred 8 in (`flex justify-center p-2`).
-        return col().key("sidebar-inbox").role("list").label(t!("settings.general.row.interfaceMode.inbox")).w_full().grow(1.0).shrink().min_h(0.0).child(
+        return col().key("sidebar-inbox").role("list").label_static(t!("settings.general.row.interfaceMode.inbox")).w_full().grow(1.0).shrink().min_h(0.0).child(
             row().key("inbox-loading").w_full().padding(8.0).justify_center().child(rune_kit::Loader::new().build(crate::palette::kit(p))),
         );
     }
@@ -74,7 +74,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     col()
         .key("sidebar-inbox")
         .role("list")
-        .label(t!("settings.general.row.interfaceMode.inbox"))
+        .label_static(t!("settings.general.row.interfaceMode.inbox"))
         .focus_group()
         .w_full()
         .grow(1.0)
@@ -104,7 +104,7 @@ fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
     let mut shelf = col()
         .key("inbox-working")
         .role("group")
-        .label(t!("sidebar.inbox.section.working"))
+        .label_static(t!("sidebar.inbox.section.working"))
         .w_full()
         .gap(8.0)
         .pt(7.0)
@@ -136,7 +136,7 @@ fn working_header(s: &App, p: &Pal, open: bool) -> El {
     row()
         .key("inbox-working-header")
         .role("button")
-        .label(t!("sidebar.inbox.section.working"))
+        .label_static(t!("sidebar.inbox.section.working"))
         .expanded(open)
         .h(24.0)
         .w_full()

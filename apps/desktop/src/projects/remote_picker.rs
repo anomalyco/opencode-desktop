@@ -460,7 +460,7 @@ pub mod view {
         let close = row()
             .key("directory-picker-close")
             .role("button")
-            .label(t!("common.close"))
+            .label_static(t!("common.close"))
             .size(20.0, 20.0)
             .mt(-2.0)
             .mr(-2.0)

@@ -107,7 +107,7 @@ fn scale(p: &Pal, at: usize) -> El {
         let x = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 1.0 - x } else { x };
         set_stop(s, (x * (STOPS - 1) as f32).round() as usize);
     };
-    el().key("settings-timeline-detail").role("slider").label(t!("settings.timeline.detail")).range_value(at as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
+    el().key("settings-timeline-detail").role("slider").label_static(t!("settings.timeline.detail")).range_value(at as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
         .on_drag(pick)
         .on_key(|s: &mut App, ev, tx| {
             let at = stop(&s.settings.timeline_detail);
@@ -136,7 +136,7 @@ fn set_stop(s: &mut App, at: usize) {
 /// Advanced (`timeline-detail-advanced`): its trigger, and while open each activity's row.
 fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
     let open = s.settings_pages.timeline.advanced.unwrap_or(custom);
-    let trigger = row().key("timeline-detail-advanced-trigger").role("button").label(t!("settings.timeline.advanced")).expanded(open).h(24.0).gap(6.0).center_y().self_start()
+    let trigger = row().key("timeline-detail-advanced-trigger").role("button").label_static(t!("settings.timeline.advanced")).expanded(open).h(24.0).gap(6.0).center_y().self_start()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.settings_pages.timeline.advanced = Some(!open);

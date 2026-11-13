@@ -123,7 +123,7 @@ fn new_button(p: &Pal) -> El {
     row()
         .key("new")
         .role("button")
-        .label(t!("command.session.new"))
+        .label_static(t!("command.session.new"))
         .size(28.0, 28.0)
         .radius(6.0)
         .center()

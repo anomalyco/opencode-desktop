@@ -52,7 +52,7 @@ pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
         col()
             .key("usage-dialog")
             .role("dialog")
-            .label(t!("usage.title"))
+            .label_static(t!("usage.title"))
             .w(width)
             .radius(6.0)
             .fill(p.layer1)
@@ -67,7 +67,7 @@ pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
 
 /// `DialogHeader` with its close button and the title group.
 fn header(p: &Pal) -> El {
-    let close = el().key("usage-close").role("button").label(t!("ui.common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
+    let close = el().key("usage-close").role("button").label_static(t!("ui.common.close")).size(20.0, 20.0).mt(-2.0).mr(-2.0).radius(4.0).center()
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -266,7 +266,7 @@ fn footer(p: &Pal, v: &limits::View, url: &str) -> El {
     };
     let url = url.to_owned();
     // A ghost `button-v2` at size normal in the muted ink (`class="text-v2-text-text-muted!"`).
-    let details = row().key("usage-details").role("button").label(t!("usage.footer.details")).h(28.0).px(11.0).radius(6.0).center()
+    let details = row().key("usage-details").role("button").label_static(t!("usage.footer.details")).h(28.0).px(11.0).radius(6.0).center()
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(move |_: &mut App, tx: &mut Tx| {

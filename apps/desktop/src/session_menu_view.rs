@@ -74,7 +74,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
     let card = col()
         .key("delete-card")
         .role("dialog")
-        .label(t!("session.delete.title"))
+        .label_static(t!("session.delete.title"))
         .w(480.0)
         .radius(6.0)
         .fill(p.layer1)

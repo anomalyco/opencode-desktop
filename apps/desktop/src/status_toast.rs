@@ -559,7 +559,7 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
     let close = row()
         .key("toast-dismiss")
         .role("button")
-        .label(opencode_i18n::t!("ui.common.dismiss"))
+        .label_static(opencode_i18n::t!("ui.common.dismiss"))
         .help(opencode_i18n::t!("ui.common.dismiss"))
         .size(20.0, 20.0)
         .radius(4.0)
