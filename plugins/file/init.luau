@@ -72,7 +72,6 @@ return plugin.defineWindow(function(ctx)
         bind = if App.Platform == "macos" then "ctrl+mod+p" else "ctrl+alt+p",
         editable = true,
         requiresSession = true,
-        slash = { name = "open" },
         run = function()
             browse(nil)
         end,

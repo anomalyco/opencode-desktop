@@ -357,6 +357,12 @@ rune_register::register!(COMMANDS: Cmd = [
         .slash("export")
         .section(Section::Session)
         .when(in_session),
+    // Desktop's `file.open` (`use-session-commands.tsx:551-558`): Ctrl+P's search, as `/open`.
+    Cmd::new("file.open", opencode_i18n::key!("command.file.open"), |s, tx| s.open_file_search(tx))
+        .describe(opencode_i18n::key!("palette.search.placeholder"))
+        .keys(Bind::FileOpen)
+        .slash("open")
+        .when(in_session),
     Cmd::new("copy-session", opencode_i18n::key!("command.session.copyID"), |s, tx| s.copy_id(s.open_session(), tx)).section(Section::Session).when(|s| s.open_session().is_some()),
     Cmd::new("session.delete", opencode_i18n::key!("command.session.delete"), delete).when(in_session),
     Cmd::new("copy-project", opencode_i18n::key!("command.project.copyID"), |s, tx| {

@@ -277,15 +277,13 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     };
     let mic = crate::dictation::toolbar(s, p);
     let dictating = s.dictation.active();
-    let fold = folds(
-        s,
-        scope,
-        agent.as_deref(),
-        &model_label,
-        s.has_effort().then_some(effort.as_str()),
-        mic.is_some(),
-        dictating,
-    );
+    // Desktop's `Default` shows only under the pointer and otherwise keeps its room past the
+    // row's end, which scrolls (`editor.tsx`, `overflow-x-auto`): it folds nothing. The row folds as
+    // if it weren't there, and it shows where it fits without folding anything.
+    let default_effort = model.variant.is_empty() || model.variant == "default";
+    let fold_with = |effort: Option<&str>| folds(s, scope, agent.as_deref(), &model_label, effort, mic.is_some(), dictating);
+    let fold = fold_with(s.has_effort().then_some(effort.as_str()).filter(|_| !default_effort));
+    let effort_shows = s.has_effort() && fold.effort && (!default_effort || fold_with(Some(effort.as_str())) == fold);
     let agent = agent.and_then(|name| match fold.agent {
         Agent::Name => Some(picker_trigger(s, p, Kind::Agent, &name, p.muted, fold.chevrons)),
         Agent::Icon => Some(agent_icon(s, p, &name)),
@@ -295,7 +293,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     let mut out = vec![crate::add_menu::trigger(s, p)];
     out.extend(agent.map(hidden));
     out.push(hidden(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0)));
-    if s.has_effort() && fold.effort {
+    if effort_shows {
         out.push(hidden(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons)));
     }
     // Shell mode has no other delivery, and its Exit stands where that hint would.

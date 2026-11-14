@@ -31,7 +31,8 @@ pub struct Item {
     /// What the query matches besides the name: an app command's title.
     pub title: String,
     pub description: String,
-    pub keys: Option<crate::keymap::Bind>,
+    /// Its first chord here, the user's own or its default: an app command's, or a plugin's.
+    pub chord: Option<rune::Chord>,
     pub builtin: Option<&'static str>,
     /// An app command whose `/name` takes words (`slash.arguments`): picking it types `/name `.
     pub args: bool,
@@ -84,7 +85,7 @@ impl App {
             name: c.name.clone(),
             title: c.name.clone(),
             description: c.description.clone(),
-            keys: None,
+            chord: None,
             builtin: None,
             args: false,
         });
@@ -92,7 +93,7 @@ impl App {
             let name = c.slash?;
             // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
             let keys = c.keys.filter(|_| name != "new");
-            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), title: c.title.into(), description: c.description.into(), keys, builtin: Some(c.id), args: false })
+            Some(Item { id: format!("builtin.{}", c.id), name: name.into(), title: c.title.into(), description: c.description.into(), chord: keys.and_then(|b| b.chord()), builtin: Some(c.id), args: false })
         }).collect();
         // Plugin commands, hidden ones too (`/btw`), as Desktop's `slashCommands` lists them.
         own.extend(crate::plugin_host::slash_commands(self).into_iter().map(|c| Item {
@@ -100,7 +101,8 @@ impl App {
             name: c.name.into(),
             title: c.title.into(),
             description: c.description.into(),
-            keys: None,
+            // A plugin's keys show too, as Desktop's `/terminal` shows Ctrl+` (`editor.tsx:1400-1402`).
+            chord: crate::keymap::command_chord(self, c.id),
             builtin: Some(c.id),
             args: c.args,
         }));
@@ -118,12 +120,20 @@ impl App {
             return list;
         }
         let mut cache = self.add.slash.projection.borrow_mut();
+        // Each key on its own row (`2 * i` the name, `2 * i + 1` the title), so a fuzzy match never
+        // runs from one into the other (`co` isn't in "mcp" then "Toggle MCPs"), and a command
+        // ranks by its better key, as fuzzysort's `keys` do.
         if cache.as_ref().is_none_or(|(last, _)| *last != list) {
             let mut arena = opencode_search::SearchArena::default();
-            for row in &list { arena.push(&format!("{}\0{}", row.name, row.title)); }
+            for row in &list {
+                arena.push(&row.name);
+                arena.push(&row.title);
+            }
             *cache = Some((list, arena));
         }
-        cache.iter().flat_map(|(list, arena)| arena.query(&query, list.len()).into_iter().map(|i| list[i].clone())).collect()
+        let Some((list, arena)) = cache.as_ref() else { return Vec::new() };
+        let mut seen = vec![false; list.len()];
+        arena.query(&query, list.len() * 2).into_iter().map(|r| r / 2).filter(|&i| !std::mem::replace(&mut seen[i], true)).map(|i| list[i].clone()).collect()
     }
 
     pub fn slash_active(&self) -> Option<String> {
@@ -229,7 +239,7 @@ pub fn commands_view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             label: format!("/{}", c.name),
             lead: None,
             description: c.description.clone(),
-            trail: c.keys.filter(|b| b.chord().is_some()).map(|b| b.keycaps().join("+")),
+            trail: c.chord.map(|chord| crate::keymap::caps(chord).join("+")),
         })
         .collect();
     // The commands menu searches in a field of its own, its placeholder the slash (`editor.tsx:201-211`).
