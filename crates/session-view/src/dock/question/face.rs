@@ -116,6 +116,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .items_start()
                 .radius(6.0)
                 .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
+                // A contrast theme's highlight is an edge, not only a wash it may lose.
+                .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
@@ -180,6 +182,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .items_start()
                 .radius(6.0)
                 .fill(if i == focus { p.q.selected } else { Color::TRANSPARENT })
+                // A contrast theme's highlight is an edge, not only a wash it may lose.
+                .border(if i == focus && p.forced { 2.0 } else { 0.0 }, p.text)
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(|s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };

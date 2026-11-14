@@ -214,7 +214,8 @@ fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
     // Its hairline and ring change at once (`Spring::NONE`): only the hover and the wash ease.
     let c = row().w_full().gap(8.0).radius(6.0).fill(p.layer1).motion(Spring::NONE).hover_motion(ease, ease);
     let c = if picked { c } else { c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() }) };
-    let c = if ring { c.box_shadow(Shadow { spread: 1.0, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
+    // Under a contrast theme every card has a solid edge, so the ring is three times as wide.
+    let c = if ring { c.box_shadow(Shadow { spread: if p.forced { 3.0 } else { 1.0 }, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
     c.child(el().key("wash").absolute(0.0, 0.0).w_full().h_full().radius(6.0).fill(wash).opacity(if picked { 1.0 } else { 0.0 }).opacity_motion(ease))
 }
 

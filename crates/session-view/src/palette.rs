@@ -13,6 +13,10 @@ pub struct Pal {
     pub dark: bool,
     /// The theme painted, as an index into `themes::all` (0 is OpenCode's default).
     pub theme: usize,
+    /// The system's contrast theme paints the window (`themes::contrast`): where official's look
+    /// shows a highlight only as a faint wash, the app adds an edge in the text colour so it
+    /// stands out at least 3:1.
+    pub forced: bool,
     /// `themes::generation` when it was built: a plugin theme reloaded under the same index
     /// builds a new palette, and what memoizes on the theme keys on both.
     pub generation: u64,
@@ -342,6 +346,7 @@ fn build(theme: usize, dark: bool) -> Pal {
     Pal {
         dark,
         theme,
+        forced: crate::themes::all().get(theme).is_some_and(|i| i.id == crate::themes::CONTRAST),
         generation: crate::themes::generation(),
         on_fill: Color::WHITE,
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },

@@ -222,6 +222,8 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .center_y()
         .radius(6.0)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
+        // A contrast theme's highlight is an edge, not only a wash it may lose.
+        .border(if active && p.forced { 2.0 } else { 0.0 }, p.text)
         // Each row is a `<button>`, so Tab goes from the search field down the rows and wraps in
         // the dialog; one Tab reached shows the highlight's overlay and no ring, and Return or
         // Space runs it (`dialog.css:208-215`). The highlight stays where the keys left it.
