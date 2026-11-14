@@ -6,9 +6,10 @@
 //! rebuilds mounted rows whose highlights or active match actually changed.
 
 use crate::pickers::PickerHost as _;
-use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
+
+use std::sync::Arc;
 
 use opencode_kit::model::{Message, Part, Transcript};
 use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text};
@@ -16,6 +17,7 @@ use rune_theme_opencode::icons as ic;
 
 use crate::keymap::Bind;
 use crate::palette::Pal;
+use crate::transcript_index::{Index, KEY_BUDGET, Kind, Results, RowHit, Source, retire};
 use crate::view::{INSTANT, UI};
 use crate::{App, Route};
 
@@ -107,25 +109,29 @@ pub fn step(state: &mut State, event: Event) -> rune::machine::Effects<Effect> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct Hit {
-    row_key: String,
-    local: usize,
-    end_byte: usize,
+/// What the matches are: none; those of the rows on screen while the worker matches the rest
+/// (`reveal`: the first match in the transcript lights and comes into view when they land); or
+/// every row's, for the transcript of shape `shape`.
+#[derive(Default)]
+enum Answer {
+    #[default]
+    None,
+    Partial { query: String, results: Arc<Results>, reveal: bool },
+    Complete { query: String, shape: u64, results: Arc<Results> },
 }
 
-#[derive(Clone, Default)]
-struct RowHits {
-    ranges: Vec<Vec<Range<usize>>>,
-    active: Option<usize>,
-    version: u64,
+/// What Find's worker is doing: indexing transcript shape `shape`, and matching `query` in it.
+#[derive(Default, PartialEq)]
+enum Work {
+    #[default]
+    Idle,
+    Running { shape: u64, query: Option<String> },
 }
 
-#[derive(Clone)]
-struct CachedPart {
-    len: usize,
-    head_tail: u64,
-    ranges: Vec<Vec<Range<usize>>>,
+/// What the worker hands back: the index it made or used, and the query's matches.
+struct Landed {
+    index: Arc<Index>,
+    found: Option<(String, Arc<Results>)>,
 }
 
 #[derive(Default)]
@@ -133,55 +139,59 @@ pub struct Find {
     pub state: State,
     pub input: TextEdit,
 
-    /// Cached index state for the active session and query.
-    indexed_session: String,
-    indexed_query: String,
-    indexed_fp: u64,
-    parts: HashMap<(String, usize), CachedPart>,
-    matches: Vec<Hit>,
-    rows: HashMap<String, RowHits>,
-    /// The searchable rows of the open session and their letters, kept while its transcript
-    /// holds: a keystroke scans one slab, and parses Markdown only in rows that can match.
-    rowset: Option<Rowset>,
-}
-
-/// One searchable row: a user bubble (`part: None`) or an assistant text part.
-struct Searchable {
-    message: usize,
-    part: Option<usize>,
-    row_key: String,
-    cache_key: (String, usize),
-    /// A user bubble's text as shown (its comments folded in).
-    shown: Option<String>,
-    /// Its letters' end in [`Rowset::letters`].
-    end: usize,
-    /// Markup that renders letters its source doesn't hold in place (a link's target, an
-    /// entity, inline HTML, an outline): the letters can't rule it out.
-    always: bool,
-}
-
-struct Rowset {
-    key: (String, u64, usize),
-    /// What its rows were made from (shape): a write to the transcripts that changes no row's
-    /// text keeps them.
-    shape: u64,
-    rows: Vec<Searchable>,
-    letters: String,
-    /// Each row's letters by its cache key, reused when only some rows change.
-    projected: HashMap<(String, usize), (usize, u64, String)>,
+    /// The open session's transcript as last checked, and its shape.
+    checked: Option<((String, u64, usize), u64)>,
+    /// Its rows, copied when its shape changes while Find is open, and their index.
+    source: Option<Arc<Source>>,
+    index: Option<Arc<Index>>,
+    answer: Answer,
+    work: Work,
+    worker: rune::Latest<Landed>,
 }
 
 impl Find {
+    pub fn set_waker(&mut self, waker: rune::Waker) {
+        self.worker.set_waker(waker);
+    }
+
     pub fn is_open(&self) -> bool {
         matches!(self.state, State::Open { .. })
+    }
+
+    /// A closed Find holds nothing: its index is made again (on the worker) when it opens.
+    fn release(&mut self) {
+        retire((std::mem::take(&mut self.answer), self.source.take(), self.index.take()));
+        self.checked = None;
+        self.work = Work::Idle;
+        self.worker.cancel();
     }
 
     pub fn query(&self) -> &str {
         self.input.text.trim()
     }
 
+    fn results(&self) -> Option<&Results> {
+        match &self.answer {
+            Answer::None => None,
+            Answer::Partial { results, .. } | Answer::Complete { results, .. } => Some(results).filter(|_| self.is_open()).map(|r| &**r),
+        }
+    }
+
+    /// The query the matches are for.
+    fn answered(&self) -> Option<&str> {
+        match &self.answer {
+            Answer::None => None,
+            Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
+        }
+    }
+
     pub fn count(&self) -> usize {
-        if self.is_open() { self.matches.len() } else { 0 }
+        self.results().map_or(0, |r| r.total)
+    }
+
+    /// The worker is still matching the rows off screen: the count isn't known yet.
+    pub fn counting(&self) -> bool {
+        matches!(self.answer, Answer::Partial { .. })
     }
 
     pub fn active_index(&self) -> usize {
@@ -189,38 +199,52 @@ impl Find {
             State::Open { active, .. } => active,
             State::Closed => 0,
         };
-        if self.matches.is_empty() { 0 } else { active.min(self.matches.len() - 1) }
+        active.min(self.count().saturating_sub(1))
+    }
+
+    /// The lit match: its row and its place in the row.
+    fn lit(&self) -> Option<(&RowHit, usize)> {
+        self.results()?.locate(self.active_index())
+    }
+
+    /// The lit match's place in `row_key`'s row, when it is there.
+    fn active_in(&self, row_key: &str) -> Option<usize> {
+        self.lit().filter(|(h, _)| &*h.key == row_key).map(|(_, local)| local)
     }
 
     /// Hash included in `RowSpec::build`'s `rune::memo` key: `0` when Find is closed or `row_key`
     /// has no matches, so non-matching rows never rebuild on keystrokes or stepping.
     pub fn row_version(&self, row_key: &str) -> u64 {
-        if !self.is_open() {
-            return 0;
+        let Some(hit) = self.results().and_then(|r| r.get(row_key)) else { return 0 };
+        match self.active_in(row_key) {
+            Some(local) => row_hash(&hit.ranges, Some(local)),
+            None => hit.version,
         }
-        self.rows.get(row_key).map_or(0, |r| r.version)
     }
 
     /// Highlights for a user bubble (`text(shown)`).
     pub fn text_highlights(&self, p: &Pal, row_key: &str) -> Vec<TextHighlight> {
-        let Some(row) = self.rows.get(row_key).filter(|_| self.is_open()) else { return Vec::new() };
+        let Some(row) = self.results().and_then(|r| r.get(row_key)) else { return Vec::new() };
+        let active = self.active_in(row_key);
         row.ranges
             .iter()
             .enumerate()
-            .filter_map(|(i, rs)| Some(text_mark(p, rs.first()?.clone(), i, row.active == Some(i))))
+            .filter_map(|(i, rs)| Some(text_mark(p, rs.first()?.clone(), i, active == Some(i))))
             .collect()
     }
 
     /// Highlights for an assistant `Markdown` block (`Part::Text`).
     pub fn markdown_highlights<'a>(&'a self, p: &Pal, row_key: &str) -> Vec<(&'a [Range<usize>], rune_kit::Highlight)> {
-        let Some(row) = self.rows.get(row_key).filter(|_| self.is_open()) else { return Vec::new() };
-        row.ranges.iter().enumerate().map(|(i, rs)| (rs.as_slice(), markdown_mark(p, i, row.active == Some(i)))).collect()
+        let Some(row) = self.results().and_then(|r| r.get(row_key)) else { return Vec::new() };
+        let active = self.active_in(row_key);
+        row.ranges.iter().enumerate().map(|(i, rs)| (rs.as_slice(), markdown_mark(p, i, active == Some(i)))).collect()
     }
 
     /// A row's matches (source byte ranges of its text) and which of them is active, for a
     /// view that paints them itself (`genui`).
     pub fn row_hits(&self, row_key: &str) -> Option<(&[Vec<Range<usize>>], Option<usize>)> {
-        self.rows.get(row_key).filter(|_| self.is_open()).map(|r| (r.ranges.as_slice(), r.active))
+        let hit = self.results()?.get(row_key)?;
+        Some((hit.ranges.as_slice(), self.active_in(row_key)))
     }
 }
 
@@ -256,7 +280,7 @@ fn shape(t: &Transcript, shown: usize, live: bool, outlines: bool) -> u64 {
     h.finish()
 }
 
-fn row_hash(ranges: &[Vec<Range<usize>>], active: Option<usize>) -> u64 {
+pub(crate) fn row_hash(ranges: &[Vec<Range<usize>>], active: Option<usize>) -> u64 {
     let mut h = DefaultHasher::new();
     ranges.hash(&mut h);
     active.hash(&mut h);
@@ -270,15 +294,11 @@ impl App {
 
     /// Steps Find's machine and carries out what it asks.
     fn find_step(&mut self, event: Event, tx: &mut Tx) {
-        let old = self.find.is_open().then(|| self.find.active_index());
         let effects = step(&mut self.find.state, event);
         if !self.find.is_open() {
             self.find.input.clear();
-            self.find.matches.clear();
-            self.find.rows.clear();
-            self.find.indexed_query.clear();
+            self.find.release();
         }
-        self.relight(old);
         for effect in effects {
             match effect {
                 Effect::FocusInput => {
@@ -321,37 +341,17 @@ impl App {
     /// Steps forward (`1`) or backward (`-1`) through the session's matches, wrapping around.
     pub fn step_find(&mut self, delta: i32, tx: &mut Tx) {
         self.sync_find_index();
-        let count = self.find.matches.len();
+        let count = self.find.count();
         self.find_step(Event::Move { delta, count }, tx);
     }
 
-    /// Lights the active match's row in place of the one lit at `old`.
-    fn relight(&mut self, old: Option<usize>) {
-        let next = self.find.is_open().then(|| self.find.active_index());
-        let old_hit = old.and_then(|i| self.find.matches.get(i).cloned());
-        let new_hit = next.and_then(|i| self.find.matches.get(i).cloned());
-        if let Some(h) = &old_hit
-            && Some(&h.row_key) != new_hit.as_ref().map(|n| &n.row_key)
-            && let Some(r) = self.find.rows.get_mut(&h.row_key)
-        {
-            r.active = None;
-            r.version = row_hash(&r.ranges, None);
-        }
-        if let Some(h) = &new_hit
-            && let Some(r) = self.find.rows.get_mut(&h.row_key)
-        {
-            r.active = Some(h.local);
-            r.version = row_hash(&r.ranges, r.active);
-        }
-    }
-
-    /// Opens a folded long user prompt when `hit` falls in or past its 40 pt fading region
-    /// (`search-controller.ts`: `rect.bottom > fold.bottom - FOLD_FADE`).
-    fn unfold_if_hidden(&mut self, sid: &str, hit: &Hit) -> bool {
+    /// Opens a folded long user prompt when the lit match falls in or past its 40 pt fading
+    /// region (`search-controller.ts`: `rect.bottom > fold.bottom - FOLD_FADE`).
+    fn unfold_if_hidden(&mut self, sid: &str, row_key: &str, end_byte: usize) -> bool {
         if !self.settings.fold_user {
             return false;
         }
-        let Some(id) = hit.row_key.strip_prefix("u-") else { return false };
+        let Some(id) = row_key.strip_prefix("u-") else { return false };
         let fold_key = crate::fold::key(id);
         if self.expanded.contains(&fold_key) {
             return false;
@@ -370,7 +370,7 @@ impl App {
         if crate::fold::lines(&shown, wrap_w) <= crate::fold::OVER {
             return false;
         }
-        let end = shown.ceil_char_boundary(hit.end_byte.min(shown.len()));
+        let end = shown.ceil_char_boundary(end_byte.min(shown.len()));
         let prefix = &shown[..end];
         let (_, measured_h) = crate::fold::measure(prefix, wrap_w);
         let hard_h = prefix.split('\n').count() as f32 * crate::view::BUBBLE.line_px();
@@ -384,9 +384,8 @@ impl App {
 
     fn seek_active(&mut self, tx: &mut Tx) {
         let Route::Session { id: sid, .. } = (*self.route).clone() else { return };
-        let idx = self.find.active_index();
-        let Some(hit) = self.find.matches.get(idx).cloned() else { return };
-        if self.unfold_if_hidden(&sid, &hit) {
+        let Some((row_key, end_byte)) = self.find.lit().map(|(h, local)| (h.key.to_string(), h.ranges[local].last().map_or(0, |r| r.end))) else { return };
+        if self.unfold_if_hidden(&sid, &row_key, end_byte) {
             tx.instant();
         }
         let scroll_key = format!("scroll-{sid}");
@@ -394,7 +393,7 @@ impl App {
         // (`search-controller.ts:293-298`, scrolled with `behavior: "auto"`): centred in the
         // scroll view, which runs under the composer to the page's bottom, less the sticky
         // header's 64 (its 48 and the 16 its fade takes, `[data-session-title]`'s height).
-        tx.scroll_center_in_instant(&scroll_key, &hit.row_key);
+        tx.scroll_center_in_instant(&scroll_key, &row_key);
         tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
         if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (self.message_nav.view, self.message_nav.page) {
             let header = if self.narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
@@ -409,19 +408,23 @@ impl App {
         let Route::Session { id, .. } = &*self.route else {
             let _ = step(&mut self.find.state, Event::Left);
             self.find.input.clear();
+            if !self.find.is_open() {
+                self.find.release();
+            }
             self.find.input.focused = false;
             return None;
         };
         let id = id.clone();
         if matches!(&self.find.state, State::Open { session, .. } if *session != id) {
             let _ = step(&mut self.find.state, Event::SessionChanged { session: &id });
-            self.find.matches.clear();
-            self.find.rows.clear();
-            self.find.indexed_session.clear();
+            retire(std::mem::take(&mut self.find.answer));
         }
         Some(id)
     }
 
+    /// Brings Find's index and matches up to the open session and the query. A key matches at
+    /// most [`KEY_BUDGET`] rows itself: past that, it lights the rows on screen and the worker
+    /// matches the rest (and makes the index when the transcript changed).
     pub(crate) fn sync_find_index(&mut self) {
         let current = self.sync_find_session();
         // Settings covers the session, which keeps its Find as it was.
@@ -430,113 +433,100 @@ impl App {
         }
         let current = current.unwrap_or_default();
         if !self.find.is_open() || current.is_empty() {
-            self.find.matches.clear();
-            self.find.rows.clear();
-            self.find.indexed_query.clear();
+            retire(std::mem::take(&mut self.find.answer));
             return;
         }
-        let q = self.find.query().to_owned();
-        if q.is_empty() {
-            self.find.matches.clear();
-            self.find.rows.clear();
-            self.find.indexed_query.clear();
-            self.find.parts.clear();
-            return;
-        }
-        let Some(t) = self.transcripts.get(&current) else {
-            self.find.matches.clear();
-            self.find.rows.clear();
+        let Some(shape) = self.find_shape(&current) else {
+            retire(std::mem::take(&mut self.find.answer));
             return;
         };
-        let revert = self.session(&current).and_then(|i| i.revert.as_deref());
+        let q = self.find.query().to_owned();
+        let indexed = self.find.index.as_ref().is_some_and(|i| i.source.shape == shape);
+        if q.is_empty() {
+            retire(std::mem::take(&mut self.find.answer));
+        } else if self.find.answered() != Some(q.as_str()) {
+            let lit = self.find.lit().map(|(h, local)| (h.key.clone(), local));
+            let fold = crate::language::search_fold();
+            let answer = match self.find.index.clone() {
+                Some(index) => {
+                    if let Some(rows) = indexed.then(|| index.candidates_within(&q, KEY_BUDGET)).flatten() {
+                        // Few rows can match: all of them, now.
+                        Answer::Complete { query: q.clone(), shape, results: Arc::new(index.search(&rows, &q, fold)) }
+                    } else {
+                        // Too many, or the index is a change behind: the rows on screen now.
+                        let rows = self.find_rows_on_screen(&current, &index);
+                        // A match on screen lights where the reader is, as a browser's find does; with
+                        // none there, the first in the transcript lights when the rest land.
+                        let results = Arc::new(index.search(&rows, &q, fold));
+                        let reveal = results.total == 0;
+                        Answer::Partial { query: q.clone(), results, reveal }
+                    }
+                }
+                None => Answer::Partial { query: q.clone(), results: Arc::default(), reveal: true },
+            };
+            retire(std::mem::replace(&mut self.find.answer, answer));
+            let kept = lit.and_then(|(key, local)| self.find.results()?.place(&key, local));
+            let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
+        }
+        // The worker's next job: the index for this shape, and the query when a key couldn't
+        // match it all (or matched it on the last shape).
+        let stale = matches!(&self.find.answer, Answer::Complete { shape: s, .. } if *s != shape);
+        let query = (matches!(self.find.answer, Answer::Partial { .. }) || stale).then(|| q.clone());
+        let job = Work::Running { shape, query: query.clone() };
+        if (indexed && query.is_none()) || self.find.work == job {
+            return;
+        }
+        self.find.work = job;
+        let source = self.find.source.clone().unwrap_or_default();
+        let prev = self.find.index.clone();
+        let fold = crate::language::search_fold();
+        self.find.worker.request((source, prev, query), move |(source, prev, query): (Arc<Source>, Option<Arc<Index>>, Option<String>)| {
+            let index = match prev {
+                Some(p) if p.source.shape == source.shape => p,
+                prev => Arc::new(Index::build(source, prev.as_deref())),
+            };
+            let found = query.map(|q| {
+                let rows = index.candidates(&q);
+                let results = Arc::new(index.search(&rows, &q, fold));
+                (q, results)
+            });
+            Landed { index, found }
+        });
+    }
+
+    /// The open transcript's shape: copies its rows into [`Find::source`] when it changed.
+    fn find_shape(&mut self, current: &str) -> Option<u64> {
+        let t = self.transcripts.get(current)?;
+        let revert = self.session(current).and_then(|i| i.revert.as_deref());
         let shown = t.visible_len(revert);
         // Outlines read as their words only while a plugin draws them (Rune UI).
         let outlines = crate::plugin_host::surfaces::code_block_lang(self, "ui");
-        let live = t.busy() && !self.stops.has(&current) && revert.is_none();
-        let key = (current.clone(), rune::Tracked::version(&self.transcripts) << 2 | u64::from(live) << 1 | u64::from(outlines), shown);
-        let fp = match self.find.rowset.as_mut() {
-            Some(r) if r.key == key => r.shape,
-            Some(r) if r.key.0 == current && r.shape == shape(t, shown, live, outlines) => {
-                r.key = key.clone();
-                r.shape
-            }
-            _ => shape(t, shown, live, outlines),
-        };
-        if self.find.indexed_session == current && self.find.indexed_query == q && self.find.indexed_fp == fp {
-            return;
+        let live = t.busy() && !self.stops.has(current) && revert.is_none();
+        let key = (current.to_owned(), rune::Tracked::version(&self.transcripts) << 2 | u64::from(live) << 1 | u64::from(outlines), shown);
+        if let Some((k, shape)) = &self.find.checked
+            && *k == key
+        {
+            return Some(*shape);
         }
-        if self.find.indexed_session != current || self.find.indexed_query != q {
-            self.find.parts.clear();
+        let shape = shape(t, shown, live, outlines);
+        if self.find.source.as_ref().is_none_or(|s| s.shape != shape) {
+            let source = Some(Arc::new(self.find_source(t, shape, shown, live, outlines)));
+            retire(std::mem::replace(&mut self.find.source, source));
         }
-        self.find.indexed_session = current.clone();
-        self.find.indexed_query = q.clone();
-        self.find.indexed_fp = fp;
-        if self.find.rowset.as_ref().is_none_or(|r| r.key != key) {
-            let old = self.find.rowset.take().map(|r| r.projected).unwrap_or_default();
-            self.find.rowset = Some(self.rowset(key, fp, t, shown, live, outlines, old));
-        }
-        let mut parts = std::mem::take(&mut self.find.parts);
-        let Some(rowset) = self.find.rowset.as_ref() else { return };
-        let wanted = rowset.candidates(&opencode_search::SearchFold::default().letters(&q));
-        let mut matches = Vec::new();
-        let mut rows = HashMap::new();
-        for (row, _) in rowset.rows.iter().zip(&wanted).filter(|(_, w)| **w) {
-            let body = match (&row.shown, row.part) {
-                (Some(shown), _) => shown.as_str(),
-                (None, Some(p)) => match &t.messages[row.message] {
-                    Message::Assistant(a) => match &a.parts[p] {
-                        Part::Text { text } => text.as_str(),
-                        _ => continue,
-                    },
-                    _ => continue,
-                },
-                (None, None) => continue,
-            };
-            let plain = row.shown.is_some();
-            let (len, sig) = (body.len(), str_sig(body));
-            let ranges = match parts.get(&row.cache_key).filter(|c| c.len == len && c.head_tail == sig) {
-                Some(cached) => cached.ranges.clone(),
-                None => {
-                    let computed: Vec<Vec<Range<usize>>> = if plain {
-                        crate::language::search_fold().find(body, &q).into_iter().map(|r| vec![r]).collect()
-                    } else if outlines {
-                        crate::genui::find(body, &q)
-                    } else {
-                        rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Folded(crate::language::search_fold()))
-                    };
-                    parts.insert(row.cache_key.clone(), CachedPart { len, head_tail: sig, ranges: computed.clone() });
-                    computed
-                }
-            };
-            if ranges.is_empty() {
-                continue;
-            }
-            for (local, rs) in ranges.iter().enumerate() {
-                matches.push(Hit { row_key: row.row_key.clone(), local, end_byte: rs.last().map_or(0, |r| r.end) });
-            }
-            let version = row_hash(&ranges, None);
-            rows.insert(row.row_key.clone(), RowHits { ranges, active: None, version });
-        }
-        self.find.parts = parts;
-        let lit = self.find.matches.get(self.find.active_index()).cloned();
-        let kept = lit.and_then(|lit| matches.iter().position(|m: &Hit| m.row_key == lit.row_key && m.local == lit.local));
-        self.find.matches = matches;
-        self.find.rows = rows;
-        let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
-        self.relight(None);
+        self.find.checked = Some((key, shape));
+        Some(shape)
     }
 
     /// The session's searchable rows in timeline order (`u-{id}` and `t-{a.id}-{n}`): a reply
     /// still streaming keeps its last part even while empty.
-    #[allow(clippy::too_many_arguments)]
-    fn rowset(&self, key: (String, u64, usize), shape: u64, t: &Transcript, shown: usize, live: bool, outlines: bool, mut old: HashMap<(String, usize), (usize, u64, String)>) -> Rowset {
-        let mut rows = Vec::new();
+    fn find_source(&self, t: &Transcript, shape: u64, shown: usize, live: bool, outlines: bool) -> Source {
+        let mut source = Source::new(shape);
         let last_reply = live.then(|| t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)))).flatten()
             .filter(|&i| t.messages[i + 1..shown].iter().all(|m| matches!(m, Message::Assistant(_))));
         for (i, m) in t.messages[..shown].iter().enumerate() {
             match m {
                 Message::Assistant(a) => {
-                    let mut texts = 0usize;
+                    let mut texts = 0u32;
                     for (pi, part) in a.parts.iter().enumerate() {
                         let Part::Text { text } = part else { continue };
                         let n = texts;
@@ -544,50 +534,47 @@ impl App {
                         if text.trim().is_empty() && !(last_reply == Some(i) && pi + 1 == a.parts.len()) {
                             continue;
                         }
-                        rows.push(Searchable { message: i, part: Some(pi), row_key: format!("t-{}-{n}", a.id), cache_key: (a.id.clone(), n), shown: None, end: 0, always: (outlines && (text.contains("```ui") || text.contains("~~~ui"))) || text.contains(['[', '&', '<']) });
+                        let kind = if outlines && (text.contains("```ui") || text.contains("~~~ui")) { Kind::Outline } else { Kind::Reply };
+                        source.push(&a.id, n, kind, text, str_sig(text));
                     }
                 }
                 Message::User { id, text } if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() => {
-                    rows.push(Searchable { message: i, part: None, row_key: format!("u-{id}"), cache_key: (id.clone(), 0), shown: Some(self.bubble_text(id, text).into_owned()), end: 0, always: false });
+                    let shown = self.bubble_text(id, text);
+                    source.push(id, 0, Kind::Bubble, &shown, str_sig(&shown));
                 }
                 _ => {}
             }
         }
-        let mut letters = String::new();
-        let mut projected = HashMap::with_capacity(rows.len());
-        for row in &mut rows {
-            let body = match (&row.shown, row.part, &t.messages[row.message]) {
-                (Some(s), _, _) => s.as_str(),
-                (None, Some(p), Message::Assistant(a)) => match &a.parts[p] { Part::Text { text } => text.as_str(), _ => "" },
-                _ => "",
-            };
-            let (len, sig) = (body.len(), str_sig(body));
-            let entry = old.remove(&row.cache_key).filter(|(l, s, _)| *l == len && *s == sig).unwrap_or_else(|| (len, sig, opencode_search::SearchFold::default().letters(body)));
-            letters.push_str(&entry.2);
-            letters.push('\n');
-            row.end = letters.len();
-            projected.insert(row.cache_key.clone(), entry);
-        }
-        Rowset { key, shape, rows, letters, projected }
+        source
     }
-}
 
-impl Rowset {
-    /// Which rows can hold a query whose letters are `needle`: those whose letters hold it,
-    /// and those whose markup can't rule it out. Every row for a query with no letters.
-    fn candidates(&self, needle: &str) -> Vec<bool> {
-        if needle.is_empty() {
-            return vec![true; self.rows.len()];
+    /// Rows of `index` the timeline shows now (its last drawn frame).
+    fn find_rows_on_screen(&self, session: &str, index: &Index) -> Vec<usize> {
+        let mut rows: Vec<usize> = self.ends.recall.marks(session).visible().iter().filter_map(|k| index.row_of(k)).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    }
+
+    /// Lands the worker's index and matches: true when what shows changed.
+    fn land_find(&mut self, tx: &mut Tx) -> bool {
+        let Some(Landed { index, found }) = self.find.worker.take() else { return false };
+        let shape = index.source.shape;
+        retire(self.find.index.replace(index));
+        self.find.work = Work::Idle;
+        let Some((query, results)) = found else { return true };
+        if self.find.query() != query {
+            return true;
         }
-        let mut wanted: Vec<bool> = self.rows.iter().map(|r| r.always).collect();
-        let mut row = 0;
-        for at in memchr::memmem::find_iter(self.letters.as_bytes(), needle.as_bytes()) {
-            row += self.rows[row..].partition_point(|r| r.end <= at);
-            if let Some(w) = wanted.get_mut(row) {
-                *w = true;
-            }
+        let reveal = matches!(self.find.answer, Answer::Partial { reveal: true, .. });
+        let lit = self.find.lit().map(|(h, local)| (h.key.clone(), local));
+        retire(std::mem::replace(&mut self.find.answer, Answer::Complete { query, shape, results }));
+        let kept = if reveal { Some(0) } else { lit.and_then(|(key, local)| self.find.results()?.place(&key, local)) };
+        let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
+        if reveal && self.find.count() > 0 {
+            self.seek_active(tx);
         }
-        wanted
+        true
     }
 }
 
@@ -595,28 +582,27 @@ impl Rowset {
 /// keystroke's own commit. Whitespace or case that leave the query as it was keep the lit match
 /// (`query.changed`).
 pub fn typed(s: &mut App, tx: &mut Tx) {
-    if s.find.query() == s.find.indexed_query {
+    if s.find.answered() == Some(s.find.query()) {
         tx.instant();
         return;
     }
-    let old = s.find.active_index();
     let _ = step(&mut s.find.state, Event::QueryChanged);
     s.sync_find_index();
-    s.relight(Some(old));
-    if s.find.matches.is_empty() {
+    if s.find.count() == 0 {
         tx.instant();
         return;
     }
     s.seek_active(tx);
 }
 
-pub fn poll(s: &mut App) -> bool {
+pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let landed = s.land_find(tx);
     if !s.find.is_open() {
-        return false;
+        return landed;
     }
-    let was_fp = (s.find.indexed_fp, s.find.matches.len());
+    let was = (s.find.checked.as_ref().map(|c| c.1), s.find.count(), s.find.counting());
     s.sync_find_index();
-    !s.find.is_open() || (s.find.indexed_fp, s.find.matches.len()) != was_fp
+    landed || !s.find.is_open() || (s.find.checked.as_ref().map(|c| c.1), s.find.count(), s.find.counting()) != was
 }
 
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;
@@ -684,6 +670,8 @@ pub fn bar(s: &App, p: &Pal) -> Option<El> {
     let total = s.find.count();
     let count = (!s.find.input.text.is_empty()).then(|| {
         let shown = if total > 0 { s.find.active_index() + 1 } else { 0 };
+        // Until the worker has matched the rows off screen, the total isn't known.
+        let total = if s.find.counting() { "…".to_owned() } else { total.to_string() };
         text(format!("{shown}/{total}")).key("find-count").font(COUNT).color(p.muted)
     });
     // `text-input-v2`: its input elevation at rest, the focus outline (and no shadow) while focused.

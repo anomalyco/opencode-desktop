@@ -101,7 +101,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
     }
     match m {
         Incoming::Sessions(mut list) => {
-            s.switcher.invalidate_sessions();
+            s.session_search.invalidate();
             for n in &mut list {
                 if let Some(old) = s.session(&n.id) {
                     n.viewed = n.viewed.max(old.viewed);
@@ -117,7 +117,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.note_tab_titles();
         }
         Incoming::Info(mut info) => {
-            s.switcher.invalidate_sessions();
+            s.session_search.invalidate();
             let parent = info.parent.clone();
             match s.sessions.iter_mut().find(|x| x.id == info.id) {
                 Some(old) => {
@@ -204,7 +204,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
         }
         Incoming::Projects(projects) => {
-            s.switcher.invalidate_sessions();
+            s.session_search.invalidate();
             tx.instant();
             *s.projects = projects;
             s.sort_projects();

@@ -16,13 +16,13 @@ impl App {
     /// Takes in the sources' answers and their timers, and gives each a changed query.
     pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
         let now = tx.clock();
-        let mut changed = false;
+        // The list scrolled past the rows built: build the ones it shows now.
+        let mut changed = self.switcher.band.moved();
         if let Some(reply) = self.switcher.fetch.take() {
             let current = self.switcher.sessions.loading_attempt() == Some(reply.attempt);
             let event = match reply.items {
                 Ok(sessions) => {
                     if current && !sessions.is_empty() {
-                        self.switcher.invalidate_sessions();
                         upsert_sessions(&mut self.switcher.loaded, sessions);
                     }
                     search::Event::Answered { attempt: reply.attempt, items: Vec::new() }

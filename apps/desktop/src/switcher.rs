@@ -32,6 +32,8 @@ mod search;
 mod servers;
 mod view;
 pub(crate) use view::relative_time;
+mod band;
+pub(crate) mod search_index;
 mod session_index;
 mod shown;
 pub use view::{dialog, view};
@@ -120,7 +122,8 @@ pub struct Switcher {
     /// Sessions the server found while this was open, kept for later keystrokes
     /// (`SessionSourceState.loaded`).
     pub(crate) loaded: Vec<SessionInfo>,
-    index: std::cell::RefCell<Option<session_index::Index>>,
+    /// Which rows the dialog builds (`band`).
+    pub(crate) band: band::Band,
     seq: Seq,
     /// The server's sessions for the query, and the folder's files (`file.searchFiles`), each a
     /// source machine (`search.rs`).
@@ -147,7 +150,7 @@ impl Default for Switcher {
             pointer: None,
             restore_composer: false,
             loaded: Vec::new(),
-            index: Default::default(),
+            band: Default::default(),
             seq: Seq::default(),
             sessions: search::Source::default(),
             files: search::Source::default(),
@@ -162,9 +165,6 @@ impl Default for Switcher {
 }
 
 impl Switcher {
-    pub(crate) fn invalidate_sessions(&mut self) {
-        *self.index.get_mut() = None;
-    }
     pub fn set_waker(&mut self, waker: Waker) {
         self.fetch = Latest::new(waker.clone());
         self.files_fetch = Latest::new(waker);
@@ -558,7 +558,6 @@ impl App {
             return;
         }
         self.switcher.open = false;
-        self.switcher.invalidate_sessions();
         self.switcher.search.focused = false;
         self.switcher.search.cancel_composition();
         self.switcher.fetch.cancel();
@@ -582,7 +581,6 @@ impl App {
             crate::servers::runtime::switch(self, &server);
             if let Some(info) = found.filter(|_| self.session(&id).is_none()) {
                 self.switcher.loaded.push(info);
-                self.switcher.invalidate_sessions();
             }
             return self.switcher_run(Action::Session(id), tx);
         }

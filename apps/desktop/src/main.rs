@@ -214,6 +214,7 @@ mod session_menu_view;
 mod send_failed;
 mod session_cost;
 mod session_catalog;
+mod transcript_index;
 mod session_open;
 mod session_pages;
 mod session_state;
@@ -315,6 +316,7 @@ pub struct App {
     pub projects: rune::Tracked<Vec<Project>>,
     pub sessions: rune::Tracked<Vec<SessionInfo>>,
     catalog: session_catalog::Catalog,
+    session_search: switcher::search_index::SessionSearch,
     pub route: rune::Tracked<Route>,
     /// The open tab this window left for Home, independent of tab order or layout.
     home_return_tab: rune::Tracked<Option<String>>,
@@ -1369,9 +1371,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= model_picker::hover::poll(s, now, tx);
     changed |= agent_rows::poll(s, tx);
     changed |= background::poll(s, tx);
-    changed |= find::poll(s);
+    changed |= find::poll(s, tx);
     changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
+    changed |= s.poll_session_search(now, tx);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands(tx);
     changed |= s.poll_suggestions(tx);
@@ -1439,6 +1442,8 @@ fn setup(s: &mut App, waker: Waker) {
     s.quote.mention_fetch.set_waker(waker.clone());
     s.switcher.set_waker(waker.clone());
     s.home_search.set_waker(waker.clone());
+    s.session_search.set_waker(waker.clone());
+    s.find.set_waker(waker.clone());
     s.add.slash.set_waker(waker.clone());
     s.review.set_waker(waker.clone());
     s.files.set_waker(waker.clone());

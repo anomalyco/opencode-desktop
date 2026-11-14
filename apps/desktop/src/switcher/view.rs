@@ -110,13 +110,16 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 
     let mut results = col().key("switcher-results").w_full().px(6.0).pb(6.0);
     let mut content_h = 0.0_f32;
+    // Only rows near the scroll view are built (`band`); the highlighted one always is.
+    let window = s.switcher.band.window(max_h - HEAD_H - entry_height(false) + ROW_H);
     let mut i = 0;
     while i < entries.len() {
         let group = entries[i].group;
         let end = entries[i..].iter().position(|e| e.group != group).map_or(entries.len(), |n| i + n);
         let last = end == entries.len();
-        // Space inside the section, so the next header meets this one and pushes it up.
-        let mut section = col().key(format!("sw-section-{group}")).w_full().gap(GAP).pb(if last { 0.0 } else { GAP }).child(
+        // Space inside the section, so the next header meets this one and pushes it up. For a
+        // reader the section is a group named by its header, and the header only a picture.
+        let mut section = col().key(format!("sw-section-{group}")).w_full().gap(GAP).pb(if last { 0.0 } else { GAP }).role("group").label(group).child(
             row()
                 .key("header")
                 .w_full()
@@ -125,16 +128,36 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 .center_y()
                 .fill(p.bg_base)
                 .sticky_top(0.0)
+                .a11y_hidden()
                 .child(text(group).font(UI).color(p.muted)),
         );
-        for e in &entries[i..end] {
-            section = section.child(entry_row(s, p, e, active.as_deref() == Some(e.key.as_str()), q, w));
+        let size = end - i;
+        let mut top = content_h + ROW_H + GAP;
+        // Rows left out since the last built one: their count and heights.
+        let mut skipped = (0usize, 0.0_f32);
+        for (n, e) in entries[i..end].iter().enumerate() {
+            let h = entry_height(stacked(s, e));
+            let lit = active.as_deref() == Some(e.key.as_str());
+            if lit || (top < window.end && top + h > window.start) {
+                if skipped.0 > 0 {
+                    section = section.child(gap_for(group, n, skipped));
+                    skipped = (0, 0.0);
+                }
+                section = section.child(entry_row(s, p, e, lit, q, w).position_in_set(n + 1, size));
+            } else {
+                skipped = (skipped.0 + 1, skipped.1 + h);
+            }
+            top += h + GAP;
+        }
+        if skipped.0 > 0 {
+            section = section.child(gap_for(group, size, skipped));
         }
         let tall = entries[i..end].iter().filter(|e| stacked(s, e)).count() as f32;
         content_h += ROW_H + (end - i) as f32 * (entry_height(false) + GAP) + tall * (entry_height(true) - entry_height(false)) + if last { 0.0 } else { GAP };
         results = results.child(section);
         i = end;
     }
+    s.switcher.band.built(&window);
     if entries.is_empty() {
         match s.switcher_empty() {
             // Still searching with nothing to show: a quiet line where the first section's
@@ -179,10 +202,15 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 // `search-list.css:63-92`, `search-list.tsx:141-163`: rows fade out over 24 past the
                 // bottom edge and under the stuck section header, each linear, at full strength
                 // once 15 are hidden.
-                col().role("listbox").w_full().h(scroll_h).scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky()),
+                col().role("listbox").w_full().h(scroll_h).scroll_fade(rune::ScrollFade::strength(24.0).linear().below_sticky()).on_scroll_offset(s.switcher.band.watch((*s.waker).clone())),
                 results,
             ),
         )
+}
+
+/// `count` rows left unbuilt before row `n` of `group`, as tall as they and the gaps between them.
+fn gap_for(group: &str, n: usize, (count, h): (usize, f32)) -> El {
+    el().key(format!("sw-gap-{group}-{n}")).w_full().h(h + (count - 1) as f32 * GAP).a11y_hidden()
 }
 
 /// A row (`PaletteRow`): 28 tall, 6 in, 6 pt corners, the hover overlay while highlighted in

@@ -290,7 +290,7 @@ impl App {
             self.selected_landed(&sid);
         }
         changed |= done.info;
-        if matches!(ty, "session.archived" | "session.unarchived") { self.switcher.invalidate_sessions(); }
+        if matches!(ty, "session.archived" | "session.unarchived") { self.session_search.invalidate(); }
         if ty == "session.text.delta" && self.shows_transcript(&sid) {
             crate::telemetry::streamed(&self.window.id, &sid, data);
         }
@@ -304,7 +304,7 @@ impl App {
                 || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
                 || self.suggest.state.context().is_some() || self.side_open() || self.settings.open;
             if done.touched || done.renamed {
-                self.switcher.invalidate_sessions();
+                self.session_search.invalidate();
             }
             changed |= (done.touched && shows_age) || done.renamed;
             // A step started in the open session may follow a prompt we haven't seen.
@@ -313,11 +313,11 @@ impl App {
             }
         }
         if (ty.starts_with("worktree.") || ty == "vcs.branch.listed") && self.apply_worktree_event(ty, data) {
-            self.switcher.invalidate_sessions();
+            self.session_search.invalidate();
             changed = true;
         }
         if done.project {
-            self.switcher.invalidate_sessions();
+            self.session_search.invalidate();
             changed = true;
         }
         changed

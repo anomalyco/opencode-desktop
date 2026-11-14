@@ -47,7 +47,6 @@ impl App {
     /// The answer to [`App::list_children`]: each subagent session joins the list, or updates
     /// the one it holds.
     pub(crate) fn children_listed(&mut self, sessions: Vec<SessionInfo>) {
-        self.switcher.invalidate_sessions();
         for mut info in sessions {
             match self.sessions.iter_mut().find(|x| x.id == info.id) {
                 Some(old) => {

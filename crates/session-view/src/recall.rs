@@ -62,6 +62,11 @@ impl Marks {
         el.drawn_rect_into(live)
     }
 
+    /// The keys of the rows the last drawn frame showed.
+    pub fn visible(&self) -> Vec<String> {
+        self.visible.borrow().clone()
+    }
+
     pub fn shown(&self, keys: impl Iterator<Item = String>) {
         let mut visible = self.visible.borrow_mut();
         visible.clear();

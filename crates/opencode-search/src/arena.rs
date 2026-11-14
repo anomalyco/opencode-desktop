@@ -5,6 +5,11 @@ use memchr::memmem::Finder;
 
 use crate::SearchFold;
 
+/// Separates the end of a row that matches only as an exact substring (an id) from the rest.
+pub const EXACT: char = '\u{1f}';
+/// The least score of a row that holds the query as a substring: a subsequence scores less.
+pub const SUBSTRING: i32 = 5_000;
+
 /// Dense folded strings and a transposed character mask: one AND discards up to
 /// 64 rows. IDs are insertion-order indices into the caller's immutable snapshot.
 #[derive(Default)]
@@ -115,6 +120,17 @@ impl SearchArena {
         limit: usize,
         context: impl Fn(usize) -> Option<(i32, i64)>,
     ) -> Vec<usize> {
+        self.ranked_scored(query, limit, context).into_iter().map(|t| t.2).collect()
+    }
+
+    /// [`Self::ranked`] with each row's score and recency, best first, so results from
+    /// several arenas merge in one order.
+    pub fn ranked_scored(
+        &self,
+        query: &str,
+        limit: usize,
+        context: impl Fn(usize) -> Option<(i32, i64)>,
+    ) -> Vec<(i32, i64, usize)> {
         let limit = limit.min(self.ends.len());
         if limit == 0 {
             return Vec::new();
@@ -181,7 +197,7 @@ impl SearchArena {
                         };
                         base - (pos.saturating_mul(2) + hay.len()).min(4_999) as i32
                     }
-                } else if let Some(score) = subsequence(hay, &q, |_| ()) {
+                } else if let Some(score) = fuzzy(hay, &q) {
                     score
                 } else {
                     continue;
@@ -195,7 +211,7 @@ impl SearchArena {
         }
         best.sort_unstable();
         best.truncate(limit);
-        best.into_iter().map(|t| t.2).collect()
+        best.into_iter().map(|(Reverse(score), Reverse(updated), id)| (score, updated, id)).collect()
     }
 
     /// Only visible rows pay for byte maps, never the full list on a key.
@@ -230,6 +246,14 @@ impl SearchArena {
         }
         spans
     }
+}
+
+/// What a row may match loosely: its text before [`EXACT`], one `\0` field at a time, so a
+/// query's letters never gather across fields or from an id (`title\0project\x1fid`), which
+/// only an exact substring finds.
+fn fuzzy(hay: &str, q: &str) -> Option<i32> {
+    let loose = hay.split(EXACT).next().unwrap_or_default();
+    loose.split('\0').filter_map(|field| subsequence(field, q, |_| ())).max()
 }
 
 fn subsequence(hay: &str, q: &str, mut found: impl FnMut(Range<usize>)) -> Option<i32> {
