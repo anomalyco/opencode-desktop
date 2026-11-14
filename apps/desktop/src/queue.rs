@@ -639,6 +639,10 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     // `queue-question-morph` answers the question at 1.5 s and asks again at 2.5 s.
     ("queue", |s| scene(s, 1, false)),
     ("queue-3", |s| scene(s, 3, false)),
+    // SCALE's queue sizes (harness/scale `queued_prompts`): a long queue over the composer.
+    ("queue-5", |s| scene(s, 5, false)),
+    ("queue-25", |s| scene(s, 25, false)),
+    ("queue-50", |s| scene(s, 50, false)),
     ("queue-question", |s| scene(s, 1, true)),
     ("queue-question-3", |s| scene(s, 3, true)),
     ("queue-question-morph", |s| {
