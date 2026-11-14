@@ -431,7 +431,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .w_full()
         .max_w(crate::style::dock_w())
         .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
-        .corners([12.0; 4])
+        // `rounded-xl` (`editor.tsx:254`): the app's `--radius-xl` is 0.625rem (`theme.css:50`).
+        .corners([10.0; 4])
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.

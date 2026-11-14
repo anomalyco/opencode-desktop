@@ -94,7 +94,7 @@ fn rest_geo(width: f32, top: Option<f32>, dark: bool) -> Geo {
     let content = (width - 48.0).min(880.0);
     let x = 24.0 + (width - 48.0 - content) / 2.0 + (content - span) / 2.0;
     let y = f64::from(top.unwrap_or(0.0));
-    Geo { panel: [0.0, 0.0, width, 0.0], logo: [x, y, span, span * 42.0 / 234.0], composer: None, wrap: None, radius: 12.0, dark }
+    Geo { panel: [0.0, 0.0, width, 0.0], logo: [x, y, span, span * 42.0 / 234.0], composer: None, wrap: None, radius: 10.0, dark }
 }
 
 /// The geometry the last layout put on screen, read while the egg is out (each read re-runs

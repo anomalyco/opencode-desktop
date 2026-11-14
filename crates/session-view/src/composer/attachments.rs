@@ -217,7 +217,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         el().key("attachments")
             .w_full()
             // The fades keep to the composer's rounded top corners.
-            .clip_corners([12.0, 12.0, 0.0, 0.0])
+            .clip_corners([10.0, 10.0, 0.0, 0.0])
             .child(strip)
             .child(fade("attachments-fade-left", &FADE_LEFT, std::f32::consts::FRAC_PI_2))
             .child(fade("attachments-fade-right", &FADE_RIGHT, -std::f32::consts::FRAC_PI_2)),
