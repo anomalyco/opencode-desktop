@@ -109,6 +109,20 @@ pub fn set_active(id: &str) {
     ACTIVE.with(|a| a.set(index(id)));
 }
 
+thread_local! {
+    static RAISED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread's palette draws the contrast highlights over its theme's colours:
+/// the system asks for more contrast (macOS's Increase Contrast, `Cx::system_increased_contrast`).
+pub fn raised_contrast() -> bool {
+    RAISED.with(Cell::get)
+}
+
+pub fn set_raised_contrast(on: bool) {
+    RAISED.with(|r| r.set(on));
+}
+
 /// `base` (the default theme's JSON) with theme `i`'s tokens laid over both modes (the default's
 /// are its code colours alone), or None when `base` has no modes to lay them over.
 pub fn json(i: usize, base: &str) -> Option<String> {

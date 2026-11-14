@@ -243,6 +243,8 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         .key(format!("sw-{}", e.key))
         .role("option")
         .label(e.title.clone())
+        // Selected while highlighted, as official's `aria-selected` option is.
+        .focus_selected(active)
         .w_full()
         .h(entry_height(stacked(s, e)))
         .px(6.0)

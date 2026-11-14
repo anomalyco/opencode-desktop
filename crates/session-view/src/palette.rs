@@ -313,7 +313,7 @@ pub fn token(dark: bool, name: &str) -> Option<Color> {
     })
 }
 
-fn build(theme: usize, dark: bool) -> Pal {
+fn build(theme: usize, dark: bool, raised: bool) -> Pal {
     let src = crate::themes::json(theme, THEME);
     let t = Theme::from_json(src.as_deref().unwrap_or(THEME), dark).unwrap_or_else(|e| panic!("{e}"));
     let c = |n: &str| t.color(n);
@@ -346,7 +346,9 @@ fn build(theme: usize, dark: bool) -> Pal {
     Pal {
         dark,
         theme,
-        forced: crate::themes::all().get(theme).is_some_and(|i| i.id == crate::themes::CONTRAST),
+        // The contrast theme's highlights (edges where official has only a wash), also over any
+        // theme when the system asks for more contrast.
+        forced: raised || crate::themes::all().get(theme).is_some_and(|i| i.id == crate::themes::CONTRAST),
         generation: crate::themes::generation(),
         on_fill: Color::WHITE,
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },
@@ -599,19 +601,20 @@ pub(crate) fn mix_lab(a: Color, b: Color, t: f32) -> Color {
 }
 /// The tokens for an appearance in this thread's theme (`themes::active`), built once each.
 pub fn pal(dark: bool) -> &'static Pal {
-    static PALS: [[OnceLock<Pal>; 2]; 2] = [const { [const { OnceLock::new() }; 2] }; 2];
-    static THEMED: Mutex<Vec<((usize, u64, bool, bool), &'static Pal)>> = Mutex::new(Vec::new());
+    static PALS: [[[OnceLock<Pal>; 2]; 2]; 2] = [const { [const { [const { OnceLock::new() }; 2] }; 2] }; 2];
+    static THEMED: Mutex<Vec<((usize, u64, bool, bool, bool), &'static Pal)>> = Mutex::new(Vec::new());
     let srgb = rune::theme::blends_srgb();
     let theme = crate::themes::active();
+    let raised = crate::themes::raised_contrast();
     if theme == 0 {
-        return PALS[dark as usize][srgb as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(0, dark)));
+        return PALS[dark as usize][srgb as usize][raised as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(0, dark, raised)));
     }
-    let key = (theme, crate::themes::generation(), dark, srgb);
+    let key = (theme, crate::themes::generation(), dark, srgb, raised);
     let mut themed = THEMED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, p)) = themed.iter().find(|(k, _)| *k == key) {
         return p;
     }
-    let p: &'static Pal = Box::leak(Box::new(rune::theme::with_blend(srgb, || build(theme, dark))));
+    let p: &'static Pal = Box::leak(Box::new(rune::theme::with_blend(srgb, || build(theme, dark, raised))));
     themed.push((key, p));
     p
 }

@@ -63,6 +63,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         Some(c) => crate::themes::set_active(crate::themes::contrast(&c)),
         None => crate::themes::set_active(&s.settings.theme),
     }
+    // macOS's Increase Contrast keeps the theme and draws its highlights as edges.
+    crate::themes::set_raised_contrast(cx.system_increased_contrast());
     s.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     // Pages draw in the app's scheme, as Desktop's follow its `nativeTheme.themeSource`.
