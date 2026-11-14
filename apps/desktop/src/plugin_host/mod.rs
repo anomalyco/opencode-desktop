@@ -429,6 +429,12 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
     if app.plugins.later.is_empty() {
         return;
     }
+    // The user's input waiting for this frame goes first: the start waits a turn, so the
+    // input's frame comes without it.
+    if tx.input_waiting() {
+        app.later(Box::new(start_one_later));
+        return;
+    }
     let found = app.plugins.later.remove(0);
     adopt(app, vec![found]);
     if !app.plugins.later.is_empty() {
