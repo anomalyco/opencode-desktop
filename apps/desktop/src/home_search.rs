@@ -304,9 +304,10 @@ impl App {
         self.home_search.search.open() && !self.search.text.trim().is_empty()
     }
 
-    /// Whether a typed id is being looked up, which shows the panel's loader (`searchLoading`).
+    /// Whether a typed id is being looked up, or a large list's index is still building, which
+    /// shows the panel's loader (`searchLoading`).
     pub fn home_search_loading(&self) -> bool {
-        matches!(self.home_search.search.status, Status::LookingUp { .. })
+        matches!(self.home_search.search.status, Status::LookingUp { .. }) || (!self.search.text.trim().is_empty() && self.session_search_building())
     }
 
     /// The highlighted result while the panel shows: the one last pointed or stepped to, else

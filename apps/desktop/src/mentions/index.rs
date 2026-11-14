@@ -24,8 +24,9 @@ struct SessionsKey {
     route: Option<String>,
     directory: String,
     counts: (usize, usize, usize),
-    /// Moves when a session is added, renamed or updated.
-    stamp: (u64, u64, u64),
+    /// Moves when a session is added, renamed or updated: the sessions' and projects' cells (a
+    /// window holds another server's when it moves to it) and versions, and the tabs' version.
+    stamp: ((u32, u64), (u32, u64), u64),
 }
 
 struct Session {
@@ -64,6 +65,10 @@ fn group(item: &Item) -> u8 {
     }
 }
 
+fn cell<T>(t: &rune::Tracked<T>) -> (u32, u64) {
+    (rune::Tracked::id(t), rune::Tracked::version(t))
+}
+
 impl App {
     fn sessions_key(&self) -> SessionsKey {
         SessionsKey {
@@ -73,7 +78,7 @@ impl App {
             },
             directory: self.composer_directory(),
             counts: (self.sessions.len(), self.mentions.found.len(), self.tabs.len()),
-            stamp: (rune::Tracked::version(&self.sessions), rune::Tracked::version(&self.projects), rune::Tracked::version(&self.tabs)),
+            stamp: (cell(&self.sessions), cell(&self.projects), rune::Tracked::version(&self.tabs)),
         }
     }
 

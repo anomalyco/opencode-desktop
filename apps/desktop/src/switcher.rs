@@ -355,11 +355,13 @@ impl App {
         let q = sw.query();
         // A source that hasn't heard the typed query yet is about to search it.
         let sessions = self.switcher_asks_sessions(q) && (sw.sessions.query() != Some(q) || sw.sessions.loading());
+        // A large list's index is still building for a typed query.
+        let index = self.switcher.mode != SwitcherMode::Commands && !q.trim().is_empty() && self.session_search_building();
         let files = self.switcher_files_session().is_some() && {
             let clean = parse_path_and_line(q).0;
             !clean.is_empty() && (sw.files.query() != Some(clean.as_str()) || sw.files.loading())
         };
-        sessions || files || self.remotes_searching(q)
+        sessions || index || files || self.remotes_searching(q)
     }
 
     /// Whether the server's session search asks about `q`: live, not on commands alone, and

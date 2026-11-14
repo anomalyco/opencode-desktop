@@ -1176,6 +1176,7 @@ impl App {
         let messages: HashSet<&str> = s.transcripts.values().flat_map(|t| t.messages.iter()).filter_map(|m| match m { opencode_kit::model::Message::User { id, .. } => Some(id.as_str()), _ => None }).chain(cached.iter().map(String::as_str)).collect();
         opencode_kit::model::retain_user_messages(&|id| messages.contains(id));
         s.attach.store.rest();
+        s.rest_session_search();
         // No session tab or draft and not on a session: pictures keep their encoded bytes, not
         // their pixels.
         if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) { s.attach.store.rest_pixels(); }

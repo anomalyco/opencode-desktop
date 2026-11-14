@@ -29,29 +29,34 @@ use std::sync::{Arc, Mutex};
 
 use opencode_kit::client::{EventHub, Incoming};
 use opencode_kit::model::{Inbox, Pending, Project, SessionInfo, Transcript};
+use rune::Tracked;
 
 use crate::events::Heard;
 use crate::{App, Source};
 
-/// One server's session data.
+/// One server's session data. Its fields are whole `Tracked` cells, traded with the window's
+/// as they are, so a cell keeps its id and version from window to window: a region or cache
+/// keyed on a version holds across turns until some window writes the cell.
 #[derive(Default)]
 pub struct ServerData {
-    recent_page: crate::recent_page::Page,
+    recent_page: Tracked<crate::recent_page::Page>,
     recent_reload: crate::recent_page::Reload,
-    projects: Vec<Project>,
-    sessions: Vec<SessionInfo>,
-    transcripts: HashMap<String, Transcript>,
-    running: HashSet<String>,
-    stops: crate::stop::Stops,
-    requests: HashSet<(String, String)>,
-    pending: Vec<Pending>,
-    inboxes: HashMap<String, Inbox>,
+    projects: Tracked<Vec<Project>>,
+    sessions: Tracked<Vec<SessionInfo>>,
+    transcripts: Tracked<HashMap<String, Transcript>>,
+    running: Tracked<HashSet<String>>,
+    stops: Tracked<crate::stop::Stops>,
+    requests: Tracked<HashSet<(String, String)>>,
+    pending: Tracked<Vec<Pending>>,
+    inboxes: Tracked<HashMap<String, Inbox>>,
     /// The prompts on their way to the server, from any of its windows (`send_failed`).
-    unsent: crate::send_failed::Log,
+    unsent: Tracked<crate::send_failed::Log>,
+    /// The index the palette and Home search the sessions in: one for all the server's windows.
+    session_search: crate::switcher::search_index::SessionSearch,
 }
 
 impl ServerData {
-    /// Trades places with the window's fields: no copies, no allocations.
+    /// Trades places with the window's fields: no copies, no allocations, no writes.
     fn swap(&mut self, s: &mut App) {
         std::mem::swap(&mut self.recent_page, &mut s.recent_page);
         std::mem::swap(&mut self.recent_reload, &mut s.recent_reload);
@@ -64,6 +69,7 @@ impl ServerData {
         std::mem::swap(&mut self.pending, &mut s.pending);
         std::mem::swap(&mut self.inboxes, &mut s.inboxes);
         std::mem::swap(&mut self.unsent, &mut s.unsent);
+        std::mem::swap(&mut self.session_search, &mut s.session_search);
     }
 
     /// The window's fields, which it no longer holds.
@@ -77,38 +83,48 @@ impl ServerData {
     /// no other window loaded, its projects while none are listed).
     fn absorb(&mut self, mut from: ServerData) {
         if self.sessions.is_empty() {
-            self.recent_page = from.recent_page;
+            *self.recent_page = std::mem::take(&mut *from.recent_page);
             self.recent_reload = from.recent_reload;
         }
         if self.projects.is_empty() {
-            self.projects = from.projects;
+            *self.projects = std::mem::take(&mut *from.projects);
         }
         for info in from.sessions.drain(..) {
             if !self.sessions.iter().any(|x| x.id == info.id) {
                 self.sessions.push(info);
             }
         }
-        for (id, transcript) in from.transcripts {
+        for (id, transcript) in std::mem::take(&mut *from.transcripts) {
             self.transcripts.entry(id).or_insert(transcript);
         }
-        self.running.extend(from.running);
-        self.requests.extend(from.requests);
-        for p in from.pending {
+        self.running.extend(std::mem::take(&mut *from.running));
+        self.requests.extend(std::mem::take(&mut *from.requests));
+        for p in std::mem::take(&mut *from.pending) {
             if !self.pending.iter().any(|x| x.id() == p.id()) {
                 self.pending.push(p);
             }
         }
-        for (id, inbox) in from.inboxes {
+        for (id, inbox) in std::mem::take(&mut *from.inboxes) {
             self.inboxes.entry(id).or_insert(inbox);
         }
-        self.unsent.absorb(from.unsent);
+        self.unsent.absorb(std::mem::take(&mut *from.unsent));
     }
 }
 
+/// The peer's half of the copy's trade with the window whose turn it is. A turn trades `data`
+/// with the window's fields in place, so no cell is made or dropped for it.
+struct Vault {
+    /// [`At::Home`]: the copy. [`At::Out`]: the window's own empty cells, which go back into its
+    /// fields when its turn ends.
+    data: ServerData,
+    at: At,
+}
+
 /// Where the copy is.
-enum Vault {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum At {
     /// In the peer, between turns.
-    Home(ServerData),
+    Home,
     /// In the fields of window `token`, whose turn it is.
     Out { token: u64 },
 }
@@ -208,10 +224,13 @@ pub fn enter(s: &mut App) {
     let Some(peer) = s.store.peer.clone() else { return };
     let token = s.store.token;
     let mut vault = peer.vault.borrow_mut();
-    match std::mem::replace(&mut *vault, Vault::Out { token }) {
-        Vault::Home(mut data) => data.swap(s),
-        Vault::Out { token: other } if other == token => {}
-        Vault::Out { token: other } => panic!("window {token}'s turn found the server data in window {other}'s"),
+    match vault.at {
+        At::Home => {
+            vault.data.swap(s);
+            vault.at = At::Out { token };
+        }
+        At::Out { token: other } if other == token => {}
+        At::Out { token: other } => panic!("window {token}'s turn found the server data in window {other}'s"),
     }
 }
 
@@ -219,7 +238,17 @@ pub fn enter(s: &mut App) {
 /// only it heard, the server's other windows draw it.
 pub fn leave(s: &mut App) {
     let Some(peer) = s.store.peer.clone() else { return };
-    *peer.vault.borrow_mut() = Vault::Home(ServerData::take(s));
+    let token = s.store.token;
+    let mut vault = peer.vault.borrow_mut();
+    match vault.at {
+        At::Out { token: t } if t == token => {
+            vault.data.swap(s);
+            vault.at = At::Home;
+        }
+        At::Home => {}
+        At::Out { token: other } => panic!("window {token}'s turn ended with the server data in window {other}'s"),
+    }
+    drop(vault);
     if std::mem::take(&mut s.store.edit) == Edit::Dirty {
         stale_others(&peer, s.store.token);
     }
@@ -263,11 +292,10 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
     let peer = match found {
         Some(peer) => {
             let mut vault = peer.vault.borrow_mut();
-            let Vault::Home(mut data) = std::mem::replace(&mut *vault, Vault::Out { token }) else {
-                panic!("a window joined while another's turn held the server data");
-            };
-            data.absorb(ServerData::take(s));
-            data.swap(s);
+            assert!(vault.at == At::Home, "a window joined while another's turn held the server data");
+            vault.data.absorb(ServerData::take(s));
+            vault.data.swap(s);
+            vault.at = At::Out { token };
             drop(vault);
             peer
         }
@@ -276,7 +304,8 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
             let all = wakers.clone();
             let hub = EventHub::start(server.clone(), crate::reconnect::STREAM_IDLE);
             let events = hub.subscribe(Arc::new(move || all.lock().unwrap_or_else(|e| e.into_inner()).iter().for_each(|(_, w)| w())));
-            let peer = Rc::new(ServerPeer { vault: RefCell::new(Vault::Out { token }), stream: Stream { hub, events }, members: RefCell::default(), wakers });
+            let vault = Vault { data: ServerData::default(), at: At::Out { token } };
+            let peer = Rc::new(ServerPeer { vault: RefCell::new(vault), stream: Stream { hub, events }, members: RefCell::default(), wakers });
             // The runtime holds it while the server is listed, whatever windows come and go.
             crate::servers::runtime::keep_peer(&key, &peer);
             peer
@@ -324,14 +353,14 @@ pub fn keep_reading(s: &mut App, reading: Reading) {
 pub fn leave_server(s: &mut App) {
     let Some(peer) = s.store.peer.take() else { return };
     let token = s.store.token;
-    let mut data = ServerData::take(s);
-    // Its writes still out answer no window now: a receipt check settles them.
-    if data.unsent.release(token) {
-        s.store.edit = Edit::Dirty;
-    }
     let mut vault = peer.vault.borrow_mut();
-    if matches!(*vault, Vault::Out { token: t } if t == token) {
-        *vault = Vault::Home(data);
+    if vault.at == (At::Out { token }) {
+        vault.data.swap(s);
+        vault.at = At::Home;
+        // Its writes still out answer no window now: a receipt check settles them.
+        if vault.data.unsent.release(token) {
+            s.store.edit = Edit::Dirty;
+        }
     }
     drop(vault);
     peer.members.borrow_mut().retain(|m| m.token != token);
@@ -351,6 +380,14 @@ pub fn set_waker(s: &App, wake: rune::Waker) {
     let mut wakers = peer.wakers.lock().unwrap_or_else(|e| e.into_inner());
     wakers.retain(|(t, _)| *t != token);
     wakers.push((token, wake));
+}
+
+/// A waker for work done for the copy (the shared session index): it wakes every window of the
+/// server, so whichever has the next turn lands it. The window's own outside a peer.
+pub fn waker(s: &App) -> Option<rune::Waker> {
+    let Some(peer) = &s.store.peer else { return (*s.waker).clone() };
+    let all = peer.wakers.clone();
+    Some(Arc::new(move || all.lock().unwrap_or_else(|e| e.into_inner()).iter().for_each(|(_, w)| w())))
 }
 
 /// This window among its server's windows (0 before it joins one): whose writer a prompt went

@@ -1,16 +1,21 @@
-//! One index of the root sessions' titles, projects and ids, for the palette and Home's search.
-//! A key only scans it: at 512 roots or more it is built on a worker when the sessions change
-//! (after the first frame, at most once a second while they keep changing), so opening a
-//! surface costs what it costs at ten sessions; under 512 the first query builds it in place.
+//! One index of the root sessions' titles, projects and ids, for the palette and Home's search,
+//! kept with the server's shared data (`windows::peer`): every window of a server searches the
+//! same one. A key only scans it. At 512 roots or more it is built on a worker while a surface
+//! that searches is open (the palette, or Home's focused search) and the sessions changed since
+//! (at most once a second while they keep changing), so opening a surface costs what it costs
+//! at ten sessions; under 512 the first query builds it in place. A window at rest frees it
+//! when nothing there searches and no window has asked it anything for `IDLE`.
 //! Rows name their session by id, so an index a change behind still answers: a row whose
 //! session has gone is skipped, and what a row shows is read from the session as it is now.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::time::Duration;
 
 use opencode_kit::model::SessionInfo;
 use opencode_search::SearchArena;
+use rune::time::Instant;
 use rune::{Latest, Tracked, Tx, Waker};
 
 use crate::App;
@@ -23,9 +28,12 @@ const RECENT: usize = 64;
 const FIRST: usize = 64;
 /// While the sessions keep changing, a new build at most this often (s).
 const SETTLE: f64 = 1.0;
+/// An index no window has asked anything for this long goes when a window rests (s): a
+/// window's rest comes after 10 s with nothing to do.
+const IDLE: Duration = Duration::from_secs(10);
 
-/// The sessions' and projects' versions, and SessionSearch::invalidate's count.
-type Version = (u64, u64, u64);
+/// The sessions' and projects' cells and versions, and SessionSearch::invalidate's count.
+type Version = (u32, u64, u32, u64, u64);
 
 /// What a surface searches in.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,64 +131,95 @@ impl Built {
     }
 }
 
-/// The index's life: none yet; a build out on the worker (answering from the last one meanwhile);
-/// built; or built and waiting out `SETTLE` before the next build.
+/// The index's life: none yet (or freed); a build out on the worker (answering from the last one
+/// meanwhile); built; or built and waiting out `SETTLE` before the next build. `used`: when a
+/// surface last asked it something, by the wall clock (a window rests 10 s after its last frame,
+/// while the app clock stands still).
 #[derive(Default)]
 enum State {
     #[default]
     Empty,
-    Building { shown: Option<Built> },
-    Ready { built: Built, at: f64 },
-    Settling { built: Built, due: f64 },
+    Building { shown: Option<Built>, used: Instant },
+    Ready { built: Built, at: f64, used: Instant },
+    Settling { built: Built, due: f64, used: Instant },
 }
 
 enum Event {
-    /// A poll: the sessions' version now, and whether this window keeps the index up.
-    Poll { version: Version, now: f64, eager: bool },
+    /// A poll: the sessions' version now, and whether a surface of this window searches them
+    /// (so a large list keeps the index up).
+    Poll { version: Version, now: f64, wall: Instant, wanted: bool },
     Landed { built: Built, now: f64 },
     /// A small list's query built it in place.
-    BuiltHere { built: Built, now: f64 },
+    BuiltHere { built: Built, now: f64, wall: Instant },
+    /// A surface asked it something.
+    Asked { wall: Instant },
+    /// The window rests; `wanted` as for [`Event::Poll`].
+    Rest { wall: Instant, wanted: bool },
 }
 
 enum Effect {
     Build,
     WakeAt(f64),
+    /// The index went: the build out, if any, isn't wanted.
+    Cancel,
 }
 
 impl State {
     fn built(&self) -> Option<&Built> {
         match self {
             State::Empty => None,
-            State::Building { shown } => shown.as_ref(),
+            State::Building { shown, .. } => shown.as_ref(),
             State::Ready { built, .. } | State::Settling { built, .. } => Some(built),
         }
     }
 
     fn step(&mut self, event: Event) -> Option<Effect> {
         match (std::mem::take(self), event) {
-            (State::Empty, Event::Poll { eager: true, .. }) => {
-                *self = State::Building { shown: None };
+            (State::Empty, Event::Poll { wanted: true, wall, .. }) => {
+                *self = State::Building { shown: None, used: wall };
                 Some(Effect::Build)
             }
-            (State::Ready { built, at }, Event::Poll { version, now, eager: true }) if built.version != version => {
+            (State::Ready { built, at, used }, Event::Poll { version, now, wanted: true, .. }) if built.version != version => {
                 if now >= at + SETTLE {
-                    *self = State::Building { shown: Some(built) };
+                    *self = State::Building { shown: Some(built), used };
                     Some(Effect::Build)
                 } else {
                     let due = at + SETTLE;
-                    *self = State::Settling { built, due };
+                    *self = State::Settling { built, due, used };
                     Some(Effect::WakeAt(due))
                 }
             }
-            (State::Settling { built, due }, Event::Poll { now, eager: true, .. }) if now >= due => {
-                *self = State::Building { shown: Some(built) };
+            (State::Settling { built, due, used }, Event::Poll { now, wanted: true, .. }) if now >= due => {
+                *self = State::Building { shown: Some(built), used };
                 Some(Effect::Build)
             }
-            (old @ State::Building { .. }, Event::Landed { built, now }) | (old, Event::BuiltHere { built, now }) => {
-                *self = State::Ready { built, at: now };
+            (State::Building { shown, used }, Event::Landed { built, now }) => {
+                *self = State::Ready { built, at: now, used };
                 // The index it replaces is freed off the UI thread: 100,000 rows take ~10 ms.
+                crate::transcript_index::retire(shown);
+                None
+            }
+            (old, Event::BuiltHere { built, now, wall }) => {
+                let used = match &old {
+                    State::Empty => wall,
+                    State::Building { used, .. } | State::Ready { used, .. } | State::Settling { used, .. } => *used,
+                };
+                *self = State::Ready { built, at: now, used };
                 crate::transcript_index::retire(old);
                 None
+            }
+            (mut state, Event::Asked { wall }) => {
+                if let State::Building { used, .. } | State::Ready { used, .. } | State::Settling { used, .. } = &mut state {
+                    *used = wall;
+                }
+                *self = state;
+                None
+            }
+            (old @ (State::Building { used, .. } | State::Ready { used, .. } | State::Settling { used, .. }), Event::Rest { wall, wanted: false })
+                if wall.duration_since(used) >= IDLE =>
+            {
+                crate::transcript_index::retire(old);
+                Some(Effect::Cancel)
             }
             (state, _) => {
                 *self = state;
@@ -213,7 +252,46 @@ impl SessionSearch {
 
 impl App {
     fn session_version(&self) -> Version {
-        (Tracked::version(&self.sessions), Tracked::version(&self.projects), self.session_search.generation.get())
+        let (s, p) = (&self.sessions, &self.projects);
+        (Tracked::id(s), Tracked::version(s), Tracked::id(p), Tracked::version(p), self.session_search.generation.get())
+    }
+
+    /// A surface of this window searches the sessions: the palette (but for commands alone), or
+    /// Home's search while it has focus or text.
+    fn session_search_wanted(&self) -> bool {
+        let palette = self.switcher.open && self.switcher.mode != super::SwitcherMode::Commands;
+        let home = matches!(*self.route, crate::Route::Home) && (self.search.focused || !self.search.text.is_empty());
+        palette || home
+    }
+
+    /// A large list's index isn't built yet: a query waits for it (and the surface says so).
+    pub(crate) fn session_search_building(&self) -> bool {
+        self.sessions.len() >= EAGER && self.session_search.state.borrow().built().is_none()
+    }
+
+    /// `App::rest`: the index goes when nothing here searches and no window asked it anything
+    /// for `IDLE`; the next surface that searches builds it again.
+    pub(crate) fn rest_session_search(&mut self) {
+        let event = Event::Rest { wall: Instant::now(), wanted: self.session_search_wanted() };
+        if let Some(Effect::Cancel) = self.session_search.state.get_mut().step(event) {
+            self.session_search.worker.cancel();
+            self.session_search.last.get_mut().clear();
+        }
+    }
+
+    /// The newest `limit` roots, for an empty query while a large list's index builds: one pass
+    /// over the sessions (about 1 ms at 100,000), kept for the frames after it.
+    fn recent_sessions(&self, archived: bool, limit: usize) -> Vec<(i32, i64, Box<str>)> {
+        let mut rows: Vec<(i64, &str)> = self.sessions.iter()
+            .filter(|s| s.parent.is_none() && s.archived.is_some() == archived && !crate::view::is_automation(&s.title))
+            .map(|s| (s.active_ms(), s.id.as_str()))
+            .collect();
+        if limit < rows.len() {
+            rows.select_nth_unstable_by_key(limit, |r| std::cmp::Reverse(r.0));
+            rows.truncate(limit);
+        }
+        rows.sort_by_key(|r| std::cmp::Reverse(r.0));
+        rows.into_iter().map(|(active, id)| (0, active, id.into())).collect()
     }
 
     /// The roots as the worker needs them. About 2-3 ms at 100,000 roots, once per build.
@@ -249,16 +327,20 @@ impl App {
             self.session_search.state.get_mut().step(Event::Landed { built, now });
             self.session_search.last.get_mut().clear();
         }
-        // After the first frame, and only for lists large enough to need it.
-        let eager = self.view_runs.get() > 1 && self.sessions.len() >= EAGER;
+        // After the first frame, only for lists large enough to need it, while a surface searches.
+        let wanted = self.view_runs.get() > 1 && self.sessions.len() >= EAGER && self.session_search_wanted();
         let version = self.session_version();
-        match self.session_search.state.get_mut().step(Event::Poll { version, now, eager }) {
+        match self.session_search.state.get_mut().step(Event::Poll { version, now, wall: Instant::now(), wanted }) {
             Some(Effect::Build) => {
                 let snapshot = self.session_snapshot();
+                // The index is the server's: whichever of its windows turns next lands it.
+                if let Some(w) = crate::windows::peer::waker(self) {
+                    self.session_search.worker.set_waker(w);
+                }
                 self.session_search.worker.request(snapshot, |s| Built::from(s, true));
             }
             Some(Effect::WakeAt(due)) => tx.wake_at(due),
-            None => {}
+            Some(Effect::Cancel) | None => {}
         }
         changed
     }
@@ -271,13 +353,18 @@ impl App {
         let stale = ss.state.borrow().built().is_none_or(|b| b.version != version);
         if stale && self.sessions.len() < EAGER {
             let built = Built::from(self.session_snapshot(), false);
-            ss.state.borrow_mut().step(Event::BuiltHere { built, now: *self.clock });
+            ss.state.borrow_mut().step(Event::BuiltHere { built, now: *self.clock, wall: Instant::now() });
             ss.last.borrow_mut().clear();
         }
+        ss.state.borrow_mut().step(Event::Asked { wall: Instant::now() });
         if let Some((_, _, hits)) = ss.last.borrow().iter().find(|(s, query, _)| *s == scope && query == q) {
             return hits.clone();
         }
-        let hits = ss.state.borrow().built().map(|b| b.query(&scope, q, limit)).unwrap_or_default();
+        let hits = match (ss.state.borrow().built(), &scope) {
+            (Some(b), _) => b.query(&scope, q, limit),
+            (None, Scope::Palette { archived }) if q.trim().is_empty() => self.recent_sessions(*archived, limit),
+            (None, _) => Vec::new(),
+        };
         let mut last = ss.last.borrow_mut();
         last.retain(|(s, _, _)| *s != scope);
         last.push((scope, q.to_owned(), hits.clone()));
