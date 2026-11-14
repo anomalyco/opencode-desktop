@@ -237,5 +237,6 @@
   "rune.web.check.code": "আপনার কোড: {{code}}",
   "rune.web.check.signIn": "ওপরে সাইন ইন করুন। তারপর পরীক্ষা চলবে।",
   "session.markRead": "পঠিত হিসেবে চিহ্নিত করুন",
-  "session.markUnread": "অপঠিত হিসেবে চিহ্নিত করুন"
+  "session.markUnread": "অপঠিত হিসেবে চিহ্নিত করুন",
+  "command.tab.closeSession": "সেশন ট্যাব বন্ধ করুন"
 }

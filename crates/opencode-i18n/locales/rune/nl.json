@@ -237,5 +237,6 @@
   "rune.web.check.code": "Je code: {{code}}",
   "rune.web.check.signIn": "Log hierboven in. De controle gaat daarna verder.",
   "session.markRead": "Markeren als gelezen",
-  "session.markUnread": "Markeren als ongelezen"
+  "session.markUnread": "Markeren als ongelezen",
+  "command.tab.closeSession": "Sessietabblad sluiten"
 }

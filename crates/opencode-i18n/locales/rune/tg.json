@@ -237,5 +237,6 @@
   "rune.web.check.code": "Рамзи шумо: {{code}}",
   "rune.web.check.signIn": "Дар боло ворид шавед. Санҷиш баъд аз он идома меёбад.",
   "session.markRead": "Ҳамчун хондашуда қайд кардан",
-  "session.markUnread": "Ҳамчун хонданашуда қайд кардан"
+  "session.markUnread": "Ҳамчун хонданашуда қайд кардан",
+  "command.tab.closeSession": "Пӯшидани варақаи сеанс"
 }

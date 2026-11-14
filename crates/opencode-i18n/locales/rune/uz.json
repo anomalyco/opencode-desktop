@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kodingiz: {{code}}",
   "rune.web.check.signIn": "Yuqorida tizimga kiring. Tekshiruv keyin davom etadi.",
   "session.markRead": "O‘qilgan deb belgilash",
-  "session.markUnread": "O‘qilmagan deb belgilash"
+  "session.markUnread": "O‘qilmagan deb belgilash",
+  "command.tab.closeSession": "Seans yorligʻini yopish"
 }

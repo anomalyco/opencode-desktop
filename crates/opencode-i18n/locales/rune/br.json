@@ -237,5 +237,6 @@
   "rune.web.check.code": "Ho kod: {{code}}",
   "rune.web.check.signIn": "Kevreit a-us. Kenderc'hel a raio ar gwiriañ goude.",
   "session.markRead": "Merkañ evel lennet",
-  "session.markUnread": "Merkañ evel dilennet"
+  "session.markUnread": "Merkañ evel dilennet",
+  "command.tab.closeSession": "Serriñ ivinell an estez"
 }

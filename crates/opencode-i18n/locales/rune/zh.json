@@ -237,5 +237,6 @@
   "rune.web.check.code": "你的代码：{{code}}",
   "rune.web.check.signIn": "请在上方登录。之后检查会继续。",
   "session.markRead": "标记为已读",
-  "session.markUnread": "标记为未读"
+  "session.markUnread": "标记为未读",
+  "command.tab.closeSession": "关闭会话标签页"
 }

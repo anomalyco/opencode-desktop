@@ -237,5 +237,6 @@
   "rune.web.check.code": "رمزك: {{code}}",
   "rune.web.check.signIn": "سجّل الدخول في الأعلى. يتابع الفحص بعد ذلك.",
   "session.markRead": "تحديد كمقروء",
-  "session.markUnread": "تحديد كغير مقروء"
+  "session.markUnread": "تحديد كغير مقروء",
+  "command.tab.closeSession": "إغلاق علامة تبويب الجلسة"
 }

@@ -237,5 +237,6 @@
   "rune.web.check.code": "Ձեր կոդը՝ {{code}}",
   "rune.web.check.signIn": "Մուտք գործեք վերևում։ Ստուգումը կշարունակվի դրանից հետո։",
   "session.markRead": "Նշել որպես կարդացված",
-  "session.markUnread": "Նշել որպես չկարդացված"
+  "session.markUnread": "Նշել որպես չկարդացված",
+  "command.tab.closeSession": "Փակել աշխատաշրջանի ներդիրը"
 }

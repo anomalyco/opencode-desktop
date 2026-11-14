@@ -237,5 +237,6 @@
   "rune.web.check.code": "თქვენი კოდი: {{code}}",
   "rune.web.check.signIn": "შედით ზემოთ. შემოწმება ამის შემდეგ გაგრძელდება.",
   "session.markRead": "წაკითხულად მონიშვნა",
-  "session.markUnread": "წაუკითხავად მონიშვნა"
+  "session.markUnread": "წაუკითხავად მონიშვნა",
+  "command.tab.closeSession": "სესიის ჩანართის დახურვა"
 }

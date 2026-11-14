@@ -237,5 +237,6 @@
   "rune.web.check.code": "Tín kota: {{code}}",
   "rune.web.check.signIn": "Rita inn omanfyri. Kanningin heldur fram aftaná.",
   "session.markRead": "Merk sum lisið",
-  "session.markUnread": "Merk sum ólisið"
+  "session.markUnread": "Merk sum ólisið",
+  "command.tab.closeSession": "Lat setursteigin aftur"
 }

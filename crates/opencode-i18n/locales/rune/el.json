@@ -237,5 +237,6 @@
   "rune.web.check.code": "Ο κωδικός σας: {{code}}",
   "rune.web.check.signIn": "Συνδεθείτε παραπάνω. Ο έλεγχος συνεχίζει μετά.",
   "session.markRead": "Σήμανση ως αναγνωσμένου",
-  "session.markUnread": "Σήμανση ως μη αναγνωσμένου"
+  "session.markUnread": "Σήμανση ως μη αναγνωσμένου",
+  "command.tab.closeSession": "Κλείσιμο καρτέλας συνεδρίας"
 }

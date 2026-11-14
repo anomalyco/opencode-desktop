@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kodi juaj: {{code}}",
   "rune.web.check.signIn": "Hyni më sipër. Kontrolli vazhdon më pas.",
   "session.markRead": "Shëno si të lexuar",
-  "session.markUnread": "Shëno si të palexuar"
+  "session.markUnread": "Shëno si të palexuar",
+  "command.tab.closeSession": "Mbyll skedën e seancës"
 }

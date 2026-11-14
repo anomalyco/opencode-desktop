@@ -237,5 +237,6 @@
   "rune.web.check.code": "កូដរបស់អ្នក៖ {{code}}",
   "rune.web.check.signIn": "ចូលគណនីខាងលើ។ ការពិនិត្យនឹងបន្តបន្ទាប់មក។",
   "session.markRead": "សម្គាល់ថាបានអាន",
-  "session.markUnread": "សម្គាល់ថាមិនទាន់អាន"
+  "session.markUnread": "សម្គាល់ថាមិនទាន់អាន",
+  "command.tab.closeSession": "បិទផ្ទាំងវគ្គ"
 }

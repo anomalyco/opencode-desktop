@@ -237,5 +237,6 @@
   "rune.web.check.code": "ඔබේ කේතය: {{code}}",
   "rune.web.check.signIn": "ඉහළින් පුරනය වන්න. ඉන්පසු පරීක්ෂාව දිගටම යයි.",
   "session.markRead": "කියවූ ලෙස සලකුණු කරන්න",
-  "session.markUnread": "නොකියවූ ලෙස සලකුණු කරන්න"
+  "session.markUnread": "නොකියවූ ලෙස සලකුණු කරන්න",
+  "command.tab.closeSession": "සැසි ටැබය වසන්න"
 }

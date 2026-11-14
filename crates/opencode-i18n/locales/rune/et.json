@@ -237,5 +237,6 @@
   "rune.web.check.code": "Sinu kood: {{code}}",
   "rune.web.check.signIn": "Logi ülal sisse. Kontroll jätkub pärast seda.",
   "session.markRead": "Märgi loetuks",
-  "session.markUnread": "Märgi lugemata olekusse"
+  "session.markUnread": "Märgi lugemata olekusse",
+  "command.tab.closeSession": "Sulge seansi vahekaart"
 }

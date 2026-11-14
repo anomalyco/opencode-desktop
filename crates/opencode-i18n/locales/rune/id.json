@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kode Anda: {{code}}",
   "rune.web.check.signIn": "Masuk di atas. Pemeriksaan berlanjut setelahnya.",
   "session.markRead": "Tandai telah dibaca",
-  "session.markUnread": "Tandai belum dibaca"
+  "session.markUnread": "Tandai belum dibaca",
+  "command.tab.closeSession": "Tutup tab sesi"
 }

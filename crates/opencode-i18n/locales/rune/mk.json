@@ -237,5 +237,6 @@
   "rune.web.check.code": "Вашиот код: {{code}}",
   "rune.web.check.signIn": "Најавете се погоре. Проверката продолжува потоа.",
   "session.markRead": "Означи како прочитано",
-  "session.markUnread": "Означи како непрочитано"
+  "session.markUnread": "Означи како непрочитано",
+  "command.tab.closeSession": "Затвори го јазичето на сесијата"
 }

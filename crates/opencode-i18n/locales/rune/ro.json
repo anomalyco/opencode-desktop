@@ -237,5 +237,6 @@
   "rune.web.check.code": "Codul tău: {{code}}",
   "rune.web.check.signIn": "Conectează-te mai sus. Verificarea continuă după aceea.",
   "session.markRead": "Marchează ca citit",
-  "session.markUnread": "Marchează ca necitit"
+  "session.markUnread": "Marchează ca necitit",
+  "command.tab.closeSession": "Închide fila sesiunii"
 }

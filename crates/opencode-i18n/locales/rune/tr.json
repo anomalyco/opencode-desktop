@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kodunuz: {{code}}",
   "rune.web.check.signIn": "Yukarıda oturum açın. Denetim ardından sürer.",
   "session.markRead": "Okundu olarak işaretle",
-  "session.markUnread": "Okunmadı olarak işaretle"
+  "session.markUnread": "Okunmadı olarak işaretle",
+  "command.tab.closeSession": "Oturum sekmesini kapat"
 }

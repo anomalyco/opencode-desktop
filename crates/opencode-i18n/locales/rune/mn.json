@@ -237,5 +237,6 @@
   "rune.web.check.code": "Таны код: {{code}}",
   "rune.web.check.signIn": "Дээр нэвтэрнэ үү. Шалгалт дараа нь үргэлжилнэ.",
   "session.markRead": "Уншсан гэж тэмдэглэх",
-  "session.markUnread": "Уншаагүй гэж тэмдэглэх"
+  "session.markUnread": "Уншаагүй гэж тэмдэглэх",
+  "command.tab.closeSession": "Сешний табыг хаах"
 }

@@ -237,5 +237,6 @@
   "rune.web.check.code": "ኮድዎ፦ {{code}}",
   "rune.web.check.signIn": "ከላይ ይግቡ። ፍተሻው ከዚያ ይቀጥላል።",
   "session.markRead": "እንደተነበበ ምልክት አድርግ",
-  "session.markUnread": "እንዳልተነበበ ምልክት አድርግ"
+  "session.markUnread": "እንዳልተነበበ ምልክት አድርግ",
+  "command.tab.closeSession": "የክፍለ ጊዜ ትር ዝጋ"
 }

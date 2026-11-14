@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kóðinn þinn: {{code}}",
   "rune.web.check.signIn": "Skráðu þig inn hér fyrir ofan. Prófunin heldur svo áfram.",
   "session.markRead": "Merkja sem lesið",
-  "session.markUnread": "Merkja sem ólesið"
+  "session.markUnread": "Merkja sem ólesið",
+  "command.tab.closeSession": "Loka lotuflipa"
 }

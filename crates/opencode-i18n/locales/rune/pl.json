@@ -237,5 +237,6 @@
   "rune.web.check.code": "Twój kod: {{code}}",
   "rune.web.check.signIn": "Zaloguj się powyżej. Sprawdzanie będzie kontynuowane potem.",
   "session.markRead": "Oznacz jako przeczytane",
-  "session.markUnread": "Oznacz jako nieprzeczytane"
+  "session.markUnread": "Oznacz jako nieprzeczytane",
+  "command.tab.closeSession": "Zamknij kartę sesji"
 }

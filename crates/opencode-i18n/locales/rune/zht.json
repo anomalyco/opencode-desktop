@@ -237,5 +237,6 @@
   "rune.web.check.code": "你的代碼：{{code}}",
   "rune.web.check.signIn": "請在上方登入。之後檢查會繼續。",
   "session.markRead": "標示為已讀",
-  "session.markUnread": "標示為未讀"
+  "session.markUnread": "標示為未讀",
+  "command.tab.closeSession": "關閉工作階段分頁"
 }

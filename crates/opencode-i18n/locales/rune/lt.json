@@ -237,5 +237,6 @@
   "rune.web.check.code": "Jūsų kodas: {{code}}",
   "rune.web.check.signIn": "Prisijunkite viršuje. Patikra tęsis po to.",
   "session.markRead": "Pažymėti kaip skaitytą",
-  "session.markUnread": "Pažymėti kaip neskaitytą"
+  "session.markUnread": "Pažymėti kaip neskaitytą",
+  "command.tab.closeSession": "Uždaryti seanso skirtuką"
 }

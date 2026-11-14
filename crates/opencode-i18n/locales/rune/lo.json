@@ -237,5 +237,6 @@
   "rune.web.check.code": "ລະຫັດຂອງທ່ານ: {{code}}",
   "rune.web.check.signIn": "ເຂົ້າສູ່ລະບົບຂ້າງເທິງ. ການກວດຈະດຳເນີນຕໍ່ຫຼັງຈາກນັ້ນ.",
   "session.markRead": "ໝາຍວ່າອ່ານແລ້ວ",
-  "session.markUnread": "ໝາຍວ່າຍັງບໍ່ໄດ້ອ່ານ"
+  "session.markUnread": "ໝາຍວ່າຍັງບໍ່ໄດ້ອ່ານ",
+  "command.tab.closeSession": "ປິດແຖບເຊດຊັນ"
 }

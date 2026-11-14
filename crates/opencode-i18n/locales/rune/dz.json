@@ -82,5 +82,6 @@
   "rune.web.check.code": "ཁྱོད་ཀྱི་ཨང་རྟགས་: {{code}}",
   "rune.web.check.signIn": "གོང་ལུ་ནང་བསྐྱོད་འབད། དེ་ལས་ཞིབ་དཔྱད་འཕྲོ་མཐུད་འོང་།",
   "session.markRead": "ལྷག་ཚར་བ་སྦེ་རྟགས་བཀལ།",
-  "session.markUnread": "མ་ལྷག་པ་སྦེ་རྟགས་བཀལ།"
+  "session.markUnread": "མ་ལྷག་པ་སྦེ་རྟགས་བཀལ།",
+  "command.tab.closeSession": "ལཱ་ཡུན་གྱི་ཤོག་བྱང་ཁ་བསྡམ།"
 }

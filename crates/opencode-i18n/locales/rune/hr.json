@@ -237,5 +237,6 @@
   "rune.web.check.code": "Vaš kôd: {{code}}",
   "rune.web.check.signIn": "Prijavite se gore. Provjera se nastavlja nakon toga.",
   "session.markRead": "Označi kao pročitano",
-  "session.markUnread": "Označi kao nepročitano"
+  "session.markUnread": "Označi kao nepročitano",
+  "command.tab.closeSession": "Zatvori karticu sesije"
 }

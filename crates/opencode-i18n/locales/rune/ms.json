@@ -237,5 +237,6 @@
   "rune.web.check.code": "Kod anda: {{code}}",
   "rune.web.check.signIn": "Log masuk di atas. Semakan diteruskan selepas itu.",
   "session.markRead": "Tandakan sebagai dibaca",
-  "session.markUnread": "Tandakan sebagai belum dibaca"
+  "session.markUnread": "Tandakan sebagai belum dibaca",
+  "command.tab.closeSession": "Tutup tab sesi"
 }

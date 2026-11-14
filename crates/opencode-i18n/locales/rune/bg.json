@@ -237,5 +237,6 @@
   "rune.web.check.code": "Вашият код: {{code}}",
   "rune.web.check.signIn": "Влезте по-горе. Проверката продължава след това.",
   "session.markRead": "Отбелязване като прочетено",
-  "session.markUnread": "Отбелязване като непрочетено"
+  "session.markUnread": "Отбелязване като непрочетено",
+  "command.tab.closeSession": "Затваряне на раздела на сесията"
 }

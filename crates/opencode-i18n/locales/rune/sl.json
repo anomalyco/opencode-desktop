@@ -237,5 +237,6 @@
   "rune.web.check.code": "Vaša koda: {{code}}",
   "rune.web.check.signIn": "Prijavite se zgoraj. Preverjanje se nato nadaljuje.",
   "session.markRead": "Označi kot prebrano",
-  "session.markUnread": "Označi kot neprebrano"
+  "session.markUnread": "Označi kot neprebrano",
+  "command.tab.closeSession": "Zapri zavihek seje"
 }

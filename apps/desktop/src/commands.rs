@@ -400,6 +400,14 @@ rune_register::register!(COMMANDS: Cmd = [
     .when(|s| s.current_tab().is_some())
     // `titlebar.tsx:453-458`.
     .hidden(),
+    // `titlebar.tsx:480-486`: the same close, listed.
+    Cmd::new("close-session-tab", opencode_i18n::key!("command.tab.closeSession"), |s, tx| {
+        if let Some(id) = s.current_tab() {
+            s.close_tab(&id, tx);
+        }
+    })
+    .keys(Bind::TabCloseSession)
+    .when(|s| s.current_tab().is_some()),
     Cmd::new("reopen-tab", opencode_i18n::key!("command.tab.reopenClosed"), |s, tx| s.reopen_tab(tx)).keys(Bind::TabReopen),
     // Beyond Desktop, which forgets a closed window: the newest one kept opens again.
     Cmd::new("reopen-window", opencode_i18n::key!("rune.command.window.reopenClosed"), |s, _| crate::windows::reopen::reopen_newest(s)),

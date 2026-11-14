@@ -37,7 +37,7 @@ pub fn action_tx(ev: &KeyEvent, tx: &Tx) -> Option<Action> {
 }
 
 fn resolve(hit: impl Fn(Bind) -> bool) -> Option<Action> {
-    const TABLE: [(Bind, Action); 25] = [
+    const TABLE: [(Bind, Action); 26] = [
         (Bind::SessionPrev, Action::Tab(-1)),
         (Bind::SessionNext, Action::Tab(1)),
         (Bind::UnseenPrev, Action::UnreadTab(-1)),
@@ -54,6 +54,7 @@ fn resolve(hit: impl Fn(Bind) -> bool) -> Option<Action> {
         (Bind::OpenProject, Action::OpenProject),
         (Bind::SelectProject, Action::SelectProject),
         (Bind::TabClose, Action::CloseTab),
+        (Bind::TabCloseSession, Action::CloseTab),
         (Bind::Tab1, Action::TabAt(0)),
         (Bind::Tab2, Action::TabAt(1)),
         (Bind::Tab3, Action::TabAt(2)),

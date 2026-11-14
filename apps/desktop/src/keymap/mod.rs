@@ -36,6 +36,7 @@ pub enum Bind {
     FocusInput,
     TabNew,
     TabClose,
+    TabCloseSession,
     TabReopen,
     TabPrev,
     TabNext,
@@ -172,6 +173,8 @@ fn table() -> Vec<Binding> {
         row(FocusInput, "input.focus", key!("command.input.focus"), General, on("ctrl+l")),
         row(TabNew, "tab.new", key!("command.session.new"), General, on("mod+t, mod+n")),
         row(TabClose, "tab.close", key!("command.tab.close"), General, on("mod+w")),
+        // `titlebar.tsx:480-486`: the session tab, even while a pane's tab would take Ctrl+W.
+        row(TabCloseSession, "tab.closeSession", key!("command.tab.closeSession"), General, on("mod+alt+w")),
         row(TabReopen, "tab.reopenClosed", key!("command.tab.reopenClosed"), General, on("mod+shift+t")),
         hidden(TabPrev, "tab.prev", key!("rune.command.tab.previous"), Navigation, on("mod+alt+left, ctrl+shift+tab")),
         hidden(TabNext, "tab.next", key!("rune.command.tab.next"), Navigation, on("mod+alt+right, ctrl+tab")),

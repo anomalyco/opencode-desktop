@@ -237,5 +237,6 @@
   "rune.web.check.code": "Votre code : {{code}}",
   "rune.web.check.signIn": "Connectez-vous ci-dessus. La vérification reprend ensuite.",
   "session.markRead": "Marquer comme lu",
-  "session.markUnread": "Marquer comme non lu"
+  "session.markUnread": "Marquer comme non lu",
+  "command.tab.closeSession": "Fermer l’onglet de session"
 }

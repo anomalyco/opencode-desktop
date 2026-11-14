@@ -237,5 +237,6 @@
   "rune.web.check.code": "הקוד שלכם: {{code}}",
   "rune.web.check.signIn": "התחברו למעלה. הבדיקה תמשיך אחר כך.",
   "session.markRead": "סימון כנקרא",
-  "session.markUnread": "סימון כלא נקרא"
+  "session.markUnread": "סימון כלא נקרא",
+  "command.tab.closeSession": "סגירת לשונית ההפעלה"
 }

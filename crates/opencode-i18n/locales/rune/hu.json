@@ -237,5 +237,6 @@
   "rune.web.check.code": "A kódod: {{code}}",
   "rune.web.check.signIn": "Jelentkezz be fent. Utána folytatódik az ellenőrzés.",
   "session.markRead": "Megjelölés olvasottként",
-  "session.markUnread": "Megjelölés olvasatlanként"
+  "session.markUnread": "Megjelölés olvasatlanként",
+  "command.tab.closeSession": "Munkamenet lap bezárása"
 }

@@ -237,5 +237,6 @@
   "rune.web.check.code": "Koden din: {{code}}",
   "rune.web.check.signIn": "Logg inn ovenfor. Sjekken fortsetter etterpå.",
   "session.markRead": "Merk som lest",
-  "session.markUnread": "Merk som ulest"
+  "session.markUnread": "Merk som ulest",
+  "command.tab.closeSession": "Lukk øktfanen"
 }

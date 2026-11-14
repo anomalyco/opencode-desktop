@@ -256,5 +256,6 @@
   "rune.web.check.code": "Your code: {{code}}",
   "rune.web.check.signIn": "Sign in above. The check goes on after.",
   "session.markRead": "Mark as read",
-  "session.markUnread": "Mark as unread"
+  "session.markUnread": "Mark as unread",
+  "command.tab.closeSession": "Close session tab"
 }

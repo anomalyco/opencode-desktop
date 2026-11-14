@@ -237,5 +237,6 @@
   "rune.web.check.code": "Mã của bạn: {{code}}",
   "rune.web.check.signIn": "Đăng nhập ở trên. Việc kiểm tra sẽ tiếp tục sau đó.",
   "session.markRead": "Đánh dấu là đã đọc",
-  "session.markUnread": "Đánh dấu là chưa đọc"
+  "session.markUnread": "Đánh dấu là chưa đọc",
+  "command.tab.closeSession": "Đóng tab phiên"
 }

@@ -237,5 +237,6 @@
   "rune.web.check.code": "Váš kód: {{code}}",
   "rune.web.check.signIn": "Přihlaste se výše. Kontrola pak bude pokračovat.",
   "session.markRead": "Označit jako přečtené",
-  "session.markUnread": "Označit jako nepřečtené"
+  "session.markUnread": "Označit jako nepřečtené",
+  "command.tab.closeSession": "Zavřít kartu relace"
 }

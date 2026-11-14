@@ -237,5 +237,6 @@
   "rune.web.check.code": "Tu código: {{code}}",
   "rune.web.check.signIn": "Inicia sesión arriba. La comprobación sigue después.",
   "session.markRead": "Marcar como leído",
-  "session.markUnread": "Marcar como no leído"
+  "session.markUnread": "Marcar como no leído",
+  "command.tab.closeSession": "Cerrar pestaña de sesión"
 }

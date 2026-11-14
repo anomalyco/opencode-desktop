@@ -237,5 +237,6 @@
   "rune.web.check.code": "コード: {{code}}",
   "rune.web.check.signIn": "上でサインインしてください。チェックはその後に続きます。",
   "session.markRead": "既読にする",
-  "session.markUnread": "未読にする"
+  "session.markUnread": "未読にする",
+  "command.tab.closeSession": "セッションタブを閉じる"
 }
