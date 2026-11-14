@@ -152,6 +152,19 @@ struct Session {
     /// above it (an older page).
     top: Option<String>,
     rows: Rc<Projection>,
+    /// A partial projection's spans above, projected a span a frame and landed at once ([`poll`]).
+    fill: Fill,
+}
+
+/// The spans above a partial projection on their way: each landing costs the timeline's list a
+/// pass over all its keys, so they land at once, but a long transcript's take many frames of
+/// work to project, so each frame projects one span ([`SPAN`] messages) of them.
+#[derive(Default)]
+enum Fill {
+    #[default]
+    Idle,
+    /// Projected above `top`, newest first, each stamped as it was projected.
+    Climbing { top: usize, spans: Vec<Kept> },
 }
 
 impl Session {
@@ -242,7 +255,7 @@ fn first<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, global: Global, v
     spans.reverse();
     stamp_all(t, inp, &mut spans);
     let top = messages.get(top).map(|m| m.id().to_owned());
-    assemble(t, inp, Session { global, version, tail, spans, newest, top, rows: Rc::default() })
+    assemble(t, inp, Session { global, version, tail, spans, newest, top, rows: Rc::default(), fill: Fill::Idle })
 }
 
 /// The transcript or the newest span's inputs changed: the spans above whose messages didn't
@@ -260,6 +273,7 @@ fn update<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session, 
         };
         let Some(by) = moved else { return Err(k.global) };
         if by > 0 {
+            k.fill = Fill::Idle;
             for sp in &mut k.spans {
                 sp.range = sp.range.start + by..sp.range.end + by;
                 sp.rows = Rc::new(sp.rows.iter().map(|r| shifted(r, by)).collect());
@@ -331,26 +345,31 @@ fn shifted(r: &RowSpec, by: usize) -> RowSpec {
     r
 }
 
-/// Projects the spans above a partial projection, all of them: each landing above costs the
-/// timeline's list a pass over all its keys, so they land at once.
-fn fill<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session) -> Session {
-    let mut top = k.top();
-    if top == 0 {
-        return k;
-    }
+/// Projects one more span above a partial projection; with the climb at the transcript's top,
+/// lands them all at once (each landing costs the timeline's list a pass over all its keys).
+/// Returns the session and whether the spans landed.
+fn fill<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session) -> (Session, bool) {
     let messages = &t.messages[..inp.shown];
-    let mut added = Vec::new();
-    while top > 0 {
+    let (mut top, mut climbed) = match std::mem::take(&mut k.fill) {
+        Fill::Climbing { top, spans } if top <= k.top() => (top, spans),
+        _ => (k.top(), Vec::new()),
+    };
+    if top > 0 {
         let range = older(messages, top, SPAN);
         top = range.start;
-        added.push(Kept { stamp: 0, rows: Rc::new(span::project(s, t, inp, range.clone(), false)), range });
+        let mut sp = vec![Kept { stamp: 0, rows: Rc::new(span::project(s, t, inp, range.clone(), false)), range }];
+        stamp_all(t, inp, &mut sp);
+        climbed.extend(sp);
     }
-    added.reverse();
-    stamp_all(t, inp, &mut added);
-    added.append(&mut k.spans);
-    k.spans = added;
+    if top > 0 {
+        k.fill = Fill::Climbing { top, spans: climbed };
+        return (k, false);
+    }
+    climbed.reverse();
+    climbed.append(&mut k.spans);
+    k.spans = climbed;
     k.top = messages.get(k.top()).map(|m| m.id().to_owned());
-    assemble(t, inp, k)
+    (assemble(t, inp, k), true)
 }
 
 fn assemble(t: &Transcript, inp: &Inputs, mut k: Session) -> Session {
@@ -471,14 +490,15 @@ pub fn poll<S: TimelineHost>(s: &S, tx: &mut rune::Tx) -> bool {
     let filled = s.with_transcript(id, |t| {
         let Some(k) = SESSIONS.with_borrow_mut(|m| m.remove(id)) else { return false };
         let inp = Inputs::read(s, t);
-        let k = fill(s, t, &inp, k);
+        let (k, landed) = fill(s, t, &inp, k);
         SESSIONS.with_borrow_mut(|m| m.insert(id.to_owned(), k));
-        true
+        landed
     });
+    // Climbing: the next frame projects the next span; nothing shows changed yet.
+    tx.wake_after(std::time::Duration::ZERO);
     if filled != Some(true) {
         return false;
     }
     WANTED.set(WANTED.get() + 1);
-    tx.wake_after(std::time::Duration::ZERO);
     true
 }
