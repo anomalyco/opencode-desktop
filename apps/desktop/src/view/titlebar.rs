@@ -56,7 +56,8 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     if !top {
         return Some(bar.leading(toggle_button(s, p, *s.sidebar_open)).build(crate::palette::kit(p)));
     }
-    let nav = row().key("titlebar-nav").gap(2.0).center_y().child(home_button(s, p)).child(search_button(p));
+    // `-me-0.5`: the first tab's avatar 10 from Search, past the row's gap and the tab's own inset (#63108).
+    let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).child(search_button(p));
     // The strip's width matters only while the tabs can't all have their full 224 pt: below
     // that the tabs share it. Read through `layout_with`, a resize where every tab keeps its
     // full width runs no view; the strip only lays out again.
