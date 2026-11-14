@@ -346,6 +346,11 @@ pub fn setup(app: &mut App, waker: Waker) {
         }
         folders_read(app);
         app.plugins.folders = Folders::Read;
+        // It has no first-frame hook either: what waits for the storage's records (a scratch
+        // profile the harness writes to has none yet) starts once they're read.
+        if !start_now {
+            start_later(app);
+        }
     } else if cfg!(feature = "hot") {
         // A hot build has no first-frame hook.
         read_folders(app);
