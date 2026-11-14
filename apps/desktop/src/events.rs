@@ -131,7 +131,10 @@ impl App {
         }
         if ty.starts_with("session.") && !sid.is_empty() {
             if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                if s.updated < now - 1000 || ty == "session.step.ended" {
+                // A read's reply (opening a session lists its inbox) isn't activity: bumping it
+                // would move the row a press opened to the top of the lists sorted by it.
+                let read = matches!(ty, "session.inbox.listed" | "session.lookup.missing");
+                if !read && (s.updated < now - 1000 || ty == "session.step.ended") {
                     s.updated = now;
                     done.touched = true;
                 }
