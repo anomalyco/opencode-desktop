@@ -35,7 +35,8 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
             .child(
                 text(title.to_owned())
                     .key("terminal-tab-title")
-                    .font(crate::view::UI)
+                    // `terminal-tab-title` is tabular too (`tabs.css:313`).
+                    .font(crate::panels::view::TAB_UI)
                     .color(if active { p.text } else { p.muted })
                     .truncate()
                     .max_w(160.0)

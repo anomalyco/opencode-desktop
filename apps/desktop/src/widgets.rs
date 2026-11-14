@@ -16,10 +16,16 @@ pub const BODY_MED: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0
 pub const LABEL: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
 
 /// `button-v2` at size normal: 28 tall, 11 in from each side, 6 pt corners. rune-kit's older
-/// `Normal` size keeps exactly these metrics; its `ControlSize` ones are AppKit's.
+/// `Normal` size keeps exactly these metrics; its `ControlSize` ones are AppKit's. Its label sets
+/// figures at one width (`button.css:21`, `font-variant-numeric: tabular-nums`), which in Inter moves
+/// some letters too (`Check now` 69.375 against 69.281).
 #[allow(deprecated)]
 pub fn button(label: impl Into<String>, variant: ButtonVariant) -> Button {
-    Button::new(label).variant(variant).size(rune_kit::ButtonSize::Normal)
+    let label = label.into();
+    Button::new(label.clone())
+        .variant(variant)
+        .size(rune_kit::ButtonSize::Normal)
+        .label_with(move |font, ink| text(label).key("label").font(font.features("\"tnum\"")).color(ink))
 }
 
 pub fn badge(p: &Pal, label: impl Into<String>) -> El {

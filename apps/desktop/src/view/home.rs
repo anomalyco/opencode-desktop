@@ -53,6 +53,11 @@ impl Tier {
 }
 
 /// `max-w-[1080px]`, and the 280 pt projects column 32 from the sessions (`lg:gap-8`).
+/// Home's labels: Desktop's rows, headings and project list leave letter-spacing normal (13 px at
+/// 440 or 530), where its controls take -0.04 (`UI`).
+const HOME: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0);
+const HOME_MED: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(16.0);
+
 const GRID_MAX: f32 = 1080.0;
 const PROJECTS_W: f32 = 280.0;
 const GRID_GAP: f32 = 32.0;
@@ -168,7 +173,7 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
             .fill(p.bg_base)
             .sticky_top(tier.header_top())
             .stuck_fade(list_top + 16.0, 16.0)
-            .child(text(title).font(UI).color(p.muted))
+            .child(text(title).font(HOME).color(p.muted))
             // `.home-session-group-header::before` and `::after` (`index.css:208-245`): a 12 pt
             // cover over the gap above it, and a 16 pt eased gradient into the rows under it; only
             // the title fades as the next header comes up.
@@ -240,7 +245,8 @@ fn new_session_button(p: &Pal) -> El {
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .child(icon(&ic::EDIT, 16.0).color(p.icon_muted))
-        .child(text(t!("command.session.new")).font(UI_MED).color(p.muted))
+        // A `button-v2`: figures at one width (`button.css:21`).
+        .child(text(t!("command.session.new")).font(UI_MED.features("\"tnum\"")).color(p.muted))
 }
 
 /// `HomeSessionsEmpty`: centred 52 below the list's top, 16 apart: the title, the line under it
@@ -455,10 +461,10 @@ impl Parts {
         // `max-w-[min(70%,480px)] flex-[0_1_auto]` beside the project, else the whole room.
         // Each in its own direction (`view.tsx:908`, `:959`), so a Latin project name runs to the
         // row's far end right to left.
-        let title = text(title_of(ses)).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
+        let title = text(title_of(ses)).font(HOME_MED).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
         // The room after the title grows; the name keeps to its start, beside the title, whichever way it
         // reads (a left-to-right name in a right-to-left row would otherwise sit at the row's far end).
-        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(UI).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
+        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(HOME).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
         if stacked && show_project {
             // Official centres its 32 pt labels in the 48 pt row (`items-center`): 8 above them.
             let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().mt(8.0).child(title).children(project_el.clone());
@@ -500,9 +506,9 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, inst
         .clip_soft(0.0)
         .dir(rune::Direction::Ltr)
         .child(icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted))
-        .child(text(worktree).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
+        .child(text(worktree).font(HOME).color(p.muted).truncate().shrink().min_w(0.0));
     if let Some(branch) = s.sidebar_inbox.branches.get(&ses.directory) {
-        l = l.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(branch.to_owned()).font(UI).color(p.muted).truncate().shrink().min_w(0.0));
+        l = l.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(branch.to_owned()).font(HOME).color(p.muted).truncate().shrink().min_w(0.0));
     }
     l
 }

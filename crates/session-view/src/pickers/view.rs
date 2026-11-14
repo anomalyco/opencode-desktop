@@ -26,10 +26,14 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     }
 }
 
+/// A toolbar button's words: `button-v2` sets figures at one width (`button.css:21`), which in
+/// Inter moves some letters too (`Simulated Model` 102.375 against 102.469).
+const BUTTON: rune::TextStyle = UI.features("\"tnum\"");
+
 /// A toolbar button that opens the `kind` list, labelled with what's picked.
 pub fn trigger<S: PickerHost>(s: &S, p: &Pal, kind: Kind, label: &str, color: Color, chevron: bool) -> El {
     let open = s.pickers().open == Some(kind);
-    let label = text(label.to_owned()).font(UI).color(if open { p.text } else { color }).truncate_fade();
+    let label = text(label.to_owned()).font(BUTTON).color(if open { p.text } else { color }).truncate_fade();
     wrap(s, p, kind, crate::composer::ghost_with(p, kind.key(), label, chevron, open))
 }
 
@@ -37,9 +41,9 @@ pub fn trigger<S: PickerHost>(s: &S, p: &Pal, kind: Kind, label: &str, color: Co
 /// `text-faint`, a slash, then the model, unless the model needs no provider (OpenCode's own).
 /// It opens a dialog rather than a menu, so it never shows as pressed (`composer.tsx:106-111`).
 pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, model: &str, chevron: bool) -> El {
-    let name = text(model.to_owned()).key("model-name").font(UI).color(p.muted).shrink().truncate_fade();
+    let name = text(model.to_owned()).key("model-name").font(BUTTON).color(p.muted).shrink().truncate_fade();
     let label = row().key("model-label").shrink().min_w(0.0).center_y().children(provider.map(|provider| {
-        text(provider.to_owned()).key("model-provider").font(UI).color(p.faint).shrink().truncate_fade()
+        text(provider.to_owned()).key("model-provider").font(BUTTON).color(p.faint).shrink().truncate_fade()
     }));
     let label = if provider.is_some() { label.child(crate::composer::slash(p, 6.0)) } else { label };
     wrap(s, p, Kind::Model, crate::composer::ghost_with(p, Kind::Model.key(), label.child(name), chevron, false))

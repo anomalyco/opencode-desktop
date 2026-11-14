@@ -19,7 +19,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     let failed = s.home_state.servers.iter().any(|v| v.key == *server && v.failed());
     // `h-7 pl-1.5 pr-3`: Projects in muted 530, and, with one server, the large ghost-muted
     // folder-add button (disabled while it's down).
-    let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(UI_MED).color(p.muted)).child(spacer());
+    let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
     if s.home_state.servers.len() <= 1 {
         let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
         let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
@@ -88,7 +88,7 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .hover(p.layer1)
         .child(icon(glyph, 14.0).key("icon").color(p.icon_muted))
         // `text-left` on a `flex-1` label: at the left edge right to left too.
-        .child(text(label).font(UI).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()))
+        .child(text(label).font(HOME).color(p.muted).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()))
 }
 
 /// The project menu's trigger: the menu opens below its end, 6 away (`gutter={6}`).
@@ -144,7 +144,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
             s.project_state.home_menu_open = false;
         })
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
-        .child(text(proj.name.clone()).key("label").font(UI).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
+        .child(text(proj.name.clone()).key("label").font(HOME).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
     let mut r = row()
         .key(format!("hp-{}", proj.id))
         .w(width)

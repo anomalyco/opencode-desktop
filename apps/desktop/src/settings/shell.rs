@@ -16,6 +16,7 @@ use opencode_i18n::t;
 
 /// `tabs-v2-trigger`: 13 on 16 at 440, -0.04 tracking.
 const TAB: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+const BACK: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0);
 
 /// The rail's groups (`RootSettings`'s `groups`): the server's pages; the app's, with plugin
 /// pages (Pairing among them) before Server; then the plugins' About pages (What's new), Experimental and About.
@@ -149,7 +150,8 @@ fn back_button(p: &Pal, project: bool) -> El {
             }
         })
         .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.muted).group_color(p.text))
-        .child(text(words).font(TAB).color(p.muted).group_color(p.text))
+        // Its words leave letter-spacing normal, unlike the tabs under it.
+        .child(text(words).font(BACK).color(p.muted).group_color(p.text))
 }
 
 /// `.settings-mobile-nav`: Back on the bar's start, the open page's menu at its end.

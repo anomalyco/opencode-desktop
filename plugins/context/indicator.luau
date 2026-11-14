@@ -126,7 +126,8 @@ function indicator.header(env: Env, view: View, props: SlotProps): ui.Node?
                 key = key,
                 value = value,
                 text = words,
-                tabular = false,
+                -- The count sits in a `button-v2`, which sets figures at one width (`button.css:21`).
+                tabular = true,
                 size = 13,
                 weight = "regular",
                 lineHeight = 20,
