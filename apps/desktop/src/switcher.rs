@@ -437,7 +437,9 @@ impl App {
     /// five, servers and projects left out, a title starting with the query first.
     fn switcher_settings(&self, q: &str) -> Vec<Entry> {
         let value = q.trim().to_lowercase();
-        let mut found: Vec<_> = crate::settings::search::palette(self, q, usize::MAX).into_iter().filter(|e| !e.entity).collect();
+        // Official's palette catalog has the Shortcuts page, not a row per shortcut (Settings'
+        // own search here does): the commands they bind are rows of their own above.
+        let mut found: Vec<_> = crate::settings::search::palette(self, q, usize::MAX).into_iter().filter(|e| !e.entity && !e.id.starts_with("shortcut:")).collect();
         found.sort_by_key(|e| !e.title.to_lowercase().starts_with(&value));
         found.into_iter().take(5).map(|e| Entry {
             key: format!("setting:{}", e.id),
