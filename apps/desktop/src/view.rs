@@ -316,6 +316,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .fill(p.bg_deep)
         .w_full()
         .h_full()
+        // The hover peek's zones only listen for the pointer, which reaches them under anything:
+        // under the sidebar and the page, a right-click lands on the row under the pointer
+        // rather than on them, and its menu opens.
+        .children(sidebar::peek(s))
         .child(sidebar_region(s, p))
         .children(band_below)
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
@@ -347,7 +351,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(handle) = crate::panels::view::resize_handle(s, p, win_w) {
         root = root.child(handle);
     }
-    root = root.children(sidebar::peek(s));
     // Without a titlebar row, the toggle rides the sidebar header's line (`sidebar-toggle.tsx`).
     if side_tabs && chrome().sidebar_header() {
         root = root.child(sidebar_toggle(s, p, *s.sidebar_open, w));

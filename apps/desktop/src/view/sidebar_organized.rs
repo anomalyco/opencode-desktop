@@ -294,13 +294,15 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
 
 /// A session under its project (`ProjectSessionRow`): a dot at its start when it has a tab open,
 /// its title (the text colour when it is the current session opened from this list, faint
-/// otherwise), and a ring while it works or a dot while it is unread.
+/// otherwise), and a ring while it works or a dot while it is unread. A right-click opens its
+/// menu: Rename, Export…, Mark as read or unread, then Delete….
 fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     // The list's server is the one the window works against, so its sessions route `here`.
     let uid = crate::tabs::session_uid(crate::servers::runtime::active(s), &ses.id);
     let active = s.route == Route::here(ses.id.clone()) && s.project_state.organize_selected.as_deref() == Some(uid.as_str());
     let open_tab = s.tabs.iter().any(|t| t.route() == Route::here(ses.id.clone()));
     let id = ses.id.clone();
+    let target = crate::session_menu::Target::on(crate::servers::runtime::active(s), &ses.id, crate::session_menu::Spot::Row);
     let mark = match s.tab_status(&ses.id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
         Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
@@ -322,7 +324,10 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
             s.project_state.organize_selected = Some(crate::tabs::session_uid(crate::servers::runtime::active(s), &id));
             s.open(&id, tx);
         })
-        .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto))
+        .child(match crate::session_menu_view::field(s, p, &target, UI_MED) {
+            Some(field) => super::sidebar::rows::row_field(field),
+            None => text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto),
+        })
         .child(el().key("status").size(16.0, 16.0).center().children(mark));
     if open_tab {
         r = r.child(el().key("open-tab").label_static(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
@@ -330,7 +335,8 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     if active {
         r = r.fill(p.pressed);
     }
-    r
+    // A right-click opens the row's menu (`ProjectSessionRow`'s `Menu.Context`).
+    crate::session_menu::on(r, target)
 }
 
 /// A small ghost-muted Button, 23 in from the list's start (`ms-[23px] self-start`).
