@@ -26,6 +26,7 @@ pub use session_view::user_parts::OUTLINE_QUOTE;
 pub mod comment;
 pub mod editor;
 pub mod machine;
+pub mod place;
 pub use editor::send_result;
 use machine::Ident;
 
@@ -50,6 +51,8 @@ pub struct Quotes {
     pub(crate) comment_seq: rune::machine::Seq,
     /// The editor's height when it opened, which its bottom edge keeps as the draft grows.
     pub(crate) opening: std::cell::Cell<f32>,
+    /// Where the editor stands as its text scrolls.
+    pub(crate) placing: std::cell::Cell<place::Placing>,
     /// Where the offered selection stands, for the editor that replaces the toolbar.
     pub(crate) placed: std::cell::RefCell<Option<comment::Anchor>>,
     /// The comment field's `@` file search.
@@ -312,9 +315,11 @@ pub fn toolbar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     // sits centred in the window-sized root: take off its corner to get the shell's points.
     let [ox, oy] = cx.layout_with("zoomed", |r| [r[0], r[1]]).unwrap_or([0.0, 0.0]);
     let shell = |r: [f32; 4]| [r[0] - ox, r[1] - oy, r[2], r[3]];
+    // The selection's boxes first, so a pass before the timeline's layout still re-runs when
+    // they arrive.
+    let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(shell).collect();
     let view = shell(cx.window_layout(&format!("scroll-{}", offer.session))?);
     let (b_top, b_bottom, b_left, b_right) = (view[1], view[1] + view[3], view[0], view[0] + view[2]);
-    let rects: Vec<[f32; 4]> = cx.selection_rects().into_iter().map(shell).collect();
     // Its own size, from the last layout. Unmeasured, it lays out unseen in the same pass the
     // selection's boxes first arrive in, so the next pass has both.
     let size = cx.layout_size("quote-toolbar").map(|[w, h]| (w, h));

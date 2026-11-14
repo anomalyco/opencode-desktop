@@ -1,0 +1,6 @@
+{
+  "events": [
+    { "t": 2.0, "type": "scroll", "key": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa", "dy": -320, "dur": 1.6 },
+    { "t": 4.4, "type": "scroll", "key": "scroll-ses_fx0001aaaaaaaaaaaaaaaaaa", "dy": 320, "dur": 1.6 }
+  ]
+}
