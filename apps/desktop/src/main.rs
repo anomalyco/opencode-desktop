@@ -294,6 +294,8 @@ pub struct App {
     /// The live server events taken, for the motion log (`motion_log.rs`).
     motion_events: rune::Tracked<motion_log::Events>,
     pages: rune::Tracked<session_pages::State>,
+    // Created by the first Save, never before Frame 1. A failed write wakes the window once.
+    output_errors: Option<(Sender<String>, Receiver<String>)>,
     opening: rune::Tracked<Option<session_pages::Opening>>,
     open_demo: rune::Tracked<Option<open_story::Demo>>,
     /// The server's projects and sessions. This and the other server data (transcripts, running,
@@ -581,6 +583,15 @@ impl session_view::TimelineHost for App {
     fn shell_output(&self, shell: &str) -> Option<&str> {
         self.shells.follow.output(shell)
     }
+
+    fn output_save_failed(&mut self, reason: String) {
+        crate::status_toast::fail(self, opencode_i18n::t!("common.requestFailed"), reason);
+    }
+    fn output_save_reporter(&mut self) -> Box<dyn FnOnce(String) + Send> {
+        let (send, _) = self.output_errors.get_or_insert_with(std::sync::mpsc::channel);
+        let (send, wake) = (send.clone(), self.waker.as_ref().cloned());
+        Box::new(move |why| { if send.send(why).is_ok() && let Some(wake) = wake { wake(); } })
+    }
     fn shell_output_version(&self) -> u64 {
         self.shells.follow.version()
     }
@@ -772,6 +783,9 @@ impl session_view::TimelineHost for App {
     }
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
+    }
+    fn partial_output(&self, session: &str) -> Option<&str> {
+        self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.partial())
     }
     fn loading_older(&self, session: &str) -> bool {
         self.pages.loading_older(session)
@@ -1258,6 +1272,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= session_view::turns::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
+    while let Some(why) = s.output_errors.as_ref().and_then(|(_, rx)| rx.try_recv().ok()) {
+        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), why);
+        changed = true;
+    }
     changed |= s.poll_context_window();
     changed |= s.poll_sends();
     changed |= s.tick_outbox(tx);

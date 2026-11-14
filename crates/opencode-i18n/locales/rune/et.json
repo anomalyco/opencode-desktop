@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Muudatusi ei salvestata",
   "rune.storage.writeFailed.description": "OpenCode ei saanud salvestada ({{why}}). Sinu muudatused säilivad, kuni see töötab, ja salvestatakse kohe, kui saab.",
   "rune.storage.diskFull.title": "Ketas on täis",
-  "rune.storage.diskFull.description": "Muudatusi ei salvestata. Sinu muudatused säilivad, kuni OpenCode töötab, ja salvestatakse kohe, kui ruumi on. Vabasta sellel kettal veidi ruumi."
+  "rune.storage.diskFull.description": "Muudatusi ei salvestata. Sinu muudatused säilivad, kuni OpenCode töötab, ja salvestatakse kohe, kui ruumi on. Vabasta sellel kettal veidi ruumi.",
+  "rune.scale.tooLarge": "Siin kuvamiseks liiga suur ({{size}})",
+  "rune.scale.save": "Salvesta kogu väljund…"
 }

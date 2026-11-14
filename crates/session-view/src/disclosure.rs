@@ -223,6 +223,9 @@ pub fn set<S: TimelineHost>(key: String, open: bool, hold: String) -> impl Fn(&m
 /// opened row and `header` the pressed one, and makes the hold it asks for: none at the
 /// timeline's end, where the end holds; scrolled up, the row or header (`follow::step`).
 pub fn anchor<S: TimelineHost>(s: &mut S, tx: &mut Tx, opening: bool, row: &str, header: &str) {
+    // Disclosure is a no-op in Following (follow::step). Taking the mutable Tracked
+    // Ends anyway invalidates every region that read the scroll position.
+    if s.active_session_id().is_some_and(|id| s.ends().at_end(id)) { return; }
     let id = s.active_session_id().map(str::to_owned);
     if let Some(crate::follow::Effect::Keep(key)) = s.ends_mut().step(id.as_deref(), crate::follow::Event::Disclosure { opening, row, header }) {
         tx.keep_on_screen(key);

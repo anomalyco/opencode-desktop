@@ -7,7 +7,7 @@ use rune::{El, Tx, col, el, icon, row, text};
 use serde_json::Value;
 
 use super::console::{capped, console};
-use super::plain::{clean, linked, one_line, strip_ansi};
+use super::plain::{linked, one_line, strip_ansi};
 use super::{Call, Ctx, Display, Press, Trigger, body, disclosure, field, output, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
@@ -16,7 +16,7 @@ use crate::style::{INSTANT, TOOL_CODE, readable};
 pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let calls = calls(c.metadata);
     let error = error(c);
-    let out = if error.is_some() { String::new() } else { clean(output(c)).trim().to_owned() };
+    let out = if error.is_some() { "" } else { output(c).trim() };
     let opens = !calls.is_empty() || error.is_some() || !out.is_empty();
     let d = Display::of(s, cx, c, opens);
     let subtitle = (!d.open()).then(|| subtitle(&calls)).flatten();
@@ -36,7 +36,7 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
             list = list.child(call_row(s, p, cx, c.id, calls.len(), None, Some(e)));
         }
         if !out.is_empty() {
-            list = list.child(output_row(s, p, c.id, &out));
+            list = list.child(output_row(s, p, cx.session, c.id, out));
         }
         body(list, false, 4.0)
     })
@@ -155,7 +155,7 @@ fn call_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, id: &str, n: usize, call: 
 }
 
 /// "Output · 3 lines"; open, a console of the script's result.
-fn output_row<S: TimelineHost>(s: &S, p: &Pal, id: &str, out: &str) -> El {
+fn output_row<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, out: &str) -> El {
     let k = sub_key(id, "output");
     let open = s.expanded().contains(&k);
     let lines = out.split('\n').count();
@@ -172,7 +172,7 @@ fn output_row<S: TimelineHost>(s: &S, p: &Pal, id: &str, out: &str) -> El {
         .child(text(opencode_i18n::t!("ui.tool.execute.output")).key("name").font(TOOL_CODE).color(p.text))
         .child(text(opencode_i18n::plural!("ui.tool.execute.lines", lines)).key("args").font(TOOL_CODE).color(p.muted).group_color(p.text));
     let c = col().key("output-item").w_full().child(line);
-    if open { c.child(crate::disclosure::reveal(s.knobs(), col().key("output").w_full().pl(20.0).mt(4.0).child(console(s, p, id, None, out)))) } else { c }
+    if open { c.child(crate::disclosure::reveal(s.knobs(), col().key("output").w_full().pl(20.0).mt(4.0).child(console(s, p, session, id, None, out)))) } else { c }
 }
 
 /// View code: a 24 pt ghost icon button that opens the script and its result in a dialog.

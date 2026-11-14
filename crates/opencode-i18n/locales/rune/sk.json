@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Zmeny sa neukladajú",
   "rune.storage.writeFailed.description": "OpenCode nemohol ukladať ({{why}}). Vaše zmeny zostanú, kým beží, a uložia sa, len čo to pôjde.",
   "rune.storage.diskFull.title": "Disk je plný",
-  "rune.storage.diskFull.description": "Zmeny sa neukladajú. Vaše zmeny zostanú, kým OpenCode beží, a uložia sa, len čo bude miesto. Uvoľnite na tomto disku trochu miesta."
+  "rune.storage.diskFull.description": "Zmeny sa neukladajú. Vaše zmeny zostanú, kým OpenCode beží, a uložia sa, len čo bude miesto. Uvoľnite na tomto disku trochu miesta.",
+  "rune.scale.tooLarge": "Príliš veľké na zobrazenie na tomto mieste ({{size}})",
+  "rune.scale.save": "Uložiť celý výstup…"
 }

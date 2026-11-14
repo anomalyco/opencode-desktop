@@ -31,6 +31,14 @@ impl UserError {
     pub fn from_wire(what: &str, server: &str, e: &WireError) -> UserError {
         let theirs = |m: &Option<String>| m.as_deref().map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let (why, quote, next): (String, Option<String>, Option<&str>) = match &e.kind {
+            WireKind::TooLarge { limit, length } => {
+                let size = length.map(opencode_i18n::bytes).unwrap_or_else(|| format!("> {}", opencode_i18n::bytes(*limit)));
+                (opencode_i18n::t!("rune.scale.tooLarge", size = size), None, None)
+            }
+            WireKind::PartialOutput { at_least, .. } => {
+                let size = format!("≥ {} B", opencode_i18n::integer(*at_least as i64));
+                (opencode_i18n::t!("rune.scale.tooLarge", size = size), None, None)
+            }
             WireKind::Unreachable(_) => (format!("{server} isn't answering."), None, Some("Check that it's running and reachable, then try again.")),
             WireKind::TimedOut => (format!("{server} didn't answer in time."), None, Some("It may still be working on it. Try again in a moment.")),
             WireKind::Dropped(_) => (format!("The connection to {server} dropped before it answered."), None, Some("It may have gone through. Check before you try again.")),

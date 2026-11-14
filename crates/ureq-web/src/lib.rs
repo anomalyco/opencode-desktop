@@ -347,6 +347,12 @@ pub fn request_with_headers(method: &str, url: &str, headers: &[(&str, &str)], b
     if let Some(answer) = fetch(method, url, headers, body) {
         return answer.map_err(failed);
     }
+    // A synchronous XHR cannot stop at a body budget. File and transcript reads must run
+    // on the fetching task (or take an already-finished prefetch), never block a UI handler.
+    let path = url.split('?').next().unwrap_or(url);
+    if path.contains("/api/fs/read/") || path.contains("/api/session/") && path.contains("/message") {
+        return Err("response requires a streamed read".into());
+    }
     let xhr = send(method, url, headers, body).map_err(failed)?;
     let status = xhr.status().map_err(failed)?;
     if status == 0 {
@@ -370,11 +376,11 @@ struct Started {
     entry: JsValue,
 }
 
-#[wasm_bindgen::prelude::wasm_bindgen(inline_js = "export function readAhead(promise) { const entry = { done: undefined }; entry.promise = promise.then(async (r) => { const done = { status: r.status, headers: [...r.headers], body: new Uint8Array(await r.arrayBuffer()) }; entry.done = done; return done; }); entry.promise.catch(() => {}); return entry; }")]
+#[wasm_bindgen::prelude::wasm_bindgen(module = "/src/body.js")]
 extern "C" {
     /// `{ promise, done }` for a `fetch`'s promise (see [`Started`]).
     #[wasm_bindgen(js_name = readAhead)]
-    fn read_ahead(promise: &js_sys::Promise) -> JsValue;
+    fn read_ahead(promise: &js_sys::Promise, url: &str) -> JsValue;
 }
 
 thread_local! {
@@ -404,7 +410,7 @@ pub fn start_get(url: &str, headers: &[(&str, &str)]) {
             return;
         }
         if let Ok(request) = build("GET", url, headers, None) {
-            started.push(Started { url: url.to_owned(), auth, at: Instant::now(), entry: read_ahead(&window.fetch_with_request(&request)) });
+            started.push(Started { url: url.to_owned(), auth, at: Instant::now(), entry: read_ahead(&window.fetch_with_request(&request), url) });
         }
     });
 }
@@ -501,25 +507,9 @@ fn fetch(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>)
         Ok(request) => window.fetch_with_request(&request),
         Err(e) => return Some(Err(e)),
     };
-    let response = match rune::task::wait(&promise)? {
-        Ok(r) => r.unchecked_into::<web_sys::Response>(),
-        Err(e) => return Some(Err(e)),
-    };
-    let status = response.status();
-    let mut list = Vec::new();
-    if let Ok(Some(entries)) = js_sys::try_iter(&response.headers()) {
-        for entry in entries.flatten() {
-            let pair = js_sys::Array::from(&entry);
-            if let (Some(k), Some(v)) = (pair.get(0).as_string(), pair.get(1).as_string()) {
-                list.push((k.to_ascii_lowercase(), v));
-            }
-        }
-    }
-    let buffer = match response.array_buffer() {
-        Ok(promise) => rune::task::wait(&promise)?,
-        Err(e) => Err(e),
-    };
-    Some(buffer.map(|b| (status, list, js_sys::Uint8Array::new(&b).to_vec())))
+    let entry = read_ahead(&promise, url);
+    let result = field(&entry, "promise").unchecked_into();
+    Some(rune::task::wait(&result)?.map(|done| answer(&done)))
 }
 
 fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<web_sys::XmlHttpRequest, JsValue> {

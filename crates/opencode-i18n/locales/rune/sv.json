@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Ändringar sparas inte",
   "rune.storage.writeFailed.description": "OpenCode kunde inte spara ({{why}}). Det du ändrar finns kvar medan det körs och sparas så snart det går.",
   "rune.storage.diskFull.title": "Disken är full",
-  "rune.storage.diskFull.description": "Ändringar sparas inte. Det du ändrar finns kvar medan OpenCode körs och sparas så snart det finns plats. Frigör lite utrymme på den här disken."
+  "rune.storage.diskFull.description": "Ändringar sparas inte. Det du ändrar finns kvar medan OpenCode körs och sparas så snart det finns plats. Frigör lite utrymme på den här disken.",
+  "rune.scale.tooLarge": "För stort för att visas här ({{size}})",
+  "rune.scale.save": "Spara hela utdataflödet…"
 }

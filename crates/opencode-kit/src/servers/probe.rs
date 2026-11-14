@@ -108,6 +108,6 @@ pub(super) fn get_json(http: &HttpBase, path: &str, timeout: Duration) -> Result
         WireKind::TimedOut => RequestError::Timeout,
         WireKind::Status { status, .. } => RequestError::Status(status),
         WireKind::Unreachable(_) | WireKind::Dropped(_) | WireKind::Tls(_) | WireKind::Other(_) => RequestError::Transport(e.to_string()),
-        WireKind::Redirected { .. } | WireKind::NotOpenCode { .. } | WireKind::Shape(_) => RequestError::Body(e.to_string()),
+        WireKind::Redirected { .. } | WireKind::NotOpenCode { .. } | WireKind::TooLarge { .. } | WireKind::PartialOutput { .. } | WireKind::Shape(_) => RequestError::Body(e.to_string()),
     })
 }

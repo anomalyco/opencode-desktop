@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Dəyişikliklər saxlanılmır",
   "rune.storage.writeFailed.description": "OpenCode saxlaya bilmədi ({{why}}). Dəyişdikləriniz o işlədikcə qalır və mümkün olan kimi saxlanılır.",
   "rune.storage.diskFull.title": "Disk doludur",
-  "rune.storage.diskFull.description": "Dəyişikliklər saxlanılmır. Dəyişdikləriniz OpenCode işlədikcə qalır və yer açılan kimi saxlanılır. Bu diskdə bir az yer boşaldın."
+  "rune.storage.diskFull.description": "Dəyişikliklər saxlanılmır. Dəyişdikləriniz OpenCode işlədikcə qalır və yer açılan kimi saxlanılır. Bu diskdə bir az yer boşaldın.",
+  "rune.scale.tooLarge": "Burada göstərmək üçün çox böyükdür ({{size}})",
+  "rune.scale.save": "Tam çıxışı saxla…"
 }

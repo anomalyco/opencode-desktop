@@ -79,6 +79,7 @@
   // The page's messages: English is in the page (`scripts/web-page.ts` writes it from the
   // catalog), the user's language comes from its catalog beside the page, which the module reads
   // a moment later too. Until it's here the page shows nothing that has words.
+  /* bounded-response-reader */
   const PAGE = JSON.parse(document.querySelector('#page').textContent);
   let messages = PAGE.en ?? {};
   const say = (key, vars = {}) => (messages[key] ?? PAGE.en?.[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, name) => vars[name] ?? '');
@@ -196,7 +197,7 @@
       // (`ureq_web::Started`), usually before its first frame.
       const entry = { auth, done: undefined };
       entry.promise = fetch(base + path, { headers }).then(async (r) => {
-        entry.done = { status: r.status, headers: [...r.headers], body: new Uint8Array(await r.arrayBuffer()) };
+        entry.done = await boundedBody(r, base + path);
         return entry.done;
       });
       // Seen here so one nobody takes up isn't an unhandled rejection; the app's read still sees it fail.

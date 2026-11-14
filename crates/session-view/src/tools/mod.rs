@@ -21,6 +21,7 @@ pub mod error;
 mod execute;
 mod files;
 mod lists;
+mod log;
 mod plain;
 
 use std::borrow::Cow;
@@ -39,6 +40,12 @@ pub use details::overlay as details_overlay;
 pub use files::{group as file_group, is_file_tool, shut_group};
 pub use lists::{read_group, skill_group, skill_name};
 pub use plain::strip_ansi;
+
+pub(crate) fn preview_words<S: TimelineHost>(p:&Pal, head:&str)->El {log::visible::<S>(p,head,TOOL_CODE,p.muted,true,20.0)}
+
+pub(crate) fn raw_output<S: TimelineHost>(s: &S, session: &str, id: &str) -> Option<String> {
+    console::with_call(s, session, id, |c| console::current_output(s, &c).to_owned())
+}
 
 /// Unchanged lines around each change in a diff of two texts: jsdiff's default, which Desktop's
 /// text diffs keep (`createTwoFilesPatch`, Pierre's `parseDiffFromFile`), where `git diff` keeps

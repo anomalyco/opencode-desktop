@@ -428,6 +428,16 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         );
     }
     if t.is_none() {
+        if let Some(head)=s.partial_output(id) {
+            let copy_label = format!("{} · {}", opencode_i18n::t!("ui.message.copy"), opencode_i18n::t!("plugin.file.view.preview"));
+            let session=id.to_owned();
+            stack=stack.child(col().key("output-preview").w_full().max_w(crate::style::content_w()).padding(12.0).gap(4.0).fill(p.bg_base)
+                .child(text(opencode_i18n::t!("plugin.file.view.preview")).font(crate::style::UI_MED).color(p.text))
+                .child(crate::scroller::scroller("output-head").hidden(col().w_full().max_h(240.0),crate::tools::preview_words::<S>(p,head)))
+                .child(row().key("copy-preview").self_start().role("button").focusable(true).label(copy_label.clone()).px(8.0).min_h(28.0).center().radius(6.0).hover(p.hover).fill(p.layer2)
+                    .on_press_tx(move |s:&mut S,tx|{if let Some(part)=s.partial_output(&session){tx.copy(part.to_owned());}})
+                    .child(text(copy_label).font(UI).color(p.text))));
+        }
         stack = stack.child(
             row()
                 .key("loading")
@@ -436,7 +446,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 .h(40.0)
                 .gap(8.0)
                 .center()
-                .child(activity_ring(p))
+                .children(s.loading_error(id).is_none().then(|| activity_ring(p)))
                 .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
         );
     }

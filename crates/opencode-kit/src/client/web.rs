@@ -122,7 +122,10 @@ async fn events(server: &Server, idle: Duration, inbox: &Sender<Incoming>, wake:
         if js_sys::Reflect::get(&chunk, &"done".into()).ok().and_then(|d| d.as_bool()).unwrap_or(true) {
             return Err(down(WireKind::Dropped("the stream ended".into())));
         }
-        let bytes = js_sys::Reflect::get(&chunk, &"value".into()).map(|v| js_sys::Uint8Array::new(&v).to_vec()).unwrap_or_default();
+        let data:js_sys::Uint8Array = js_sys::Reflect::get(&chunk,&"value".into()).map_err(|_|page("no event bytes"))?.unchecked_into();
+        let limit = 32 << 20;
+        if pending.len() + data.length() as usize > limit { abort.abort(); return Err(down(WireKind::TooLarge { limit:limit as u64, length:None })); }
+        let bytes=data.to_vec();
         pending.extend_from_slice(&bytes);
         let mut woke = false;
         while let Some(end) = pending.iter().position(|&b| b == b'\n') {

@@ -112,5 +112,7 @@
   "rune.web.check.notSent": "ނުފޮނުވުނު. އަލުން މަސައްކަތްކޮށްލާ.",
   "rune.web.check.works": "މަސައްކަތްކުރޭ",
   "rune.web.check.failed": "ނާކާމިޔާބު",
-  "rune.web.check.none": "ނުމިނޭ"
+  "rune.web.check.none": "ނުމިނޭ",
+  "rune.scale.tooLarge": "މިތަނުގައި ދައްކާލަން ވަރަށް ބޮޑު ({{size}})",
+  "rune.scale.save": "މުޅި ނަތީޖާ ސޭވް ކުރޭ…"
 }

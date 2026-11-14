@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Els canvis no s'estan desant",
   "rune.storage.writeFailed.description": "L'OpenCode no ha pogut desar ({{why}}). El que canvieu es conserva mentre s'executa i es desa tan bon punt es pugui.",
   "rune.storage.diskFull.title": "El disc és ple",
-  "rune.storage.diskFull.description": "Els canvis no s'estan desant. El que canvieu es conserva mentre l'OpenCode s'executa i es desa tan bon punt hi hagi espai. Allibereu espai en aquest disc."
+  "rune.storage.diskFull.description": "Els canvis no s'estan desant. El que canvieu es conserva mentre l'OpenCode s'executa i es desa tan bon punt hi hagi espai. Allibereu espai en aquest disc.",
+  "rune.scale.tooLarge": "Massa gran per mostrar-ho aquí ({{size}})",
+  "rune.scale.save": "Desa la sortida completa…"
 }

@@ -34,6 +34,7 @@ const page = {
 // `</` can't end the script element early: JSON never needs it raw.
 const json = JSON.stringify(page).replaceAll("</", "<\\/")
 const html = readFileSync(join(root, "apps", "web", "index.html"), "utf8")
+  .replace('/* bounded-response-reader */', () => readFileSync(join(root, 'crates', 'ureq-web', 'src', 'body.js'), 'utf8'))
   .replace('<script id="page" type="application/json">{}</script>', `<script id="page" type="application/json">${json}</script>`)
 writeFileSync(join(out, "index.html"), html)
 

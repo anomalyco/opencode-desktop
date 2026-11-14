@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, INSTANT, MD, UI, UI_MED, arrow, readable};
+use crate::style::{HOVER_FADE, INSTANT, UI, UI_MED, arrow, readable};
 
 /// A search's results scroll past 240 px, as a console's do.
 const MAX_H: f32 = super::console::MAX_H;
@@ -118,7 +118,7 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let press = if out.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
     disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
         // `tool-output`: the result as written (`white-space: pre`), 240 px and scrolling.
-        let words = readable(p, text(out.to_owned()).font(MD).color(p.text).wrap_anywhere()).w_full();
+        let words = super::console::output_view::<S>(p, cx.session, c.id, out, false);
         body(crate::scroller::scroller("output").hidden(col().w_full().max_h(MAX_H), words), true, 4.0)
     })
 }
@@ -173,11 +173,17 @@ pub fn web_search_title(metadata: &Value) -> String {
 /// it has finished.
 pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let out = output(c);
-    let opens = !busy(c.status, cx.live) && !super::plain::urls(out).is_empty();
+    // Very large search reports use the same virtual result reader as a shell, with links
+    // recognised on mounted lines only. Never scan or allocate their URLs in a shut row.
+    let large = out.len() > 8192;
+    let opens = !busy(c.status, cx.live) && (large || !super::plain::urls(out).is_empty());
     let d = Display::of(s, cx, c, opens);
     let t = Trigger { title: web_search_title(c.metadata).into(), subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
     let press = if opens { Press::Toggle(super::key(c.id)) } else { Press::None };
     disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
+        if large {
+            return body(super::console::capped(super::console::output_view::<S>(p,cx.session,c.id,out,true)),true,4.0);
+        }
         let mut links: Vec<&str> = Vec::new();
         for r in super::plain::urls(out) {
             if !links.contains(&&out[r.clone()]) {

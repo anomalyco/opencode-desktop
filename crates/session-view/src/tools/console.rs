@@ -3,7 +3,8 @@
 
 use rune::{Color, El, ScrollFade, Tx, col, el, row, text};
 
-use super::plain::{clean, linked, one_line};
+use super::plain::one_line;
+use super::log::{self, Excerpt};
 use super::{Call, Ctx, Display, Phase, Press, Trigger, body, disclosure, field, output, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
@@ -17,19 +18,38 @@ pub const MAX_H: f32 = 240.0;
 pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, true);
     let command = field(c.input, "command").or_else(|| field(c.metadata, "command")).unwrap_or("");
+    let out = current_output(s, c);
     // While open the command shows in the console, so the trigger drops it.
     let writing = command.is_empty() && d.phase == Phase::Pending;
-    let subtitle = match (d.open(), writing) {
+    let subtitle = match (d.open() && out.len() <= log::INLINE, writing) {
         (true, _) => None,
         (false, true) => Some(opencode_i18n::t!("ui.tool.shell.writingCommand").to_owned()),
         (false, false) => Some(one_line(command)),
     };
     let t = Trigger { title: opencode_i18n::t!("ui.tool.shell").into(), compact: true, subtitle, code: !writing, ..Default::default() };
-    // A shell its result doesn't finish shows the output its host read from it (`viewShellRun`).
-    let streamed = follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).filter(|o| !o.is_empty());
-    let out = streamed.unwrap_or_else(|| output(c));
+    if let Excerpt::Ends {first, last, bytes} = Excerpt::new(out) {
+        // Size and the recovery action are useful even while shut. Opening this card changes
+        // only its two actual excerpts, never mounts another scrolling console or its chrome.
+        let partial = c.metadata["truncated"].as_bool()==Some(true) || d.phase!=Phase::Completed;
+        let measure = format!("{}{} B", if partial { "≥ " } else { "" }, opencode_i18n::integer(bytes as i64));
+        let label = opencode_i18n::t!("rune.scale.tooLarge", size = measure);
+        let save = if partial {format!("{} · {}",opencode_i18n::t!("ui.message.copy"),opencode_i18n::t!("plugin.file.view.preview"))} else {opencode_i18n::t!("rune.scale.save").into()};
+        let (session,id)=(cx.session.to_owned(),c.id.to_owned());
+        let action=row().key(if partial {"copy-preview"} else {"save-raw"}).role("button").label(save.clone()).focusable(true).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
+            .on_press_tx(move |s:&mut S,tx| if partial {if let Some(value)=super::raw_output(s,&session,&id){tx.copy(value);}} else {s.save_tool_output(&session,&id,tx)})
+            .child(text(save).font(crate::style::UI_MED).color(p.text));
+        let summary = row().key("size").w_full().gap(8.0).center_y().child(text(label).font(crate::style::UI).color(p.muted).wrap()).child(action);
+        let mut card=col().key("large-output").w_full().padding(12.0).gap(4.0).fill(p.bg_base).child(summary);
+        if d.open() {
+            let head=super::plain::clean(first);
+            let tail=super::plain::clean(last);
+            let excerpt = readable(p,text(format!("{head}\n…\n{tail}")).font(TOOL_CODE).color(p.muted).wrap_anywhere()).key("excerpt").w_full();
+            card=card.child(crate::disclosure::reveal(s.knobs(),excerpt));
+        }
+        return col().w_full().child(trigger(s,p,cx,c,d,t,Press::Toggle(super::key(c.id)),None)).child(card);
+    }
     disclosure(s, trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
-        body(console(s, p, c.id, (!command.is_empty()).then_some(command), &clean(out)), false, 8.0)
+        body(console(s, p, cx.session, c.id, (!command.is_empty()).then_some(command), out), false, 8.0)
     })
 }
 
@@ -66,7 +86,7 @@ const RING: f32 = 0.5;
 /// it's cut; the ring stays whole round all four corners, the sections inside it. The card shows
 /// as much as Desktop's does: its sections stand at most [`MAX_H`] together (`bash-scroll`'s
 /// `max-height`, which takes the command and the output in one region), the output giving way.
-pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>, out: &str) -> El {
+pub fn console<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, command: Option<&str>, out: &str) -> El {
     // A terminal reads left to right in any window; its Copy buttons stay at its right.
     let mut card = col().key("console").dir(rune::Direction::Ltr).w_full().max_h(MAX_H + 2.0 * RING).radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group()
         // Its Copy fades in and out over 0.15 s ease (`message-part.css:796-800`'s `bash-copy`).
@@ -76,16 +96,54 @@ pub fn console<S: TimelineHost>(s: &S, p: &Pal, id: &str, command: Option<&str>,
     if let Some(cmd) = command {
         let words = text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere();
         let corners = [inner, inner, if result { 0.0 } else { inner }, if result { 0.0 } else { inner }];
-        card = card.child(section(s, p, id, Part { name: "command", copy: cmd, fill: p.bg_base, label: opencode_i18n::t!("ui.message.copy"), corners, cap: COMMAND_MAX_H, rule: false }, words));
+        card = card.child(section(s, p, session, id, Part { name: "command", fill: p.bg_base, label: opencode_i18n::t!("ui.message.copy"), corners, cap: COMMAND_MAX_H, rule: false }, words));
     }
     if result {
         // A line break that ends the output opens no empty line, as in a `pre`.
-        let words = linked::<S>(p, out.strip_suffix('\n').unwrap_or(out), TOOL_CODE, p.muted);
+        let words = output_view::<S>(p, session, id, out, true);
         let top = if command.is_some() { 0.0 } else { inner };
         let corners = [top, top, inner, inner];
-        card = card.child(section(s, p, id, Part { name: "result", copy: out, fill: p.layer1, label: opencode_i18n::t!("ui.message.copyOutput"), corners, cap: MAX_H, rule: command.is_some() }, words));
+        card = card.child(section(s, p, session, id, Part { name: "result", fill: p.layer1, label: opencode_i18n::t!("ui.message.copyOutput"), corners, cap: MAX_H, rule: command.is_some() }, words));
     }
     card
+}
+
+/// Resolve by identity on a user action; mounting the card never clones a whole raw output.
+pub fn with_call<S: TimelineHost, R>(s: &S, session: &str, id: &str, f: impl FnOnce(Call<'_>) -> R) -> Option<R> {
+    use opencode_kit::model::{Message, Part};
+    s.with_transcript(session, |t| {
+        for m in &t.messages {
+            let a = match m { Message::Assistant(a) => a, Message::Note { step, .. } => step, _ => continue };
+            for part in &a.parts {
+                if let Part::Tool { id: key, name, status, input, metadata, .. } = part && key == id {
+                    return Some(f(Call { id: key, name, status, input, metadata }));
+                }
+            }
+        }
+        None
+    }).flatten()
+}
+
+pub fn current_output<'a, S: TimelineHost>(s: &'a S, c: &Call<'a>) -> &'a str {
+    follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).filter(|s| !s.is_empty()).unwrap_or_else(|| output(c))
+}
+
+pub fn output_view<S: TimelineHost>(p: &Pal, session: &str, id: &str, raw: &str, shell: bool) -> El {
+    let (font, ink, lh) = if shell { (TOOL_CODE, p.muted, 20.0) } else { (crate::style::MD, p.text, 22.4) };
+    let view = |t: &str| log::visible::<S>(p, t, font, ink, shell, lh);
+    match Excerpt::new(raw) {
+        Excerpt::Whole(t) => view(t),
+        Excerpt::Ends { first, last, bytes } => {
+            let (session, id) = (session.to_owned(), id.to_owned());
+            let save = opencode_i18n::t!("rune.scale.save");
+            let notice = opencode_i18n::t!("rune.scale.tooLarge", size = format!("{} B", opencode_i18n::integer(bytes as i64)));
+            col().w_full().padding(12.0).radius(6.0).fill(p.bg_base).border(0.5,p.ring).gap(4.0)
+                .child(row().w_full().gap(8.0).center_y().child(text(notice).font(crate::style::UI).color(p.muted).wrap())
+                    .child(row().key("save-raw").role("button").focusable(true).label_static(save).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
+                        .on_press_tx(move |s: &mut S, tx| s.save_tool_output(&session, &id, tx)).child(text(save).font(crate::style::UI_MED).color(p.text))))
+                .child(log::visible::<S>(p, &format!("{first}\n…\n{last}"),font,ink,shell,lh))
+        }
+    }
 }
 
 /// `content` in a region at most [`MAX_H`] tall that scrolls the rest, with no scroll bar, as Desktop hides it
@@ -95,10 +153,8 @@ pub fn capped(content: El) -> El {
 }
 
 /// One section of a console.
-struct Part<'a> {
+struct Part {
     name: &'static str,
-    /// What its copy button copies.
-    copy: &'a str,
     fill: Color,
     label: &'static str,
     /// `[top_left, top_right, bottom_right, bottom_left]`, concentric with the ring.
@@ -114,9 +170,9 @@ struct Part<'a> {
 /// it's cut, and its copy button 4 pt in from the top right, still while the text scrolls. A
 /// backdrop of the section's fill sits behind the button, fading out to its left, top and
 /// bottom, so text under it softens rather than being cut.
-fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> El {
+fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part, words: El) -> El {
     let copy_key = format!("copy-tool-{id}-{}", part.name);
-    let (copied, fill, label) = (part.copy.to_owned(), part.fill, part.label);
+    let (session, id, field_name, fill, label) = (session.to_owned(), id.to_owned(), part.name, part.fill, part.label);
     let done = crate::copied::is_copied(s, &copy_key);
     let button = row()
         .key("copy")
@@ -132,8 +188,11 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: Part, words: El) -> 
         .on_press_tx({
             let copy_key = copy_key.clone();
             move |s: &mut S, tx: &mut Tx| {
-                tx.copy(copied.clone());
-                crate::copied::mark_copied(s, copy_key.clone(), tx);
+                let copied = with_call(s, &session, &id, |c| match field_name {
+                    "command" => field(c.input, "command").or_else(|| field(c.metadata, "command")).unwrap_or("").to_owned(),
+                    _ => super::plain::clean(current_output(s, &c)).into_owned(),
+                });
+                if let Some(copied) = copied { tx.copy(copied); crate::copied::mark_copied(s, copy_key.clone(), tx); }
             }
         })
         .child(crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted));

@@ -246,5 +246,7 @@
   "rune.storage.notSaving.title": "Changes aren't being saved",
   "rune.storage.writeFailed.description": "OpenCode couldn't save ({{why}}). What you change stays while it runs, and is saved as soon as it can be.",
   "rune.storage.diskFull.title": "The disk is full",
-  "rune.storage.diskFull.description": "Changes aren't being saved. What you change stays while OpenCode runs, and is saved as soon as there's space. Free some space on this disk."
+  "rune.storage.diskFull.description": "Changes aren't being saved. What you change stays while OpenCode runs, and is saved as soon as there's space. Free some space on this disk.",
+  "rune.scale.tooLarge": "Too large to display here ({{size}})",
+  "rune.scale.save": "Save full output…"
 }

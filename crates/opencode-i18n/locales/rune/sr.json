@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Измене се не чувају",
   "rune.storage.writeFailed.description": "OpenCode није могао да сачува ({{why}}). Ваше измене остају док ради и чувају се чим буде могуће.",
   "rune.storage.diskFull.title": "Диск је пун",
-  "rune.storage.diskFull.description": "Измене се не чувају. Ваше измене остају док OpenCode ради и чувају се чим буде простора. Ослободите мало простора на овом диску."
+  "rune.storage.diskFull.description": "Измене се не чувају. Ваше измене остају док OpenCode ради и чувају се чим буде простора. Ослободите мало простора на овом диску.",
+  "rune.scale.tooLarge": "Превелико за приказ овде ({{size}})",
+  "rune.scale.save": "Сачувај цео излаз…"
 }

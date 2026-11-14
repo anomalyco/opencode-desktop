@@ -6,7 +6,7 @@
 //! Authorization header.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 #[cfg(not(target_arch = "wasm32"))]
 use std::net::{SocketAddr, TcpStream};
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,6 +26,7 @@ mod http;
 mod hub;
 mod ids;
 mod mentions;
+mod output_head;
 #[cfg(not(target_arch = "wasm32"))]
 mod reach;
 #[cfg(not(target_arch = "wasm32"))]
@@ -687,14 +688,19 @@ impl Server {
             return Err(down(WireKind::NotOpenCode { status: 200, what: http::kind_of(&content_type, false) }));
         }
         let mut connected = false;
-        let reader = BufReader::new(resp.into_body().into_reader());
-        for line in reader.lines() {
+        let mut reader = BufReader::new(resp.into_body().into_reader());
+        let mut line = String::new();
+        loop {
             if !live() {
                 return Ok(());
             }
-            let line = line.map_err(|e| down(read_failure(e)))?;
+            line.clear();
+            let limit = 32 << 20;
+            let read = (&mut reader).take(limit + 1).read_line(&mut line).map_err(|e| down(read_failure(e)))?;
+            if read == 0 { break; }
+            if read as u64 > limit { return Err(down(WireKind::TooLarge { limit, length: None })); }
             heard();
-            let Some(event) = event_line(&line) else { continue };
+            let Some(event) = event_line(line.trim_end_matches(['\r', '\n'])) else { continue };
             if !connected {
                 // OpenCode's first event, as Desktop waits for it (`connection.ts`).
                 if !matches!(&event, Incoming::Event { ty, .. } if ty == "server.connected") {

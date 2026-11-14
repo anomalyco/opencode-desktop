@@ -74,5 +74,7 @@
   "rune.web.check.notSent": "གཏང་མ་ཚུགས། ལོག་སྟེ་འབད་རྩོལ་བསྐྱེད།",
   "rune.web.check.works": "ལཱ་འབདཝ་ཨིན།",
   "rune.web.check.failed": "འཐུས་ཤོར།",
-  "rune.web.check.none": "ཚད་མ་འཇལ།"
+  "rune.web.check.none": "ཚད་མ་འཇལ།",
+  "rune.scale.tooLarge": "ནཱ་ལུ་སྟོན་ནི་ལུ་སྦོམ་དྲགས་པས། ({{size}})",
+  "rune.scale.save": "གྲུབ་འབྲས་ཆ་མཉམ་སྲུང་བཞག་འབད།…"
 }

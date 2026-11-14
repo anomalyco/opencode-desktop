@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Modificările nu se salvează",
   "rune.storage.writeFailed.description": "OpenCode nu a putut salva ({{why}}). Ce modifici rămâne cât timp rulează și se salvează imediat ce se poate.",
   "rune.storage.diskFull.title": "Discul este plin",
-  "rune.storage.diskFull.description": "Modificările nu se salvează. Ce modifici rămâne cât timp OpenCode rulează și se salvează imediat ce există spațiu. Eliberează puțin spațiu pe acest disc."
+  "rune.storage.diskFull.description": "Modificările nu se salvează. Ce modifici rămâne cât timp OpenCode rulează și se salvează imediat ce există spațiu. Eliberează puțin spațiu pe acest disc.",
+  "rune.scale.tooLarge": "Prea mare pentru a fi afișat aici ({{size}})",
+  "rune.scale.save": "Salvează rezultatul complet…"
 }

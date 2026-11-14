@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Промените не се запазват",
   "rune.storage.writeFailed.description": "OpenCode не можа да запази ({{why}}). Промените ви остават, докато работи, и се запазват щом е възможно.",
   "rune.storage.diskFull.title": "Дискът е пълен",
-  "rune.storage.diskFull.description": "Промените не се запазват. Промените ви остават, докато OpenCode работи, и се запазват щом има място. Освободете малко място на този диск."
+  "rune.storage.diskFull.description": "Промените не се запазват. Промените ви остават, докато OpenCode работи, и се запазват щом има място. Освободете малко място на този диск.",
+  "rune.scale.tooLarge": "Твърде голямо за показване тук ({{size}})",
+  "rune.scale.save": "Запазване на пълния изход…"
 }

@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Ændringer gemmes ikke",
   "rune.storage.writeFailed.description": "OpenCode kunne ikke gemme ({{why}}). Det, du ændrer, bliver, mens det kører, og gemmes, så snart det kan.",
   "rune.storage.diskFull.title": "Disken er fuld",
-  "rune.storage.diskFull.description": "Ændringer gemmes ikke. Det, du ændrer, bliver, mens OpenCode kører, og gemmes, så snart der er plads. Frigør noget plads på denne disk."
+  "rune.storage.diskFull.description": "Ændringer gemmes ikke. Det, du ændrer, bliver, mens OpenCode kører, og gemmes, så snart der er plads. Frigør noget plads på denne disk.",
+  "rune.scale.tooLarge": "For stort til at blive vist her ({{size}})",
+  "rune.scale.save": "Gem hele outputtet…"
 }

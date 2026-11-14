@@ -46,8 +46,12 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
             sections = sections.child(section(s, p, &d.id, "error", opencode_i18n::t!("ui.tool.execute.error"), None, e, opencode_i18n::t!("ui.toolErrorCard.copyError"), pre));
         }
         None if !d.output.is_empty() => {
-            let json = serde_json::from_str::<serde_json::Value>(&d.output).is_ok();
-            let view = super::diff::code(p, &d.output, json.then_some("json"), digits);
+            let view = if d.output.len() > 4096 {
+                super::console::output_view::<S>(p,session,id,&d.output,true)
+            } else {
+                let json = serde_json::from_str::<serde_json::Value>(&d.output).is_ok();
+                super::diff::code(p, &d.output, json.then_some("json"), digits)
+            };
             sections = sections.child(section(s, p, &d.id, "output", opencode_i18n::t!("ui.tool.execute.output"), Some(lines_count(lines(&d.output))), &d.output, opencode_i18n::t!("ui.tool.execute.copyOutput"), view));
         }
         None => {}

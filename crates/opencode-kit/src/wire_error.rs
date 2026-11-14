@@ -33,6 +33,11 @@ pub enum WireKind {
     Status { status: u16, tag: Option<String>, message: Option<String> },
     /// OpenCode's answer, without what the call needed from it.
     Shape(String),
+    /// The response exceeded its inline budget. Length is the declared transfer length when
+    /// the headers alone established the refusal, not the size of a tool string inside JSON.
+    TooLarge { limit: u64, length: Option<u64> },
+    /// Decoded prefix of one tool's interrupted text item. Never the full output or its size.
+    PartialOutput { head: std::sync::Arc<str>, at_least: u64 },
     /// Anything else the transport reported.
     Other(String),
 }
@@ -102,6 +107,8 @@ impl fmt::Display for WireKind {
         match self {
             WireKind::Unreachable(e) => write!(f, "connection failed: {e}"),
             WireKind::TimedOut => write!(f, "timeout"),
+            WireKind::TooLarge { limit, length } => write!(f, "body length {length:?} exceeds {limit} bytes"),
+            WireKind::PartialOutput { at_least, .. } => write!(f, "partial tool output, at least {at_least} bytes"),
             WireKind::Dropped(e) => write!(f, "connection dropped: {e}"),
             WireKind::Tls(e) => write!(f, "tls: {e}"),
             WireKind::Redirected { status, location } => {
@@ -169,6 +176,7 @@ pub(crate) fn transport(e: ureq::Error) -> WireKind {
     use std::io::ErrorKind;
     match e {
         ureq::Error::Timeout(_) => WireKind::TimedOut,
+        ureq::Error::BodyExceedsLimit(limit) => WireKind::TooLarge { limit, length: None },
         ureq::Error::HostNotFound => WireKind::Unreachable("host not found".into()),
         ureq::Error::ConnectionFailed => WireKind::Unreachable("no connection".into()),
         ureq::Error::Io(io) => match io.kind() {

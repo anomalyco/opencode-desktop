@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "تبدیلیاں محفوظ نئیں ہو رہیاں",
   "rune.storage.writeFailed.description": "OpenCode محفوظ نئیں کر سکیا ({{why}})۔ ایہہ چلن تک تہاڈیاں تبدیلیاں رہندیاں نیں، تے ممکن ہوندیاں ای محفوظ ہو جاندیاں نیں۔",
   "rune.storage.diskFull.title": "ڈسک بھر گئی اے",
-  "rune.storage.diskFull.description": "تبدیلیاں محفوظ نئیں ہو رہیاں۔ OpenCode چلن تک تہاڈیاں تبدیلیاں رہندیاں نیں، تے جگہ ملدیاں ای محفوظ ہو جاندیاں نیں۔ ایس ڈسک تے کجھ جگہ خالی کرو۔"
+  "rune.storage.diskFull.description": "تبدیلیاں محفوظ نئیں ہو رہیاں۔ OpenCode چلن تک تہاڈیاں تبدیلیاں رہندیاں نیں، تے جگہ ملدیاں ای محفوظ ہو جاندیاں نیں۔ ایس ڈسک تے کجھ جگہ خالی کرو۔",
+  "rune.scale.tooLarge": "ਇੱਥੇ ਦਿਖਾਉਣ ਲਈ ਬਹੁਤ ਵੱਡਾ ਹੈ ({{size}})",
+  "rune.scale.save": "ਪੂਰੀ ਆਉਟਪੁੱਟ ਸੰਭਾਲੋ…"
 }

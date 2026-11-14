@@ -4,7 +4,7 @@
 //! answer only counts when it has the type OpenCode gives it: JSON for its API, a download for a
 //! file's bytes. Anything else is a [`WireError`] that says what answered instead.
 
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 
 use rune::time::Instant;
 use serde_json::Value;
@@ -22,8 +22,13 @@ pub(crate) struct Answer {
     pub first_byte: Instant,
 }
 
-/// The most a response body may be (a session's page of messages, a file).
-pub(crate) const BODY_LIMIT: u64 = 64 << 20;
+/// Inline reads are bounded *before* JSON decoding, including chunked and decompressed bodies.
+fn inline_limit(path: &str) -> u64 {
+    let route = path.split('?').next().unwrap_or(path);
+    if route.starts_with("/api/fs/read/") { 16 << 20 }
+    else if route.starts_with("/api/session/") && route.split('/').nth(4) == Some("message") { 32 << 20 }
+    else { 64 << 20 }
+}
 
 /// How long an idle kept-alive connection is reused: under the server's own keep-alive (5 s), so
 /// a reused connection is never one the server has already closed.
@@ -63,8 +68,49 @@ impl Server {
         let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
         let (status, content_type, location) = (resp.status().as_u16(), header("content-type").unwrap_or_default(), header("location"));
         // An error's body is only its explanation: a little of it is enough.
-        let limit = if status >= 300 { 64 << 10 } else { BODY_LIMIT };
-        let body = resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| fail(transport(e)))?;
+        let length = header("content-length").and_then(|s| s.parse::<u64>().ok());
+        let limit = inline_limit(path);
+        let body = if status >= 300 {
+            let mut bytes = Vec::new();
+            // The status remains authoritative even if its explanation is oversized or cut short.
+            let _ = resp.body_mut().as_reader().take(64 << 10).read_to_end(&mut bytes);
+            bytes
+        } else if limit == 32 << 20 && is_json(&content_type) {
+            // An indefinite page may be a single enormous string. Four readers buffering to
+            // the page ceiling used hundreds of MiB before any one of them refused the page.
+            let declared_large = length.is_some_and(|n| n > limit);
+            let probe = match length {
+                Some(n) if n <= limit && header("content-encoding").is_none() => limit,
+                // Unknown-length legacy responses grow only to the inline tool budget plus a
+                // small allowance for the page envelope before inspecting the in-flight token.
+                None => (2 << 20) + (64 << 10),
+                Some(n) if n <= limit => (2 << 20) + (64 << 10),
+                _ => 8 << 10,
+            };
+            let mut reader = resp.body_mut().as_reader();
+            let mut bytes = Vec::new();
+            #[cfg(not(target_arch="wasm32"))]
+            let read = |e| fail(crate::wire_error::read_failure(e));
+            #[cfg(target_arch="wasm32")]
+            let read = |e:std::io::Error| fail(WireKind::Dropped(e.to_string()));
+            (&mut reader).take(probe).read_to_end(&mut bytes).map_err(read)?;
+            if bytes.len() as u64 == probe && let Some(kind) = super::output_head::partial(&bytes)
+                && (declared_large || matches!(kind, WireKind::PartialOutput {at_least, ..} if at_least > 2 << 20)) {
+                return Err(fail(kind));
+            }
+            if declared_large {return Err(fail(WireKind::TooLarge {limit,length}));}
+            if bytes.len() as u64 == probe {
+                reader.take(limit+1-probe).read_to_end(&mut bytes).map_err(read)?;
+                if bytes.len() as u64 > limit {return Err(fail(super::output_head::partial(&bytes).unwrap_or(WireKind::TooLarge{limit,length:None})));}
+            }
+            bytes
+        } else {
+            if length.is_some_and(|n| n > limit) {
+                return Err(fail(WireKind::TooLarge { limit, length }));
+            }
+            // ureq enforces the limit on decoded bytes, not just the advertised transfer length.
+            resp.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| fail(transport(e)))?
+        };
         Ok(Answer { status, content_type, location, body, first_byte })
     }
 

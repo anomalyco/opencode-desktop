@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Üýtgeşmeler ýatda saklanmaýar",
   "rune.storage.writeFailed.description": "OpenCode ýatda saklap bilmedi ({{why}}). Üýtgeşmeleriňiz ol işleýänçä galýar we mümkin bolan badyna ýatda saklanýar.",
   "rune.storage.diskFull.title": "Disk doly",
-  "rune.storage.diskFull.description": "Üýtgeşmeler ýatda saklanmaýar. Üýtgeşmeleriňiz OpenCode işleýänçä galýar we ýer boşan badyna ýatda saklanýar. Bu diskde birneme ýer boşadyň."
+  "rune.storage.diskFull.description": "Üýtgeşmeler ýatda saklanmaýar. Üýtgeşmeleriňiz OpenCode işleýänçä galýar we ýer boşan badyna ýatda saklanýar. Bu diskde birneme ýer boşadyň.",
+  "rune.scale.tooLarge": "Bu ýerde görkezmek üçin örän uly ({{size}})",
+  "rune.scale.save": "Doly çykyşy ýatda sakla…"
 }

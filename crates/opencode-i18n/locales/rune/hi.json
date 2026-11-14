@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "बदलाव सहेजे नहीं जा रहे",
   "rune.storage.writeFailed.description": "OpenCode सहेज नहीं सका ({{why}})। इसके चलने तक आपके बदलाव बने रहते हैं, और संभव होते ही सहेज लिए जाते हैं।",
   "rune.storage.diskFull.title": "डिस्क भर गई है",
-  "rune.storage.diskFull.description": "बदलाव सहेजे नहीं जा रहे। OpenCode चलने तक आपके बदलाव बने रहते हैं, और जगह मिलते ही सहेज लिए जाते हैं। इस डिस्क पर कुछ जगह खाली करें।"
+  "rune.storage.diskFull.description": "बदलाव सहेजे नहीं जा रहे। OpenCode चलने तक आपके बदलाव बने रहते हैं, और जगह मिलते ही सहेज लिए जाते हैं। इस डिस्क पर कुछ जगह खाली करें।",
+  "rune.scale.tooLarge": "यहाँ दिखाने के लिए बहुत बड़ा है ({{size}})",
+  "rune.scale.save": "पूरा आउटपुट सहेजें…"
 }

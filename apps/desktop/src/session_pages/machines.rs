@@ -38,6 +38,7 @@ pub enum OpenPhase {
     Loading { received: bool },
     /// Its read failed: the target shows the error.
     Failed { error: String },
+    Partial { error: String, head: std::sync::Arc<str> },
 }
 
 pub enum OpenEvent {
@@ -46,6 +47,7 @@ pub enum OpenEvent {
     /// The hold passed.
     Expired,
     Failed(String),
+    Partial(String, std::sync::Arc<str>),
 }
 
 impl Opening {
@@ -60,9 +62,10 @@ impl Opening {
             (OpenPhase::Loading { .. }, OpenEvent::Received) => OpenPhase::Loading { received: true },
             (OpenPhase::Held { received, .. }, OpenEvent::Expired) => OpenPhase::Loading { received: *received },
             (OpenPhase::Held { .. } | OpenPhase::Loading { .. }, OpenEvent::Failed(error)) => OpenPhase::Failed { error },
+            (_, OpenEvent::Partial(error, head)) => OpenPhase::Partial { error, head },
             _ => return false,
         };
-        let changed = matches!((&self.phase, &next), (OpenPhase::Held { .. }, OpenPhase::Loading { .. } | OpenPhase::Failed { .. }));
+        let changed = matches!((&self.phase, &next), (OpenPhase::Held { .. }, OpenPhase::Loading { .. } | OpenPhase::Failed { .. })) || matches!(next, OpenPhase::Partial {..});
         self.phase = next;
         changed
     }
@@ -73,10 +76,11 @@ impl Opening {
     pub fn loading(&self) -> bool { !matches!(self.phase, OpenPhase::Held { .. }) }
     pub fn error(&self) -> Option<&str> {
         match &self.phase {
-            OpenPhase::Failed { error } => Some(error),
+            OpenPhase::Failed { error } | OpenPhase::Partial {error, ..} => Some(error),
             _ => None,
         }
     }
+    pub fn partial(&self) -> Option<&str> {match &self.phase {OpenPhase::Partial{head,..} => Some(head), _=>None}}
     /// The hold has passed: on the wall clock for a live window, whose last poll may have been
     /// minutes before the click; on the app's clock for a story's.
     pub fn expired(&self, live: bool, clock: f64) -> bool {

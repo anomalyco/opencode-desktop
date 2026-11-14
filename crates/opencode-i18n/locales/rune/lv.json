@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Izmaiņas netiek saglabātas",
   "rune.storage.writeFailed.description": "OpenCode nevarēja saglabāt ({{why}}). Jūsu izmaiņas paliek, kamēr tas darbojas, un tiek saglabātas, tiklīdz iespējams.",
   "rune.storage.diskFull.title": "Disks ir pilns",
-  "rune.storage.diskFull.description": "Izmaiņas netiek saglabātas. Jūsu izmaiņas paliek, kamēr darbojas OpenCode, un tiek saglabātas, tiklīdz ir vieta. Atbrīvojiet vietu šajā diskā."
+  "rune.storage.diskFull.description": "Izmaiņas netiek saglabātas. Jūsu izmaiņas paliek, kamēr darbojas OpenCode, un tiek saglabātas, tiklīdz ir vieta. Atbrīvojiet vietu šajā diskā.",
+  "rune.scale.tooLarge": "Pārāk liels, lai parādītu šeit ({{size}})",
+  "rune.scale.save": "Saglabāt visu izvadi…"
 }

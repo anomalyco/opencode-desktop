@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Perubahan tidak disimpan",
   "rune.storage.writeFailed.description": "OpenCode tidak dapat menyimpan ({{why}}). Perubahan anda kekal selagi ia berjalan, dan disimpan sebaik sahaja boleh.",
   "rune.storage.diskFull.title": "Cakera penuh",
-  "rune.storage.diskFull.description": "Perubahan tidak disimpan. Perubahan anda kekal selagi OpenCode berjalan, dan disimpan sebaik sahaja ada ruang. Kosongkan sedikit ruang pada cakera ini."
+  "rune.storage.diskFull.description": "Perubahan tidak disimpan. Perubahan anda kekal selagi OpenCode berjalan, dan disimpan sebaik sahaja ada ruang. Kosongkan sedikit ruang pada cakera ini.",
+  "rune.scale.tooLarge": "Terlalu besar untuk dipaparkan di sini ({{size}})",
+  "rune.scale.save": "Simpan keseluruhan output…"
 }

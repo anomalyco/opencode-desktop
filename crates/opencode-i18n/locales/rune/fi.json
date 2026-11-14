@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Muutoksia ei tallenneta",
   "rune.storage.writeFailed.description": "OpenCode ei voinut tallentaa ({{why}}). Muutoksesi säilyvät, kun se on käynnissä, ja tallentuvat heti, kun se onnistuu.",
   "rune.storage.diskFull.title": "Levy on täynnä",
-  "rune.storage.diskFull.description": "Muutoksia ei tallenneta. Muutoksesi säilyvät, kun OpenCode on käynnissä, ja tallentuvat heti, kun tilaa on. Vapauta tilaa tältä levyltä."
+  "rune.storage.diskFull.description": "Muutoksia ei tallenneta. Muutoksesi säilyvät, kun OpenCode on käynnissä, ja tallentuvat heti, kun tilaa on. Vapauta tilaa tältä levyltä.",
+  "rune.scale.tooLarge": "Liian suuri näytettäväksi tässä ({{size}})",
+  "rune.scale.save": "Tallenna koko tuloste…"
 }

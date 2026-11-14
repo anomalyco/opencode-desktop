@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Wijzigingen worden niet opgeslagen",
   "rune.storage.writeFailed.description": "OpenCode kon niet opslaan ({{why}}). Wat je wijzigt blijft bewaard zolang het draait, en wordt opgeslagen zodra het kan.",
   "rune.storage.diskFull.title": "De schijf is vol",
-  "rune.storage.diskFull.description": "Wijzigingen worden niet opgeslagen. Wat je wijzigt blijft bewaard zolang OpenCode draait, en wordt opgeslagen zodra er ruimte is. Maak ruimte vrij op deze schijf."
+  "rune.storage.diskFull.description": "Wijzigingen worden niet opgeslagen. Wat je wijzigt blijft bewaard zolang OpenCode draait, en wordt opgeslagen zodra er ruimte is. Maak ruimte vrij op deze schijf.",
+  "rune.scale.tooLarge": "Te groot om hier weer te geven ({{size}})",
+  "rune.scale.save": "Volledige uitvoer opslaan…"
 }

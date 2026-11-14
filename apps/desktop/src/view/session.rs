@@ -74,7 +74,9 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
             s.message_nav.page = Some(r);
             tx.live_only();
         })
-        .child(if s.opening.is_some() { timeline.inert() } else { timeline })
+        // Only held content belongs to the tab we left. In particular a completed size
+        // refusal contains real, selectable output and a working Copy preview action.
+        .child(if s.opening.as_ref().is_some_and(|o| !o.loading()) { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
     page = page.children(s.debug.then(|| status_bar(s, p, info)));
     page

@@ -595,7 +595,12 @@ impl super::App {
                     // What the timeline's loading row says: why, from the typed error (`crate::errors`).
                     let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
                     let why = crate::errors::UserError::from_wire("Couldn't load this session", &server, &error).description().replace('\n', " ");
-                    if let Some(o) = &mut *self.opening { o.step(OpenEvent::Failed(why)); }
+                    if let Some(o) = &mut *self.opening {
+                        o.step(match error.kind {
+                            opencode_kit::wire_error::WireKind::PartialOutput {head,..} => OpenEvent::Partial(why,head),
+                            _=>OpenEvent::Failed(why),
+                        });
+                    }
                     changed = true;
                 }
                 Err((key, error)) if self.route == super::Route::here(key.id.clone()) && error.status() == Some(404) => {
@@ -661,4 +666,3 @@ impl super::App {
         self.step_history(&id, HistoryEvent::NearTop { now: Instant::now() }, tx)
     }
 }
-

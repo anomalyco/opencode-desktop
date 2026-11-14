@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Änderungen werden nicht gespeichert",
   "rune.storage.writeFailed.description": "OpenCode konnte nicht speichern ({{why}}). Ihre Änderungen bleiben erhalten, solange es läuft, und werden gespeichert, sobald es geht.",
   "rune.storage.diskFull.title": "Der Datenträger ist voll",
-  "rune.storage.diskFull.description": "Änderungen werden nicht gespeichert. Ihre Änderungen bleiben erhalten, solange OpenCode läuft, und werden gespeichert, sobald Platz frei ist. Geben Sie auf diesem Datenträger Speicherplatz frei."
+  "rune.storage.diskFull.description": "Änderungen werden nicht gespeichert. Ihre Änderungen bleiben erhalten, solange OpenCode läuft, und werden gespeichert, sobald Platz frei ist. Geben Sie auf diesem Datenträger Speicherplatz frei.",
+  "rune.scale.tooLarge": "Für die Anzeige hier zu groß ({{size}})",
+  "rune.scale.save": "Vollständige Ausgabe speichern…"
 }

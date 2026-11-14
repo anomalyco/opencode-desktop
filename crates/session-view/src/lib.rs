@@ -121,6 +121,43 @@ pub trait TimelineHost: Sized + 'static {
     fn session_directory(&self, _session: &str) -> Option<&str> {
         None
     }
+
+    /// Save the original bytes, not the cleaned/shortened text in the console. Resolve the
+    /// result on press, so a closed card retains neither a second copy nor an open file.
+    fn save_tool_output(&mut self, session: &str, id: &str, tx: &mut rune::Tx) {
+        let Some(raw) = tools::raw_output(self, session, id) else { return };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let options = rune::FileDialogOptions { title: opencode_i18n::t!("rune.scale.save").into(), file_name: Some("output.txt".into()), ..Default::default() };
+            tx.save_file(options, move |s: &mut Self, answer, _| match answer {
+                Ok(Some(path)) => {
+                    let report = s.output_save_reporter();
+                    if let Err(e) = rune::task::spawn("save-tool-output", move || {
+                        use std::io::Write;
+                        let write = || -> std::io::Result<()> {
+                            let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+                            let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+                            temp.write_all(raw.as_bytes())?;
+                            temp.as_file().sync_all()?;
+                            temp.persist(path)?;
+                            Ok(())
+                        };
+                        if let Err(e) = write() { report(e.to_string()); }
+                    }) { s.output_save_failed(e.to_string()); }
+                }
+                Err(e) => s.output_save_failed(e.to_string()),
+                Ok(None) => {}
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = tx;
+            if let Err(e) = opencode_kit::client::save_download("output.txt", &raw) { self.output_save_failed(e); }
+        }
+    }
+
+    fn output_save_failed(&mut self, reason: String) { eprintln!("save output: {reason}"); }
+    fn output_save_reporter(&mut self) -> Box<dyn FnOnce(String) + Send> { Box::new(|why| eprintln!("save output: {why}")) }
     fn session_title(&self, _session: &str) -> Option<String> {
         None
     }
@@ -303,6 +340,7 @@ pub trait TimelineHost: Sized + 'static {
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None
     }
+    fn partial_output(&self, _session:&str) -> Option<&str>{None}
     fn loading_older(&self, _session: &str) -> bool {
         false
     }

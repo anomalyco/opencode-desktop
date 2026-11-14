@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Spremembe se ne shranjujejo",
   "rune.storage.writeFailed.description": "OpenCode ni mogel shraniti ({{why}}). Vaše spremembe ostanejo, dokler teče, in se shranijo, takoj ko bo mogoče.",
   "rune.storage.diskFull.title": "Disk je poln",
-  "rune.storage.diskFull.description": "Spremembe se ne shranjujejo. Vaše spremembe ostanejo, dokler OpenCode teče, in se shranijo, takoj ko bo prostor. Sprostite nekaj prostora na tem disku."
+  "rune.storage.diskFull.description": "Spremembe se ne shranjujejo. Vaše spremembe ostanejo, dokler OpenCode teče, in se shranijo, takoj ko bo prostor. Sprostite nekaj prostora na tem disku.",
+  "rune.scale.tooLarge": "Preveliko za prikaz tukaj ({{size}})",
+  "rune.scale.save": "Shrani celoten izpis…"
 }

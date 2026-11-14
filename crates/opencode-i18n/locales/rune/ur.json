@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "تبدیلیاں محفوظ نہیں ہو رہیں",
   "rune.storage.writeFailed.description": "OpenCode محفوظ نہیں کر سکا ({{why}})۔ اس کے چلنے تک آپ کی تبدیلیاں برقرار رہتی ہیں، اور ممکن ہوتے ہی محفوظ ہو جاتی ہیں۔",
   "rune.storage.diskFull.title": "ڈسک بھر گئی ہے",
-  "rune.storage.diskFull.description": "تبدیلیاں محفوظ نہیں ہو رہیں۔ OpenCode چلنے تک آپ کی تبدیلیاں برقرار رہتی ہیں، اور جگہ ملتے ہی محفوظ ہو جاتی ہیں۔ اس ڈسک پر کچھ جگہ خالی کریں۔"
+  "rune.storage.diskFull.description": "تبدیلیاں محفوظ نہیں ہو رہیں۔ OpenCode چلنے تک آپ کی تبدیلیاں برقرار رہتی ہیں، اور جگہ ملتے ہی محفوظ ہو جاتی ہیں۔ اس ڈسک پر کچھ جگہ خالی کریں۔",
+  "rune.scale.tooLarge": "یہاں دکھانے کے لیے بہت بڑا ہے ({{size}})",
+  "rune.scale.save": "مکمل آؤٹ پٹ محفوظ کریں…"
 }

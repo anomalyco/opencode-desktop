@@ -229,5 +229,7 @@
   "rune.storage.notSaving.title": "Zmiany nie są zapisywane",
   "rune.storage.writeFailed.description": "OpenCode nie mógł zapisać ({{why}}). Twoje zmiany zostają, dopóki działa, i zostaną zapisane, gdy tylko będzie to możliwe.",
   "rune.storage.diskFull.title": "Dysk jest pełny",
-  "rune.storage.diskFull.description": "Zmiany nie są zapisywane. Twoje zmiany zostają, dopóki działa OpenCode, i zostaną zapisane, gdy tylko będzie miejsce. Zwolnij trochę miejsca na tym dysku."
+  "rune.storage.diskFull.description": "Zmiany nie są zapisywane. Twoje zmiany zostają, dopóki działa OpenCode, i zostaną zapisane, gdy tylko będzie miejsce. Zwolnij trochę miejsca na tym dysku.",
+  "rune.scale.tooLarge": "Za duże, by wyświetlić tutaj ({{size}})",
+  "rune.scale.save": "Zapisz pełne dane wyjściowe…"
 }
