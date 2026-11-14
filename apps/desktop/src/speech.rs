@@ -21,6 +21,8 @@ use opencode_kit::model::{Message, Part, Pending};
 const TOOL_GAP: f64 = 4.0;
 /// A reply's first sentence is cut here, in characters.
 const SENTENCE_MAX: usize = 160;
+/// How long a request's dock is asked for focus while it comes in, in seconds.
+const DOCK_FOCUS_WAIT: f64 = 1.5;
 
 /// The open session's run, as speech follows it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -64,10 +66,10 @@ pub struct Speech {
     in_prompt: bool,
     /// The request the open page's dock showed at the last poll.
     dock: Option<String>,
-    /// A request arrived on the open page: the key that takes focus at the next poll, when focus
-    /// is then in the prompt the dock replaces, or nowhere. A keyboard user's, with or without a
-    /// screen reader.
-    focus_dock: Option<&'static str>,
+    /// A request arrived on the open page: the key that takes focus, when focus is in the prompt
+    /// the dock replaces, or nowhere, and when it arrived (the app's clock, seconds). A keyboard
+    /// user's, with or without a screen reader.
+    focus_dock: Option<(&'static str, f64)>,
     /// The open run's tool calls by id, and their tools' names: `session.tool.called` brings
     /// a call's input and `session.tool.input.started` its name.
     tools: Vec<(String, String)>,
@@ -151,7 +153,8 @@ pub fn step(turn: Turn, heard: Heard) -> (Turn, Option<Say>) {
 /// Feeds one stream event to the machine (from `App::react`).
 pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
     if matches!(ty, "permission.asked" | "form.created") && open_root(app).is_some_and(|r| r == app.root_of(sid)) {
-        app.speech.focus_dock = Some(if ty == "permission.asked" { session_view::dock::permission::PERMISSION_FOCUS } else { "q-opt-0" });
+        let key = if ty == "permission.asked" { session_view::dock::permission::PERMISSION_FOCUS } else { "q-opt-0" };
+        app.speech.focus_dock = Some((key, *app.clock));
     }
     if !app.speech.listening {
         return;
@@ -188,10 +191,14 @@ pub fn listening(app: &App) -> bool {
 }
 
 fn poll_inner(app: &mut App, tx: &mut Tx) {
-    if let Some(key) = app.speech.focus_dock.take()
-        && tx.focused().is_none_or(|k| k == "prompt")
-    {
-        tx.focus(key, tx.focus_visible());
+    // The dock comes in with the composer's morph, and until it's laid out and shown a focus
+    // asked of it lands nowhere: asked again each poll until focus is on it or the user moved
+    // it, for at most DOCK_FOCUS_WAIT.
+    if let Some((key, at)) = app.speech.focus_dock {
+        match tx.focused() {
+            None | Some("prompt") if *app.clock - at < DOCK_FOCUS_WAIT => tx.focus(key, tx.focus_visible()),
+            _ => app.speech.focus_dock = None,
+        }
     }
     let listening = tx.assistive_technology();
     if !listening {
