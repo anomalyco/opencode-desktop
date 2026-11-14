@@ -15,10 +15,12 @@ use crate::popover::{self, MENU, Opt};
 pub mod context;
 mod keys;
 mod restore;
+mod rows;
 mod search;
 mod standard;
 
 pub use keys::key;
+use rows::{CHEVRON, detail_row, diff_note};
 use search::{SEARCH_H, search_field};
 
 /// Native menus where Kit chose them.
@@ -682,7 +684,9 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     .danger(i.danger)
                     .disabled(!i.enabled);
                 let ink = if !i.enabled { p.faint } else if i.danger { p.danger } else { p.text };
+                // The location card's rows draw Desktop's `Icon` at its own 16.
                 let o = match i.glyph {
+                    Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     Some(Glyph::Ink(g)) => o.lead(icon(g, 14.0).color(ink)),
                     Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(session_view::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
                     Some(Glyph::App(id)) => match rune_theme_opencode::app_icons::named(id, p.dark) {
@@ -732,9 +736,16 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
             Entry::Separator => {
                 // A 1 pt rule across the whole surface, 2 above and below (`menu.css:163-169`):
                 // stretched past the inset on both sides, as `width: calc(100% + 4px)` is.
-                let line = col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset)
-                    .child(el().key("line").h(1.0).w_full().fill(p.border_muted));
-                list.other(line, 5.0);
+                // In the location card the rows' own 2 pt gaps are that room (rows 33 apart across
+                // it), and the line is `border-base` scaled to a hairline in its 1 pt box.
+                let line = if menu.card {
+                    col().key(format!("popup-sep-{n}")).h(1.0).mx(-MENU.inset).center_y()
+                        .child(el().key("line").h(0.5).w_full().fill(p.border))
+                } else {
+                    col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset)
+                        .child(el().key("line").h(1.0).w_full().fill(p.border_muted))
+                };
+                list.other(line, if menu.card { 1.0 } else { 5.0 });
             }
             Entry::Group(title) => {
                 let label = row().key(format!("popup-group-{n}")).w_full().h(GROUP_H).pl(MENU.pad_l).pr(MENU.pad_r).center_y()
@@ -752,7 +763,8 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                list.row(takes_focus(popover::option_tx::<App>(p, MENU, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| open_sub_at(s, level, n, false, tx))));
+                let look = if menu.card { CARD } else { MENU };
+                list.row(takes_focus(popover::option_tx::<App>(p, look, o, move |s, tx| hover_focus(s, level, n, tx), move |s, tx| open_sub_at(s, level, n, false, tx))));
             }
         }
     }
@@ -797,32 +809,6 @@ fn hug_width(menu: &Menu) -> f32 {
         Entry::Separator => 0.0,
     });
     rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + MENU.pad_r + 2.0 * MENU.inset + 2.0
-}
-
-/// `menu-v2-item-chevron`: a submenu row's end.
-static CHEVRON: Icon = Icon { name: "menu-v2-chevron", view: 16.0, body: r#"<path d="M6 4L10 8L6 12V4Z" fill="currentColor"/>"# };
-
-/// `· +added -removed`: the separator muted, the counts in the diff's inks.
-fn diff_note(p: &Pal, added: u32, removed: u32) -> El {
-    let st = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-    row().gap(8.0).center_y()
-        .child(text("·").font(st).color(p.muted))
-        .child(row().gap(4.0).child(text(format!("+{added}")).dir(rune::Direction::Ltr).font(st).color(p.diff_add)).child(text(format!("-{removed}")).dir(rune::Direction::Ltr).font(st).color(p.diff_del)))
-}
-
-/// A row that only tells (`SessionLocationDetail`): its 16 pt glyph in the muted ink and its
-/// line, 13/440 in the base ink, 28 tall.
-fn detail_row(p: &Pal, key: &str, i: &Item) -> El {
-    row()
-        .key(key.to_owned())
-        .w_full()
-        .h(MENU.row_h)
-        .pl(MENU.pad_l)
-        .pr(MENU.pad_r)
-        .gap(MENU.gap)
-        .center_y()
-        .children(i.glyph.and_then(Glyph::mono).map(|g| icon(g, 16.0).color(p.icon_muted)))
-        .child(text(i.title.clone()).font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04)).color(p.text).truncate_fade().shrink())
 }
 
 /// The pointer over the root's row `n`: it lights, and opens its submenu or closes the open one.
