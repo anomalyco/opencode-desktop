@@ -212,6 +212,45 @@ pub fn doze(app: &mut App, i: usize, record: Record, background: bool) {
     APP_HALVES.with_borrow_mut(|a| a.push((id, app_half)));
 }
 
+/// A window at rest showing no session (`App::rest`): each built-in a use started goes back to
+/// sleep with the record that start wrote, as it is at launch, so its commands, keys and menus stay
+/// listed and its next use starts it again. Not one with work of its own (`background`), nor one
+/// busy now: a process or run of it, power or a prompt it holds, its dialog or popover open. Not
+/// with another window open either, which may show it and shares its app half.
+pub fn sleep_unused(app: &mut App) {
+    if app.other_windows() || app.settings.open {
+        return;
+    }
+    let running: Vec<(usize, String)> = app.plugins.list.iter().enumerate()
+        .filter(|(_, p)| p.tier == super::Tier::Bundled && matches!(p.life, Life::Running(_)) && !super::background(&p.manifest.id))
+        .map(|(i, p)| (i, p.manifest.id.clone()))
+        .collect();
+    for (i, id) in running {
+        if busy(app, i, &id) {
+            continue;
+        }
+        let p = &app.plugins.list[i];
+        let Some(hash) = super::sources::files_hash(&id, &p.origin, p.tier) else { continue };
+        let Some(record) = app.plugins.dormant.record(&id, &hash) else { continue };
+        super::drive(app, i, LifeEvent::Sleep);
+        super::app_half::stop(&id);
+        doze(app, i, record, false);
+        eprintln!("plugins: {id} sleeps again (nothing shows it)");
+    }
+}
+
+/// Whether plugin i is doing something a stop would end.
+fn busy(app: &App, i: usize, id: &str) -> bool {
+    let half = &app.plugins.list[i].half;
+    let overlay = match &app.plugins.overlay {
+        super::Overlay::Popover { plugin, .. } | super::Overlay::PillMenu { plugin, .. } => &**plugin == id,
+        super::Overlay::Closed => false,
+    };
+    !half.procs.borrow().is_empty() || !half.runs.borrow().is_empty() || !half.held.borrow().is_empty()
+        || app.plugins.dialog.as_ref().is_some_and(|d| &*d.plugin == id) || overlay
+        || super::app_half::each(|a| (&*a.half.id == id).then(|| !a.half.procs.borrow().is_empty() || !a.half.runs.borrow().is_empty() || !a.half.held.borrow().is_empty())).into_iter().any(|b| b)
+}
+
 /// One window's dormant app half `id` is gone (it started, was turned off, or its window closed).
 fn release_app_half(id: &str) {
     APP_HALVES.with_borrow_mut(|a| {

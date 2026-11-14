@@ -1185,7 +1185,11 @@ impl App {
         s.rest_session_search();
         // No session tab or draft and not on a session: pictures keep their encoded bytes, not
         // their pixels.
-        if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) { s.attach.store.rest_pixels(); }
+        if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) {
+            s.attach.store.rest_pixels();
+            // The built-ins a session started sleep again, as at launch (`plugin_host::dormant`).
+            if matches!(&*s.route, Route::Home) { plugin_host::dormant::sleep_unused(s); }
+        }
         plugin_host::memory::collect_garbage(s);
         #[cfg(feature = "alloc-sites")]
         plugin_host::memory::publish_vms(s);

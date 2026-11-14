@@ -29,7 +29,9 @@ use super::hot::Prepared;
 ///
 /// `Loading` also covers the wait for the plugin's stored values: its scripts start once they're
 /// in memory. `Dormant` is a plugin that may run but hasn't started: what it contributes is listed
-/// from its last start's record (`dormant`), and its first use starts it (`Load`).
+/// from its last start's record (`dormant`), and its first use starts it (`Load`). A running
+/// built-in nothing shows goes back to it at rest: `Sleep` stops it (`Running` to `Discovered`),
+/// then `Doze`.
 pub enum Life {
     Discovered,
     /// Its manifest, platform or id keeps it from loading.
@@ -54,6 +56,9 @@ pub enum LifeEvent {
     Disable,
     /// It may run, and waits for its first use (`Dormant`).
     Doze,
+    /// A running built-in nothing shows goes back to waiting for its use (`dormant::sleep_unused`):
+    /// its script stops, and `Doze` follows with its record.
+    Sleep,
     Load,
     Started(Script),
     StartFailed(Script, String),
@@ -82,6 +87,7 @@ impl Life {
             (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::NeedTrust) => (L::AwaitingTrust, vec![F::Stop(s)]),
             (L::Discovered | L::AwaitingTrust | L::Dormant, E::Disable) => (L::Disabled, vec![]),
             (L::Discovered, E::Doze) => (L::Dormant, vec![]),
+            (L::Running(s), E::Sleep) => (L::Discovered, vec![F::Stop(s)]),
             (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::Disable) => (L::Disabled, vec![F::Stop(s)]),
             (L::Discovered | L::AwaitingTrust | L::Disabled | L::Dormant, E::Load) => (L::Loading, vec![F::Start]),
             (L::Errored { script, .. }, E::Load | E::Reload) => (L::Loading, vec![F::Stop(script), F::Start]),

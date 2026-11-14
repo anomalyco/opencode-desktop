@@ -433,7 +433,7 @@ fn settle_later(app: &mut App) {
 /// Whether built-in `id` has work of its own to do from launch, without a use: the updater's check,
 /// pill and What's new, and Pairing while Keep screen active holds the display. Those start in idle
 /// time rather than waiting for a use.
-fn background(id: &str) -> bool {
+pub(super) fn background(id: &str) -> bool {
     match id {
         "updater" => true,
         "pairing" => stores::text("pairing", "plugin.pairing", "keepScreenActive").is_some_and(|v| &*v == "true"),
