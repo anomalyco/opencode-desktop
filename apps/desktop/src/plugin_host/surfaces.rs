@@ -105,7 +105,22 @@ fn bench(app: &App, p: &Pal, script: &rune_luau::Script, surface: &str, f: &Func
 /// Each running plugin's contributions of one kind, with the plugin's index.
 fn each<'a, S: 'a, R>(app: &'a App, pick: impl Fn(&super::plugin::Contribs) -> Vec<R> + 'a) -> Vec<(usize, R)> {
     let _ = std::marker::PhantomData::<S>;
-    app.plugins.running().flat_map(|(i, p)| pick(&p.half.contribs.borrow()).into_iter().map(move |r| (i, r))).collect()
+    app.plugins
+        .listed()
+        .flat_map(|(i, p)| pick(&p.half.contribs.borrow()).into_iter().map(move |r| (i, r)))
+        .collect()
+}
+
+/// Asks each dormant plugin among `found` (from [`each`]) to start: `now` at the next turn, for
+/// a surface that shows it, else in idle time. A dormant plugin's entries have no functions, so the
+/// surface draws without them meanwhile.
+fn want_asleep<R>(app: &App, found: &[(usize, R)], now: bool) {
+    for (i, _) in found {
+        let p = &app.plugins.list[*i];
+        if !p.running() {
+            if now { super::dormant::want_now(app, &p.manifest.id) } else { super::dormant::want(app, &p.manifest.id) }
+        }
+    }
 }
 
 /// What a render needs from a contribution: its key, a function and its spec's fields.
@@ -125,7 +140,9 @@ pub fn slot(app: &App, p: &Pal, name: &str, session: &str) -> Vec<El> {
 /// narrow header. In `order`.
 pub fn slot_with(app: &App, p: &Pal, name: &str, session: &str, active: bool, compact: bool) -> Vec<El> {
     let directory = app.session(session).map_or("", |s| s.directory.as_str()).to_owned();
-    let mut all = each::<(), _>(app, |c| c.slots.iter().filter(|s| s.spec.at.as_str() == name).map(|s| (s.spec.clone(), s.f("render").cloned())).collect())
+    let found = each::<(), _>(app, |c| c.slots.iter().filter(|s| s.spec.at.as_str() == name).map(|s| (s.spec.clone(), s.f("render").cloned())).collect());
+    want_asleep(app, &found, true);
+    let mut all = found
         .into_iter()
         .filter_map(|(i, (spec, f))| {
             let props = map([
@@ -152,7 +169,9 @@ static DOWNLOAD: rune::Icon = rune::Icon { name: "titlebar-download", view: 14.0
 /// sidebar's footer (`vertical`) 28 across with the label after it.
 fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
     let ease = rune::Curve::tween(0.15, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
-    each::<(), _>(app, |c| c.titlebar_items.iter().map(|t| (t.key, t.f("show").cloned(), t.f("run").cloned())).collect())
+    let found = each::<(), _>(app, |c| c.titlebar_items.iter().map(|t| (t.key, t.f("show").cloned(), t.f("run").cloned())).collect());
+    want_asleep(app, &found, false);
+    found
         .into_iter()
         .filter_map(|(i, (key, show, run))| {
             let script = app.plugins.list[i].script()?;
@@ -244,7 +263,9 @@ pub fn sidebar_items(app: &App, p: &Pal) -> Option<El> {
 /// one without runs `run`.
 pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
     let directory = app.session(session).map_or("", |s| s.directory.as_str()).to_owned();
-    each::<(), _>(app, |c| c.composer_pills.iter().map(|c| (c.key, c.spec.id.clone(), c.f("show").cloned(), c.f("renderMenu").is_some(), c.f("run").cloned())).collect())
+    let found = each::<(), _>(app, |c| c.composer_pills.iter().map(|c| (c.key, c.spec.id.clone(), c.f("show").cloned(), c.f("renderMenu").is_some(), c.f("run").cloned())).collect());
+    want_asleep(app, &found, false);
+    found
         .into_iter()
         .filter_map(|(i, (key, id, show, menu, run))| {
             let script = app.plugins.list[i].script()?;
@@ -508,10 +529,12 @@ pub fn take_native() -> Option<El> {
 
 /// The running plugin and code block that render ```` ```language ```` blocks.
 fn code_block_of(app: &App, language: &str) -> Option<(usize, opencode_plugin_spec::CodeBlockSpec, Option<Function>)> {
-    each::<(), _>(app, |c| c.code_blocks.iter().map(|c| (c.spec.clone(), c.f("render").cloned())).collect())
+    let found: Vec<_> = each::<(), _>(app, |c| c.code_blocks.iter().map(|c| (c.spec.clone(), c.f("render").cloned())).collect())
         .into_iter()
-        .find(|(_, (spec, _))| spec.languages.iter().any(|l| l.eq_ignore_ascii_case(language)))
-        .map(|(i, (spec, f))| (i, spec, f))
+        .filter(|(_, (spec, _))| spec.languages.iter().any(|l| l.eq_ignore_ascii_case(language)))
+        .collect();
+    want_asleep(app, &found, true);
+    found.into_iter().find(|(i, _)| app.plugins.list[*i].running()).map(|(i, (spec, f))| (i, spec, f))
 }
 
 pub fn code_block_lang(app: &App, language: &str) -> bool {
@@ -540,7 +563,9 @@ pub fn code_block(app: &App, p: &Pal, language: &str, key: &str, code: &str, str
 /// A plugin's view of file `path`, when a file viewer takes its extension.
 pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &str) -> Option<El> {
     let ext = std::path::Path::new(path).extension()?.to_string_lossy().to_ascii_lowercase();
-    let (i, (key, spec, f)) = each::<(), _>(app, |c| take(&c.file_viewers, "render")).into_iter().find(|(_, (_, s, _))| s.extensions.iter().any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(&ext)))?;
+    let found: Vec<_> = each::<(), _>(app, |c| take(&c.file_viewers, "render")).into_iter().filter(|(_, (_, s, _))| s.extensions.iter().any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(&ext))).collect();
+    want_asleep(app, &found, true);
+    let (i, (key, spec, f)) = found.into_iter().find(|(i, _)| app.plugins.list[*i].running())?;
     let abs = if std::path::Path::new(path).is_absolute() { path.to_owned() } else { format!("{}/{path}", directory.trim_end_matches(['/', '\\'])) };
     let props = map([("path", Data::String(abs.clone())), ("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
     let body = render(app, p, i, &format!("file:{}:{abs}", spec.id), &f?, props);

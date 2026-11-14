@@ -33,6 +33,10 @@ impl App {
 
     /// Commits the input destination immediately; the transcript can still be loading.
     pub(crate) fn open_now(&mut self, id: &str, tx: &mut Tx) {
+        // What the session's screen draws from plugins is there in its first frame.
+        if *self.route != Route::here(id.to_owned()) {
+            crate::plugin_host::dormant::wake_for_route(self, id);
+        }
         crate::telemetry::committed(id, false);
         self.close_picker(false);
         self.close_message_menu();

@@ -477,6 +477,14 @@ impl super::App {
             Some(t) => t.id.as_str(),
             None => key,
         };
+        // A session near the pointer or the keyboard: what its screen draws from plugins starts ahead.
+        crate::plugin_host::dormant::near_session(self, id);
+        self.prefetch_page(id);
+    }
+
+    /// Reads session `id`'s newest page on the speculative lane, as launch warms the newest
+    /// sessions: no one is near it, so nothing else starts for it.
+    pub fn prefetch_page(&self, id: &str) {
         if let Some(pages) = &self.pages.pool { pages.request(self.page_key(id), false); }
     }
 

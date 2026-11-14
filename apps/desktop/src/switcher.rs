@@ -520,6 +520,8 @@ impl App {
         if self.switcher.open && self.switcher.mode == mode {
             return;
         }
+        // The palette lists the commands a plugin offers as their `enabled` and `hidden` say.
+        crate::plugin_host::dormant::wake_kind(self, "commands", &["enabled", "hidden"]);
         let restore = if self.switcher.open {
             self.switcher.restore_composer
         } else {

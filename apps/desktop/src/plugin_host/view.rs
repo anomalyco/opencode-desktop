@@ -32,12 +32,12 @@ fn status(lp: &Plugin) -> String {
 
 fn controls(p: &Pal, lp: &Plugin) -> El {
     let id = lp.manifest.id.clone();
-    let switchable = matches!(lp.life, Life::Running(_) | Life::Reloading(_) | Life::Disabled | Life::Errored { .. } | Life::AwaitingTrust);
+    let switchable = matches!(lp.life, Life::Running(_) | Life::Reloading(_) | Life::Disabled | Life::Errored { .. } | Life::AwaitingTrust | Life::Dormant);
     let toggle = switchable.then(|| {
         let id = id.clone();
-        crate::settings::switch(p, &format!("plugin-switch-{id}"), lp.running()).on_press_tx(move |app: &mut App, tx: &mut Tx| super::toggle(app, &id, tx))
+        crate::settings::switch(p, &format!("plugin-switch-{id}"), lp.life.listed()).on_press_tx(move |app: &mut App, tx: &mut Tx| super::toggle(app, &id, tx))
     });
-    let reload = matches!(lp.life, Life::Running(_) | Life::Errored { .. }).then(|| {
+    let reload = matches!(lp.life, Life::Running(_) | Life::Errored { .. } | Life::Dormant).then(|| {
         row()
             .key(format!("plugin-reload-{id}"))
             .role("button")
@@ -51,6 +51,10 @@ fn controls(p: &Pal, lp: &Plugin) -> El {
             .press(p.pressed)
             .on_press_tx(move |app: &mut App, tx: &mut Tx| {
                 tx.instant();
+                // A dormant one starts: what Reload gives a running one, its files' current setup.
+                if super::dormant::wake(app, &id, super::dormant::Why::Use) {
+                    return;
+                }
                 if let Some(i) = app.plugins.find(&id) {
                     super::reload(app, i, None);
                 }

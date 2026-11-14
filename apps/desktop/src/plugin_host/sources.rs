@@ -122,6 +122,17 @@ pub fn contributions(id: &str) -> &'static [&'static str] {
     embedded::CONTRIBUTIONS.iter().find(|(p, _)| *p == id).map_or(&[], |(_, kinds)| kinds)
 }
 
+/// What a built-in's record (`dormant`) is keyed by: the hash of the files this build carries for
+/// it, or (a debug build, which runs them from the repository) of the files as read. None for a
+/// plugin that isn't built in: those start as they always have.
+pub fn files_hash(id: &str, origin: &Origin, tier: Tier) -> Option<String> {
+    match origin {
+        Origin::Embedded(..) => embedded::HASHES.iter().find(|(p, _)| *p == id).map(|(_, h)| (*h).to_owned()),
+        Origin::Dir { files, .. } if tier == Tier::Bundled => Some(content_hash(files)),
+        Origin::Dir { .. } => None,
+    }
+}
+
 /// The ids of the built-ins this binary carries.
 pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
     embedded::BUILTINS.iter().map(|(id, _, _)| *id)

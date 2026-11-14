@@ -52,7 +52,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
 
 /// Whether the debug bar is up at launch: the debug plugin's `bar` value says so, or it isn't in
 /// memory to say otherwise.
-fn debug_bar_shown() -> bool {
+pub(super) fn debug_bar_shown() -> bool {
     let ns = opencode_storage::plugin_namespace("debug");
     let value = match crate::storage::plugin_value(&ns, "bar") {
         Lookup::Pending => crate::storage::boot_packet().map_or(Lookup::Pending, |boot| boot.plugin_value(&ns, "bar")),

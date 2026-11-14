@@ -322,6 +322,8 @@ impl App {
         if !self.settings.open {
             self.settings_pages.server.key = crate::servers::runtime::desired(self);
         }
+        // What plugins show in Settings (their rows on Plugins, their own pages) draws from their VMs.
+        crate::plugin_host::dormant::wake_owners(self, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
         self.settings.open = true;
         self.show_settings_page(page);
     }

@@ -79,6 +79,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     // What each plugin contributes (`ctx:AddSlot`, `ctx:AddPanel`, ...), read from its source, so the host
     // knows which plugins a first screen shows before starting any (`plugin_host::first_screen`).
     let mut contributions = String::from("pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[\n");
+    // Each plugin's files hashed, so a record of what it contributed (`plugin_host::dormant`) is
+    // known to be this build's.
+    let mut hashes = String::from("pub static HASHES: &[(&str, &str)] = &[\n");
     let mut dirs: Vec<_> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path()).collect();
     dirs.sort();
     for dir in dirs {
@@ -90,6 +93,15 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         let mut files = Vec::new();
         walk(&dir, &dir, &mut files);
         files.sort();
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            for (rel, path) in &files {
+                (rel, std::fs::read(path).unwrap_or_default()).hash(&mut h);
+            }
+            h.finish()
+        };
+        writeln!(hashes, "    ({id:?}, {:?}),", format!("{hash:016x}")).ok();
         writeln!(code, "    ({id:?}, &[").ok();
         // Its `locales/*.json` become one table (`plugin_host::catalogs`), read in place: a start parses
         // no JSON, and only the interface language's and English's strings are ever touched.
@@ -134,7 +146,8 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     code.push_str("];\n");
     precompiled.push_str("];\n");
     contributions.push_str("];\n");
-    code = consts + &code + &precompiled + &contributions;
+    hashes.push_str("];\n");
+    code = consts + &code + &precompiled + &contributions + &hashes;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();
