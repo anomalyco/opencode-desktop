@@ -1,7 +1,6 @@
 //! Where a new session starts, under the composer: Desktop's `NewSessionLocation`
 //! (`new-session/view.tsx:274-463`). The project, which opens the project picker; for a Git
-//! project, a slash and where it runs (`Local`, or the worktree), which opens its worktrees
-//! with a dot until a worktree has been picked once; the branch; and the folder, faint at the
+//! project, one branch button which opens its worktrees; and the folder, faint at the
 //! end, cut in the middle on a separator when it doesn't fit.
 
 use std::cell::Cell;
@@ -41,31 +40,23 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .child(crate::icons::badge(s, p, project, &name))
         .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade());
     let branch = s.sidebar_inbox.branches.get(dir);
-    let creating = s.draft_creates();
-    // Worktrees are a Git project's (`view.tsx:128`).
-    let place = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
-        let worktree = s.project_worktrees(&project.id, &project.directory).iter().any(|w| path::trim(w) == path::trim(dir));
-        let (glyph, size, label) = match (creating, worktree) {
-            (true, _) => (&ic::PLUS, 14.0, t!("workspace.new").to_owned()),
-            (false, true) => (&ic::OUTLINE_WORKTREE, 16.0, path::basename(dir).to_owned()),
-            (false, false) => (&ic::MONITOR, 14.0, t!("session.new.workspace.triggerLocal").to_owned()),
-        };
+    // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
+    // destination in the dialog, not a second button next to the branch.
+    let branch = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
+        let label = s.draft_base().or(branch).unwrap_or_else(|| t!("session.location.noBranch"));
         let id = project.id.clone();
-        // The onboarding's own large tooltip isn't drawn here yet; after it, Desktop's plain one.
-        let button = trigger("worktree", t!("session.location.worktree"));
-        let button = if used() { button.help(t!("session.location.worktree")).help_keys(crate::keymap::Bind::LocationSelect.keycaps()) } else { button };
-        button
+        let help = if used() { t!("session.location.worktree").to_owned() } else {
+            format!("{}\n{}\n{}", t!("workspace.onboarding.title"), t!("workspace.onboarding.description"), t!("session.location.worktree"))
+        };
+        trigger("location-branch", label).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.open_project_worktrees(&id, tx);
             })
-            .child(icon(glyph, size).color(p.icon_muted))
-            .child(text(label).font(UI).color(p.muted).group_color(p.text).truncate_fade())
-            .children((!used()).then(|| el().key("onboarding-dot").size(6.0, 6.0).radius(3.0).fill(p.accent)))
+            .child(icon(&ic::BRANCH, 16.0).color(p.icon_muted))
+            .child(text(label.to_owned()).font(UI).color(p.faint).group_color(p.text).truncate_fade())
     });
-    // A new worktree's branch is the one it starts from, and can be picked (`selector.tsx`).
-    let branch = branch.map(|b| if creating { crate::new_worktree::trigger(s, p, b) } else { branch_label(p, b) });
     let pickers = row()
         .key("location-pickers")
         .shrink()
@@ -73,9 +64,7 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .py(6.0)
         .center_y()
         .child(button)
-        .children(place.map(|place| row().key("location-place").shrink().min_w(48.0).center_y().child(session_view::composer::slash(p, 2.0)).child(place)))
         .children(branch);
-    // A worktree still to be made has no folder yet (`view.tsx:312-316`).
     row()
         .key("location")
         .w_full()
@@ -85,29 +74,12 @@ pub(in crate::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .gap(12.0)
         .center_y()
         .child(pickers)
-        .children((width > 560.0 && !creating).then(|| folder(p, dir)))
+        .children((width > 560.0).then(|| folder(p, dir)))
 }
 
 /// A picker in the row, before its look: Desktop's `TRIGGER` (`view.tsx:274-275`).
 fn trigger(key: &str, label: &str) -> El {
     row().key(key).role("button").label(label.to_owned()).hover_group().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
-}
-
-/// The branch the session starts on (`workspace/selector.tsx:151-156`): faint and still, as it
-/// is for the project's own folder.
-fn branch_label(p: &Pal, branch: &str) -> El {
-    row()
-        .key("location-branch")
-        .h(28.0)
-        .max_w(220.0)
-        .shrink()
-        .min_w(0.0)
-        .pl(6.0)
-        .pr(8.0)
-        .gap(6.0)
-        .center_y()
-        .child(icon(&ic::BRANCH, 16.0).color(p.icon_muted))
-        .child(text(branch.to_owned()).font(UI).color(p.faint).truncate_fade())
 }
 
 /// The folder at the row's end, as the server names it (`view.tsx:420-460`): it keeps at

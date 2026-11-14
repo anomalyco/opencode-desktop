@@ -81,7 +81,6 @@ const MENUS: [(&str, opencode_i18n::Key, &[Row]); 6] = [
         it(opencode_i18n::key!("desktop.menu.settings"), Act::Settings, Keys::Command(Bind::Settings)),
         it(opencode_i18n::key!("desktop.menu.newWindow"), Act::NewWindow, Keys::Fixed("Ctrl+Shift+N")),
         None,
-        it(opencode_i18n::key!("command.tab.close"), Act::CloseTab, Keys::Command(Bind::TabClose)),
         it(opencode_i18n::key!("desktop.menu.closeWindow"), Act::CloseWindow, Keys::Fixed("Ctrl+Shift+W")),
     ]),
     ("Edit", opencode_i18n::key!("desktop.menu.edit"), &[

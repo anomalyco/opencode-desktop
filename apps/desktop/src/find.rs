@@ -626,6 +626,9 @@ pub fn shortcut(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return false;
     }
     if Bind::Find.matches_tx(ev, tx) {
+        // The narrow session has no inline Find bar. Leave the editor as the input destination;
+        // the explicit Find command remains available independently of this shortcut.
+        if s.narrow() && matches!(*s.route, Route::Session { .. }) { return false; }
         return match *s.route {
             Route::Session { .. } => { s.open_find(tx); true }
             Route::Home => { s.focus_home_search(tx); true }

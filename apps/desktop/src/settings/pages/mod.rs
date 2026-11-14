@@ -246,9 +246,6 @@ impl App {
             Page::Project(dir, tab) => project::load(self, &dir.clone(), *tab),
             _ => {}
         }
-        if page == Page::Models {
-            self.settings_pages.search.focused = true;
-        }
         // Restoring or navigating history paints the spelled wordmark, even mid-scramble.
         if self.settings_pages.page == Page::About {
             self.settings_pages.wordmark.activate(false);
