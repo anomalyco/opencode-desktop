@@ -1264,6 +1264,13 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     settings::pages::servers::unavailable::poll(s, tx);
     changed |= notifications::poll(s, tx);
     speech::poll(s, tx);
+    // A shortcut from the composer that moved the keyboard into the side region (its command
+    // may run a frame later) leaves the selected tab's label muted (`SideState::quiet`).
+    let composing = s.composer.focused;
+    if s.side.was_composing && !composing && s.side.focused && !s.side.pressed && s.terminal_focus().is_none() {
+        s.side.quiet = true;
+    }
+    (s.side.was_composing, s.side.pressed) = (composing, false);
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= line_comments::poll(s, tx);

@@ -119,6 +119,15 @@ pub struct SideState {
     pub mounted: bool,
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
+    /// A shortcut pressed in the composer moved the keyboard here (Open file, New tab, Reopen
+    /// closed tab): the selected tab's label rests muted until the next key or press inside, as
+    /// Desktop's side focus reads the shortcut's own key, whose target was the composer
+    /// (`closed-tabs.ts:146-153`). A terminal is the exception there too: its focus comes later.
+    pub quiet: bool,
+    /// The composer had the keyboard at the last poll, and whether a press landed in the region
+    /// since: the keyboard leaving the composer for here with no press is a shortcut's doing.
+    pub was_composing: bool,
+    pub pressed: bool,
     pub active_pane_focus: SessionPane,
     /// A tab is opening for someone other than the user (`App::keeping_keyboard`).
     pub background_open: bool,
@@ -154,6 +163,9 @@ impl Default for SideState {
             pane_drag: Default::default(),
             mounted: false,
             focused: false,
+            quiet: false,
+            was_composing: false,
+            pressed: false,
             active_pane_focus: SessionPane::Side,
             background_open: false,
             emptied_guard: false,

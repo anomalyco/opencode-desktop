@@ -126,7 +126,12 @@ pub fn filter_field(
                 .shrink()
                 .on_edit(on_edit)
                 .on_submit(on_submit)
-                .on_input_key(on_key),
+                // A key in the field is a key inside the side region: its tab's label wakes
+                // (`SideState::quiet`).
+                .on_input_key(move |s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+                    s.side.quiet = false;
+                    on_key(s, ev, tx)
+                }),
         )
         .children((!edit.text.is_empty()).then(|| {
             el().key("filter-clear")

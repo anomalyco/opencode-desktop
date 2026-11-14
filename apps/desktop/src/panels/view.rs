@@ -183,6 +183,8 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         .clip_rounded(10.0)
         .on_background_press(|s: &mut App| {
             s.side.focused = true;
+            s.side.quiet = false;
+            s.side.pressed = true;
             s.composer.focused = false;
             s.side.tab_menu = None;
             s.side.add_menu = None;
@@ -335,6 +337,8 @@ pub(super) fn pane_box(
         .min_h(0.0)
         .on_background_press(move |s: &mut App| {
             s.side.focused = true;
+            s.side.quiet = false;
+            s.side.pressed = true;
             s.side.active_pane_focus = pane;
             s.composer.focused = false;
         })
@@ -407,7 +411,7 @@ fn tab_bar(
     // The composer's focus is the side region's input: reading the composer would rebuild the
     // region on every keystroke in it.
     let composing = rune::Tracked::untracked(&s.composer).focused;
-    let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !composing && !s.popup.holds_focus();
+    let focused = ((s.side.focused && s.side.active_pane_focus == pane) || field_in_tab) && !composing && !s.popup.holds_focus() && !s.side.quiet;
     for (entry, lead) in entries.iter().zip(leads) {
         let dragging = s.side.pane_drag.dragging() == Some(entry.key.as_str());
         let width = widths.next().unwrap_or(72.0);
@@ -438,6 +442,8 @@ fn tab_bar(
                 tx.instant();
                 s.side.chosen_new_tab.insert(pane, nid.clone());
                 s.side.focused = true;
+                s.side.quiet = false;
+                s.side.pressed = true;
                 s.side.active_pane_focus = pane;
             })
             .child(
