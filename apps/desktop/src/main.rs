@@ -1614,6 +1614,12 @@ thread_local! {
 /// idle one can't hold it.
 #[cfg(not(any(target_arch = "wasm32", feature = "hot")))]
 fn quit_last() {
+    // The windows are gone: a launch now is the app's instance at once, and waits only for the
+    // file (`opencode_storage` waits for this process's last write, bounded), never for this
+    // process to end. An update that installs on quit keeps the claim for its helper.
+    if !updater::installs_on_quit() {
+        rune::release_instance();
+    }
     // Landed and closed: the file's lock goes before the update helper takes over.
     storage::close();
     rune::marks::mark("storage.flushed");
@@ -1621,10 +1627,6 @@ fn quit_last() {
     // 2 s, saying what it waited for. A training build (`scripts/pgo.ps1`) writes ~50 MB of counts
     // last; on a loaded machine that outlasted 2 s and left truncated, unmergeable files.
     rune::exit_deadline(std::time::Duration::from_secs(if cfg!(pgo_generate) { 120 } else { 2 }));
-    // A launch handed on while the app quit claims it now, unless an update replaces it.
-    if !updater::installs_on_quit() {
-        rune::release_instance();
-    }
     QUIT_DIAGNOSTICS.with(|d| if let Some(d) = d.borrow_mut().take() { d.shutdown() });
     rune::marks::mark("diagnostics.stopped");
     updater::finish_quit();

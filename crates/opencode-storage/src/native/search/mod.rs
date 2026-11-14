@@ -8,10 +8,32 @@ pub use query::{Coverage, Hit, Scope, SearchSurface};
 #[derive(Default)]
 pub(crate) enum State { #[default] BeforeFrame, Ready(Work), Unavailable(String) }
 
-pub(crate) enum Work { Pending, Drained }
+/// The index lane's work. It never starts a synced checkpoint (its rows can be rebuilt): it
+/// waits at `WalFull` until one that something else started empties the WAL, and stops for good
+/// at the quit (the backlog is queued in the file, for the next launch).
+pub(crate) enum Work { Pending, Drained, WalFull, Quitting }
 
 impl State {
-    pub(crate) fn changed(&mut self) { if let Self::Ready(work) = self { *work = Work::Pending; } }
+    /// A write queued an entity: there's work, unless the lane is waiting on the WAL or stopped.
+    pub(crate) fn changed(&mut self) {
+        if let Self::Ready(work @ (Work::Pending | Work::Drained)) = self {
+            *work = Work::Pending;
+        }
+    }
+
+    /// A checkpoint emptied the WAL: a lane that waited on it goes on.
+    pub(crate) fn checkpointed(&mut self) {
+        if let Self::Ready(work @ Work::WalFull) = self {
+            *work = Work::Pending;
+        }
+    }
+
+    /// The quit: no more index steps this run.
+    pub(crate) fn quitting(&mut self) {
+        if let Self::Ready(work) = self {
+            *work = Work::Quitting;
+        }
+    }
 }
 
 use rusqlite::{Connection, TransactionBehavior};
