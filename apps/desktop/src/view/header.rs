@@ -188,20 +188,19 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
             let begin = target.clone();
             // The title in its own direction (`session-identity-header.tsx:263`): an `h1` that renames
             // on a click, no Tab stop (`message-timeline.tsx:540-547`).
-            let mut t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
+            let t = row().key("title").dir(rune::Direction::Auto).role("heading").level(1).label(title_of(info)).h(28.0).px(4.0).center_y().min_w(0.0).shrink().radius(6.0).hover(p.hover).hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     s.begin_rename(&begin);
                 })
                 .child(crate::title_change::title(&s.knobs, &format!("title-{}", info.id), title_of(info), CRUMB, p.text));
-            if marked {
-                t = t.fill(p.hover);
-            }
             crate::session_menu::on(t, target)
         }
     };
+    // While its menu is open the `…` keeps its wash, as an expanded trigger does; the title takes none.
     let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
+    let dots = if marked { dots.fill(p.hover) } else { dots };
     vec![title, dots]
 }

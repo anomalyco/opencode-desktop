@@ -203,7 +203,11 @@ pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     s.finish_rename(true);
     s.menus.on = Some(t.clone());
     tx.instant();
-    popup::open(s, menu(&lines), at, tx, move |s: &mut App, picked, tx| {
+    let at = at.into();
+    // The header's "…" opens 6 under it (`message-timeline.tsx`: `gutter={6}`).
+    let dots = t.spot == Spot::Header && matches!(at, PopupAnchor::Key(_));
+    let menu = if dots { menu(&lines).gap(6.0) } else { menu(&lines) };
+    popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         s.menus.on = None;
         tx.instant();
         if let Some(id) = picked {
