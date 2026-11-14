@@ -180,6 +180,8 @@ mod quote;
 mod quote_cards;
 #[path = "quote/stories.rs"]
 mod quote_stories;
+#[path = "quote/card_stories.rs"]
+mod quote_card_stories;
 mod raster_probe_stories;
 mod recently_closed;
 mod restore;
