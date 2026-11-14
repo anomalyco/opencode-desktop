@@ -25,12 +25,11 @@ use rusqlite::{Connection, OptionalExtension, params};
 /// The reserved blob's size.
 const BYTES: i64 = 1 << 20;
 
-/// Whether this platform keeps a journal. Windows only for now: the journal opens its own handle
-/// on the database file, and on macOS and Linux SQLite's locks are POSIX advisory locks, which
-/// the process loses on the file the moment any of its descriptors on it closes, so another
-/// process could take the database's lock and write under this one's connection. Elsewhere no
-/// profile reserves or attaches one until the handle is SQLite's own.
-pub(crate) const SUPPORTED: bool = cfg!(windows);
+/// Whether this platform keeps a journal: Windows and macOS, where it's proved. On macOS (POSIX
+/// advisory locks, which a process loses on a file when any of its descriptors on it closes) it
+/// goes through the storage's one kept descriptor (`dbfile`). Linux has the same locks and the
+/// same code, but nothing has run it there yet: off until it has.
+pub(crate) const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 
 /// Where the journal is: what the boot record carries (`Kind::Journal`).
 #[derive(Clone, Debug, PartialEq, Eq)]
