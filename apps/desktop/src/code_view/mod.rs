@@ -4,11 +4,13 @@
 //! Uses `rune_kit::syntax` in 128-line chunks so 50,000-line diffs and source files stay smooth
 //! at 120 Hz, `.truncate_fade()` on clipped paths (never `"…"`), and `Anim::INSTANT` on hovers.
 
+pub mod diff_find;
 pub mod diff_nav;
 pub mod diff_state;
 pub mod diff_view;
 pub mod file_state;
 pub mod file_view;
+pub(crate) mod find_bar;
 pub mod fold;
 pub mod notes;
 

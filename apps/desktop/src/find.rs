@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
-use opencode_kit::model::{Assistant, Message, Part, Transcript};
+use opencode_kit::model::{Message, Part, Transcript};
 use rune::{El, Key, KeyEvent, MenuItem, TextEdit, TextHighlight, TextStyle, Transition, Tx, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -140,6 +140,35 @@ pub struct Find {
     parts: HashMap<(String, usize), CachedPart>,
     matches: Vec<Hit>,
     rows: HashMap<String, RowHits>,
+    /// The searchable rows of the open session and their letters, kept while its transcript
+    /// holds: a keystroke scans one slab, and parses Markdown only in rows that can match.
+    rowset: Option<Rowset>,
+}
+
+/// One searchable row: a user bubble (`part: None`) or an assistant text part.
+struct Searchable {
+    message: usize,
+    part: Option<usize>,
+    row_key: String,
+    cache_key: (String, usize),
+    /// A user bubble's text as shown (its comments folded in).
+    shown: Option<String>,
+    /// Its letters' end in [`Rowset::letters`].
+    end: usize,
+    /// Markup that renders letters its source doesn't hold in place (a link's target, an
+    /// entity, inline HTML, an outline): the letters can't rule it out.
+    always: bool,
+}
+
+struct Rowset {
+    key: (String, u64, usize),
+    /// What its rows were made from (shape): a write to the transcripts that changes no row's
+    /// text keeps them.
+    shape: u64,
+    rows: Vec<Searchable>,
+    letters: String,
+    /// Each row's letters by its cache key, reused when only some rows change.
+    projected: HashMap<(String, usize), (usize, u64, String)>,
 }
 
 impl Find {
@@ -206,21 +235,22 @@ fn str_sig(s: &str) -> u64 {
     h.finish()
 }
 
-fn transcript_fp(t: &Transcript, shown: usize) -> u64 {
+/// What a session's searchable rows are made from: each message's id and text (by length and
+/// ends) as far as the timeline shows, whether its reply streams and whether outlines read as words.
+fn shape(t: &Transcript, shown: usize, live: bool, outlines: bool) -> u64 {
     let mut h = DefaultHasher::new();
-    shown.hash(&mut h);
+    (shown, live, outlines).hash(&mut h);
     for m in &t.messages[..shown] {
         match m {
-            Message::User { id, text } => (0u8, id, text.len(), str_sig(text)).hash(&mut h),
+            Message::User { id, text } => (0u8, id, str_sig(text)).hash(&mut h),
             Message::Assistant(a) => {
                 (1u8, &a.id, a.parts.len()).hash(&mut h);
-                for p in &a.parts {
-                    if let Part::Text { text } = p {
-                        (text.len(), str_sig(text)).hash(&mut h);
-                    }
-                }
+                a.parts.iter().filter_map(|p| match p {
+                    Part::Text { text } => Some(str_sig(text)),
+                    _ => None,
+                }).for_each(|s| s.hash(&mut h));
             }
-            _ => {}
+            _ => 2u8.hash(&mut h),
         }
     }
     h.finish()
@@ -413,15 +443,24 @@ impl App {
             self.find.parts.clear();
             return;
         }
-        let (shown, has_revert, fp) = {
-            let revert = self.session(&current).and_then(|i| i.revert.as_deref());
-            let Some(t) = self.transcripts.get(&current) else {
-                self.find.matches.clear();
-                self.find.rows.clear();
-                return;
-            };
-            let shown = t.visible_len(revert);
-            (shown, revert.is_some(), transcript_fp(t, shown))
+        let Some(t) = self.transcripts.get(&current) else {
+            self.find.matches.clear();
+            self.find.rows.clear();
+            return;
+        };
+        let revert = self.session(&current).and_then(|i| i.revert.as_deref());
+        let shown = t.visible_len(revert);
+        // Outlines read as their words only while a plugin draws them (Rune UI).
+        let outlines = crate::plugin_host::surfaces::code_block_lang(self, "ui");
+        let live = t.busy() && !self.stops.has(&current) && revert.is_none();
+        let key = (current.clone(), rune::Tracked::version(&self.transcripts) << 2 | u64::from(live) << 1 | u64::from(outlines), shown);
+        let fp = match self.find.rowset.as_mut() {
+            Some(r) if r.key == key => r.shape,
+            Some(r) if r.key.0 == current && r.shape == shape(t, shown, live, outlines) => {
+                r.key = key.clone();
+                r.shape
+            }
+            _ => shape(t, shown, live, outlines),
         };
         if self.find.indexed_session == current && self.find.indexed_query == q && self.find.indexed_fp == fp {
             return;
@@ -432,75 +471,51 @@ impl App {
         self.find.indexed_session = current.clone();
         self.find.indexed_query = q.clone();
         self.find.indexed_fp = fp;
-
-        // Scan searchable rows in exact timeline order (`u-{id}` and `t-{a.id}-{n}`) without
-        // cloning message strings.
+        if self.find.rowset.as_ref().is_none_or(|r| r.key != key) {
+            let old = self.find.rowset.take().map(|r| r.projected).unwrap_or_default();
+            self.find.rowset = Some(self.rowset(key, fp, t, shown, live, outlines, old));
+        }
+        let mut parts = std::mem::take(&mut self.find.parts);
+        let Some(rowset) = self.find.rowset.as_ref() else { return };
+        let wanted = rowset.candidates(&opencode_search::SearchFold::default().letters(&q));
         let mut matches = Vec::new();
         let mut rows = HashMap::new();
-        // Outlines read as their words only while a plugin draws them (Rune UI).
-        let outlines = crate::plugin_host::surfaces::code_block_lang(self, "ui");
-        let mut record = |parts: &mut HashMap<(String, usize), CachedPart>, row_key: String, cache_key: (String, usize), body: &str, plain: bool| {
-            let sig = str_sig(body);
-            let len = body.len();
-            let ranges = if let Some(cached) = parts.get(&cache_key).filter(|c| c.len == len && c.head_tail == sig) {
-                cached.ranges.clone()
-            } else {
-                let computed: Vec<Vec<Range<usize>>> = if plain {
-                    crate::language::search_fold().find(body, &q).into_iter().map(|r| vec![r]).collect()
-                } else if outlines {
-                    crate::genui::find(body, &q)
-                } else {
-                    rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Folded(crate::language::search_fold()))
-                };
-                parts.insert(cache_key, CachedPart { len, head_tail: sig, ranges: computed.clone() });
-                computed
+        for (row, _) in rowset.rows.iter().zip(&wanted).filter(|(_, w)| **w) {
+            let body = match (&row.shown, row.part) {
+                (Some(shown), _) => shown.as_str(),
+                (None, Some(p)) => match &t.messages[row.message] {
+                    Message::Assistant(a) => match &a.parts[p] {
+                        Part::Text { text } => text.as_str(),
+                        _ => continue,
+                    },
+                    _ => continue,
+                },
+                (None, None) => continue,
             };
-            if !ranges.is_empty() {
-                for (local, rs) in ranges.iter().enumerate() {
-                    let end_byte = rs.last().map_or(0, |r| r.end);
-                    matches.push(Hit { row_key: row_key.clone(), local, end_byte });
-                }
-                let version = row_hash(&ranges, None);
-                rows.insert(row_key, RowHits { ranges, active: None, version });
-            }
-        };
-        let mut parts = std::mem::take(&mut self.find.parts);
-        if let Some(t) = self.transcripts.get(&current) {
-            let busy = t.busy() && !self.stops.has(&current);
-            let mut steps: Vec<&Assistant> = Vec::new();
-            let flush_steps = |steps: &[&Assistant], live: bool, parts: &mut HashMap<(String, usize), CachedPart>, record: &mut dyn FnMut(&mut HashMap<(String, usize), CachedPart>, String, (String, usize), &str, bool)| {
-                for (mi, a) in steps.iter().enumerate() {
-                    let live_msg = live && mi + 1 == steps.len();
-                    let mut texts = 0usize;
-                    for (pi, part) in a.parts.iter().enumerate() {
-                        if let Part::Text { text } = part {
-                            let n = texts;
-                            texts += 1;
-                            let is_last = live_msg && pi + 1 == a.parts.len();
-                            if text.trim().is_empty() && !is_last {
-                                continue;
-                            }
-                            record(parts, format!("t-{}-{n}", a.id), (a.id.clone(), n), text, false);
-                        }
-                    }
+            let plain = row.shown.is_some();
+            let (len, sig) = (body.len(), str_sig(body));
+            let ranges = match parts.get(&row.cache_key).filter(|c| c.len == len && c.head_tail == sig) {
+                Some(cached) => cached.ranges.clone(),
+                None => {
+                    let computed: Vec<Vec<Range<usize>>> = if plain {
+                        crate::language::search_fold().find(body, &q).into_iter().map(|r| vec![r]).collect()
+                    } else if outlines {
+                        crate::genui::find(body, &q)
+                    } else {
+                        rune_kit::markdown::find(body, &q, rune_kit::markdown::Case::Folded(crate::language::search_fold()))
+                    };
+                    parts.insert(row.cache_key.clone(), CachedPart { len, head_tail: sig, ranges: computed.clone() });
+                    computed
                 }
             };
-            for m in &t.messages[..shown] {
-                match m {
-                    Message::Assistant(a) => steps.push(a),
-                    Message::User { id, text } => {
-                        flush_steps(&std::mem::take(&mut steps), false, &mut parts, &mut record);
-                        if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() {
-                            let shown_text = self.bubble_text(id, text);
-                            record(&mut parts, format!("u-{id}"), (id.clone(), 0), &shown_text, true);
-                        }
-                    }
-                    Message::Note { .. } | Message::Compaction(_) | Message::Notice(_) => {
-                        flush_steps(&std::mem::take(&mut steps), false, &mut parts, &mut record);
-                    }
-                }
+            if ranges.is_empty() {
+                continue;
             }
-            flush_steps(&steps, busy && !has_revert, &mut parts, &mut record);
+            for (local, rs) in ranges.iter().enumerate() {
+                matches.push(Hit { row_key: row.row_key.clone(), local, end_byte: rs.last().map_or(0, |r| r.end) });
+            }
+            let version = row_hash(&ranges, None);
+            rows.insert(row.row_key.clone(), RowHits { ranges, active: None, version });
         }
         self.find.parts = parts;
         let lit = self.find.matches.get(self.find.active_index()).cloned();
@@ -509,6 +524,70 @@ impl App {
         self.find.rows = rows;
         let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
         self.relight(None);
+    }
+
+    /// The session's searchable rows in timeline order (`u-{id}` and `t-{a.id}-{n}`): a reply
+    /// still streaming keeps its last part even while empty.
+    #[allow(clippy::too_many_arguments)]
+    fn rowset(&self, key: (String, u64, usize), shape: u64, t: &Transcript, shown: usize, live: bool, outlines: bool, mut old: HashMap<(String, usize), (usize, u64, String)>) -> Rowset {
+        let mut rows = Vec::new();
+        let last_reply = live.then(|| t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)))).flatten()
+            .filter(|&i| t.messages[i + 1..shown].iter().all(|m| matches!(m, Message::Assistant(_))));
+        for (i, m) in t.messages[..shown].iter().enumerate() {
+            match m {
+                Message::Assistant(a) => {
+                    let mut texts = 0usize;
+                    for (pi, part) in a.parts.iter().enumerate() {
+                        let Part::Text { text } = part else { continue };
+                        let n = texts;
+                        texts += 1;
+                        if text.trim().is_empty() && !(last_reply == Some(i) && pi + 1 == a.parts.len()) {
+                            continue;
+                        }
+                        rows.push(Searchable { message: i, part: Some(pi), row_key: format!("t-{}-{n}", a.id), cache_key: (a.id.clone(), n), shown: None, end: 0, always: outlines || text.contains(['[', '&', '<']) });
+                    }
+                }
+                Message::User { id, text } if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() => {
+                    rows.push(Searchable { message: i, part: None, row_key: format!("u-{id}"), cache_key: (id.clone(), 0), shown: Some(self.bubble_text(id, text).into_owned()), end: 0, always: false });
+                }
+                _ => {}
+            }
+        }
+        let mut letters = String::new();
+        let mut projected = HashMap::with_capacity(rows.len());
+        for row in &mut rows {
+            let body = match (&row.shown, row.part, &t.messages[row.message]) {
+                (Some(s), _, _) => s.as_str(),
+                (None, Some(p), Message::Assistant(a)) => match &a.parts[p] { Part::Text { text } => text.as_str(), _ => "" },
+                _ => "",
+            };
+            let (len, sig) = (body.len(), str_sig(body));
+            let entry = old.remove(&row.cache_key).filter(|(l, s, _)| *l == len && *s == sig).unwrap_or_else(|| (len, sig, opencode_search::SearchFold::default().letters(body)));
+            letters.push_str(&entry.2);
+            letters.push('\n');
+            row.end = letters.len();
+            projected.insert(row.cache_key.clone(), entry);
+        }
+        Rowset { key, shape, rows, letters, projected }
+    }
+}
+
+impl Rowset {
+    /// Which rows can hold a query whose letters are `needle`: those whose letters hold it,
+    /// and those whose markup can't rule it out. Every row for a query with no letters.
+    fn candidates(&self, needle: &str) -> Vec<bool> {
+        if needle.is_empty() {
+            return vec![true; self.rows.len()];
+        }
+        let mut wanted: Vec<bool> = self.rows.iter().map(|r| r.always).collect();
+        let mut row = 0;
+        for at in memchr::memmem::find_iter(self.letters.as_bytes(), needle.as_bytes()) {
+            row += self.rows[row..].partition_point(|r| r.end <= at);
+            if let Some(w) = wanted.get_mut(row) {
+                *w = true;
+            }
+        }
+        wanted
     }
 }
 

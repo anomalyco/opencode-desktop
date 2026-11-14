@@ -91,6 +91,9 @@ impl SearchFold {
                 'đ' | 'Đ' | 'ð' | 'Ð' if !self.accents => out.push('d'),
                 'œ' | 'Œ' if !self.accents => out.push_str("oe"),
                 'æ' | 'Æ' if !self.accents => out.push_str("ae"),
+                'þ' | 'Þ' if !self.accents => out.push_str("th"),
+                'ħ' | 'Ħ' if !self.accents => out.push('h'),
+                'ŧ' | 'Ŧ' if !self.accents => out.push('t'),
                 c if !self.accents
                     && matches!(c as u32, 0xc0..=0x24f | 0x370..=0x52f | 0x1e00..=0x1fff) =>
                 {
@@ -104,6 +107,16 @@ impl SearchFold {
                 c => out.extend(c.to_lowercase()),
             }
         }
+    }
+
+    /// The fold with every character that isn't a letter or digit removed. Removing a fixed
+    /// set of characters keeps substrings substrings, so when rendered text holds a query,
+    /// the letters of its source hold the query's letters wherever markup inserts only
+    /// punctuation. A cheap necessary condition before an exact match over rendered text.
+    pub fn letters(self, s: &str) -> String {
+        let mut out = self.fold(s);
+        out.retain(char::is_alphanumeric);
+        out
     }
 
     pub fn fold_with_map(self, s: &str) -> Folded {

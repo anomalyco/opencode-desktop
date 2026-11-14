@@ -117,6 +117,8 @@ pub struct DiffDocState {
     /// The line row the keyboard's line cursor is on: the diff's one Tab stop, which Up and Down
     /// move (a roving tab index). None: the first line row.
     pub(super) cursor: Option<u32>,
+    /// Find in the diff: Pierre's file find over the rows it shows (`super::diff_find`).
+    pub find: super::diff_find::DiffFind,
 }
 
 impl Default for DiffDocState {
@@ -169,6 +171,7 @@ impl DiffDocState {
             reported: None,
             nav: None,
             cursor: None,
+            find: Default::default(),
         };
         s.set_files(files);
         s
@@ -631,6 +634,7 @@ impl DiffDocState {
             }
         }
         self.rows = rows;
+        self.refind();
     }
 
     fn key_of(&self, r: DiffRow) -> String {

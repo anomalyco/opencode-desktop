@@ -49,7 +49,7 @@ pub fn init_files(s: &mut App) {
             if let Some(ws) = s.files.sessions.get_mut(&sid)
                 && let Some(doc) = ws.docs.get_mut("src/net/backoff.ts")
             {
-                doc.find_open = true;
+                doc.set_find_open(true);
                 doc.find_input = TextEdit::new("healthySince");
                 doc.sync_find_query();
             }

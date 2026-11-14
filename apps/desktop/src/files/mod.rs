@@ -292,7 +292,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     if let Some((sid, Some(path))) = s.active_file_tab()
         && let Some(ws) = s.files.sessions.get_mut(&sid)
         && let Some(doc) = ws.docs.get_mut(&path)
-        && doc.find_open
+        && doc.find_open()
     {
         changed |= doc.sync_find_query();
         changed |= s.sync_rendered_find(&sid, &path);
@@ -360,7 +360,7 @@ pub(crate) fn key_files(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
             && let Some(doc) = ws.docs.get(&path)
         {
             // The rendered text keeps its own selection and matches.
-            if doc.find_open && doc.find_input.focused && ev.key == Key::Enter {
+            if doc.find_open() && doc.find_input.focused && !doc.find_input.is_composing() && ev.key == Key::Enter {
                 s.file_find_step(&sid, &path, !ev.mods.shift, tx);
                 return true;
             }

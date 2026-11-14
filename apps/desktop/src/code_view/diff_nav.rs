@@ -217,6 +217,9 @@ impl DiffDocState {
     }
 
     pub fn handle_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
+        if self.find_key(ev, tx) {
+            return true;
+        }
         match &ev.key {
             _ if tx.focused().is_some() && !crate::keymap::Bind::CopySelection.matches_tx(ev, tx) => false,
             Key::Left if !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift => {

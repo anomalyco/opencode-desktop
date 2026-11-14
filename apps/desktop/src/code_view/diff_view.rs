@@ -626,10 +626,11 @@ impl<S: 'static> Inner<S> {
         let l = &self.look;
         let (src_side, n) = c.source();
         let tints = self.tints(c.kind);
-        let word_bgs: Vec<(Range<usize>, Color)> = match tints {
+        let mut word_bgs: Vec<(Range<usize>, Color)> = match tints {
             Some(t) => c.changes.iter().cloned().map(|r| (r, t.word)).collect(),
             None => Vec::new(),
         };
+        word_bgs.extend(st.find_line(f, src_side, n).iter().map(|(r, active)| (r.clone(), if *active { l.active_match_bg } else { l.match_bg })));
         let spans = l.spans(c.text.len(), &st.highlights(f, src_side, n), &word_bgs, tints.map(|t| (t.word, t.word_text)));
         let (shown, spans) = expand_tabs(c.text, spans);
         let ink = l.plain;

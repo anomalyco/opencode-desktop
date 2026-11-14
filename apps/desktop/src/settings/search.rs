@@ -443,6 +443,10 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     let focused = s.settings_pages.find.query.focused;
+    // An input method's Enter, Escape and arrows are its own while it composes.
+    if focused && s.settings_pages.find.query.is_composing() {
+        return false;
+    }
     if ev.key == Key::Escape && active(s) {
         tx.instant();
         clear(s);

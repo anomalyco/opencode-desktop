@@ -146,7 +146,7 @@ fn headings(src: &str) -> Vec<(usize, String)> {
 /// `border-base` ring and 8 pt corners, the text 64 from its top and 12.5% in, between 24 and
 /// 134 (32 and 24 in a narrow view), at most 768 wide.
 pub fn rendered(p: &Pal, sid: &str, path: &str, doc: &CodeDocState, view: Option<&MdView>, paths: Option<&super::code_paths::CodePaths>, page: bool) -> El {
-    let find = view.filter(|_| doc.find_open);
+    let find = view.filter(|_| doc.find_open());
     let active = find.map(|v| v.active);
     let find_ver = find.map(|v| (v.applied.clone(), v.matches.len(), v.active));
     let (sid_link, path_link) = (sid.to_owned(), path.to_owned());
@@ -236,7 +236,7 @@ impl App {
         if !shows_rendered(ws, path) {
             return false;
         }
-        let Some(doc) = ws.docs.get(path).filter(|d| d.find_open) else { return false };
+        let Some(doc) = ws.docs.get(path).filter(|d| d.find_open()) else { return false };
         let q = doc.find_input.text.clone();
         let v = ws.md.entry(path.to_owned()).or_default();
         if v.applied == q {

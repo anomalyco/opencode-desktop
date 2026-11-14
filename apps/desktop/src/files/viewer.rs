@@ -8,6 +8,7 @@ use super::SessionFiles;
 use super::markdown::{self, READ_ICON};
 use crate::App;
 use crate::code_view::CodeViewer;
+use crate::code_view::find_bar::{FindBar, find_bar, over};
 use crate::palette::Pal;
 use crate::view::{UI, UI_MED, UI_SMALL};
 
@@ -97,7 +98,7 @@ pub(super) fn files_main(
     // A picture or a video shows on its stage, with no lines to find or wrap.
     let lines = picture.is_none() && !ws.videos.contains_key(path);
     let wrap_on = doc.is_some_and(|d| d.wrap());
-    let find_on = doc.is_some_and(|d| d.find_open);
+    let find_on = doc.is_some_and(|d| d.find_open());
     let sel_badge = doc.filter(|_| !rendered).and_then(|d| d.selection()).map(|sel| {
         let (a, b) = sel.ordered();
         if a == b { format!("L{a}") } else { format!("L{a}–{b}") }
@@ -144,8 +145,8 @@ pub(super) fn files_main(
         .children(lines.then(|| tool(p, "files-find-btn", &ic::MAGNIFYING_GLASS, find_on, opencode_i18n::t!("rune.files.find"), opencode_i18n::t!("rune.files.find"), at(|s, sid, path, tx| {
             tx.instant();
             if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
-                d.find_open = !d.find_open;
-                d.find_input.focused = d.find_open;
+                let open = !d.find_open();
+                d.set_find_open(open);
             }
         })).help_keys(crate::keymap::Bind::Find.keycaps())))
         .children((!rendered && lines).then(|| {
@@ -194,17 +195,32 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         let text = doc.filter(|_| markdown_doc).map(|d| d.text().to_owned());
         out = out.child(artifact_toolbar(s, p, session_id, path, rendered, text, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
     }
-    if let Some(d) = doc
-        && d.find_open
-    {
-        let view = ws.md.get(path);
-        let (total, active) = match view.filter(|_| rendered) {
+    // Pierre's bar floats over the view it searches, rendered or source.
+    let bar = doc.filter(|d| d.find_open()).map(|d| {
+        let (total, active) = match ws.md.get(path).filter(|_| rendered) {
             Some(v) => (v.matches.len(), v.active),
             None if rendered => (0, 0),
             None => (d.match_count(), d.active_match_index()),
         };
-        out = out.child(file_find_bar(p, session_id, path, d, total, active, s.settings.spellcheck)).child(el().w_full().h(0.5).fill(p.border_muted));
-    }
+        let bar = FindBar { key: "files-find-bar", top: -4.0, edit: file_find_input, changed: |s, at, tx| {
+            tx.instant();
+            let (sid, path) = at.split_once('\n').unwrap_or_default();
+            if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
+                d.sync_find_query();
+            }
+            s.sync_rendered_find(sid, path);
+        }, step: |s, at, forward, tx| {
+            let (sid, path) = at.split_once('\n').unwrap_or_default();
+            s.file_find_step(sid, path, forward, tx);
+        }, close: |s, at, tx| {
+            tx.instant();
+            let (sid, path) = at.split_once('\n').unwrap_or_default();
+            if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
+                d.set_find_open(false);
+            }
+        }, target: format!("{session_id}\n{path}") };
+        find_bar(p, &d.find_input, total, active, s.settings.spellcheck, bar)
+    });
 
     if let Some(view) = plugin_view {
         return out.child(view);
@@ -217,7 +233,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         return out.child(super::video::stage(s, p, v));
     }
     if rendered && markdown::is_markdown(path) && let Some(d) = doc {
-        return out.child(markdown::rendered(p, session_id, path, d, ws.md.get(path), ws.code_paths.get(path), artifact));
+        return out.child(over(markdown::rendered(p, session_id, path, d, ws.md.get(path), ws.code_paths.get(path), artifact), bar));
     }
 
     let (sid_get, path_get) = (session_id.to_owned(), path.to_owned());
@@ -233,66 +249,19 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     .notes(crate::line_comments::host::Notes::new(session_id, crate::line_comments::Surface::Files))
     .build(s, p);
 
-    out.child(viewer)
+    out.child(over(viewer, bar))
 }
 
-fn file_find_bar(p: &Pal, session_id: &str, path: &str, doc: &crate::code_view::CodeDocState, total: usize, active: usize, spellcheck: bool) -> El {
-    let cur = if total == 0 { 0 } else { active + 1 };
-    let (sid_edit, path_edit) = (session_id.to_owned(), path.to_owned());
-    let (sid_sub, path_sub) = (session_id.to_owned(), path.to_owned());
-    let (sid_close, path_close) = (session_id.to_owned(), path.to_owned());
-
-    row()
-        .key("files-find-bar")
-        .w_full()
-        .h(32.0)
-        .px(10.0)
-        .gap(8.0)
-        .center_y()
-        .fill(p.layer1)
-        .child(icon(&ic::MAGNIFYING_GLASS, 12.0).color(p.faint))
-        .child(
-            session_view::style::field(&doc.find_input, UI_SMALL)
-                .key("files-find-input")
-                .spellcheck(spellcheck)
-                .placeholder(opencode_i18n::t!("rune.files.findPlaceholder"), p.faint)
-                .selection_style(p.field_selection)
-                .color(p.text)
-                .grow(1.0)
-                .shrink()
-                .on_edit(move |s: &mut App| {
-                    let has = s.files.sessions.get(&sid_edit).is_some_and(|w| w.docs.contains_key(&path_edit));
-                    if has {
-                        &mut s.files.sessions.get_mut(&sid_edit).unwrap().docs.get_mut(&path_edit).unwrap().find_input
-                    } else {
-                        &mut s.files.empty_doc.find_input
-                    }
-                })
-                .on_submit(move |s: &mut App, tx: &mut Tx| s.file_find_step(&sid_sub, &path_sub, true, tx)),
-        )
-        .children((!doc.find_input.text.is_empty()).then(|| text(format!("{cur}/{total}")).font(MONO_TINY).color(p.muted)))
-        .child(
-            el().key("files-find-close")
-                .size(20.0, 20.0)
-                .radius(4.0)
-                .center()
-                .cursor(Cursor::Pointer)
-                .hover(p.hover)
-                .hover_motion(INSTANT, INSTANT)
-                .role("button")
-                .label_static(opencode_i18n::t!("rune.find.close"))
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    if let Some(d) = s.files.sessions.get_mut(&sid_close).and_then(|w| w.docs.get_mut(&path_close)) {
-                        d.find_open = false;
-                        d.find_input = TextEdit::new("");
-                        d.sync_find_query();
-                    }
-                })
-                .child(icon(&ic::XMARK_SMALL, 11.0).color(p.icon_muted)),
-        )
+/// The find field of file `at` (`<session>\n<path>`).
+fn file_find_input<'a>(s: &'a mut App, at: &str) -> &'a mut TextEdit {
+    let (sid, path) = at.split_once('\n').unwrap_or_default();
+    let has = s.files.sessions.get(sid).is_some_and(|w| w.docs.contains_key(path));
+    if has {
+        &mut s.files.sessions.get_mut(sid).unwrap().docs.get_mut(path).unwrap().find_input
+    } else {
+        &mut s.files.empty_doc.find_input
+    }
 }
-
 /// Desktop's `ArtifactToolbar`: 44 tall on `layer-01`, 20 in and 12 from the end, with no rule
 /// under it. The file's name (13 / 16 at 530); then, 12 apart, a picture's size line and the
 /// actions 8 apart: for a previewable file (`text`) its source / preview toggle and Copy

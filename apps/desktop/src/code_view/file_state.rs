@@ -64,13 +64,14 @@ pub struct CodeDocState {
     /// The selected lines and the gesture on the line numbers making them (rune-kit's shared machine).
     lines: LineSelection<u32>,
     chunks: RefCell<ChunkMap<u32>>,
-    pub find_open: bool,
     pub find_input: TextEdit,
-    find_query_applied: String,
+    find: DocFind,
+    /// The text's folded lines for Find, made when a query first needs them and dropped when
+    /// Find closes or the text changes: a keystroke scans it, never folds the file again.
+    slab: Option<opencode_search::SlabFind>,
     /// `(1-based line, byte_range_in_line)`
     matches: Vec<(u32, Range<usize>)>,
     by_line_matches: HashMap<u32, Vec<(Range<usize>, bool)>>,
-    active_match: usize,
     view_w: Cell<f32>,
     /// The rows' laid-out heights, for a drag down the numbers.
     pub(crate) heights: super::RowHeights,
@@ -109,12 +110,11 @@ impl CodeDocState {
             digits: 3,
             lines: LineSelection::default(),
             chunks: RefCell::new(HashMap::new()),
-            find_open: false,
             find_input: TextEdit::new(""),
-            find_query_applied: String::new(),
+            find: DocFind::Closed,
+            slab: None,
             matches: Vec::new(),
             by_line_matches: HashMap::new(),
-            active_match: 0,
             view_w: Cell::new(0.0),
             heights: super::RowHeights::default(),
             rev: 1,
@@ -147,6 +147,7 @@ impl CodeDocState {
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
         self.heights.clear();
+        self.slab = None;
         self.recompute_matches();
         self.bump_keys();
     }
@@ -154,6 +155,7 @@ impl CodeDocState {
     pub fn set_binary(&mut self, size_bytes: usize) {
         self.failure = None;
         self.content = Content::Binary { size: size_bytes };
+        self.slab = None;
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
@@ -162,6 +164,7 @@ impl CodeDocState {
     pub fn set_missing(&mut self) {
         self.failure = None;
         self.content = Content::Missing;
+        self.slab = None;
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
@@ -379,12 +382,26 @@ impl CodeDocState {
         }
     }
 
+    pub fn find_open(&self) -> bool {
+        matches!(self.find, DocFind::Open { .. })
+    }
+
+    /// The find bar opens (focused) or closes (its query gone with it): Pierre's `file-find`.
+    pub fn set_find_open(&mut self, open: bool) {
+        let event = if open { DocFindEvent::Open } else { DocFindEvent::Close };
+        if self.find.step(event) {
+            self.slab = None;
+            self.find_input = TextEdit::new("");
+            self.recompute_matches();
+            self.rev += 1;
+        }
+        self.find_input.focused = open;
+    }
+
     pub fn sync_find_query(&mut self) -> bool {
-        if self.find_input.text == self.find_query_applied {
+        if !self.find.step(DocFindEvent::Query(&self.find_input.text)) {
             return false;
         }
-        self.find_query_applied = self.find_input.text.clone();
-        self.active_match = 0;
         self.recompute_matches();
         self.rev += 1;
         true
@@ -392,25 +409,24 @@ impl CodeDocState {
 
     fn recompute_matches(&mut self) {
         self.matches.clear();
-        self.by_line_matches.clear();
-        if self.find_query_applied.is_empty() || self.source.is_empty() {
-            return;
-        }
-        let fold = crate::language::search_fold();
-        for n in 1..=self.source.len() {
-            let Some(line) = self.source.line(n) else { continue };
-            self.matches.extend(fold.find(line, &self.find_query_applied).into_iter().map(|r| (n, r)));
+        let query = self.find.query();
+        if !query.is_empty() && !self.source.is_empty() {
+            let source = &self.source;
+            let slab = self.slab.get_or_insert_with(|| {
+                let mut slab = opencode_search::SlabFind::default();
+                (1..=source.len()).for_each(|n| slab.push(source.line(n).unwrap_or("")));
+                slab
+            });
+            slab.find(query, |m| self.matches.push((m.row as u32 + 1, m.bytes)));
         }
         self.rebuild_line_match_index();
     }
 
     fn rebuild_line_match_index(&mut self) {
         self.by_line_matches.clear();
+        let active = self.find.active();
         for (i, (line, range)) in self.matches.iter().enumerate() {
-            self.by_line_matches
-                .entry(*line)
-                .or_default()
-                .push((range.clone(), i == self.active_match));
+            self.by_line_matches.entry(*line).or_default().push((range.clone(), i == active));
         }
     }
 
@@ -419,25 +435,18 @@ impl CodeDocState {
     }
 
     pub fn active_match_index(&self) -> usize {
-        self.active_match
+        self.find.active()
     }
 
     pub fn step_match(&mut self, scroll_key: &str, forward: bool, tx: &mut Tx) {
-        if self.matches.is_empty() {
+        if !self.find.step(DocFindEvent::Step { forward, count: self.matches.len() }) {
             return;
         }
-        let len = self.matches.len();
-        self.active_match = if forward {
-            (self.active_match + 1) % len
-        } else {
-            (self.active_match + len - 1) % len
-        };
         self.rebuild_line_match_index();
         self.rev += 1;
-        let line = self.matches[self.active_match].0;
+        let line = self.matches[self.find.active()].0;
         self.scroll_to_line(scroll_key, line, false, tx);
     }
-
     pub(crate) fn line_matches(&self, line: u32) -> &[(Range<usize>, bool)] {
         self.by_line_matches.get(&line).map_or(&[], Vec::as_slice)
     }
@@ -465,17 +474,18 @@ impl CodeDocState {
     pub fn handle_key(&mut self, scroll_key: &str, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if crate::keymap::Bind::Find.matches_tx(ev, tx) {
             tx.instant();
-            self.find_open = true;
-            self.find_input.focused = true;
+            self.set_find_open(true);
             return true;
         }
-        if self.find_open && self.find_input.focused {
+        // Enter and Escape commit or cancel an input method's text first (IME).
+        if self.find_open() && self.find_input.focused {
+            if self.find_input.is_composing() {
+                return false;
+            }
             match &ev.key {
                 Key::Escape => {
                     tx.instant();
-                    self.find_open = false;
-                    self.find_input = TextEdit::new("");
-                    self.sync_find_query();
+                    self.set_find_open(false);
                     return true;
                 }
                 Key::Enter => {
@@ -487,11 +497,9 @@ impl CodeDocState {
             }
         }
         if ev.key == Key::Escape {
-            if self.find_open {
+            if self.find_open() {
                 tx.instant();
-                self.find_open = false;
-                self.find_input = TextEdit::new("");
-                self.sync_find_query();
+                self.set_find_open(false);
                 return true;
             }
             if self.selection().is_some() {
@@ -515,5 +523,63 @@ impl CodeDocState {
 
     pub(crate) fn view_width(&self) -> f32 {
         self.view_w.get()
+    }
+}
+
+/// Find in a file: Pierre's `createFileFind` (`session-ui/src/pierre/file-find.ts`), closed or
+/// open on the query its matches are for and the lit match.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) enum DocFind {
+    #[default]
+    Closed,
+    Open { query: String, active: usize },
+}
+
+pub(super) enum DocFindEvent<'a> {
+    Open,
+    Close,
+    /// The field holds `0`: a new query lights its first match.
+    Query(&'a str),
+    /// Enter (or Shift+Enter) among `count` matches, wrapping.
+    Step { forward: bool, count: usize },
+}
+
+impl DocFind {
+    /// True when the matches must be found again (or, for a step, lit again).
+    pub(super) fn step(&mut self, event: DocFindEvent) -> bool {
+        match (&mut *self, event) {
+            (DocFind::Closed, DocFindEvent::Open) => {
+                *self = DocFind::Open { query: String::new(), active: 0 };
+                true
+            }
+            (DocFind::Open { .. }, DocFindEvent::Close) => {
+                *self = DocFind::Closed;
+                true
+            }
+            (DocFind::Open { query, active }, DocFindEvent::Query(text)) if query != text => {
+                *query = text.to_owned();
+                *active = 0;
+                true
+            }
+            (DocFind::Open { active, .. }, DocFindEvent::Step { forward, count }) if count > 0 => {
+                *active = if forward { (*active + 1) % count } else { (*active + count - 1) % count };
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn query(&self) -> &str {
+        match self {
+            DocFind::Open { query, .. } => query,
+            DocFind::Closed => "",
+        }
+    }
+
+    pub(super) fn active(&self) -> usize {
+        match self {
+            DocFind::Open { active, .. } => *active,
+            DocFind::Closed => 0,
+        }
     }
 }

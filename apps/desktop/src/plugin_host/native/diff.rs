@@ -17,6 +17,7 @@ use super::super::services::{app_now, map, method, signal};
 use super::super::vm::Vmx;
 use super::{handle_field, object, p};
 use crate::App;
+use crate::code_view::find_bar::{FindBar, find_bar, over};
 use crate::code_view::{DiffViewer, ExpandMode};
 use crate::review::{ChangeMode, SessionReview};
 
@@ -180,9 +181,11 @@ fn files(sr: &SessionReview) -> Vec<Data> {
 
 /// The version of what `Dep::Diff(session)` reads, the file heading stuck over the scrolled
 /// diff included: scrolling past a file's heading sticks it without changing the diff.
-pub fn version(app: &App, session: &str) -> (u64, bool, bool, Option<usize>) {
+pub fn version(app: &App, session: &str) -> (u64, bool, bool, Option<usize>, Option<(usize, usize, String, bool)>) {
     let sr = app.review.sessions.get(session);
-    (sr.map_or(0, |sr| sr.stamp), app.review.diff_mode == DiffMode::Split, app.review.expand_mode == ExpandMode::Expand, sr.and_then(|sr| sr.diffs.sticky()))
+    // The find bar the diff draws over itself: open, its matches, its field.
+    let find = sr.map(|sr| &sr.diffs).filter(|d| d.find_open()).map(|d| (d.find_count(), d.find_index(), d.find.input.text.clone(), d.find.input.focused));
+    (sr.map_or(0, |sr| sr.stamp), app.review.diff_mode == DiffMode::Split, app.review.expand_mode == ExpandMode::Expand, sr.and_then(|sr| sr.diffs.sticky()), find)
 }
 
 /// The version of what `Dep::NarrowReview(session)` reads: the files open in the narrow list
@@ -207,6 +210,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
         let title = if a.children.is_empty() { rune::el() } else { a.children.remove(0) };
         return Ok(crate::review::mobile::view(app, &pal, &sid, title));
     }
+    cx::read(Dep::Diff(sid.clone()));
     let sr = app.review.sessions.get(&sid);
     let shown = sr.and_then(|sr| sr.diffs.only().and_then(|f| sr.diffs.files().get(f)).map(|f| f.path().to_owned()));
     let stale_file = file.is_some() && file != shown && sr.is_some_and(|sr| file.as_deref().and_then(|f| sr.diffs.file_index(f)).is_some());
@@ -236,7 +240,46 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     .on_fetch_text(|s: &mut App, f: usize| s.request_review_file_text(f))
     .notes(crate::line_comments::host::Notes::new(&sid, crate::line_comments::Surface::Review))
     .build(app, &pal);
-    Ok(col().w_full().grow(1.0).min_h(0.0).child(viewer))
+    let bar = sr.filter(|sr| sr.diffs.find_open()).map(|sr| {
+        let d = &sr.diffs;
+        let bar = FindBar {
+            key: "review-find-bar",
+            // Under the sticky file header (--session-title-height), 4 up.
+            top: crate::code_view::HEADER_H - 4.0,
+            edit: diff_find_input,
+            changed: |s, sid, tx| {
+                tx.instant();
+                if let Some(sr) = s.review.sessions.get_mut(sid) {
+                    sr.diffs.sync_find_query();
+                }
+            },
+            step: |s, sid, forward, tx| {
+                if let Some(sr) = s.review.sessions.get_mut(sid) {
+                    sr.diffs.sync_find_query();
+                    sr.diffs.step_find(forward, tx);
+                }
+            },
+            close: |s, sid, tx| {
+                tx.instant();
+                if let Some(sr) = s.review.sessions.get_mut(sid) {
+                    sr.diffs.set_find_open(false);
+                }
+            },
+            target: sid.clone(),
+        };
+        find_bar(&pal, &d.find.input, d.find_count(), d.find_index(), app.settings.spellcheck, bar)
+    });
+    Ok(col().w_full().grow(1.0).min_h(0.0).child(over(viewer, bar)))
+}
+
+/// Session `sid`'s diff find field.
+fn diff_find_input<'a>(s: &'a mut App, sid: &str) -> &'a mut rune::TextEdit {
+    let review = &mut *s.review;
+    if review.sessions.contains_key(sid) {
+        &mut review.sessions.get_mut(sid).unwrap().diffs.find.input
+    } else {
+        &mut review.empty_diffs.find.input
+    }
 }
 
 /// Keys for the routed session's review while its tab shows and has the keyboard: the diff's
