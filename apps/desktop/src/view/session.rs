@@ -40,7 +40,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
             // when the region is reused.
             let content_w = session_view::TimelineHost::content_width(s);
             session_view::style::set_content_w(content_w);
-            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), crate::plugin_host::surfaces_version(s));
+            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), crate::plugin_host::surfaces_version(s), crate::speech::listening(s));
             rune::region_with("timeline-area", (id, shown, inputs), || {
                 let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
                 let child = s.session(id).is_some_and(|i| i.parent.is_some());

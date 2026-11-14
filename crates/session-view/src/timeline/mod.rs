@@ -78,7 +78,10 @@ impl RowSpec {
 
     /// A prompt's row: [`Self::wrap`] with its turn heading first, so a reader reaches the
     /// heading, then the prompt.
-    fn wrap_turn<S: TimelineHost>(&self, s: &S, turn: (usize, usize), text: &str, bubble: El) -> El {
+    fn wrap_turn<S: TimelineHost>(&self, s: &S, turn: (usize, usize), more: bool, text: &str, bubble: El) -> El {
+        if !s.assistive() {
+            return self.wrap(s, bubble);
+        }
         // Out of layout and drawing nothing: the row's top line, for a reader's heading keys.
         // The count and place are in its words, true whether the other turns are mounted or not.
         let heading = el()
@@ -88,7 +91,7 @@ impl RowSpec {
             .h(1.0)
             .role("heading")
             .level(2)
-            .label(turn_words(turn, text));
+            .label(turn_words(turn, more, text));
         self.wrap_paced(s, Some(heading), bubble, false)
     }
 
@@ -208,12 +211,13 @@ impl RowSpec {
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));
-                        let turn = turn_of(t, *message);
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn);
+                        // A turn's place is only for its heading, which only a reader gets.
+                        let (turn, more) = if s.assistive() { (turn_of(t, *message), s.more_above(&t.session)) } else { ((0, 0), false) };
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
-                            self.wrap_turn(s, turn, text, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
+                            self.wrap_turn(s, turn, more, text, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
                         });
                     }
                 }
@@ -227,7 +231,10 @@ impl RowSpec {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
                     let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
                     let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)));
-                    return self.wrap_turn(s, turn_of(t, *message), text, bubble);
+                    if !s.assistive() {
+                        return self.wrap(s, bubble);
+                    }
+                    return self.wrap_turn(s, turn_of(t, *message), s.more_above(&t.session), text, bubble);
                 }
                 _ => unreachable!(),
             },
@@ -366,9 +373,14 @@ fn group_hash(messages: &[Message]) -> u64 {
 const TURN_WORDS: usize = 80;
 
 /// What a reader hears of a turn: "Prompt 3 of 12: " and the prompt's first line, cut to
-/// [`TURN_WORDS`] characters. Its heading's name, and what Previous and Next message say.
-pub fn turn_words((turn, turns): (usize, usize), text: &str) -> String {
+/// [`TURN_WORDS`] characters. Its heading's name, and what Previous and Next message say. While
+/// older messages aren't loaded (`more`), the count from the start isn't known, so the place is
+/// counted from the latest prompt instead ("Prompt 3 from the end: "), which stays true.
+pub fn turn_words((turn, turns): (usize, usize), more: bool, text: &str) -> String {
     let first: String = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(TURN_WORDS).collect();
+    if more {
+        return opencode_i18n::t!("rune.a11y.turnFromEnd", back = turns + 1 - turn, text = first);
+    }
     opencode_i18n::t!("rune.a11y.turn", turn = turn, turns = turns, text = first)
 }
 
@@ -379,12 +391,13 @@ pub fn turn_of(t: &Transcript, message: usize) -> (usize, usize) {
     thread_local! {
         static TURNS: std::cell::RefCell<(Option<(String, usize, Option<String>)>, Vec<usize>)> = const { std::cell::RefCell::new((None, Vec::new())) };
     }
-    let stamp = (t.session.clone(), t.messages.len(), t.messages.last().map(|m| m.id().to_owned()));
+    let last = t.messages.last().map(|m| m.id());
     TURNS.with(|c| {
         let mut c = c.borrow_mut();
-        if c.0.as_ref() != Some(&stamp) {
+        let same = c.0.as_ref().is_some_and(|(s, n, l)| *s == t.session && *n == t.messages.len() && l.as_deref() == last);
+        if !same {
             c.1 = t.messages.iter().enumerate().filter(|(_, m)| matches!(m, Message::User { .. })).map(|(i, _)| i).collect();
-            c.0 = Some(stamp);
+            c.0 = Some((t.session.clone(), t.messages.len(), last.map(str::to_owned)));
         }
         (c.1.partition_point(|&i| i < message) + 1, c.1.len())
     })

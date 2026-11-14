@@ -176,7 +176,18 @@ pub fn event(app: &mut App, ty: &str, data: &Value, sid: &str) {
 /// Says what waits, and announces and focuses a request the open page's dock started showing
 /// (from `poll`). A poll in one frame says everything queued in it as one announcement, so a
 /// reader hears it all rather than only the last.
-pub fn poll(app: &mut App, tx: &mut Tx) {
+pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
+    let was = app.speech.listening;
+    poll_inner(app, tx);
+    app.speech.listening != was
+}
+
+/// Whether an assistive client read the window at the last poll.
+pub fn listening(app: &App) -> bool {
+    app.speech.listening
+}
+
+fn poll_inner(app: &mut App, tx: &mut Tx) {
     if let Some(key) = app.speech.focus_dock.take()
         && tx.focused().is_none_or(|k| k == "prompt")
     {

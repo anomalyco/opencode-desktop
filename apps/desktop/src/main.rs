@@ -564,6 +564,9 @@ impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {
         &self.knobs
     }
+    fn assistive(&self) -> bool {
+        speech::listening(self)
+    }
     fn clock(&self) -> f64 {
         *self.clock
     }
@@ -1268,7 +1271,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= settings::search::poll(s, tx);
     settings::pages::servers::unavailable::poll(s, tx);
     changed |= notifications::poll(s, tx);
-    speech::poll(s, tx);
+    changed |= speech::poll(s, tx);
     // A shortcut from the composer that moved the keyboard into the side region (its command
     // may run a frame later) leaves the selected tab's label muted (`SideState::quiet`).
     let composing = s.composer.focused;

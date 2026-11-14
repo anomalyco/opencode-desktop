@@ -347,6 +347,11 @@ pub trait TimelineHost: Sized + 'static {
     fn more_above(&self, _session: &str) -> bool {
         false
     }
+    /// Whether an assistive client reads the window: what only a screen reader uses (a turn's
+    /// heading) is built only then, and costs nothing without one. A change re-runs the rows.
+    fn assistive(&self) -> bool {
+        true
+    }
     #[allow(clippy::type_complexity)]
     fn watch_scroll_top(&self, _session: &str) -> Option<Box<dyn Fn(ScrollPos)>> {
         None
