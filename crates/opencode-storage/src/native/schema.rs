@@ -20,11 +20,16 @@ use rusqlite::Connection;
 pub const BASE_SCHEMA: u32 = 1;
 pub const SCHEMA_VERSION: u32 = 2;
 
-/// Whether a profile made before the draft journal gets it and schema 2 (STORAGE-4's switch,
-/// until both are proved on real profiles): only with `RUNE_STORAGE_V2=1`. A new profile, and one
-/// that has its journal already, always do.
+/// Whether a profile made before the draft journal gets it and schema 2 (STORAGE-4's switch). On
+/// Windows, where both are proved, yes unless `RUNE_STORAGE_V2=0`; elsewhere only with
+/// `RUNE_STORAGE_V2=1` (the journal isn't kept there yet: `journal::SUPPORTED`). A new profile,
+/// and one that has its journal already, always do.
 pub(crate) fn upgrade_existing() -> bool {
-    std::env::var_os("RUNE_STORAGE_V2").is_some_and(|v| v == "1")
+    match std::env::var_os("RUNE_STORAGE_V2") {
+        Some(v) if v == "0" => false,
+        Some(v) if v == "1" => true,
+        _ => cfg!(windows),
+    }
 }
 
 /// `user_version` = `SCHEMA_VERSION << 16 | flags`: one header field answers, before any table

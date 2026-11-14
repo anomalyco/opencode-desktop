@@ -520,7 +520,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
         let existing = if hinted { None } else { journal::location(&conn)? };
         // A profile from before the journal gets one only when the switch says so.
         if !hinted && !new && existing.is_none() && !schema::upgrade_existing() {
-            report.journal_error = Some("off for profiles made before it (RUNE_STORAGE_V2=1 turns it on)".into());
+            report.journal_error = Some("off for profiles made before it (RUNE_STORAGE_V2)".into());
         } else if !hinted {
             // A journal the boot record doesn't name, in a record that changed since the
             // reservation: a build without the journal rebuilt it (a rollback), so what the
