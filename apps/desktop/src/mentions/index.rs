@@ -139,7 +139,7 @@ impl App {
         let recent = self.recent_files();
         let files = match &*self.source {
             Source::Live { .. } => (self.mentions.search.files_query().to_owned(), self.mentions.search.files().len()),
-            _ => (String::new(), self.mentions.file_index.len()),
+            _ => (self.mentions.paths_version().to_string(), self.mentions.file_index.len()),
         };
         let m = &self.mentions;
         let key = ItemsKey { query, sessions: sessions_key.clone(), files, catalog: (m.references.len(), m.skills.len(), m.agents.len()), recent };

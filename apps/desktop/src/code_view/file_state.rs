@@ -66,9 +66,9 @@ pub struct CodeDocState {
     chunks: RefCell<ChunkMap<u32>>,
     pub find_input: TextEdit,
     find: DocFind,
-    /// The text's folded lines for Find, made when a query first needs them and dropped when
-    /// Find closes or the text changes: a keystroke scans it, never folds the file again.
-    slab: Option<opencode_search::SlabFind>,
+    /// The text's folded lines for Find, folded on a worker when Find opens and dropped when
+    /// Find closes or the text changes: a keystroke scans it, never folds the file.
+    slab: Slab,
     /// `(1-based line, byte_range_in_line)`
     matches: Vec<(u32, Range<usize>)>,
     by_line_matches: HashMap<u32, Vec<(Range<usize>, bool)>>,
@@ -112,7 +112,7 @@ impl CodeDocState {
             chunks: RefCell::new(HashMap::new()),
             find_input: TextEdit::new(""),
             find: DocFind::Closed,
-            slab: None,
+            slab: Slab::Absent,
             matches: Vec::new(),
             by_line_matches: HashMap::new(),
             view_w: Cell::new(0.0),
@@ -147,7 +147,8 @@ impl CodeDocState {
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
         self.heights.clear();
-        self.slab = None;
+        self.slab = Slab::Absent;
+        self.prepare_slab();
         self.recompute_matches();
         self.bump_keys();
     }
@@ -155,7 +156,7 @@ impl CodeDocState {
     pub fn set_binary(&mut self, size_bytes: usize) {
         self.failure = None;
         self.content = Content::Binary { size: size_bytes };
-        self.slab = None;
+        self.slab = Slab::Absent;
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
@@ -164,7 +165,7 @@ impl CodeDocState {
     pub fn set_missing(&mut self) {
         self.failure = None;
         self.content = Content::Missing;
-        self.slab = None;
+        self.slab = Slab::Absent;
         self.source = SourceLines::default();
         self.trailing = false;
         self.bump_keys();
@@ -390,10 +391,10 @@ impl CodeDocState {
     pub fn set_find_open(&mut self, open: bool) {
         let event = if open { DocFindEvent::Open } else { DocFindEvent::Close };
         if self.find.step(event) {
-            self.slab = None;
+            self.slab = Slab::Absent;
+            self.prepare_slab();
             self.find_input = TextEdit::new("");
             self.recompute_matches();
-            self.rev += 1;
         }
         self.find_input.focused = open;
     }
@@ -403,20 +404,21 @@ impl CodeDocState {
             return false;
         }
         self.recompute_matches();
-        self.rev += 1;
         true
+    }
+
+    /// Open on a text: its slab starts folding on a worker, ready before a person's first key.
+    fn prepare_slab(&mut self) {
+        if self.find_open() && !self.source.is_empty() && matches!(self.slab, Slab::Absent) {
+            self.slab = Slab::fold(&self.source);
+        }
     }
 
     fn recompute_matches(&mut self) {
         self.matches.clear();
         let query = self.find.query();
         if !query.is_empty() && !self.source.is_empty() {
-            let source = &self.source;
-            let slab = self.slab.get_or_insert_with(|| {
-                let mut slab = opencode_search::SlabFind::default();
-                (1..=source.len()).for_each(|n| slab.push(source.line(n).unwrap_or("")));
-                slab
-            });
+            let slab = self.slab.ready(&self.source);
             slab.find(query, |m| self.matches.push((m.row as u32 + 1, m.bytes)));
         }
         self.rebuild_line_match_index();
@@ -443,7 +445,6 @@ impl CodeDocState {
             return;
         }
         self.rebuild_line_match_index();
-        self.rev += 1;
         let line = self.matches[self.find.active()].0;
         self.scroll_to_line(scroll_key, line, false, tx);
     }
@@ -581,5 +582,54 @@ impl DocFind {
             DocFind::Open { active, .. } => *active,
             DocFind::Closed => 0,
         }
+    }
+}
+
+/// Find's folded copy of the text: none yet, folding on a worker (native) or ready.
+enum Slab {
+    Absent,
+    #[cfg(not(target_arch = "wasm32"))]
+    Folding(std::sync::mpsc::Receiver<opencode_search::SlabFind>),
+    Ready(opencode_search::SlabFind),
+}
+
+impl Slab {
+    fn build(source: &SourceLines) -> opencode_search::SlabFind {
+        let mut slab = opencode_search::SlabFind::default();
+        (1..=source.len()).for_each(|n| slab.push(source.line(n).unwrap_or("")));
+        slab
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fold(source: &SourceLines) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let source = source.clone();
+        let spawned = std::thread::Builder::new().name("file-find-fold".into()).spawn(move || {
+            let _ = tx.send(Slab::build(&source));
+        });
+        match spawned {
+            Ok(_) => Slab::Folding(rx),
+            Err(_) => Slab::Absent,
+        }
+    }
+
+    /// The browser has no worker for it: the first query folds.
+    #[cfg(target_arch = "wasm32")]
+    fn fold(_: &SourceLines) -> Self {
+        Slab::Absent
+    }
+
+    /// The slab for `source`, waiting for the worker if a query came first (or folding here when
+    /// none was started).
+    fn ready(&mut self, source: &SourceLines) -> &opencode_search::SlabFind {
+        let slab = match std::mem::replace(self, Slab::Absent) {
+            Slab::Ready(slab) => slab,
+            #[cfg(not(target_arch = "wasm32"))]
+            Slab::Folding(rx) => rx.recv().unwrap_or_else(|_| Slab::build(source)),
+            Slab::Absent => Slab::build(source),
+        };
+        *self = Slab::Ready(slab);
+        let Slab::Ready(slab) = self else { unreachable!("set just above") };
+        slab
     }
 }

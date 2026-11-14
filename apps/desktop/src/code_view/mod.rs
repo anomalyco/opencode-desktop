@@ -211,8 +211,9 @@ pub fn lang_for_path(path: &str) -> Option<&'static str> {
 /// Split source lines (`1`-based) with lazy 128-line `rune_kit::syntax` highlight chunks.
 #[derive(Clone, Debug, Default)]
 pub struct SourceLines {
-    text: Rc<String>,
-    lines: Rc<[(u32, u32)]>,
+    // Shared, not copied, with the worker that folds them for Find (`file_state::Slab`).
+    text: std::sync::Arc<String>,
+    lines: std::sync::Arc<[(u32, u32)]>,
     columns: u32,
 }
 
@@ -233,7 +234,7 @@ impl SourceLines {
             lines.push((start as u32, end as u32));
         }
         Self {
-            text: Rc::new(src.to_owned()),
+            text: std::sync::Arc::new(src.to_owned()),
             lines: lines.into(),
             columns: max_cols,
         }

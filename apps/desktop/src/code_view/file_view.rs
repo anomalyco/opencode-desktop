@@ -200,13 +200,19 @@ impl<S: 'static> Inner<S> {
         let notes_version = self.v.notes.as_ref().map_or(0, |notes| notes.version(s, st.path()));
         let commented = self.v.notes.as_ref().is_some_and(|notes| notes.commented(s, st.path(), Side::New, n));
         let selected = st.selection().is_some_and(|sel| sel.contains(n)) || commented;
-        let has_matches = !st.line_matches(n).is_empty();
+        // Find lights rows by what each holds, so a key rebuilds only rows whose matches moved.
+        let matches = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            st.line_matches(n).hash(&mut h);
+            h.finish()
+        };
         let key = format!("cl{n}");
         let get_mut = self.v.get_mut.clone();
         let cursor = st.cursor == n;
         let row = memo(
             key.as_str(),
-            (self.look.version, st.rev, selected, has_matches, notes_version, cursor),
+            (self.look.version, st.rev, selected, matches, notes_version, cursor),
             || {
                 let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
                 let line = self.line_row(st, n, selected, quiet);

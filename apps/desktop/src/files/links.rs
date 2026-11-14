@@ -307,10 +307,11 @@ impl App {
 
     /// The file a link asked for has loaded: opens its tab, or says it isn't there.
     pub(super) fn finish_file_link(&mut self, sid: &str, path: &str, link: super::LinkOpen, tx: &mut Tx) {
+        let waker = self.files.waker.clone();
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
         if ws.docs.get(path).is_none_or(|d| d.missing()) {
             ws.docs.remove(path);
-            if ws.known_files.remove(path) { ws.paths.take(); }
+            if ws.known_files.remove(path) { ws.reindex(waker.as_ref()); }
             ws.rebuild_tree();
             let title = if is_bare_word(path) { opencode_i18n::t!("rune.files.link.nowhere") } else { opencode_i18n::t!("rune.files.link.notFound") };
             crate::status_toast::say(self, title, path);

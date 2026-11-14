@@ -35,7 +35,7 @@ use data::{
 pub struct SessionFiles {
     pub docs: HashMap<String, CodeDocState>,
     pub known_files: BTreeSet<String>,
-    pub(crate) paths: std::cell::OnceCell<path_index::PathIndex>,
+    pub(crate) paths: path_index::LivePaths,
     pub known_dirs: BTreeSet<String>,
     pub expanded_dirs: BTreeSet<String>,
     pub listed_dirs: BTreeSet<String>,
@@ -145,7 +145,15 @@ impl Default for SessionFiles {
 
 impl SessionFiles {
     pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
-        self.paths.get_or_init(|| path_index::PathIndex::new(self.known_files.iter().cloned())).query(q, limit)
+        self.paths.query(q, limit)
+    }
+
+    /// The known files changed: their index builds again, off the UI thread.
+    pub(crate) fn reindex(&mut self, waker: Option<&Waker>) {
+        if let Some(w) = waker {
+            self.paths.set_waker(w.clone());
+        }
+        self.paths.changed(self.known_files.iter().cloned().collect());
     }
     pub fn rebuild_tree(&mut self) {
         self.tree = build_workspace_tree(&self.known_files, &self.known_dirs, &self.expanded_dirs);
@@ -215,16 +223,24 @@ impl FilesPane {
 /// Lands the folder listings, file loads and finds the panel asked for.
 pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
+    for ws in s.files.sessions.values_mut() {
+        changed |= ws.paths.poll();
+    }
     if let Some((session_id, rel_dir, entries)) = s.files.dir_fetch.take() {
         tx.instant();
+        let waker = s.files.waker.clone();
         let ws = s.files.sessions.entry(session_id).or_default();
         ws.listed_dirs.insert(rel_dir);
+        let mut added = false;
         for (path, is_dir) in entries {
             if is_dir {
                 ws.known_dirs.insert(path);
             } else {
-                if ws.known_files.insert(path) { ws.paths.take(); }
+                added |= ws.known_files.insert(path);
             }
+        }
+        if added {
+            ws.reindex(waker.as_ref());
         }
         ws.ready = true;
         ws.rebuild_tree();
@@ -406,9 +422,10 @@ impl App {
             Source::Fixture => {
                 let (files, contents) = load_fixture_workspace(&self.fixture);
                 let wrap = self.files.wrap;
+                let waker = self.files.waker.clone();
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 ws.known_files = files;
-                ws.paths.take();
+                ws.reindex(waker.as_ref());
                 ws.expanded_dirs.insert("src".into());
                 ws.expanded_dirs.insert("src/net".into());
                 for (path, text) in contents {
@@ -488,8 +505,9 @@ impl App {
             Source::Fixture => {
                 let (_, contents) = load_fixture_workspace(&self.fixture);
                 let wrap = self.files.wrap;
+                let waker = self.files.waker.clone();
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
-                if ws.known_files.insert(path.to_owned()) { ws.paths.take(); }
+                if ws.known_files.insert(path.to_owned()) { ws.reindex(waker.as_ref()); }
                 let mut doc = wrap.doc(path, "");
                 if let Some(txt) = contents.get(path) {
                     doc.set_text(txt);

@@ -94,7 +94,7 @@ pub struct Mentions {
     sessions_fetch: Latest<(Attempt, Option<Vec<SessionInfo>>)>,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
-    fixture_paths: std::cell::OnceCell<crate::files::path_index::PathIndex>,
+    fixture_paths: crate::files::path_index::LivePaths,
     /// What the rows are matched against, kept until what they come from changes.
     cache: std::cell::RefCell<index::Cache>,
 }
@@ -123,7 +123,8 @@ impl Mentions {
     pub fn set_waker(&mut self, waker: Waker) {
         self.catalog_fetch.set_waker(waker.clone());
         self.files_fetch.set_waker(waker.clone());
-        self.sessions_fetch.set_waker(waker);
+        self.sessions_fetch.set_waker(waker.clone());
+        self.fixture_paths.set_waker(waker);
     }
 
     /// A session the `@` search found.
@@ -137,11 +138,16 @@ impl Mentions {
         self.skills = skills(&fixture["skills"]);
         self.references = references(&fixture["references"]);
         self.file_index = found_paths(&fixture["files"]);
-        self.fixture_paths.take();
+        self.fixture_paths.changed(self.file_index.iter().map(|p| shown_path(p)).collect());
     }
 
     pub(crate) fn local_paths(&self, q: &str, limit: usize) -> Vec<String> {
-        self.fixture_paths.get_or_init(|| crate::files::path_index::PathIndex::new(self.file_index.iter().map(|p| shown_path(p)))).query(q, limit)
+        self.fixture_paths.query(q, limit)
+    }
+
+    /// Which fixture path index answers: changes when one lands.
+    pub(crate) fn paths_version(&self) -> u64 {
+        self.fixture_paths.version()
     }
 }
 
@@ -333,8 +339,9 @@ impl App {
         // written only when something did or the search came due.
         let (catalog, files, sessions) = (self.mentions.catalog_fetch.take(), self.mentions.files_fetch.take(), self.mentions.sessions_fetch.take());
         let due = self.mentions.search.next_due().is_some_and(|due| now + 1e-9 >= due);
+        let indexed = self.mentions.fixture_paths.poll();
         if catalog.is_none() && files.is_none() && sessions.is_none() && !due {
-            return false;
+            return indexed;
         }
         let m = &mut *self.mentions;
         let mut changed = false;

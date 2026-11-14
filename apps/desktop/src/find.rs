@@ -544,7 +544,7 @@ impl App {
                         if text.trim().is_empty() && !(last_reply == Some(i) && pi + 1 == a.parts.len()) {
                             continue;
                         }
-                        rows.push(Searchable { message: i, part: Some(pi), row_key: format!("t-{}-{n}", a.id), cache_key: (a.id.clone(), n), shown: None, end: 0, always: outlines || text.contains(['[', '&', '<']) });
+                        rows.push(Searchable { message: i, part: Some(pi), row_key: format!("t-{}-{n}", a.id), cache_key: (a.id.clone(), n), shown: None, end: 0, always: (outlines && (text.contains("```ui") || text.contains("~~~ui"))) || text.contains(['[', '&', '<']) });
                     }
                 }
                 Message::User { id, text } if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() => {
