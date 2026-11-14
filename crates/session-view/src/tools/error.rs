@@ -102,7 +102,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         content = content.child(crate::scroller::scroller("subtitle-full").build::<S>(p, full, words));
     }
     content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).selection_style(picked).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
-    card.child(content)
+    card.child(crate::disclosure::reveal(s.knobs(), content))
 }
 
 /// The width the shut card of `c` takes whole: the warning mark, the name, the subtitle's first

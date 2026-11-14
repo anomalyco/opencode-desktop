@@ -28,7 +28,7 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     // A shell its result doesn't finish shows the output its host read from it (`viewShellRun`).
     let streamed = follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).filter(|o| !o.is_empty());
     let out = streamed.unwrap_or_else(|| output(c));
-    disclosure(trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
+    disclosure(s, trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
         body(console(s, p, c.id, (!command.is_empty()).then_some(command), &clean(out)), false, 8.0)
     })
 }

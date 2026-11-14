@@ -497,8 +497,12 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
         // 8 under the label (inside the steps, so a shut box is no taller than nothing), then the
         // rail 6 in from the steps' top and bottom.
-        let mut list = col().key("steps").w_full().pt(GROUP_GAP).pl(12.0).gap(8.0).transition(rune::Transition::none());
-        list = list.child(el().key("rail").pin(Some(-0.25), Some(14.0), None, Some(6.0)).w(0.5).fill(p.border));
+        // The steps stack as growth rows on the fold's spring, so a step folding open or shut
+        // in the middle slides the ones under it rather than moving them at once (t1484).
+        let fold = crate::disclosure::fold(s.knobs());
+        let feather = s.knobs().get(&crate::disclosure::FOLD_FEATHER);
+        let edge = rune::StreamEdge { word_fade: 0.0, ..rune::edge::FEATHER };
+        let mut list = col().key("rows").w_full().gap(8.0).transition(rune::Transition::none()).growth(rune::GrowthSpec { spring: fold, edge });
         let mut i = 0;
         while i < steps.len() {
             let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
@@ -527,9 +531,11 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
                     (1, step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0))))
                 }
             };
-            list = list.child(item);
+            list = list.child(item.fold_glide(fold).fold_feather(feather));
             i += n;
         }
+        let rail = el().key("rail").pin(Some(-0.25), Some(14.0), None, Some(6.0)).w(0.5).fill(p.border);
+        let list = col().key("steps").w_full().pt(GROUP_GAP).pl(12.0).transition(rune::Transition::none()).child(rail).child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.

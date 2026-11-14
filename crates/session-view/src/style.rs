@@ -225,7 +225,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     if open {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
         let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None, None);
-        c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
+        c = c.child(crate::disclosure::reveal(s.knobs(), col().key("thought").w_full().pt(4.0).pl(12.0).child(md)));
     }
     c
 }
