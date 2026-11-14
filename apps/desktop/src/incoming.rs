@@ -47,6 +47,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
     match m {
         Incoming::Reconnected => {
             tx.instant();
+            crate::connect::picker_reads::refresh(s);
             s.windows_forgotten();
             crate::session_state::reconnected(s, tx);
             s.sidebar_inbox.branches.reconnected();

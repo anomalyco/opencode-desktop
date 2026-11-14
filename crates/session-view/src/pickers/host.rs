@@ -42,6 +42,9 @@ pub trait PickerHost: ComposerHost {
         false
     }
 
+    /// Lets a live host refresh a partial list without delaying the dialog or its input.
+    fn picker_model_opening(&mut self) {}
+
     /// The buttons beside the model search, in order: Manage models opens here; a host that can
     /// connect a provider puts Connect first.
     fn picker_model_actions(&self) -> Vec<ModelAction> {
@@ -184,6 +187,7 @@ pub trait PickerHost: ComposerHost {
 
     fn open_picker(&mut self, kind: Kind) {
         if self.pickers().open == Some(kind) { self.close_picker(true); return; }
+        if kind == Kind::Model { self.picker_model_opening(); }
         let pk = self.pickers_mut();
         pk.open = Some(kind);
         pk.search = TextEdit::new("");

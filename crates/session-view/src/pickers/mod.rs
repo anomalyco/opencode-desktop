@@ -217,6 +217,11 @@ impl Pickers {
     /// The server's `/api/model` and `/api/agent` lists: variants are `{ id }` objects there.
     /// Deprecated models are left out, as Desktop leaves them out of its catalog.
     pub fn load_live(&mut self, models: &Value, agents: &Value) {
+        self.load_models(models);
+        self.load_agents(agents);
+    }
+
+    pub fn load_models(&mut self, models: &Value) {
         let now = wall_ms();
         let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
         let listed: Vec<&Value> = models.as_array().into_iter().flatten()
@@ -232,6 +237,10 @@ impl Pickers {
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
         self.load_limits(models);
+    }
+
+    pub fn load_agents(&mut self, agents: &Value) {
+        let s = |v: &Value, key: &str| v[key].as_str().unwrap_or("").to_owned();
         let agents: Vec<&Value> = agents.as_array().into_iter().flatten()
             .filter(|a| a["mode"].as_str() != Some("subagent") && !a["hidden"].as_bool().unwrap_or(false)).collect();
         self.agents = agents.iter().filter_map(|a| a["id"].as_str()).map(str::to_owned).collect();

@@ -165,7 +165,8 @@ pub fn start_first_reads() {
 pub struct First {
     projects: Value,
     sessions: Option<Value>,
-    models: Option<(Value, Value)>,
+    models: Option<Value>,
+    agents: Option<Value>,
     providers: Option<Value>,
     active: Option<Value>,
     /// The config's documents, for the model it names (`configured.ts`).
@@ -197,7 +198,7 @@ impl First {
         #[cfg(not(target_arch = "wasm32"))]
         let [sessions, models, agents, providers, active, config] =
             std::thread::scope(|scope| paths.map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().unwrap()));
-        Ok(First { projects, sessions, models: models.map(|m| (m, agents.unwrap_or_default())), providers, active, config })
+        Ok(First { projects, sessions, models, agents, providers, active, config })
     }
 }
 
@@ -785,15 +786,7 @@ impl App {
             self.sidebar_inbox.heard_sessions();
             self.note_tab_titles();
         }
-        if let Some(p) = &f.providers {
-            self.pickers.load_providers(p.get("data").unwrap_or(p));
-        }
-        if let Some(c) = &f.config {
-            self.pickers.load_config(c);
-        }
-        if let Some((m, agents)) = &f.models {
-            self.pickers.load_live(m.get("data").unwrap_or(m), agents.get("data").unwrap_or(agents));
-        }
+        crate::connect::picker_reads::first(self, [f.providers, f.config, f.models, f.agents]);
         if let Some(a) = f.active.as_ref().filter(|_| !joined) {
             let map = a.get("data").unwrap_or(a);
             *self.running = map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).filter(|id| !self.stops.pending(id)).collect();
