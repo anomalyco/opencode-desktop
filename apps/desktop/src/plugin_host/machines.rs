@@ -20,14 +20,16 @@ use super::hot::Prepared;
 /// Discovered ─┬─ Refuse ──▶ Refused
 ///             ├─ NeedTrust ▶ AwaitingTrust ─ Load ─┐
 ///             ├─ Disable ──▶ Disabled ───── Load ──┤
+///             ├─ Doze ─────▶ Dormant ────── Load ──┤
 ///             └─ Load ─────────────────────────────┴▶ Loading ─ Started ──▶ Running ⇄ Reloading
 ///                                                       └─ StartFailed ▶ Errored ─ Load ▶ Loading
-/// Running / Reloading / Errored ─ Disable ▶ Disabled
+/// Running / Reloading / Errored / Dormant ─ Disable ▶ Disabled
 /// Running / Reloading / Errored ─ NeedTrust ▶ AwaitingTrust (its files changed)
 /// ```
 ///
 /// `Loading` also covers the wait for the plugin's stored values: its scripts start once they're
-/// in memory.
+/// in memory. `Dormant` is a plugin that may run but hasn't started: what it contributes is listed
+/// from its last start's record (`dormant`), and its first use starts it (`Load`).
 pub enum Life {
     Discovered,
     /// Its manifest, platform or id keeps it from loading.
@@ -35,6 +37,8 @@ pub enum Life {
     /// A third-party plugin whose files the user hasn't OKed ([`Trust`]).
     AwaitingTrust,
     Disabled,
+    /// It may run and isn't started yet: its contributions come from its record until its first use.
+    Dormant,
     /// Its window half's script is being started.
     Loading,
     Running(Script),
@@ -48,6 +52,8 @@ pub enum LifeEvent {
     Refuse(String),
     NeedTrust,
     Disable,
+    /// It may run, and waits for its first use (`Dormant`).
+    Doze,
     Load,
     Started(Script),
     StartFailed(Script, String),
@@ -74,9 +80,10 @@ impl Life {
             (L::Discovered | L::Disabled, E::NeedTrust) => (L::AwaitingTrust, vec![]),
             // Its files changed under it: it stops until the user OKs the new ones.
             (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::NeedTrust) => (L::AwaitingTrust, vec![F::Stop(s)]),
-            (L::Discovered | L::AwaitingTrust, E::Disable) => (L::Disabled, vec![]),
+            (L::Discovered | L::AwaitingTrust | L::Dormant, E::Disable) => (L::Disabled, vec![]),
+            (L::Discovered, E::Doze) => (L::Dormant, vec![]),
             (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::Disable) => (L::Disabled, vec![F::Stop(s)]),
-            (L::Discovered | L::AwaitingTrust | L::Disabled, E::Load) => (L::Loading, vec![F::Start]),
+            (L::Discovered | L::AwaitingTrust | L::Disabled | L::Dormant, E::Load) => (L::Loading, vec![F::Start]),
             (L::Errored { script, .. }, E::Load | E::Reload) => (L::Loading, vec![F::Stop(script), F::Start]),
             (L::Loading, E::Started(s)) => (L::Running(s), vec![]),
             (L::Loading, E::StartFailed(script, error)) => (L::Errored { error: error.clone(), script }, vec![F::Report(error)]),
@@ -101,6 +108,11 @@ impl Life {
         matches!(self, Life::Running(_) | Life::Reloading(_))
     }
 
+    /// Whether its contributions are listed: running, or dormant (from its record).
+    pub fn listed(&self) -> bool {
+        self.running() || matches!(self, Life::Dormant)
+    }
+
     /// The word Settings shows.
     pub fn label(&self) -> &str {
         match self {
@@ -108,6 +120,8 @@ impl Life {
             Life::Refused(_) => "Not loaded",
             Life::AwaitingTrust => "Waiting for your OK",
             Life::Disabled => "Off",
+            // On as far as the user can tell: its contributions are there, and it starts at first use.
+            Life::Dormant => "On",
             Life::Loading => "Loading",
             Life::Running(_) => "On",
             Life::Reloading(_) => "Reloading",

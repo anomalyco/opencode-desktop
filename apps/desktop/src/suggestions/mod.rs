@@ -160,6 +160,10 @@ impl App {
         };
         let (closed, open) = (context(false), context(true));
         let command = self.composer.text.strip_prefix('/').filter(|q| !q.chars().any(char::is_whitespace)).map(str::to_owned);
+        // The `/` list offers the commands a plugin enables.
+        if command.is_some() {
+            crate::plugin_host::dormant::wake_kind(self, "commands", &["enabled", "hidden"]);
+        }
         self.suggest(Event::Input { context: closed.as_deref(), context_open: open.as_deref(), command: command.as_deref() }, tx);
     }
 

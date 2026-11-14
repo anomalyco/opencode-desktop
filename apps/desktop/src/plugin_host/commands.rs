@@ -39,7 +39,7 @@ pub struct Cmd {
 pub fn all(app: &App) -> Vec<Cmd> {
     let listed: Vec<_> = app
         .plugins
-        .running()
+        .listed()
         .flat_map(|(i, p)| p.half.contribs.borrow().commands.iter().map(|c| (i, c.key, c.spec.clone(), c.f("enabled").cloned(), c.f("hidden").cloned())).collect::<Vec<_>>())
         .collect();
     listed
@@ -91,6 +91,7 @@ pub fn offered(app: &App, c: &Cmd) -> bool {
 /// Runs Luau command `id` with `input`; false when there is none, it is off, or it declined
 /// (returned `false` before its first yield).
 pub fn run(app: &mut App, id: &str, input: Option<&str>, tx: &mut Tx) -> bool {
+    super::dormant::wake_owners(app, |c| c.commands.iter().any(|c| c.key == id));
     if !all(app).iter().any(|c| c.id == id && offered(app, c)) {
         return false;
     }
@@ -227,7 +228,7 @@ pub fn panel_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// `(key, title, description, icon, order)`.
 pub fn menu_items(app: &App, menu: &str) -> Vec<(&'static str, String, Option<String>, Option<String>, i64)> {
     app.plugins
-        .running()
+        .listed()
         .flat_map(|(_, p)| p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu.as_str() == menu).map(|c| (c.key, c.spec.title.clone(), c.spec.description.clone(), c.spec.icon.clone(), c.spec.order.unwrap_or(0))).collect::<Vec<_>>())
         .collect()
 }
@@ -236,7 +237,9 @@ pub fn menu_items(app: &App, menu: &str) -> Vec<(&'static str, String, Option<St
 /// `opened` and with its `detail` as that session answers them.
 pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels::PanelLauncherDesc> {
     let p = &app.plugins.list[i];
-    let items: Vec<_> = p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu == opencode_plugin_spec::MenuName::SessionPanel).map(|c| (c.key, c.spec.clone(), c.f("when").cloned(), c.f("opened").cloned(), c.f("detail").cloned())).collect();
+    // A dormant plugin's item that answers `when` waits for it to start; the rest show from its record.
+    let asleep = |key: &str| super::dormant::recorded_fn(app, &p.manifest.id, "menu_items", key, "when");
+    let items: Vec<_> = p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu == opencode_plugin_spec::MenuName::SessionPanel && !asleep(c.key)).map(|c| (c.key, c.spec.clone(), c.f("when").cloned(), c.f("opened").cloned(), c.f("detail").cloned())).collect();
     items
         .into_iter()
         .filter(|(key, _, when, _, _)| when.as_ref().is_none_or(|f| super::panels::answer(app, i, &format!("when:{key}:{session}"), f, session.to_owned()) == Some(Data::Bool(true))))
@@ -258,6 +261,7 @@ pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels
 
 /// Runs Luau menu item `key` for `target`; false when it isn't one.
 pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) -> bool {
+    super::dormant::wake_owners(app, |c| c.menu_items.iter().any(|c| c.key == key));
     let found = app.plugins.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().menu_items.iter().find(|c| c.key == key)?.f("run")?.clone())));
     let Some((i, f)) = found else { return false };
     spawn(app, i, &f, (!target.is_empty()).then(|| target.to_owned()), tx);
@@ -266,6 +270,7 @@ pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) -> boo
 
 /// Runs menu item `key`'s `hover`, when it has one, for `target`.
 pub fn hover_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
+    super::dormant::wake_owners(app, |c| c.menu_items.iter().any(|c| c.key == key));
     let found = app.plugins.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().menu_items.iter().find(|c| c.key == key)?.f("hover")?.clone())));
     if let Some((i, f)) = found {
         spawn(app, i, &f, target.to_owned(), tx);
@@ -274,6 +279,8 @@ pub fn hover_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
 
 /// Opens `href` with the first Luau link handler whose `match` takes it, highest priority first.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
+    // Every handler's `match` is asked: the dormant ones start first.
+    super::dormant::wake_owners(app, |c| !c.link_handlers.is_empty());
     let mut handlers: Vec<(usize, i64, Function, Function)> = app
         .plugins
         .running()
@@ -292,6 +299,7 @@ pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
 }
 
 pub fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &str, tx: &mut Tx) {
+    super::dormant::wake_owners(app, |c| c.code_block_actions.iter().any(|c| c.key == key));
     let found = app.plugins.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().code_block_actions.iter().find(|c| c.key == key)?.f("run")?.clone())));
     if let Some((i, f)) = found {
         spawn(app, i, &f, map([("code", Data::String(code.to_owned())), ("language", Data::String(language.to_owned()))]), tx);
@@ -300,19 +308,21 @@ pub fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &st
 
 /// Luau MCP tools, window and app halves', as `(name, description, input schema)`.
 pub fn mcp_tools(app: &App) -> Vec<(String, String, serde_json::Value)> {
-    let window = app.plugins.running().flat_map(|(_, p)| tools(&p.half));
-    let app_tools = super::app_half::each(|a| Some(tools(&a.half))).into_iter().flatten();
-    window.chain(app_tools).collect()
+    let window = app.plugins.listed().flat_map(|(_, p)| tools(&p.half.contribs.borrow()));
+    let app_tools = super::app_half::each(|a| Some(tools(&a.half.contribs.borrow()))).into_iter().flatten();
+    let dormant = super::dormant::each_app_half(|_, c| Some(tools(c))).into_iter().flatten();
+    window.chain(app_tools).chain(dormant).collect()
 }
 
-fn tools(half: &super::Half) -> Vec<(String, String, serde_json::Value)> {
-    half.contribs.borrow().mcp_tools.iter().map(|c| (c.spec.name.clone(), c.spec.description.clone(), serde_json::Value::Object(c.spec.input_schema.clone().into_iter().collect()))).collect()
+fn tools(contribs: &super::plugin::Contribs) -> Vec<(String, String, serde_json::Value)> {
+    contribs.mcp_tools.iter().map(|c| (c.spec.name.clone(), c.spec.description.clone(), serde_json::Value::Object(c.spec.input_schema.clone().into_iter().collect()))).collect()
 }
 
 /// Runs Luau MCP tool `call.name` for the call of session `session` (in `directory`) as a task,
 /// which answers the call when it returns (at once, or after the `...Async` calls it waits on),
 /// then carries out what it asked for. Hands the call back when no plugin has the tool.
 pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx: &mut Tx) -> Option<McpCall> {
+    super::dormant::wake_owners(app, |c| c.mcp_tools.iter().any(|t| t.spec.name == call.name));
     let found = app.plugins.running().find_map(|(i, p)| Some((i, p.half.contribs.borrow().mcp_tools.iter().find(|c| c.spec.name == call.name)?.f("call")?.clone())));
     let Some((i, f)) = found else { return Some(call) };
     let Some(script) = app.plugins.list[i].script() else { return Some(call) };
@@ -339,10 +349,13 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
 
 /// App menu items Luau app halves add, as `(key, menu, label, order)`.
 pub fn menubar_items() -> Vec<(&'static str, String, String, i64)> {
-    super::app_half::each(|a| Some(a.half.contribs.borrow().menubar_items.iter().map(|c| (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0))).collect::<Vec<_>>())).into_iter().flatten().collect()
+    let rows = |c: &super::plugin::Contribs| c.menubar_items.iter().map(|c| (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0))).collect::<Vec<_>>();
+    let running = super::app_half::each(|a| Some(rows(&a.half.contribs.borrow()))).into_iter().flatten();
+    running.chain(super::dormant::each_app_half(|_, c| Some(rows(c))).into_iter().flatten()).collect()
 }
 
 pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
+    super::dormant::wake_owners(app, |c| c.menubar_items.iter().any(|c| c.key == key));
     let found = super::app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key).and_then(|c| c.f("run").cloned())).into_iter().next();
     let Some(f) = found else { return false };
     super::app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::with_app(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));

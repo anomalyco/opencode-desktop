@@ -64,7 +64,7 @@ pub(super) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
 /// panels' lowest `order`.
 pub fn providers(app: &App) -> Vec<PanelRegistration> {
     app.plugins
-        .running()
+        .listed()
         .filter_map(|(_, p)| {
             let c = p.half.contribs.borrow();
             let items = c.menu_items.iter().any(|m| m.spec.menu == opencode_plugin_spec::MenuName::SessionPanel);
@@ -277,7 +277,7 @@ pub fn tab_lead(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: 
 /// The plugin's `+` and New tab entries: each single panel that wants a launcher, then its
 /// `session.panel` menu items (`menu:<key>`).
 pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
-    let Some((i, all)) = panels(app, ctx.plugin) else { return Vec::new() };
+    let Some((i, all)) = panels(app, ctx.plugin) else { return asleep_launchers(app, ctx) };
     let manifest = &app.plugins.list[i].manifest;
     let own = all.iter().filter(|p| p.list.is_none() && p.spec.launcher != Some(false) && offered(app, i, p, ctx.session_id)).map(|p| {
         let description = p.spec.description.clone().or_else(|| manifest.description.clone());
@@ -290,9 +290,34 @@ pub fn launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
     out
 }
 
+/// [`launchers`] of a dormant plugin, from its record: its single panels and `session.panel` items,
+/// but for those that answer `enabled` or `when`, which wait for it to start (in idle time).
+fn asleep_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> {
+    let Some((i, p)) = app.plugins.listed().find(|(_, p)| p.manifest.id == ctx.plugin && !p.running()) else { return Vec::new() };
+    let id = p.manifest.id.as_str();
+    let fns = |key: &str, name: &str| super::dormant::recorded_fn(app, id, "panels", key, name);
+    let c = p.half.contribs.borrow();
+    if c.panels.iter().any(|q| fns(q.key, "enabled")) || c.menu_items.iter().any(|m| super::dormant::recorded_fn(app, id, "menu_items", m.key, "when")) {
+        super::dormant::want(app, id);
+    }
+    let mut out: Vec<PanelLauncherDesc> = c
+        .panels
+        .iter()
+        .filter(|q| !fns(q.key, "list") && !fns(q.key, "enabled") && q.spec.launcher != Some(false) && q.spec.enabled != Some(false))
+        .map(|q| {
+            let description = q.spec.description.clone().or_else(|| p.manifest.description.clone());
+            PanelLauncherDesc::new(intern(&q.spec.id), q.spec.title.clone(), icon_of(&q.spec), q.spec.order.unwrap_or(0) as i32).description(description).opened(ctx.open_ids.iter().any(|o| *o == q.spec.id))
+        })
+        .collect();
+    drop(c);
+    out.extend(super::commands::panel_menu_items(app, i, ctx.session_id));
+    out
+}
+
 /// Opens entry `id` of plugin `plugin`: runs its `session.panel` item `id` (whose row keys as
 /// Desktop's launcher does, `side-launch-<plugin>-<id>`), else opens panel `id`'s tab in `pane`.
 pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
+    super::dormant::wake(app, plugin, super::dormant::Why::Use);
     let session = app.active_session_id().unwrap_or_default().to_owned();
     if !super::commands::run_menu_item(app, &format!("{plugin}.{id}"), &session, tx) {
         app.open_side_tab(&crate::panels::panel_key(plugin, id), Some(pane), false, false, tx);

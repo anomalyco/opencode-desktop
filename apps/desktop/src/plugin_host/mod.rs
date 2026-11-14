@@ -32,6 +32,7 @@ pub mod console;
 mod contrib;
 mod ctx;
 pub mod cx;
+pub(crate) mod dormant;
 pub(crate) mod editors;
 mod first_screen;
 pub mod flyout;
@@ -224,6 +225,8 @@ pub struct PluginHost {
     folders: Folders,
     /// Built-ins this launch's first screen doesn't show, started after its first frame.
     later: Vec<sources::Found>,
+    /// The built-ins waiting for their first use, and their records.
+    pub dormant: dormant::Dormant,
     pub overlay: Overlay,
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
@@ -276,6 +279,12 @@ impl PluginHost {
     /// The running plugins.
     pub fn running(&self) -> impl Iterator<Item = (usize, &Plugin)> {
         self.list.iter().enumerate().filter(|(_, p)| p.running())
+    }
+
+    /// The plugins whose contributions are listed: the running ones, and the dormant ones from their
+    /// records (`dormant`), whose functions are none until they start.
+    pub fn listed(&self) -> impl Iterator<Item = (usize, &Plugin)> {
+        self.list.iter().enumerate().filter(|(_, p)| p.life.listed())
     }
 
     pub fn metrics(&self, id: &str) -> Option<PluginMetrics> {
@@ -383,8 +392,39 @@ fn start_later(app: &mut App) {
             next_later(app, PAGE_LATER_AFTER);
         }
         #[cfg(not(target_arch = "wasm32"))]
-        start_one_later(app, tx);
+        {
+            settle_later(app);
+            start_one_later(app, tx);
+        }
     });
+}
+
+/// The built-ins waiting for after the first frame: each with a record of this build of it in this
+/// language sleeps until its first use (`dormant`); the rest start one per turn and record
+/// themselves. `--plugins-eager` starts them all, as before.
+#[cfg(not(target_arch = "wasm32"))]
+fn settle_later(app: &mut App) {
+    if crate::flag("--plugins-eager") {
+        return;
+    }
+    for found in std::mem::take(&mut app.plugins.later) {
+        let hash = (found.tier == Tier::Bundled).then(|| sources::files_hash(&found.manifest.id, &found.origin, found.tier)).flatten();
+        match hash.and_then(|h| app.plugins.dormant.record(&found.manifest.id, &h)) {
+            Some(record) => adopt_one(app, found, Some(record)),
+            None => app.plugins.later.push(found),
+        }
+    }
+}
+
+/// Whether built-in `id` has work of its own to do from launch, without a use: the updater's check,
+/// pill and What's new, and Pairing while Keep screen active holds the display. Those start in idle
+/// time rather than waiting for a use.
+fn background(id: &str) -> bool {
+    match id {
+        "updater" => true,
+        "pairing" => stores::text("pairing", "plugin.pairing", "keepScreenActive").is_some_and(|v| &*v == "true"),
+        _ => false,
+    }
 }
 
 /// In a page, how long after the first frame its other built-ins start: a key typed in that time
@@ -464,43 +504,51 @@ fn read_folders(app: &mut App) {
 /// may run. One from `--plugin-dir` or an override with a built-in's id replaces the built-in;
 /// an installed one can't, and shows refused beside it.
 fn adopt(app: &mut App, found: Vec<sources::Found>) {
-    let builtins: Vec<&str> = sources::builtin_ids().collect();
     for found in found {
-        let id = found.manifest.id.clone();
-        let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
-        let existing = app.plugins.find(&id);
-        let replaces = existing.filter(|&i| app.plugins.list[i].tier > found.tier);
-        if existing.is_some() && replaces.is_none() && !shadows {
-            continue;
+        adopt_one(app, found, None);
+    }
+}
+
+/// [`adopt`] for one plugin; with `record`, one that may run sleeps until its first use instead.
+fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Record>) {
+    let builtins: Vec<&str> = sources::builtin_ids().collect();
+    let id = found.manifest.id.clone();
+    let shadows = found.tier == Tier::User && builtins.contains(&id.as_str());
+    let existing = app.plugins.find(&id);
+    let replaces = existing.filter(|&i| app.plugins.list[i].tier > found.tier);
+    if existing.is_some() && replaces.is_none() && !shadows {
+        return;
+    }
+    let trust = Trust::at_launch(found.tier.needs_trust(), found.hash.as_deref().unwrap_or_default(), app.plugins.trusted.get(&id));
+    let first = if let Some(e) = found.error {
+        LifeEvent::Refuse(e)
+    } else if shadows || id == "opencode" {
+        LifeEvent::Refuse("A built-in plugin already has this id".to_owned())
+    } else if !runs_here(&found.manifest) {
+        LifeEvent::Refuse("Not for this operating system".to_owned())
+    } else if app.plugins.disabled.contains(&id) {
+        LifeEvent::Disable
+    } else if !trust.allows() {
+        LifeEvent::NeedTrust
+    } else {
+        LifeEvent::Load
+    };
+    let plugin = Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half: Half::new(&id, plugin::Kind::Window) };
+    let i = match replaces {
+        Some(i) => {
+            drive(app, i, LifeEvent::Disable);
+            app_half::stop(&id);
+            app.plugins.list[i] = plugin;
+            i
         }
-        let trust = Trust::at_launch(found.tier.needs_trust(), found.hash.as_deref().unwrap_or_default(), app.plugins.trusted.get(&id));
-        let first = if let Some(e) = found.error {
-            LifeEvent::Refuse(e)
-        } else if shadows || id == "opencode" {
-            LifeEvent::Refuse("A built-in plugin already has this id".to_owned())
-        } else if !runs_here(&found.manifest) {
-            LifeEvent::Refuse("Not for this operating system".to_owned())
-        } else if app.plugins.disabled.contains(&id) {
-            LifeEvent::Disable
-        } else if !trust.allows() {
-            LifeEvent::NeedTrust
-        } else {
-            LifeEvent::Load
-        };
-        let plugin = Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half: Half::new(&id, plugin::Kind::Window) };
-        let i = match replaces {
-            Some(i) => {
-                drive(app, i, LifeEvent::Disable);
-                app_half::stop(&id);
-                app.plugins.list[i] = plugin;
-                i
-            }
-            None => {
-                app.plugins.list.push(plugin);
-                app.plugins.list.len() - 1
-            }
-        };
-        drive(app, i, first);
+        None => {
+            app.plugins.list.push(plugin);
+            app.plugins.list.len() - 1
+        }
+    };
+    match (first, record) {
+        (LifeEvent::Load, Some(record)) => dormant::doze(app, i, record, background(&id)),
+        (first, _) => drive(app, i, first),
     }
 }
 
@@ -594,6 +642,9 @@ fn start_loaded(app: &mut App, i: usize) {
         }
     };
     drive(app, i, event);
+    if app.plugins.list[i].running() {
+        dormant::note_started(app, i);
+    }
 }
 
 /// [`LifeEffect::Stop`]: fires `Disposing` in `script`, then withdraws what plugin `i`
@@ -688,6 +739,9 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
 
 /// Queues a server event for the plugins listening for its type, delivered on the next poll.
 pub fn server_event(app: &mut App, ty: &str, data: &serde_json::Value) {
+    if dormant::listens(app, ty) {
+        dormant::buffer_event(app, ty, data);
+    }
     let host = &app.plugins;
     let wanted = host.running().any(|(_, p)| p.half.events.borrow().iter().any(|(_, prefix, _)| ty.starts_with(prefix.as_str())));
     if wanted {
@@ -738,6 +792,10 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     if changed {
         app.plugins.asked = false;
     }
+    changed |= dormant::poll(app, tx);
+    if app.plugins.later.is_empty() {
+        dormant::save(app);
+    }
     changed |= app_half::poll(app, now, tx);
     #[cfg(feature = "alloc-sites")]
     memory::publish_vms(app);
@@ -778,7 +836,8 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         for (signal, args) in services::process::drain(&half, vm) {
             changed |= fire_value(app, i, signal, args);
         }
-        for (ty, data) in &events {
+        let caught = app.plugins.dormant.catch_up.remove(&*half.id).unwrap_or_default();
+        for (ty, data) in caught.iter().chain(&events) {
             let listeners: Vec<mlua::Value> = half.events.borrow().iter().filter(|(v, prefix, _)| *v == vm && ty.starts_with(prefix.as_str())).map(|(_, _, s)| s.clone()).collect();
             for signal in listeners {
                 let event = services::map([("type", Data::String(ty.clone())), ("data", services::json_to_data(data)), ("serverId", Data::String(app.server_key().unwrap_or_else(|| "local".into())))]);
@@ -841,7 +900,8 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
     let Some(i) = app.plugins.find(id) else { return };
     let p = &app.plugins.list[i];
     match &p.life {
-        Life::Running(_) | Life::Reloading(_) | Life::Errored { .. } | Life::AwaitingTrust => {
+        Life::Running(_) | Life::Reloading(_) | Life::Errored { .. } | Life::AwaitingTrust | Life::Dormant => {
+            dormant::forget(app, id);
             drive(app, i, LifeEvent::Disable);
             app_half::stop(id);
             server_sources::forget(id);
@@ -927,6 +987,7 @@ pub fn print_index(app: &App) {
 /// <seconds>` (the idle window a proof measures).
 impl Drop for PluginHost {
     fn drop(&mut self) {
+        dormant::close(self);
         if !crate::flag("--luau-metrics") {
             return;
         }

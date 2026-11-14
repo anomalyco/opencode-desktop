@@ -868,7 +868,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
     for session in recent.into_iter().take(session_pages::WARM) {
-        s.prefetch_session(&session.id);
+        s.prefetch_page(&session.id);
     }
     // Deterministic headless snapshots have no wall-clock event loop to await the worker.
     if headless()

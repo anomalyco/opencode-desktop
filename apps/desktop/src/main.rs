@@ -137,6 +137,7 @@ mod history;
 mod history_story;
 mod home_search;
 mod icons;
+mod idle;
 mod inbox_model;
 mod incoming;
 #[cfg(windows)]

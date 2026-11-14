@@ -512,6 +512,7 @@ fn tab_bar(
             })
             .on_secondary_press(move |s: &mut App, ev: PointerPress, tx: &mut Tx| {
                 tx.instant();
+                crate::plugin_host::dormant::wake_launchers(s);
                 s.side.add_menu = Some((pane, ev.x, ev.y));
             })
             .child(icon(&ic::PLUS, 16.0).color(p.icon_muted)),

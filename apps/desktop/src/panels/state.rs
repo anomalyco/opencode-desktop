@@ -472,6 +472,7 @@ impl App {
     }
 
     pub fn open_side_new_tab(&mut self, pane: SessionPane) -> String {
+        crate::plugin_host::dormant::wake_launchers(self);
         let Some(sid) = self.active_session_id().map(str::to_owned) else {
             return String::new();
         };
@@ -517,6 +518,7 @@ impl App {
 
     /// Toggles the right-hand side region on its smooth spring (`⌥⌘B`, `⇧⌘R`, or header toggle).
     pub fn toggle_side_region(&mut self, _tx: &mut Tx) {
+        crate::plugin_host::dormant::wake_launchers(self);
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         self.side.tab_menu = None;
         self.side.add_menu = None;

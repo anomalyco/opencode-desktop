@@ -99,5 +99,6 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     tx.invalidate_memos_by_prefix("");
     crate::plugin_host::services::locale_changed(s);
+    crate::plugin_host::dormant::locale_changed(s);
     true
 }
