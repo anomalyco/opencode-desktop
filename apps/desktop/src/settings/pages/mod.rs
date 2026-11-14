@@ -294,11 +294,16 @@ pub fn section(p: &Pal, key: &str, title: Option<&str>, content: El) -> El {
 /// corners, a 0.5 pt `border-muted` ring inside and 16 pt in from each side; its rows split by
 /// 0.5 pt `border-base` rules.
 pub fn catalog(p: &Pal, key: &str, rows: Vec<El>) -> El {
+    catalog_with(p, key, rows, true)
+}
+
+/// [`catalog`], its rules drawn by the card (`rules`) or by rows that hold their own.
+pub fn catalog_with(p: &Pal, key: &str, rows: Vec<El>, rules: bool) -> El {
     let n = rows.len();
     let mut list = col().key(key.to_owned()).w_full().px(16.0).radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted));
     for (at, r) in rows.into_iter().enumerate() {
         list = list.child(r);
-        if at + 1 < n {
+        if rules && at + 1 < n {
             list = list.child(rule(0.5, p.border));
         }
     }
