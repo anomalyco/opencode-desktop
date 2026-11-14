@@ -185,12 +185,13 @@ impl App {
     fn show_start(&mut self, id: &str, directory: &str, tx: &mut Tx) -> Option<String> {
         let selection = self.selection();
         let mut info = SessionInfo {
+            // Provisional until `started` takes the server's create response.
+            created: *self.now_ms,
+            updated: *self.now_ms,
             id: id.into(),
             directory: directory.to_owned(),
             agent: selection.agent,
             model: selection.model,
-            created: *self.now_ms,
-            updated: *self.now_ms,
             ..Default::default()
         };
         info.project = self.project_for_session(&info).map(|p| p.id.clone()).unwrap_or_default();
@@ -286,7 +287,7 @@ impl App {
                         Box::new(move |s: &mut App, tx: &mut Tx| {
                             crate::servers::runtime::with_server(s, &key, |s| {
                                 if result.is_ok() {
-                                    s.apply_worktree_event("worktree.updated", &serde_json::json!({ "projectID": project }));
+                                    s.worktree_updated(&project);
                                 }
                                 let now = *s.clock;
                                 let effects = s.starts.step(&session, Event::WorktreeMade { attempt, result, now: now });

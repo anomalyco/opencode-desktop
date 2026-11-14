@@ -11,6 +11,14 @@ use crate::wire_error::WireError;
 pub enum Incoming {
     Sessions(Vec<SessionInfo>),
     Info(SessionInfo),
+    LookupMissing(String),
+    Inbox { session: String, items: Vec<Value> },
+    Worktrees { project: String, directories: Vec<String> },
+    Branches { directory: String, search: String, result: Result<Vec<String>, WireError> },
+    InterruptAcknowledged { session: String, interrupted: bool },
+    WorktreeCreated { project: String },
+    RequestReplied(String),
+    PromptAccepted { session: String, id: String },
     /// Every direct subagent session of `parent` (the reply to `Request::Children`).
     Children { parent: String, sessions: Vec<SessionInfo> },
     Messages { session: String, messages: Vec<Message> },
@@ -83,29 +91,18 @@ pub enum Request {
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as
-    /// `Incoming::Info`, or `Incoming::Event` with type `session.lookup.missing` and data
-    /// `{sessionID}` when the server can't give it.
+    /// `Incoming::Info`, or `Incoming::LookupMissing` when the server can't give it.
     Lookup(String),
     Pending(String),
-    /// A project's newest unarchived sessions, subagents included (`/api/session?project=`),
-    /// replied as `Incoming::Sessions`.
-    ProjectSessions(String),
-    /// A session's undelivered prompts. The reply is `Incoming::Event` with type
-    /// `session.inbox.listed` and data `{sessionID, items}` (see [`model::Inbox::apply`]).
+    /// A session's undelivered items (`Incoming::Inbox`).
     Inbox(String),
     /// Which sessions are running (`/api/session/active`).
     Active,
-    /// Whether `experimental.background_compaction` is on in a directory (`/api/config`). The
-    /// reply is `Incoming::Event` with type `config.listed` and data
-    /// `{directory, backgroundCompaction}`.
-    Config(String),
     /// A project's worktree inventory (`GET /api/worktree?projectID=`), the project's `root`
-    /// left out. The reply is `Incoming::Event` with type `worktree.listed` and data
-    /// `{projectID, directories}`.
+    /// left out (`Incoming::Worktrees`).
     Worktrees { project: String, root: String },
     /// The branches at `directory` matching `search` (`GET /api/vcs/branch`, 50 at most). The
-    /// reply is `Incoming::Event` with type `vcs.branch.listed` and data
-    /// `{directory, search, branches}`, or with `failed: true`.
+    /// reply is `Incoming::Branches`.
     Branches { directory: String, search: String },
     /// Every direct subagent session of a session, page after page (`GET /api/session?parentID=`,
     /// as Desktop's `listChildren`), replied as `Incoming::Children`: a root's cost counts them.
@@ -114,14 +111,14 @@ pub enum Request {
 
 pub enum Write {
     Prompt { session: String, text: String },
-    /// A permission's reply. Once the server takes it, `Incoming::Event` with type
-    /// `client.request.replied` and data `{ requestID }` follows (also for `Form` and
+    /// A permission's reply. Once the server takes it, `Incoming::RequestReplied`
+    /// follows (also for `Form` and
     /// `CancelForm`, with the form's id); a failure reports `Incoming::Status`.
     Permission { session: String, request: String, decision: String },
     Form { session: String, form: String, answer: Value },
     CancelForm { session: String, form: String },
     /// Stop: interrupts the session's run, which goes on with the steers waiting
-    /// (`Server::stop`). `Incoming::Event` `session.interrupt.acknowledged` follows.
+    /// (`Server::stop`). `Incoming::InterruptAcknowledged` follows.
     Interrupt(String),
     /// A new session in `directory`, then `text` as its first prompt.
     Create { directory: String, text: String },
@@ -189,7 +186,7 @@ pub enum Write {
     Gated { gate: std::sync::mpsc::Receiver<bool>, write: Box<Write> },
     /// `StartAs` in a new worktree of `project` (Desktop's `createWorktree`): `POST /api/worktree`
     /// from the checkout `from`, on `branch` or its current one, then the session in the
-    /// worktree it made. `Incoming::Event` `worktree.updated` follows the worktree, then
+    /// worktree it made. `Incoming::WorktreeCreated` follows the worktree, then
     /// `Incoming::Created`; a failure reports `Incoming::SendFailed` with the prompt's id.
     StartInNewWorktree { session: String, project: String, from: String, branch: Option<String>, prompt: Prompt },
 }

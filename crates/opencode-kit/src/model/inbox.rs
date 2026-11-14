@@ -196,14 +196,25 @@ impl Inbox {
         self.items.iter_mut().find(|i| i.id == id).is_some_and(|i| std::mem::replace(&mut i.delivery, delivery) != delivery)
     }
 
-    /// Applies one `session.inbox.*` event, or `session.inbox.listed` (see
-    /// [`crate::client::Request::Inbox`]), which replaces the list.
+    /// Reconcile the complete inbox returned by the server.
+    pub fn replace(&mut self, rows: &[Value]) {
+        self.compaction = rows.iter().find(|i| i["type"] == "compaction").map(|i| s(&i["id"]));
+        let listed: Vec<Notice> = rows.iter().filter_map(parse_inbox_notice).collect();
+        let gone: Vec<String> = self.waiting_notices().filter(|n| !listed.iter().any(|l| l.id == n.id)).map(|n| n.id.clone()).collect();
+        for id in gone {
+            self.step_notice(&id, NoticeEvent::Delivered);
+        }
+        for notice in listed {
+            let id = notice.id.clone();
+            self.step_notice(&id, NoticeEvent::Admitted(notice));
+        }
+        self.items = rows.iter().filter_map(parse_inbox_item).collect();
+    }
+
+    /// Applies one streamed `session.inbox.*` event.
     pub fn apply(&mut self, ty: &str, d: &Value) -> InboxChange {
         let id = d["inboxID"].as_str().unwrap_or("");
         let compaction = match ty {
-            "session.inbox.listed" => {
-                d["items"].as_array().into_iter().flatten().find(|i| i["type"] == "compaction").map(|i| s(&i["id"]))
-            }
             "session.inbox.enqueued" if d["item"]["type"] == "compaction" => Some(id.to_owned()),
             "session.inbox.cancelled" | "session.inbox.delivered" if self.compaction.as_deref() == Some(id) => None,
             _ => self.compaction.clone(),
@@ -212,17 +223,6 @@ impl Inbox {
         self.compaction = compaction;
         let notices = self.notices.clone();
         match ty {
-            "session.inbox.listed" => {
-                let listed: Vec<Notice> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_notice).collect();
-                let gone: Vec<String> = self.waiting_notices().filter(|n| !listed.iter().any(|l| l.id == n.id)).map(|n| n.id.clone()).collect();
-                for g in gone {
-                    self.step_notice(&g, NoticeEvent::Delivered);
-                }
-                for n in listed {
-                    let id = n.id.clone();
-                    self.step_notice(&id, NoticeEvent::Admitted(n));
-                }
-            }
             "session.inbox.enqueued" => {
                 if let Some(n) = parse_inbox_notice(d) {
                     let id = n.id.clone();
@@ -235,12 +235,6 @@ impl Inbox {
         }
         let moved = moved || notices != self.notices;
         let changed = match ty {
-            "session.inbox.listed" => {
-                let items: Vec<InboxItem> = d["items"].as_array().into_iter().flatten().filter_map(parse_inbox_item).collect();
-                let same = items == self.items;
-                self.items = items;
-                !same
-            }
             "session.inbox.enqueued" => match parse_inbox_item(d) {
                 Some(item) => {
                     let same = self.items.iter().any(|i| *i == item);

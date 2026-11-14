@@ -46,7 +46,7 @@ fn gather(s: &App, show_subagents: bool) -> (Vec<Row>, Vec<Item<'_>>) {
             active: current.as_deref() == Some(uid.as_str()),
             parent: None,
             status: if t.is_draft() { Status::Idle } else { Status::of(s.tab_status_of(t)) },
-            updated: session.map_or(0, |i| i.updated),
+            updated: session.map_or(0, |i| s.recent_page.active_ms(i)),
             created: session.map_or(0, |i| i.created),
             order,
         });
@@ -70,7 +70,7 @@ fn gather(s: &App, show_subagents: bool) -> (Vec<Row>, Vec<Item<'_>>) {
             active: !s.settings.open && *s.route == Route::here(info.id.clone()),
             parent: info.parent.as_deref().map(|p| super::state::key(here.as_str(), p)),
             status: Status::of(s.tab_status(&info.id)),
-            updated: info.updated,
+            updated: s.recent_page.active_ms(info),
             created: info.created,
             order: 0,
         });

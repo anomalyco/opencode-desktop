@@ -13,7 +13,6 @@ use opencode_kit::model::{project_git, project_sandboxes};
 use opencode_kit::path;
 use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
-use serde_json::Value;
 
 use crate::keymap::Bind;
 use crate::palette::{Elevate as _, Pal};
@@ -276,43 +275,29 @@ impl App {
         }
     }
 
-    /// `worktree.listed`, `worktree.updated` and `vcs.branch.listed`.
-    pub(crate) fn apply_worktree_event(&mut self, ty: &str, data: &Value) -> bool {
-        let project = data["projectID"].as_str().unwrap_or_default();
-        match ty {
-            "worktree.listed" => {
-                let dirs = data["directories"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
-                self.new_worktree.listed.insert(project.to_owned(), dirs);
-                true
-            }
-            "worktree.updated" => {
-                self.list_worktrees(project);
-                if let Source::Live { requests: Some(r), .. } = &*self.source {
-                    let _ = r.send(Request::Projects);
-                }
-                false
-            }
-            "vcs.branch.listed" => {
-                let picker = &mut self.new_worktree.picker;
-                let search = data["search"].as_str().unwrap_or_default();
-                if data["directory"].as_str() != Some(picker.directory.as_str()) {
-                    return false;
-                }
-                let failed = data["failed"].as_bool() == Some(true);
-                let branches: Option<Vec<String>> = (!failed).then(|| data["branches"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect());
-                picker.typeahead.step(typeahead::Event::Answered { query: search, items: branches.clone() });
-                // The checkout's whole list: what the next open starts on, and what an open
-                // picker on the empty query shows once it's revalidated (a failed one keeps the last).
-                if search.is_empty() && let Some(list) = branches {
-                    picker.typeahead.step(typeahead::Event::Synced(&list));
-                    picker.listed = Some(list);
-                }
-                let keys: Vec<&str> = picker.typeahead.shown.iter().map(String::as_str).collect();
-                picker.active.step(crate::popover::HighlightEvent::Rows(&keys));
-                picker.is_open()
-            }
-            _ => false,
+    pub(crate) fn worktrees_listed(&mut self, project: String, directories: Vec<String>) {
+        self.new_worktree.listed.insert(project, directories);
+        self.session_search.invalidate();
+    }
+
+    pub(crate) fn worktree_updated(&self, project: &str) {
+        self.list_worktrees(project);
+        if let Source::Live { requests: Some(r), .. } = &*self.source {
+            let _ = r.send(Request::Projects);
         }
+    }
+
+    pub(crate) fn branches_listed(&mut self, directory: &str, search: &str, branches: Option<Vec<String>>) -> bool {
+        let picker = &mut self.new_worktree.picker;
+        if directory != picker.directory { return false; }
+        picker.typeahead.step(typeahead::Event::Answered { query: search, items: branches.clone() });
+        if search.is_empty() && let Some(list) = branches {
+            picker.typeahead.step(typeahead::Event::Synced(&list));
+            picker.listed = Some(list);
+        }
+        let keys: Vec<&str> = picker.typeahead.shown.iter().map(String::as_str).collect();
+        picker.active.step(crate::popover::HighlightEvent::Rows(&keys));
+        picker.is_open()
     }
 
     /// Opens the branch picker on the open draft's checkout.

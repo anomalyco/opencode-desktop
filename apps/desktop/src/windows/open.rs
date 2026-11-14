@@ -198,6 +198,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             s.window.hidden &= !focused;
             if focused {
                 super::focused(&s.window.id);
+                s.reload_recent_on_focus();
                 s.taskbar_focused();
             }
         })

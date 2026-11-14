@@ -8,26 +8,16 @@ use opencode_kit::client::Request;
 use rune::{PointerPress, Tx};
 use session_view::TimelineHost as _;
 use session_view::session_chips::SessionRef;
-use serde_json::Value;
 
 use crate::popup::{Item, Menu};
 use crate::{App, Source};
 
 const COPY_ID: &str = "session-chip-copy-id";
 
-/// The ids asked about once (a row asks on every build) and those the server didn't have.
+/// The ids asked about once (a row asks on every build, even after a miss).
 #[derive(Default)]
 pub struct Lookups {
     asked: RefCell<HashSet<String>>,
-    missing: HashSet<String>,
-}
-
-impl Lookups {
-    /// The server's answer that it has no session `data.sessionID`; whether that's news.
-    pub fn missing(&mut self, data: &Value) -> bool {
-        data["sessionID"].as_str().is_some_and(|id| self.missing.insert(id.to_owned()))
-    }
-
 }
 
 impl App {
@@ -45,7 +35,7 @@ impl App {
 
     fn look_up_session(&self, id: &str) {
         let refs = &self.session_refs;
-        if refs.missing.contains(id) || !refs.asked.borrow_mut().insert(id.to_owned()) {
+        if !refs.asked.borrow_mut().insert(id.to_owned()) {
             return;
         }
         if let Source::Live { requests: Some(r), .. } = &*self.source {
@@ -67,4 +57,3 @@ impl App {
         });
     }
 }
-

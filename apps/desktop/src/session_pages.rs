@@ -456,7 +456,8 @@ impl super::App {
     }
 
     pub(crate) fn page_key(&self, id: &str) -> Key {
-        let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id)).map_or(0, |s| s.updated);
+        let updated = self.session(id).or_else(|| self.switcher.loaded.iter().find(|s| s.id == id))
+            .map_or(0, |s| s.updated.max(s.busy.unwrap_or(0)).max(s.idle.unwrap_or(0)));
         Key { id: id.to_owned(), updated }
     }
 

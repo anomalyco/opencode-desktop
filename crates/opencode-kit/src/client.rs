@@ -740,7 +740,7 @@ fn event_line(line: &str) -> Option<Incoming> {
         data["eventID"] = id.into();
     }
     // When a request was asked, for the inbox's waiting age; and a branch change's folder.
-    if matches!(ty.as_str(), "permission.asked" | "form.created") {
+    if ty.starts_with("session.execution.") || matches!(ty.as_str(), "permission.asked" | "form.created" | "session.archived") {
         data["eventCreated"] = v["created"].clone();
     }
     if ty == "vcs.branch.updated" {

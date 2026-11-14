@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use opencode_kit::client::Write;
 use opencode_kit::model::Pending;
-use serde_json::{Value, json};
+use serde_json::json;
 use session_view::dock::{self, permission};
 
 use crate::question::reply::{self as form, Action};
@@ -185,7 +185,7 @@ impl App {
 
     /// The worker's answer to request `id`'s reply: taken, or refused with `error`. A
     /// permission the server no longer has counts as answered (`isPermissionNotFoundError`).
-    fn reply_answered(&mut self, id: &str, result: Result<(), &str>) {
+    pub(crate) fn reply_answered(&mut self, id: &str, result: Result<(), &str>) {
         let Some(r) = self.permission_sent.0.get_mut(id) else { return };
         if r.owed > 0 {
             r.owed -= 1;
@@ -211,16 +211,6 @@ impl App {
             _ => {}
         }
     }
-}
-
-/// The worker took a dock's reply (`client.request.replied`). False when it isn't that event.
-pub fn event(s: &mut App, ty: &str, data: &Value) -> bool {
-    if ty != "client.request.replied" {
-        return false;
-    }
-    let id = data["requestID"].as_str().unwrap_or_default().to_owned();
-    s.reply_answered(&id, Ok(()));
-    true
 }
 
 /// A failed write from the server's worker: a dock's reply the server refused. False when it
