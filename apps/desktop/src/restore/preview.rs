@@ -18,9 +18,10 @@ use crate::{App, Route};
 /// A preview stays inside the boot record's first read (64 KiB pages).
 const BYTES: usize = 48 * 1024;
 
-/// What each session's preview was last written (or read) from.
+/// What each session's preview was last written (or read) from: its messages' stamp, and the
+/// message the place it starts from stood on.
 #[derive(Default)]
-pub struct Previews(HashMap<String, u64>);
+pub struct Previews(HashMap<String, (u64, Option<usize>)>);
 
 /// What a session's preview depends on, cheap to take every poll.
 pub(super) fn stamp(messages: &[Message]) -> u64 {
@@ -38,9 +39,20 @@ pub(super) fn stamp(messages: &[Message]) -> u64 {
 }
 
 /// The preview's bytes: from the start of the turn before the last, trimmed from the front to fit.
-fn encode(messages: &[Message]) -> Vec<u8> {
+/// A window read up from its end (`place`, the first message of the row it stood on) keeps from
+/// that row's turn instead when it fits, so the next launch draws the place in its first frame.
+fn encode(messages: &[Message], place: Option<usize>) -> Vec<u8> {
     let users: Vec<usize> = messages.iter().enumerate().filter(|(_, m)| matches!(m, Message::User { .. })).map(|(i, _)| i).collect();
     let mut start = users.len().checked_sub(2).map_or(0, |i| users[i]);
+    if let Some(at) = place {
+        let turn = users.iter().rev().find(|&&u| u <= at).copied().unwrap_or(0);
+        if turn < start {
+            let bytes = preview::encode(&messages[turn..]);
+            if bytes.len() <= BYTES {
+                return bytes;
+            }
+        }
+    }
     loop {
         let bytes = preview::encode(&messages[start..]);
         if bytes.len() <= BYTES || start + 1 >= messages.len() {
@@ -60,7 +72,7 @@ impl App {
             return false;
         }
         rune::marks::mark("state.preview");
-        self.restore.previews.0.insert(id.to_owned(), stamp(&messages));
+        self.restore.previews.0.insert(id.to_owned(), (stamp(&messages), None));
         self.transcripts.insert(id.to_owned(), opencode_kit::model::Transcript { session: id.to_owned(), messages });
         true
     }
@@ -84,11 +96,14 @@ impl App {
             rune::marks::mark("state.copy.encoded");
             bytes
         });
-        let preview = self.restore.previews.0.get(id) != Some(&stamp);
+        // Read up from its end, the window's place says where its preview starts: written as the
+        // messages change and as the window hides, closes or quits, never per scroll step.
+        let kept = self.restore.previews.0.get(id).copied();
+        let place = (now || kept.is_none_or(|(s, _)| s != stamp)).then(|| self.ends.place(id).and_then(|(row, _)| session_view::timeline::row_message(self, t, &row)));
         let updated = self.session(id).map_or(0, |s| s.updated);
-        if preview {
-            crate::storage::set_preview(server.as_str(), id, Some((updated, Arc::from(encode(&t.messages)))));
-            self.restore.previews.0.insert(id.clone(), stamp);
+        if let Some(place) = place.filter(|p| kept != Some((stamp, *p))) {
+            crate::storage::set_preview(server.as_str(), id, Some((updated, Arc::from(encode(&t.messages, place)))));
+            self.restore.previews.0.insert(id.clone(), (stamp, place));
         }
         if let Some(bytes) = copy {
             let (server, id) = (server.clone(), id.clone());

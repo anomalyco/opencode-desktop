@@ -8,6 +8,7 @@ use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
 use crate::follow::{self, Effect, Event, Follow};
+use crate::returning::{self, Returning};
 use crate::palette::Pal;
 use crate::style::{DOCK_SIDE, activity_ring};
 
@@ -59,8 +60,8 @@ pub struct Ends {
     follow: HashMap<String, Follow>,
     /// Where each timeline was last drawn, for its place when it shows again.
     pub recall: crate::recall::Recall,
-    /// The session coming back to its place, and that place, until its timeline shows.
-    due: Option<(String, String, f32)>,
+    /// The place coming back as its session opens again (`returning`).
+    returning: Returning,
     /// Places read in an earlier run, for timelines this run hasn't drawn yet.
     saved: HashMap<String, (String, f32)>,
     /// The place each timeline was last held at through a settle ([`held`]).
@@ -115,27 +116,52 @@ impl Ends {
         sessions.filter_map(|id| self.place(id).map(|(row, at)| Place { session: id.to_owned(), row, at, far: self.far(id) })).collect()
     }
 
-    /// Whether session `id`'s place waits for its timeline to show ([`Ends::land`]).
+    /// Whether session `id`'s place is coming back, waiting for its row (`returning`).
     pub fn due(&self, id: &str) -> bool {
-        self.due.as_ref().is_some_and(|(due, ..)| due == id)
+        self.due_row(id).is_some()
+    }
+
+    /// The row session `id`'s coming place waits for.
+    pub fn due_row(&self, id: &str) -> Option<&str> {
+        self.returning.due().filter(|(due, _)| *due == id).map(|(_, row)| row)
+    }
+
+    /// A poll at `now` found session `id`'s row missing: true while its place waits on (read the
+    /// page above, and poll again soon), false once it's given up and the timeline follows its end.
+    pub fn wait(&mut self, id: &str, now: f64) -> bool {
+        match returning::step(&mut self.returning, returning::Event::Missing { session: id, now }) {
+            Some(returning::Effect::ReadOn) => true,
+            Some(returning::Effect::GiveUp) => {
+                self.forget(id);
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// A page came for session `id` without its place's row: the place waits again from the next
+    /// poll, as pages read on up to it.
+    pub fn progress(&mut self, id: &str) {
+        returning::step(&mut self.returning, returning::Event::Page { session: id });
     }
 
     /// Session `id` is opened again. Read scrolled up, it comes back to its place once its
-    /// timeline shows ([`Ends::land`]), with Jump to latest as it was; otherwise its timeline
-    /// mounts afresh on its end and follows it.
+    /// transcript has the place's row ([`Ends::land`]), with Jump to latest as it was; otherwise
+    /// its timeline mounts afresh on its end and follows it.
     pub fn reopen(&mut self, id: &str) {
-        self.due = self.place(id).map(|(row, at)| (id.to_owned(), row, at));
-        if self.due.is_none() {
+        let place = self.place(id);
+        returning::step(&mut self.returning, returning::Event::Reopen { session: id, place: place.as_ref().map(|(row, at)| (row.as_str(), *at)) });
+        if place.is_none() {
             self.forget(id);
         }
     }
 
-    /// Session `id`'s timeline shows: put its place back in this commit, so its first frame
-    /// draws it there. A row out of the mounted window is mounted first.
+    /// Session `id`'s transcript has its coming place's row: put the place back in this commit,
+    /// so the frame that first draws its rows draws them there, a virtual row out of the mounted
+    /// window included (`Tx::scroll_key_to`).
     pub fn land(&mut self, id: &str, tx: &mut Tx) {
-        let Some((_, row, at)) = self.due.take_if(|(due, ..)| due == id) else { return };
+        let Some(returning::Effect::Land { row, at }) = returning::step(&mut self.returning, returning::Event::Here { session: id }) else { return };
         self.held.borrow_mut().insert(id.to_owned(), (row.clone(), at));
-        tx.scroll_into_view_in(format!("scroll-{id}"), row.clone());
         tx.scroll_key_to(row, at);
     }
 
@@ -153,7 +179,12 @@ impl Ends {
     /// Whether `event` would change session `id`'s follow state. A viewport reports where it
     /// stands after every scroll; a report that changes nothing mustn't write the state the
     /// timeline's region reads, which would build every row again.
+    /// A place coming back (`returning`) changes nothing: while it waits, the viewport stands on
+    /// its loading look's end, which says nothing about where its reader is.
     pub fn moves(&self, id: &str, event: Event) -> bool {
+        if self.due(id) {
+            return false;
+        }
         let now = self.follow.get(id).cloned().unwrap_or_default();
         follow::step(now.clone(), event).0 != now
     }
@@ -168,9 +199,10 @@ impl Ends {
 }
 
 /// `Tx::settle` for a change that lands what's moving, which also carries every stick-to-bottom
-/// viewport to its end: the open timeline, read up from its end, keeps its place in the same
-/// commit instead (its reader's place, or one kept from the last run). Motion has a cause: the
-/// reader, never a change landing.
+/// viewport to its end. The open timeline read up from its end (its reader's place, or one kept
+/// from the last run) isn't settled: the change applies at once (`Tx::instant`) and the place is
+/// put back in the same commit, so neither the carry nor a row the commit hasn't laid out yet can
+/// take it to its end. Motion has a cause: the reader, never a change landing.
 pub fn settle<S: TimelineHost>(s: &S, tx: &mut Tx) {
     settle_held(tx, held(s).as_ref());
 }
@@ -192,11 +224,12 @@ pub fn held<S: TimelineHost>(s: &S) -> Option<(String, String, f32)> {
 
 /// [`settle`] with the place already read ([`held`]).
 pub fn settle_held(tx: &mut Tx, held: Option<&(String, String, f32)>) {
-    tx.settle();
-    if let Some((id, row, at)) = held {
-        tx.scroll_into_view_in(format!("scroll-{id}"), row.clone());
-        tx.scroll_key_to(row.clone(), *at);
-    }
+    let Some((_, row, at)) = held else {
+        tx.settle();
+        return;
+    };
+    tx.instant();
+    tx.scroll_key_to(row.clone(), *at);
 }
 
 /// Records whether session `id`'s timeline stands far enough up to show the button.

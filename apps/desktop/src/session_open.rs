@@ -14,7 +14,8 @@ impl App {
             *self.opening = None;
             self.open_now(id, tx);
             self.open_page(id, tx);
-            self.ends.land(id, tx);
+            // Its place comes back now if its row is here, else when a page brings it.
+            self.land_place(id, tx);
         }
     }
 

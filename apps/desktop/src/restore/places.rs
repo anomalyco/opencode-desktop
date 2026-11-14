@@ -1,7 +1,10 @@
 //! Where each of the window's sessions was being read, and which rows its reader opened or shut,
 //! kept in the window's own rows (`rune.timeline`) so a relaunch draws them there in the session's
 //! first frame, never as a jump after it: the rows are in the boot record, read as the window is
-//! built (`restore_ui`), and the place is put back in the first poll's commit (`Ends::land`).
+//! built (`restore_ui`), and the place is put back in the first commit whose transcript has its
+//! row (`Ends::land`): the boot preview's, which starts at the place's turn when it fits
+//! (`preview`), or a page's, the timeline holding its loading look until then
+//! (`session_view::returning`).
 //!
 //! Written once a change has held still for [`SETTLE`] (a scroll writes when it stops, not per
 //! frame), through the kill-safe tier like every window row. A session read at its end keeps no
@@ -54,15 +57,48 @@ impl App {
         self.timeline_kept.written = Some(v);
     }
 
+    /// Puts session `id`'s place back in this commit if its transcript has the place's row
+    /// (`session_view::returning`); false while the row hasn't come.
+    pub(crate) fn land_place(&mut self, id: &str, tx: &mut Tx) -> bool {
+        let Some(row) = self.ends.due_row(id) else { return false };
+        if !self.transcripts.get(id).is_some_and(|t| session_view::timeline::has_row(self, t, row)) {
+            return false;
+        }
+        self.ends.land(id, tx);
+        true
+    }
+
     /// Each poll: the shown session's place lands in the first commit its timeline shows in, and
-    /// a change to the window's places or opened rows is written once it has held still.
-    pub(crate) fn poll_places(&mut self, now: f64, tx: &mut Tx) {
+    /// a change to the window's places or opened rows is written once it has held still. True
+    /// when the timeline changes: its place landed or was given up, so its rows show.
+    pub(crate) fn poll_places(&mut self, now: f64, tx: &mut Tx) -> bool {
+        let changed = self.poll_due(now, tx);
+        self.write_places(now, tx);
+        changed
+    }
+
+    fn poll_due(&mut self, now: f64, tx: &mut Tx) -> bool {
         if let Route::Session { id, .. } = &*self.route
             && self.ends.due(id)
         {
+            // The place lands in the first commit whose transcript has its row; until then the
+            // timeline holds its loading look and older pages are read on up to it, and a row
+            // that never comes is given up (`session_view::returning`).
             let id = id.clone();
-            self.ends.land(&id, tx);
+            if self.land_place(&id, tx) {
+                return true;
+            }
+            if self.ends.wait(&id, now) {
+                self.read_toward_place(&id, tx);
+                tx.wake_at(now + 0.25);
+                return false;
+            }
+            return true;
         }
+        false
+    }
+
+    fn write_places(&mut self, now: f64, tx: &mut Tx) {
         if !self.persists() || self.window.id.is_empty() {
             return;
         }

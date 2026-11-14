@@ -549,6 +549,11 @@ impl super::App {
         if cold { self.launch.cold_transcript = None; }
         // A timeline read up from its end (a place kept from the last run) isn't carried to it.
         if first || cold { session_view::jump::settle(self, tx); }
+        // A place coming back whose row this page brought lands in this commit
+        // (`session_view::returning`); one still further up waits on for the next.
+        if !self.land_place(id, tx) {
+            self.ends.progress(id);
+        }
         if page.history {
             // A page that added nothing ends it too, so a server that keeps handing out cursors
             // can't loop (`history-machine.ts` `stalled`).
@@ -669,6 +674,14 @@ impl super::App {
     pub(crate) fn stream_back(&mut self) {
         if let Some(pool) = &self.pages.pool { pool.forgive(); }
         self.tell_stall();
+    }
+
+    /// A place coming back whose row is older than what's loaded (`session_view::returning`)
+    /// reads on up to it, a page at a time, as a reader scrolling up would.
+    pub(crate) fn read_toward_place(&mut self, id: &str, tx: &mut rune::Tx) {
+        if self.pages.pool.is_some() {
+            self.step_history(id, HistoryEvent::NearTop { now: Instant::now() }, tx);
+        }
     }
 
     /// Reads the page before the open session's oldest message once its timeline nears the

@@ -451,6 +451,10 @@ impl Shown {
 /// 16 points below it (`session-identity-header.tsx:50-66`), and the rows' own headers stick
 /// under it.
 pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript>, lane: f32, header: Option<El>) -> El {
+    // A place coming back (`crate::returning`) lands in the commit whose transcript has its row,
+    // the one that first draws the rows: until then the timeline keeps its loading look rather
+    // than draw its end and then move to the place.
+    let t = t.filter(|_| !s.ends().due(id));
     let sticky = if header.is_some() { crate::style::HEADER_H } else { 0.0 };
     crate::style::set_sticky_top(sticky);
     // Held room's streaming text draws past its row's edge into the room over Working.
@@ -573,6 +577,25 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
 pub(crate) fn project<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
     let inputs = span::Inputs::read(s, t);
     span::project(s, t, &inputs, 0..inputs.shown, true)
+}
+
+/// The first message of transcript `t`'s row keyed `key`, if it has one.
+pub fn row_message<S: TimelineHost>(s: &S, t: &Transcript, key: &str) -> Option<usize> {
+    let rows = rows(s, t);
+    let r = rows.iter().find(|r| r.key == key)?;
+    match &r.content {
+        RowContent::User { message, .. } | RowContent::Error { message, .. } | RowContent::Retry { message, .. } | RowContent::Compaction { message, .. } | RowContent::TurnText { message, .. } | RowContent::Actions { message, .. } => Some(*message),
+        RowContent::Notice(i, ..) => Some(*i),
+        RowContent::Turn { start, .. } | RowContent::ToolImages { start, .. } => Some(*start),
+        RowContent::TurnDiff { idle, .. } => Some(*idle),
+        RowContent::UserImages { id, .. } => t.messages.iter().position(|m| m.id() == id),
+        RowContent::Pending { .. } | RowContent::PendingNotice(..) | RowContent::CompactionQueued(_) | RowContent::TurnDivider(_) | RowContent::Lane(_) => None,
+    }
+}
+
+/// Whether transcript `t` has a row keyed `key`.
+pub fn has_row<S: TimelineHost>(s: &S, t: &Transcript, key: &str) -> bool {
+    rows(s, t).iter().any(|r| r.key == key)
 }
 
 /// The keys of a transcript's rows, top to bottom.
