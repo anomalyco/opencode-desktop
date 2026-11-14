@@ -73,12 +73,12 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
     session_view::scroller::set_device_scale(cx.env().scale);
-    set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
-    session_view::style::set_narrow(narrow);
-    session_view::style::set_pointer(cx.hover_none(), cx.touch_controls());
     // A phone's notch, status bar and home indicator (a browser's safe area; zero natively).
     let safe = cx.safe_area().map(|inset| inset / *s.zoom);
     session_view::style::set_safe_area(safe);
+    set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom, safe[0] > 0.0);
+    session_view::style::set_narrow(narrow);
+    session_view::style::set_pointer(cx.hover_none(), cx.touch_controls());
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic

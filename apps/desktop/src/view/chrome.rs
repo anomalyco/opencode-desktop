@@ -81,10 +81,14 @@ pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32, bottom: bool) -> Titleb
 /// is the titlebar's height (`titlebar_height`), so it lines up with the caption buttons at
 /// every zoom: 44pt zoomed out (`44 / min(zoom, 1)` in the shell, as Desktop's), and 44 shell
 /// points zoomed in.
-pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool, bottom: bool) {
+/// `notch`: the browser reports a top safe area (a phone's status bar or camera housing).
+pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool, bottom: bool, notch: bool) {
     let (row_h, row_pad) = match () {
         // Full screen hides the caption buttons, not the row.
         _ if WINDOWS => (titlebar_height(zoom) / zoom, 0.0),
+        // A narrow page's top row keeps 16 under a top safe area, 8 without one (`titlebar.tsx`'s
+        // `mobileTopClearance`: `max(8px, min(16px, env(safe-area-inset-top) * 1000))`).
+        _ if layout == TabLayout::Horizontal && narrow && !bottom && notch => (TOP_ROW_H + 8.0, TOP_ROW_PAD + 8.0),
         _ if layout == TabLayout::Horizontal => (TOP_ROW_H, TOP_ROW_PAD),
         _ => (0.0, 0.0),
     };
