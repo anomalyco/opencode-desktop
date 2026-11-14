@@ -323,6 +323,14 @@ pub fn setup(app: &mut App, waker: Waker) {
     let (now, later): (Vec<_>, Vec<_>) = sources::builtins().into_iter().partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
     let start_now = known && stores::answers();
     app.plugins.later = later;
+    // The ones with a record of this build sleep from the first frame: what they contribute is
+    // listed from it (the boot record's), so their commands and keys are there in it.
+    #[cfg(not(target_arch = "wasm32"))]
+    if known && first.is_some() {
+        rune::marks::mark("plugins.doze");
+        settle_later(app);
+        rune::marks::mark("plugins.dozed");
+    }
     if start_now {
         adopt(app, now);
     } else {
@@ -399,9 +407,10 @@ fn start_later(app: &mut App) {
     });
 }
 
-/// The built-ins waiting for after the first frame: each with a record of this build of it in this
-/// language sleeps until its first use (`dormant`); the rest start one per turn and record
-/// themselves. `--plugins-eager` starts them all, as before.
+/// The built-ins the first screen doesn't draw: each with a record of this build of it in this
+/// language sleeps until its first use (`dormant`), from before the first frame when the boot record
+/// knows the plugins, else once stage B does; the rest start one per turn after the first frame and
+/// record themselves. `--plugins-eager` starts them all, as before.
 #[cfg(not(target_arch = "wasm32"))]
 fn settle_later(app: &mut App) {
     if crate::flag("--plugins-eager") {
