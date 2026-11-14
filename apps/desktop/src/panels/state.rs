@@ -117,6 +117,9 @@ pub struct SideState {
     /// Once shown, the side region keeps its DOM/Rune subtree mounted while closed so springs
     /// never mount or unmount mid-flight (`side-region.tsx` `contentMounted`).
     pub mounted: bool,
+    /// Never shown yet, the region is built shut only once the window has had no input for a while
+    /// (`warm`), so its first opening fades in as later ones do, and a launch lays out none of it.
+    pub warm: bool,
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
     /// A shortcut pressed in the composer moved the keyboard here (Open file, New tab, Reopen
@@ -162,6 +165,7 @@ impl Default for SideState {
             edge_flight: None,
             pane_drag: Default::default(),
             mounted: false,
+            warm: false,
             focused: false,
             quiet: false,
             was_composing: false,
