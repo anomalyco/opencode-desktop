@@ -432,6 +432,10 @@ fn background(id: &str) -> bool {
 #[cfg(target_arch = "wasm32")]
 const PAGE_LATER_AFTER: std::time::Duration = std::time::Duration::from_millis(400);
 
+/// In a page, how long without input before the next built-in starts (`start_one_later`).
+#[cfg(target_arch = "wasm32")]
+const PAGE_IDLE: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// In a page, the next built-in starts from a timer task of its own: the page takes the input that
 /// came meanwhile first, where the next turn (`App::later`) runs before it.
 #[cfg(target_arch = "wasm32")]
@@ -467,6 +471,14 @@ pub fn first_frame(app: &mut App) -> bool {
 /// Starts the next built-in the first screen didn't show, and queues the one after for the next turn.
 fn start_one_later(app: &mut App, tx: &mut Tx) {
     if app.plugins.later.is_empty() {
+        return;
+    }
+    // In a page, a start waits for a second without input: Safari's engine takes 200-650 ms to
+    // start a built-in (Chromium about 17), so one started between keys holds the next key that
+    // long. Typing pushes them back; the first pause starts them, one per timer task.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(wait) = rune::last_input().map(|at| PAGE_IDLE.saturating_sub(at.elapsed())).filter(|w| !w.is_zero()) {
+        next_later(app, wait);
         return;
     }
     // The user's input waiting for this frame goes first: the start waits a turn, so the
