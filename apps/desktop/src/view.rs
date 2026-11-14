@@ -76,6 +76,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     set_chrome(cx.chrome_insets(), *s.zoom, cx.env().scale, layout, narrow, s.settings.mobile_titlebar == crate::settings::TitlebarPosition::Bottom);
     session_view::style::set_narrow(narrow);
     session_view::style::set_pointer(cx.hover_none(), cx.touch_controls());
+    // A phone's notch, status bar and home indicator (a browser's safe area; zero natively).
+    let safe = cx.safe_area().map(|inset| inset / *s.zoom);
+    session_view::style::set_safe_area(safe);
     // Timeline width sets the session column for everything this frame builds.
     session_view::style::set_content_w(session_view::TimelineHost::content_width(s));
     // The caption buttons line up with the titlebar row at every zoom; on macOS the traffic
@@ -175,9 +178,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::plugin_host::trust_dialog(s, p));
     inner = inner.children(crate::status_toast::view(s, p));
     let root = el().key("zoom");
-    // A phone's notch, status bar and home indicator (a browser's safe area; zero natively):
-    // the app keeps clear of them and the window's colour runs under them to the screen's edge.
-    let [top, right, bottom, left] = cx.safe_area().map(|inset| inset / *s.zoom);
+    // The app keeps clear of the safe area and the window's colour runs under it to the screen's
+    // edge; the shell's surfaces reach under the side and bottom insets themselves (`shell`).
+    let [top, right, bottom, left] = safe;
     let root = if top + right + bottom + left > 0.0 { root.pt(top).pr(right).pb(bottom).pl(left).fill(p.bg_deep) } else { root };
     // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
@@ -235,6 +238,12 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // panel's plugin: once per view.
     let side_reg = (matches!(*s.route, Route::Session { .. }) && !s.settings.open).then(|| s.resolve_side_region()).flatten();
     let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref(), cx);
+    let dock = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx);
+    // On a phone the shell's surfaces run under the side and bottom insets to the screen's edge
+    // and keep their content clear of them, as the window's colour does under the status bar.
+    // With a sidebar, a side region or a bottom pane out, the shell stays inside them.
+    let bleed = cfg!(target_arch = "wasm32") && s.sidebar_shown_w() == 0.0 && win_w == 0.0 && dock.is_none();
+    let [_, inset_r, inset_b, inset_l] = if bleed { session_view::style::safe_area() } else { [0.0; 4] };
     // A layout switch moves the panel, the sidebar and every tab on GLIDE, with the panel on top:
     // the tabs slide under its edges between the titlebar and the sidebar rather than over the
     // page. The titlebar row comes and goes at once, and below the panel while it does.
@@ -255,7 +264,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
         .map(|bar| {
             // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
-            let band = el().key("titlebar-band").role("banner").h(chrome().row_h).transition(rune::Transition::none()).child(bar);
+            let band = el().key("titlebar-band").role("banner").h(chrome().row_h).pl(inset_l).pr(inset_r).transition(rune::Transition::none()).child(bar);
             if chrome().bottom { band.pin(Some(0.0), None, Some(0.0), Some(0.0)) } else { band.pin(Some(0.0), Some(0.0), Some(0.0), None) }
         });
     let (band_below, band) = if switching { (band, None) } else { (None, band) };
@@ -264,20 +273,38 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // its content sits on the pixel below where its own position would round. What Desktop puts
     // in `<main>` snaps against it here too.
     let main = [s.sidebar_shown_w(), chrome().main_top()];
-    let mut panel = col()
+    // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`. Its edge rides
+    // the side region's flight by layout in Desktop too, on whole device pixels. Under a phone's
+    // side insets the frame reaches the screen's edge and the page (`panel`) sits inside them.
+    let surface = |frame: El| {
+        let frame = frame.grow(1.0).shrink().ml(inset).mt(chrome().top()).mr(inset).mb(8.0 + bottom_reserve + chrome().foot())
+            .radius(10.0).fill(p.bg_base).elevate(p.raised).clip_soft(0.0).paint_contained(main);
+        if switching { frame.motion(GLIDE).raise() } else { frame.motion(crate::panels::view::SIDE_SPRING).motion_snaps() }
+    };
+    let page = col()
         .key("panel")
-        .grow(1.0)
-        .shrink()
-        .ml(inset)
-        .mt(chrome().top())
-        .mr(inset)
-        .mb(8.0 + bottom_reserve + chrome().foot())
-        .radius(10.0)
-        .fill(p.bg_base)
-        .elevate(p.raised)
-        .clip_soft(0.0);
-    // Its edge rides the side region's flight by layout in Desktop too, on whole device pixels.
-    panel = if switching { panel.motion(GLIDE).raise() } else { panel.motion(crate::panels::view::SIDE_SPRING).motion_snaps() };
+        .role("main")
+        .on_background_press(|s: &mut App| {
+            s.side.focused = false;
+            s.side.tab_menu = None;
+            s.side.add_menu = None;
+        })
+        // Files dropped anywhere on the page attach, as in Desktop; a timeline image
+        // dragged out of the page attaches only on the composer.
+        .on_drop_files(crate::dropzone::drop)
+        .accepts_files(|path| !session_view::images::drag::is_own(path))
+        .on_drop_hover(crate::dropzone::hover)
+        .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
+            Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
+            Route::Session { id, .. } => session_page(s, p, id),
+            Route::Draft(_) => draft_page(s, p, panel_sz.0),
+        } })
+        .child(crate::dropzone::overlay(s, p, panel_sz));
+    let panel = if inset_l + inset_r > 0.0 {
+        surface(col().key("panel-frame").pl(inset_l).pr(inset_r)).child(page.grow(1.0).w_full().min_h(0.0))
+    } else {
+        surface(page)
+    };
     let mut root = row()
         .key("window")
         .role("window")
@@ -294,30 +321,9 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
         // chat panel), and paints over the page and the panels after it.
         .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
-        .child(
-            // `session/screen.tsx`'s frame: bg-base, 10 pt corners, `--v2-elevation-raised`.
-            panel
-                .paint_contained(main)
-                .role("main")
-                .on_background_press(|s: &mut App| {
-                    s.side.focused = false;
-                    s.side.tab_menu = None;
-                    s.side.add_menu = None;
-                })
-                // Files dropped anywhere on the page attach, as in Desktop; a timeline image
-                // dragged out of the page attaches only on the composer.
-                .on_drop_files(crate::dropzone::drop)
-                .accepts_files(|path| !session_view::images::drag::is_own(path))
-                .on_drop_hover(crate::dropzone::hover)
-                .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
-                    Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
-                    Route::Session { id, .. } => session_page(s, p, id),
-                    Route::Draft(_) => draft_page(s, p, panel_sz.0),
-                } })
-                .child(crate::dropzone::overlay(s, p, panel_sz)),
-        )
+        .child(panel)
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx).paint_contained(main));
-    if let Some(dock) = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx) {
+    if let Some(dock) = dock {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
                 .motion(crate::panels::view::SIDE_SPRING)
@@ -349,9 +355,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         _ => "",
     };
     let bottom = crate::plugin_host::slot(s, p, "window.bottom", sid);
-    let touch_bar = composer::touch::bar(s, p);
+    // Its own ground runs under the insets; its controls stay clear of them.
+    let touch_bar = composer::touch::bar(s, p).map(|bar| bar.pl(8.0 + inset_l).pr(8.0 + inset_r).min_h(57.0 + inset_b).h(57.0 + inset_b).pb(inset_b));
+    let foot_clear = if touch_bar.is_none() { inset_b } else { 0.0 };
     let window = if bottom.is_empty() && touch_bar.is_none() {
-        root
+        root.pb(foot_clear)
     } else {
         col()
             .key("window-column")
@@ -361,6 +369,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
             .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
             .child(col().key("plugin-window-bottom").w_full().children(bottom))
             .children(touch_bar)
+            .pb(foot_clear)
     };
     // The web app's `#root` is `p-px` (`packages/app/index.html`; Desktop's renderer isn't): the
     // whole shell sits 1 pt in from the page's edges, and the panels' shadows end there, as `<main>`'s
@@ -368,7 +377,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if !cfg!(target_arch = "wasm32") {
         return window;
     }
-    el().key("web-root").w_full().h_full().padding(1.0).fill(p.bg_deep).child(el().key("web-shell").w_full().h_full().clip_soft(0.0).child(window))
+    let web_shell = el().key("web-shell").clip_soft(0.0).child(window);
+    // Inside the safe area, or out under its side and bottom insets to 1 pt from the screen's edge.
+    let web_shell = if inset_l + inset_r + inset_b > 0.0 { web_shell.pin(Some(1.0 - inset_l), Some(1.0), Some(1.0 - inset_r), Some(1.0 - inset_b)) } else { web_shell.w_full().h_full() };
+    el().key("web-root").w_full().h_full().padding(1.0).fill(p.bg_deep).child(web_shell)
 }
 
 // ---------------------------------------------------------------------------------------------

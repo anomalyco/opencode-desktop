@@ -28,10 +28,13 @@ pub fn handle(p: &Pal) -> El {
 /// A hand moving the handle owns the offset until release; the opening/closing transaction
 /// otherwise owns it. The panel's children (especially lists) retain their own touch gestures.
 pub fn draggable_sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f32, win_h: f32, content: El, dismiss: fn(&mut S, &mut Tx), drag: Option<f32>, handle: El) -> Vec<El> {
+    // On a phone the scrim covers the whole screen and the sheet runs under the side and bottom
+    // insets to the screen's edge, its content clear of them (the layer sits inside the safe area).
+    let [top, right, bottom, left] = crate::style::safe_area();
     let fade = if leaving { Curve::tween(SLIDE_OUT, Easing::cubic(0.42, 0.0, 1.0, 1.0)) } else { Curve::tween(SLIDE_IN, Easing::cubic(0.0, 0.0, 0.58, 1.0)) };
     let mut scrim = el()
         .key(format!("{key}-scrim"))
-        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .pin(Some(-left), Some(-top), Some(-right), Some(-bottom))
         .fill(p.scrim)
         .opacity(if leaving { 0.0 } else { 1.0 - drag.unwrap_or(0.0) / travel.max(1.0) })
         .opacity_motion(fade)
@@ -40,10 +43,11 @@ pub fn draggable_sheet<S: 'static>(p: &Pal, key: &str, leaving: bool, travel: f3
     let mut panel = col()
         .key(key.to_owned())
         .role("dialog")
-        .pin(Some(0.0), None, Some(0.0), Some(0.0))
-        .max_h((win_h * 0.75).min(win_h - 16.0))
-        .px(12.0)
-        .pb(12.0)
+        .pin(Some(-left), None, Some(-right), Some(-bottom))
+        .max_h((win_h * 0.75).min(win_h - 16.0) + bottom)
+        .pl(12.0 + left)
+        .pr(12.0 + right)
+        .pb(12.0 + bottom)
         .corners([16.0, 16.0, 0.0, 0.0])
         .fill(p.bg_deep)
         .elevate(p.overlay)

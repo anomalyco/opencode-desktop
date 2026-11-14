@@ -111,6 +111,17 @@ pub fn hover_none() -> bool {
 
 pub fn touch_controls() -> bool { POINTER.get() == Pointer::Touch }
 
+thread_local! {
+    /// A phone's safe area this frame, top/right/bottom/left in points (`Cx::safe_area`).
+    static SAFE_AREA: std::cell::Cell<[f32; 4]> = const { std::cell::Cell::new([0.0; 4]) };
+}
+
+pub fn set_safe_area(insets: [f32; 4]) { SAFE_AREA.set(insets); }
+
+/// The window keeps its content clear of these and lets its surfaces (the shell's panel, a
+/// sheet, the touch bar) run under them to the screen's edge. Zero off a phone.
+pub fn safe_area() -> [f32; 4] { SAFE_AREA.get() }
+
 /// A text field (`rune::text_input`), as `base.css`'s touch rule has every field: on a phone it
 /// types at 16 (iOS zooms to a smaller one) while its placeholder keeps the design's size.
 pub fn field(edit: &rune::TextEdit, style: TextStyle) -> El {
