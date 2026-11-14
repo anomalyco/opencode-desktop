@@ -1159,13 +1159,15 @@ A kind of menu entry.
 
 ### DialogSize
 
-A dialog's width.
+A dialog's size: one of Desktop's three presets, each clamped to the window.
 
 | Value | Meaning |
 |---|---|
-| `"small"` | A confirmation: 400 points. |
-| `"medium"` | A form: 480 points. The default. |
-| `"large"` | A list or a document: 640 points. |
+| `"normal"` | Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default. |
+| `"large"` | Palettes, pickers and lists: 880 by 600 points. |
+| `"x-large"` | Long documents and settings-like panels: 1040 by 680 points. |
+| `"small"` | Deprecated: the same as `normal`. |
+| `"medium"` | Deprecated: the same as `normal`. |
 
 ### StoreScope
 
@@ -3280,8 +3282,8 @@ A modal dialog, opened with `Dialog:Open`.
 |---|---|---|
 | `id` | `string` | Its id within the plugin. |
 | `title` | `string?` | Its heading and accessible name. |
-| `size` | `DialogSize?` | Its width. |
-| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog, as tall as its content, layer-01 fill, overlay elevation and 6-point corners. |
+| `size` | `DialogSize?` | Its size preset. |
+| `render` | `(view: View, props: DialogProps) -> UiNode?` | Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`). |
 | `onDismiss` | `(() -> ())?` | Runs when Esc or a click outside closes it. |
 
 ### PopoverProps

@@ -31,7 +31,10 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let Some((session, id)) = open.trim_start_matches("execute-details:").split_once(':') else { return Vec::new() };
     let Some(d) = s.with_transcript(session, |t| find(t, id)).flatten() else { return Vec::new() };
     let [win_w, win_h] = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
-    let w = (win_w - 32.0).min(720.0);
+    // `<Dialog size="large" fit>` (`tool-renderer.tsx`): as tall as its sections up to the large
+    // height, growing down from its top edge.
+    let size = crate::dialog::DialogSize::Large;
+    let w = size.width(win_w);
     let close = move |s: &mut S| {
         s.expanded_mut().retain(|k| !k.starts_with("execute-details:"));
     };
@@ -92,18 +95,19 @@ pub fn overlay<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         .role("dialog")
         .label_static(opencode_i18n::t!("ui.tool.execute"))
         .w(w)
-        .max_h((win_h - 92.0).max(120.0))
-        .radius(6.0)
-        .fill(p.layer1)
+        .max_h(size.height(win_h))
+        // Large dialogs sit on bg-base with 12 pt corners (`dialog.css`).
+        .radius(12.0)
+        .fill(p.bg_base)
         .elevate(p.overlay)
-        .clip_rounded(6.0)
+        .clip_rounded(12.0)
         .transition(Transition::none())
         .modal(true, close)
         .child(header)
         // `DialogBody` with `overflow-y-auto`: a plain box's bar (`tool-renderer.tsx:2024`).
         .child(crate::scroller::scroller("body").build::<S>(p, col().w_full().shrink().min_h(0.0), sections));
     let scrim = el().key("execute-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    let modal = el().key("execute-modal").absolute(0.0, 0.0).w_full().h_full().center().transition(Transition::none()).child(dialog).raise();
+    let modal = col().key("execute-modal").absolute(0.0, 0.0).w_full().h_full().items_center().pt(size.top(win_h)).transition(Transition::none()).child(dialog).raise();
     vec![scrim, modal]
 }
 

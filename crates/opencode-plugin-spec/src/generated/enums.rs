@@ -648,14 +648,18 @@ string_enum! {
 }
 
 string_enum! {
-    /// A dialog's width.
+    /// A dialog's size: one of Desktop's three presets, each clamped to the window.
     pub enum DialogSize {
-        /// A confirmation: 400 points.
-        Small = "small",
-        /// A form: 480 points. The default.
-        Medium = "medium",
-        /// A list or a document: 640 points.
+        /// Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default.
+        Normal = "normal",
+        /// Palettes, pickers and lists: 880 by 600 points.
         Large = "large",
+        /// Long documents and settings-like panels: 1040 by 680 points.
+        XLarge = "x-large",
+        /// Deprecated: the same as `normal`.
+        Small = "small",
+        /// Deprecated: the same as `normal`.
+        Medium = "medium",
     }
 }
 

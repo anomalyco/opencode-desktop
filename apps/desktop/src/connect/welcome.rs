@@ -50,8 +50,6 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     if !s.connect.welcome {
         return vec![];
     }
-    let zoom = s.zoom.max(0.5);
-    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w);
     let words = t!("provider.connect.chatgptWelcome.usage");
     let usage = text(words)
         .key("chatgpt-welcome-usage")
@@ -70,7 +68,6 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .key("chatgpt-welcome")
         .role("dialog")
         .label_static(t!("provider.connect.chatgptWelcome.title"))
-        .w((win_w - 32.0).min(390.0))
         .radius(12.0)
         .fill(p.layer1)
         .items_center()
@@ -85,5 +82,6 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .child(text(t!("provider.connect.chatgptWelcome.description")).font(BODY).color(p.muted).wrap().align(Align::Center).mt(12.0))
         .child(usage)
         .child(confirm);
-    widgets::modal("chatgpt-welcome", p, card, None)
+    // `<Dialog fit>` (`providers/connect/chatgpt-welcome.tsx`).
+    widgets::sized_modal("chatgpt-welcome", p, widgets::DialogSize::Normal, widgets::Fit::Content, widgets::dialog_window(cx, *s.zoom), card)
 }

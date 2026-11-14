@@ -93,14 +93,12 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
         Body::Picker => col(),
     };
     let notice = (console && !s.server_is_local()).then(|| col().px(12.0).mb(20.0).child(remote_notice(s, p)));
-    // A provider step fits its content; the Console's steps scroll in theirs.
+    // Every step fits its content and scrolls in it past the dialog's height
+    // (`provider-connect-content`: `flex min-h-0 flex-1 flex-col overflow-y-auto`, `dialog.tsx`),
+    // with a plain `overflow-y-auto` box's bar.
     let body = col().w_full().children(notice).child(content.w_full());
-    // A plain `overflow-y-auto` box's bar (`providers/connect/dialog.tsx:1332`).
-    let inner = if console {
-        session_view::scroller::scroller("connect-content").build::<App>(p, col().w_full().min_h(0.0).pb(if frame == Frame::Accounts { 0.0 } else { 16.0 }), body)
-    } else {
-        col().key("connect-content").w_full().min_h(0.0).child(body)
-    };
+    let pad = if console && frame != Frame::Accounts { 16.0 } else { 0.0 };
+    let inner = session_view::scroller::scroller("connect-content").build::<App>(p, col().w_full().shrink().min_h(0.0).pb(pad), body);
     let (px, pb) = if frame == Frame::Accounts { (6.0, 6.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0).px(px).pb(pb).child(inner)
 }
@@ -693,7 +691,7 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
         .child(col().w_full().grow(1.0).shrink().min_h(0.0).px(20.0)
             .child(text(opencode_i18n::t!("provider.connect.models.description")).font(BODY).color(p.muted).pb(20.0))
             // `settings-panel`: no bar, as Desktop hides it (`dialog.tsx:1241`, `settings.css:593-607`).
-            .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), scroll)))
+            .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().shrink().min_h(0.0), scroll)))
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(footer)
 }

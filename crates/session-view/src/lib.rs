@@ -13,6 +13,7 @@ pub mod compaction;
 pub mod composer;
 pub mod copied;
 pub mod detail;
+pub mod dialog;
 pub mod diagram;
 pub mod disclosure;
 pub mod dock;

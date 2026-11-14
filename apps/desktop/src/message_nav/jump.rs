@@ -311,13 +311,14 @@ const ROW_H: f32 = 28.0;
 const ROW_GAP: f32 = 2.0;
 const EMPTY_H: f32 = 120.0;
 
-/// Desktop's `JumpToMessage` in the compact palette dialog, as Fork from message draws it
-/// (`fork-dialog`): 480 wide, as tall as its rows up to 480.
+/// Desktop's `JumpToMessage` (`jump-to-message.tsx`) in `<Dialog size="large" fit>`, as Fork from
+/// message draws it: large, as tall as its rows up to the size's height.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let zoom = s.zoom.max(0.5);
     let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
-    let w = (win_w - 24.0).min(480.0);
-    let max_h = (win_h - 96.0).min(480.0);
+    let size = crate::widgets::DialogSize::Large;
+    let w = size.width(win_w);
+    let max_h = size.height(win_h);
     let rows = s.jump_rows();
     let any = !s.jump_prompts().is_empty();
     let opening = s.jump.machine.opening();
@@ -457,5 +458,5 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         )
         .child(session_view::scroller::scroller("jump-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().role("listbox").w_full().h(scroll_h), list));
     let scrim = el().key("jump-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog.absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0)).raise()]
+    [scrim, dialog.absolute((win_w - w) / 2.0, size.top(win_h)).raise()]
 }

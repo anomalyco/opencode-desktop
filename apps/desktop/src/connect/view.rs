@@ -1,6 +1,6 @@
-//! The connect dialog on screen (`providers/connect/dialog.tsx`): a 640 pt surface on the base
-//! fill with 12 pt corners whose top stays where the provider list puts it; the list is 512 pt
-//! tall, the models 560, and a provider's step fits its content. The list is the search dialog's
+//! The connect dialog on screen (`providers/connect/dialog.tsx`): a normal-size surface on the
+//! base fill with 12 pt corners; every step fits its content up to the normal height, and the top
+//! edge stays where that height puts it. The list is the search dialog's
 //! (`search-list.css` `.search-dialog`): a bare search under a compact header, a hairline across.
 
 use rune::{Color, Cx, El, Key, KeyEvent, Spring, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
@@ -99,16 +99,12 @@ fn pick(s: &mut App, id: &str, tx: &mut Tx) {
 
 pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let Some(open) = &s.connect.open else { return vec![] };
-    let zoom = s.zoom.max(0.5);
-    let [win_w, win_h] = cx.layout_size("zoom").map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
-    let top = ((win_h - 512.0) / 2.0).max(8.0);
     let frame = dialog::frame(&open.dialog);
     let authorizing = open.dialog.provider.as_ref().and_then(|p| p.step.connect()).is_some_and(super::machine::authorizing);
     let mut surface = widgets::overlay(p, col())
         .key("connect-dialog")
         .role("dialog")
         .label(title(s))
-        .w((win_w - 16.0).min(640.0))
         .radius(12.0)
         .fill(p.bg_base)
         .clip_soft(0.0)
@@ -116,17 +112,14 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .motion(Spring::NONE)
         // A stray press beside it mustn't drop a sign-in the user is finishing in the browser.
         .modal(true, move |s: &mut App| if !authorizing { s.close_connect(&mut Tx::default()) });
-    surface = match frame {
-        Frame::Picker => surface.h((win_h - 16.0).min(512.0)),
-        Frame::Models => surface.h((win_h - 8.0 - top).min(560.0)),
-        _ => surface.max_h((win_h - 8.0 - top).min(560.0)),
-    };
     surface = surface.child(header(s, p, frame));
     surface = match frame {
         Frame::Picker => surface.child(picker(s, p)),
         _ => surface.child(super::steps::body(s, p, frame)),
     };
-    widgets::modal("connect", p, surface, Some(top))
+    // `<Dialog size="normal" fit anchored>` (`providers/connect/dialog.tsx`): every step fits its
+    // content within the normal height, and the top edge stays put, so a step only moves the bottom.
+    widgets::sized_modal("connect", p, widgets::DialogSize::Normal, widgets::Fit::Anchored, widgets::dialog_window(cx, *s.zoom), surface)
 }
 
 /// The dialog's name: the list's, or the step's title.
@@ -249,7 +242,7 @@ fn picker(s: &App, p: &Pal) -> El {
     col().key("connect-picker").w_full().grow(1.0).shrink().min_h(0.0).px(6.0).pb(6.0).gap(2.0)
         .child(search)
         // No bar, as Desktop hides it (`[scrollbar-width:none]`, `providers/connect/dialog.tsx:338`).
-        .child(session_view::scroller::scroller("connect-list").hidden(col().w_full().grow(1.0).shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 40.0), list))
+        .child(session_view::scroller::scroller("connect-list").hidden(col().w_full().shrink().min_h(0.0).clip_fade(0.0, 0.0, 0.0, 40.0), list))
 }
 
 fn provider_row(p: &Pal, r: &Row, active: bool) -> El {

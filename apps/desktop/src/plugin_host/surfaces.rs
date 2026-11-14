@@ -374,21 +374,33 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &super::Flyout) -> Option<E
 }
 
 /// The open plugin dialog over a scrim, as the app's own dialogs sit: in Desktop's dialog frame
-/// (`dialog.css`, `<Dialog fit>`: as tall as its content). Esc or a press outside closes it and
-/// runs its `onDismiss`.
-pub fn dialog_view(app: &App, p: &Pal) -> Vec<El> {
+/// at the plugin's size preset (`runtime/plugin/ui.tsx` `Dialog`): a normal one as tall as its
+/// content (`<Dialog fit>`), a large or x-large one its size's height on bg-base with 12 pt corners.
+/// Esc or a press outside closes it and runs its `onDismiss`.
+pub fn dialog_view(app: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
+    use crate::widgets::{DialogSize, Fit};
     let Some(open) = &app.plugins.dialog else { return Vec::new() };
     let Some((i, _)) = app.plugins.running().find(|(_, pl)| pl.half.id == open.plugin) else { return Vec::new() };
     let found = app.plugins.list[i].half.contribs.borrow().dialogs.iter().find(|c| c.spec.id == open.id).map(|c| (c.key, c.spec.clone(), c.f("render").cloned()));
     let Some((key, spec, Some(f))) = found else { return Vec::new() };
-    let width = match spec.size {
-        Some(opencode_plugin_spec::DialogSize::Small) => 400.0,
-        Some(opencode_plugin_spec::DialogSize::Large) => 640.0,
-        _ => 480.0,
+    let size = match spec.size {
+        Some(opencode_plugin_spec::DialogSize::Large) => DialogSize::Large,
+        Some(opencode_plugin_spec::DialogSize::XLarge) => DialogSize::XLarge,
+        _ => DialogSize::Normal,
     };
+    let (fit, radius, fill) = if size == DialogSize::Normal { (Fit::Content, 6.0, p.layer1) } else { (Fit::Fixed, 12.0, p.bg_base) };
     let content = render(app, p, i, &format!("dialog:{}", open.id), &f, map([("data", open.data.clone())]));
     // The clip goes on a child: on the card it would clip the card's own shadow too.
-    let card = col().w(width).radius(6.0).fill(p.layer1).elevate(p.overlay).child(col().w_full().clip_rounded(6.0).child(content));
+    // A normal one's content scrolls past its height, as `DialogBody`'s `overflow-y-auto` box does
+    // in `runtime/plugin/ui.tsx`; a large one's fills it.
+    let inner = col().w_full().clip_rounded(radius);
+    let inner = if fit == Fit::Fixed {
+        inner.h_full().child(content)
+    } else {
+        inner.shrink().min_h(0.0).child(session_view::scroller::scroller(format!("plugin-dialog-scroll-{key}")).build::<App>(p, col().w_full().shrink().min_h(0.0), content))
+    };
+    let card = col().radius(radius).fill(fill).elevate(p.overlay).child(inner);
+    let card = crate::widgets::sized(card, size, fit, crate::widgets::dialog_window(cx, *app.zoom));
     let card = col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).modal(true, |s: &mut App| super::requests::dismiss_dialog(s, &mut Tx::default())).child(card);
     crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
 }
@@ -573,3 +585,13 @@ pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &st
     // A plain `overflow-y-auto` box's bar, as the file view's (`gui-plugins/src/file/view.tsx:517`).
     Some(session_view::scroller::scroller(format!("plugin-file-{key}")).build::<App>(p, col().w_full().grow(1.0).min_h(0.0), body))
 }
+
+// `--scene plugin-dialog`: the updater's beta notes dialog with 30 notes, as its `Dialog:Open`
+// leaves it; past the normal height its content scrolls.
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("plugin-dialog", |s| {
+        let note = |i: usize| serde_json::json!({ "sha": format!("{i:07}"), "type": "feat", "summary": format!("Change number {i} to the app, described in a sentence long enough to wrap") });
+        let notes = serde_json::json!({ "notes": { "added": (1..=20).map(note).collect::<Vec<_>>(), "fixed": (21..=30).map(note).collect::<Vec<_>>(), "total": 30, "more": false }, "previous": "1.0.0" });
+        s.plugins.dialog = Some(super::OpenDialog { plugin: "updater".into(), id: "beta".into(), data: super::services::json_to_data(&notes) });
+    }),
+]);

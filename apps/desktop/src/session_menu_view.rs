@@ -48,7 +48,7 @@ pub fn field(s: &App, p: &Pal, target: &Target, style: rune::TextStyle) -> Optio
 /// Delete's confirmation (`home/sessions/controller.tsx:502-522`): Desktop's `<Dialog fit>` over
 /// its scrim, the title group in its header and a ghost Cancel beside the danger button in its
 /// footer.
-pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
+pub fn confirm(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some(asked) = s.menus.asked() else { return vec![] };
     let name = asked.title.clone();
     let kit = crate::palette::kit(p);
@@ -68,14 +68,13 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
         .build(kit)
         .key("delete-confirm");
     let delete = if p.dark && p.theme == 0 { delete.fill(session_view::dock::flat(Color::WHITE.alpha(0.06), p.layer1)) } else { delete };
-    // `dialog.css:19-28, 48-106, 132-141, 161-168`: 480 wide, 6 pt corners on `layer-01` with the
+    // `<Dialog fit>` (`shell/titlebar/project-session-row.tsx`): the normal size, 6 pt corners on `layer-01` with the
     // overlay elevation; a 16 pt header with the title (15/20 at 530) 4 over the description
     // (13/20 at 440, muted), and a 16 pt footer, its buttons 8 apart at its end.
     let card = col()
         .key("delete-card")
         .role("dialog")
         .label_static(t!("session.delete.title"))
-        .w(480.0)
         .radius(6.0)
         .fill(p.layer1)
         .elevate(p.overlay)
@@ -93,6 +92,7 @@ pub fn confirm(s: &App, p: &Pal) -> Vec<El> {
                 .child(text(t!("session.delete.confirm", name = name)).font(crate::widgets::BODY).color(p.muted).wrap().w_full()),
         )
         .child(row().key("delete-footer").w_full().padding(16.0).gap(8.0).child(spacer()).child(cancel).child(delete));
+    let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
     vec![
         el().key("delete-scrim")
             .absolute(0.0, 0.0)

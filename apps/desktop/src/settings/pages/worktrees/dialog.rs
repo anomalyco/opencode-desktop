@@ -19,7 +19,7 @@ const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 const FOLDER: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).mono();
 
 /// The confirmation open now, if any.
-pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
+pub fn dialog(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let machine = &s.settings_pages.worktrees.delete;
     let (attempt, title, lines, retry, can_delete, label) = match &machine.phase {
         Phase::ConfirmingMany { attempt, scope, targets, .. } => {
@@ -82,7 +82,6 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
         .key("worktree-delete-card")
         .role("dialog")
         .label(title.clone())
-        .w(480.0)
         .radius(6.0)
         .fill(p.layer1)
         .elevate(p.overlay)
@@ -97,6 +96,8 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
                 .child(lines))
             .child(close(p, attempt)))
         .child(row().key("worktree-delete-footer").w_full().padding(16.0).gap(8.0).child(spacer()).child(cancel).children(again).child(delete));
+    // `<Dialog fit>` (`settings/workspaces/workspaces.tsx`): the normal size.
+    let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
     vec![
         el().key("worktree-delete-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim),
         el().key("worktree-delete-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),

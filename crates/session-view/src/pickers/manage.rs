@@ -118,8 +118,13 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         .key("manage-models")
         .role("dialog")
         .label_static(opencode_i18n::t!("dialog.model.manage"))
-        .w(640.0)
-        .h(480.0)
+        // `<Dialog size="large">` (`providers/models/manage.tsx`), clamped to the window by the
+        // modal layer's padding (32 across, 96 down).
+        .w_full()
+        .max_w(crate::dialog::DialogSize::Large.width(f32::INFINITY))
+        .h(crate::dialog::DialogSize::Large.height(f32::INFINITY))
+        .shrink()
+        .min_h(0.0)
         .radius(12.0)
         .fill(p.bg_base)
         .clip_soft(0.0)
@@ -138,7 +143,7 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         // `settings-panel`: no bar, as Desktop hides it (`manage.tsx:134-135`, `settings.css:593-607`).
         .child(crate::scroller::scroller("manage-models-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), body));
     let scrim = el().key("manage-models-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    let modal = el().key("manage-models-modal").absolute(0.0, 0.0).w_full().h_full().center().transition(Transition::none()).child(dialog).raise();
+    let modal = col().key("manage-models-modal").absolute(0.0, 0.0).w_full().h_full().px(16.0).py(48.0).center().transition(Transition::none()).child(dialog).raise();
     vec![scrim, modal]
 }
 

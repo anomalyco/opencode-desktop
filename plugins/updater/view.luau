@@ -169,7 +169,7 @@ function view.highlights(i18n: I18n, v: View, input: { highlights: { whatsnew.Hi
         }
     end
     -- `text-16-medium` and `text-14-regular`: 180 % line height.
-    local text = ui.col({ key = "release-text", w = if #media > 0 then 352 else nil, grow = if #media > 0 then nil else 1, minW = 0, h = "full", pad = 32 }, {
+    local text = ui.col({ key = "release-text", grow = 1, minW = 0, h = "full", pad = 32 }, {
         ui.col({ gap = 8, pt = 88 }, {
             ui.text(if feature then feature.title else "", { size = 16, weight = 530, lineHeight = 28.8, color = "text-strong", wrap = true }),
             ui.text(if feature then feature.description else "", { size = 14, weight = 440, lineHeight = 25.2, color = "text-base", wrap = true }),
@@ -188,13 +188,9 @@ function view.highlights(i18n: I18n, v: View, input: { highlights: { whatsnew.Hi
         }),
     })
     table.insert(media, 1, text)
-    -- Desktop's dialog is `size="large"` (640 by 480) around content 400 tall pulled up 80 by
-    -- `-mt-20`, which grows to the frame's 480 and loses its top 80 to the frame's clip, leaving
-    -- 80 empty at the bottom; with a picture the text column takes its padding and half the rest,
-    -- 352 of 640 (`flex-1 p-8` beside `flex-1`).
-    return ui.col({ key = "release-notes", w = "full", h = 480, clip = true }, {
-        ui.row({ w = "full", h = 480, mt = -80 }, media),
-    })
+    -- Desktop's dialog is `size="large"` (`whats-new.tsx`): the text and the picture share its
+    -- width (`flex-1 p-8` beside `flex-1`) and fill its height.
+    return ui.row({ key = "release-notes", w = "full", h = "full", clip = true }, media)
 end
 
 return view

@@ -113,8 +113,8 @@ impl App {
 }
 
 /// The question a paste that would run commands asks, over the window (the session delete
-/// confirmation's dialog: 480 wide, title, description, footer with Cancel focused).
-pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
+/// confirmation's dialog: the normal size, title, description, footer with Cancel focused).
+pub fn dialog(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some(pending) = &s.terminal.pending_paste else { return Vec::new() };
     let (lines, count) = shown(&pending.text);
     let kit = crate::palette::kit(p);
@@ -139,7 +139,6 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
         .key("terminal-paste-card")
         .role("alertdialog")
         .label(title.clone())
-        .w(480.0)
         .radius(6.0)
         .fill(p.layer1)
         .elevate(p.overlay)
@@ -156,6 +155,7 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
                 .child(preview),
         )
         .child(row().key("terminal-paste-footer").w_full().padding(16.0).gap(8.0).child(spacer()).child(cancel).child(paste));
+    let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
     vec![
         el().key("terminal-paste-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim),
         el().key("terminal-paste-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),

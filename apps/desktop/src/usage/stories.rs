@@ -19,6 +19,10 @@ const KEYS: &[Trigger] = &[replay(open)];
 const HOUR: i64 = 3_600_000;
 
 fn open(s: &mut App, _: &mut Play<App>) {
+    setup(s);
+}
+
+fn setup(s: &mut App) {
     s.finish_stream();
     let resets_at = session_view::turn_errors::parse_iso("2026-11-01T00:00:00Z").unwrap_or_default();
     let model = |id: &str, name: &str, spent: Option<f64>| BudgetModel { provider: "opencode".into(), model: id.into(), name: name.into(), spent };
@@ -70,9 +74,15 @@ fn open(s: &mut App, _: &mut Play<App>) {
 
 /// The dialog alone, centred on the stage over the app's scrim.
 fn view(s: &App, p: &Pal) -> El {
-    col().key("story-usage").w_full().h(640.0).center().fill(p.bg_base).children(super::view::dialog(s, p, 1280.0))
+    col().key("story-usage").w_full().h(640.0).center().fill(p.bg_base).children(super::view::dialog(s, p, [1280.0, 640.0]))
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story { path: "Dialogs/Usage", scene: |s| stage(s, view), knobs: &[], keys: KEYS, variants: VARIANTS },
+]);
+
+// `--scene usage`: the Default dialog over the app, to see it in a short window, where its
+// content scrolls.
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("usage", setup),
 ]);

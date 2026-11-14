@@ -155,9 +155,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::attachments::viewer(s, p, cx));
     inner = inner.children(crate::diagram::view(s, p, cx));
     inner = inner.children(session_view::tools::details_overlay(s, p, cx));
-    inner = inner.children(crate::session_menu_view::confirm(s, p));
-    inner = inner.children(crate::terminal::paste::dialog(s, p));
-    inner = inner.children(crate::settings::pages::worktrees::dialog(s, p));
+    inner = inner.children(crate::session_menu_view::confirm(s, p, cx));
+    inner = inner.children(crate::terminal::paste::dialog(s, p, cx));
+    inner = inner.children(crate::settings::pages::worktrees::dialog(s, p, cx));
     inner = inner.children(crate::quote::editor::view(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
@@ -171,16 +171,16 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::connect::welcome::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));
-    inner = inner.children(crate::mcp::sign_in::layer(s, p));
+    inner = inner.children(crate::mcp::sign_in::layer(s, p, cx));
     inner = inner.children(crate::usage::layer(s, p, cx));
-    inner = inner.children(move_recovery::view(s, p));
-    inner = inner.children(crate::plugin_host::dialog_view(s, p));
-    inner = inner.children(crate::servers::dialog::view(s, p));
-    inner = inner.children(crate::projects::remote_picker::view::view(s, p));
+    inner = inner.children(move_recovery::view(s, p, cx));
+    inner = inner.children(crate::plugin_host::dialog_view(s, p, cx));
+    inner = inner.children(crate::servers::dialog::view(s, p, cx));
+    inner = inner.children(crate::projects::remote_picker::view::view(s, p, cx));
     inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));
     inner = inner.children(crate::plugin_host::popover_view(s, p));
-    inner = inner.children(crate::plugin_host::trust_dialog(s, p));
+    inner = inner.children(crate::plugin_host::trust_dialog(s, p, cx));
     inner = inner.children(crate::status_toast::view(s, p));
     let root = el().key("zoom");
     // The app keeps clear of the safe area and the window's colour runs under it to the screen's

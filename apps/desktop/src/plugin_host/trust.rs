@@ -15,7 +15,7 @@ fn shown(app: &App) -> Option<usize> {
     app.plugins.list.iter().position(|p| matches!(p.life, Life::AwaitingTrust) && matches!(p.trust, Trust::Unknown { .. }))
 }
 
-pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
+pub fn dialog(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some(i) = shown(s) else { return Vec::new() };
     let plugin = &s.plugins.list[i];
     let (id, name) = (plugin.manifest.id.clone(), plugin.manifest.name.clone());
@@ -28,7 +28,6 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
     };
     let mut card = col()
         .key("luau-trust-card")
-        .w(420.0)
         .padding(20.0)
         .gap(6.0)
         .radius(12.0)
@@ -51,6 +50,8 @@ pub fn dialog(s: &App, p: &Pal) -> Vec<El> {
             .child(button("luau-trust-later", "Not now", p.text, None).on_press_tx(move |s: &mut App, tx: &mut Tx| answer(s, &later, TrustEvent::Later, tx)))
             .child(button("luau-trust-enable", "Enable", p.on_fill, Some(p.bg_accent)).on_press_tx(move |s: &mut App, tx: &mut Tx| answer(s, &ok, TrustEvent::Accept, tx))),
     );
+    // No Desktop counterpart: a confirmation, so the normal size.
+    let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
     vec![
         el().key("luau-trust-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.dim),
         el().key("luau-trust-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),
