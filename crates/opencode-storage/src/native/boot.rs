@@ -25,7 +25,7 @@ use super::{Backend, StorageConfig, journal, sql, writer};
 mod damaged;
 mod owed;
 use damaged::{adopt_shown, damaged, keep_damaged};
-use owed::{Owe, attach_journal, record_names_journal};
+use owed::{Owe, attach_journal, owned_journal, record_owns_journal};
 use crate::cache::{Cache, Doc, Namespace, OutboxCache};
 use crate::{Storage, WindowFrame};
 
@@ -219,7 +219,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
                     p.read_ns = report.raw_read_ns;
                     p.decode_ns = report.decode_ns;
                     report.stage_a_ns = ns(t0);
-                    owe.hint = p.journal_location();
+                    owe.hint = owned_journal(&p);
                     // A record that names a journal waits for it (after the claim): what it holds
                     // may be newer than the record, and the first frame shows the newer. One that
                     // names none (the first launch after the update) has nothing to wait for: the
@@ -240,7 +240,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
                 p.source = BootSource::Checkpoint;
                 p
             });
-            owe.hint = held.as_ref().and_then(BootPacket::journal_location);
+            owe.hint = held.as_ref().and_then(owned_journal);
         }
         FastBoot::Denied => {
             report.raw_miss = Some("another process holds the file");
@@ -522,12 +522,15 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
         if !hinted && !new && existing.is_none() && !schema::upgrade_existing() {
             report.journal_error = Some("off for profiles made before it (RUNE_STORAGE_V2)".into());
         } else if !hinted {
-            // A journal the boot record doesn't name, in a record that changed since the
-            // reservation: a build without the journal rebuilt it (a rollback), so what the
-            // journal holds may be older than what that build saved. Its records are dropped:
-            // the place is reserved again, zeroed. (A record nobody rebuilt yet, the first launch
-            // after the update killed early, keeps them: `journal::current`.)
-            if existing.is_some() && !new && !journal::current(&conn, record_names_journal(&conn)) {
+            // A journal the boot record's writer didn't keep, in a record that changed since the
+            // reservation: a run without the journal rebuilt it (an older build, or one where the
+            // journal was off), so what the journal holds may be older than what that run saved.
+            // Its records are dropped: the place is reserved again, zeroed. (A record nobody
+            // rebuilt yet, the first launch after the update killed early, keeps them:
+            // `journal::current`.)
+            if let Some(loc) = existing.as_ref().filter(|_| !new)
+                && !journal::current(&conn, record_owns_journal(&conn, loc.instance))
+            {
                 conn.execute_batch("DELETE FROM journal_meta")?;
             }
             let t = Instant::now();

@@ -100,6 +100,8 @@ pub(crate) struct Journal {
     inner: UnsafeCell<Inner>,
     /// What the writer has committed: key → the newest seq in the database.
     settled: Mutex<HashMap<String, u64>>,
+    /// Its place's instance (`Location::instance`).
+    instance: u64,
 }
 
 // SAFETY: `inner` is only touched by whoever holds `busy` (or the open's thread before the
@@ -290,7 +292,9 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     if JOURNAL.get().is_some() {
         return Err("the journal is already open".into());
     }
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(db).map_err(|e| e.to_string())?;
+    // The storage's one kept descriptor on the file: never closed, so on POSIX the connection's
+    // locks stay (`dbfile`).
+    let file = super::dbfile::get(db).map_err(|e| e.to_string())?;
     let ps = u64::from(loc.page_size);
     let (lo, hi) = (loc.pages.iter().min().copied().ok_or("no pages")?, loc.pages.iter().max().copied().ok_or("no pages")?);
     let from = (u64::from(lo) - 1) * ps;
@@ -301,13 +305,13 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     // SAFETY: the pages are the journal row's overflow pages, which nothing else in this process
     // writes; other processes don't write them either (single instance).
     #[allow(unsafe_code)]
-    let mut map = unsafe { memmap2::MmapOptions::new().offset(from).len(len).map_mut(&file) }.map_err(|e| e.to_string())?;
+    let mut map = unsafe { memmap2::MmapOptions::new().offset(from).len(len).map_mut(file) }.map_err(|e| e.to_string())?;
     let base = map.as_mut_ptr();
     rune::marks::mark("journal.mapped");
     // Still the row's pages: its table's root holds row 1 pointing at the first, and each page
     // points at the next (SQLite's overflow chain, the pages' first 4 bytes). A row an outside tool
     // deleted or rewrote fails this, so no record goes into a page SQLite may give to other data.
-    if !still_the_row(&file, loc, &map, from) {
+    if !still_the_row(file, loc, &map, from) {
         return Err("the recorded place isn't the journal row's any more".into());
     }
     let n = loc.pages.len();
@@ -355,7 +359,7 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     for f in newest.into_values() {
         inner.index.insert(f.key, Entry { seq: f.seq, at: Some((f.half, f.at, f.len)) });
     }
-    let j = Journal { busy: AtomicBool::new(false), open: AtomicBool::new(true), seq: AtomicU64::new(top), inner: UnsafeCell::new(inner), settled: Mutex::new(HashMap::new()) };
+    let j = Journal { busy: AtomicBool::new(false), open: AtomicBool::new(true), seq: AtomicU64::new(top), inner: UnsafeCell::new(inner), settled: Mutex::new(HashMap::new()), instance: loc.instance };
     // A journal that held records starts this run on a fresh half: they're copied forward.
     if !recovered.is_empty() {
         #[allow(unsafe_code)]
@@ -382,11 +386,21 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
 /// The file the journal is in was damaged and is moved aside: nothing more is written to it
 /// (it's kept as it was found), and this run has no journal.
 pub(crate) fn abandon() {
+    ABANDONED.store(true, Ordering::Release);
     if let Some(j) = JOURNAL.get() {
         j.open.store(false, Ordering::Release);
     }
     decided();
 }
+
+/// The instance of the journal this run keeps: mapped and not abandoned (still after `finish`, so
+/// the quit's own record names it).
+pub(crate) fn kept_instance() -> Option<u64> {
+    JOURNAL.get().filter(|_| !ABANDONED.load(Ordering::Acquire)).map(|j| j.instance)
+}
+
+/// The journal's file was found damaged and moved aside (`abandon`).
+static ABANDONED: AtomicBool = AtomicBool::new(false);
 
 /// Whether a journal is mapped for this run.
 pub(crate) fn attached() -> bool {
@@ -580,9 +594,9 @@ fn first_overflow(page: &[u8], usable: usize) -> Option<(u32, usize)> {
 /// The journal row's overflow pages, read from the file (they're in it after the checkpoint).
 fn overflow(conn: &Connection, db: &Path) -> Option<Location> {
     let root: i64 = conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'journal'", [], |r| r.get(0)).ok()?;
-    let file = std::fs::File::open(db).ok()?;
+    let file = super::dbfile::get(db).ok()?;
     let mut head = [0u8; 100];
-    super::boot_record::read_some(&file, &mut head, 0)?;
+    super::boot_record::read_some(file, &mut head, 0)?;
     let ps = match u16::from_be_bytes([head[16], head[17]]) {
         1 => 65536,
         n => usize::from(n),
@@ -590,7 +604,7 @@ fn overflow(conn: &Connection, db: &Path) -> Option<Location> {
     let usable = ps - usize::from(head[20]);
     let mut page = vec![0u8; ps];
     let at = (u64::try_from(root).ok()? - 1) * ps as u64;
-    if super::boot_record::read_some(&file, &mut page, at)? != ps || page[0] != 0x0D || u16::from_be_bytes([page[3], page[4]]) != 1 {
+    if super::boot_record::read_some(file, &mut page, at)? != ps || page[0] != 0x0D || u16::from_be_bytes([page[3], page[4]]) != 1 {
         return None;
     }
     let cell = usize::from(u16::from_be_bytes([page[8], page[9]]));
@@ -609,7 +623,7 @@ fn overflow(conn: &Connection, db: &Path) -> Option<Location> {
     while next != 0 && left > 0 {
         pages.push(next);
         left = left.saturating_sub(usable - 4);
-        super::boot_record::read_some(&file, &mut word, u64::from(next - 1) * ps as u64)?;
+        super::boot_record::read_some(file, &mut word, u64::from(next - 1) * ps as u64)?;
         next = u32::from_be_bytes(word);
     }
     let last = (payload - local - (pages.len().saturating_sub(1)) * (usable - 4)) as u32;

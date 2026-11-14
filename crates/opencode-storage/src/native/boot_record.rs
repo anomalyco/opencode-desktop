@@ -95,6 +95,10 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     }
     if let Some(loc) = super::journal::location(tx)? {
         w.push(Kind::Journal, "", "", &loc.encode());
+        // This run keeps that journal: its records are this run's to trust next launch.
+        if super::journal::kept_instance() == Some(loc.instance) {
+            w.push(Kind::JournalOwner, "", "", &loc.instance.to_le_bytes());
+        }
     }
     let shown: Vec<&str> = recent.iter().filter_map(|(_, tab)| Some(session_of(tab)?.1)).collect();
     let covered = super::schema::user_version(tx)? & super::schema::FLAG_PLUGINS != 0;
@@ -116,6 +120,11 @@ impl BootPacket {
     /// Where the draft journal is, as the record names it.
     pub(crate) fn journal_location(&self) -> Option<super::journal::Location> {
         self.of(Kind::Journal).next().and_then(|e| super::journal::Location::decode(&self.bytes_of(e)))
+    }
+
+    /// The journal instance the run that wrote this record kept, when it kept one.
+    pub(crate) fn journal_owner(&self) -> Option<u64> {
+        self.of(Kind::JournalOwner).next().and_then(|e| Some(u64::from_le_bytes(self.bytes_of(e).try_into().ok()?)))
     }
 
     /// A shown draft's revision in the database; none when the record doesn't say.

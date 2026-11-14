@@ -4,6 +4,7 @@
 //! `opencode-storage` thread, which owns it from then on.
 
 mod boot;
+mod dbfile;
 pub mod boot_record;
 pub mod import;
 pub mod journal;

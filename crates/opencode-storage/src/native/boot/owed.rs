@@ -42,6 +42,14 @@ pub(super) fn attach_journal(config: &StorageConfig, report: &mut BootReport, ow
     ok
 }
 
-pub(super) fn record_names_journal(conn: &rusqlite::Connection) -> bool {
-    boot_record::from_sqlite(conn).ok().flatten().and_then(BootPacket::parse).is_some_and(|p| p.journal_location().is_some())
+/// The journal a record names, when the run that wrote the record kept it (`Kind::JournalOwner`).
+/// A record rebuilt by a run without it (an older build, or a platform it was off on, which still
+/// names the place) is no hint: what that run saved may be newer than the journal's records.
+pub(super) fn owned_journal(p: &BootPacket) -> Option<journal::Location> {
+    p.journal_location().filter(|l| p.journal_owner() == Some(l.instance))
+}
+
+/// Whether the stored boot record was written by a run that kept the journal `instance`.
+pub(super) fn record_owns_journal(conn: &rusqlite::Connection, instance: u64) -> bool {
+    boot_record::from_sqlite(conn).ok().flatten().and_then(BootPacket::parse).is_some_and(|p| p.journal_owner() == Some(instance))
 }

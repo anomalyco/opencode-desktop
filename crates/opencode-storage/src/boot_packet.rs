@@ -38,6 +38,9 @@ pub enum Kind {
     Journal = 12,
     /// A shown draft's revision in the database (`draft_rev`), whether or not it has a document.
     DraftRev = 13,
+    /// The journal instance the run that wrote this record kept (its 8 bytes): a record rebuilt by
+    /// a run without the journal (an older build, a platform it was off on) has none.
+    JournalOwner = 14,
 }
 
 #[derive(Clone, Debug)]

@@ -709,7 +709,9 @@ impl Writer {
     /// pages. One sync of the file closes that (a kill never could: the OS has the writes).
     fn sync_reservation(&mut self) {
         let t = Instant::now();
-        let synced = self.conn.path().map(std::path::PathBuf::from).ok_or(std::io::ErrorKind::NotFound.into()).and_then(|p| std::fs::OpenOptions::new().write(true).open(p)).and_then(|f| f.sync_all());
+        // Through the storage's kept descriptor (`dbfile`): one opened and closed here would drop the
+        // connection's locks on POSIX.
+        let synced = self.conn.path().map(std::path::PathBuf::from).ok_or(std::io::ErrorKind::NotFound.into()).and_then(|p| super::dbfile::get(&p)).and_then(|f| f.sync_all());
         rune::marks::mark("storage.reservation.synced");
         match synced {
             Ok(()) => self.reservation = Reservation::Durable,
