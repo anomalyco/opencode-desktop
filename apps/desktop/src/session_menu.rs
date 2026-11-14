@@ -7,6 +7,7 @@
 //! | --- | --- |
 //! | Sidebar tab | Rename, Close tab, Close other tabs, Close tabs to the right, —, Delete session… |
 //! | Home row, session header | Rename, Export…, Make project, —, Delete… |
+//! | Recent row | Pin (or Unpin, Move up, Move down), Mute or Unmute, Hide, —, Rename, Archive, —, Delete… |
 //! | Inbox task / project line | Close (archive) / Stop being a project, —, Delete… |
 //!
 //! Rename edits the title where it stands: ⏎ saves, Esc cancels, a click elsewhere saves (the
@@ -25,6 +26,7 @@ use crate::{App, Route};
 
 mod delete;
 mod export;
+pub(crate) mod preferences;
 mod rename;
 pub(crate) mod unread;
 
@@ -66,6 +68,7 @@ impl Target {
 pub struct Menus {
     exports: export::Exports,
     unread_generation: u64,
+    preferences_generation: u64,
     /// The menu showing now, so its row draws marked.
     pub on: Option<Target>,
     /// The title being edited (`rename`), its field's text, and its save.

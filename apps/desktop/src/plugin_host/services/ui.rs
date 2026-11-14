@@ -102,7 +102,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         }
         _ => method(lua, t, "Notify", move |lua, spec: Value| {
             let s: spec::NotificationSpec = decode(lua, spec, "NotificationSpec")?;
-            cx::ask(&p, Request::Notify { title: s.title, body: s.body.unwrap_or_default() });
+            cx::ask(&p, Request::Notify { title: s.title, body: s.body.unwrap_or_default(), session: s.session_id });
             Ok(())
         }),
     }

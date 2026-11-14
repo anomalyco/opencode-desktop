@@ -52,6 +52,11 @@ pub fn event(app: &App, e: &crate::events::StreamEvent, sid: &str) {
     let server = crate::servers::runtime::active(app);
     let has_tab = |id: &str| app.tabs.iter().any(|t| t.id == id && t.server == *server);
     let root = |id: &str| app.session(id).is_none_or(|s| s.parent.is_none());
+    // A muted session plays nothing, as it posts nothing (`notification.tsx`'s `muted`).
+    let asker = data["sessionID"].as_str().unwrap_or(sid);
+    if crate::session_menu::preferences::silenced(app, server, sid) || crate::session_menu::preferences::silenced(app, server, asker) {
+        return;
+    }
     let id = match ty {
         "session.execution.succeeded" if root(sid) && has_tab(sid) => sounds.agent.as_deref(),
         "session.execution.failed" if root(sid) && has_tab(sid) => sounds.errors.as_deref(),

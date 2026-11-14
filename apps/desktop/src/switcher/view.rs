@@ -254,11 +254,12 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         Action::Command(_) => (None, command_keys(p, e)),
         Action::File(_) | Action::Setting(_) => (None, None),
     };
+    let unhide = unhide_button(s, p, e);
     let main = match &e.action {
         Action::File(path) => file_main(p, path, q),
         _ => {
-            // The row's text: the row less its 6 pt sides, the lead and the trailing part.
-            let trailing_w = trailing.as_ref().map_or(0.0, |(_, w)| w + 8.0);
+            // The row's text: the row less its 6 pt sides, the lead and the trailing parts.
+            let trailing_w = trailing.as_ref().map_or(0.0, |(_, w)| w + 8.0) + unhide.as_ref().map_or(0.0, |(_, w)| w + 8.0);
             let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
             let archived = s.switcher.mode == SwitcherMode::Archived;
             let words = row_text(p, e, q, text_w, archived, stacked(s, e));
@@ -325,7 +326,33 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
             }
         })
     } else { r };
-    r.children(trailing.map(|(el, _)| el))
+    r.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el))
+}
+
+/// A hidden session's Unhide, a small ghost-muted button after its row in the session search
+/// (`DialogSessionSearch`'s `unhide`): it brings the session back to Recent and closes the dialog.
+fn unhide_button(s: &App, p: &Pal, e: &Entry) -> Option<(El, f32)> {
+    if !matches!(s.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+        return None;
+    }
+    let (server, id) = match &e.action {
+        Action::Session(id) => (crate::servers::runtime::active(s).clone(), id.clone()),
+        Action::RemoteSession { server, id } => (server.clone(), id.clone()),
+        _ => return None,
+    };
+    if !crate::session_menu::preferences::hidden(&server, &id) {
+        return None;
+    }
+    let label = t!("sidebar.recent.unhide");
+    let w = rune::text::measure(label, &[], UI, None).0 + 16.0;
+    let button = row().key("unhide").role("button").label(label.to_owned()).w(w).h(24.0).px(8.0).center_y().radius(6.0).hover(p.hover).press(p.pressed)
+        .child(text(label.to_owned()).font(UI).color(p.muted))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            crate::session_menu::preferences::update(s, crate::session_menu::preferences::Kind::Hidden, &server, &id, false);
+            s.close_switcher(true);
+        });
+    Some((button, w))
 }
 
 /// A full text row's line of context (`UI_SMALL`, `text-faint`): what matched in the accent, an

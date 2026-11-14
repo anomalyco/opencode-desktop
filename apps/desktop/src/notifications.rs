@@ -275,6 +275,11 @@ impl App {
 /// What `ty` posts, if anything: the kind, its title, the session a click opens and the body.
 fn decide(app: &App, ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'static str, String, String)> {
     let is_root = |id: &str| app.session(id).is_none_or(|s| s.parent.is_none());
+    // A muted session, or one under a muted root, posts nothing (`notification.tsx`'s `muted`).
+    let silenced = |id: &str| crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), id);
+    if silenced(sid) {
+        return None;
+    }
     match ty {
         "session.execution.succeeded" if app.settings.notify.agent => {
             if app.running_child(sid) || !is_root(sid) {
@@ -292,7 +297,7 @@ fn decide(app: &App, ty: &str, data: &Value, sid: &str) -> Option<(Kind, &'stati
         }
         "permission.asked" | "form.created" => {
             let (kind, title, asker) = request(ty, data, sid)?;
-            if !app.settings.notify.get(kind) || (ty == "permission.asked" && app.auto_accepts(&asker)) {
+            if silenced(&asker) || !app.settings.notify.get(kind) || (ty == "permission.asked" && app.auto_accepts(&asker)) {
                 return None;
             }
             // The asking session's own tab, else its root's: a subagent's request waits there.

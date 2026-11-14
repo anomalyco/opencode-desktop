@@ -175,7 +175,9 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
         }
         Request::Reveal(path) => crate::plugin_host::reveal(&path),
         Request::CopyText(text) => tx.copy(text),
-        Request::Notify { title, body } => crate::status_toast::say(app, title, body),
+        // A muted session, or one under a muted root, shows nothing (`host-apis.tsx`'s notify).
+        Request::Notify { session: Some(id), .. } if crate::session_menu::preferences::silenced(app, crate::servers::runtime::active(app), &id) => {}
+        Request::Notify { title, body, .. } => crate::status_toast::say(app, title, body),
         Request::Menu { anchor, menu, done } => {
             let done = RefCell::new(Some(done));
             crate::popup::open(app, menu, anchor, tx, move |_: &mut App, picked: Option<&str>, _: &mut Tx| {
