@@ -7,6 +7,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rune::compose::{DeviceKey, Frame};
 use rune::render::{EffectSite, Instance, KIND_EFFECT};
@@ -106,6 +107,14 @@ struct Layer {
 }
 
 /// A slot's uniform and shape buffer.
+/// A frame has drawn on the GPU, where the egg's slots draw. Until then (a window's first CPU
+/// frames, a browser without WebGPU) the egg stays in: its pins and lodger would draw nothing.
+static ON_GPU: AtomicBool = AtomicBool::new(false);
+
+pub fn on_gpu() -> bool {
+    ON_GPU.load(Ordering::Relaxed)
+}
+
 struct SlotRes {
     uniform: wgpu::Buffer,
     /// What `uniform` holds: a write (a staging buffer on D3D12) only when it changes.
@@ -159,9 +168,12 @@ impl EggGpu {
         animating()
     }
 
-    /// Builds and renders the egg's layers for this frame. False when no egg slot is on screen:
+    /// Builds and renders the egg's layers for this frame (and notes that frames draw on the GPU). False when no egg slot is on screen:
     /// everything the egg held on the GPU is let go.
     pub fn prepare(&mut self, f: &mut Frame<'_, App>) -> bool {
+        if !ON_GPU.load(Ordering::Relaxed) {
+            ON_GPU.store(true, Ordering::Relaxed);
+        }
         let started = super::tracing().then(rune::time::Instant::now);
         let drew = self.prepare_frame(f);
         if let Some(t) = started {

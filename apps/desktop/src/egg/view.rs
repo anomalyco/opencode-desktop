@@ -78,6 +78,8 @@ pub fn wordmark(s: &App, p: &Pal, width: f32, top: Option<f32>, dark: bool) -> E
                 .preserve_focus_on_press(true)
                 .on_key(|s: &mut App, ev, tx| super::grip_key(s, ev, tx))
                 .cursor(if held { Cursor::Grabbing } else { Cursor::Grab })
+                // `touch-none` (`wordmark.tsx:295`): a finger pulls the lodger from where it lands.
+                .touch_drags_at_once()
                 .on_drag(move |s: &mut App, d, tx| {
                     let (x, y) = (stage.x + gx * stage.k + f64::from(d.x), stage.y + gy * stage.k + f64::from(d.y));
                     match d.phase {
@@ -128,6 +130,8 @@ pub fn under(s: &App) -> [Option<El>; 2] {
         .a11y_hidden()
         .on_pointer_move_local(|s: &mut App, e: PointerEvent, tx: &mut Tx| super::pointer_move(s, f64::from(e.x), f64::from(e.y), tx))
         .on_hover_change(|s: &mut App, inside, tx| if !inside { super::pointer_leave(s, tx) } else { super::pointer_entered(s, tx) })
+        // A tap knocks at once, and a finger held on the board is never a long press.
+        .touch_drags_at_once()
         .on_drag(|s: &mut App, d, tx| match d.phase {
             rune::Phase::Down if tx.button() == rune::PointerButton::Primary => super::panel_press(s, f64::from(d.x), f64::from(d.y), tx),
             rune::Phase::Up => super::panel_release(s),
@@ -202,6 +206,8 @@ pub fn over(s: &App, p: &Pal) -> Vec<El> {
             false
         })
         .on_pointer_move_local(|s: &mut App, e: PointerEvent, tx: &mut Tx| super::pointer_move(s, f64::from(e.x), f64::from(e.y), tx))
+        // A finger steers the paddle from where it lands, and holding it still keeps steering.
+        .touch_drags_at_once()
         .on_drag(|s: &mut App, d, tx| match d.phase {
             rune::Phase::Down if tx.button() == rune::PointerButton::Primary => super::panel_press(s, f64::from(d.x), f64::from(d.y), tx),
             rune::Phase::Move => super::pointer_move(s, f64::from(d.x), f64::from(d.y), tx),

@@ -492,6 +492,9 @@ fn start_game(live: &mut Live, now: f64, tx: &mut Tx) {
 /// once the eyes would show.
 pub fn pointer_move_at(s: &mut App, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
     if s.egg.live.is_none() {
+        if !gpu::on_gpu() {
+            return;
+        }
         let stage = geo.stage();
         let (ux, uy) = ((x - stage.x) / stage.k, (y - stage.y) / stage.k);
         if (ux - lodger::HOLE[0]).hypot(uy - lodger::HOLE[1]) >= 24.0 {
@@ -553,6 +556,9 @@ pub fn pointer_leave(s: &mut App, tx: &mut Tx) {
 pub fn grab_at(s: &mut App, geo: Geo, x: f64, y: f64, tx: &mut Tx) {
     let now = tx.clock();
     if s.egg.live.is_none() {
+        if !gpu::on_gpu() {
+            return;
+        }
         s.egg.live = Some(Box::new(Live::new(now, geo, *s.reduced_motion)));
     }
     tx.instant();
@@ -652,6 +658,9 @@ fn can_play(s: &App) -> bool {
 }
 
 fn play(s: &mut App, tx: &mut Tx) {
+    if !gpu::on_gpu() {
+        return;
+    }
     let now = tx.clock();
     let live = s.egg.live.get_or_insert_with(|| Box::new(Live::new(now, s.egg.rest.get(), *s.reduced_motion)));
     live.auto = match live.state {
