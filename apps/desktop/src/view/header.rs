@@ -46,9 +46,10 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
     if let Some(info) = info {
         location = location.child(super::location::trigger(s, p, project, &proj, worktree.as_deref(), fit.collapse()));
         // The separator after the location: 8 of space each side, less the trigger's 6 and the
-        // title's 4 padding (`SessionHeaderSeparator gap 8 before 6 after 4`), and the glyph's
-        // own side bearing, which Desktop's `Slash` cancels.
-        location = location.child(slash(p, 0.5, 3.5));
+        // title's 4 padding and the text's 0.5 side bearing (`SessionHeaderSeparator gap 8 before 6
+        // after 4`, `session-identity-header.css:114-121`), its glyph pulled in 0.25 and 0.34 at
+        // its sides (`slash.css`): 1.25 before the glyph's box, 3.16 after.
+        location = location.child(slash(p, 1.25, 3.16));
         if let Some(parent) = parent {
             let pid = parent.id.clone();
             // Beside a subagent's ancestors the location takes at most 60% and gives way first.
@@ -73,7 +74,8 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                         })
                         .child(text(title_of(parent)).font(CRUMB).color(p.faint).group_color(p.muted).truncate().shrink().dir(rune::Direction::Auto)),
                 )
-                .child(slash(p, 6.5, 3.5));
+                // The parent's own 6 of end padding, which its crumb here leaves out, then as above.
+                .child(slash(p, 7.25, 3.16));
         }
         // A running subagent's header spins beside its title (`SessionWorkingIndicator`): the
         // 16 px session progress indicator in a 16 px box, 4 after the crumbs and 2 before the
