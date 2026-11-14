@@ -6,6 +6,7 @@
 //! their effects against the server.
 
 pub mod catalog;
+pub(crate) mod picker_reads;
 pub mod dialog;
 pub mod form;
 pub mod machine;

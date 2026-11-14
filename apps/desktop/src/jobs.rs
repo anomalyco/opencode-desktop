@@ -16,6 +16,8 @@ use crate::{App, Source};
 pub type Apply = Box<dyn FnOnce(&mut App, &mut Tx) + Send>;
 
 pub struct Jobs {
+    /// Picker reads belong to this server checkout; a new connection supersedes old replies.
+    pub(crate) picker_reads: rune::machine::Seq,
     tx: Sender<Apply>,
     rx: Receiver<Apply>,
 }
@@ -23,7 +25,7 @@ pub struct Jobs {
 impl Default for Jobs {
     fn default() -> Self {
         let (tx, rx) = channel();
-        Jobs { tx, rx }
+        Jobs { tx, rx, picker_reads: Default::default() }
     }
 }
 
