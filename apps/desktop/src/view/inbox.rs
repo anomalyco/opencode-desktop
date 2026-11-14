@@ -1,5 +1,8 @@
 use super::*;
-use crate::inbox_model::{Entry, InboxStatus, Sections, age};
+use std::rc::Rc;
+
+use crate::inbox_model::{Entry, InboxStatus, age};
+use crate::inbox_order::{Group, Order};
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
@@ -28,49 +31,34 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             row().key("inbox-loading").w_full().padding(8.0).justify_center().child(rune_kit::Loader::new().build(crate::palette::kit(p))),
         );
     }
-    let sections = s.inbox_sections();
-    let mut list = col().key("content").w_full().gap(2.0).pb(4.0);
-    if !sections.current.is_empty() {
-        list = list.child(col().key("inbox-current").w_full().gap(2.0).pb(10.0).children(cards(s, p, &sections.current)));
-    }
-    for (id, label, rows) in [("needs", t!("sidebar.inbox.section.needsAttention"), &sections.needs), ("unread", t!("sidebar.inbox.section.unread"), &sections.unread), ("recent", t!("sidebar.inbox.section.recent"), &sections.recent)] {
-        if rows.is_empty() {
-            continue;
-        }
-        let mut group = col()
-            .key(format!("inbox-{id}"))
-            .role("group")
-            .label(label)
-            .w_full()
-            .gap(8.0)
-            .pb(10.0)
-            .child(header(p, id, label))
-            .child(col().key("rows").w_full().gap(2.0).children(cards(s, p, rows)));
-        if id == "recent" && sections.more {
-            let label = if s.restore.inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
-            group = group.child(ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.toggle_inbox_recent();
-            }));
-        }
-        list = list.child(group);
-    }
-    if sections.is_empty() {
-        list = list.child(
-            // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
-            col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
-        );
-    }
-    if sections.archived {
-        list = list.child(
-            el().key("inbox-archived").w_full().pt(12.0).child(
-                ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
-                    s.close_settings();
-                    s.open_archived_search(tx);
-                }),
-            ),
-        );
-    }
+    let order = s.inbox_order();
+    let expanded = s.restore.inbox.recent_expanded;
+    let items = Rc::new(items(&order, expanded));
+    // Only the rows in sight are built (a virtual list), whatever Show more shows: each row is
+    // its session, and its card reads the session as it stands. The rows' places stand as the
+    // groups' gaps did: 2 between cards, 8 under a header, 10 under a group and 2 between groups.
+    let n = items.len();
+    // The last group's own 10 of padding under it, then the list's 4.
+    let pb = if matches!(items.last(), Some(Line::Card { .. } | Line::More)) { 14.0 } else { 4.0 };
+    let version = (order.generation, expanded);
+    let (keys, built, pal) = (items.clone(), items.clone(), *p);
+    let (key_order, built_order) = (order.clone(), order.clone());
+    let list = col()
+        .key("content")
+        .w_full()
+        .pb(pb)
+        .growth(rune::GrowthSpec::default())
+        .virtual_rows(
+            n,
+            // Most rows are a card and the 2 above it.
+            CARD_H + 2.0,
+            move |_: &App, i| keys[i].key(&key_order).into(),
+            move |s: &App, i| {
+                let item = &built[i];
+                el().w_full().pt(space_above(&built, i)).child(item.build(s, &pal, &built_order))
+            },
+        )
+        .virtual_rows_version(version);
     col()
         .key("sidebar-inbox")
         .role("list")
@@ -80,6 +68,19 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
         .grow(1.0)
         .shrink()
         .min_h(0.0)
+        // Home and End go to the inbox's first and last rows, built or not: the arrows' own Home
+        // and End reach only the rows built. A row not built is scrolled to, which builds it.
+        .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            if ev.mods != rune::Mods::default() || !matches!(ev.key, rune::Key::Home | rune::Key::End) {
+                return false;
+            }
+            let Some((row, key)) = end_key(s, ev.key == rune::Key::End) else { return false };
+            // Focus goes on once the scroll has built its row: the next poll (`inbox_model::poll`).
+            tx.scroll_into_view(row);
+            s.sidebar_inbox.focus_next = Some(key);
+            tx.wake_after(std::time::Duration::ZERO);
+            true
+        })
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
             if (s.sidebar_inbox.height - r[3]).abs() > 0.5 {
                 s.sidebar_inbox.height = r[3];
@@ -88,7 +89,151 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             }
         })
         .child(scroller(p, "inbox-scroll", list).grow(1.0))
-        .children((!sections.working.is_empty()).then(|| working(s, p, &sections, inset)))
+        .children((!order.group(Group::Working).is_empty()).then(|| working(s, p, &order, inset)))
+}
+
+/// A card's height (`InboxSessionCard`, 54pt): the list's estimate for rows it hasn't laid out.
+const CARD_H: f32 = 54.0;
+
+/// One row of the inbox's list.
+#[derive(Clone, Copy, Debug)]
+enum Line {
+    Header(Group),
+    /// The card of `order.rows[at]`, `pos` of `size` in its group (A11Y: true for rows not built).
+    Card { at: usize, pos: usize, size: usize },
+    /// Show more / Show less under Recent.
+    More,
+    Empty,
+    Archived,
+}
+
+/// The list's rows in order: the open session's card when no group shows it, then each group's
+/// header and cards (and Show more under Recent), the empty line, and Archived.
+fn items(order: &Order, expanded: bool) -> Vec<Line> {
+    let mut out = Vec::new();
+    let card = |out: &mut Vec<Line>, shows: &[usize]| {
+        let size = shows.len();
+        out.extend(shows.iter().enumerate().map(|(k, &at)| Line::Card { at, pos: k + 1, size }));
+    };
+    card(&mut out, &order.shows(Group::Current, expanded));
+    for g in [Group::Needs, Group::Unread, Group::Recent] {
+        let shows = order.shows(g, expanded);
+        if shows.is_empty() {
+            continue;
+        }
+        out.push(Line::Header(g));
+        card(&mut out, &shows);
+        if g == Group::Recent && order.more {
+            out.push(Line::More);
+        }
+    }
+    if order.is_empty() {
+        out.push(Line::Empty);
+    }
+    if order.archived {
+        out.push(Line::Archived);
+    }
+    out
+}
+/// The inbox's first or (`last`) last row a key can reach, in the list or, open, the Working
+/// shelf below it: the row to scroll to (the list's own key for one of its rows), and the
+/// element to focus.
+fn end_key(s: &App, last: bool) -> Option<(String, String)> {
+    let order = s.inbox_order();
+    let items = items(&order, s.restore.inbox.recent_expanded);
+    let reach = |l: &Line| match l {
+        Line::Card { at, .. } => Some(order.rows[*at].key.clone()),
+        Line::More => Some("inbox-more".to_owned()),
+        Line::Archived => Some("inbox-archived-button".to_owned()),
+        Line::Header(_) | Line::Empty => None,
+    }
+    .map(|key| (l.key(&order), key));
+    let shelf = s.restore.inbox.working_expanded.then(|| order.group(Group::Working)).unwrap_or_default();
+    let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
+    if last {
+        shelf.last().map(shelved).or_else(|| items.iter().rev().find_map(reach))
+    } else {
+        items.iter().find_map(reach).or_else(|| shelf.first().map(shelved))
+    }
+}
+/// The room above row `i`, as the groups' gaps and padding laid it out.
+fn space_above(items: &[Line], i: usize) -> f32 {
+    let Some(prev) = i.checked_sub(1).map(|j| items[j]) else { return 0.0 };
+    match (prev, items[i]) {
+        // Under a group: its 10 of padding and the list's 2.
+        (Line::Card { .. } | Line::More, Line::Header(_) | Line::Archived) => 12.0,
+        (Line::Header(_), _) | (_, Line::More) => 8.0,
+        _ => 2.0,
+    }
+}
+
+impl Line {
+    /// The list's key for the row: `line-` and its element's, so a key names one element.
+    fn key(&self, order: &Order) -> String {
+        format!("line-{}", self.element_key(order))
+    }
+
+    fn element_key(&self, order: &Order) -> String {
+        match self {
+            Line::Header(g) => format!("inbox-{}-header", group_id(*g)),
+            Line::Card { at, .. } => order.rows[*at].key.clone(),
+            Line::More => "inbox-more".into(),
+            Line::Empty => "inbox-empty".into(),
+            Line::Archived => "inbox-archived".into(),
+        }
+    }
+
+    fn build(&self, s: &App, p: &Pal, order: &Order) -> El {
+        match *self {
+            Line::Header(g) => header(p, group_id(g), group_label(g)),
+            Line::Card { at, pos, size } => match s.inbox_entry_of(&order.rows[at]) {
+                Some(e) => card(s, p, &e).position_in_set(pos, size),
+                // Gone since the rows were read: the next reading drops it.
+                None => el().key(self.element_key(order)).h(CARD_H),
+            },
+            Line::More => {
+                let label = if s.restore.inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
+                ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    tx.instant();
+                    let opening = !s.restore.inbox.recent_expanded;
+                    s.toggle_inbox_recent();
+                    // Open, the button goes to the list's end, past the rows built: focus goes on
+                    // to the first row it brought, which stands where the button stood.
+                    let order = s.inbox_order();
+                    if opening && let Some(&at) = order.shows(Group::Recent, true).get(crate::inbox_model::RECENT_LIMIT) {
+                        tx.focus(order.rows[at].key.clone(), false);
+                    }
+                })
+            }
+            // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
+            Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
+            Line::Archived => el().key("inbox-archived").w_full().pt(12.0).child(
+                ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                    s.close_settings();
+                    s.open_archived_search(tx);
+                }),
+            ),
+        }
+    }
+}
+
+fn group_id(g: Group) -> &'static str {
+    match g {
+        Group::Current => "current",
+        Group::Needs => "needs",
+        Group::Unread => "unread",
+        Group::Recent => "recent",
+        Group::Working => "working",
+    }
+}
+
+fn group_label(g: Group) -> &'static str {
+    match g {
+        Group::Needs => t!("sidebar.inbox.section.needsAttention"),
+        Group::Unread => t!("sidebar.inbox.section.unread"),
+        Group::Working => t!("sidebar.inbox.section.working"),
+        Group::Current | Group::Recent => t!("sidebar.inbox.section.recent"),
+    }
 }
 
 /// Which of the inbox's two scroll areas.
@@ -99,7 +244,7 @@ fn scroller(p: &Pal, key: &str, content: El) -> El {
 
 /// Working sessions, in a shelf pinned below the list: at most 40% of the inbox, behind a
 /// full-bleed hairline.
-fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
+fn working(s: &App, p: &Pal, order: &Order, inset: (f32, f32)) -> El {
     let open = s.restore.inbox.working_expanded;
     let mut shelf = col()
         .key("inbox-working")
@@ -115,7 +260,7 @@ fn working(s: &App, p: &Pal, sections: &Sections<'_>, inset: (f32, f32)) -> El {
         shelf = shelf.max_h(s.sidebar_inbox.height * 0.4);
     }
     if open {
-        let rows = col().key("content").w_full().gap(2.0).children(cards(s, p, &sections.working));
+        let rows = col().key("content").w_full().gap(2.0).children(order.group(Group::Working).iter().filter_map(|r| s.inbox_entry_of(r)).map(|e| card(s, p, &e)));
         shelf = shelf.child(scroller(p, "inbox-working-rows", rows));
     }
     shelf
@@ -175,10 +320,6 @@ fn ghost_button(p: &Pal, key: &str, label: &str) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .child(text(label).font(BUTTON).color(p.muted))
-}
-
-fn cards(s: &App, p: &Pal, rows: &[Entry<'_>]) -> Vec<El> {
-    rows.iter().map(|e| card(s, p, e)).collect()
 }
 
 /// `InboxSessionCard`: 54pt, two lines. The title, then the project, its worktree and branch

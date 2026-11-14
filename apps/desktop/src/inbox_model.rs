@@ -125,6 +125,17 @@ impl App {
         list
     }
 
+    /// The row `shown` names as it stands now (`inbox_order`): one lookup, not the whole list.
+    pub fn inbox_entry_of<'a>(&'a self, shown: &crate::inbox_order::Shown) -> Option<Entry<'a>> {
+        let here = crate::servers::runtime::active(self);
+        if shown.server == *here {
+            return self.session(&shown.id).map(|s| self.inbox_entry(here, s));
+        }
+        let (server, rows) = self.sidebar_inbox.servers.iter().find(|(key, _)| *key == shown.server)?;
+        let r = rows.iter().find(|r| r.session.id == shown.id)?;
+        Some(Entry { server, session: &r.session, active_ms: r.session.updated, status: r.status, since: r.since, project: r.project.as_ref(), worktree: r.worktree, branch: r.branch.as_deref() })
+    }
+
     fn inbox_entry<'a>(&'a self, server: &'a ServerKey, session: &'a SessionInfo) -> Entry<'a> {
         let (status, since) = self.inbox_status(session);
         let project = self.project_for_session(session).or_else(|| self.project_at(&session.directory));
@@ -172,6 +183,12 @@ impl App {
 
     /// The groups the sidebar shows (`SidebarInbox`'s `sections`).
     pub fn inbox_sections(&self) -> Sections<'_> {
+        self.inbox_sections_with(self.restore.inbox.recent_expanded)
+    }
+
+    /// [`App::inbox_sections`] with Recent shut or open (`expanded`) whatever the window's
+    /// toggle says.
+    pub fn inbox_sections_with(&self, expanded: bool) -> Sections<'_> {
         let list = self.inbox_entries();
         // An automation's sessions (Flow's) stay out of it; the open one still shows, as `current`.
         let active = || list.iter().filter(|e| e.session.archived.is_none() && !crate::view::is_automation(&e.session.title)).copied();
@@ -182,7 +199,7 @@ impl App {
         let mut read: Vec<_> = active().filter(|e| e.status == InboxStatus::Ready).collect();
         read.sort_by_key(|e| std::cmp::Reverse(e.since.unwrap_or(0)));
         let more = read.len() > RECENT_LIMIT;
-        if !self.restore.inbox.recent_expanded {
+        if !expanded {
             read.truncate(RECENT_LIMIT);
         }
         // `time.updated` moves with every message of a run, so Working keeps run-start order.
@@ -301,6 +318,12 @@ pub struct SidebarInbox {
     /// The first load, which shows Desktop's loader in the inbox's place.
     settle: Settle,
     heard: Heard,
+    /// The rows in order, as last read (`inbox_order`), and the reading whose folders went
+    /// to the branch reads.
+    pub(crate) order: crate::inbox_order::Kept,
+    enqueued: u64,
+    /// A row Home or End scrolled to, focused once the scroll has built it (`view::inbox`).
+    pub(crate) focus_next: Option<String>,
 }
 
 /// The longest the inbox hides behind its loader on first open, so a stalled server can't hide
@@ -460,6 +483,18 @@ impl Branches {
 }
 
 impl SidebarInbox {
+    /// What of the other servers' rows a row's place depends on (`inbox_order`).
+    pub(crate) fn other_servers_hash(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        for (server, rows) in &self.servers {
+            server.hash(h);
+            rows.len().hash(h);
+            for r in rows {
+                (&r.session.id, &r.session.title, r.session.updated, r.session.archived, r.status, r.since).hash(h);
+            }
+        }
+    }
+
     /// A request arrived live at `at`.
     pub fn asked(&mut self, id: &str, at: i64) {
         self.asked.entry(id.to_owned()).or_insert(at);
@@ -548,15 +583,27 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     // A working root's pending requests load in `session_status::poll`, so a run waiting on a
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
+    // Read first: writing the inbox's state every poll would build the sidebar again each frame.
+    if s.sidebar_inbox.focus_next.is_some()
+        && let Some(key) = s.sidebar_inbox.focus_next.take()
+    {
+        tx.focus(key, true);
+    }
     let mut changed = settle_now(s, tx);
     if s.sidebar_inbox.redraw {
         s.sidebar_inbox.redraw = false;
         changed = true;
     }
     changed |= load_archived(s);
-    let sections = s.inbox_sections();
-    let working = sections.rows().any(|e| e.status == InboxStatus::Working);
-    let dirs: Vec<String> = sections.rows().map(|e| e.session.directory.clone()).collect();
+    let order = s.inbox_order();
+    let working = order.rows.iter().any(|r| r.working);
+    // The rows' folders go to the branch reads once per reading of the rows, not every poll.
+    let dirs: Vec<String> = if s.sidebar_inbox.enqueued != order.generation {
+        s.sidebar_inbox.enqueued = order.generation;
+        order.rows.iter().map(|r| r.directory.clone()).collect()
+    } else {
+        Vec::new()
+    };
     let step = if working { 1000 } else { 60_000 };
     let tick = s.now_ms.div_euclid(step);
     if s.sidebar_inbox.tick != tick {

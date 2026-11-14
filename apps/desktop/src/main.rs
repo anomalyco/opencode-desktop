@@ -138,6 +138,7 @@ mod home_search;
 mod icons;
 mod idle;
 mod inbox_model;
+mod inbox_order;
 mod incoming;
 #[cfg(windows)]
 mod install;
