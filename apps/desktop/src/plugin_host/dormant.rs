@@ -19,9 +19,11 @@
 //! a plugin mirrors (sessions, the route, stores) it reads as it starts, as a plugin started after
 //! the first frame always has.
 //!
-//! The records live in the cache folder (`plugin-contributions.json`), each keyed by the plugin's
-//! files and the interface language: a built-in whose record doesn't match (a new build of it,
-//! another language, a first launch) starts after the first frame as before, and records itself.
+//! The records are one state row of the boot record (`RECORDS`), read with the rest of it before the
+//! first frame: a built-in is dormant from the first frame. Each is keyed by the plugin's own files'
+//! hash, a constant `build.rs` makes (`sources::files_hash`), and the interface language: a built-in
+//! whose record doesn't match (an update that changed it, another language, a first launch) starts
+//! after the first frame as before, and records itself.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
@@ -110,34 +112,53 @@ pub struct Dormant {
     records: BTreeMap<String, Record>,
     read: bool,
     dirty: bool,
+    /// The database had no records: an older build's file may be in the cache folder.
+    old_file: bool,
     /// Events kept for a plugin that started, handed to it at the next poll.
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
 }
 
 impl Dormant {
-    /// The record of built-in `id` for `hash`, in the current language.
-    pub fn record(&mut self, id: &str, hash: &str) -> Option<Record> {
+    fn read(&mut self) {
         if !self.read {
             self.read = true;
-            self.records = read_file();
+            let found = read_file();
+            self.old_file = found.is_none();
+            self.records = found.unwrap_or_default();
         }
+    }
+
+    /// The record of built-in `id` for `hash`, in the current language.
+    pub fn record(&mut self, id: &str, hash: &str) -> Option<Record> {
+        self.read();
         let locale = opencode_i18n::locale().id();
         self.records.get(id).filter(|r| r.hash == hash && r.locale == locale).cloned()
     }
 }
 
-/// The records as written last: none when the file is missing, unreadable or of another version.
-fn read_file() -> BTreeMap<String, Record> {
-    let Some(path) = path() else { return BTreeMap::new() };
-    let Ok(bytes) = std::fs::read(&path) else { return BTreeMap::new() };
-    match serde_json::from_slice::<File>(&bytes) {
-        Ok(f) if f.version == VERSION => f.plugins,
-        _ => BTreeMap::new(),
+/// Where the records are: a state row in a namespace the boot record carries whole.
+const RECORDS: (&str, &str) = (crate::storage::DEV, "plugins.contributions");
+
+/// The records as written last: none when there are none yet, they don't read, or are of another
+/// version. Before the first frame this is the boot packet's, so it reads no file.
+fn read_file() -> Option<BTreeMap<String, Record>> {
+    let text = crate::storage::text(RECORDS.0, RECORDS.1)?;
+    match serde_json::from_str::<File>(&text) {
+        Ok(f) if f.version == VERSION => Some(f.plugins),
+        _ => Some(BTreeMap::new()),
     }
 }
 
-fn path() -> Option<std::path::PathBuf> {
-    Some(crate::dirs::cache()?.join("plugin-contributions.json"))
+/// The file a build before the records were in the database kept beside it, and its leftover: they
+/// go off the app's thread, as the first records are written. Once the database has them, this
+/// never runs again.
+fn forget_old_file() {
+    let Some(cache) = crate::dirs::cache() else { return };
+    super::tasks::run(move || {
+        for name in ["plugin-contributions.json", "plugin-contributions.json.tmp"] {
+            let _ = std::fs::remove_file(cache.join(name));
+        }
+    });
 }
 
 /// Notes what plugin `i` contributed as it started, for its next launch's record.
@@ -154,17 +175,14 @@ pub fn note_started(app: &mut App, i: usize) {
         events: p.half.events.borrow().iter().map(|(_, prefix, _)| prefix.clone()).collect(),
     };
     let d = &mut app.plugins.dormant;
-    if !d.read {
-        d.read = true;
-        d.records = read_file();
-    }
+    d.read();
     if d.records.get(&id) != Some(&record) {
         d.records.insert(id, record);
         d.dirty = true;
     }
 }
 
-/// Writes the records back off the app's thread, when one changed.
+/// Writes the records back, when one changed (the storage's writer commits it off the app's thread).
 pub fn save(app: &mut App) {
     // Read before it's taken: a write to the host rebuilds every region showing it.
     if !app.plugins.dormant.dirty {
@@ -172,16 +190,11 @@ pub fn save(app: &mut App) {
     }
     let d = &mut app.plugins.dormant;
     d.dirty = false;
-    let (Some(path), Ok(json)) = (path(), serde_json::to_vec(&File { version: VERSION, plugins: d.records.clone() })) else { return };
-    super::tasks::run(move || {
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, &json).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
-    });
+    let Ok(json) = serde_json::to_string(&File { version: VERSION, plugins: d.records.clone() }) else { return };
+    crate::storage::set(RECORDS.0, RECORDS.1, json);
+    if std::mem::take(&mut d.old_file) {
+        forget_old_file();
+    }
 }
 
 /// Puts plugin `i` to sleep with `record`: its contributions come from it until it starts.
@@ -462,7 +475,7 @@ macro_rules! kinds {
 /// `contribs`' kinds as record entries (`only`: just those kinds; empty: all).
 fn record_kinds(contribs: &Contribs, only: &[&str]) -> BTreeMap<String, Vec<Entry>> {
     fn entries<S: Serialize>(list: &[Contrib<S>]) -> Vec<Entry> {
-        list.iter().filter_map(|c| Some(Entry { key: c.key.to_owned(), spec: serde_json::to_value(&c.spec).ok()?, fns: c.fns.keys().map(|k| (*k).to_owned()).collect() })).collect()
+        list.iter().filter_map(|c| Some(Entry { key: c.key.to_owned(), spec: without_nulls(serde_json::to_value(&c.spec).ok()?), fns: c.fns.keys().map(|k| (*k).to_owned()).collect() })).collect()
     }
     let mut out = BTreeMap::new();
     macro_rules! put {
@@ -491,4 +504,13 @@ fn contribs_of(kinds: &BTreeMap<String, Vec<Entry>>) -> Contribs {
     }
     kinds!(take);
     c
+}
+
+/// `value` without its null fields, at any depth: a spec's options that are none.
+fn without_nulls(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => map.into_iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k, without_nulls(v))).collect::<serde_json::Map<_, _>>().into(),
+        serde_json::Value::Array(items) => items.into_iter().map(without_nulls).collect::<Vec<_>>().into(),
+        other => other,
+    }
 }

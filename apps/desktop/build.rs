@@ -93,14 +93,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         let mut files = Vec::new();
         walk(&dir, &dir, &mut files);
         files.sort();
-        let hash = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::hash::DefaultHasher::new();
-            for (rel, path) in &files {
-                (rel, std::fs::read(path).unwrap_or_default()).hash(&mut h);
-            }
-            h.finish()
-        };
+        // FNV-1a over each file's path and bytes, in order: stable across toolchains, so a record
+        // matches as long as this plugin's own files are the same.
+        let hash = files.iter().flat_map(|(rel, path)| [rel.as_bytes().to_vec(), vec![0], std::fs::read(path).unwrap_or_default(), vec![0]]).flatten().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
         writeln!(hashes, "    ({id:?}, {:?}),", format!("{hash:016x}")).ok();
         writeln!(code, "    ({id:?}, &[").ok();
         // Its `locales/*.json` become one table (`plugin_host::catalogs`), read in place: a start parses
