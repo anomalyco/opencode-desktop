@@ -463,6 +463,10 @@ fn attach_journal(config: &StorageConfig, report: &mut BootReport, owe: &mut Owe
     ok
 }
 
+fn record_names_journal(conn: &rusqlite::Connection) -> bool {
+    boot_record::from_sqlite(conn).ok().flatten().and_then(BootPacket::parse).is_some_and(|p| p.journal_location().is_some())
+}
+
 /// SQLite's part. `send` is set when stage A still owes the UI its packet: then the journal is
 /// made sure of and the packet sent (`owe.packet`), or the record is read through SQLite as soon
 /// as the schema and import allow.
@@ -513,8 +517,19 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
     // The draft journal exists before the windows get their packet (so before any key), and in a
     // new file before any other table, so its first page is inside the boot read's first 128 KiB.
     if owe.want_journal && !journal::attached() {
-        let hinted = owe.hint.take().is_some_and(|loc| attach_journal(config, report, owe, &loc, false));
-        if !hinted {
+        // The WAL holds frames here: the file alone may be behind, so SQLite confirms the row.
+        let hinted = owe.hint.take().is_some_and(|loc| journal::row_ok(&conn, &loc) && attach_journal(config, report, owe, &loc, false));
+        let existing = if hinted { None } else { journal::location(&conn)? };
+        // A profile from before the journal gets one only when the switch says so.
+        if !hinted && !new && existing.is_none() && !schema::upgrade_existing() {
+            report.journal_error = Some("off for profiles made before it (RUNE_STORAGE_V2=1 turns it on)".into());
+        } else if !hinted {
+            // A journal the boot record doesn't name: a build without the journal rebuilt the
+            // record since (a rollback), so what the journal holds may be older than what that
+            // build saved. Its records are dropped: the place is reserved again, zeroed.
+            if existing.is_some() && !new && !record_names_journal(&conn) {
+                conn.execute_batch("DELETE FROM journal_meta")?;
+            }
             let t = Instant::now();
             match journal::provision(&conn, &config.path, config.clock) {
                 Ok((loc, fresh)) => {

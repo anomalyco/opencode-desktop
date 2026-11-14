@@ -699,7 +699,8 @@ impl Writer {
             self.conn.execute_batch(SYNCED).ok();
             self.bound_unsynced();
             self.search = match initialized {
-                Ok(()) => super::search::State::Ready(super::search::Work::Pending),
+                Ok(true) => super::search::State::Ready(super::search::Work::Pending),
+                Ok(false) => super::search::State::Unavailable("schema 2 is off for this profile (RUNE_STORAGE_V2=1 turns it on)".into()),
                 Err(e) => super::search::State::Unavailable(e.to_string()),
             };
         }

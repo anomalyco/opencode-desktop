@@ -33,6 +33,9 @@ pub struct Location {
     /// Every overflow page, in order, and how many bytes of the last one are the blob's.
     pub pages: Vec<u32>,
     pub last: u32,
+    /// The `journal` table's root page: [`attach`] checks the row is still there and its chain is
+    /// still these pages (a row deleted by an outside tool leaves its pages on the freelist).
+    pub root: u32,
 }
 
 impl Location {
@@ -45,6 +48,7 @@ impl Location {
         for p in &self.pages {
             v.extend_from_slice(&p.to_le_bytes());
         }
+        v.extend_from_slice(&self.root.to_le_bytes());
         v
     }
 
@@ -52,7 +56,9 @@ impl Location {
         let w = |i: usize| b.get(i..i + 4).and_then(|s| s.try_into().ok()).map(u32::from_le_bytes);
         let n = w(16)? as usize;
         let pages = (0..n).map(|i| w(20 + i * 4)).collect::<Option<Vec<_>>>()?;
-        Some(Location { instance: u64::from_le_bytes(b.get(..8)?.try_into().ok()?), page_size: w(8)?, last: w(12)?, pages })
+        // A place recorded before the root was (`root` 0) fails `attach`'s check: reserved again.
+        let root = w(20 + n * 4).unwrap_or(0);
+        Some(Location { instance: u64::from_le_bytes(b.get(..8)?.try_into().ok()?), page_size: w(8)?, last: w(12)?, pages, root })
     }
 }
 
@@ -285,6 +291,12 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     let mut map = unsafe { memmap2::MmapOptions::new().offset(from).len(len).map_mut(&file) }.map_err(|e| e.to_string())?;
     let base = map.as_mut_ptr();
     rune::marks::mark("journal.mapped");
+    // Still the row's pages: its table's root holds row 1 pointing at the first, and each page
+    // points at the next (SQLite's overflow chain, the pages' first 4 bytes). A row an outside tool
+    // deleted or rewrote fails this, so no record goes into a page SQLite may give to other data.
+    if !still_the_row(&file, loc, &map, from) {
+        return Err("the recorded place isn't the journal row's any more".into());
+    }
     let n = loc.pages.len();
     let segs: Vec<Seg> = loc
         .pages
@@ -386,7 +398,7 @@ pub fn wait_ready(limit: std::time::Duration) -> bool {
 /// in the main file. No sync anywhere: a kill here leaves a profile that reserves again. Returns
 /// where it is, and whether it was just reserved.
 pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rusqlite::Result<(Location, bool)> {
-    if let Some(loc) = location(conn)? {
+    if let Some(loc) = location(conn)?.filter(|l| row_ok(conn, l)) {
         return Ok((loc, false));
     }
     // Unsynced throughout, the tables included: one transaction, no sync on the way to the
@@ -443,6 +455,59 @@ fn instance(clock: fn() -> i64) -> u64 {
     h.finish() | 1
 }
 
+/// Whether the file still has the journal row at `loc`: the file's page size, the table's root
+/// page holding row 1 whose overflow chain starts at the first page, and each mapped page pointing
+/// at the next. Read from the file, which is current when the WAL is empty (the raw path); with
+/// frames in it, [`row_ok`] asks SQLite too.
+fn still_the_row(file: &std::fs::File, loc: &Location, map: &memmap2::MmapMut, from: u64) -> bool {
+    let ps = loc.page_size as usize;
+    let mut head = [0u8; 100];
+    let Some(100) = super::boot_record::read_some(file, &mut head, 0) else { return false };
+    let file_ps = match u16::from_be_bytes([head[16], head[17]]) {
+        1 => 65536,
+        n => usize::from(n),
+    };
+    if file_ps != ps || loc.root == 0 {
+        return false;
+    }
+    let mut page = vec![0u8; ps];
+    if super::boot_record::read_some(file, &mut page, u64::from(loc.root - 1) * ps as u64) != Some(ps) {
+        return false;
+    }
+    if first_overflow(&page, ps - usize::from(head[20])).is_none_or(|(first, payload)| first != loc.pages[0] || payload < BYTES as usize) {
+        return false;
+    }
+    loc.pages.iter().enumerate().all(|(i, p)| {
+        let at = ((u64::from(*p) - 1) * ps as u64 - from) as usize;
+        let next = map.get(at..at + 4).map_or(u32::MAX, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+        next == loc.pages.get(i + 1).copied().unwrap_or(0)
+    })
+}
+
+/// SQLite's own view: the `journal` table's root is still `loc.root` and its one row is the
+/// reserved blob (a row deleted or rewritten since, by anything, isn't).
+pub(crate) fn row_ok(conn: &Connection, loc: &Location) -> bool {
+    let root = conn.query_row("SELECT rootpage FROM sqlite_schema WHERE type = 'table' AND name = 'journal'", [], |r| r.get::<_, i64>(0)).optional().ok().flatten();
+    let len = conn.query_row("SELECT length(data) FROM journal WHERE id = 1 AND (SELECT count(*) FROM journal) = 1", [], |r| r.get::<_, i64>(0)).optional().ok().flatten();
+    root == Some(i64::from(loc.root)) && len == Some(BYTES)
+}
+
+/// A leaf table page with one cell, row 1: its first overflow page and payload size.
+fn first_overflow(page: &[u8], usable: usize) -> Option<(u32, usize)> {
+    if page[0] != 0x0D || u16::from_be_bytes([page[3], page[4]]) != 1 {
+        return None;
+    }
+    let cell = usize::from(u16::from_be_bytes([page[8], page[9]]));
+    let (payload, a) = super::boot_record::varint(page.get(cell..)?)?;
+    let (rowid, b) = super::boot_record::varint(page.get(cell + a..)?)?;
+    if rowid != 1 {
+        return None;
+    }
+    let payload = usize::try_from(payload).ok()?;
+    let ptr = cell + a + b + super::boot_record::local_size(payload, usable);
+    Some((u32::from_be_bytes(page.get(ptr..ptr + 4)?.try_into().ok()?), payload))
+}
+
 /// The journal row's overflow pages, read from the file (they're in it after the checkpoint).
 fn overflow(conn: &Connection, db: &Path) -> Option<Location> {
     let root: i64 = conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'journal'", [], |r| r.get(0)).ok()?;
@@ -479,7 +544,7 @@ fn overflow(conn: &Connection, db: &Path) -> Option<Location> {
         next = u32::from_be_bytes(word);
     }
     let last = (payload - local - (pages.len().saturating_sub(1)) * (usable - 4)) as u32;
-    Some(Location { instance: 0, page_size: ps as u32, pages, last })
+    Some(Location { instance: 0, page_size: ps as u32, pages, last, root: u32::try_from(root).ok()? })
 }
 
 /// Stage B: each draft the journal holds that's newer than the database's copy (and whose window

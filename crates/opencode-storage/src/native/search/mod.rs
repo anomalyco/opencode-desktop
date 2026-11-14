@@ -18,14 +18,24 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use super::schema::{self, FLAG_BITS, FLAG_MASK};
 
-pub(crate) fn initialize(c: &mut Connection, now: i64) -> rusqlite::Result<()> {
+/// Registers the tokenizer and brings the file to schema 2; false when it stays at 1 (a profile
+/// from before the journal, the switch off: `schema::upgrade_existing`).
+pub(crate) fn initialize(c: &mut Connection, now: i64) -> rusqlite::Result<bool> {
     tokenizer::register(c)?;
     let version = schema::user_version(c)?;
-    if version >> FLAG_BITS == schema::SCHEMA_VERSION { return Ok(()) }
+    if version >> FLAG_BITS == schema::SCHEMA_VERSION { return Ok(true) }
     if version >> FLAG_BITS != schema::BASE_SCHEMA { return Err(rusqlite::Error::InvalidQuery) }
+    if super::journal::location(c)?.is_none() && !schema::upgrade_existing() { return Ok(false) }
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    // Schema 2's tables at version 1: an older build opened the file since and set its version
+    // back. Its writes aren't indexed, so the derived tables go and are made again.
+    let again: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = 'search_meta')", [], |r| r.get(0))?;
+    if again {
+        tx.execute_batch("DROP TABLE IF EXISTS search_fts; DROP TABLE IF EXISTS search_meta; DROP INDEX IF EXISTS blob_by_touch; DELETE FROM migration WHERE id = '20261114000000_storage-search';")?;
+    }
     tx.execute_batch(include_str!("migrate.sql"))?;
     tx.execute("INSERT INTO migration(id,time_completed) VALUES ('20261114000000_storage-search',?1)", [now])?;
     tx.pragma_update(None, "user_version", (schema::SCHEMA_VERSION << FLAG_BITS) | (version & FLAG_MASK))?;
-    tx.commit()
+    tx.commit()?;
+    Ok(true)
 }
