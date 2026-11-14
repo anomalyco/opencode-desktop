@@ -19,7 +19,18 @@ use opencode_i18n::t;
 #[derive(Default)]
 pub struct Location {
     branches: HashMap<String, Option<String>>,
+    changes: Changes,
     pub(super) recovery: Option<super::move_recovery::Recovery>,
+}
+
+/// The location menu's working-tree count is ungrouped, independent of the Review tab's scope.
+#[derive(Default)]
+enum Changes {
+    #[default]
+    Closed,
+    Reading(String),
+    Ready(usize, u32, u32),
+    Failed,
 }
 
 /// Opens the location card for the routed session, and reads the branches it shows: its
@@ -33,7 +44,26 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     let Some(info) = s.session(id).cloned() else { return };
     // The changes row keeps the session's changes fresh while the card shows, and Move session
     // to lists the project's worktrees as they are now.
-    s.ensure_session_review(&info.id);
+    if s.live() {
+        let dir = info.directory.clone();
+        s.location.changes = Changes::Reading(dir.clone());
+        s.job(move |srv| {
+            let path = format!("/api/vcs/diff?mode=working&location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
+            let answer = srv.get(&path).ok().and_then(|v| {
+                let rows = v["data"].as_array().or_else(|| v.as_array())?;
+                let (a, d) = rows.iter().fold((0, 0), |(a, d), f| (a + f["additions"].as_u64().unwrap_or_default() as u32, d + f["deletions"].as_u64().unwrap_or_default() as u32));
+                Some(Changes::Ready(rows.len(), a, d))
+            }).unwrap_or(Changes::Failed);
+            Box::new(move |s: &mut App, tx: &mut Tx| {
+                if matches!(&s.location.changes, Changes::Reading(p) if p == &dir) {
+                    s.location.changes = answer;
+                    reshow(s, tx);
+                }
+            }) as Apply
+        });
+    } else {
+        s.ensure_session_review(&info.id);
+    }
     s.list_worktrees(&info.project);
     show(s, &info, tx);
     let root = s.project(&info.project).map(|p| p.directory.clone());
@@ -172,6 +202,14 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
 /// The changes row: "N Changed files" and its lines, "No changes", or "Loading changes…".
 fn changes_row(s: &App, sid: &str) -> Item {
     let item = |title: &str| Item::new("changes", title.to_owned()).icon(&ic::REVIEW);
+    if s.live() {
+        return match s.location.changes {
+            Changes::Ready(0, ..) => item(t!("plugin.details.noChanges")),
+            Changes::Ready(n, a, d) => item(&opencode_i18n::plural!("ui.sessionTurn.diffs.changed", n)).diff(a, d),
+            Changes::Failed => item(t!("rune.review.readFailed")),
+            _ => item(t!("plugin.details.loadingChanges")),
+        };
+    }
     match s.review.sessions.get(sid) {
         Some(r) if r.load.ready() && r.meta.is_empty() => item(t!("plugin.details.noChanges")),
         Some(r) if r.load.ready() => {

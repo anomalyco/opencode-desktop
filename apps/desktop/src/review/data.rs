@@ -26,10 +26,31 @@ pub struct FetchedDiffs {
     pub mode: ChangeMode,
     pub revision: u64,
     /// The server's diff, or why it couldn't be read (in the client's words).
-    pub raw_diff: Result<Value, opencode_kit::wire_error::WireError>,
+    pub changes: Result<Value, opencode_kit::wire_error::WireError>,
     pub branch_current: Option<String>,
     pub branch_default: Option<String>,
     pub no_git: bool,
+}
+
+/// The counted rows and the previewable files are different sets: Git returns one `dir/` row
+/// for an untracked folder, not every file below it (`review/model.ts`, `untracked: "folders"`).
+pub struct ChangeList {
+    pub files: Vec<FileDiff>,
+    pub meta: Vec<ReviewFileMeta>,
+    pub folders: Vec<String>,
+    pub count: usize,
+    pub more: bool,
+}
+
+impl ChangeList {
+    pub fn read(v: Value) -> Self {
+        let rows = v["data"].as_array().or_else(|| v.as_array()).map_or(&[][..], Vec::as_slice);
+        let more = rows.iter().any(|r| r["more"] == true);
+        let folders = rows.iter().filter(|r| r["more"] != true).filter_map(|r| r["file"].as_str())
+            .filter(|p| p.ends_with('/')).map(normalize_path).filter(|p| !p.is_empty()).collect();
+        let (files, meta) = parse_diff_list(&v);
+        Self { files, meta, folders, count: rows.len() - usize::from(more), more }
+    }
 }
 
 pub fn normalize_path(value: &str) -> String {
@@ -204,6 +225,7 @@ pub fn parse_diff_list(v: &Value) -> (Vec<FileDiff>, Vec<ReviewFileMeta>) {
     let mut by_path: HashMap<String, (FileDiff, ReviewFileMeta)> = HashMap::new();
     let mut raw_paths = Vec::with_capacity(items.len());
     for item in items {
+        if item["more"] == true || item["file"].as_str().is_some_and(|p| p.ends_with('/')) { continue; }
         let Some(fd) = parse_diff_entry(item) else { continue };
         let path = fd.path().to_owned();
         if path.is_empty() || by_path.contains_key(&path) {
@@ -294,19 +316,25 @@ pub fn fetch_live_diffs(
     let provider = vcs_val
         .as_ref()
         .and_then(|v| v["data"]["provider"].as_str().or_else(|| v["provider"].as_str()));
-    let no_git = vcs_val.is_some() && provider.is_none() && branch_current.is_none();
+    let lacks_provider = vcs_val.is_some() && provider.is_none() && branch_current.is_none();
 
     let raw_diff = match mode {
         ChangeMode::Turn => server.get(&format!("/api/session/{}/diff", crate::switcher::encode(&session_id))),
-        ChangeMode::Branch => server.get(&format!("/api/vcs/diff?{loc}&mode=branch")),
-        ChangeMode::Git => server.get(&format!("/api/vcs/diff?{loc}&mode=working")),
+        ChangeMode::Branch => server.get(&format!("/api/vcs/diff?{loc}&mode=branch&untracked=folders")),
+        ChangeMode::Git => server.get(&format!("/api/vcs/diff?{loc}&mode=working&untracked=folders")),
     };
+
+    // The location may acquire its VCS provider between these two reads. A working-tree
+    // listing with real changes must not be obscured by the earlier no-provider result.
+    let no_git = lacks_provider && raw_diff.as_ref().is_ok_and(|v| {
+        v["data"].as_array().or_else(|| v.as_array()).is_some_and(Vec::is_empty)
+    });
 
     FetchedDiffs {
         session_id,
         mode,
         revision,
-        raw_diff,
+        changes: raw_diff,
         branch_current,
         branch_default,
         no_git,

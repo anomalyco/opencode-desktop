@@ -6,6 +6,7 @@
 
 pub mod chrome;
 pub mod data;
+mod folders;
 pub mod mobile;
 mod stories;
 
@@ -17,7 +18,7 @@ use rune_kit::{FileNode, TreeModel};
 
 use crate::code_view::{DiffDocState, ExpandMode, FoldEvent};
 use crate::{App, Route, Source};
-use data::{FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs, parse_diff_list};
+use data::{FetchedDiffs, ReviewFileMeta, build_change_tree, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs};
 
 /// The review panel's one tab (Desktop's `review:changes`).
 pub const REVIEW_KEY: &str = "review:changes";
@@ -136,6 +137,9 @@ pub struct SessionReview {
     pub mode: ChangeMode,
     pub diffs: DiffDocState,
     pub meta: Vec<ReviewFileMeta>,
+    pub root_count: usize,
+    generation: u64,
+    folders: HashMap<String, folders::Listing>,
     /// The changed files as the server listed them, newest change first.
     pub listed: Vec<String>,
     pub tree: TreeModel<FileNode<ReviewFileMeta>>,
@@ -156,6 +160,9 @@ impl Default for SessionReview {
             mode: ChangeMode::Git,
             diffs: DiffDocState::default(),
             meta: Vec::new(),
+            root_count: 0,
+            generation: 0,
+            folders: HashMap::new(),
             listed: Vec::new(),
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
@@ -328,6 +335,7 @@ impl App {
                 let sr = self.review.sessions.entry(session_id.to_owned()).or_default();
                 sr.branch_current = cur_b;
                 sr.branch_default = def_b;
+                sr.root_count = meta.len();
                 sr.land(files, meta, listed, diff_mode, expand_mode);
                 for (path, text) in texts {
                     sr.diffs.attach_file_text(&path, &text);
@@ -351,8 +359,8 @@ impl App {
     fn apply_fetched_diffs(&mut self, fetched: FetchedDiffs) -> Option<(String, Option<crate::tool_open::Anchor>)> {
         let diff_mode = self.review.diff_mode;
         let expand_mode = self.review.expand_mode;
-        let raw = match fetched.raw_diff {
-            Ok(raw) => raw,
+        let changes = match fetched.changes {
+            Ok(changes) => data::ChangeList::read(changes),
             Err(e) => {
                 let what = opencode_i18n::t!("rune.review.readFailed").to_owned();
                 let server = crate::servers::runtime::label(crate::servers::runtime::active(self));
@@ -366,16 +374,23 @@ impl App {
                 return None;
             }
         };
-        let (files, meta) = parse_diff_list(&raw);
-        let listed = data::listed_paths(&raw);
         let sr = self.review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
             return None;
         }
         sr.branch_current = fetched.branch_current;
         sr.branch_default = fetched.branch_default;
-        sr.land(files, meta, listed, diff_mode, expand_mode);
-        sr.load.landed(fetched.mode, fetched.revision, fetched.no_git)
+        let reopen: Vec<_> = changes.folders.iter().filter(|p| sr.tree.is_expanded(p)).cloned().collect();
+        sr.generation += 1;
+        sr.folders = changes.folders.into_iter().map(|p| (p, folders::Listing::default())).collect();
+        sr.root_count = changes.count;
+        let mut by_server: Vec<_> = changes.meta.iter().collect();
+        by_server.sort_unstable_by_key(|m| m.listed);
+        let listed = by_server.into_iter().map(|m| m.path.clone()).collect();
+        sr.land(changes.files, changes.meta, listed, diff_mode, expand_mode);
+        let focus = sr.load.landed(fetched.mode, fetched.revision, fetched.no_git);
+        for folder in reopen { self.expand_review_dir(&fetched.session_id, &folder, true); }
+        focus
     }
 
     /// Compares `mode` in the routed session's review.
@@ -497,12 +512,13 @@ impl SessionReview {
         let prev = self.active_path.take();
         self.meta = meta;
         self.tree = build_change_tree(&self.meta, &collapsed_folders(&self.tree));
+        self.add_folder_nodes();
         self.diffs.set_mode(diff_mode);
         self.diffs.set_files(files);
         self.narrow.refresh(self.diffs.files());
         self.diffs.set_expand_mode(expand_mode);
-        self.listed = listed.into_iter().filter(|p| self.meta.iter().any(|m| &m.path == p)).collect();
-        let next = prev.filter(|p| self.meta.iter().any(|m| &m.path == p)).or_else(|| self.listed.first().cloned()).or_else(|| self.meta.first().map(|m| m.path.clone()));
+        self.listed = listed;
+        let next = prev.filter(|p| self.tree.get(p).is_some_and(|n| !n.dir)).or_else(|| self.listed.first().cloned());
         self.diffs.show_only(None);
         match next {
             Some(path) => self.show(&path),

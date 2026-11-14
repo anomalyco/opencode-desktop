@@ -42,9 +42,8 @@ pub fn methods(lua: &Lua) -> mlua::Result<Table> {
                         if s.files.sessions.get(&sid).is_some_and(|w| w.expanded_dirs.contains(&path)) != open {
                             s.toggle_workspace_dir(&path);
                         }
-                    } else if let Some(sr) = s.review.sessions.get_mut(&sid) {
-                        sr.tree.set_expanded(&path, open);
-                        sr.stamp += 1;
+                    } else {
+                        s.expand_review_dir(&sid, &path, open);
                     }
                 }));
                 Ok(())
@@ -200,14 +199,16 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 let (id, dir) = (tr.id.to_owned(), node.dir);
                 let glyph = (!dir).then(|| tree_icons::file(node.name.as_str()));
                 let on = selected.as_deref() == Some(tr.id);
-                let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, tr.expanded.filter(|_| dir), glyph, on).children(kinds.get(tr.id).and_then(|k| letter(&pal, k)));
+                let sr = &s.review.sessions[&sid_rows];
+                let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on)
+                    .children((!dir).then(|| kinds.get(tr.id).and_then(|k| letter(&pal, k))).flatten())
+                    .children(sr.folder_label(tr.id).map(|label| text(label).font(MONO_COUNT).color(pal.faint)));
                 let row = if dir {
                     let sid = sid_rows.clone();
                     row.on_press_tx(move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
-                        if let Some(sr) = s.review.sessions.get_mut(&sid) {
-                            sr.tree.toggle(&id);
-                            sr.stamp += 1;
+                        if let Some(sr) = s.review.sessions.get(&sid) {
+                            s.expand_review_dir(&sid, &id, !sr.tree.is_expanded(&id));
                         }
                     })
                 } else {
@@ -227,12 +228,11 @@ fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> 
     if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("rt:")).map(str::to_owned) else { return false };
     let Some(sr) = s.review.sessions.get_mut(sid) else { return false };
-    let dir = sr.tree.has_children(&id);
+    let dir = sr.tree.get(&id).is_some_and(|n| n.dir);
     let open = sr.tree.is_expanded(&id);
     match (right, dir, open) {
         (true, true, false) | (false, true, true) => {
-            sr.tree.toggle(&id);
-            sr.stamp += 1;
+            s.expand_review_dir(sid, &id, !open);
         }
         (true, true, true) => match sr.tree.children(Some(&id)).next() {
             Some(child) => tx.focus(format!("rt:{child}"), true),

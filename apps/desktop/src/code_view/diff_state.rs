@@ -210,6 +210,10 @@ impl DiffDocState {
         }
     }
 
+    /// Transfer the patches when extending a listing. The caller installs the new set in the
+    /// same transition, without cloning the text of every previously loaded hunk.
+    pub(crate) fn take_files(&mut self) -> Vec<FileDiff> { std::mem::take(&mut self.files) }
+
     pub fn set_files(&mut self, files: Vec<FileDiff>) {
         self.ui = files
             .iter()

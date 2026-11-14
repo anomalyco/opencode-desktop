@@ -64,7 +64,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
         let (app, sid) = read("DiffDocument:Totals")?;
         let (files, added, removed) = app.review.sessions.get(&sid).map_or((0, 0, 0), |sr| {
             let (a, d) = sr.totals();
-            (sr.meta.len(), a, d)
+            (sr.root_count, a, d)
         });
         lua_data(lua, map([("files", Data::Integer(files as i64)), ("added", Data::Integer(i64::from(added))), ("removed", Data::Integer(i64::from(removed)))]))
     })?;
@@ -166,7 +166,7 @@ pub fn status(sr: Option<&SessionReview>) -> &'static str {
 fn files(sr: &SessionReview) -> Vec<Data> {
     sr.listed
         .iter()
-        .filter_map(|path| sr.meta.iter().find(|m| &m.path == path))
+        .filter_map(|path| sr.tree.get(path)?.data.as_ref())
         .map(|m| {
             let status = match m.status {
                 FileStatus::Added => "added",

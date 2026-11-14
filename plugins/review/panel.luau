@@ -206,7 +206,7 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, fil
     local status = doc:Status()
     local query = env.filter:Text()
     local headerEnd: { ui.Node } = { counts(totals.added, totals.removed) }
-    if #files == 0 then
+    if totals.files == 0 then
         table.insert(headerEnd, ui.openInButton({ key = "review-open-in", path = "" }))
     end
     -- `session-review-v2-sidebar-header`: 48 tall, 46 in past the toggle, 16 from the end.
@@ -311,7 +311,8 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     local active = doc:Active()
     local bar = env.Layout:PanelSidebar()
     local main: { ui.Node } = {}
-    if #files > 0 or not bar.opened then
+    local hasRows = doc:Totals().files > 0
+    if hasRows or not bar.opened then
         table.insert(main, toolbar(env, view, sid, doc, order, active, bar.opened))
     end
     if status == "loading" and #files == 0 then
@@ -320,7 +321,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
         table.insert(main, failed(env, view, doc, doc:Error() or ""))
     elseif status == "no-vcs" then
         table.insert(main, noGit(env))
-    elseif #files == 0 then
+    elseif not hasRows then
         table.insert(main, emptyChanges(env))
     else
         table.insert(main, ui.diffView({

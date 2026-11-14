@@ -53,7 +53,7 @@ return plugin.defineWindow(function(ctx)
     end)
 
     local function count(sid: string): number
-        return #panel.doc(env, sid):Files()
+        return panel.doc(env, sid):Totals().files
     end
 
     -- Opens the review tab, the side region with it, unless the session has no project (`show`).
