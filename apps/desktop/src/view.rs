@@ -165,6 +165,9 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     if s.fork.open {
         inner = inner.children(crate::fork::view(s, p, cx));
     }
+    if s.jump.open() {
+        inner = inner.children(crate::message_nav::jump::view(s, p, cx));
+    }
     inner = inner.children(crate::connect::view::layer(s, p, cx));
     inner = inner.children(crate::connect::welcome::layer(s, p, cx));
     inner = inner.children(crate::mcp::view::layer(s, p, cx));

@@ -484,6 +484,7 @@ pub struct App {
     pub status: rune::Tracked<String>,
     pub rewind: rune::Tracked<rewind::RewindState>,
     pub fork: rune::Tracked<fork::ForkState>,
+    pub jump: rune::Tracked<message_nav::jump::JumpState>,
     pub toast: rune::Tracked<status_toast::StatusToast>,
     /// The paced one-time tips (`tips.rs`).
     pub tips: rune::Tracked<tips::Tips>,
@@ -1360,6 +1361,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= stop::poll(s, now, tx);
     changed |= s.revert_timeouts(tx);
     changed |= fork::poll(s, tx);
+    changed |= message_nav::jump::poll(s, tx);
     s.queue_timers(tx);
     s.start_timers(tx);
     changed |= submit::poll(s, tx);

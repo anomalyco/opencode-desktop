@@ -65,6 +65,7 @@ impl App {
             && !self.switcher.open
             && !self.project_switcher.open
             && !self.fork.open
+            && !self.jump.open()
             && !self.find.input.focused
             && !self.search.focused
             && !crate::plugin_host::field_focused(self)

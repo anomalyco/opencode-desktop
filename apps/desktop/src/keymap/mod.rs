@@ -44,6 +44,7 @@ pub enum Bind {
     SessionNext,
     UnseenPrev,
     UnseenNext,
+    JumpToMessage,
     MessagePrev,
     MessageNext,
     Tab1,
@@ -182,6 +183,8 @@ fn table() -> Vec<Binding> {
         row(SessionNext, "session.next", key!("command.session.next"), Session, on("alt+down")),
         row(UnseenPrev, "session.previous.unseen", key!("command.session.previous.unseen"), Session, on("shift+alt+up")),
         row(UnseenNext, "session.next.unseen", key!("command.session.next.unseen"), Session, on("shift+alt+down")),
+        // `use-session-commands.tsx:674-681`.
+        row(JumpToMessage, "session.jumpToMessage", key!("dialog.jump.title"), Session, on("mod+alt+g")),
         // `use-session-commands.tsx:636-653`.
         row(MessagePrev, "message.previous", key!("command.message.previous"), Session, on("mod+alt+[")),
         row(MessageNext, "message.next", key!("command.message.next"), Session, on("mod+alt+]")),

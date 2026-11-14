@@ -5,6 +5,8 @@
 //! timeline's top (`cursor.ts:124-134`); past the last prompt the timeline returns to its end and
 //! follows it again.
 
+pub(crate) mod jump;
+
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -142,6 +144,21 @@ impl App {
             jump(s, &sid, current, offset, tx);
         });
     }
+}
+
+/// Puts prompt `prompt` of session `sid` at the timeline's top, as a step to it would
+/// (Jump to message's `cursor.jump(id, "auto")`). False when the timeline doesn't show it.
+pub(crate) fn jump_to(s: &mut App, sid: &str, prompt: &str, tx: &mut Tx) -> bool {
+    if !prompts(s, sid).0.iter().any(|(id, _)| id == prompt) {
+        return false;
+    }
+    jump(s, sid, Some(prompt.to_owned()), 0, tx);
+    true
+}
+
+/// The ids of session `sid`'s prompts the timeline shows, top to bottom (`visibleUserMessages`).
+pub(crate) fn prompt_ids(s: &App, sid: &str) -> Vec<String> {
+    prompts(s, sid).0.into_iter().map(|(id, _)| id).collect()
 }
 
 /// From `current` (the end when none), `offset` prompts on: a prompt, or the end one past the last.

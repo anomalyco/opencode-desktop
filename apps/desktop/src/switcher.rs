@@ -31,7 +31,7 @@ mod poll;
 mod search;
 mod servers;
 mod view;
-pub(crate) use view::relative_time;
+pub(crate) use view::{highlighted, relative_time};
 mod band;
 pub(crate) mod search_index;
 mod session_index;

@@ -221,6 +221,7 @@ impl ComposerHost for App {
         }
         if crate::popup::key(self, ev, tx)
             || self.fork_key(ev, tx)
+            || self.jump_key(ev, tx)
             || self.suggest_key(ev, tx)
             || self.add_key(ev, tx)
             || crate::subagents::reply::esc(self, ev, tx)

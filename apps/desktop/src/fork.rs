@@ -183,6 +183,7 @@ impl App {
         }
         tx.instant();
         let restore = if self.fork.open { self.fork.restore_composer } else { self.composer.focused };
+        self.close_jump_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);
         self.close_project_switcher(false);

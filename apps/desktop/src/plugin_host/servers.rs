@@ -329,6 +329,7 @@ pub fn dialog_shows(app: &App) -> bool {
         || app.switcher.open
         || app.project_switcher.open
         || app.fork.open
+        || app.jump.open()
         || app.menus.confirming().is_some()
         || app.connect.open.is_some()
         || app.mcp.open.is_some()

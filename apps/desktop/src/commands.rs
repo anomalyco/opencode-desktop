@@ -213,6 +213,9 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         toggle_shell(s, tx);
         return true;
     }
+    if Bind::JumpToMessage.matches_tx(ev, tx) && s.open_session().is_some() {
+        return s.open_jump_dialog(tx);
+    }
     for (bind, offset) in [(Bind::MessagePrev, -1), (Bind::MessageNext, 1)] {
         if bind.matches_tx(ev, tx) && s.open_session().is_some() {
             s.navigate_message(offset, tx);
@@ -372,6 +375,13 @@ rune_register::register!(COMMANDS: Cmd = [
     .when(has_project),
     // After Copy project ID and before the message keys, as Desktop registers it (`use-session-commands.tsx:610`).
     Cmd::new("side", opencode_i18n::key!("command.review.toggle"), |s, tx| s.toggle_side_region(tx)).keys(Bind::SideToggle).when(in_session),
+    // `use-session-commands.tsx:674-681`, before the message keys as Desktop registers it.
+    Cmd::new("session.jumpToMessage", opencode_i18n::key!("dialog.jump.title"), |s, tx| {
+        s.open_jump_dialog(tx);
+    })
+    .describe(opencode_i18n::key!("command.session.jumpToMessage.description"))
+    .keys(Bind::JumpToMessage)
+    .when(|s| s.open_session().is_some()),
     // `use-session-commands.tsx:636-653`: offered over any open session.
     Cmd::new("message.previous", opencode_i18n::key!("command.message.previous"), |s, tx| s.navigate_message(-1, tx))
         .describe(opencode_i18n::key!("command.message.previous.description"))
