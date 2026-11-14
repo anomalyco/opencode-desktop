@@ -311,7 +311,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .fill(p.bg_deep)
         .w_full()
         .h_full()
-        .child(sidebar(s, p))
+        .child(sidebar_region(s, p))
         .children(band_below)
         // The empty inset above the panels moves the window, as the titlebar does; on Windows
         // it's the titlebar row itself.
@@ -322,7 +322,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         // chat panel), and paints over the page and the panels after it.
         .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
         .child(panel)
-        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, cx).paint_contained(main));
+        .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, main, cx));
     if let Some(dock) = dock {
         root = root.child(
             dock.pin(Some(s.sidebar_shown_w()), None, Some(0.0), Some(0.0))
@@ -409,4 +409,12 @@ pub(crate) fn title_of(s: &SessionInfo) -> String {
 
 pub(crate) fn project_or_dir(project: Option<&model::Project>, dir: &str) -> String {
     project.map(|p| p.name.clone()).unwrap_or_else(|| opencode_kit::path::basename(dir).to_owned())
+}
+
+/// The sidebar as a region: a keystroke elsewhere builds none of it. Everything it shows is
+/// `Tracked` state it reads, but the palette, the chrome, the language (its direction) and the
+/// plugins' sidebar items, which are its inputs.
+fn sidebar_region(s: &App, p: &Pal) -> El {
+    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", chrome()), opencode_i18n::locale().id(), crate::plugin_host::surfaces_version(s));
+    rune::region_with("sidebar", inputs, || sidebar(s, p))
 }

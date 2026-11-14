@@ -74,7 +74,9 @@ fn pane_slug(pane: SessionPane) -> &'static str {
 /// A region: a keystroke elsewhere builds none of it, nor resolves its tabs (each panel's `list`).
 /// What isn't `Tracked` is its inputs: the palette, the chrome, the laid width, the reserve, the
 /// plugins' versions and whether the composer has the keyboard.
-pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
+/// `main` is the main area's origin, which the column paints contained against (inside the region,
+/// so a reused region's root is the one it built).
+pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, main: [f32; 2], cx: &mut Cx<App>) -> El {
     // A drag's drop zones are read from the last layout every build, region or not.
     super::drag::note_zones(s);
     // Until the window is first measured, the last width it had.
@@ -82,8 +84,8 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, cx: &mu
         s.side.laid_w.set(zoomed_w);
     }
     let laid_w = s.side.laid_w.get();
-    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", crate::view::chrome()), laid_w.to_bits(), bottom_reserve.to_bits(), crate::plugin_host::surfaces_version(s), s.composer.focused);
-    rune::region_with("side-region", inputs, || side_region_in(s, p, laid_w, bottom_reserve, cx))
+    let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", crate::view::chrome()), laid_w.to_bits(), bottom_reserve.to_bits(), crate::plugin_host::surfaces_version(s), s.composer.focused, main.map(f32::to_bits));
+    rune::region_with("side-region", inputs, || side_region_in(s, p, laid_w, bottom_reserve, cx).paint_contained(main))
 }
 
 fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
