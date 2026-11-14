@@ -32,6 +32,8 @@
   "rune.openIn.failed": "ཁ་ཕྱེ་མ་ཚུགས།",
   "rune.send.retry": "བསྐྱར་དུ་ཚོད་ལྟ་",
   "rune.session.header.openParent": "{{title}} ཁ་ཕྱེ།",
+  "rune.storage.damaged.description": "OpenCode གི་ཉར་ཚགས་གནས་སྟངས་འདི་ཆ་ཁ་ཤོར་ཏེ་ལྷག་མ་ཚུགས་ནི་ལས་ གསརཔ་ཅིག་གིས་འགོ་བཙུགས་ཡི། ཧེ་མའི་ཁ་ཕྱེ་བའི་ཤོག་བྱང་དང་ཟིན་བྲིས་ཚུ་མེད་སྲིད། ཆ་ཁ་ཤོར་བའི་ཡིག་སྣོད་འདི་ {{path}} ནང་བཞག་ཡོད།",
+  "rune.storage.damaged.title": "ཉར་ཚགས་གནས་སྟངས་གསརཔ་ཅིག་གིས་འགོ་བཙུགས་ཡི།",
   "rune.terminal.paste.confirm": "སྦྱར།",
   "rune.terminal.paste.description": "ཤེལ་གྱིས་ གྲལ་ཐིག་རེ་རེ་ ལྷག་ཚར་བའི་ཤུལ་ལས་ བརྡ་བཀོད་ཅིག་སྦེ་ གཡོག་བཀོལཝ་ཨིན། མཇུག་གི་གྲལ་ཐིག་གིས་ Enter ལུ་ བསྒུག་སྡོདཔ་ཨིན།",
   "rune.terminal.paste.more": "གྲལ་ཐིག་ {{count}} ཧེང་བཀལ།",

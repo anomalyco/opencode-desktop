@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Tamamlandıklarında yeniden gönderin.",
   "rune.send.uploading.title": "Ekler hâlâ yükleniyor",
   "rune.session.header.openParent": "{{title}} aç",
+  "rune.storage.damaged.description": "OpenCode'un kayıtlı durumu hasar görmüştü ve okunamadı, bu yüzden yeni bir durumla başladı. Önceden açık olan sekmeleriniz ve taslaklarınız eksik olabilir. Hasarlı dosya {{path}} konumunda saklanıyor.",
+  "rune.storage.damaged.title": "Yeni bir kayıtlı durumla başlatıldı",
   "rune.terminal.paste.confirm": "Yapıştır",
   "rune.terminal.paste.description": "Kabuk her satırı okur okumaz komut olarak çalıştırır. Son satır Enter'ı bekler.",
   "rune.terminal.paste.more": "{{count}} satır daha",

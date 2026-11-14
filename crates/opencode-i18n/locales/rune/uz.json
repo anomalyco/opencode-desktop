@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Tugagach, qayta yuboring.",
   "rune.send.uploading.title": "Biriktirmalar hali yuklanmoqda",
   "rune.session.header.openParent": "{{title}}ni ochish",
+  "rune.storage.damaged.description": "OpenCode’ning saqlangan holati shikastlangan edi va uni o‘qib bo‘lmadi, shuning uchun yangisi bilan boshlandi. Avvalgi ochiq varaqlar va qoralamalar yo‘qolgan bo‘lishi mumkin. Shikastlangan fayl {{path}} manzilida saqlanadi.",
+  "rune.storage.damaged.title": "Yangi saqlangan holat bilan boshlandi",
   "rune.terminal.paste.confirm": "Joylash",
   "rune.terminal.paste.description": "Shell har bir qatorni o‘qishi bilanoq buyruq sifatida bajaradi. Oxirgi qator Enter tugmasini kutadi.",
   "rune.terminal.paste.more": "Yana {{count}} qator",

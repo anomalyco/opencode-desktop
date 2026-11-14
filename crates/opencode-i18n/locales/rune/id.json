@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Kirim lagi setelah selesai.",
   "rune.send.uploading.title": "Lampiran masih diunggah",
   "rune.session.header.openParent": "Buka {{title}}",
+  "rune.storage.damaged.description": "Status tersimpan OpenCode rusak dan tidak dapat dibaca, jadi dimulai dengan yang baru. Tab terbuka dan draf Anda sebelumnya mungkin hilang. File yang rusak disimpan di {{path}}.",
+  "rune.storage.damaged.title": "Dimulai dengan status tersimpan baru",
   "rune.terminal.paste.confirm": "Tempel",
   "rune.terminal.paste.description": "Shell menjalankan setiap baris sebagai perintah begitu membacanya. Baris terakhir menunggu Enter.",
   "rune.terminal.paste.more": "{{count}} baris lagi",

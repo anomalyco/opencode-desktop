@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Trimite din nou după ce se termină.",
   "rune.send.uploading.title": "Atașamentele încă se încarcă",
   "rune.session.header.openParent": "Deschide {{title}}",
+  "rune.storage.damaged.description": "Starea salvată a OpenCode era deteriorată și nu a putut fi citită, așa că a pornit cu una nouă. Este posibil să lipsească filele deschise și ciornele de dinainte. Fișierul deteriorat este păstrat în {{path}}.",
+  "rune.storage.damaged.title": "Pornit cu o stare salvată nouă",
   "rune.terminal.paste.confirm": "Lipește",
   "rune.terminal.paste.description": "Shell-ul rulează fiecare linie ca pe o comandă imediat ce o citește. Ultima linie așteaptă Enter.",
   "rune.terminal.paste.more": "Încă {{count}} linii",

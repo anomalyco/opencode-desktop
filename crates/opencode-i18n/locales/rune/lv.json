@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Sūtiet vēlreiz, kad tie būs pabeigti.",
   "rune.send.uploading.title": "Pielikumi vēl tiek augšupielādēti",
   "rune.session.header.openParent": "Atvērt {{title}}",
+  "rune.storage.damaged.description": "OpenCode saglabātais stāvoklis bija bojāts, un to nevarēja nolasīt, tāpēc tika sākts ar jaunu. Iepriekš atvērtās cilnes un melnraksti var trūkt. Bojātais fails ir saglabāts šeit: {{path}}.",
+  "rune.storage.damaged.title": "Sākts ar jaunu saglabāto stāvokli",
   "rune.terminal.paste.confirm": "Ielīmēt",
   "rune.terminal.paste.description": "Čaula izpilda katru rindu kā komandu, tiklīdz to nolasa. Pēdējā rinda gaida Enter.",
   "rune.terminal.paste.more": "Vēl {{count}} rindas",

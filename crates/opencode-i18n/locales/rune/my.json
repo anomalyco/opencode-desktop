@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ပြီးဆုံးသည့်အခါ ထပ်ပို့ပါ။",
   "rune.send.uploading.title": "ပူးတွဲဖိုင်များ အပ်လုဒ်လုပ်နေဆဲ ဖြစ်သည်",
   "rune.session.header.openParent": "{{title}} ကို ဖွင့်ရန်",
+  "rune.storage.damaged.description": "OpenCode ၏ သိမ်းဆည်းထားသော အခြေအနေ ပျက်စီးနေ၍ ဖတ်မရသဖြင့် အသစ်ဖြင့် စတင်ခဲ့သည်။ ယခင်က ဖွင့်ထားသော တဘ်များနှင့် မူကြမ်းများ ပျောက်နေနိုင်သည်။ ပျက်စီးသော ဖိုင်ကို {{path}} တွင် သိမ်းထားသည်။",
+  "rune.storage.damaged.title": "သိမ်းဆည်းထားသော အခြေအနေအသစ်ဖြင့် စတင်ခဲ့သည်",
   "rune.terminal.paste.confirm": "ကူးထည့်ရန်",
   "rune.terminal.paste.description": "Shell သည် စာကြောင်းတစ်ကြောင်းချင်းကို ဖတ်ပြီးချင်း command အဖြစ် လုပ်ဆောင်သည်။ နောက်ဆုံးစာကြောင်းသည် Enter ကို စောင့်သည်။",
   "rune.terminal.paste.more": "နောက်ထပ် {{count}} ကြောင်း",

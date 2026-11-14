@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Пас аз анҷом ёфтан аз нав фиристед.",
   "rune.send.uploading.title": "Замимаҳо ҳанӯз бор карда мешаванд",
   "rune.session.header.openParent": "Кушодани {{title}}",
+  "rune.storage.damaged.description": "Ҳолати захирашудаи OpenCode вайрон шуда буд ва хонда нашуд, бинобар ин бо ҳолати нав оғоз шуд. Ҷадвалбандҳои кушода ва сиёҳнависҳои пештара шояд вуҷуд надошта бошанд. Файли вайроншуда дар {{path}} нигоҳ дошта мешавад.",
+  "rune.storage.damaged.title": "Бо ҳолати нави захирашуда оғоз шуд",
   "rune.terminal.paste.confirm": "Гузоштан",
   "rune.terminal.paste.description": "Шел ҳар сатрро баробари хондан ҳамчун фармон иҷро мекунад. Сатри охирин Enter-ро интизор мешавад.",
   "rune.terminal.paste.more": "Боз {{count}} сатр",

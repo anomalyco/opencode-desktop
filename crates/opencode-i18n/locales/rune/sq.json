@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Dërgoje sërish kur të mbarojnë.",
   "rune.send.uploading.title": "Bashkëngjitjet po ngarkohen ende",
   "rune.session.header.openParent": "Hap {{title}}",
+  "rune.storage.damaged.description": "Gjendja e ruajtur e OpenCode ishte e dëmtuar dhe nuk mund të lexohej, prandaj u nis me një të re. Skedat e hapura dhe draftet e mëparshme mund të mungojnë. Skedari i dëmtuar ruhet në {{path}}.",
+  "rune.storage.damaged.title": "U nis me një gjendje të re të ruajtur",
   "rune.terminal.paste.confirm": "Ngjit",
   "rune.terminal.paste.description": "Shell-i ekzekuton çdo rresht si komandë sapo e lexon. Rreshti i fundit pret Enter.",
   "rune.terminal.paste.more": "Edhe {{count}} rreshta",

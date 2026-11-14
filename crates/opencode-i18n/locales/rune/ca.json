@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "El servidor no ha confirmat l'aturada",
   "rune.stop.unreachable": "No es pot accedir a OpenCode per aturar la sessió",
   "rune.storage.checkpoint.description": "Un altre programa té obert l'estat desat d'OpenCode. El veus tal com era a l'últim punt de control, que pot no incloure els teus canvis més recents. El que canviïs ara es perdrà quan OpenCode es tanqui.",
+  "rune.storage.damaged.description": "L'estat desat d'OpenCode estava malmès i no s'ha pogut llegir, així que ha començat amb un de nou. És possible que faltin les pestanyes obertes i els esborranys d'abans. El fitxer malmès es conserva a {{path}}.",
+  "rune.storage.damaged.title": "S'ha començat amb un estat desat nou",
   "rune.storage.firstRun.description": "Un altre programa està fent servir l'estat desat d'OpenCode, així que aquest és un inici de zero. El teu estat desat no s'ha tocat. El que canviïs ara es perdrà quan OpenCode es tanqui.",
   "rune.storage.memoryOnly.description": "OpenCode no ha pogut obrir el seu estat desat ({{why}}). El que canviïs ara es perdrà quan es tanqui.",
   "rune.storage.memoryOnly.title": "Els canvis no es desaran",

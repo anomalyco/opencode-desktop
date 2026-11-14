@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "पूरा होने पर फिर से भेजें।",
   "rune.send.uploading.title": "अटैचमेंट अभी अपलोड हो रहे हैं",
   "rune.session.header.openParent": "{{title}} खोलें",
+  "rune.storage.damaged.description": "OpenCode की सहेजी गई स्थिति खराब हो गई थी और पढ़ी नहीं जा सकी, इसलिए यह नई स्थिति के साथ शुरू हुआ। पहले के खुले टैब और ड्राफ़्ट गायब हो सकते हैं। खराब फ़ाइल {{path}} पर रखी गई है।",
+  "rune.storage.damaged.title": "नई सहेजी गई स्थिति के साथ शुरू हुआ",
   "rune.terminal.paste.confirm": "चिपकाएँ",
   "rune.terminal.paste.description": "शेल हर पंक्ति को पढ़ते ही कमांड के रूप में चलाता है। आख़िरी पंक्ति Enter का इंतज़ार करती है।",
   "rune.terminal.paste.more": "{{count}} और पंक्तियाँ",

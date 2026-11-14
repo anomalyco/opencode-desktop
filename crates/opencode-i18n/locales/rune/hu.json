@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Küldje újra, ha befejeződtek.",
   "rune.send.uploading.title": "A mellékletek feltöltése még tart",
   "rune.session.header.openParent": "{{title}} megnyitása",
+  "rune.storage.damaged.description": "Az OpenCode mentett állapota megsérült, és nem lehetett beolvasni, ezért újjal indult. A korábban megnyitott lapok és piszkozatok hiányozhatnak. A sérült fájl itt található: {{path}}.",
+  "rune.storage.damaged.title": "Új mentett állapottal indult",
   "rune.terminal.paste.confirm": "Beillesztés",
   "rune.terminal.paste.description": "A shell minden sort parancsként futtat, amint beolvassa. Az utolsó sor az Enterre vár.",
   "rune.terminal.paste.more": "Még {{count}} sor",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Pošljite znova, ko se končajo.",
   "rune.send.uploading.title": "Priloge se še nalagajo",
   "rune.session.header.openParent": "Odpri {{title}}",
+  "rune.storage.damaged.description": "Shranjeno stanje OpenCode je bilo poškodovano in ga ni bilo mogoče prebrati, zato se je zagnal z novim. Prej odprti zavihki in osnutki morda manjkajo. Poškodovana datoteka je shranjena v {{path}}.",
+  "rune.storage.damaged.title": "Zagnano z novim shranjenim stanjem",
   "rune.terminal.paste.confirm": "Prilepi",
   "rune.terminal.paste.description": "Lupina izvede vsako vrstico kot ukaz, takoj ko jo prebere. Zadnja vrstica čaka na Enter.",
   "rune.terminal.paste.more": "Še {{count}} vrstic",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Vuelve a enviar cuando terminen.",
   "rune.send.uploading.title": "Los adjuntos aún se están subiendo",
   "rune.session.header.openParent": "Abrir {{title}}",
+  "rune.storage.damaged.description": "El estado guardado de OpenCode estaba dañado y no se pudo leer, así que empezó con uno nuevo. Puede que falten las pestañas abiertas y los borradores de antes. El archivo dañado se conserva en {{path}}.",
+  "rune.storage.damaged.title": "Se inició con un estado guardado nuevo",
   "rune.terminal.paste.confirm": "Pegar",
   "rune.terminal.paste.description": "El shell ejecuta cada línea como un comando en cuanto la lee. La última línea espera a Intro.",
   "rune.terminal.paste.more": "{{count}} líneas más",

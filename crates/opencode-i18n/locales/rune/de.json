@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "Der Server hat das Stoppen nicht bestätigt",
   "rune.stop.unreachable": "OpenCode ist nicht erreichbar, um die Sitzung zu stoppen",
   "rune.storage.checkpoint.description": "Ein anderes Programm hat den gespeicherten Zustand von OpenCode geöffnet. Sie sehen ihn auf dem Stand des letzten Checkpoints, dem Ihre neuesten Änderungen fehlen können. Was Sie jetzt ändern, geht verloren, wenn OpenCode beendet wird.",
+  "rune.storage.damaged.description": "Der gespeicherte Zustand von OpenCode war beschädigt und konnte nicht gelesen werden, daher wurde mit einem neuen begonnen. Ihre offenen Tabs und Entwürfe von vorher fehlen möglicherweise. Die beschädigte Datei liegt unter {{path}}.",
+  "rune.storage.damaged.title": "Mit neuem gespeichertem Zustand gestartet",
   "rune.storage.firstRun.description": "Ein anderes Programm hält den gespeicherten Zustand von OpenCode, daher ist dies ein Neustart. Ihr gespeicherter Zustand bleibt unberührt. Was Sie jetzt ändern, geht verloren, wenn OpenCode beendet wird.",
   "rune.storage.memoryOnly.description": "OpenCode konnte seinen gespeicherten Zustand nicht öffnen ({{why}}). Was Sie jetzt ändern, geht beim Beenden verloren.",
   "rune.storage.memoryOnly.title": "Änderungen werden nicht gespeichert",

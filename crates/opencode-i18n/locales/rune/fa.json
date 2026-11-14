@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "پس از پایان، دوباره بفرستید.",
   "rune.send.uploading.title": "پیوست‌ها هنوز در حال بارگذاری‌اند",
   "rune.session.header.openParent": "باز کردن {{title}}",
+  "rune.storage.damaged.description": "وضعیت ذخیره‌شدهٔ OpenCode آسیب دیده بود و خوانده نشد، بنابراین با وضعیتی جدید شروع شد. ممکن است برگه‌های باز و پیش‌نویس‌های قبلی موجود نباشند. فایل آسیب‌دیده در {{path}} نگه داشته شده است.",
+  "rune.storage.damaged.title": "با وضعیت ذخیره‌شدهٔ جدید شروع شد",
   "rune.terminal.paste.confirm": "جای‌گذاری",
   "rune.terminal.paste.description": "پوسته هر خط را به محض خواندن به‌عنوان فرمان اجرا می‌کند. خط آخر منتظر Enter می‌ماند.",
   "rune.terminal.paste.more": "{{count}} خط دیگر",

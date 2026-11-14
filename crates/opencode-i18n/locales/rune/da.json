@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "Serveren bekræftede ikke stoppet",
   "rune.stop.unreachable": "Kan ikke nå OpenCode for at stoppe sessionen",
   "rune.storage.checkpoint.description": "Et andet program har OpenCodes gemte tilstand åben. Du ser den, som den var ved sidste kontrolpunkt, og dine seneste ændringer mangler måske. Det, du ændrer nu, går tabt, når OpenCode afsluttes.",
+  "rune.storage.damaged.description": "OpenCodes gemte tilstand var beskadiget og kunne ikke læses, så den startede med en ny. Dine åbne faner og kladder fra før kan mangle. Den beskadigede fil er gemt i {{path}}.",
+  "rune.storage.damaged.title": "Startet med ny gemt tilstand",
   "rune.storage.firstRun.description": "Et andet program holder OpenCodes gemte tilstand, så dette er en frisk start. Din gemte tilstand er urørt. Det, du ændrer nu, går tabt, når OpenCode afsluttes.",
   "rune.storage.memoryOnly.description": "OpenCode kunne ikke åbne sin gemte tilstand ({{why}}). Det, du ændrer nu, går tabt, når det afsluttes.",
   "rune.storage.memoryOnly.title": "Ændringer gemmes ikke",

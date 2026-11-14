@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Saada uuesti, kui need on valmis.",
   "rune.send.uploading.title": "Manuseid laaditakse veel üles",
   "rune.session.header.openParent": "Ava {{title}}",
+  "rune.storage.damaged.description": "OpenCode'i salvestatud olek oli rikutud ja seda ei saanud lugeda, seega alustati uuega. Varem avatud vahekaardid ja mustandid võivad puududa. Rikutud fail on alles asukohas {{path}}.",
+  "rune.storage.damaged.title": "Alustati uue salvestatud olekuga",
   "rune.terminal.paste.confirm": "Kleebi",
   "rune.terminal.paste.description": "Kest käivitab iga rea käsuna kohe, kui selle loeb. Viimane rida ootab Enterit.",
   "rune.terminal.paste.more": "Veel {{count}} rida",

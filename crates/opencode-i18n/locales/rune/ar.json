@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "لم يؤكد الخادم الإيقاف",
   "rune.stop.unreachable": "تعذّر الوصول إلى OpenCode لإيقاف الجلسة",
   "rune.storage.checkpoint.description": "يفتح برنامج آخر الحالة المحفوظة لـ OpenCode. أنت ترى ما كانت عليه عند آخر نقطة حفظ، وقد تنقصها أحدث تغييراتك. ما تغيّره الآن سيضيع عند إغلاق OpenCode.",
+  "rune.storage.damaged.description": "تلفت الحالة المحفوظة لـ OpenCode وتعذرت قراءتها، لذا بدأ بحالة جديدة. قد تكون علامات التبويب المفتوحة والمسودات السابقة مفقودة. الملف التالف محفوظ في {{path}}.",
+  "rune.storage.damaged.title": "بدأ بحالة محفوظة جديدة",
   "rune.storage.firstRun.description": "يستخدم برنامج آخر الحالة المحفوظة لـ OpenCode، لذا هذه بداية جديدة. حالتك المحفوظة لم تُمس. ما تغيّره الآن سيضيع عند إغلاق OpenCode.",
   "rune.storage.memoryOnly.description": "تعذّر على OpenCode فتح حالته المحفوظة ({{why}}). ما تغيّره الآن سيضيع عند إغلاقه.",
   "rune.storage.memoryOnly.title": "لن تُحفظ التغييرات",

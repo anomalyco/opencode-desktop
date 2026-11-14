@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Отправьте снова, когда они загрузятся.",
   "rune.send.uploading.title": "Вложения ещё загружаются",
   "rune.session.header.openParent": "Открыть {{title}}",
+  "rune.storage.damaged.description": "Сохранённое состояние OpenCode было повреждено и не прочиталось, поэтому оно запустилось с новым. Открытые раньше вкладки и черновики могут отсутствовать. Повреждённый файл сохранён в {{path}}.",
+  "rune.storage.damaged.title": "Запущено с новым сохранённым состоянием",
   "rune.terminal.paste.confirm": "Вставить",
   "rune.terminal.paste.description": "Оболочка выполняет каждую строку как команду, как только её прочтёт. Последняя строка ждёт Enter.",
   "rune.terminal.paste.more": "Ещё строк: {{count}}",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ផ្ញើម្តងទៀតពេលវាបញ្ចប់។",
   "rune.send.uploading.title": "ឯកសារភ្ជាប់នៅតែកំពុងផ្ទុកឡើង",
   "rune.session.header.openParent": "បើក {{title}}",
+  "rune.storage.damaged.description": "ស្ថានភាពដែលបានរក្សាទុករបស់ OpenCode ត្រូវបានខូច ហើយមិនអាចអានបាន ដូច្នេះវាបានចាប់ផ្ដើមជាមួយស្ថានភាពថ្មី។ ផ្ទាំង និងសេចក្ដីព្រាងដែលបានបើកពីមុនអាចបាត់។ ឯកសារដែលខូចត្រូវបានរក្សាទុកនៅ {{path}}។",
+  "rune.storage.damaged.title": "បានចាប់ផ្ដើមជាមួយស្ថានភាពដែលបានរក្សាទុកថ្មី",
   "rune.terminal.paste.confirm": "បិទភ្ជាប់",
   "rune.terminal.paste.description": "សែលដំណើរការបន្ទាត់នីមួយៗជាពាក្យបញ្ជាភ្លាមៗពេលអាន។ បន្ទាត់ចុងក្រោយរង់ចាំ Enter។",
   "rune.terminal.paste.more": "{{count}} បន្ទាត់ទៀត",

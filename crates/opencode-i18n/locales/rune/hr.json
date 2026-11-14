@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Pošalji ponovno kad završe.",
   "rune.send.uploading.title": "Privici se još prenose",
   "rune.session.header.openParent": "Otvori {{title}}",
+  "rune.storage.damaged.description": "Spremljeno stanje OpenCodea bilo je oštećeno i nije se moglo pročitati, pa je pokrenuto s novim. Ranije otvorene kartice i skice možda nedostaju. Oštećena datoteka čuva se u {{path}}.",
+  "rune.storage.damaged.title": "Pokrenuto s novim spremljenim stanjem",
   "rune.terminal.paste.confirm": "Zalijepi",
   "rune.terminal.paste.description": "Ljuska izvodi svaki redak kao naredbu čim ga pročita. Zadnji redak čeka Enter.",
   "rune.terminal.paste.more": "Još {{count}} redaka",

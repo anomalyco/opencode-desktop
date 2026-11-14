@@ -62,6 +62,8 @@
   "rune.send.retry": "އަލުން ޖައްސަވާ",
   "rune.send.unconfirmed": "ކަށަވަރުނުކުރެވޭ",
   "rune.session.header.openParent": "{{title}} ހުޅުވާ",
+  "rune.storage.damaged.description": "OpenCode ގެ ސޭވްކުރެވިފައިވާ ހާލަތު ހަލާކުވެފައިވާތީ ކިޔައެއް ނުލެވުނު، އެހެންކަމުން އާ އެއްޗަކުން ފެށިއްޖެ. ކުރިން ހުޅުވާފައިވާ ޓެބްތަކާއި ޑްރާފްޓްތައް ނެތިދާނެ. ހަލާކުވެފައިވާ ފައިލް {{path}} ގައި ރައްކާކުރެވިފައި ވޭ.",
+  "rune.storage.damaged.title": "އާ ސޭވްކުރެވިފައިވާ ހާލަތަކުން ފެށިއްޖެ",
   "rune.terminal.paste.confirm": "ޕޭސްޓް",
   "rune.terminal.paste.description": "ޝެލް ކޮންމެ ލައިނެއް ކިޔާލުމާއެކު ކޮމާންޑެއްގެ ގޮތުގައި ހިންގާނެ. އެންމެ ފަހު ލައިން Enter އަށް މަޑުކުރާނެ.",
   "rune.terminal.paste.more": "އިތުރު {{count}} ލައިން",

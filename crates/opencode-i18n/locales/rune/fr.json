@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Renvoyez une fois qu’ils sont terminés.",
   "rune.send.uploading.title": "Les pièces jointes sont encore en cours d’envoi",
   "rune.session.header.openParent": "Ouvrir {{title}}",
+  "rune.storage.damaged.description": "L'état enregistré d'OpenCode était endommagé et n'a pas pu être lu, il a donc démarré avec un nouvel état. Vos onglets ouverts et brouillons d'avant peuvent manquer. Le fichier endommagé est conservé dans {{path}}.",
+  "rune.storage.damaged.title": "Démarré avec un nouvel état enregistré",
   "rune.terminal.paste.confirm": "Coller",
   "rune.terminal.paste.description": "Le shell exécute chaque ligne comme une commande dès qu'il la lit. La dernière ligne attend Entrée.",
   "rune.terminal.paste.more": "{{count}} lignes de plus",

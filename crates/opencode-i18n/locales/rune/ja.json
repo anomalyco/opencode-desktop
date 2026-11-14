@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "完了したらもう一度送信してください。",
   "rune.send.uploading.title": "添付ファイルはまだアップロード中です",
   "rune.session.header.openParent": "{{title}} を開く",
+  "rune.storage.damaged.description": "OpenCode の保存状態が破損していて読み込めなかったため、新しい状態で起動しました。以前に開いていたタブや下書きが失われている可能性があります。破損したファイルは {{path}} に保管されています。",
+  "rune.storage.damaged.title": "新しい保存状態で起動しました",
   "rune.terminal.paste.confirm": "貼り付け",
   "rune.terminal.paste.description": "シェルは読み込んだ行をすぐにコマンドとして実行します。最後の行は Enter を待ちます。",
   "rune.terminal.paste.more": "ほか {{count}} 行",

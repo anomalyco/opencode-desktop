@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "上传完成后请重新发送。",
   "rune.send.uploading.title": "附件仍在上传",
   "rune.session.header.openParent": "打开 {{title}}",
+  "rune.storage.damaged.description": "OpenCode 的保存状态已损坏，无法读取，因此已使用新的状态启动。之前打开的标签页和草稿可能会丢失。损坏的文件保存在 {{path}}。",
+  "rune.storage.damaged.title": "已使用新的保存状态启动",
   "rune.terminal.paste.confirm": "粘贴",
   "rune.terminal.paste.description": "Shell 读到每一行就会将其作为命令运行。最后一行会等待按下 Enter。",
   "rune.terminal.paste.more": "还有 {{count}} 行",

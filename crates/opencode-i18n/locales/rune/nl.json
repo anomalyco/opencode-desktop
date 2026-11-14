@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Verstuur opnieuw zodra ze klaar zijn.",
   "rune.send.uploading.title": "Bijlagen worden nog geüpload",
   "rune.session.header.openParent": "{{title}} openen",
+  "rune.storage.damaged.description": "De opgeslagen staat van OpenCode was beschadigd en kon niet worden gelezen, dus is het met een nieuwe begonnen. Je geopende tabbladen en concepten van eerder kunnen ontbreken. Het beschadigde bestand is bewaard in {{path}}.",
+  "rune.storage.damaged.title": "Gestart met een nieuwe opgeslagen staat",
   "rune.terminal.paste.confirm": "Plakken",
   "rune.terminal.paste.description": "De shell voert elke regel als opdracht uit zodra hij die leest. De laatste regel wacht op Enter.",
   "rune.terminal.paste.more": "Nog {{count}} regels",

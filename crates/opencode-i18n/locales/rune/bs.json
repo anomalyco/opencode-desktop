@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "Server nije potvrdio zaustavljanje",
   "rune.stop.unreachable": "OpenCode nije dostupan za zaustavljanje sesije",
   "rune.storage.checkpoint.description": "Drugi program ima otvoreno spremljeno stanje OpenCodea. Vidiš ga prema zadnjoj kontrolnoj točki, u kojoj možda nema tvojih najnovijih promjena. Što sada promijeniš, izgubit će se kad se OpenCode zatvori.",
+  "rune.storage.damaged.description": "Sačuvano stanje OpenCodea je oštećeno i nije se moglo pročitati, pa je pokrenuto s novim. Otvorene kartice i nacrti od ranije možda nedostaju. Oštećena datoteka je sačuvana na {{path}}.",
+  "rune.storage.damaged.title": "Pokrenuto s novim sačuvanim stanjem",
   "rune.storage.firstRun.description": "Drugi program drži spremljeno stanje OpenCodea pa je ovo novi početak. Tvoje spremljeno stanje nije dirano. Što sada promijeniš, izgubit će se kad se OpenCode zatvori.",
   "rune.storage.memoryOnly.description": "OpenCode nije mogao otvoriti svoje spremljeno stanje ({{why}}). Što sada promijeniš, izgubit će se pri zatvaranju.",
   "rune.storage.memoryOnly.title": "Promjene se neće spremiti",

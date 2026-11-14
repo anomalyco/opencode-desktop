@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "Server zastavení nepotvrdil",
   "rune.stop.unreachable": "OpenCode není dostupný, relaci nelze zastavit",
   "rune.storage.checkpoint.description": "Jiný program má otevřený uložený stav OpenCode. Vidíte jej podle posledního kontrolního bodu, kterému mohou chybět vaše nejnovější změny. Co nyní změníte, se po ukončení OpenCode ztratí.",
+  "rune.storage.damaged.description": "Uložený stav OpenCode byl poškozený a nešel přečíst, proto se spustil s novým. Dříve otevřené karty a koncepty mohou chybět. Poškozený soubor je uložen v {{path}}.",
+  "rune.storage.damaged.title": "Spuštěno s novým uloženým stavem",
   "rune.storage.firstRun.description": "Jiný program drží uložený stav OpenCode, proto jde o čistý start. Váš uložený stav zůstal nedotčen. Co nyní změníte, se po ukončení OpenCode ztratí.",
   "rune.storage.memoryOnly.description": "OpenCode nemohl otevřít svůj uložený stav ({{why}}). Co nyní změníte, se po ukončení ztratí.",
   "rune.storage.memoryOnly.title": "Změny se neuloží",

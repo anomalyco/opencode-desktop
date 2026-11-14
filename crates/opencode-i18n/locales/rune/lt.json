@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Siųskite dar kartą, kai jie baigs.",
   "rune.send.uploading.title": "Priedai vis dar įkeliami",
   "rune.session.header.openParent": "Atidaryti {{title}}",
+  "rune.storage.damaged.description": "OpenCode išsaugota būsena buvo sugadinta ir jos nepavyko perskaityti, todėl pradėta su nauja. Anksčiau atidarytų skirtukų ir juodraščių gali trūkti. Sugadintas failas saugomas {{path}}.",
+  "rune.storage.damaged.title": "Pradėta su nauja išsaugota būsena",
   "rune.terminal.paste.confirm": "Įklijuoti",
   "rune.terminal.paste.description": "Apvalkalas vykdo kiekvieną eilutę kaip komandą, vos ją perskaitęs. Paskutinė eilutė laukia Enter.",
   "rune.terminal.paste.more": "Dar {{count}} eilučių",

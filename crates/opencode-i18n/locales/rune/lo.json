@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ສົ່ງອີກຄັ້ງເມື່ອອັບໂຫຼດແລ້ວ.",
   "rune.send.uploading.title": "ໄຟລ໌ແນບຍັງອັບໂຫຼດຢູ່",
   "rune.session.header.openParent": "ເປີດ {{title}}",
+  "rune.storage.damaged.description": "ສະຖານະທີ່ບັນທຶກໄວ້ຂອງ OpenCode ເສຍຫາຍ ແລະ ອ່ານບໍ່ໄດ້ ຈຶ່ງເລີ່ມດ້ວຍສະຖານະໃໝ່. ແຖບທີ່ເປີດ ແລະ ຮ່າງຈາກກ່ອນໜ້ານີ້ອາດຈະຫາຍໄປ. ໄຟລ໌ທີ່ເສຍຫາຍຖືກເກັບໄວ້ທີ່ {{path}}.",
+  "rune.storage.damaged.title": "ເລີ່ມດ້ວຍສະຖານະທີ່ບັນທຶກໃໝ່",
   "rune.terminal.paste.confirm": "ວາງ",
   "rune.terminal.paste.description": "ເຊວຈະແລ່ນແຕ່ລະແຖວເປັນຄຳສັ່ງທັນທີທີ່ອ່ານ. ແຖວສຸດທ້າຍຈະລໍຖ້າ Enter.",
   "rune.terminal.paste.more": "ອີກ {{count}} ແຖວ",

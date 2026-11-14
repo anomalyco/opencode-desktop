@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Wyślij ponownie, gdy się zakończą.",
   "rune.send.uploading.title": "Załączniki są wciąż przesyłane",
   "rune.session.header.openParent": "Otwórz {{title}}",
+  "rune.storage.damaged.description": "Zapisany stan OpenCode był uszkodzony i nie dało się go odczytać, więc uruchomiono go z nowym. Może brakować wcześniej otwartych kart i szkiców. Uszkodzony plik zachowano w {{path}}.",
+  "rune.storage.damaged.title": "Uruchomiono z nowym zapisanym stanem",
   "rune.terminal.paste.confirm": "Wklej",
   "rune.terminal.paste.description": "Powłoka wykonuje każdy wiersz jako polecenie, gdy tylko go odczyta. Ostatni wiersz czeka na Enter.",
   "rune.terminal.paste.more": "Jeszcze {{count}} wierszy",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Tamamlanandan soň gaýtadan iberiň.",
   "rune.send.uploading.title": "Goşundylar entek ýüklenýär",
   "rune.session.header.openParent": "{{title}} aç",
+  "rune.storage.damaged.description": "OpenCode-yň ýatda saklanan ýagdaýy zaýalanypdy we okalyp bilinmedi, şonuň üçin täzesi bilen başlady. Öňki açyk bellikler we garalamalar ýok bolup biler. Zaýalanan faýl {{path}} ýerinde saklanýar.",
+  "rune.storage.damaged.title": "Täze ýatda saklanan ýagdaý bilen başlady",
   "rune.terminal.paste.confirm": "Goýmak",
   "rune.terminal.paste.description": "Shell her setiri okan badyna buýruk hökmünde işledýär. Soňky setir Enter-e garaşýar.",
   "rune.terminal.paste.more": "Ýene {{count}} setir",

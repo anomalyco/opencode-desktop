@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Пошаљи поново када заврше.",
   "rune.send.uploading.title": "Прилози се још отпремају",
   "rune.session.header.openParent": "Отвори {{title}}",
+  "rune.storage.damaged.description": "Сачувано стање OpenCode-а је било оштећено и није могло да се прочита, па је покренуто са новим. Раније отворене картице и нацрти можда недостају. Оштећена датотека је сачувана у {{path}}.",
+  "rune.storage.damaged.title": "Покренуто са новим сачуваним стањем",
   "rune.terminal.paste.confirm": "Налепи",
   "rune.terminal.paste.description": "Љуска извршава сваки ред као команду чим га прочита. Последњи ред чека Enter.",
   "rune.terminal.paste.more": "Још {{count}} редова",

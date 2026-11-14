@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "مکمل ہونے پر دوبارہ بھیجیں۔",
   "rune.send.uploading.title": "منسلکات ابھی اپ لوڈ ہو رہے ہیں",
   "rune.session.header.openParent": "{{title}} کھولیں",
+  "rune.storage.damaged.description": "OpenCode کی محفوظ حالت خراب ہو گئی تھی اور پڑھی نہیں جا سکی، اس لیے یہ نئی حالت کے ساتھ شروع ہوا۔ پہلے کے کھلے ٹیب اور مسودے غائب ہو سکتے ہیں۔ خراب فائل {{path}} پر رکھی گئی ہے۔",
+  "rune.storage.damaged.title": "نئی محفوظ حالت کے ساتھ شروع ہوا",
   "rune.terminal.paste.confirm": "چسپاں کریں",
   "rune.terminal.paste.description": "شیل ہر سطر کو پڑھتے ہی کمانڈ کے طور پر چلاتا ہے۔ آخری سطر Enter کا انتظار کرتی ہے۔",
   "rune.terminal.paste.more": "مزید {{count}} سطریں",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Send på nytt når de er ferdige.",
   "rune.send.uploading.title": "Vedleggene lastes fortsatt opp",
   "rune.session.header.openParent": "Åpne {{title}}",
+  "rune.storage.damaged.description": "Den lagrede tilstanden til OpenCode var skadet og kunne ikke leses, så den startet med en ny. Åpne faner og utkast fra før kan mangle. Den skadede filen er tatt vare på i {{path}}.",
+  "rune.storage.damaged.title": "Startet med ny lagret tilstand",
   "rune.terminal.paste.confirm": "Lim inn",
   "rune.terminal.paste.description": "Skallet kjører hver linje som en kommando så snart det leser den. Den siste linjen venter på Enter.",
   "rune.terminal.paste.more": "{{count}} linjer til",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Invia di nuovo quando hanno finito.",
   "rune.send.uploading.title": "Gli allegati sono ancora in caricamento",
   "rune.session.header.openParent": "Apri {{title}}",
+  "rune.storage.damaged.description": "Lo stato salvato di OpenCode era danneggiato e non è stato possibile leggerlo, quindi è stato avviato con uno nuovo. Le schede aperte e le bozze di prima potrebbero mancare. Il file danneggiato è conservato in {{path}}.",
+  "rune.storage.damaged.title": "Avviato con un nuovo stato salvato",
   "rune.terminal.paste.confirm": "Incolla",
   "rune.terminal.paste.description": "La shell esegue ogni riga come comando appena la legge. L'ultima riga attende Invio.",
   "rune.terminal.paste.more": "Altre {{count}} righe",

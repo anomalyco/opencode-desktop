@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Надішліть знову, коли вони завершаться.",
   "rune.send.uploading.title": "Вкладення ще вивантажуються",
   "rune.session.header.openParent": "Відкрити {{title}}",
+  "rune.storage.damaged.description": "Збережений стан OpenCode був пошкоджений і не прочитався, тож він запустився з новим. Раніше відкриті вкладки й чернетки можуть бути відсутні. Пошкоджений файл збережено в {{path}}.",
+  "rune.storage.damaged.title": "Запущено з новим збереженим станом",
   "rune.terminal.paste.confirm": "Вставити",
   "rune.terminal.paste.description": "Оболонка виконує кожен рядок як команду, щойно його прочитає. Останній рядок чекає на Enter.",
   "rune.terminal.paste.more": "Ще рядків: {{count}}",

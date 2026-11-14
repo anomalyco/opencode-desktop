@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "שלחו שוב כשההעלאה תסתיים.",
   "rune.send.uploading.title": "הקבצים המצורפים עדיין בהעלאה",
   "rune.session.header.openParent": "פתיחת {{title}}",
+  "rune.storage.damaged.description": "המצב השמור של OpenCode נפגם ולא ניתן היה לקרוא אותו, לכן הוא התחיל עם מצב חדש. ייתכן שהכרטיסיות הפתוחות והטיוטות מלפני כן חסרות. הקובץ הפגום נשמר ב-{{path}}.",
+  "rune.storage.damaged.title": "התחיל עם מצב שמור חדש",
   "rune.terminal.paste.confirm": "הדבקה",
   "rune.terminal.paste.description": "המעטפת מריצה כל שורה כפקודה ברגע שהיא קוראת אותה. השורה האחרונה ממתינה ל־Enter.",
   "rune.terminal.paste.more": "עוד {{count}} שורות",

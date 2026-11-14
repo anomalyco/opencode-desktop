@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "सकिएपछि फेरि पठाउनुहोस्।",
   "rune.send.uploading.title": "संलग्नकहरू अझै अपलोड हुँदैछन्",
   "rune.session.header.openParent": "{{title}} खोल्नुहोस्",
+  "rune.storage.damaged.description": "OpenCode को सुरक्षित अवस्था बिग्रिएको थियो र पढ्न सकिएन, त्यसैले नयाँसँग सुरु भयो। पहिलेका खुला ट्याब र मस्यौदाहरू हराएका हुन सक्छन्। बिग्रिएको फाइल {{path}} मा राखिएको छ।",
+  "rune.storage.damaged.title": "नयाँ सुरक्षित अवस्थासँग सुरु भयो",
   "rune.terminal.paste.confirm": "टाँस्नुहोस्",
   "rune.terminal.paste.description": "शेलले हरेक पङ्क्ति पढ्नेबित्तिकै आदेशका रूपमा चलाउँछ। अन्तिम पङ्क्ति Enter को प्रतीक्षा गर्छ।",
   "rune.terminal.paste.more": "थप {{count}} पङ्क्ति",

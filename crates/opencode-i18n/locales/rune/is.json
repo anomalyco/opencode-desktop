@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Sendu aftur þegar þau klárast.",
   "rune.send.uploading.title": "Viðhengi eru enn að hlaðast upp",
   "rune.session.header.openParent": "Opna {{title}}",
+  "rune.storage.damaged.description": "Vistuð staða OpenCode var skemmd og ekki var hægt að lesa hana, svo það byrjaði með nýrri. Opnir flipar og drög frá því áður gætu vantað. Skemmda skráin er geymd í {{path}}.",
+  "rune.storage.damaged.title": "Byrjað með nýrri vistaðri stöðu",
   "rune.terminal.paste.confirm": "Líma",
   "rune.terminal.paste.description": "Skelin keyrir hverja línu sem skipun um leið og hún les hana. Síðasta línan bíður eftir Enter.",
   "rune.terminal.paste.more": "{{count}} línur í viðbót",

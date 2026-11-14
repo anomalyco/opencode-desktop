@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "O servidor não confirmou a parada",
   "rune.stop.unreachable": "Não foi possível acessar o OpenCode para parar a sessão",
   "rune.storage.checkpoint.description": "Outro programa está com o estado salvo do OpenCode aberto. Você o vê como estava no último checkpoint, que pode não ter suas alterações mais recentes. O que você alterar agora será perdido quando o OpenCode fechar.",
+  "rune.storage.damaged.description": "Stad enrollet OpenCode a oa gwastet ha n'eus ket bet gallet he lenn, setu ez eo bet kroget gant unan nevez. Marteze e vank an ivinelloù digor hag ar brouilhedoù a-raok. Miret eo ar restr gwastet e {{path}}.",
+  "rune.storage.damaged.title": "Kroget gant ur stad enrollet nevez",
   "rune.storage.firstRun.description": "Outro programa está usando o estado salvo do OpenCode, então este é um início do zero. Seu estado salvo não foi alterado. O que você alterar agora será perdido quando o OpenCode fechar.",
   "rune.storage.memoryOnly.description": "O OpenCode não conseguiu abrir seu estado salvo ({{why}}). O que você alterar agora será perdido quando ele fechar.",
   "rune.storage.memoryOnly.title": "As alterações não serão salvas",

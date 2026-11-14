@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Կրկին ուղարկեք, երբ դրանք ավարտվեն։",
   "rune.send.uploading.title": "Կցորդները դեռ վերբեռնվում են",
   "rune.session.header.openParent": "Բացել {{title}}-ը",
+  "rune.storage.damaged.description": "OpenCode-ի պահված վիճակը վնասված էր և չհաջողվեց կարդալ, ուստի այն սկսվեց նորով։ Նախկինում բաց ներդիրները և սևագրերը կարող են բացակայել։ Վնասված ֆայլը պահված է {{path}}-ում։",
+  "rune.storage.damaged.title": "Սկսվեց նոր պահված վիճակով",
   "rune.terminal.paste.confirm": "Տեղադրել",
   "rune.terminal.paste.description": "Շելը յուրաքանչյուր տող կատարում է որպես հրաման՝ հենց կարդում է այն։ Վերջին տողը սպասում է Enter-ին։",
   "rune.terminal.paste.more": "Եվս {{count}} տող",

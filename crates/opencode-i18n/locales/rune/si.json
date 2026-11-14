@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ඒවා අවසන් වූ පසු නැවත යවන්න.",
   "rune.send.uploading.title": "ඇමුණුම් තවමත් උඩුගත වෙමින් පවතී",
   "rune.session.header.openParent": "{{title}} විවෘත කරන්න",
+  "rune.storage.damaged.description": "OpenCode හි සුරැකි තත්ත්වය හානි වී තිබූ අතර කියවීමට නොහැකි වූ බැවින්, එය නව එකකින් ආරම්භ විය. පෙර විවෘත ටැබ සහ කෙටුම්පත් නැති විය හැක. හානි වූ ගොනුව {{path}} හි තබා ඇත.",
+  "rune.storage.damaged.title": "නව සුරැකි තත්ත්වයකින් ආරම්භ විය",
   "rune.terminal.paste.confirm": "අලවන්න",
   "rune.terminal.paste.description": "ෂෙල් එක සෑම පේළියක්ම කියවූ විගස විධානයක් ලෙස ධාවනය කරයි. අවසාන පේළිය Enter සඳහා රැඳී සිටී.",
   "rune.terminal.paste.more": "තවත් පේළි {{count}}",

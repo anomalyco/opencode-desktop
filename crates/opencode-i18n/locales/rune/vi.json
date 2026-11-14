@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Hãy gửi lại khi tải lên xong.",
   "rune.send.uploading.title": "Tệp đính kèm vẫn đang tải lên",
   "rune.session.header.openParent": "Mở {{title}}",
+  "rune.storage.damaged.description": "Trạng thái đã lưu của OpenCode bị hỏng và không đọc được, nên nó đã bắt đầu với trạng thái mới. Các thẻ đang mở và bản nháp trước đó có thể bị thiếu. Tệp bị hỏng được giữ tại {{path}}.",
+  "rune.storage.damaged.title": "Đã bắt đầu với trạng thái đã lưu mới",
   "rune.terminal.paste.confirm": "Dán",
   "rune.terminal.paste.description": "Shell chạy mỗi dòng như một lệnh ngay khi đọc được. Dòng cuối chờ phím Enter.",
   "rune.terminal.paste.more": "Thêm {{count}} dòng",

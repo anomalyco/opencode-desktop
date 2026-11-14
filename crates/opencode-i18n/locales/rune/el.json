@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Στείλτε ξανά μόλις τελειώσουν.",
   "rune.send.uploading.title": "Τα συνημμένα μεταφορτώνονται ακόμη",
   "rune.session.header.openParent": "Άνοιγμα {{title}}",
+  "rune.storage.damaged.description": "Η αποθηκευμένη κατάσταση του OpenCode είχε καταστραφεί και δεν ήταν δυνατή η ανάγνωσή της, οπότε ξεκίνησε με νέα. Οι ανοιχτές καρτέλες και τα πρόχειρα από πριν μπορεί να λείπουν. Το κατεστραμμένο αρχείο φυλάσσεται στο {{path}}.",
+  "rune.storage.damaged.title": "Ξεκίνησε με νέα αποθηκευμένη κατάσταση",
   "rune.terminal.paste.confirm": "Επικόλληση",
   "rune.terminal.paste.description": "Το κέλυφος εκτελεί κάθε γραμμή ως εντολή μόλις τη διαβάσει. Η τελευταία γραμμή περιμένει το Enter.",
   "rune.terminal.paste.more": "{{count}} ακόμη γραμμές",

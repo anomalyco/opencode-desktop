@@ -173,6 +173,8 @@
   "rune.stop.unconfirmed": "Server dayanmanı təsdiqləmədi",
   "rune.stop.unreachable": "Sessiyanı dayandırmaq üçün OpenCode-a çatmaq olmur",
   "rune.storage.checkpoint.description": "Başqa proqram OpenCode-un saxlanmış vəziyyətini açıq saxlayır. Onu son yoxlama nöqtəsindəki kimi görürsünüz, son dəyişiklikləriniz orada olmaya bilər. İndi dəyişdikləriniz OpenCode bağlananda itəcək.",
+  "rune.storage.damaged.description": "OpenCode-un saxlanılmış vəziyyəti zədələnmişdi və oxuna bilmədi, ona görə də yenisi ilə başladı. Əvvəlki açıq vərəqələr və qaralamalar itmiş ola bilər. Zədələnmiş fayl {{path}} ünvanında saxlanılır.",
+  "rune.storage.damaged.title": "Yeni saxlanılmış vəziyyətlə başladı",
   "rune.storage.firstRun.description": "Başqa proqram OpenCode-un saxlanmış vəziyyətini tutur, ona görə bu yeni başlanğıcdır. Saxlanmış vəziyyətinizə toxunulmayıb. İndi dəyişdikləriniz OpenCode bağlananda itəcək.",
   "rune.storage.memoryOnly.description": "OpenCode saxlanmış vəziyyətini aça bilmədi ({{why}}). İndi dəyişdikləriniz bağlananda itəcək.",
   "rune.storage.memoryOnly.title": "Dəyişikliklər saxlanılmayacaq",

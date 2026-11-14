@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "مکمل ہون تے دوبارہ بھیجو۔",
   "rune.send.uploading.title": "نتھیاں اجے اپ لوڈ ہو رہیاں نیں",
   "rune.session.header.openParent": "{{title}} کھولو",
+  "rune.storage.damaged.description": "OpenCode ਦੀ ਸੰਭਾਲੀ ਸਥਿਤੀ ਖਰਾਬ ਹੋ ਗਈ ਸੀ ਅਤੇ ਪੜ੍ਹੀ ਨਹੀਂ ਜਾ ਸਕੀ, ਇਸ ਲਈ ਇਹ ਨਵੀਂ ਨਾਲ ਸ਼ੁਰੂ ਹੋਇਆ। ਪਹਿਲਾਂ ਦੀਆਂ ਖੁੱਲ੍ਹੀਆਂ ਟੈਬਾਂ ਅਤੇ ਡਰਾਫਟ ਗੁੰਮ ਹੋ ਸਕਦੇ ਹਨ। ਖਰਾਬ ਫਾਈਲ {{path}} ਵਿੱਚ ਰੱਖੀ ਗਈ ਹੈ।",
+  "rune.storage.damaged.title": "ਨਵੀਂ ਸੰਭਾਲੀ ਸਥਿਤੀ ਨਾਲ ਸ਼ੁਰੂ ਹੋਇਆ",
   "rune.terminal.paste.confirm": "ਚਿਪਕਾਓ",
   "rune.terminal.paste.description": "ਸ਼ੈੱਲ ਹਰ ਲਾਈਨ ਨੂੰ ਪੜ੍ਹਦੇ ਹੀ ਕਮਾਂਡ ਵਜੋਂ ਚਲਾਉਂਦਾ ਹੈ। ਆਖ਼ਰੀ ਲਾਈਨ Enter ਦੀ ਉਡੀਕ ਕਰਦੀ ਹੈ।",
   "rune.terminal.paste.more": "{{count}} ਹੋਰ ਲਾਈਨਾਂ",

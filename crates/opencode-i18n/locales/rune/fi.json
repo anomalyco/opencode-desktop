@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Lähetä uudelleen, kun ne ovat valmiita.",
   "rune.send.uploading.title": "Liitteitä ladataan vielä",
   "rune.session.header.openParent": "Avaa {{title}}",
+  "rune.storage.damaged.description": "OpenCoden tallennettu tila oli vioittunut eikä sitä voitu lukea, joten aloitettiin uudella. Aiemmin avoimet välilehdet ja luonnokset voivat puuttua. Vioittunut tiedosto on tallessa sijainnissa {{path}}.",
+  "rune.storage.damaged.title": "Aloitettiin uudella tallennetulla tilalla",
   "rune.terminal.paste.confirm": "Liitä",
   "rune.terminal.paste.description": "Komentotulkki suorittaa jokaisen rivin komentona heti kun lukee sen. Viimeinen rivi odottaa Enteriä.",
   "rune.terminal.paste.more": "{{count}} riviä lisää",

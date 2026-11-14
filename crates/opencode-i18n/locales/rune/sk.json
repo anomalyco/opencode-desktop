@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Odošlite znova, keď sa dokončia.",
   "rune.send.uploading.title": "Prílohy sa stále nahrávajú",
   "rune.session.header.openParent": "Otvoriť {{title}}",
+  "rune.storage.damaged.description": "Uložený stav OpenCode bol poškodený a nedal sa prečítať, preto sa spustil s novým. Predtým otvorené karty a koncepty môžu chýbať. Poškodený súbor je uložený v {{path}}.",
+  "rune.storage.damaged.title": "Spustené s novým uloženým stavom",
   "rune.terminal.paste.confirm": "Prilepiť",
   "rune.terminal.paste.description": "Shell spustí každý riadok ako príkaz, hneď ako ho prečíta. Posledný riadok čaká na Enter.",
   "rune.terminal.paste.more": "Ďalších {{count}} riadkov",

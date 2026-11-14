@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Send aftur, tá ið tær eru lidnar.",
   "rune.send.uploading.title": "Viðheftingar verða enn lagdar upp",
   "rune.session.header.openParent": "Lat {{title}} upp",
+  "rune.storage.damaged.description": "Goymda støðan hjá OpenCode var skadd og kundi ikki lesast, so tað byrjaði við eini nýggjari. Opnu teigarnir og uppskotini frá áðrenn kunnu mangla. Skadda fílan er goymd í {{path}}.",
+  "rune.storage.damaged.title": "Byrjaði við nýggjari goymdari støðu",
   "rune.terminal.paste.confirm": "Set inn",
   "rune.terminal.paste.description": "Skelin koyrir hvørja linju sum eina skipan, so skjótt sum hon lesur hana. Seinasta linjan bíðar eftir Enter.",
   "rune.terminal.paste.more": "{{count}} linjur afturat",

@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ხელახლა გაგზავნეთ, როცა დასრულდება.",
   "rune.send.uploading.title": "მიმაგრებული ფაილები ჯერ კიდევ იტვირთება",
   "rune.session.header.openParent": "{{title}}-ის გახსნა",
+  "rune.storage.damaged.description": "OpenCode-ის შენახული მდგომარეობა დაზიანებული იყო და ვერ წაიკითხა, ამიტომ დაიწყო ახლით. ადრე გახსნილი ჩანართები და მონახაზები შეიძლება აკლდეს. დაზიანებული ფაილი ინახება აქ: {{path}}.",
+  "rune.storage.damaged.title": "დაიწყო ახალი შენახული მდგომარეობით",
   "rune.terminal.paste.confirm": "ჩასმა",
   "rune.terminal.paste.description": "გარსი ყოველ სტრიქონს ბრძანებად უშვებს, როგორც კი წაიკითხავს. ბოლო სტრიქონი Enter-ს ელოდება.",
   "rune.terminal.paste.more": "კიდევ {{count}} სტრიქონი",

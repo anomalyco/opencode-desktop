@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Дууссаны дараа дахин илгээнэ үү.",
   "rune.send.uploading.title": "Хавсралтууд байршуулагдсаар байна",
   "rune.session.header.openParent": "{{title}}-ийг нээх",
+  "rune.storage.damaged.description": "OpenCode-ийн хадгалсан төлөв гэмтсэн тул уншиж чадсангүй, иймээс шинээр эхэллээ. Өмнө нээлттэй байсан табууд болон ноорог алга болсон байж магадгүй. Гэмтсэн файлыг {{path}}-д хадгалсан.",
+  "rune.storage.damaged.title": "Шинэ хадгалсан төлөвөөр эхэллээ",
   "rune.terminal.paste.confirm": "Буулгах",
   "rune.terminal.paste.description": "Шелл мөр бүрийг уншмагцаа тушаал болгон ажиллуулна. Сүүлийн мөр Enter-ийг хүлээнэ.",
   "rune.terminal.paste.more": "Дахиад {{count}} мөр",

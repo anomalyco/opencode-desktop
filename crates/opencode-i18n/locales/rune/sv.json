@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Skicka igen när de är klara.",
   "rune.send.uploading.title": "Bilagorna laddas fortfarande upp",
   "rune.session.header.openParent": "Öppna {{title}}",
+  "rune.storage.damaged.description": "OpenCodes sparade tillstånd var skadat och kunde inte läsas, så det startade med ett nytt. Öppna flikar och utkast från tidigare kan saknas. Den skadade filen finns kvar i {{path}}.",
+  "rune.storage.damaged.title": "Startade med ett nytt sparat tillstånd",
   "rune.terminal.paste.confirm": "Klistra in",
   "rune.terminal.paste.description": "Skalet kör varje rad som ett kommando så fort det läser den. Den sista raden väntar på Retur.",
   "rune.terminal.paste.more": "{{count}} rader till",

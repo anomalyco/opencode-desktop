@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Испрати повторно кога ќе завршат.",
   "rune.send.uploading.title": "Прилозите сè уште се прикачуваат",
   "rune.session.header.openParent": "Отвори {{title}}",
+  "rune.storage.damaged.description": "Зачуваната состојба на OpenCode беше оштетена и не можеше да се прочита, па започна со нова. Отворените картички и нацртите од претходно можеби недостасуваат. Оштетената датотека е зачувана во {{path}}.",
+  "rune.storage.damaged.title": "Започнато со нова зачувана состојба",
   "rune.terminal.paste.confirm": "Залепи",
   "rune.terminal.paste.description": "Школката ја извршува секоја линија како команда штом ја прочита. Последната линија чека Enter.",
   "rune.terminal.paste.more": "Уште {{count}} линии",

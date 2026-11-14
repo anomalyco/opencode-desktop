@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "Hantar semula setelah selesai.",
   "rune.send.uploading.title": "Lampiran masih dimuat naik",
   "rune.session.header.openParent": "Buka {{title}}",
+  "rune.storage.damaged.description": "Keadaan tersimpan OpenCode telah rosak dan tidak dapat dibaca, jadi ia dimulakan dengan yang baharu. Tab terbuka dan draf anda sebelum ini mungkin hilang. Fail yang rosak disimpan di {{path}}.",
+  "rune.storage.damaged.title": "Dimulakan dengan keadaan tersimpan baharu",
   "rune.terminal.paste.confirm": "Tampal",
   "rune.terminal.paste.description": "Shell menjalankan setiap baris sebagai arahan sebaik sahaja membacanya. Baris terakhir menunggu Enter.",
   "rune.terminal.paste.more": "{{count}} baris lagi",

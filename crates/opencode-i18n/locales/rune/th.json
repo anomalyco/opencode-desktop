@@ -122,6 +122,8 @@
   "rune.send.uploading.description": "ส่งอีกครั้งเมื่ออัปโหลดเสร็จ",
   "rune.send.uploading.title": "ไฟล์แนบยังอัปโหลดอยู่",
   "rune.session.header.openParent": "เปิด {{title}}",
+  "rune.storage.damaged.description": "สถานะที่บันทึกไว้ของ OpenCode เสียหายและอ่านไม่ได้ จึงเริ่มต้นด้วยสถานะใหม่ แท็บที่เปิดอยู่และฉบับร่างจากก่อนหน้านี้อาจหายไป ไฟล์ที่เสียหายเก็บไว้ที่ {{path}}",
+  "rune.storage.damaged.title": "เริ่มต้นด้วยสถานะที่บันทึกใหม่",
   "rune.terminal.paste.confirm": "วาง",
   "rune.terminal.paste.description": "เชลล์จะรันแต่ละบรรทัดเป็นคำสั่งทันทีที่อ่าน บรรทัดสุดท้ายจะรอการกด Enter",
   "rune.terminal.paste.more": "อีก {{count}} บรรทัด",
