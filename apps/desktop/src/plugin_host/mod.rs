@@ -865,7 +865,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= dormant::poll(app, tx);
     // IB-3 measuring: IB3_RUN_AT="<command>@<ms>,..." runs each command once that long after the first plugin slept, as the palette would.
-    if let (Ok(spec), Some(since)) = (std::env::var("IB3_RUN_AT"), app.plugins.dormant.since()) {
+    if let (Ok(spec), Some(since)) = (std::env::var("IB3_RUN_AT"), IB3_SINCE.get().copied().or_else(|| (!app.plugins.dormant.asleep.is_empty()).then(|| *IB3_SINCE.get_or_init(rune::time::Instant::now)))) {
         thread_local! { static DONE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
         for item in spec.split(',') {
             let Some((id, ms)) = item.split_once('@') else { continue };
@@ -1133,3 +1133,6 @@ pub fn dialog_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     requests::dismiss_dialog(app, tx);
     true
 }
+
+/// IB-3 measuring: when the first plugin slept.
+static IB3_SINCE: std::sync::OnceLock<rune::time::Instant> = std::sync::OnceLock::new();
