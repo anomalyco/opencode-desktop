@@ -5,9 +5,10 @@
 //! | above, below                                              | gap        |
 //! |-----------------------------------------------------------|------------|
 //! | prose, prose (a reply's words)                            | `PROSE` 12 |
-//! | quiet, quiet (notices, Used N, thoughts, calls, subagents) | `TIGHT` 8  |
+//! | quiet, quiet (notices), or a notice beside a tool row      | `TIGHT` 8  |
+//! | a tool row (Used N, a thought, calls, a subagent), a tool row | `TIGHT` 8, box to box |
 //! | a prompt (its 28 meta room included), its reply's first row | `REPLY` 24 |
-//! | a prompt, a tool row (Used N, a thought, calls) opening its reply | 0, to the row's box |
+//! | a prompt, a tool row opening its reply                    | 0, to the row's box |
 //! | a tool row beside anything but a quiet row                | `BLOCK` 16, box to box |
 //! | any other pair: a card (code, a question, an error), prose beside quiet rows | `BLOCK` 16 |
 //! | a reply's last row, the next prompt                       | `TURN` 44  |
@@ -103,7 +104,8 @@ fn edges<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowContent
             match folded.as_ref().and_then(|(_, blocks)| blocks.get(*block)) {
                 Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => both(Kind::Tool, TOOL_INSET),
-                Some(Block::Agent { .. }) => both(Kind::Quiet, 0.0),
+                // A subagent's card is a tool part in Desktop's turn (`projection.ts`): its edges are its box.
+                Some(Block::Agent { .. }) => both(Kind::Tool, 0.0),
                 Some(Block::Question { .. }) => both(Kind::Card, 0.0),
                 None => both(Kind::Other, 0.0),
             }
@@ -116,12 +118,8 @@ fn gap(above: Kind, below: Kind) -> f32 {
     match (above, below) {
         (Kind::Prose, Kind::Prose) => PROSE,
         (Kind::Quiet | Kind::Tool, Kind::Quiet | Kind::Tool) => TIGHT,
-        // Desktop's tool row opens a reply at the top of its turn (only a text part takes the 24
-        // over it, `text-part` `margin-top`), and every later row stands 16 under the one above
-        // (`pt-4`), box to box: measured from the trigger's box, not its line.
-        (Kind::Prompt, Kind::Tool) => TOOL_INSET,
         (Kind::Prompt, _) => REPLY,
-        (_, Kind::Tool) | (Kind::Tool, _) => BLOCK + TOOL_INSET,
+        // Every other row beside a tool row in a turn stands 16 from its box (`pt-4`); `space_at`.
         _ => BLOCK,
     }
 }
@@ -148,8 +146,21 @@ pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut
         }
         let here = edges(t, detail, &row.content, &mut folded);
         if let Some(prev) = above.filter(|p| p.bottom.0 != Kind::Other) {
-            // A footer's room counts toward the gap under the words it closes.
-            let room = (gap(prev.bottom.0, here.top.0) - prev.bottom.1 - prev.footer - here.top.1).max(0.0);
+            // A footer's room counts toward the gap under the words it closes. Two tool rows stand
+            // `pt-2` apart box to box, as Desktop spaces a tool part under a tool part
+            // (`projection.ts`: `spacing: "tool"`), and one opening a reply sits right under the
+            // prompt's meta row (only a text part takes the 24 over it, `text-part` `margin-top`).
+            // Beside any other row a tool row's room is measured from its box, the other row's from
+            // what it shows.
+            let room = match (prev.bottom.0, here.top.0) {
+                (Kind::Tool, Kind::Tool) => TIGHT - prev.footer,
+                (Kind::Prompt, Kind::Tool) => 0.0,
+                (Kind::Tool, Kind::Quiet) | (Kind::Quiet, Kind::Tool) => TIGHT - prev.bottom.1 - prev.footer - here.top.1,
+                (Kind::Tool, _) => BLOCK - prev.footer - here.top.1,
+                (_, Kind::Tool) => BLOCK - prev.bottom.1 - prev.footer,
+                (above, below) => gap(above, below) - prev.bottom.1 - prev.footer - here.top.1,
+            }
+            .max(0.0);
             match &mut row.content {
                 RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.bottom.0 != Kind::Prompt { (TURN - prev.footer).max(0.0) } else { 0.0 },
                 RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) if here.top.0 != Kind::Other => *pt = room,
