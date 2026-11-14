@@ -109,6 +109,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
+            s.recent_page.observe(&info);
             s.session_search.invalidate();
             let parent = info.parent.clone();
             match s.sessions.iter_mut().find(|x| x.id == info.id) {
@@ -149,7 +150,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
                 session_view::jump::settle(s, tx);
             }
         }
-        Incoming::LookupMissing(_) | Incoming::Config { .. } => return false,
+        Incoming::LookupMissing(_) => return false,
         Incoming::Inbox { session, items } => s.inbox_listed(&session, &items),
         Incoming::Worktrees { project, directories } => s.worktrees_listed(project, directories),
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
@@ -158,8 +159,8 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::WorktreeCreated { project } => s.worktree_updated(&project),
         Incoming::RequestReplied(id) => s.reply_answered(&id, Ok(())),
-        Incoming::PromptAccepted { id, .. } => {
-            let admitted = s.admitted_send(&id);
+        Incoming::PromptAccepted { session, id } => {
+            let admitted = s.prompt_accepted(&session, &id) | s.admitted_send(&id);
             s.pump_outbox();
             return admitted;
         }

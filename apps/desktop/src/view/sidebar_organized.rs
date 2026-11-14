@@ -275,7 +275,7 @@ fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
         .iter()
         .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && crate::projects::clean_dir(&i.directory) == dir)
         .collect();
-    all.sort_by_key(|i| std::cmp::Reverse(i.updated));
+    all.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
     if all.is_empty() {
         return vec![text(t!("sidebar.organize.empty")).key("organize-empty").font(UI_SMALL).color(p.faint).pl(32.0).pr(8.0).py(8.0)];
     }

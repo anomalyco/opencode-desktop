@@ -124,15 +124,6 @@ impl App {
             session.title = title.to_owned();
             done.renamed = true;
         }
-        if ty == "session.updated" {
-            let info = data.get("info").unwrap_or(data);
-            let id = info["id"].as_str().unwrap_or(&sid);
-            if let Some(updated) = info["time"]["updated"].as_i64()
-                && let Some(session) = self.sessions.iter_mut().find(|s| s.id == id) {
-                session.updated = updated;
-                done.info = true;
-            }
-        }
         if crate::recent_page::reloads_on(self, ty, data, &sid) {
             self.schedule_recent_reload();
         }
@@ -159,8 +150,8 @@ impl App {
                 }
                 self.stops.forget(sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
-                if let Some(at) = data["eventCreated"].as_i64() && let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                    s.busy = Some(at);
+                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.busy = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
                 }
                 self.running.insert(sid.to_owned())
             }
@@ -170,8 +161,8 @@ impl App {
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }
-                if let Some(at) = data["eventCreated"].as_i64() && let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                    s.idle = Some(at);
+                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.idle = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
                 }
                 // The server's own idle mark, like Desktop's re-read after a run ends.
                 if let Source::Live { requests: Some(r), .. } = &*self.source {
@@ -281,7 +272,7 @@ impl App {
         if ty == "worktree.updated" && let Some(project) = data["projectID"].as_str() {
             self.worktree_updated(project);
         }
-        if done.project || done.renamed || (ty == "session.updated" && done.info) {
+        if done.project || done.renamed {
             self.session_search.invalidate();
             changed = true;
         }
@@ -347,7 +338,7 @@ impl App {
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
-            "session.archived" => i.archived = data["eventCreated"].as_i64(),
+            "session.archived" => i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms)),
             "session.unarchived" => i.archived = None,
             "session.metadata.updated" => i.metadata = data["metadata"].clone(),
             _ => return false,

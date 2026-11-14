@@ -42,6 +42,7 @@ pub struct Entry<'a> {
     /// The server it's on.
     pub server: &'a ServerKey,
     pub session: &'a SessionInfo,
+    active_ms: i64,
     pub status: InboxStatus,
     /// Wall-clock ms the row's age counts from.
     pub since: Option<i64>,
@@ -118,16 +119,16 @@ impl App {
         let listed = crate::servers::runtime::listed();
         let shown = |key: &ServerKey| key != here && listed.iter().any(|l| l.key == *key && !l.signed_out);
         list.extend(self.sidebar_inbox.servers.iter().filter(|(key, _)| shown(key)).flat_map(|(server, rows)| {
-            rows.iter().map(move |r| Entry { server, session: &r.session, status: r.status, since: r.since, project: r.project.as_ref(), worktree: r.worktree, branch: r.branch.as_deref() })
+            rows.iter().map(move |r| Entry { server, session: &r.session, active_ms: r.session.updated, status: r.status, since: r.since, project: r.project.as_ref(), worktree: r.worktree, branch: r.branch.as_deref() })
         }));
-        list.sort_by_key(|e| std::cmp::Reverse(e.session.updated));
+        list.sort_by_key(|e| std::cmp::Reverse(e.active_ms));
         list
     }
 
     fn inbox_entry<'a>(&'a self, server: &'a ServerKey, session: &'a SessionInfo) -> Entry<'a> {
         let (status, since) = self.inbox_status(session);
         let project = self.project_for_session(session).or_else(|| self.project_at(&session.directory));
-        Entry { server, session, status, since, project, worktree: in_worktree(self, session), branch: self.sidebar_inbox.branches.get(&session.directory) }
+        Entry { server, session, active_ms: self.recent_page.active_ms(session), status, since, project, worktree: in_worktree(self, session), branch: self.sidebar_inbox.branches.get(&session.directory) }
     }
 
     /// A root session's state and when its age counts from, on the server the window works
@@ -607,7 +608,8 @@ pub fn snap(s: &mut App) {
         .map(|i| {
             let (status, since) = s.inbox_status(i);
             let project = s.project_for_session(i).or_else(|| s.project_at(&i.directory)).cloned();
-            Row { session: i.clone(), status, since, project, worktree: in_worktree(s, i), branch: None }
+            let session = SessionInfo { updated: s.recent_page.active_ms(i), ..i.clone() };
+            Row { session, status, since, project, worktree: in_worktree(s, i), branch: None }
         })
         .collect();
     s.sidebar_inbox.branches.enqueue(rows.iter().map(|r| r.session.directory.clone()));

@@ -13,7 +13,6 @@ pub enum Incoming {
     Info(SessionInfo),
     LookupMissing(String),
     Inbox { session: String, items: Vec<Value> },
-    Config { directory: String, background_compaction: bool },
     Worktrees { project: String, directories: Vec<String> },
     Branches { directory: String, search: String, result: Result<Vec<String>, WireError> },
     InterruptAcknowledged { session: String, interrupted: bool },
@@ -95,16 +94,10 @@ pub enum Request {
     /// `Incoming::Info`, or `Incoming::LookupMissing` when the server can't give it.
     Lookup(String),
     Pending(String),
-    /// A project's newest unarchived sessions, subagents included (`/api/session?project=`),
-    /// replied as `Incoming::Sessions`.
-    ProjectSessions(String),
     /// A session's undelivered items (`Incoming::Inbox`).
     Inbox(String),
     /// Which sessions are running (`/api/session/active`).
     Active,
-    /// Whether `experimental.background_compaction` is on in a directory (`/api/config`). The
-    /// reply is `Incoming::Config`.
-    Config(String),
     /// A project's worktree inventory (`GET /api/worktree?projectID=`), the project's `root`
     /// left out (`Incoming::Worktrees`).
     Worktrees { project: String, root: String },

@@ -76,7 +76,10 @@ impl ServerData {
     /// A window joins with what it read: what this copy lacks goes in (sessions and transcripts
     /// no other window loaded, its projects while none are listed).
     fn absorb(&mut self, mut from: ServerData) {
-        if self.sessions.is_empty() { self.recent_page = from.recent_page; }
+        if self.sessions.is_empty() {
+            self.recent_page = from.recent_page;
+            self.recent_reload = from.recent_reload;
+        }
         if self.projects.is_empty() {
             self.projects = from.projects;
         }

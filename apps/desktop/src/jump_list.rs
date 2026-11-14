@@ -60,7 +60,7 @@ fn list(s: &App) -> JumpList {
         .map(|p| JumpItem::new(if p.name.is_empty() { crate::projects::folder_name(&p.directory) } else { p.name.clone() }, link(&format!("open?project={}", percent(&p.directory)))).description(p.directory.clone()))
         .collect();
     let mut sessions: Vec<_> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && !i.title.is_empty()).collect();
-    sessions.sort_by_key(|i| std::cmp::Reverse(i.updated));
+    sessions.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
     let sessions = sessions.into_iter().take(RECENT).map(|i| JumpItem::new(i.title.clone(), link(&format!("session?id={}", percent(&i.id)))).description(i.directory.clone())).collect();
     list.category(opencode_i18n::t!("home.projects"), projects).category(opencode_i18n::t!("sidebar.project.recentSessions"), sessions)
 }

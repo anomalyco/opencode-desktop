@@ -185,6 +185,9 @@ impl App {
     fn show_start(&mut self, id: &str, directory: &str, tx: &mut Tx) -> Option<String> {
         let selection = self.selection();
         let mut info = SessionInfo {
+            // Provisional until `started` takes the server's create response.
+            created: *self.now_ms,
+            updated: *self.now_ms,
             id: id.into(),
             directory: directory.to_owned(),
             agent: selection.agent,

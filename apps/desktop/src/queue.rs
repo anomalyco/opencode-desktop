@@ -207,9 +207,15 @@ impl App {
     /// `session.inbox.*` in the server's copy (`App::apply_shared`): a delivered prompt joins
     /// the end of the transcript, where the server puts it.
     pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
+        // SSE can admit our prompt before its write reply. Only our sends get the
+        // composer's recency; compactions and other clients' prompts also arrive here.
+        let accepted = if ty == "session.inbox.enqueued" && data["item"]["type"] == "user"
+            && let Some(id) = data["inboxID"].as_str()
+            && (self.unsent.state(id).is_some() || matches!(*self.source, Source::Fixture))
+        { self.prompt_accepted(sid, id) } else { false };
         let inbox = self.inboxes.entry(sid.to_owned()).or_default();
         let change = inbox.apply(ty, data);
-        self.finish_inbox(sid, change)
+        self.finish_inbox(sid, change) || accepted
     }
 
     fn finish_inbox(&mut self, sid: &str, change: InboxChange) -> bool {
@@ -266,6 +272,7 @@ impl App {
         let dropped = previous.into_iter().filter(|o| !inbox.items.iter().any(|i| i.id == o.id)).collect();
         self.unsent.preserve_inbox(sid, inbox, dropped);
         self.finish_inbox(sid, InboxChange::Changed);
+        crate::windows::peer::touch(self);
         let ids: Vec<_> = rows.iter().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
         self.judge_sends_by_inbox(sid, &ids);
         self.check_sends();

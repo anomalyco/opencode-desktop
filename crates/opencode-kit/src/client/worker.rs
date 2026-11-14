@@ -289,12 +289,6 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Ok(list) => send(Incoming::Sessions(list)),
                             Err(e) => send(Incoming::Failed(e)),
                         },
-                        Request::ProjectSessions(project) => {
-                            match server.get(&format!("/api/session?project={}&archived=false&limit=200", encode_component(&project))) {
-                                Ok(v) => send(Incoming::Sessions(model::parse_sessions(&v))),
-                                Err(e) => send(Incoming::Failed(e)),
-                            }
-                        }
                         Request::Projects => match server.projects() {
                             Ok(list) => send(Incoming::Projects(list)),
                             Err(e) => send(Incoming::Failed(e)),
@@ -316,12 +310,6 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
-                        Request::Config(dir) => {
-                            // A server without it leaves compactions loud, as Desktop does.
-                            let v = server.get(&format!("/api/config?location%5Bdirectory%5D={}", encode_component(&dir)));
-                            let on = v.is_ok_and(|v| model::background_compaction(&v));
-                            send(Incoming::Config { directory: dir, background_compaction: on })
-                        }
                         Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {
                             Ok(v) => send(Incoming::Worktrees { project, directories: model::parse_worktrees(&v, &root) }),
                             Err(e) => send(Incoming::Failed(e)),
