@@ -395,7 +395,8 @@ pub fn ghost_menu_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static
     let glyph_ink = if !enabled { p.icon_faint } else if open { p.icon } else { p.icon_muted };
     let b = row().key(key.to_owned()).role("button").label(label.to_owned()).h(28.0).px(if glyph.is_some() { 8.0 } else { 11.0 }).gap(6.0).center_y().radius(6.0)
         .children(glyph.map(|g| icon(g, 16.0).color(glyph_ink)))
-        .child(text(label.to_owned()).font(super::super::view::UI).color(ink));
+        // `button-v2`: 530 (440 when ghost-muted), figures at one width (`button.css:21`).
+        .child(text(label.to_owned()).font(if muted { super::super::view::UI } else { super::super::view::UI_MED }.features("\"tnum\"")).color(ink));
     if !enabled {
         return b.disabled(true);
     }

@@ -17,6 +17,9 @@ use opencode_i18n::t;
 /// A command's title and the keys' label: 13 on 16, -0.04 tracking.
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const KEYS: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
+/// A shortcut's button (a `button-v2`) sets figures at one width (`button.css:21`).
+const KEYS_BUTTON: TextStyle = KEYS.features("\"tnum\"");
+const UNASSIGNED: TextStyle = TITLE.features("\"tnum\"");
 
 #[derive(Default)]
 pub struct State {
@@ -121,11 +124,11 @@ fn controls(s: &App, p: &Pal, e: &Entry) -> El {
     let recording = s.settings_pages.shortcuts.capture.as_deref() == Some(e.id.as_str());
     let keys = label(&e.keybind);
     let (words, ink, font) = if recording {
-        (t!("settings.shortcuts.pressKeys").to_owned(), p.text, KEYS)
+        (t!("settings.shortcuts.pressKeys").to_owned(), p.text, KEYS_BUTTON)
     } else if keys.is_empty() {
-        (t!("settings.shortcuts.unassigned").to_owned(), p.muted, TITLE)
+        (t!("settings.shortcuts.unassigned").to_owned(), p.muted, UNASSIGNED)
     } else {
-        (keys.clone(), p.text, KEYS)
+        (keys.clone(), p.text, KEYS_BUTTON)
     };
     let id = e.id.clone();
     let button = row().key(format!("shortcut-button-{}", e.id)).role("button").label(format!("{}: {words}", e.title)).h(24.0).px(9.0).center_y().radius(4.0)
