@@ -19,13 +19,16 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use super::import::{self, Deferred};
 use super::{boot_record, sql};
 use crate::cache::{Cache, Doc, OutboxCache};
-use crate::machine::checkpoint::{self, WalEffect, WalEvent, WalState};
+use crate::machine::checkpoint::{WalEvent, WalState};
 use crate::machine::draft_gc::{self, DraftGcEffect, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
 use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEvent, WriteBehindState};
 use crate::outbox;
 use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 
+mod quit;
 mod rows;
+mod wal;
+use quit::{Quit, is_quit};
 use rows::{apply, cmd_name, note, settled, slow};
 
 pub(crate) enum Msg {
@@ -87,6 +90,14 @@ const SYNCED: &str = "PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1
 /// The longest unsynced commits pile up, and the most WAL they fill, before a checkpoint syncs them.
 const UNSYNCED_FOR: Duration = Duration::from_secs(30);
 const UNSYNCED_BYTES: u64 = 16 * 1024 * 1024;
+/// How much of the WAL the search index fills before it waits for a checkpoint to empty it: it
+/// starts none of its own, so this bounds the log's growth while it runs (and what the next
+/// synced checkpoint, a user write's or the next launch's, has to copy for it).
+const INDEX_WAL_BYTES: u64 = 4 * 1024 * 1024;
+/// The most WAL a quit leaves for the next launch to checkpoint after its first frame (rather
+/// than checkpointing it itself): what launches and quits too quick for a quiet checkpoint
+/// between them can pile up.
+const QUIT_WAL_BYTES: u64 = UNSYNCED_BYTES;
 const STATE_MS: u64 = 250;
 const DOCS_MS: u64 = 500;
 const WINDOWS_MS: u64 = 250;
@@ -124,6 +135,7 @@ pub(crate) struct Writer {
     written: usize,
     reservation: Reservation,
     origin: super::search::Origin,
+    quit: Quit,
 }
 
 /// What the open wrote before the first frame without a sync (the draft journal's reservation,
@@ -155,17 +167,19 @@ fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut Writ
 }
 
 impl Writer {
-    /// `wal_dirty`: the WAL holds frames to checkpoint; `boot_stale`: the boot record is behind
+    /// `wal_dirty`: the WAL holds frames to checkpoint (`wal_unsynced`: some maybe not on disk, as
+    /// after a kill; not after a quit that left them synced); `boot_stale`: the boot record is behind
     /// the tables (the open reserved the draft journal, whose place the record names); `created`:
     /// this open made the file, so schema 2 is its own (`search::Origin`).
-    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, boot_stale: bool, created: bool) -> Writer {
+    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, wal_unsynced: bool, boot_stale: bool, created: bool) -> Writer {
         let mut seq = Seq::default();
-        let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale } } else { WalState::Clean };
+        let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale, unsynced: wal_unsynced } } else { WalState::Clean };
         Writer {
             conn,
             cache,
             reservation: if boot_stale { Reservation::Unsynced } else { Reservation::Durable },
             origin: if created { super::search::Origin::Made } else { super::search::Origin::Found },
+            quit: Quit::Running,
             search: super::search::State::BeforeFrame,
             clock,
             seq,
@@ -243,15 +257,18 @@ impl Writer {
                         self.conn.execute_batch(UNSYNCED).ok();
                         let stepped = super::search::index::step(&mut self.conn, &urgent);
                         self.conn.execute_batch(SYNCED).ok();
-                        if matches!(stepped, Ok(Step::Done { .. })) {
-                            self.bound_unsynced();
-                        }
                         match stepped {
                             Ok(Step::Done { key, work_us, commit_us }) => {
                                 if work_us + commit_us >= 250_000 {
                                     eprintln!("opencode-storage: indexing {key:?} for search took {work_us} us, its commit {commit_us} us");
                                 }
-                                self.wal_event(WalEvent::Committed { boot: false });
+                                // Rebuildable rows: no checkpoint is started for them, synced or
+                                // not. The lane waits once they fill `INDEX_WAL_BYTES` of the WAL,
+                                // until a checkpoint something else starts empties it.
+                                self.wal_event(WalEvent::Derived);
+                                if self.wal_bytes() >= INDEX_WAL_BYTES {
+                                    self.search = super::search::State::Ready(super::search::Work::WalFull);
+                                }
                                 self.fire_due();
                                 continue;
                             }
@@ -280,11 +297,22 @@ impl Writer {
                 Ok(Msg::Wake) => {}
                 Ok(Msg::Flush { reason, started, reply }) => {
                     rune::marks::mark("writer.flush");
+                    let quit = is_quit(reason);
+                    if quit {
+                        // No index step or checkpoint of its own from here: the quit's rows land,
+                        // the WAL is synced, and that's the end (`quit_finish`).
+                        self.search.quitting();
+                        if self.quit == Quit::Running {
+                            self.quit = Quit::Quitting;
+                        }
+                    }
                     let report = self.flush(reason, started);
-                    reply.send(report).ok();
                     rune::marks::mark("writer.flushed");
-                    self.quit_checkpoint(reason);
+                    if quit && (report.rows > 0 || self.quit != Quit::Left) {
+                        self.quit_finish();
+                    }
                     rune::marks::mark("writer.checkpointed");
+                    reply.send(report).ok();
                 }
                 Ok(Msg::FirstFrame { done }) => {
                     let t = Instant::now();
@@ -293,8 +321,14 @@ impl Writer {
                 }
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
                     rune::marks::mark("writer.stop");
-                    self.flush(FlushReason::Quit, Instant::now());
-                    self.quit_checkpoint(FlushReason::Quit);
+                    self.search.quitting();
+                    if self.quit == Quit::Running {
+                        self.quit = Quit::Quitting;
+                    }
+                    let report = self.flush(FlushReason::Quit, Instant::now());
+                    if report.rows > 0 || self.quit != Quit::Left {
+                        self.quit_finish();
+                    }
                     self.repage();
                     self.close_machines();
                     rune::marks::mark("writer.stopped");
@@ -397,7 +431,8 @@ impl Writer {
             tx.commit()
         })();
         self.conn.execute_batch(SYNCED).ok();
-        if result.is_ok() {
+        // Not at the quit: its own end syncs the WAL once (`quit_finish`), with no checkpoint.
+        if result.is_ok() && self.quit == Quit::Running {
             self.bound_unsynced();
         }
         note(&result);
@@ -566,42 +601,6 @@ impl Writer {
         }
     }
 
-    /// The WAL's frames to the disk (what `synchronous = FULL` does at each commit), through a
-    /// handle of its own kept open; a failed sync waits for the next checkpoint's.
-    fn sync_wal(&mut self) {
-        if self.wal_file.is_none() {
-            let path = self.conn.path().map(|p| format!("{p}-wal"));
-            self.wal_file = path.and_then(|p| std::fs::OpenOptions::new().write(true).open(p).ok());
-        }
-        if let Some(f) = &self.wal_file
-            && f.sync_data().is_ok()
-        {
-            self.unsynced_since = None;
-        }
-        rune::marks::mark("outbox.synced");
-    }
-
-    /// Unsynced commits leave SQLite's own checkpoint off (`UNSYNCED`): one run at
-    /// `synchronous = OFF` copies unsynced frames into the database file without a sync first,
-    /// which a power cut could leave half-written. This runs it at NORMAL instead (the WAL synced,
-    /// then copied, then the file synced) once unsynced commits have piled up for
-    /// `UNSYNCED_FOR` or the WAL has passed `UNSYNCED_BYTES`, which bounds what a power cut can
-    /// lose while changes keep coming; a quiet spell's checkpoint (`IDLE_CHECKPOINT_MS`) and the
-    /// quit's come sooner.
-    fn bound_unsynced(&mut self) {
-        let since = *self.unsynced_since.get_or_insert_with(Instant::now);
-        if self.wal_file.is_none() {
-            let path = self.conn.path().map(|p| format!("{p}-wal"));
-            self.wal_file = path.and_then(|p| std::fs::OpenOptions::new().write(true).open(p).ok());
-        }
-        let bytes = self.wal_file.as_ref().and_then(|f| f.metadata().ok()).map_or(0, |m| m.len());
-        if since.elapsed() < UNSYNCED_FOR && bytes < UNSYNCED_BYTES {
-            return;
-        }
-        self.conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).ok();
-        self.unsynced_since = None;
-    }
-
     /// A Tier 0 write: committed and synced before it returns.
     fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
@@ -643,33 +642,6 @@ impl Writer {
         FlushReport { clean: false, rows: self.written, micros: super::micros(started), checkpointed, timed_out: false }
     }
 
-    /// A file made before 16 KiB pages is rewritten with them as the storage closes, once, while
-    /// it's small enough to take a few ms (`REPAGE_MAX`): a commit writes whole pages to the WAL,
-    /// and the kill-safe tier commits a keystroke's draft at a time. A bigger file keeps its 64 KiB
-    /// pages. Rewritten with `VACUUM` under the rollback journal, so a kill midway leaves the old
-    /// file; the boot record's raw read is kept only if its table's root is still page 2.
-    fn repage(&mut self) {
-        let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
-        let (page, pages) = (get("page_size"), get("page_count"));
-        if page <= REPAGE_TO || page * pages > REPAGE_MAX {
-            return;
-        }
-        let t = Instant::now();
-        // VACUUM moves every page: the draft journal's place goes with it, so it's reserved
-        // again at the next launch (closed and clean by now: `journal::finish`).
-        self.conn.execute_batch("DELETE FROM journal_meta; DELETE FROM journal;").ok();
-        let done = self.conn.execute_batch(&format!("PRAGMA journal_mode = DELETE; PRAGMA page_size = {REPAGE_TO}; VACUUM; PRAGMA journal_mode = WAL;"));
-        // The WAL back to empty: the next launch reads the record raw.
-        self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).ok();
-        let root: i64 = self.conn.query_row("SELECT rootpage FROM sqlite_schema WHERE name = 'boot'", [], |r| r.get(0)).unwrap_or(0);
-        if root != 2
-            && let Ok(version) = super::schema::user_version(&self.conn)
-        {
-            super::schema::set_flags(&self.conn, version & super::schema::FLAG_MASK & !super::schema::FLAG_BOOT_PAGE2).ok();
-        }
-        eprintln!("opencode-storage: {} {} pages of {page} B into {REPAGE_TO} B pages in {} us", if done.is_ok() { "rewrote" } else { "couldn't rewrite" }, pages, t.elapsed().as_micros());
-    }
-
     /// The kill-safe tier (`Storage::commit_soon`): once the queue is drained, the state,
     /// document and window rows waiting in their buffers go to the WAL in one commit (no sync).
     fn commit_if_due(&mut self) {
@@ -684,14 +656,6 @@ impl Writer {
         // against 145-165 µs, `proof\storage-2\first-commit.txt`): the frames are the operating
         // system's once written; the next checkpoint (at NORMAL) syncs them (`commit`).
         self.commit(batches);
-    }
-
-    /// The quit's checkpoint, after its flush answered: the next open finds the WAL empty and
-    /// reads the boot record raw.
-    fn quit_checkpoint(&mut self, reason: FlushReason) {
-        if matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart) {
-            self.wal_event(WalEvent::QuitRequested);
-        }
     }
 
     fn close_machines(&mut self) {
@@ -724,6 +688,8 @@ impl Writer {
         if self.reservation == Reservation::Unsynced {
             self.sync_reservation();
         }
+        // A WAL the last run left (its quit's, or a kill's): checkpointed once writes are quiet.
+        self.wal_event(WalEvent::Opened);
         let now = (self.clock)();
         if matches!(self.search, super::search::State::BeforeFrame) {
             self.conn.execute_batch(UNSYNCED).ok();
@@ -775,37 +741,6 @@ impl Writer {
         }
     }
 
-    fn wal_event(&mut self, event: WalEvent) {
-        let mut queue: Vec<WalEffect> = checkpoint::step(&mut self.seq, &mut self.wal, event).into_iter().collect();
-        while let Some(effect) = queue.pop() {
-            match effect {
-                WalEffect::ArmTimer { attempt, delay_ms } => {
-                    self.timers.insert("wal", Some((attempt, Instant::now() + Duration::from_millis(delay_ms))));
-                }
-                WalEffect::CancelTimer => {
-                    self.timers.insert("wal", None);
-                }
-                WalEffect::Checkpoint { rebuild_boot } => {
-                    // The record goes current in the transaction right before the checkpoint, so
-                    // whenever the WAL is empty the record on page 2 is the truth.
-                    let rebuilt = !rebuild_boot
-                        || (|| -> rusqlite::Result<()> {
-                            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-                            boot_record::rebuild(&tx)?;
-                            tx.commit()
-                        })()
-                        .is_ok();
-                    rune::marks::mark("writer.rebuilt");
-                    let busy = if rebuilt { self.conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0)).unwrap_or(1) } else { 1 };
-                    if busy == 0 {
-                        self.unsynced_since = None;
-                    }
-                    let event = if busy == 0 { WalEvent::Checkpointed } else { WalEvent::CheckpointFailed };
-                    queue.extend(checkpoint::step(&mut self.seq, &mut self.wal, event));
-                }
-            }
-        }
-    }
 }
 
 fn ran(done: Option<Loaded>) {

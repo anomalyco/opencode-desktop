@@ -4,7 +4,9 @@
 //! `opencode-storage` thread, which owns it from then on.
 
 mod boot;
+mod bootcopy;
 mod dbfile;
+mod walstamp;
 pub mod boot_record;
 pub mod import;
 pub mod journal;
@@ -274,9 +276,11 @@ impl Backend {
 
     pub(crate) fn close(&self) -> FlushReport {
         let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
-        // Before the writer stops (its repage may move pages): the journal is clean when every
-        // draft it holds is in the database.
-        journal::finish(!report.timed_out && crate::write_trouble().is_none());
+        // No more records, and none of this process's writes to the journal after its windows went:
+        // the single-instance claim went with them, so the next launch may have mapped it already
+        // (and keeps writing it). It isn't marked clean: the next launch reads its records, all in
+        // the database by now, as after a kill. Before the writer stops (its repage may move pages).
+        journal::finish(false);
         let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();
