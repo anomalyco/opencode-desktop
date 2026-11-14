@@ -864,6 +864,22 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     let asked = app.plugins.asked.replace(false);
     let mut changed = false;
     changed |= dormant::poll(app, tx);
+    // IB-3 measuring: IB3_RUN_AT="<command>@<ms>,..." runs each command once that long after the first plugin slept, as the palette would.
+    if let (Ok(spec), Some(since)) = (std::env::var("IB3_RUN_AT"), app.plugins.dormant.since()) {
+        thread_local! { static DONE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
+        for item in spec.split(',') {
+            let Some((id, ms)) = item.split_once('@') else { continue };
+            let due = ms.parse::<u64>().unwrap_or(0);
+            if since.elapsed().as_millis() as u64 >= due && !DONE.with_borrow(|d| d.iter().any(|x| x == item)) {
+                DONE.with_borrow_mut(|d| d.push(item.to_owned()));
+                let t = rune::time::Instant::now();
+                let ran = crate::plugin_host::run_command(app, id, tx);
+                eprintln!("ib3: ran {id} at {due} ms: {ran} in {} us", t.elapsed().as_micros());
+                changed = true;
+            }
+            if !DONE.with_borrow(|d| d.iter().any(|x| x == item)) { tx.wake_after(std::time::Duration::from_millis(5)); }
+        }
+    }
     if app.plugins.later.is_empty() {
         dormant::save(app);
     }
