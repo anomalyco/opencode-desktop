@@ -160,11 +160,13 @@ fn variant(color: &str) -> usize {
     COLORS.iter().position(|c| *c == color).unwrap_or(8)
 }
 
-/// A letter tile in colour `v` (`project-avatar-surface`): 6 pt corners, a 0.5 pt inset ring,
+/// A letter tile in colour `v` (`project-avatar-surface`): 6 pt corners, a white sheen from
+/// `alpha-light-16` at the top to nothing at the bottom (gray has none), a 0.5 pt inset ring,
 /// the letter in 530 at `font`.
 fn tile(p: &Pal, letter: &str, v: usize, size: f32, font: f32) -> El {
     let (bg, ring) = p.avatars[v];
     let t = el().size(size, size).radius(6.0).fill(bg).box_shadow(Pal::ring_in(ring)).center();
+    let t = if v == 8 { t } else { t.gradient(Color::WHITE.alpha(0x29 as f32 / 255.0), Color::WHITE.alpha(0.0)) };
     if letter.is_empty() {
         return t;
     }
@@ -191,8 +193,10 @@ fn general(s: &App, p: &Pal, x: &Project) -> El {
             .child(text(name.clone()).font(super::TITLE).color(p.text).truncate().shrink().min_w(0.0)))
         .child(options(s, p, x, "settings-project-options", 28.0));
     let name_field = col().items_end().gap(6.0)
-        // `.project-settings-name`: the base text input, as wide as the row leaves it.
-        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label(t!("project.settings.name.title")).width(Some(198.67)).spellcheck(s.settings.spellcheck).text_style(super::NAME_REGULAR).height(28.0)
+        // `.project-settings-name` in a control as wide as its content (`settings.css:883-888`): the
+        // input at its default `size`, 20 average characters of 13 px Inter (187), and its 8 of
+        // padding: 195 in Desktop at every width over 640.
+        .child(rune_kit::TextInput::new(&st.name).placeholder(folder.clone()).label(t!("project.settings.name.title")).width(Some(195.0)).spellcheck(s.settings.spellcheck).text_style(super::NAME_REGULAR).height(28.0)
             .invalid(failed(Field::Name)).on_edit(|s: &mut App| &mut s.settings_pages.project.name).build(crate::palette::kit(p)).key("settings-project-name-input"))
         .children(failed(Field::Name).then(|| save_failed(p, Field::Name)));
     let mut rows = vec![
