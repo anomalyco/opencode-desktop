@@ -599,7 +599,9 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
-        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(0.0, 0.0)), Align::Start, Side::Bottom),
+        // Kobalte's context menu opens `right-start` of the pointer, 2 off it and shifted 2 down
+        // (`gutter: 2, shift: 2`, `context-menu-root.tsx`).
+        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).size(0.0, 0.0)), Align::Start, Side::Right),
     };
     let at_point = point.is_some();
     let gap = if at_point { GAP } else { shown.menu.gap.unwrap_or(4.0) };
