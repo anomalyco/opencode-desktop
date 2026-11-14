@@ -204,6 +204,15 @@ impl ComposerState {
 /// Host hooks for the shared session composer. Defaults give a minimal host (like Seer) auto-grow,
 /// attachment chips, image paste, `+` attach button, and Send / Stop with ~20 lines of glue,
 /// while letting OpenCode (Rune) plug in its pickers, slash/mention menus, queue face, and dictation.
+/// The prompt's name and the suggestion row it names, for a screen reader: built only while one
+/// reads the window, so a keystroke without one makes nothing for them.
+fn named_prompt<S: ComposerHost>(s: &S, prompt: El) -> El {
+    if !s.assistive() {
+        return prompt;
+    }
+    // Nothing highlighted names no row.
+    prompt.label_static(opencode_i18n::t!("ui.promptInput.label")).active_descendant(s.composer_active_option().unwrap_or_default())
+}
 pub trait ComposerHost: TimelineHost {
     fn composer_edit(&self) -> &TextEdit;
     fn composer_edit_mut(&mut self) -> &mut TextEdit;
@@ -478,17 +487,14 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                 // The scroll box keeps its 8 pt scroll bar's room at its end
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(
-                                    prompt_dir(
+                                    named_prompt(s, prompt_dir(
                                         crate::style::field(
                                             s.composer_edit(),
                                             if s.composer_shell_mode() { SHELL_PROMPT } else { PROMPT },
                                         ),
                                         s.composer_shell_mode(),
                                     )
-                                    .key("prompt")
-                                    .label_static(opencode_i18n::t!("ui.promptInput.label"))
-                                    // Nothing highlighted names no row.
-                                    .active_descendant(s.composer_active_option().unwrap_or_default())
+                                    .key("prompt"))
                                     // `ps-4 pt-4`, and 12 less the gutter at the end
                                     // (`editor.css:29-34`), on the editor itself, so they follow
                                     // its own direction as Desktop's `#editor` padding does.
