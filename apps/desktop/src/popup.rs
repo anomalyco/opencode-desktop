@@ -29,6 +29,8 @@ const MAX_H: f32 = 2.0 * MENU.inset + 11.5 * MENU.row_h;
 
 /// A drawn menu's narrowest, as Desktop's: a dropdown's, and a right-click menu's.
 const MIN_W: f32 = 96.0;
+/// The location card's rows (`session-identity-header.css`): 2 apart, 8 in on both sides.
+const CARD: popover::Look = popover::Look { row_gap: 2.0, pad_l: 8.0, pad_r: 8.0, ..MENU };
 const CONTEXT_MIN_W: f32 = 160.0;
 
 /// From a point (a right-click) or an element to the menu's corner.
@@ -203,12 +205,15 @@ pub struct Menu {
     gap: Option<f32>,
     /// Its rows' start padding, when not the look's (`.settings-server-switcher-menu`'s 8).
     item_inset: Option<f32>,
+    /// The location card's rows (`session-location-card`): 2 apart, 8 in on both sides, and the
+    /// card 4 to the start of its trigger (`shift={-4}`).
+    card: bool,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None, item_inset: None }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None, item_inset: None, card: false }
     }
 
     /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
@@ -269,6 +274,8 @@ impl Menu {
     pub fn gap(mut self, gap: f32) -> Menu { self.gap = Some(gap); self }
     /// Its rows start `pad` in rather than the look's 12.
     pub fn item_inset(mut self, pad: f32) -> Menu { self.item_inset = Some(pad); self }
+    /// The location card's look ([`Menu::card`]'s field).
+    pub fn card(mut self) -> Menu { self.card = true; self }
     /// Drawn in menu-v2's standard look, at least `min_w` wide, as Desktop's app menu is.
     pub fn standard(mut self, min_w: f32) -> Menu {
         self.look = Look::Standard;
@@ -622,6 +629,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at));
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
+    let menu = if shown.menu.card && !at_point { menu.offset(-4.0, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
     layer.push(popover::place(&s.knobs, menu, &anchor, side, align, gap));
     // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
     let mut parent = listed;
@@ -656,7 +664,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
         1 => sub.to_owned(),
         _ => format!("{sub}-{level}"),
     };
-    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), MENU);
+    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), if menu.card { CARD } else { MENU });
     if let (Some(s), Some(search)) = (s, &menu.search) {
         list.other(search_field(s, p, &search.placeholder), SEARCH_H);
     }
@@ -700,7 +708,7 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                 };
                 // A server row keeps its check's column when unchecked, as a radio item's indicator does.
                 let o = if matches!(i.glyph, Some(Glyph::Status(_))) && !i.checked { o.trailing(el().size(16.0, 16.0)) } else { o };
-                let look = menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU });
+                let look = if menu.card { CARD } else { menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU }) };
                 let o = match i.diff {
                     Some((a, d)) => o.after(diff_note(p, a, d)),
                     None => o,

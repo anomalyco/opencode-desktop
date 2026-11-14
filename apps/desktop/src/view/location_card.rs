@@ -103,7 +103,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     let worktree = super::location::worktree_name(project.as_ref(), &dir);
     let child = info.parent.is_some();
 
-    let mut menu = Menu::new(name.clone()).width(320.0);
+    let mut menu = Menu::new(name.clone()).width(320.0).card();
     let mut head = Item::new("project", name.clone()).enabled(project.is_some());
     if let Some(p) = &project {
         head = head.project(p.directory.clone());

@@ -4,7 +4,7 @@
 //!
 //! | above, below                                              | gap        |
 //! |-----------------------------------------------------------|------------|
-//! | prose, prose (a reply's words)                            | `PROSE` 12 |
+//! | prose, prose (two text parts of a reply)                  | `BLOCK` 16 |
 //! | quiet, quiet (notices), or a notice beside a tool row      | `TIGHT` 8  |
 //! | a tool row (Used N, a thought, calls, a subagent), a tool row | `TIGHT` 8, box to box |
 //! | a prompt (its 28 meta room included), its reply's first row | `REPLY` 24 |
@@ -28,8 +28,6 @@ use opencode_kit::model::{Message, Part, Transcript};
 use super::{RowContent, RowSpec};
 use crate::turns::{self, Block};
 
-/// Between two pieces of prose: Markdown's own paragraph gap.
-pub const PROSE: f32 = 12.0;
 /// Between quiet rows, which read as one group.
 pub const TIGHT: f32 = 8.0;
 /// Around a group of quiet rows and a card.
@@ -116,7 +114,9 @@ fn edges<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowContent
 
 fn gap(above: Kind, below: Kind) -> f32 {
     match (above, below) {
-        (Kind::Prose, Kind::Prose) => PROSE,
+        // Two text parts are two of Desktop's rows (`projection.ts`): the later stands `pt-4` under
+        // the first, as any part does; a reply's own paragraphs keep Markdown's 12 inside it.
+        (Kind::Prose, Kind::Prose) => BLOCK,
         (Kind::Quiet | Kind::Tool, Kind::Quiet | Kind::Tool) => TIGHT,
         (Kind::Prompt, _) => REPLY,
         // Every other row beside a tool row in a turn stands 16 from its box (`pt-4`); `space_at`.
