@@ -398,8 +398,26 @@ pub fn layer(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
         .transition(Transition::none())
         .motion(Spring::NONE)
         .modal(true, |s: &mut App| close(s, &mut Tx::default()))
-        .child(header)
-        .child(body);
+        // `dialog-content`: past the dialog's height its content scrolls, the bar hidden.
+        .child(session_view::scroller::scroller("mcp-sign-in-content").hidden(col().w_full().shrink().min_h(0.0), col().w_full().child(header).child(body)));
     // `<Dialog size="normal">` (`providers/connect/mcp-sign-in.tsx`).
     widgets::sized_modal("mcp-sign-in", p, widgets::DialogSize::Normal, widgets::Fit::Fixed, widgets::dialog_window(cx, *s.zoom), dialog)
 }
+
+// `--scene mcp-sign-in-long`: a sign-in that failed with an error longer than the dialog, which
+// scrolls in it.
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("mcp-sign-in-long", |s| {
+        let error = (1..=30).map(|i| format!("at frame {i}: invalid_grant from https://auth.example.com/token")).collect::<Vec<_>>().join("\n");
+        s.mcp.sign_in = Some(SignIn {
+            dir: String::new(),
+            name: "linear".into(),
+            integration: "linear".into(),
+            attempt: "msi_scene".into(),
+            url: "https://auth.example.com/authorize".into(),
+            state: State::Failed(Failure::Auth(error)),
+            field: TextEdit::default(),
+            issued: Seq::default(),
+        });
+    }),
+]);

@@ -30,16 +30,14 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     if s.usage.open.is_none() {
         return Vec::new();
     }
-    let zoom = s.zoom.max(0.5);
-    let win_w = cx.layout_size("zoom").map_or(1280.0 / zoom, |[w, _]| w);
     // Escape and a press outside close it (`modal`).
-    dialog(s, p, win_w).map_or_else(Vec::new, |d| widgets::modal("usage", p, d.modal(true, |s: &mut App| s.close_usage()), None))
+    dialog(s, p, widgets::dialog_window(cx, *s.zoom)).map_or_else(Vec::new, |d| widgets::modal("usage", p, d.modal(true, |s: &mut App| s.close_usage()), None))
 }
 
-/// The dialog in a window `win_w` wide, while open.
-pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
+/// The dialog in a window `win`, while open.
+pub(super) fn dialog(s: &App, p: &Pal, win: [f32; 2]) -> Option<El> {
     let open = s.usage.open.as_ref()?;
-    let width = widgets::DialogSize::Normal.width(win_w);
+    let width = widgets::DialogSize::Normal.width(win[0]);
     let (body, footer) = match &open.load {
         Load::Ready(info) | Load::Refreshing { info, .. } => {
             let v = limits::view(info, open.model.as_ref(), open.credits);
@@ -47,22 +45,20 @@ pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
         }
         load => (fallback(p, load, width), None),
     };
-    // `<Dialog fit>` (`usage/dialog.tsx`): the normal size, as tall as its content.
-    Some(
-        col()
-            .key("usage-dialog")
-            .role("dialog")
-            .label_static(t!("usage.title"))
-            .w(width)
-            .radius(6.0)
-            .fill(p.layer1)
-            .elevate(p.overlay)
-            .clip_soft(0.0)
-            .transition(Transition::none())
-            .child(header(p))
-            .child(col().key("usage-body").w_full().gap(16.0).child(body))
-            .children(footer),
-    )
+    // `<Dialog fit>` (`usage/dialog.tsx`): the normal size, as tall as its content up to the
+    // window less 32; past that its content scrolls with the bar hidden (`dialog-content`).
+    let content = col().w_full().child(header(p)).child(col().key("usage-body").w_full().gap(16.0).child(body)).children(footer);
+    let card = col()
+        .key("usage-dialog")
+        .role("dialog")
+        .label_static(t!("usage.title"))
+        .radius(6.0)
+        .fill(p.layer1)
+        .elevate(p.overlay)
+        .clip_soft(0.0)
+        .transition(Transition::none())
+        .child(session_view::scroller::scroller("usage-content").hidden(col().w_full().shrink().min_h(0.0), content));
+    Some(widgets::sized(card, widgets::DialogSize::Normal, widgets::Fit::Content, win))
 }
 
 /// `DialogHeader` with its close button and the title group.
