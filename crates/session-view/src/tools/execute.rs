@@ -25,7 +25,7 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let code = field(c.input, "code").map(str::trim_end).filter(|code| !code.is_empty());
     // The script is whole once the model has written the call, so it can be read while it runs.
     let view_code = code.filter(|_| *c.status != ToolStatus::Pending).map(|_| view_code_button::<S>(p, cx.session, c.id));
-    disclosure(trigger(s, p, cx, c, d, t, press, view_code), d, || {
+    disclosure(s, trigger(s, p, cx, c, d, t, press, view_code), d, || {
         let owner = calls.iter().rposition(|v| v["status"] == "error");
         let mut list = col().key("calls").w_full().gap(6.0);
         for (n, call) in calls.iter().enumerate() {
@@ -141,14 +141,15 @@ fn call_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, id: &str, n: usize, call: 
             );
         }
         // A hairline down the input's left, 4 pt in from the marker (`margin: 4px 0 2px 4px`).
-        item = item.child(
+        item = item.child(crate::disclosure::reveal(
+            s.knobs(),
             row().key("input-box").w_full().mt(4.0).mb(2.0).pl(4.0)
                 .child(el().key("rule").w(0.5).self_stretch().fill(p.border))
                 .child(capped(list).grow(1.0).min_w(0.0)),
-        );
+        ));
     }
     if let Some(e) = error {
-        item = item.child(capped(col().key("error").w_full().pl(20.0).mt(4.0).child(readable(p, linked::<S>(p, e, TOOL_CODE, p.danger)))));
+        item = item.child(crate::disclosure::reveal(s.knobs(), capped(col().key("error").w_full().pl(20.0).mt(4.0).child(readable(p, linked::<S>(p, e, TOOL_CODE, p.danger))))));
     }
     item
 }
@@ -171,7 +172,7 @@ fn output_row<S: TimelineHost>(s: &S, p: &Pal, id: &str, out: &str) -> El {
         .child(text(opencode_i18n::t!("ui.tool.execute.output")).key("name").font(TOOL_CODE).color(p.text))
         .child(text(opencode_i18n::plural!("ui.tool.execute.lines", lines)).key("args").font(TOOL_CODE).color(p.muted).group_color(p.text));
     let c = col().key("output-item").w_full().child(line);
-    if open { c.child(col().w_full().pl(20.0).mt(4.0).child(console(s, p, id, None, out))) } else { c }
+    if open { c.child(crate::disclosure::reveal(s.knobs(), col().key("output").w_full().pl(20.0).mt(4.0).child(console(s, p, id, None, out)))) } else { c }
 }
 
 /// View code: a 24 pt ghost icon button that opens the script and its result in a dialog.

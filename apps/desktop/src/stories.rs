@@ -184,6 +184,7 @@ const ORDER: &[&str] = &[
     "Timeline/Diagram full size",
     "Timeline/Tool rows",
     "Timeline/Long tool group",
+    "Timeline/Tool row fold",
     "Timeline/Selection",
     "Timeline/Find",
     "Timeline/Quote",

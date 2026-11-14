@@ -6,6 +6,9 @@ use serde_json::json;
 
 use crate::App;
 
+/// What the shell printed, so pressed open it shows a console as in Kit's capture (t1484).
+const LOG: &str = "4f1c2ab Fold tool rows open on the group's spring\n9e03d71 Hold a pressed header where it shows\n31b8c0e Keep the console's output capped\nd2a6f94 Name the build machine in the answer\n7c5e019 Start the three programs";
+
 /// A turn of one shell call and a long answer, the next step still thinking.
 pub fn add_shell_fold(app: &mut App, sid: &str) {
     let t = app.transcripts.get_mut(sid).expect("session");
@@ -15,7 +18,7 @@ pub fn add_shell_fold(app: &mut App, sid: &str) {
         .collect::<Vec<_>>()
         .join("\n\n");
     let parts = vec![
-        Part::Tool { id: "call_zzshellfold".into(), name: "shell".into(), title: "git log --oneline -5".into(), status: ToolStatus::Completed, input: json!({}), files: vec![], metadata: json!(null) },
+        Part::Tool { id: "call_zzshellfold".into(), name: "shell".into(), title: "git log --oneline -5".into(), status: ToolStatus::Completed, input: json!({ "command": "git log --oneline -5" }), files: vec![], metadata: json!({ "output": LOG }) },
         Part::Text { text: format!("I'm building three things for you to run in your terminal.\n\n{answer}") },
     ];
     t.messages.push(Message::Assistant(Assistant { id: "msg_zzshellfold1".into(), completed: Some(1), parts, ..Default::default() }));

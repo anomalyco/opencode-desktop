@@ -116,7 +116,7 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let searched = path(c.input).or_else(|| s.session_directory(cx.session)).unwrap_or("/");
     let t = Trigger { title: title.into(), subtitle: directory(s, cx.session, searched), args, matches, ..Default::default() };
     let press = if out.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
-    disclosure(trigger(s, p, cx, c, d, t, press, None), d, || {
+    disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
         // `tool-output`: the result as written (`white-space: pre`), 240 px and scrolling.
         let words = readable(p, text(out.to_owned()).font(MD).color(p.text).wrap_anywhere()).w_full();
         body(crate::scroller::scroller("output").hidden(col().w_full().max_h(MAX_H), words), true, 4.0)
@@ -177,7 +177,7 @@ pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, opens);
     let t = Trigger { title: web_search_title(c.metadata).into(), subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
     let press = if opens { Press::Toggle(super::key(c.id)) } else { Press::None };
-    disclosure(trigger(s, p, cx, c, d, t, press, None), d, || {
+    disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
         let mut links: Vec<&str> = Vec::new();
         for r in super::plain::urls(out) {
             if !links.contains(&&out[r.clone()]) {

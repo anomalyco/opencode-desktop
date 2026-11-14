@@ -68,7 +68,35 @@ const KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Tool group", "stag
 
 rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story::session("Timeline/Long tool group", KEYS).knobs(KNOBS),
+    crate::stories::Story::session("Timeline/Tool row fold", ROW_KEYS).knobs(ROW_KNOBS),
 ]);
+
+// Timeline › Tool row fold (t1484): the tour's shell group open, its Shell and Execute rows
+// folding open and shut on the group's fold spring, the rows below sliding with them. O opens
+// or shuts the Shell, E the Execute; R replays both.
+const ROW_KEYS: &[Trigger] = &[
+    replay(open_rows),
+    Trigger { key: 'o', label: "Open or shut the Shell", run: |s, tx| press(s, tx, SHELL) },
+    Trigger { key: 'e', label: "Open or shut the Execute", run: |s, tx| press(s, tx, EXECUTE) },
+];
+
+const SHELL: &str = "call_shell_tour";
+const EXECUTE: &str = "call_execute_tour";
+
+fn open_rows(s: &mut App, tx: &mut Play<App>) {
+    tour(s, Some("c-call_shell_tour"), &[]);
+    tx.after(0.6, |s, tx| press(s, tx, SHELL));
+    tx.after(1.5, |s, tx| press(s, tx, EXECUTE));
+    tx.after(2.4, |s, tx| press(s, tx, EXECUTE));
+    tx.after(3.3, |s, tx| press(s, tx, SHELL));
+}
+
+/// Opens or shuts tool `id` (both shut by default in Compact), as a press on its row does.
+fn press(s: &mut App, tx: &mut Tx, id: &str) {
+    crate::disclosure::toggle(session_view::tools::key(id), format!("tool-{id}"))(s, tx);
+}
+
+const ROW_KNOBS: &[rune_knobs::Group] = &[rune_knobs::Group::new("Tool rows", "stage", &[crate::disclosure::FOLD_SPEED, crate::disclosure::FOLD_FEATHER])];
 
 /// The fixture's tour session, which calls every kind of tool once, and the groups its turns
 /// fold into (`turns::fold` keys a group by its first tool's id).

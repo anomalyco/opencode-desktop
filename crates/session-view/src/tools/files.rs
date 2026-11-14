@@ -276,7 +276,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
         // border is the content's top, which has none of its own (`border-top: 0`).
-        out = out.child(
+        out = out.child(crate::disclosure::reveal(
+            s.knobs(),
             col()
                 .key("content")
                 .w_full()
@@ -287,7 +288,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .clip_corners([0.0, 0.0, corner, corner])
                 .child(rule(0.5, p.border_muted).key("hairline"))
                 .child(readable(p, views)),
-        );
+        ));
     }
     if let Some(errors) = errors {
         // An intentional Rune extra: Desktop lists a file's errors under a lone edit or write but

@@ -5,8 +5,8 @@
 //!
 //! Each call shows in one of five phases, collapsed or expanded ([`Display`]). A call opens
 //! while it runs only where Desktop lets it (`allowOpenWhilePending`: shell and execute), and
-//! only when it has something to show. Opening and closing is instant, as a thought's is
-//! (`disclosure::toggle`); the group's row carries the height change on its own fold spring.
+//! only when it has something to show. What it shows folds open and shut on the group's fold
+//! spring (`disclosure::reveal`), the rows below sliding with it.
 //! The host may add a button beside a row that opens what the call touched in its side panel
 //! ([`TimelineHost::tool_row_action`]).
 //!
@@ -319,7 +319,9 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
     }
     let host = s.tool_row_action(p, cx.session, c);
     let actions: Vec<El> = action.into_iter().chain(host).collect();
-    let line = row().key("line").w_full().h(28.0).gap(2.0).center_y();
+    // The subtitle a shell or execute drops while open fades out as the arrow and the buttons
+    // beside it slide over.
+    let line = row().key("line").w_full().h(28.0).gap(2.0).center_y().animate_layout();
     if actions.is_empty() {
         return line.child(button.grow(1.0));
     }
@@ -347,11 +349,11 @@ pub fn body(content: El, rail: bool, gap: f32) -> El {
     if rail { b.pl(12.0) } else { b }
 }
 
-/// A trigger line, and `content` under it while open; the whole tool is the hover group its
-/// buttons follow.
-pub fn disclosure(line: El, d: Display, content: impl FnOnce() -> El) -> El {
+/// A trigger line, and `content` under it while open, folding open and shut; the whole tool is
+/// the hover group its buttons follow.
+pub fn disclosure<S: TimelineHost>(s: &S, line: El, d: Display, content: impl FnOnce() -> El) -> El {
     let c = col().w_full().hover_group().child(line);
-    if d.open() { c.child(content()) } else { c }
+    if d.open() { c.child(crate::disclosure::reveal(s.knobs(), content())) } else { c }
 }
 
 /// The call's text result: what it streams while running, else what it returned.

@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 
 use rune::machine::Effects;
-use rune::{Spring, Tx};
+use rune::{Edge, El, Reveal, Spring, SpringPair, Transition, Tx};
 use rune_knobs::{Group, Knob, Knobs};
 
 use crate::TimelineHost;
@@ -169,6 +169,18 @@ pub fn fold(k: &Knobs) -> Spring {
     Spring::new(k.get(&FOLD_SPEED), 0.0)
 }
 
+/// What a disclosure shows open (a tool's output, a thought, a file's change), on the fold's
+/// spring: it wipes in from its top while the rows below slide down on the same spring ([`set`],
+/// [`toggle`]), and shutting, wipes back up as its slot closes. `content` needs a key that holds
+/// from build to build.
+pub fn reveal(k: &Knobs, content: El) -> El {
+    let spring = fold(k);
+    let mut t = Transition::reveal(Edge::Top).springs(SpringPair::new(spring, spring)).hold_layout();
+    let wipe = Some(Reveal { edge: Edge::Top, feather: k.get(&FOLD_FEATHER) });
+    (t.insertion.reveal, t.removal.reveal) = (wipe, wipe);
+    content.transition(t)
+}
+
 /// How long a shut tool group keeps its steps mounted, for the row to fold shut over them:
 /// twice the spring's duration, when under a twentieth of a point is left to go.
 pub fn shut_secs(k: &Knobs) -> f64 {
@@ -197,11 +209,11 @@ pub fn set_open<S: TimelineHost>(s: &mut S, key: &str, open: bool) {
     s.expanded_mut().step(key, if open { Event::Open } else { Event::Shut { default_open: true } });
 }
 
-/// A press handler that opens or shuts `key` at once, as [`toggle`] flips it, for a disclosure
-/// with a default (`open`: whether it shows open now).
+/// A press handler that opens or shuts `key`, as [`toggle`] flips it, for a disclosure with a
+/// default (`open`: whether it shows open now).
 pub fn set<S: TimelineHost>(key: String, open: bool, hold: String) -> impl Fn(&mut S, &mut Tx) + 'static {
     move |s: &mut S, tx: &mut Tx| {
-        tx.instant();
+        tx.motion(fold(s.knobs()));
         set_open(s, &key, !open);
         anchor(s, tx, !open, &hold, &hold);
     }
@@ -223,11 +235,12 @@ pub fn is_shutting<S: TimelineHost>(s: &S, key: &str) -> bool {
     matches!(s.expanded().get(key), Some(Disclosure::Shutting { until }) if s.clock() < until)
 }
 
-/// A press handler that flips `key` at once: a disclosure opens and closes as a thought's does.
-/// `hold`, the pressed trigger, holds as [`anchor`] says.
+/// A press handler that flips `key`: what it shows folds open or shut ([`reveal`]), the rows
+/// below moving with it on the fold's spring. `hold`, the pressed trigger, holds as [`anchor`]
+/// says.
 pub fn toggle<S: TimelineHost>(key: String, hold: String) -> impl Fn(&mut S, &mut Tx) + 'static {
     move |s: &mut S, tx: &mut Tx| {
-        tx.instant();
+        tx.motion(fold(s.knobs()));
         let opening = toggle_expanded(s, &key);
         anchor(s, tx, opening, &hold, &hold);
     }

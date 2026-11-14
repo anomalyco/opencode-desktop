@@ -89,7 +89,7 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
                 .child(readable(p, text(q).key("q").font(UI.lh(20.0)).color(p.muted).wrap().w_full()))
                 .child(readable(p, text(a).key("a").font(UI.lh(20.0)).color(p.text).wrap_anywhere().w_full()))
         });
-        c = c.child(col().key("answers").w_full().pl(12.0).py(8.0).gap(12.0).children(items));
+        c = c.child(crate::disclosure::reveal(s.knobs(), col().key("answers").w_full().pl(12.0).py(8.0).gap(12.0).children(items)));
     }
     c
 }
