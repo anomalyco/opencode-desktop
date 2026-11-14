@@ -13,6 +13,7 @@ use super::rows::section_title;
 use super::state::key;
 use super::*;
 use crate::popup::{self, Item, Menu};
+use crate::session_menu::preferences::{self, Kind};
 use crate::session_menu::{Spot, Target};
 use opencode_i18n::t;
 
@@ -25,8 +26,10 @@ pub(crate) const VISIBLE: usize = 30;
 fn partition(s: &App) -> (Vec<&SessionInfo>, Vec<&SessionInfo>, bool) {
     let here = crate::servers::runtime::active(s);
     let st = &s.project_state.recent;
-    let pinned: Vec<&SessionInfo> = st.pins.iter().filter_map(|k| super::state::split(k)).filter(|(server, _)| *server == here.as_str()).filter_map(|(_, id)| s.session(id)).filter(|i| i.archived.is_none()).collect();
-    let mut recent: Vec<&SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && !pinned.iter().any(|p| p.id == i.id)).collect();
+    // A hidden session leaves both lists, its pin kept (`partitionRecentSessions`' `hidden`).
+    let shown = |i: &&SessionInfo| !preferences::hidden(here, &i.id);
+    let pinned: Vec<&SessionInfo> = st.pins.iter().filter_map(|k| super::state::split(k)).filter(|(server, _)| *server == here.as_str()).filter_map(|(_, id)| s.session(id)).filter(|i| i.archived.is_none()).filter(shown).collect();
+    let mut recent: Vec<&SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && !pinned.iter().any(|p| p.id == i.id)).filter(shown).collect();
     recent.sort_by_key(|sesh| (std::cmp::Reverse(s.recent_page.time(sesh)), &sesh.id));
     let cutoff = *s.now_ms - WINDOW_MS;
     let in_window = recent.iter().position(|i| s.recent_page.time(i) < cutoff).unwrap_or(recent.len());
@@ -79,11 +82,17 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
     let pinned = pins.is_some();
     let items = sessions.iter().enumerate().map(|(index, info)| {
         let target = Target::on(&here, &info.id, Spot::Row);
+        let muted = preferences::muted(&here, &info.id);
         let mut item = TabItem::new(info.id.as_str(), crate::tabs::tab_title(&info.title))
-            .status(status(s, &info.id))
+            .status(status(s, &info.id, muted))
             .closable(false)
             .marked(s.menus.on.as_ref() == Some(&target))
             .avatar(crate::icons::badge(s, p, s.project_for_session(info), &info.title));
+        // Desktop's faint trailing "Muted" label (`TabNavItem`'s `label`); the kit's tab has no
+        // trailing label, so it reads under the title.
+        if muted {
+            item = item.subtitle(t!("sidebar.recent.muted"));
+        }
         if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
             item = item.editor(field);
         }
@@ -115,18 +124,20 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
     col().key(format!("{strip_key}-box")).w_full().h(h).child(strip.build(crate::palette::kit(p)))
 }
 
-/// A row's mark, as a side tab's (`useSessionTabAvatarState`).
-fn status(s: &App, id: &str) -> Option<TabItemStatus> {
+/// A row's mark, as a side tab's (`useSessionTabAvatarState`); a muted session shows no unread
+/// dot (`recentRowUnread`).
+fn status(s: &App, id: &str, muted: bool) -> Option<TabItemStatus> {
     Some(match s.tab_status(id)? {
         crate::TabStatus::Busy => TabItemStatus::Busy,
         crate::TabStatus::Attention => TabItemStatus::Attention,
+        crate::TabStatus::Unread if muted => return None,
         crate::TabStatus::Unread => TabItemStatus::Unread,
         crate::TabStatus::Failed => TabItemStatus::Failed,
     })
 }
 
 /// A row's menu (`RecentSessionTab`'s `menu`): Pin, or Unpin, Move up and Move down for a pinned
-/// one; then Rename and Archive; then Delete….
+/// one, then Mute or Unmute and Hide; then Rename and Archive; then Delete….
 fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, pinned: Option<(usize, usize)>, press: rune::PointerPress, tx: &mut Tx) {
     let target = Target::on(server, id, Spot::Row);
     let mut menu = Menu::new(t!("command.category.session"));
@@ -137,7 +148,10 @@ fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, p
             .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
             .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count)),
     };
+    let muted = preferences::muted(server, id);
     menu = menu
+        .item(Item::new("mute", if muted { t!("sidebar.recent.unmute") } else { t!("sidebar.recent.mute") }))
+        .item(Item::new("hide", t!("sidebar.recent.hide")))
         .separator()
         .item(Item::new("rename", t!("common.rename")))
         .item(Item::new("archive", t!("common.archive")))
@@ -158,6 +172,8 @@ fn open_menu(s: &mut App, server: &opencode_kit::servers::ServerKey, id: &str, p
                 let visible = visible();
                 s.project_state.recent.shift(&visible, &pin, dir == "up");
             }
+            Some("mute") => preferences::update(s, Kind::Muted, &target.server, &target.id, !muted),
+            Some("hide") => preferences::update(s, Kind::Hidden, &target.server, &target.id, true),
             Some("archive") => {
                 let id = target.id.clone();
                 s.archive_session(&id, tx);

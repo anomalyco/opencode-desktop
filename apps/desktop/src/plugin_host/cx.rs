@@ -85,7 +85,8 @@ pub enum Request {
     OpenExternal(String),
     Reveal(String),
     CopyText(String),
-    Notify { title: String, body: String },
+    /// `session`: the notification's session, which a mute silences.
+    Notify { title: String, body: String, session: Option<String> },
     Menu { anchor: String, menu: crate::popup::Menu, done: rune_luau::Completer },
     /// A developer tool (`Diagnostics:Set`).
     Dev { name: String, value: rune_luau::Data },

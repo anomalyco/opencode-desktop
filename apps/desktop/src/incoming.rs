@@ -32,6 +32,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
                 if e.ty == "session.deleted" && let Some(id) = e.data["sessionID"].as_str() {
                     crate::session_menu::unread::set(s, &crate::servers::runtime::current(), id, false);
+                    crate::session_menu::preferences::forget(s, &crate::servers::runtime::current(), id);
                 }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react(e) | gone

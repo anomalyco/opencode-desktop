@@ -1273,6 +1273,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // Another window changed the session data this one shows.
     let mut changed = windows::peer::behind(s);
     changed |= session_menu::unread::poll(s);
+    changed |= session_menu::preferences::poll(s);
     changed |= s.poll_places(now, tx);
     s.poll_undo(now, tx);
     reconnect::audit(s);

@@ -54,8 +54,13 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
         .center_y()
         .radius(6.0)
         .hover(p.hover)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open, tx))
-        .child(text(r.session.title.clone()).key("title").font(UI_MED).color(if r.active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto));
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open, tx));
+    // Rename from its menu edits the title in place.
+    let target = Target::on(r.server, &id, Spot::Row);
+    row = match crate::session_menu_view::field(s, p, &target, UI_MED) {
+        Some(field) => row.child(row_field(field)),
+        None => row.child(text(r.session.title.clone()).key("title").font(UI_MED).color(if r.active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto)),
+    };
     if let Some(label) = r.label {
         row = row.child(text(label).key("server").font(LABEL).color(p.faint).shrink().truncate());
     }
@@ -68,7 +73,12 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
     if r.active {
         row = row.fill(p.pressed);
     }
-    crate::session_menu::on(row, Target::on(r.server, &id, Spot::Row))
+    crate::session_menu::on(row, target)
+}
+
+/// A row's rename field, where its title stands.
+pub(crate) fn row_field(field: El) -> El {
+    row().key("title").grow(1.0).shrink().min_w(0.0).center_y().child(field)
 }
 
 /// A group's lead: a project's avatar, a server's glyph, or Other's dots.

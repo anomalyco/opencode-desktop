@@ -10,7 +10,7 @@ mod customized;
 mod menu;
 pub(crate) mod grouping;
 mod recent;
-mod rows;
+pub(super) mod rows;
 pub(crate) mod state;
 
 // ---------------------------------------------------------------------------------------------
@@ -232,7 +232,9 @@ fn list(s: &App, p: &Pal) -> El {
 /// The hover peek's two zones (`sidebar-peek.ts`): resting at the window's start edge slides
 /// the closed sidebar out over the panel (see `sidebar`), and straying past the corridor over
 /// it and the toggle sends it back. They only read where the pointer is, never taking a press,
-/// and stay mounted with the sidebar, open or closed, so neither misses an enter or a leave.
+/// and stay mounted with the sidebar, open or closed, so neither misses an enter or a leave. The
+/// window draws them first, under the sidebar: on top, a right-click on a row found them, not
+/// the row, and opened no menu.
 pub(crate) fn peek(s: &App) -> Vec<El> {
     if !s.shows_sidebar() {
         return vec![];
