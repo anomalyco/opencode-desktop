@@ -6,14 +6,14 @@ use std::hash::{Hash, Hasher};
 
 use serde_json::{Value, json};
 
-use super::state::{SessionSideState, SideState};
+use super::state::{SessionSideState, SideState, Visibility};
 use super::tabs::{ClosedSideTab, SessionTabState};
 
 impl SessionSideState {
     pub fn to_json(&self) -> Value {
         let closed: Vec<Value> = self.closed.iter().map(ClosedSideTab::to_json).collect();
         json!({
-            "open": self.open,
+            "open": self.visibility.open(),
             "bottomOpen": self.bottom_open,
             "tabState": self.tab_state.to_json(),
             "closed": closed,
@@ -26,7 +26,7 @@ impl SessionSideState {
     pub fn from_json(v: &Value) -> Self {
         let finite = |key: &str| v[key].as_f64().map(|n| n as f32).filter(|n| n.is_finite());
         Self {
-            open: v["open"].as_bool().unwrap_or(false),
+            visibility: if v["open"].as_bool().unwrap_or(false) { Visibility::Shown } else { Visibility::Unseen },
             bottom_open: v["bottomOpen"].as_bool().unwrap_or(true),
             tab_state: SessionTabState::from_json(&v["tabState"]),
             closed: v["closed"]
@@ -49,7 +49,7 @@ impl SideState {
         for (k, st) in &self.sessions {
             let mut eh = DefaultHasher::new();
             k.hash(&mut eh);
-            st.open.hash(&mut eh);
+            st.visibility.open().hash(&mut eh);
             st.bottom_open.hash(&mut eh);
             st.tab_state.tabs.active.hash(&mut eh);
             st.tab_state.tabs.all.hash(&mut eh);
@@ -92,9 +92,6 @@ impl SideState {
                 .iter()
                 .map(|(k, val)| (k.clone(), SessionSideState::from_json(val)))
                 .collect();
-            if map.values().any(|s| s.open) {
-                self.mounted = true;
-            }
             self.sessions = map;
         }
     }

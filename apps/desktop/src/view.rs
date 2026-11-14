@@ -222,7 +222,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // The side region's width comes from the row's while it's open or sliding shut (it keeps the
     // last as the far end of a close's travel); shut, nothing reads it, so a resize runs no view.
     // Opening reads it fresh, in the frame it opens.
-    let win_w = if matches!(*s.route, Route::Session { .. }) && (s.side_open() || s.side.mounted) {
+    let win_w = if s.side_mounted() {
         cx.layout_size("zoom").map_or(0.0, |[w, _]| w)
     } else {
         0.0

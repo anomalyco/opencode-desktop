@@ -78,7 +78,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         let app = app_now("Browser:Selected")?;
         let Some(sid) = sid.or_else(|| app.active_session_id().map(str::to_owned)) else { return Ok(Value::Nil) };
-        let open = app.side.sessions.get(&sid).is_some_and(|st| st.open) && !app.narrow();
+        let open = app.side.sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
         match app.active_browser_tab_for_session(&sid).filter(|&id| open && app.browser.host.tab(id).is_some()) {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
             None => Ok(Value::Nil),
@@ -364,7 +364,7 @@ pub fn version(app: &App) -> u64 {
     // Only the composer's focus: a region reading the composer would build again per keystroke.
     // The side region passes it in (`panels::view::side_region`).
     (rune::Tracked::untracked(&app.composer).focused, app.side.focused, format!("{:?}", app.side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
-    app.active_session_id().and_then(|sid| app.side.sessions.get(sid)).map(|st| st.open).hash(&mut h);
+    app.active_session_id().and_then(|sid| app.side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
     h.finish()
 }
 

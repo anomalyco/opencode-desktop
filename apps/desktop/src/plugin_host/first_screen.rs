@@ -39,7 +39,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
         let tabs = &side.tab_state.tabs;
         let shown = |key: &String| match tabs.panes.get(key).copied().unwrap_or(SessionPane::Side) {
             SessionPane::Bottom => side.bottom_open,
-            _ => side.open,
+            _ => side.visibility.open(),
         };
         let with_tabs: Vec<&str> = tabs.all.iter().filter(|k| shown(k)).filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect();
         let files = with_tabs.contains(&"file");

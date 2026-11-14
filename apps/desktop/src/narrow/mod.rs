@@ -105,12 +105,12 @@ impl App {
     /// An open of tab `key` in `session` while the window is narrow (`host-apis.tsx` `place`):
     /// it picks its panel's narrow view rather than opening the side region or bottom pane,
     /// which keep what they were (`was`: side, bottom) for when the window widens.
-    pub fn place_narrow(&mut self, session: &str, key: &str, was: (bool, bool)) {
+    pub fn place_narrow(&mut self, session: &str, key: &str, was: (crate::panels::state::Visibility, bool)) {
         if !self.narrow() {
             return;
         }
         let st = self.session_side_mut(session);
-        (st.open, st.bottom_open) = was;
+        (st.visibility, st.bottom_open) = was;
         let Some(view) = session::view_for_tab(self, key) else { return };
         let routed = self.active_session_id().map(str::to_owned);
         let event = ViewEvent::Select { session: session.to_owned(), view, routed, now: *self.clock };

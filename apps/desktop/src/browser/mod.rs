@@ -241,7 +241,7 @@ impl App {
             let st = self.session_side_mut(sid);
             st.tab_state = crate::panels::tabs::close_session_tab(&st.tab_state, &key);
             if st.tab_state.tabs.all.is_empty() {
-                st.open = false;
+                st.visibility.step(false);
             }
         }
         self.forget_browser_tab(id);

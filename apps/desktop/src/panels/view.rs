@@ -111,33 +111,26 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
     let bleed = if shown { SIDE_BLEED } else { 0.0 };
     let mut clip = el().key("side-region-clip").pin(Some(-bleed), Some(0.0), Some(0.0), Some(0.0)).clip_soft(0.0);
 
-    // Shut and never shown, it isn't laid out until the window is idle (`SideState::warm`).
-    if let Some(reg) = reg.as_ref().filter(|_| col_open || shown || s.side.mounted || s.side.warm) {
-        let env_scale = cx.env().scale;
-        let col_h = if col_open || s.side.mounted {
-            cx.layout_size("side-column")
-                .map_or(720.0 / *s.zoom, |[_, h]| h)
-        } else {
-            720.0 / *s.zoom
-        };
-        let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
-
-        let mut card = region_card(s, p, reg, w, col_h, env_scale)
-            .key("side-panel")
-            .grow(1.0)
-            .min_h(0.0);
-        let mut column = col()
-            .key("side-column")
-            .pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom))
-            .w(w)
-            .opacity(if col_open { 1.0 } else { 0.0 })
-            .opacity_motion(if col_open { OPEN_FADE } else { CLOSE_FADE });
+    // The column's opacity track exists before the first open. Its heavy body mounts only if
+    // this session has shown it; another session's pane never pays for it here.
+    let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
+    let mut column = col().key("side-column").pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom)).w(w)
+        .opacity(if col_open { 1.0 } else { 0.0 }).opacity_motion(if col_open { OPEN_FADE } else { CLOSE_FADE });
+    if let Some(reg) = reg.as_ref() {
+        // Mount the card's frame with the column: its border follows the same track even on the
+        // first open. At zero opacity no body, plugin output or row layout is needed.
+        let mut card = card_frame(p, w).key("side-panel").grow(1.0).min_h(0.0);
+        if s.side_mounted() {
+            let env_scale = cx.env().scale;
+            let col_h = cx.layout_with("side-column", |r| r[3]).unwrap_or(720.0 / *s.zoom);
+            card = card.child(region_body(s, p, reg, w, col_h, env_scale));
+        }
         if !col_open {
             card = card.inert();
-            column = column.inert();
         }
-        clip = clip.child(column.child(card));
+        column = column.child(card);
     }
+    clip = clip.child(if col_open { column } else { column.inert() });
     outer.child(clip)
 }
 
@@ -146,12 +139,16 @@ pub fn story_card(s: &App, p: &Pal, width: f32, height: f32) -> El {
     let Some(reg) = s.resolve_side_region() else {
         return el().key("side-panel").size(width, height);
     };
-    region_card(s, p, &reg, width, height, 2.0)
+    card_frame(p, width).child(region_body(s, p, &reg, width, height, 2.0))
         .key("side-panel")
         .size(width, height)
 }
 
-fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, env_scale: f32) -> El {
+fn card_frame(p: &Pal, width: f32) -> El {
+    col().w(width).radius(10.0).fill(p.bg_base).elevate(p.raised)
+}
+
+fn region_body(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, env_scale: f32) -> El {
     // A tab switch lands the contents at once. While the sidebar's flight moves the region's edge
     // they glide with it instead (`App::toggle_sidebar`): what keeps to the start rides the edge,
     // what keeps to the end stays, as Desktop's holdLandingWidth "blocks" does (`screen.tsx:171`).
@@ -212,9 +209,7 @@ fn region_card(s: &App, p: &Pal, reg: &ResolvedRegion, width: f32, col_h: f32, e
         body = body.child(split_handle(s, p, col_h, split_h));
     }
 
-    // `side-region.tsx`: bg-base, 10 pt corners, `--v2-elevation-raised`.
-    let body = if flying { body } else { body.instant_changes() };
-    col().w(width).radius(10.0).fill(p.bg_base).elevate(p.raised).child(body)
+    if flying { body } else { body.instant_changes() }
 }
 
 /// The split's `ResizeHandle` (`direction="vertical" edge="start"`): 8 tall across the lower

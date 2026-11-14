@@ -30,7 +30,7 @@ pub const BOTTOM_MIN_H: f32 = 120.0;
 /// panes show, its strip, and the sizes the user dragged (none until they do).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionSideState {
-    pub open: bool,
+    pub visibility: Visibility,
     pub bottom_open: bool,
     pub tab_state: SessionTabState,
     pub closed: Vec<ClosedSideTab>,
@@ -45,7 +45,7 @@ pub struct SessionSideState {
 impl Default for SessionSideState {
     fn default() -> Self {
         Self {
-            open: false,
+            visibility: Visibility::Unseen,
             bottom_open: true,
             tab_state: SessionTabState::default(),
             closed: Vec::new(),
@@ -53,6 +53,23 @@ impl Default for SessionSideState {
             split_ratio: None,
             bottom_height: None,
         }
+    }
+}
+
+/// A shell tab's `contentMounted` latch (`side-region.tsx`). Another session opening a pane
+/// cannot make this one lay out a hidden plugin tree. Only the open preference is persisted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visibility { Unseen, Shown, Shut }
+
+impl Visibility {
+    pub fn open(self) -> bool { self == Self::Shown }
+    pub fn mounted(self) -> bool { self != Self::Unseen }
+    pub fn step(&mut self, open: bool) {
+        *self = match (*self, open) {
+            (_, true) => Self::Shown,
+            (Self::Unseen, false) => Self::Unseen,
+            (_, false) => Self::Shut,
+        };
     }
 }
 
@@ -114,12 +131,6 @@ pub struct SideState {
     pub edge_flight: Option<f64>,
     /// A tab dragged between panes.
     pub pane_drag: super::drag::PaneDrag,
-    /// Once shown, the side region keeps its DOM/Rune subtree mounted while closed so springs
-    /// never mount or unmount mid-flight (`side-region.tsx` `contentMounted`).
-    pub mounted: bool,
-    /// Never shown yet, the region is built shut only once the window has had no input for a while
-    /// (`warm`), so its first opening fades in as later ones do, and a launch lays out none of it.
-    pub warm: bool,
     /// Keyboard focus belongs to the side/bottom region rather than the session chat.
     pub focused: bool,
     /// A shortcut pressed in the composer moved the keyboard here (Open file, New tab, Reopen
@@ -164,8 +175,6 @@ impl Default for SideState {
             laid_w: std::cell::Cell::new(1280.0),
             edge_flight: None,
             pane_drag: Default::default(),
-            mounted: false,
-            warm: false,
             focused: false,
             quiet: false,
             was_composing: false,
@@ -281,7 +290,11 @@ impl App {
     pub fn side_stored_open(&self) -> bool {
         self.active_session_id()
             .and_then(|id| self.side.sessions.get(id))
-            .is_some_and(|st| st.open)
+            .is_some_and(|st| st.visibility.open())
+    }
+
+    pub fn side_mounted(&self) -> bool {
+        self.active_session_id().and_then(|id| self.side.sessions.get(id)).is_some_and(|st| st.visibility.mounted())
     }
 
     pub fn dock_placement(&self) -> DockPlacement {
@@ -497,12 +510,11 @@ impl App {
         self.side.focused = true;
         self.side.active_pane_focus = pane;
         self.composer.focused = false;
-        self.side.mounted = true;
         let st = self.session_side_mut(&sid);
         if pane == SessionPane::Bottom {
             st.bottom_open = true;
         } else {
-            st.open = true;
+            st.visibility.step(true);
         }
         id
     }
@@ -515,7 +527,7 @@ impl App {
         let strip_empty = self.resolve_side_region().is_none_or(|r| r.strip.is_empty());
         let any_new = self.side.adding.iter().any(|n| n.session_id == sid);
         if strip_empty && !any_new {
-            self.session_side_mut(&sid).open = false;
+            self.session_side_mut(&sid).visibility.step(false);
             self.side.focused = false;
         }
     }
@@ -528,14 +540,13 @@ impl App {
         self.side.add_menu = None;
         let was_open = self.side_stored_open();
         if was_open {
-            self.session_side_mut(&sid).open = false;
+            self.session_side_mut(&sid).visibility.step(false);
             self.side.focused = false;
             crate::plugin_host::blur_fields(self);
             return;
         }
 
-        self.side.mounted = true;
-        self.session_side_mut(&sid).open = true;
+        self.session_side_mut(&sid).visibility.step(true);
         self.side.focused = true;
         self.side.active_pane_focus = SessionPane::Side;
 
@@ -602,7 +613,7 @@ impl App {
         preview: bool,
         first: bool,
     ) {
-        let was = self.side.sessions.get(session_id).map_or((false, false), |st| (st.open, st.bottom_open));
+        let was = self.side.sessions.get(session_id).map_or((Visibility::Unseen, false), |st| (st.visibility, st.bottom_open));
         let transient_launchers: HashSet<String> = self
             .resolve_side_region()
             .map(|r| {
@@ -629,8 +640,7 @@ impl App {
         if actual_pane == SessionPane::Bottom {
             st.bottom_open = true;
         } else {
-            st.open = true;
-            self.side.mounted = true;
+            st.visibility.step(true);
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == actual_pane));
         self.side.focused = true;
@@ -658,7 +668,7 @@ impl App {
         }
         let shown = match pane {
             SessionPane::Bottom => st.bottom_open,
-            SessionPane::Side | SessionPane::Split => st.open,
+            SessionPane::Side | SessionPane::Split => st.visibility.open(),
         };
         if shown { 3 } else { 2 }
     }
@@ -676,7 +686,7 @@ impl App {
         let Some(sid) = self.active_session_id() else { return false };
         let Some(st) = self.side.sessions.get(sid) else { return false };
         let pane = session_tab_pane(&st.tab_state.tabs, key);
-        let open = if pane == SessionPane::Bottom { st.bottom_open } else { st.open };
+        let open = if pane == SessionPane::Bottom { st.bottom_open } else { st.visibility.open() };
         open && self.pane_shown_tab(pane).as_deref() == Some(key)
     }
 
@@ -710,7 +720,7 @@ impl App {
     }
 
     pub fn show_side_tab(&mut self, session_id: &str, key: &str, target: Option<SessionPane>) {
-        let was = self.side.sessions.get(session_id).map_or((false, false), |st| (st.open, st.bottom_open));
+        let was = self.side.sessions.get(session_id).map_or((Visibility::Unseen, false), |st| (st.visibility, st.bottom_open));
         let fallback = split_panel_key(key)
             .and_then(|(pl, _)| self.all_panels().into_iter().find(|p| p.plugin == pl))
             .map(|p| p.home_pane(self));
@@ -728,8 +738,7 @@ impl App {
         if pane == SessionPane::Bottom {
             st.bottom_open = true;
         } else {
-            st.open = true;
-            self.side.mounted = true;
+            st.visibility.step(true);
         }
         self.side.adding.retain(|n| !(n.session_id == session_id && n.pane == pane));
         if let Some((plugin, tab_id)) = split_panel_key(key)
@@ -791,8 +800,7 @@ impl App {
         if pane == SessionPane::Bottom {
             st.bottom_open = true;
         } else {
-            st.open = true;
-            self.side.mounted = true;
+            st.visibility.step(true);
         }
     }
 
@@ -869,7 +877,7 @@ impl App {
         if strip_empty && !side_new && self.side_stored_open() {
             // The side region slides shut on its spring; a side tab it closed stays on screen
             // until it lands.
-            self.session_side_mut(&sid).open = false;
+            self.session_side_mut(&sid).visibility.step(false);
             self.side.focused = false;
             if let Some(entry) = entry.filter(|_| was_pane != SessionPane::Bottom) {
                 let at = *self.clock;
@@ -912,4 +920,3 @@ impl App {
         true
     }
 }
-

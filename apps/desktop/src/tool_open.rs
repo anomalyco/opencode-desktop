@@ -374,7 +374,7 @@ impl App {
                 self.side.focused = false;
             }
             None => {
-                self.session_side_mut(&o.session).open = false;
+                self.session_side_mut(&o.session).visibility.step(false);
                 self.side.focused = false;
             }
         }
