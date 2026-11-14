@@ -91,6 +91,7 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         item.decorate(move |slot, _| slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &server, &id, pinned.then_some((index, count)), press, tx)))
     });
     let mut strip = TabStrip::new(strip_key, TabOrientation::Vertical)
+        .words(crate::view::tab_strip::tab_words())
         .tabs(items)
         .active(selected.as_deref())
         .fill(p.bg_deep)

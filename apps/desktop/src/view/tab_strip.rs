@@ -48,6 +48,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
     let items = tabs.iter().zip(&uids).enumerate().map(|(index, (t, uid))| item(s, p, t, uid, index, nav_ids.clone(), hide_avatars));
     let order: Vec<usize> = indices.to_vec();
     let mut strip = TabStrip::new(key, orientation)
+        .words(tab_words())
         .tabs(items)
         .active(current.as_deref())
         .viewport_width(viewport)
@@ -173,6 +174,19 @@ pub(crate) fn face<'a>(s: &'a App, t: &'a crate::tabs::Tab) -> Face<'a> {
     let dir = info.map_or(t.directory.as_str(), |i| i.directory.as_str());
     let project = info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(dir));
     Face { title: crate::tabs::tab_title(info.map_or(t.title.as_str(), |i| i.title.as_str())), session_title: info.map(|i| i.title.as_str()), dir, project }
+}
+
+/// What a reader hears of a tab beyond its title, in the app's language: its close button and
+/// the status its mark shows (the Inbox's words for the same states).
+pub(crate) fn tab_words() -> rune_kit::shell::TabWords {
+    use opencode_i18n::t;
+    rune_kit::shell::TabWords {
+        close: t!("common.closeTab"),
+        busy: t!("sidebar.inbox.status.working"),
+        attention: t!("sidebar.inbox.section.needsAttention"),
+        unread: t!("sidebar.inbox.section.unread"),
+        failed: t!("sidebar.inbox.status.failed"),
+    }
 }
 
 /// Desktop's tab mark (`tab-nav.tsx`'s `status`): busy while the family runs, then nothing on
