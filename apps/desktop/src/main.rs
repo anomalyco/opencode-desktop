@@ -1039,6 +1039,7 @@ impl App {
         let server = servers::runtime::bind(self, server);
         let doc = telemetry::startup("launch.window_doc", || restore::read_window(self));
         let saved_tabs = doc.tabs.as_ref().map(|list| list.iter().map(|t| Tab::from_doc(t, doc.info(&t.key()))).collect());
+        self.restore.unread_tabs = doc.unread_tabs.clone();
         // Desktop's tabs come into a fresh profile's first window only.
         let beta = self.window.fresh && server.base == DEFAULT_SERVER;
         match saved_tabs.or_else(|| (beta && !deferred).then(tabs::from_beta).flatten()) {

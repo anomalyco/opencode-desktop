@@ -13,13 +13,14 @@ impl App {
         }
         if self.persists() {
             // The mixed list and what `tabs.info` keeps of each, as Desktop's window file has them.
-            let (list, info): (Vec<_>, serde_json::Map<String, Value>) = self.tabs.iter().map(Tab::to_doc).fold((Vec::new(), serde_json::Map::new()), |(mut list, mut info), (tab, i)| {
+            let (mut list, info): (Vec<_>, serde_json::Map<String, Value>) = self.tabs.iter().map(Tab::to_doc).fold((Vec::new(), serde_json::Map::new()), |(mut list, mut info), (tab, i)| {
                 if !i.is_empty() {
                     info.insert(tab.key().encode(), i.to_json());
                 }
                 list.push(tab.to_json());
                 (list, info)
             });
+            list.extend(self.restore.unread_tabs.iter().cloned());
             crate::windows::store::save(&self.window, "tabs", &Value::Array(list));
             crate::windows::store::save(&self.window, "tabs.info", &Value::Object(info));
         }

@@ -222,6 +222,10 @@ pub struct WindowDoc {
     pub side: Option<Value>,
     pub legacy: Map<String, Value>,
     pub rest: Map<String, Value>,
+    /// Entries of `tabs` and `tabs.closed` that don't decode (another build's tab type, a
+    /// damaged entry), as they were, so a save writes them back.
+    pub unread_tabs: Vec<Value>,
+    pub unread_closed: Vec<Value>,
 }
 
 const DOC_KEYS: [&str; 8] = ["tabs", "tabs.info", "tabs.closed", "tabs.recent", "lastActiveUrl", "drafts", "side", "legacy"];
@@ -237,14 +241,14 @@ impl WindowDoc {
 
     pub fn to_json(&self) -> Value {
         let mut v = Map::new();
-        if let Some(tabs) = &self.tabs {
-            v.insert("tabs".into(), tabs.iter().map(Tab::to_json).collect());
+        if self.tabs.is_some() || !self.unread_tabs.is_empty() {
+            v.insert("tabs".into(), self.tabs.iter().flatten().map(Tab::to_json).chain(self.unread_tabs.iter().cloned()).collect());
         }
         if !self.info.is_empty() {
             v.insert("tabs.info".into(), Value::Object(self.info.iter().map(|(k, i)| (k.encode(), i.to_json())).collect()));
         }
-        if !self.closed.is_empty() {
-            v.insert("tabs.closed".into(), self.closed.iter().map(ClosedTab::to_json).collect());
+        if !self.closed.is_empty() || !self.unread_closed.is_empty() {
+            v.insert("tabs.closed".into(), self.closed.iter().map(ClosedTab::to_json).chain(self.unread_closed.iter().cloned()).collect());
         }
         if let Some(r) = &self.recent {
             v.insert("tabs.recent".into(), json!({ "key": r.encode() }));
@@ -265,11 +269,15 @@ impl WindowDoc {
         Value::Object(v)
     }
 
-    /// Reads a window file in this shape; entries that don't decode are dropped, as Desktop's
-    /// schema drops them.
+    /// Reads a window file in this shape. Entries that don't decode are left out of the window,
+    /// as Desktop's schema leaves them out (`persistence/schema.ts` `array`), but kept: Desktop's
+    /// next save drops them for good, Rune's writes them back.
     pub fn from_json(v: &Value) -> WindowDoc {
         let obj = |k: &str| v[k].as_object().into_iter().flatten();
+        let unread = |k: &str, decodes: fn(&Value) -> bool| v[k].as_array().into_iter().flatten().filter(|x| !decodes(x)).cloned().collect();
         WindowDoc {
+            unread_tabs: unread("tabs", |x| Tab::from_json(x).is_some()),
+            unread_closed: unread("tabs.closed", |x| ClosedTab::from_json(x).is_some()),
             tabs: v["tabs"].as_array().map(|a| a.iter().filter_map(Tab::from_json).collect()),
             info: obj("tabs.info").filter_map(|(k, i)| Some((TabKey::parse(k)?, TabInfo::from_json(i)))).collect(),
             closed: v["tabs.closed"].as_array().into_iter().flatten().filter_map(ClosedTab::from_json).collect(),

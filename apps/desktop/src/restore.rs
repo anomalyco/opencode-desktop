@@ -76,6 +76,10 @@ pub struct Restore {
     /// Which draft `App::composer` holds.
     pub shown: Option<String>,
     pub inbox: InboxUi,
+    /// The saved tabs and closed tabs this build can't read, written back after its own
+    /// (`WindowDoc::unread_tabs`), so a launch never loses a tab it doesn't show.
+    pub unread_tabs: Vec<Value>,
+    unread_closed: Vec<Value>,
     /// What each row was last written as, so a change writes only the rows it changed.
     written: Written,
     stamp: Option<u64>,
@@ -157,6 +161,7 @@ impl App {
         self.restore.drafts = HashMap::new();
         self.take_drafts(&doc.drafts);
         *self.closed = crate::tabs::Closed::from_doc(&doc.closed);
+        self.restore.unread_closed = doc.unread_closed.clone();
         let global = |key: &str| crate::storage::json(GLOBAL, key).unwrap_or(Value::Null);
         self.restore.inbox = InboxUi::from_json(&global("sidebar.inbox"));
         self.restore_organize(&global("sidebar.organize"));
@@ -285,7 +290,9 @@ impl App {
                 if e.tab.is_draft() { closed.push_draft(e, *self.now_ms) } else { closed.push(e) }
             }
             *self.closed = closed;
-            self.restore.written.keys.insert("tabs.closed", closed_json(&self.closed));
+            let closed = closed_json(&self.closed, &doc.unread_closed);
+            self.restore.unread_closed = doc.unread_closed;
+            self.restore.written.keys.insert("tabs.closed", closed);
             self.restore.written.keys.insert("rune.closedDrafts", self.closed.drafts_json());
             self.side.restore_rest(&raw["side.rest"]);
             self.restore.written.keys.insert("side.rest", raw["side.rest"].clone());
@@ -404,7 +411,7 @@ impl App {
             ("tabs.recent", recent.unwrap_or(Value::Null)),
             ("side", self.side.to_json_where(hot)),
             ("side.rest", self.side.to_json_where(|k| !hot(k))),
-            ("tabs.closed", closed_json(&self.closed)),
+            ("tabs.closed", closed_json(&self.closed, &self.restore.unread_closed)),
             ("rune.closedDrafts", self.closed.drafts_json()),
         ]
     }
@@ -551,9 +558,9 @@ impl App {
     }
 }
 
-/// `tabs.closed`, as the window keeps it.
-fn closed_json(closed: &crate::tabs::Closed) -> Value {
-    closed.to_doc().iter().map(opencode_kit::servers::tabs::ClosedTab::to_json).collect()
+/// `tabs.closed`, as the window keeps it, with the entries this build can't read after its own.
+fn closed_json(closed: &crate::tabs::Closed, unread: &[Value]) -> Value {
+    closed.to_doc().iter().map(opencode_kit::servers::tabs::ClosedTab::to_json).chain(unread.iter().cloned()).collect()
 }
 /// The organized sidebar's open projects, sorted, so the file and its stamp don't depend on
 /// the set's order.
