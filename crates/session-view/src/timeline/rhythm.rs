@@ -7,6 +7,8 @@
 //! | prose, prose (a reply's words)                            | `PROSE` 12 |
 //! | quiet, quiet (notices, Used N, thoughts, calls, subagents) | `TIGHT` 8  |
 //! | a prompt (its 28 meta room included), its reply's first row | `REPLY` 24 |
+//! | a prompt, a tool row (Used N, a thought, calls) opening its reply | 0, to the row's box |
+//! | a tool row beside anything but a quiet row                | `BLOCK` 16, box to box |
 //! | any other pair: a card (code, a question, an error), prose beside quiet rows | `BLOCK` 16 |
 //! | a reply's last row, the next prompt                       | `TURN` 44  |
 //!
@@ -44,6 +46,8 @@ pub const NOTICE_PT: f32 = 12.0;
 enum Kind {
     Prose,
     Quiet,
+    /// A collapsed tool group, a thought or a run of calls: a 28 high trigger, its line 4 in.
+    Tool,
     Card,
     Prompt,
     /// Spaces itself: nothing here changes the room over it, or under it.
@@ -92,7 +96,7 @@ fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Ed
             let blocks = turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail);
             match blocks.get(*block) {
                 Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
-                Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => both(Kind::Quiet, 4.0),
+                Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => both(Kind::Tool, TOOL_INSET),
                 Some(Block::Agent { .. }) => both(Kind::Quiet, 0.0),
                 Some(Block::Question { .. }) => both(Kind::Card, 0.0),
                 None => both(Kind::Other, 0.0),
@@ -105,11 +109,19 @@ fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Ed
 fn gap(above: Kind, below: Kind) -> f32 {
     match (above, below) {
         (Kind::Prose, Kind::Prose) => PROSE,
-        (Kind::Quiet, Kind::Quiet) => TIGHT,
+        (Kind::Quiet | Kind::Tool, Kind::Quiet | Kind::Tool) => TIGHT,
+        // Desktop's tool row opens a reply at the top of its turn (only a text part takes the 24
+        // over it, `text-part` `margin-top`), and every later row stands 16 under the one above
+        // (`pt-4`), box to box: measured from the trigger's box, not its line.
+        (Kind::Prompt, Kind::Tool) => TOOL_INSET,
         (Kind::Prompt, _) => REPLY,
+        (_, Kind::Tool) | (Kind::Tool, _) => BLOCK + TOOL_INSET,
         _ => BLOCK,
     }
 }
+
+/// How far in a tool trigger's line sits (its `Edges` inset).
+const TOOL_INSET: f32 = 4.0;
 
 /// Sets the room over each row in `out` from the row above it (see the table above).
 pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec]) {
