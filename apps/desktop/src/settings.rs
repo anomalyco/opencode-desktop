@@ -335,10 +335,21 @@ impl App {
         self.settings_pages.blur_fields();
     }
 
+    /// Changes the preferences and saves what the change touched over what's saved, so a launch
+    /// argument that set one for this run only (`--color-theme`, `--tab-layout`, `--ui-font`)
+    /// stays out of the saved preferences when another one is changed.
     pub(crate) fn change_settings(&mut self, f: impl FnOnce(&mut Settings)) {
+        let before = self.settings.to_json();
         f(&mut self.settings);
         if self.persists() {
-            save(&self.settings);
+            let after = self.settings.to_json();
+            let mut saved = load().to_json();
+            if let (Some(after), Some(saved), Some(before)) = (after.as_object(), saved.as_object_mut(), before.as_object()) {
+                for (k, v) in after.iter().filter(|(k, v)| before.get(*k) != Some(*v)) {
+                    saved.insert(k.clone(), v.clone());
+                }
+            }
+            save(&Settings::from_json(&saved));
         }
     }
 
