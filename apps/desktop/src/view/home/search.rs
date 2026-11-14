@@ -127,10 +127,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
                     .pr(24.0)
                     .pb(6.0)
                     .a11y_hidden()
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                        s.clear_home_search(false, tx);
-                        s.open(&id, tx);
-                    })
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_home_result(&id, tx))
                     .child(crate::switcher::view::snippet_line(p, &rows[at]));
                 col().key(format!("srf-{}", ses.id)).w_full().child(r).child(line)
             }));
@@ -202,8 +199,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
             if super::opens_in_background(tx) {
                 return s.open_in_background(&id);
             }
-            s.clear_home_search(false, tx);
-            s.open(&id, tx);
+            s.open_home_result(&id, tx);
         })
         .child(parts.avatar)
         .child(parts.labels)

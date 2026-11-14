@@ -287,13 +287,11 @@ impl App {
         let scope = crate::switcher::search_index::Scope::Home { project: selected.map(|p| p.id.clone()) };
         let mut records: Vec<&SessionInfo> = self.find_sessions(scope, q, 50).into_iter().filter(|(score, _, _)| *score >= opencode_search::SUBSTRING).filter_map(|(_, _, id)| self.search_session(&id)).filter(|s| s.archived.is_none()).collect();
         // Then the sessions only their messages match (full text), each with its line of context.
-        if let crate::fulltext::Shown::Rows(rows) = self.fulltext(crate::fulltext::Surface::Home) {
-            for r in rows.iter() {
-                if !records.iter().any(|s| s.id == r.session)
-                    && let Some(s) = self.search_session(&r.session)
-                {
-                    records.push(s);
-                }
+        for r in self.fulltext_rows(crate::fulltext::Surface::Home) {
+            if !records.iter().any(|s| s.id == r.session)
+                && let Some(s) = self.search_session(&r.session).or(r.fallback.as_ref())
+            {
+                records.push(s);
             }
         }
         match self.home_search.search.exact().filter(|exact| !records.iter().any(|r| r.id == exact.id)) {
@@ -307,6 +305,18 @@ impl App {
         self.merged_roots(&[])
             .into_iter()
             .filter(move |ses| selected.as_ref().is_none_or(|id| self.project_for_session(ses).is_some_and(|p| &p.id == id)))
+    }
+
+    /// Opens result `id`, closing the search; a session only its messages matched opens with Find
+    /// on the query at what matched.
+    pub fn open_home_result(&mut self, id: &str, tx: &mut Tx) {
+        let q = self.search.text.trim().to_owned();
+        let found = self.found_message(crate::fulltext::Surface::Home, id, &q);
+        self.clear_home_search(false, tx);
+        self.open(id, tx);
+        if let Some(message) = found {
+            self.open_find_at(&q, &message, tx);
+        }
     }
 
     /// Whether the results panel shows: while the search has focus and text (`selectSearchOpen`).
@@ -360,8 +370,7 @@ impl App {
                         {
                             self.sessions.push(ses);
                         }
-                        self.clear_home_search(false, tx);
-                        self.open(&id, tx);
+                        self.open_home_result(&id, tx);
                     }
                     return true;
                 }

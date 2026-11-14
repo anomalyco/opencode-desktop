@@ -11,6 +11,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use opencode_kit::model::SessionInfo;
 use opencode_search::fulltext::{self, Kind, Snippet};
 
 use crate::App;
@@ -26,9 +27,14 @@ pub(crate) const ROWS: usize = 20;
 pub(crate) struct Row {
     pub session: String,
     pub kind: Kind,
+    /// The message that matched, when it's one of the session's (not a draft or a queued prompt).
+    pub message: Option<String>,
     pub snippet: Snippet,
     /// The session's other rows that matched, left out.
     pub more: usize,
+    /// The session as its tab (or storage) last saw it, when the list doesn't have it: offline, a
+    /// session older than the loaded pages.
+    pub fallback: Option<SessionInfo>,
 }
 
 /// What a surface shows from full text.
@@ -176,6 +182,38 @@ impl Surfaces {
     }
 }
 
+/// A reply's Markdown as a line of words: no fences, code ticks, emphasis marks, heading or
+/// quote marks, table rules or pipes, and a link's text without its address.
+fn plain(md: &str) -> String {
+    let mut out = String::with_capacity(md.len());
+    for line in md.lines() {
+        let t = line.trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") || (t.starts_with('|') && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' '))) {
+            continue;
+        }
+        let t = t.trim_start_matches('#').trim_start_matches('>').trim_start();
+        let mut rest = t;
+        while let Some(open) = rest.find('[') {
+            out.push_str(&rest[..open]);
+            let after = &rest[open + 1..];
+            match after.find("](").and_then(|close| after[close + 2..].find(')').map(|end| (close, close + 2 + end))) {
+                Some((close, end)) => {
+                    out.push_str(&after[..close]);
+                    rest = &after[end + 1..];
+                }
+                None => {
+                    out.push('[');
+                    rest = after;
+                }
+            }
+        }
+        out.push_str(rest);
+        out.push(' ');
+    }
+    let out = out.replace("**", "").replace("__", "").replace('`', "").replace('|', " ");
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn kind(stored: &str) -> Kind {
     match stored {
         "draft" => Kind::Draft,
@@ -271,8 +309,16 @@ impl App {
             _ => None,
         };
         let mut hits: Vec<fulltext::Hit> = Vec::new();
-        for h in &stored {
-            let Some(info) = (h.server == server).then(|| self.search_session(self.root_of(&h.session))).flatten() else { continue };
+        // Each hit's row in what storage returned.
+        let mut kept: Vec<(usize, Option<SessionInfo>)> = Vec::new();
+        for (i, h) in stored.iter().enumerate() {
+            if h.server != server {
+                continue;
+            }
+            // A session the list doesn't have is shown as its tab saved it, or with storage's title.
+            let listed = self.search_session(self.root_of(&h.session));
+            let fallback = listed.is_none().then(|| self.fulltext_fallback(h)).flatten();
+            let Some(info) = listed.or(fallback.as_ref()) else { continue };
             let project = self.project_for_session(info).map(|p| p.id.as_str());
             if info.archived.is_some() != archived || home_project.as_deref().is_some_and(|p| Some(p) != project) {
                 continue;
@@ -283,20 +329,52 @@ impl App {
                 entity: Some(h.entity.clone()),
                 kind: kind(&h.kind),
                 title,
-                body: h.body.clone(),
+                body: plain(&h.body),
                 updated_ms: h.updated_ms,
                 active_project: project.is_some() && project == home_project.as_deref().or(here.as_deref()),
             });
+            kept.push((i, fallback));
         }
         fulltext::rank(&hits, query, *self.now_ms, 1)
             .into_iter()
             .filter_map(|r| {
                 let hit = &hits[r.hit];
                 let snippet = fulltext::snippet(&hit.body, query, SNIPPET)?;
-                Some(Row { session: hit.session.clone(), kind: hit.kind, snippet, more: r.more })
+                let (at, fallback) = &kept[r.hit];
+                let message = hit.entity.clone().filter(|_| matches!(stored[*at].kind.as_str(), "user" | "assistant"));
+                Some(Row { session: hit.session.clone(), kind: hit.kind, message, snippet, more: r.more, fallback: fallback.clone() })
             })
             .take(ROWS)
             .collect()
+    }
+
+    /// Stored row `h`'s session when the list doesn't have it: as a tab saved it (its title and
+    /// folder), else with storage's title. None with neither.
+    fn fulltext_fallback(&self, h: &Stored) -> Option<SessionInfo> {
+        let tab = self.tabs.iter().find(|t| t.id == h.session && !t.title.is_empty());
+        let (title, directory) = match tab {
+            Some(t) => (t.title.clone(), t.directory.clone()),
+            None if !h.title.is_empty() => (h.title.clone(), String::new()),
+            None => return None,
+        };
+        Some(SessionInfo { id: h.session.clone(), title, directory, updated: h.updated_ms, ..SessionInfo::default() })
+    }
+
+    /// `which`'s full text rows now (none while it shows nothing or is off).
+    pub(crate) fn fulltext_rows(&self, which: Surface) -> &[Row] {
+        match &self.fulltext.get(which).state {
+            State::Asking { shown: Last::Rows(rows), .. } | State::Answered { rows, .. } => rows,
+            _ => &[],
+        }
+    }
+
+    /// The message to open session `id` at from `which`'s results for `query`: the one that
+    /// matched, when only its messages did (its title doesn't hold the query).
+    pub(crate) fn found_message(&self, which: Surface, id: &str, query: &str) -> Option<String> {
+        let fold = opencode_search::SearchFold::for_query(query.trim());
+        let (rows, at) = self.fulltext_row(which, id)?;
+        let titled = self.session(id).is_some_and(|s| fold.fold(&s.title).contains(&fold.fold(query.trim())));
+        rows[at].message.clone().filter(|_| !titled)
     }
 
     /// The row for `id` among `which`'s full text rows.

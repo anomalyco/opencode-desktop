@@ -33,12 +33,10 @@ impl App {
         }
         // Then the sessions only their messages match (full text), in its order; each row shows
         // its line of context.
-        if !q.trim().is_empty()
-            && let crate::fulltext::Shown::Rows(rows) = self.fulltext(crate::fulltext::Surface::Palette)
-        {
-            for r in rows.iter() {
+        if !q.trim().is_empty() {
+            for r in self.fulltext_rows(crate::fulltext::Surface::Palette) {
                 if !hits.iter().any(|(_, _, s)| s.id == r.session)
-                    && let Some(s) = self.search_session(&r.session)
+                    && let Some(s) = self.search_session(&r.session).or(r.fallback.as_ref())
                 {
                     hits.push((0, s.active_ms(), s));
                 }

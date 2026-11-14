@@ -146,6 +146,15 @@ enum Indexing {
     Running { shape: u64 },
 }
 
+/// Where a new query's lit match goes: the first in the session (official's `queryChanged`), or,
+/// for Find opened on a search result, the first in that message once every match is known.
+#[derive(Clone, Default, PartialEq)]
+enum Target {
+    #[default]
+    First,
+    Message(String),
+}
+
 /// Find's match worker: idle, or matching `query` in the index of shape `shape`.
 #[derive(Default, PartialEq)]
 enum Matching {
@@ -170,6 +179,7 @@ pub struct Find {
     indexer: rune::Latest<Arc<Index>>,
     matching: Matching,
     matcher: rune::Latest<(u64, String, Arc<Results>)>,
+    target: Target,
 }
 
 impl Find {
@@ -191,6 +201,7 @@ impl Find {
         self.matching = Matching::Idle;
         self.indexer.cancel();
         self.matcher.cancel();
+        self.target = Target::First;
     }
 
     pub fn query(&self) -> &str {
@@ -336,6 +347,21 @@ impl App {
         tx.instant();
     }
 
+    /// Opens Find on `query` with message `message`'s first match lit and in view once the
+    /// matches are known: a search result's jump to what matched.
+    pub fn open_find_at(&mut self, query: &str, message: &str, tx: &mut Tx) {
+        self.open_find(tx);
+        self.find.input.replace_text(query.to_owned());
+        typed(self, tx);
+        self.find.target = Target::Message(message.to_owned());
+        // An answer complete on the key lights the message now.
+        if let Some(at) = self.find.results().and_then(|r| r.first_in_message(message)) {
+            self.find.target = Target::First;
+            let _ = step(&mut self.find.state, Event::MatchesSynced { kept: Some(at) });
+            self.seek_active(tx);
+        }
+    }
+
     /// Closes Find, clearing the query and highlights; nothing keeps the focus.
     pub fn close_find(&mut self, tx: &mut Tx) {
         if !self.find.is_open() {
@@ -476,10 +502,16 @@ impl App {
             retire(std::mem::replace(&mut self.find.answer, answer));
             // A new query lights its first match (`queryChanged`), and only a match that is the
             // first in the session is lit before the rest are counted.
-            let first = match &self.find.answer {
-                Answer::Partial { reveal: true, .. } => None,
+            // Find opened on a search result's message lights that message's first match once
+            // every match is known.
+            let first = match (&self.find.answer, &self.find.target) {
+                (Answer::Partial { .. }, Target::Message(_)) | (Answer::Partial { reveal: true, .. }, _) => None,
+                (Answer::Complete { results, .. }, Target::Message(id)) => results.first_in_message(id).or(Some(0)),
                 _ => Some(0),
             };
+            if matches!(self.find.answer, Answer::Complete { .. }) {
+                self.find.target = Target::First;
+            }
             let _ = step(&mut self.find.state, Event::MatchesSynced { kept: first });
         }
         // The index for this shape, once (keys never restart it).
@@ -618,8 +650,14 @@ impl App {
         }
         let reveal = matches!(self.find.answer, Answer::Partial { reveal: true, .. });
         let lit = self.find.lit().map(|(h, local)| (h.key.clone(), local));
+        let target = std::mem::take(&mut self.find.target);
+        let reveal = reveal || target != Target::First;
         retire(std::mem::replace(&mut self.find.answer, Answer::Complete { query, shape, results }));
-        let kept = if reveal { Some(0) } else { lit.and_then(|(key, local)| self.find.results()?.place(&key, local)) };
+        let kept = match target {
+            Target::Message(id) => self.find.results().and_then(|r| r.first_in_message(&id)).or(Some(0)),
+            Target::First if reveal => Some(0),
+            Target::First => lit.and_then(|(key, local)| self.find.results()?.place(&key, local)),
+        };
         let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
         if reveal && self.find.count() > 0 {
             self.seek_active(tx);
@@ -632,6 +670,8 @@ impl App {
 /// keystroke's own commit. Whitespace or case that leave the query as it was keep the lit match
 /// (`query.changed`).
 pub fn typed(s: &mut App, tx: &mut Tx) {
+    // A query typed here lights its first match, wherever Find was opened from.
+    s.find.target = Target::First;
     if s.find.answered() == Some(s.find.query()) {
         tx.instant();
         return;

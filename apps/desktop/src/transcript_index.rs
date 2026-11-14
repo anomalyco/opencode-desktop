@@ -270,6 +270,13 @@ impl Results {
         Some((&self.hits[i], n - self.hits[i].first))
     }
 
+    /// Where message `id`'s first match is among all of them: its bubble (`u-{id}`) or its
+    /// first reply part with one (`t-{id}-{n}`).
+    pub fn first_in_message(&self, id: &str) -> Option<usize> {
+        let (bubble, part) = (format!("u-{id}"), format!("t-{id}-"));
+        self.hits.iter().find(|h| *h.key == *bubble || h.key.starts_with(&part)).map(|h| h.first)
+    }
+
     /// Where match `local` of row `key` is among all of them.
     pub fn place(&self, key: &str, local: usize) -> Option<usize> {
         self.get(key).filter(|h| local < h.ranges.len()).map(|h| h.first + local)
