@@ -219,11 +219,17 @@ impl ComposerHost for App {
             }
             return true;
         }
+        // A plugin's popover or dialog over the page takes Escape though the composer has the
+        // keys (session details opens without taking focus), and the new-session page's location
+        // keys work from its composer, as Desktop matches command keys on the document.
         if crate::popup::key(self, ev, tx)
+            || crate::plugin_host::popover_key(self, ev, tx)
+            || crate::plugin_host::dialog_key(self, ev, tx)
             || self.fork_key(ev, tx)
             || self.jump_key(ev, tx)
             || self.suggest_key(ev, tx)
             || self.add_key(ev, tx)
+            || self.draft_location_key(ev, tx)
             || crate::subagents::reply::esc(self, ev, tx)
             || self.queue_edit_key(ev, tx)
             || crate::stop::key(self, ev, tx)

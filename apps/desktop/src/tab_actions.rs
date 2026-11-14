@@ -237,6 +237,7 @@ impl App {
                 crate::servers::runtime::with_server(self, &server, |s| s.forget_history(|s, x| s.root_of(x) == id));
                 let prompted = crate::servers::runtime::with_server(self, &server, |s| s.prompted(&id)).unwrap_or(false);
                 self.closed.push(ClosedTab { tab, index: i, prompted });
+                *self.tab_closed_ms = Some(*self.now_ms);
             }
             // A draft with something in it is kept, words, files and all, and can be reopened
             // (⇧⌘T, or the toast's Undo); Desktop disposes of it (`disposeTab`).
@@ -247,6 +248,7 @@ impl App {
                 }
                 let now = *self.now_ms;
                 self.closed.push_draft(ClosedTab { tab, index: i, prompted: false }, now);
+                *self.tab_closed_ms = Some(now);
                 crate::undo::offer(self, opencode_i18n::t!("rune.undo.draftClosed"), crate::undo::Undoable::DraftTab { draft: id.clone() });
             }
             // An empty one just goes.
@@ -266,6 +268,9 @@ impl App {
                 None => {
                     self.close_picker(false);
                     self.go_home(tx);
+                    // Desktop leaves nothing focused on Home after its last tab (`fn-key-tab.close`),
+                    // where the closed page's focus would fall to New session.
+                    tx.blur();
                 }
             }
         }
@@ -274,6 +279,12 @@ impl App {
 
     /// ⇧⌘T: the newest closed tab back in its place.
     pub(crate) fn reopen_tab(&mut self, tx: &mut Tx) {
+        // The side panel's tab when it closed since the last titlebar tab (`reopensSideTab`,
+        // `use-session-commands.tsx:129-136`), wherever focus is.
+        let side = self.active_session_id().and_then(|sid| self.side.sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
+        if side.is_some_and(|side| self.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
+            return;
+        }
         self.reopen_closed(None, false, tx);
     }
 

@@ -37,7 +37,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.search)
                 .on_input_change(|s: &mut App, _: &mut Tx| s.home_search.query_changed())
-                .on_input_key(|s: &mut App, ev, tx| s.home_search_key(ev, tx)),
+                // The window's command keys first, as from the composer: Alt+Home back to the tab.
+                .on_input_key(|s: &mut App, ev, tx| crate::keys::global(s, ev, tx) || s.home_search_key(ev, tx)),
         );
     if !s.search.text.is_empty() {
         // A ghost-muted small IconButton (20, `rounded-[4px]`) with the large `close` icon.

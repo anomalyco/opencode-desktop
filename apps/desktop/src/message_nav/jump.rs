@@ -46,7 +46,7 @@ impl App {
         let Route::Session { id, .. } = &*self.route else { return false };
         let sid = self.displayed_session(id).unwrap_or(id).to_owned();
         tx.instant();
-        let restore = if self.jump.open() { self.jump.restore_composer } else { self.composer.focused };
+        let restore = if self.jump.open() { self.jump.restore_composer } else { self.composer.focused || (!self.switcher.open && self.switcher.restore_composer()) };
         self.close_jump_dialog(false);
         self.close_fork_dialog(false);
         self.close_picker(false);

@@ -182,7 +182,9 @@ impl App {
             return false;
         }
         tx.instant();
-        let restore = if self.fork.open { self.fork.restore_composer } else { self.composer.focused };
+        // From the palette the composer had the keys before it (`restore_composer`): Desktop's
+        // dialogs give focus back where the palette took it from.
+        let restore = if self.fork.open { self.fork.restore_composer } else { self.composer.focused || (!self.switcher.open && self.switcher.restore_composer()) };
         self.close_jump_dialog(false);
         self.close_picker(false);
         self.close_switcher(false);

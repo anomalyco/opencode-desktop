@@ -347,6 +347,8 @@ pub struct App {
     pub tab_preview: rune::Tracked<view::tab_preview::Preview>,
     /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
     pub closed: rune::Tracked<tabs::Closed>,
+    /// When a titlebar tab last closed (ms), for ⇧⌘T (`reopensSideTab`).
+    pub tab_closed_ms: rune::Tracked<Option<i64>>,
     /// The tab layout's switch and the collapsed sidebar's peek (`layout_state.rs`).
     pub layout: rune::Tracked<layout_state::Shell>,
     /// The Inbox layout's request times, branches and height (`inbox_model.rs`).

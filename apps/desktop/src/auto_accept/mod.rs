@@ -49,9 +49,38 @@ impl App {
         }
     }
 
+    /// The open session's project, which ⇧⌘A and the command act on (`sessionProject`).
+    fn auto_accept_project(&self) -> Option<String> {
+        let crate::Route::Session { id, .. } = &*self.route else { return None };
+        self.session(id).and_then(|i| self.project_for_session(i)).map(|p| p.id.clone())
+    }
+
+    /// Whether auto-accept is on where ⇧⌘A acts (`autoAccepting`).
+    pub(crate) fn auto_accepting(&self) -> bool {
+        match self.auto_accept_project() {
+            Some(p) => self.settings.project_auto_accept.get(&p).copied().unwrap_or(self.settings.auto_accept),
+            None => self.settings.auto_accept,
+        }
+    }
+
+    /// ⇧⌘A (`toggleAutoAccept`, `use-session-commands.tsx:439-467`): from a session it sets the
+    /// project's own choice, back to the default when they match; elsewhere the default. A toast
+    /// says what it did.
     pub fn toggle_auto_accept(&mut self, tx: &mut Tx) {
+        use opencode_i18n::t;
         tx.instant();
-        self.set_auto_accept(!self.settings.auto_accept);
+        let project = self.auto_accept_project();
+        let active = !self.auto_accepting();
+        match &project {
+            None => self.set_auto_accept(active),
+            Some(p) => self.set_project_auto_accept(p, (active != self.settings.auto_accept).then_some(active)),
+        }
+        let (title, description) = match (active, project.is_some()) {
+            (false, _) => (t!("toast.permissions.autoaccept.off.title"), t!("toast.permissions.autoaccept.off.description")),
+            (true, true) => (t!("toast.permissions.autoaccept.project.title"), t!("toast.permissions.autoaccept.project.description")),
+            (true, false) => (t!("toast.permissions.autoaccept.on.title"), t!("toast.permissions.autoaccept.on.description")),
+        };
+        crate::status_toast::say(self, title, description);
     }
 
     /// A request that just arrived: answered at once when auto-accept is on.
@@ -64,7 +93,7 @@ impl App {
 
 /// The composer toolbar's mark that auto-accept is on; pressing it turns it off.
 pub fn indicator(s: &App, p: &Pal) -> Option<El> {
-    s.settings.auto_accept.then(|| {
+    s.auto_accepting().then(|| {
         row()
             .key("auto-accept")
             .role("button")

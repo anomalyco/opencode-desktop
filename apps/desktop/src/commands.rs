@@ -35,6 +35,8 @@ pub struct Cmd {
     /// Kept out of the palette, as Desktop's `hidden` commands are (`command.tsx:148`), while its
     /// keys and Settings › Shortcuts still have it.
     pub hidden: bool,
+    /// Its title when it depends on the app (Desktop's `title` getters), over `title`.
+    pub titled: Option<fn(&App) -> opencode_i18n::Key>,
     pub run: fn(&mut App, &mut Tx),
 }
 
@@ -44,7 +46,7 @@ fn always(_: &App) -> bool {
 
 impl Cmd {
     pub const fn new(id: &'static str, title: opencode_i18n::Key, run: fn(&mut App, &mut Tx)) -> Cmd {
-        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, run }
+        Cmd { id, title, description: None, slash: None, keys: None, enabled: always, section: None, hidden: false, titled: None, run }
     }
 
     pub const fn hidden(mut self) -> Cmd {
@@ -69,6 +71,11 @@ impl Cmd {
 
     pub const fn keys(mut self, keys: Bind) -> Cmd {
         self.keys = Some(keys);
+        self
+    }
+
+    pub const fn titled(mut self, titled: fn(&App) -> opencode_i18n::Key) -> Cmd {
+        self.titled = Some(titled);
         self
     }
 
@@ -138,7 +145,7 @@ impl App {
     fn listing(&self, offered: bool) -> Vec<Command> {
         let own = collect(&COMMANDS).into_iter().filter(|c| !offered || (c.enabled)(self)).map(|c| Command {
             id: c.id,
-            title: opencode_i18n::I18N.text(c.title),
+            title: opencode_i18n::I18N.text(c.titled.map_or(c.title, |f| f(self))),
             description: c.description.map_or("", |d| opencode_i18n::I18N.text(d)),
             slash: c.slash,
             keys: c.keys,
@@ -297,7 +304,26 @@ fn has_sidebar(s: &App) -> bool {
 rune_register::register!(COMMANDS: Cmd = [
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
     Cmd::new("new", opencode_i18n::key!("command.session.new"), |s, tx| s.new_session(tx)).slash("new").section(Section::Session),
-    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home),
+    // `titlebar.tsx:428-434`: hidden from the palette; its key and Settings keep it.
+    Cmd::new("home", opencode_i18n::key!("home.title"), |s, tx| s.go_home(tx)).keys(Bind::Home).hidden(),
+    // `titlebar.tsx:148-160`.
+    Cmd::new("back", opencode_i18n::key!("common.goBack"), |s, tx| {
+        s.navigate(false, tx);
+    })
+    .keys(Bind::GoBack),
+    Cmd::new("forward", opencode_i18n::key!("common.goForward"), |s, tx| {
+        s.navigate(true, tx);
+    })
+    .keys(Bind::GoForward),
+    // `use-session-commands.tsx:711-722`: its title says what it will do.
+    Cmd::new("auto-accept", opencode_i18n::key!("command.permissions.autoaccept.enable"), |s, tx| s.toggle_auto_accept(tx))
+        .titled(|s| match (s.auto_accepting(), matches!(*s.route, Route::Session { .. }) && s.open_session().and_then(|id| s.session(&id).and_then(|i| s.project_for_session(i))).is_some()) {
+            (true, _) => opencode_i18n::key!("command.permissions.autoaccept.disable"),
+            (false, true) => opencode_i18n::key!("command.permissions.autoaccept.project"),
+            (false, false) => opencode_i18n::key!("command.permissions.autoaccept.enable"),
+        })
+        .keys(Bind::AutoAccept)
+        .when(|s| s.open_session().is_some()),
     Cmd::new("sidebar", opencode_i18n::key!("command.sidebar.toggle"), toggle_sidebar).keys(Bind::Sidebar).when(has_sidebar),
     Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
     Cmd::new("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),

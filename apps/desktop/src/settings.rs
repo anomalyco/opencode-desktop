@@ -387,8 +387,11 @@ impl App {
             tx.instant();
             self.close_settings();
             // Desktop leaves nothing focused once Escape leaves Settings for Home (`esc-settings`),
-            // where the removed rail's focus would otherwise fall to the titlebar's New session.
-            if *self.route == crate::Route::Home {
+            // where the removed rail's focus would otherwise fall to the titlebar's New session;
+            // over a session its prompt takes the keys back (`fn-key-settings.open`).
+            if self.has_composer() {
+                self.composer.focused = true;
+            } else {
                 tx.blur();
             }
             return true;

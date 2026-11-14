@@ -528,6 +528,9 @@ pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
             // A touch screen's `input::placeholder` is 13 under the 16 the field types (`base.css`).
             .placeholder_font(if narrow && !session_view::style::touch_controls() { NARROW_INPUT } else { ROW }).caret(p.text, p.selection).selection_style(p.field_selection).label_static(t!("settings.search.placeholder"))
             .on_edit(|s: &mut App| &mut s.settings_pages.find.query)
+            // Settings' keys before the field's own: Escape on an empty search leaves Settings, as
+            // Desktop's does, where the field would only let go of the focus.
+            .on_input_key(|s: &mut App, ev, tx| ev.key == rune::Key::Escape && s.settings_key(ev, tx))
             // Enter opens the lit result, else the first (`search-machine.ts`).
             .on_submit(|s: &mut App, tx: &mut Tx| {
                 let (list, _) = shown(s);
