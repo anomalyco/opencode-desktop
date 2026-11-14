@@ -6,25 +6,21 @@ use opencode_kit::client::{Incoming, Ticket, TicketKind};
 use opencode_kit::model::{SessionInfo, Transcript};
 use rune::Tx;
 
-use crate::{App, Route, arrivals, attachments, fork, permission, reconnect, status_toast, stop, windows};
+use crate::{App, Route, attachments, fork, permission, reconnect, status_toast, stop, windows};
 
-/// Takes what came in since the last poll. True when the view changed; `arrivals` is set when
-/// prompts may have arrived (its snapshot from before any of it).
-pub(crate) fn poll(s: &mut App, tx: &mut Tx, arrivals: &mut Option<arrivals::Arrivals>) -> bool {
+/// Takes what came in since the last poll. A delivered prompt has no entrance: no snapshot of
+/// the old transcript or queues is needed to render the new state.
+pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let mut changed = false;
     let replies: Vec<Incoming> = s.inbox.as_ref().map(|inbox| inbox.try_iter().collect()).unwrap_or_default();
     if !replies.is_empty() {
-        *arrivals = Some(arrivals::Arrivals::before(s));
         // A reply only this window heard changes the data its server's windows share.
         windows::peer::touch(s);
     }
     for m in replies {
-        changed |= reply(s, m, tx, arrivals);
+        changed |= reply(s, m, tx);
     }
     let heard = windows::peer::heard(s);
-    if !heard.is_empty() {
-        arrivals.get_or_insert_with(|| arrivals::Arrivals::before(s));
-    }
     for h in heard {
         if !matches!(&*h, crate::events::Heard::Message(Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))) {
             changed |= reconnect::heard(s);
@@ -96,7 +92,7 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
 }
 
 /// One reply to this window's own reads and writes.
-fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::Arrivals>) -> bool {
+fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
     if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
         reconnect::heard(s);
     }
@@ -156,9 +152,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx, arrivals: &mut Option<arrivals::
                 // read up from its end (a place kept from the last run) stays where it is: landing
                 // the end's follow would carry it there.
                 session_view::jump::settle(s, tx);
-            }
-            if cold {
-                *arrivals = None;
             }
         }
         // A write's answer that comes as an event (an interrupt's acknowledgement).

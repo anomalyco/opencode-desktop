@@ -82,7 +82,6 @@ impl Story {
 const COMPOSER_VARIANTS: &[(&str, usize)] = &[("Empty", 0), ("Draft", 1), ("Queued", 2), ("Subagent running", 3), ("Long paste", 4)];
 
 const COMPOSER_KNOBS: &[Group] = &[Group::new("Composer", "stage", &[CAPSULE_FILL, CAPSULE_RADIUS, CAPSULE_RING])];
-const GLOW_KNOBS: &[Group] = &[Group::new("Arrival glow", "stage", &[GLOW_LENGTH, GLOW_RISE, GLOW_DECAY, GLOW_TAIL, GLOW_FADE, ROW_GROWTH])];
 pub(crate) const ROW_KNOBS: &[Group] = &[Group::new("Rows", "stage", &[ROW_GROWTH])];
 const WORKING_KNOBS: &[Group] = &[WORKING];
 const ACTIONS_KNOBS: &[Group] = &[Group::new("Turn actions", "stage", &[ACTIONS_TAIL])];
@@ -92,7 +91,7 @@ const JUMP_KNOBS: &[Group] = &[Group::new("Jump to latest", "stage", &[JUMP_PLAC
 
 const COMPOSER_KEYS: &[Trigger] = &[replay(composer_open)];
 const HEADER_KEYS: &[Trigger] = &[replay(|s, _| s.finish_stream())];
-const GLOW_KEYS: &[Trigger] = &[replay(glow_open), Trigger { key: 'a', label: "Another arrives", run: arrive }];
+const ARRIVAL_KEYS: &[Trigger] = &[replay(arrival_open), Trigger { key: 'a', label: "Another arrives", run: arrive }];
 const SEND_KEYS: &[Trigger] = &[replay(send_open), Trigger { key: 's', label: "Send", run: send }];
 const STREAM_KEYS: &[Trigger] = &[replay(stream_open), Trigger { key: 'f', label: "Finish the stream", run: finish_stream }];
 const TOOL_KEYS: &[Trigger] = &[replay(tools_open), Trigger { key: 't', label: "Fold or unfold the tools", run: fold_tools }];
@@ -133,7 +132,7 @@ register!(STORY_LIST: Story = [
     Story::composer("Composer/Composer", COMPOSER_KEYS).knobs(COMPOSER_KNOBS).variants(COMPOSER_VARIANTS),
     Story::session("Composer/Queue dock", QUEUE_KEYS).knobs(ROW_KNOBS),
     Story { path: "Header/Session header", scene: |s| stage(s, header_view), knobs: &[], keys: HEADER_KEYS, variants: &[] },
-    Story::session("Timeline/Arrival glow", GLOW_KEYS).knobs(GLOW_KNOBS),
+    Story::session("Timeline/Remote prompt", ARRIVAL_KEYS),
     Story::session("Timeline/Send", SEND_KEYS).knobs(ROW_KNOBS),
     Story::session("Timeline/Streaming text", STREAM_KEYS).knobs(ROW_KNOBS),
     Story::session("Timeline/Tool rows", TOOL_KEYS).knobs(ROW_KNOBS),
@@ -175,7 +174,7 @@ const ORDER: &[&str] = &[
     "Header/Ticking",
     "Header/Title change",
     "Header/Narrow window",
-    "Timeline/Arrival glow",
+    "Timeline/Remote prompt",
     "Timeline/Send",
     "Timeline/Long prompt",
     "Timeline/Streaming text",
@@ -468,7 +467,7 @@ pub(crate) fn scroll_key(s: &App) -> String {
     format!("scroll-{}", sid(s))
 }
 
-/// Plays a server event now, in this poll's playback, after the arrivals check.
+/// Plays a server event in the next poll.
 pub(crate) fn emit(s: &mut App, ty: &str, mut data: Value, tx: &mut Tx) {
     if data["sessionID"].is_null() {
         data["sessionID"] = sid(s).into();
@@ -510,8 +509,8 @@ fn pending(s: &mut App) {
     inbox.upsert(item("msg_story_queue", QUEUED_TEXT, Delivery::Queue));
 }
 
-/// A prompt from another client lands and glows.
-fn glow_open(s: &mut App, tx: &mut Play<App>) {
+/// A prompt from another client lands without an entrance.
+fn arrival_open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
     tx.after(0.4, arrive);
 }
@@ -758,4 +757,3 @@ fn jump_open(s: &mut App, tx: &mut Play<App>) {
 fn scroll_up(s: &mut App, tx: &mut Play<App>) {
     tx.scroll_to(scroll_key(s), 0.0, 0.0);
 }
-

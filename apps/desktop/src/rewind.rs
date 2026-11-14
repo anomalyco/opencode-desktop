@@ -398,8 +398,6 @@ impl App {
         }
         if let Some(t) = self.transcripts.get_mut(session) {
             let keep = t.visible_len(Some(&boundary));
-            let gone: Vec<String> = t.messages[keep..].iter().map(|m| m.id().to_owned()).collect();
-            self.glows.step(session_view::arrivals::Event::Gone(&gone));
             t.messages.truncate(keep);
         }
         if let Some(e) = self.toast.current()
@@ -666,4 +664,3 @@ pub(crate) fn sent_label(id: &str, now: i64) -> Option<String> {
     }
     Some(date::format(if sent.year == today.year { Style::MonthDayTime } else { Style::DateTime }, sent))
 }
-

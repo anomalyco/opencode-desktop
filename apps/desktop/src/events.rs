@@ -1,7 +1,7 @@
 //! Server events in two steps. `apply_shared` changes the server's copy of the session data
 //! (`windows::peer`), once per event whichever window polls first, and says what it did
 //! ([`Done`]); `react` then runs in every window of the server, the first included, for what
-//! each shows and does itself: its view, glows, plugins, notifications and sounds (each claimed
+//! each shows and does itself: its view, plugins, notifications and sounds (each claimed
 //! once per event, [`Claim`]), its own sends and stops.
 
 use std::cell::Cell;
@@ -60,8 +60,6 @@ pub struct Done {
     pub inbox: InboxDone,
     /// A revert's mark moved.
     pub revert: bool,
-    /// Messages a committed revert dropped, whose glows go.
-    pub reverted: Vec<String>,
     /// The session's agent or model, archive or metadata.
     pub info: bool,
     /// The session's transcript.
@@ -110,7 +108,7 @@ impl App {
             done.inbox = self.apply_inbox(ty, data, &sid);
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
-            (done.revert, done.reverted) = self.apply_revert(ty, data, &sid);
+            done.revert = self.apply_revert(ty, data, &sid);
         }
         done.info = self.apply_selected(ty, data, &sid) | self.apply_archive(ty, data, &sid);
         if ty == "session.usage.updated" {
@@ -228,20 +226,18 @@ impl App {
     }
 
     /// `session.revert.staged` hides the transcript from its boundary on, `cleared` shows it again,
-    /// and `committed` ends the revert and drops what it hid: the steers waiting behind it, and
-    /// (for each window's glows) the messages it hid. The transcript's own rows go in
-    /// `Transcript::apply`.
-    fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> (bool, Vec<String>) {
+    /// and `committed` ends the revert and drops the steers waiting behind it. The transcript's
+    /// own rows go in `Transcript::apply`.
+    fn apply_revert(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         // The stream's truth: the window that asked keeps its own mark over a stale echo
         // (`revert_landed`).
         let Some(next) = crate::rewind::reported(ty, data) else {
-            return (false, vec![]);
+            return false;
         };
         let mut changed = false;
         if let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid) {
             changed |= std::mem::replace(&mut info.revert, next) != info.revert;
         }
-        let mut reverted = vec![];
         if ty == "session.revert.committed"
             && let Some(to) = data["to"].as_str()
         {
@@ -250,11 +246,8 @@ impl App {
                 inbox.items.retain(|i| i.id.as_str() < to);
                 changed |= inbox.items.len() != before;
             }
-            if let Some(t) = self.transcripts.get(sid) {
-                reverted = t.messages[t.visible_len(Some(to))..].iter().map(|m| m.id().to_owned()).collect();
-            }
         }
-        (changed, reverted)
+        changed
     }
 
     /// Whether `sid`'s transcript is on screen: the open session's family (its page, agent
@@ -288,7 +281,7 @@ impl App {
             changed |= crate::subagents::shells::event(self, ty, data);
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
-            changed |= done.revert | self.revert_landed(ty, data, &sid, &done.reverted);
+            changed |= done.revert | self.revert_landed(ty, data, &sid);
         }
         if ty == "session.lookup.missing" {
             self.session_refs.missing(data);
@@ -369,8 +362,8 @@ impl App {
     }
 
     /// After `apply_revert`, in this window: a revert it asked for keeps its own mark over a
-    /// stale event's, and the glows of the messages a commit dropped go.
-    fn revert_landed(&mut self, ty: &str, data: &Value, sid: &str, reverted: &[String]) -> bool {
+    /// stale event's.
+    fn revert_landed(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         let mut changed = false;
         if let Some(next) = crate::rewind::landed(self, ty, data, sid)
             && let Some(info) = self.sessions.iter_mut().find(|i| i.id == sid)
@@ -380,8 +373,6 @@ impl App {
             crate::windows::peer::touch(self);
             changed = true;
         }
-        changed |= reverted.iter().any(|id| self.glows.glow_at(id).is_some());
-        self.glows.step(session_view::arrivals::Event::Gone(reverted));
         changed
     }
 }

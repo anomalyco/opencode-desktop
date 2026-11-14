@@ -533,7 +533,7 @@ fn background(s: &mut App, tx: &mut Tx) -> bool {
     s.poll_sends();
     s.tick_outbox(tx);
     s.poll_jobs(tx);
-    crate::incoming::poll(s, tx, &mut None);
+    crate::incoming::poll(s, tx);
     crate::stop::poll(s, *s.clock, tx);
     crate::session_state::poll(s, tx);
     let now = *s.clock;

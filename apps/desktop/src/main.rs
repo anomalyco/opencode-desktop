@@ -94,7 +94,6 @@ mod app_menu;
 mod appearance;
 mod text_rendering;
 mod appearance_stories;
-mod arrivals;
 mod askpass;
 mod attachments;
 mod auto_accept;
@@ -467,8 +466,6 @@ pub struct App {
     pub motion: rune::Tracked<appearance::Motion>,
     /// The mode Appearance › Text rendering draws with (`text_rendering.rs`).
     pub text_rendering: rune::Tracked<text_rendering::Rendering>,
-    /// The open session's prompts from another client growing in (`arrivals`).
-    pub glows: rune::Tracked<session_view::arrivals::Arrivals>,
     /// Where each session's timeline stands against its end (`jump.rs`).
     pub ends: rune::Tracked<jump::Ends>,
     /// The subagent call whose row is under the pointer, its chevron slid in (`subagent_card`).
@@ -834,9 +831,6 @@ impl session_view::TimelineHost for App {
     }
     fn find_row_hits(&self, row_key: &str) -> Option<(&[Vec<std::ops::Range<usize>>], Option<usize>)> {
         self.find.row_hits(row_key)
-    }
-    fn user_glow_at(&self, id: &str) -> Option<f64> {
-        self.glows.glow_at(id)
     }
     fn user_menu_open_on(&self, id: &str) -> bool {
         self.rewind.menu_open_on(id)
@@ -1326,11 +1320,9 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.tick_outbox(tx);
     changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
-    let mut arrivals = None;
     let asked = s.dock_face();
-    changed |= incoming::poll(s, tx, &mut arrivals);
+    changed |= incoming::poll(s, tx);
     if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
-        arrivals.get_or_insert_with(|| arrivals::Arrivals::before(s));
         while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
             let (_, ty, mut data) = s.playback.pop_front().unwrap();
             // A scripted delivery names the oldest prompt of its kind, which has no id until sent.
@@ -1356,9 +1348,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
-    if let Some(arrivals) = arrivals {
-        arrivals.land(s, now, tx);
-    }
     changed |= stop::poll(s, now, tx);
     changed |= s.revert_timeouts(tx);
     changed |= fork::poll(s, tx);
@@ -1370,10 +1359,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
     if s.dock_face() != asked {
         s.morph(tx);
-    }
-    if s.glows.busy() {
-        let held = session_view::jump::held(s);
-        changed |= s.glows.poll(&s.knobs, now, tx, held.as_ref());
     }
     changed |= disclosure::poll(s, now, tx);
     changed |= session_view::timeline::projection_poll(s, tx);

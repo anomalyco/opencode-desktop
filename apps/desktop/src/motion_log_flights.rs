@@ -12,10 +12,10 @@ use serde_json::{Value, json};
 use super::{Events, Sample, iso};
 use rune::motion_gate::short;
 
-/// The app's `Tx::launch` pairs (`send.rs`, `arrivals.rs`): a destination selector with `{q}`
+/// The app's `Tx::launch` pairs for local sends: a destination selector with `{q}`
 /// for the prompt's id, and the sources it may leave from, the first one seen winning.
 const LAUNCHES: &[(&str, &[&str])] = &[
-    ("u-{q}/bubble", &["queued-{q}/label", "prompt"]),
+    ("u-{q}/bubble", &["prompt"]),
     ("queued-{q}", &["prompt"]),
 ];
 /// Destinations mounted but not yet drawn, and flights in the air, at most.
@@ -297,4 +297,3 @@ fn selects(selector: &str, path: &str, key: Option<&str>) -> bool {
     let mut keyed = above.rsplit('/').filter(|seg| !seg.starts_with('#'));
     scope.rsplit('/').all(|seg| keyed.next() == Some(seg))
 }
-
