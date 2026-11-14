@@ -107,10 +107,10 @@ pub fn fetch_live_dir(server: &Server, directory: &str, rel_dir: &str) -> Vec<(S
         .collect()
 }
 
-/// Searches workspace files via `/api/fs/find`.
-pub fn fetch_live_find(server: &Server, directory: &str, query: &str) -> Vec<String> {
+/// Searches workspace files via `/api/fs/find`, at most `limit` of them.
+pub fn fetch_live_find(server: &Server, directory: &str, query: &str, limit: usize) -> Vec<String> {
     let url = format!(
-        "/api/fs/find?location%5Bdirectory%5D={}&query={}&type=file&limit=100",
+        "/api/fs/find?location%5Bdirectory%5D={}&query={}&type=file&limit={limit}",
         crate::switcher::encode(directory),
         crate::switcher::encode(query)
     );

@@ -703,6 +703,12 @@ impl session_view::TimelineHost for App {
     fn context_menu(&mut self, at: session_view::images::menu::MenuAt, press: rune::PointerPress, tx: &mut Tx) {
         popup::context::open(self, at, press, tx);
     }
+    fn code_links(&self, body: &str, live: bool) -> Option<std::rc::Rc<std::collections::HashSet<String>>> {
+        self.reply_code_links(body, live)
+    }
+    fn code_links_version(&self) -> u64 {
+        self.active_session_id().and_then(|sid| self.files.sessions.get(sid)).map_or(0, |w| w.reply_paths.rev)
+    }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
     }

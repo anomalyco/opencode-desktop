@@ -220,6 +220,15 @@ pub trait TimelineHost: Sized + 'static {
     fn reply_link_help(_url: &str) -> Option<String> {
         None
     }
+    /// The inline code in finished reply `body` that names a file the host found, which draws as
+    /// a link (Desktop's `markInlineCode`); `None` while there is none or the reply streams.
+    fn code_links(&self, _body: &str, _live: bool) -> Option<std::rc::Rc<std::collections::HashSet<String>>> {
+        None
+    }
+    /// Changes whenever a [`TimelineHost::code_links`] answer may have, so rows with code build again.
+    fn code_links_version(&self) -> u64 {
+        0
+    }
     /// A reply's Markdown as the host wants it drawn, e.g. its own ids made links; `None` draws
     /// it as written. Find highlights index the text as written, so a host that rewrites
     /// shouldn't also use find.

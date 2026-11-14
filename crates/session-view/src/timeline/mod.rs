@@ -152,7 +152,10 @@ impl RowSpec {
                         let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow()));
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
-                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips, own));
+                        // A path its code names being found (`TimelineHost::code_links`); a streaming
+                        // reply asks nothing, so its rows don't look.
+                        let code = (!*live && body.contains('`')).then(|| s.code_links_version());
+                        let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), p.dark, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, pictures, footer, crate::style::content_w().to_bits(), chips, own, code));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer)

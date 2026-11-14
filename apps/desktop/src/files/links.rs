@@ -212,6 +212,10 @@ impl App {
         if tx.button() == rune::PointerButton::Middle {
             return self.open_middle_link(href, tx);
         }
+        // Inline code naming a file (`code_paths`).
+        if let Some(code) = href.strip_prefix(session_view::style::CODE_LINK) {
+            return self.open_code_path(code, tx);
+        }
         // A plugin's link handler (`LinkHandler`) takes the links it matches first.
         if crate::plugin_host::open_link(self, href, tx) {
             return;

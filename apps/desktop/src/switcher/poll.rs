@@ -165,7 +165,7 @@ impl App {
                         continue;
                     };
                     let (server, dir) = (server.clone(), self.session(&sid).map(|s| s.directory.clone()).unwrap_or_default());
-                    self.switcher.files_fetch.request(query, move |q| Reply { attempt, items: Ok(fetch_live_find(&server, &dir, &q)) });
+                    self.switcher.files_fetch.request(query, move |q| Reply { attempt, items: Ok(fetch_live_find(&server, &dir, &q, 100)) });
                 }
             }
         }

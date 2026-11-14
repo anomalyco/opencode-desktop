@@ -224,7 +224,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     let mut c = col().w_full().child(trigger);
     if open {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
-        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None);
+        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None, None);
         c = c.child(col().key("thought").w_full().pt(4.0).pl(12.0).child(md));
     }
     c
@@ -349,8 +349,12 @@ fn checkbox_border(p: &Pal) -> Color {
     rune::color::hex(if p.dark { "#626262" } else { "#d1d1d1" }).unwrap_or(p.border)
 }
 
+/// What a reply's file-naming inline code links to: this, then the code as written.
+pub const CODE_LINK: &str = "opencode-code-path:";
+
 /// `copied` are the copy buttons showing their ticks (`copied::current`), for code blocks' own.
 /// `chips` are the tooltips of the session chips in `src` (`session_chips::tips`), by link.
+/// `code_links` is the inline code naming files the host found (`TimelineHost::code_links`).
 #[allow(clippy::too_many_arguments)]
 pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     p: &Pal,
@@ -363,6 +367,7 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
     tentative: Option<rune::Direction>,
+    code_links: Option<std::rc::Rc<std::collections::HashSet<String>>>,
 ) -> El {
     use crate::user_parts::session_of_link;
     // Its texts join the timeline's selection group rather than forming one of their own, so
@@ -387,7 +392,11 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
             Some(id) => s.open_session(id, tx),
             None => s.open_link(url, tx),
         })
-        .link_help(move |url| tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)));
+        // A path in code has no tooltip, as Desktop's `<code>` has none.
+        .link_help(move |url| match url.starts_with(CODE_LINK) {
+            true => None,
+            false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
+        });
     if !chips.is_empty() {
         // Only a reply with chips takes right-clicks on its links; others keep the reply's menu.
         md = md.link_style(move |url| crate::session_chips::look(&pal, url)).on_link_secondary(|s: &mut S, url: &str, press, tx: &mut Tx| {
@@ -395,6 +404,11 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
                 s.session_chip_menu(id, press, tx);
             }
         });
+    }
+    // A path a finished reply names that the host found is a link in `text-code-path`, without
+    // its chip (`markdown.css:443-450`), underlined under the pointer; a press opens it.
+    if let Some(found) = code_links {
+        md = md.code_link(p.v2.text_code_path, move |code| found.contains(code).then(|| format!("{CODE_LINK}{code}")));
     }
     let md = match media {
         Some(m) => crate::images::markdown_pictures::<S>(md, m),
@@ -468,7 +482,7 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
 
 /// `markdown_view` with its body text in `color`, its diagrams at most `width` points wide.
 pub fn markdown_tinted<S: TimelineHost>(p: &Pal, src: &str, fade: f32, streaming: bool, color: Color, width: f32) -> El {
-    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), Vec::new(), None, &[], None)
+    markdown_with_highlights::<S>(p, src, fade, streaming, color, width, Vec::new(), Vec::new(), None, &[], None, None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -484,8 +498,9 @@ pub fn markdown_with_highlights<S: TimelineHost>(
     media: Option<crate::images::markdown::MdMedia>,
     chips: &[(String, String)],
     tentative: Option<rune::Direction>,
+    code_links: Option<std::rc::Rc<std::collections::HashSet<String>>>,
 ) -> El {
-    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media, chips, tentative)
+    markdown_styled::<S, _>(p, src, fade, streaming, markdown_style(p, color, width), highlights, copied, media, chips, tentative, code_links)
 }
 
 /// Desktop's activity spinner, Soft Radar (`ActivityRing`, `spinner-radar.ts`): 14px, icon-muted.

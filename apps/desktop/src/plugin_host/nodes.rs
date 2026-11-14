@@ -571,7 +571,7 @@ fn markdown(a: &mut NodeArgs) -> Result<El, String> {
         md = md.body_font(session_view::style::MD.lh(lh as f32));
     }
     let none: Vec<(&[std::ops::Range<usize>], rune_kit::Highlight)> = Vec::new();
-    Ok(session_view::style::markdown_styled::<App, _>(&pal, &source, 0.0, a.flag("streaming"), md, none, Vec::new(), None, &[], None))
+    Ok(session_view::style::markdown_styled::<App, _>(&pal, &source, 0.0, a.flag("streaming"), md, none, Vec::new(), None, &[], None, None))
 }
 
 /// The app's `ProgressCircle`: a track and the arc from twelve o'clock, clockwise; `compact` a

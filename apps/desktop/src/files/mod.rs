@@ -48,6 +48,8 @@ pub struct SessionFiles {
     pub md: HashMap<String, markdown::MdView>,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
     pub code_paths: HashMap<String, code_paths::CodePaths>,
+    /// The paths the session's finished replies name in inline code, checked (`code_paths`).
+    pub reply_paths: code_paths::ReplyPaths,
     /// Picture files (and SVGs) as decoded images, with their zoom.
     pub images: HashMap<String, image::FileImage>,
     /// Video files, each with its player and controls.
@@ -129,6 +131,7 @@ impl Default for SessionFiles {
             link_opens: HashMap::new(),
             md: HashMap::new(),
             code_paths: HashMap::new(),
+            reply_paths: Default::default(),
             images: HashMap::new(),
             videos: HashMap::new(),
             ready: false,
@@ -653,7 +656,7 @@ impl App {
         self.files
             .find_fetch
             .request((sid, directory, q), move |(sid, dir, q)| {
-                let found = fetch_live_find(&srv, &dir, &q);
+                let found = fetch_live_find(&srv, &dir, &q, 100);
                 (sid, q, found)
             });
     }
