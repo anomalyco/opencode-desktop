@@ -120,18 +120,38 @@ enum Answer {
     Complete { query: String, shape: u64, results: Arc<Results> },
 }
 
-/// What Find's worker is doing: indexing transcript shape `shape`, and matching `query` in it.
-#[derive(Default, PartialEq)]
-enum Work {
+/// What a copy of the transcript is checked against: its session, version (with whether it
+/// streams and whether outlines read as words) and how many messages show.
+type CopyKey = (String, u64, usize);
+
+/// Rows copied a frame (`find_shape`): ~4 ms at 100,000 messages.
+const COPY_BUDGET: usize = 16_384;
+
+/// Find's copy of the open transcript's rows: none under way; under way, `done` messages read
+/// and hashed as it goes; or done.
+#[derive(Default)]
+enum Copying {
     #[default]
     Idle,
-    Running { shape: u64, query: Option<String> },
+    Running { next: Source, done: usize, hash: DefaultHasher },
+    Done(Source),
 }
 
-/// What the worker hands back: the index it made or used, and the query's matches.
-struct Landed {
-    index: Arc<Index>,
-    found: Option<(String, Arc<Results>)>,
+/// Find's index worker: idle, or making the index of transcript shape `shape`. It has its own
+/// worker, so keys arriving faster than a large index builds never restart the build.
+#[derive(Default, PartialEq)]
+enum Indexing {
+    #[default]
+    Idle,
+    Running { shape: u64 },
+}
+
+/// Find's match worker: idle, or matching `query` in the index of shape `shape`.
+#[derive(Default, PartialEq)]
+enum Matching {
+    #[default]
+    Idle,
+    Running { shape: u64, query: String },
 }
 
 #[derive(Default)]
@@ -140,18 +160,22 @@ pub struct Find {
     pub input: TextEdit,
 
     /// The open session's transcript as last checked, and its shape.
-    checked: Option<((String, u64, usize), u64)>,
+    checked: Option<(CopyKey, u64)>,
+    copying: Copying,
     /// Its rows, copied when its shape changes while Find is open, and their index.
     source: Option<Arc<Source>>,
     index: Option<Arc<Index>>,
     answer: Answer,
-    work: Work,
-    worker: rune::Latest<Landed>,
+    indexing: Indexing,
+    indexer: rune::Latest<Arc<Index>>,
+    matching: Matching,
+    matcher: rune::Latest<(u64, String, Arc<Results>)>,
 }
 
 impl Find {
     pub fn set_waker(&mut self, waker: rune::Waker) {
-        self.worker.set_waker(waker);
+        self.indexer.set_waker(waker.clone());
+        self.matcher.set_waker(waker);
     }
 
     pub fn is_open(&self) -> bool {
@@ -162,8 +186,11 @@ impl Find {
     fn release(&mut self) {
         retire((std::mem::take(&mut self.answer), self.source.take(), self.index.take()));
         self.checked = None;
-        self.work = Work::Idle;
-        self.worker.cancel();
+        self.copying = Copying::Idle;
+        self.indexing = Indexing::Idle;
+        self.matching = Matching::Idle;
+        self.indexer.cancel();
+        self.matcher.cancel();
     }
 
     pub fn query(&self) -> &str {
@@ -256,27 +283,6 @@ fn str_sig(s: &str) -> u64 {
     b.len().hash(&mut h);
     b[..b.len().min(32)].hash(&mut h);
     b[b.len().saturating_sub(32)..].hash(&mut h);
-    h.finish()
-}
-
-/// What a session's searchable rows are made from: each message's id and text (by length and
-/// ends) as far as the timeline shows, whether its reply streams and whether outlines read as words.
-fn shape(t: &Transcript, shown: usize, live: bool, outlines: bool) -> u64 {
-    let mut h = DefaultHasher::new();
-    (shown, live, outlines).hash(&mut h);
-    for m in &t.messages[..shown] {
-        match m {
-            Message::User { id, text } => (0u8, id, str_sig(text)).hash(&mut h),
-            Message::Assistant(a) => {
-                (1u8, &a.id, a.parts.len()).hash(&mut h);
-                a.parts.iter().filter_map(|p| match p {
-                    Part::Text { text } => Some(str_sig(text)),
-                    _ => None,
-                }).for_each(|s| s.hash(&mut h));
-            }
-            _ => 2u8.hash(&mut h),
-        }
-    }
     h.finish()
 }
 
@@ -445,56 +451,61 @@ impl App {
         if q.is_empty() {
             retire(std::mem::take(&mut self.find.answer));
         } else if self.find.answered() != Some(q.as_str()) {
-            let lit = self.find.lit().map(|(h, local)| (h.key.clone(), local));
             let fold = crate::language::search_fold();
             let answer = match self.find.index.clone() {
-                Some(index) => {
-                    if let Some(rows) = indexed.then(|| index.candidates_within(&q, KEY_BUDGET)).flatten() {
-                        // Few rows can match: all of them, now.
-                        Answer::Complete { query: q.clone(), shape, results: Arc::new(index.search(&rows, &q, fold)) }
-                    } else {
-                        // Too many, or the index is a change behind: the rows on screen now.
-                        let rows = self.find_rows_on_screen(&current, &index);
-                        // A match on screen lights where the reader is, as a browser's find does; with
-                        // none there, the first in the transcript lights when the rest land.
-                        let results = Arc::new(index.search(&rows, &q, fold));
-                        let reveal = results.total == 0;
-                        Answer::Partial { query: q.clone(), results, reveal }
+                Some(index) if indexed => match index.candidates_within(&q, KEY_BUDGET) {
+                    // Few rows can match: all of them, now.
+                    Some(rows) => Answer::Complete { query: q.clone(), shape, results: Arc::new(index.search(&rows, &q, fold)) },
+                    // Too many: the first match in the session, which official lights and brings into
+                    // view on every new query (`search-machine.ts` `queryChanged`, `seek(.., 0)`), found
+                    // by scanning from the start, and the rows on screen; the worker counts the rest.
+                    None => {
+                        let mut rows = self.find_rows_on_screen(&current, &index);
+                        let first = index.first_match(&q, fold, KEY_BUDGET);
+                        rows.extend(first);
+                        rows.sort_unstable();
+                        rows.dedup();
+                        Answer::Partial { query: q.clone(), results: Arc::new(index.search(&rows, &q, fold)), reveal: first.is_none() }
                     }
-                }
-                None => Answer::Partial { query: q.clone(), results: Arc::default(), reveal: true },
+                },
+                // The index is a change behind (or not made yet): what shows lights when it lands.
+                _ => Answer::Partial { query: q.clone(), results: Arc::default(), reveal: true },
             };
             retire(std::mem::replace(&mut self.find.answer, answer));
-            let kept = lit.and_then(|(key, local)| self.find.results()?.place(&key, local));
-            let _ = step(&mut self.find.state, Event::MatchesSynced { kept });
-        }
-        // The worker's next job: the index for this shape, and the query when a key couldn't
-        // match it all (or matched it on the last shape).
-        let stale = matches!(&self.find.answer, Answer::Complete { shape: s, .. } if *s != shape);
-        let query = (matches!(self.find.answer, Answer::Partial { .. }) || stale).then(|| q.clone());
-        let job = Work::Running { shape, query: query.clone() };
-        if (indexed && query.is_none()) || self.find.work == job {
-            return;
-        }
-        self.find.work = job;
-        let source = self.find.source.clone().unwrap_or_default();
-        let prev = self.find.index.clone();
-        let fold = crate::language::search_fold();
-        self.find.worker.request((source, prev, query), move |(source, prev, query): (Arc<Source>, Option<Arc<Index>>, Option<String>)| {
-            let index = match prev {
-                Some(p) if p.source.shape == source.shape => p,
-                prev => Arc::new(Index::build(source, prev.as_deref())),
+            // A new query lights its first match (`queryChanged`), and only a match that is the
+            // first in the session is lit before the rest are counted.
+            let first = match &self.find.answer {
+                Answer::Partial { reveal: true, .. } => None,
+                _ => Some(0),
             };
-            let found = query.map(|q| {
+            let _ = step(&mut self.find.state, Event::MatchesSynced { kept: first });
+        }
+        // The index for this shape, once (keys never restart it).
+        if !indexed && self.find.indexing != (Indexing::Running { shape }) {
+            self.find.indexing = Indexing::Running { shape };
+            let source = self.find.source.clone().unwrap_or_default();
+            let prev = self.find.index.clone();
+            self.find.indexer.request((source, prev), |(source, prev): (Arc<Source>, Option<Arc<Index>>)| Arc::new(Index::build(source, prev.as_deref())));
+        }
+        // Every match of the query, when a key couldn't match it all (or matched it on the last
+        // shape), once the index for this shape is in.
+        let stale = matches!(&self.find.answer, Answer::Complete { shape: s, .. } if *s != shape);
+        let wanted = !q.is_empty() && (matches!(self.find.answer, Answer::Partial { .. }) || stale);
+        let job = Matching::Running { shape, query: q.clone() };
+        if let Some(index) = self.find.index.clone().filter(|_| indexed && wanted && self.find.matching != job) {
+            self.find.matching = job;
+            let fold = crate::language::search_fold();
+            self.find.matcher.request((index, q), move |(index, q): (Arc<Index>, String)| {
                 let rows = index.candidates(&q);
                 let results = Arc::new(index.search(&rows, &q, fold));
-                (q, results)
+                (index.source.shape, q, results)
             });
-            Landed { index, found }
-        });
+        }
     }
 
-    /// The open transcript's shape: copies its rows into [`Find::source`] when it changed.
+    /// The open transcript's shape, once its rows are copied into [`Find::source`]. A change is
+    /// copied a slice a frame ([`COPY_BUDGET`] rows that changed), so opening Find on 100,000
+    /// messages spreads its copy over a few frames; the shape before stays meanwhile.
     fn find_shape(&mut self, current: &str) -> Option<u64> {
         let t = self.transcripts.get(current)?;
         let revert = self.session(current).and_then(|i| i.revert.as_deref());
@@ -508,44 +519,78 @@ impl App {
         {
             return Some(*shape);
         }
-        let shape = shape(t, shown, live, outlines);
-        if self.find.source.as_ref().is_none_or(|s| s.shape != shape) {
-            let source = Some(Arc::new(self.find_source(t, shape, shown, live, outlines)));
-            retire(std::mem::replace(&mut self.find.source, source));
+        let copying = std::mem::take(&mut self.find.copying);
+        let copying = self.copy_rows(t, &key, copying, live, outlines);
+        let before = self.find.checked.as_ref().map(|c| c.1).filter(|_| self.find.source.as_ref().is_some_and(|s| s.shape != 0));
+        match copying {
+            Copying::Done(source) => {
+                let shape = source.shape;
+                if self.find.source.as_ref().is_none_or(|s| s.shape != shape) {
+                    retire(self.find.source.replace(Arc::new(source)));
+                } else {
+                    retire(source);
+                }
+                self.find.checked = Some((key, shape));
+                Some(shape)
+            }
+            running => {
+                self.find.copying = running;
+                before
+            }
         }
-        self.find.checked = Some((key, shape));
-        Some(shape)
     }
 
-    /// The session's searchable rows in timeline order (`u-{id}` and `t-{a.id}-{n}`): a reply
-    /// still streaming keeps its last part even while empty.
-    fn find_source(&self, t: &Transcript, shape: u64, shown: usize, live: bool, outlines: bool) -> Source {
-        let mut source = Source::new(shape);
+    /// Copies the session's searchable rows (`u-{id}` and `t-{a.id}-{n}`, in timeline order; a
+    /// reply still streaming keeps its last part even while empty), [`COPY_BUDGET`] rows a call.
+    /// A copy under way goes on over the transcript as it is now, so one that changes every frame
+    /// still lands; the next change starts another.
+    fn copy_rows(&self, t: &Transcript, key: &CopyKey, copying: Copying, live: bool, outlines: bool) -> Copying {
+        let shown = key.2;
+        let (mut next, mut done, mut hash) = match copying {
+            Copying::Running { next, done, hash } => (next, done, hash),
+            _ => {
+                let mut hash = DefaultHasher::new();
+                (live, outlines).hash(&mut hash);
+                (Source::new(0), 0, hash)
+            }
+        };
         let last_reply = live.then(|| t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)))).flatten()
             .filter(|&i| t.messages[i + 1..shown].iter().all(|m| matches!(m, Message::Assistant(_))));
-        for (i, m) in t.messages[..shown].iter().enumerate() {
-            match m {
+        let push = |next: &mut Source, hash: &mut DefaultHasher, id: &str, n: u32, kind: Kind, body: &str| {
+            let sig = str_sig(body);
+            (id, n, kind as u8, sig).hash(hash);
+            next.push(id, n, kind, body, sig);
+        };
+        let budget = next.len() + COPY_BUDGET;
+        while done < shown && next.len() < budget {
+            match &t.messages[done] {
                 Message::Assistant(a) => {
                     let mut texts = 0u32;
                     for (pi, part) in a.parts.iter().enumerate() {
                         let Part::Text { text } = part else { continue };
                         let n = texts;
                         texts += 1;
-                        if text.trim().is_empty() && !(last_reply == Some(i) && pi + 1 == a.parts.len()) {
+                        if text.trim().is_empty() && !(last_reply == Some(done) && pi + 1 == a.parts.len()) {
                             continue;
                         }
                         let kind = if outlines && (text.contains("```ui") || text.contains("~~~ui")) { Kind::Outline } else { Kind::Reply };
-                        source.push(&a.id, n, kind, text, str_sig(text));
+                        push(&mut next, &mut hash, &a.id, n, kind, text);
                     }
                 }
                 Message::User { id, text } if !text.trim().is_empty() || !opencode_kit::model::user_comments(id).is_empty() => {
                     let shown = self.bubble_text(id, text);
-                    source.push(id, 0, Kind::Bubble, &shown, str_sig(&shown));
+                    push(&mut next, &mut hash, id, 0, Kind::Bubble, &shown);
                 }
                 _ => {}
             }
+            done += 1;
         }
-        source
+        if done < shown {
+            return Copying::Running { next, done, hash };
+        }
+        next.len().hash(&mut hash);
+        next.shape = hash.finish().max(1);
+        Copying::Done(next)
     }
 
     /// Rows of `index` the timeline shows now (its last drawn frame).
@@ -558,11 +603,14 @@ impl App {
 
     /// Lands the worker's index and matches: true when what shows changed.
     fn land_find(&mut self, tx: &mut Tx) -> bool {
-        let Some(Landed { index, found }) = self.find.worker.take() else { return false };
-        let shape = index.source.shape;
-        retire(self.find.index.replace(index));
-        self.find.work = Work::Idle;
-        let Some((query, results)) = found else { return true };
+        let mut changed = false;
+        if let Some(index) = self.find.indexer.take() {
+            retire(self.find.index.replace(index));
+            self.find.indexing = Indexing::Idle;
+            changed = true;
+        }
+        let Some((shape, query, results)) = self.find.matcher.take() else { return changed };
+        self.find.matching = Matching::Idle;
         if self.find.query() != query {
             return true;
         }
@@ -602,7 +650,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     let was = (s.find.checked.as_ref().map(|c| c.1), s.find.count(), s.find.counting());
     s.sync_find_index();
-    landed || !s.find.is_open() || (s.find.checked.as_ref().map(|c| c.1), s.find.count(), s.find.counting()) != was
+    // A copy under way goes on next frame.
+    let copying = matches!(s.find.copying, Copying::Running { .. });
+    landed || copying || !s.find.is_open() || (s.find.checked.as_ref().map(|c| c.1), s.find.count(), s.find.counting()) != was
 }
 
 /// Global Find shortcuts: ⌘F opens Find in a session or focuses session search on Home;

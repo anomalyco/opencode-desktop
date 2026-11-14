@@ -154,40 +154,57 @@ impl Index {
     /// [`Self::candidates`] when there are at most `limit`; `None` as soon as there are more, so
     /// a key learns that the worker must match them without finding them all.
     pub fn candidates_within(&self, query: &str, limit: usize) -> Option<Vec<usize>> {
+        let rows: Vec<usize> = self.candidate_rows(query).take(limit.saturating_add(1)).collect();
+        (rows.len() <= limit).then_some(rows)
+    }
+
+    /// The first row in timeline order holding a match, among the first `limit` that can: a
+    /// query that matches nearly every row finds it in the first rows.
+    pub fn first_match(&self, query: &str, fold: Fold, limit: usize) -> Option<usize> {
+        self.candidate_rows(query).take(limit).find(|&r| !self.matches(r, query, fold).is_empty())
+    }
+
+    /// [`Self::candidates`] in order, found as they're asked for: one letters scan from the
+    /// start, a hit a row however many it holds, outlines always.
+    fn candidate_rows<'a>(&'a self, query: &str) -> Box<dyn Iterator<Item = usize> + 'a> {
         let needle = opencode_search::SearchFold::default().letters(query);
         let n = self.source.len();
         if needle.is_empty() {
-            return (n <= limit).then(|| (0..n).collect());
+            return Box::new(0..n);
         }
-        let finder = memchr::memmem::Finder::new(needle.as_bytes());
-        let letters = self.letters.as_bytes();
-        let mut out = Vec::new();
-        let (mut row, mut at) = (0, 0);
-        while row < n {
-            // An outline can't be ruled out; else the next row whose letters hold the needle,
-            // searched from where the last one ended (one hit a row, however many it holds).
-            if self.source.rows[row].kind != Kind::Outline {
-                let Some(found) = finder.find(&letters[at..]) else {
-                    out.extend((row..n).filter(|&r| self.source.rows[r].kind == Kind::Outline));
-                    break;
+        let finder = memchr::memmem::Finder::new(needle.as_bytes()).into_owned();
+        let outline = move |r: usize| self.source.rows[r].kind == Kind::Outline;
+        // `hit`: the row of the next letters match at or after `row`, once found.
+        let (mut row, mut hit) = (0usize, None::<usize>);
+        Box::new(std::iter::from_fn(move || {
+            while row < n {
+                if outline(row) {
+                    row += 1;
+                    return Some(row - 1);
+                }
+                let next = match hit {
+                    Some(h) if h >= row => h,
+                    _ => {
+                        let at = self.start(row);
+                        let h = finder.find(&self.letters.as_bytes()[at..]).map_or(n, |f| row + self.ends[row..].partition_point(|&e| e <= at + f));
+                        hit = Some(h);
+                        h
+                    }
                 };
-                let next = row + self.ends[row..].partition_point(|&e| e <= at + found);
-                out.extend((row..next).filter(|&r| self.source.rows[r].kind == Kind::Outline));
-                row = next;
+                if let Some(o) = (row..next.min(n)).find(|&r| outline(r)) {
+                    row = o;
+                    continue;
+                }
+                if next >= n {
+                    row = n;
+                    return None;
+                }
+                row = next + 1;
+                return Some(next);
             }
-            if row >= n {
-                break;
-            }
-            out.push(row);
-            if out.len() > limit {
-                return None;
-            }
-            at = self.ends[row];
-            row += 1;
-        }
-        (out.len() <= limit).then_some(out)
+            None
+        }))
     }
-
     /// Row `row`'s matches as source byte ranges of its text (several where a match spans markup).
     pub fn matches(&self, row: usize, query: &str, fold: Fold) -> Vec<Vec<Range<usize>>> {
         let body = self.source.body(row);

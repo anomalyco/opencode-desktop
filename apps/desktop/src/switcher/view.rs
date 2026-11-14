@@ -242,6 +242,8 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
     let r = row()
         .key(format!("sw-{}", e.key))
         .role("option")
+        // A reader hears the highlighted row as selected (A11Y's contract).
+        .focus_selected(active)
         .label(e.title.clone())
         // Selected while highlighted, as official's `aria-selected` option is.
         .focus_selected(active)
