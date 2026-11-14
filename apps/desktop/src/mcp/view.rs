@@ -76,12 +76,14 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         // `max-width: 639px`: each row stands at least 44 tall, 8 in above and below (`search-list.css:291-297`).
         _ => list(s, p, &open.dir, win_w < 640.0 || cx.hover_none()),
     };
+    // `<Dialog size="large" fit>` (`providers/connect/mcp-dialog.tsx`).
+    let size = widgets::DialogSize::Large;
     let dialog = widgets::overlay(p, col())
         .key("mcp-dialog")
         .role("dialog")
         .label_static(opencode_i18n::t!("dialog.mcp.title"))
-        .w((win_w - 24.0).min(480.0))
-        .max_h((win_h - 96.0).min(480.0))
+        .w(size.width(win_w))
+        .max_h(size.height(win_h))
         .radius(12.0)
         .fill(p.bg_base)
         .clip_soft(0.0)
@@ -89,7 +91,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
         .motion(Spring::NONE)
         .modal(true, |s: &mut App| s.close_mcp_dialog(&mut Tx::default()))
         .child(body);
-    widgets::modal("mcp", p, dialog, Some(((win_h - 480.0) / 2.0).max(48.0)))
+    widgets::modal("mcp", p, dialog, Some(size.top(win_h)))
 }
 
 fn list(s: &App, p: &Pal, dir: &str, tall: bool) -> El {

@@ -281,7 +281,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 /// The dialog over the scrim (`Dialog fit`): its title and what happened, then Keep worktree,
 /// Delete worktree and Retry, below the server's error when it gave one.
-pub fn view(s: &App, p: &Pal) -> Vec<El> {
+pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let Some(r) = &s.location.recovery else { return vec![] };
     // `workspaceDialogView`: the latest failure, kept while a retry or delete runs.
     let (reason, retrying, removing) = match &r.state {
@@ -347,7 +347,6 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         .key("move-recovery")
         .role("dialog")
         .label_static(t!("plugin.details.move.recovery.title"))
-        .w(480.0)
         .radius(6.0)
         .fill(p.layer1)
         .clip_soft(0.0)
@@ -356,5 +355,5 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         .modal(true, |s: &mut App| keep(s, &mut Tx::default()))
         .child(header)
         .child(body);
-    widgets::modal("move-recovery", p, dialog, None)
+    widgets::sized_modal("move-recovery", p, widgets::DialogSize::Normal, widgets::Fit::Content, widgets::dialog_window(cx, *s.zoom), dialog)
 }

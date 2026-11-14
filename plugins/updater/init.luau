@@ -220,7 +220,7 @@ return plugin.defineWindow(function(ctx)
     local highlightIndex = 1
     ctx:AddDialog({
         id = "beta",
-        size = "medium",
+        size = "normal",
         render = function(v, props)
             local data = (props.data or {}) :: any
             return v:Memo("beta-dialog", I18n:Locale().id, function()

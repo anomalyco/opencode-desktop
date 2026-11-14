@@ -693,7 +693,7 @@ fn models(s: &App, p: &Pal, id: &str) -> El {
         .child(col().w_full().grow(1.0).shrink().min_h(0.0).px(20.0)
             .child(text(opencode_i18n::t!("provider.connect.models.description")).font(BODY).color(p.muted).pb(20.0))
             // `settings-panel`: no bar, as Desktop hides it (`dialog.tsx:1241`, `settings.css:593-607`).
-            .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), scroll)))
+            .child(session_view::scroller::scroller("first-provider-model-scroll").hidden(col().w_full().shrink().min_h(0.0), scroll)))
         .child(el().w_full().h(0.5).fill(p.border_muted))
         .child(footer)
 }

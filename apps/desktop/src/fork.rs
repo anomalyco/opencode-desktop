@@ -356,17 +356,17 @@ const ROW_GAP: f32 = 2.0;
 /// `search-list-empty`.
 const EMPTY_H: f32 = 120.0;
 
-/// Desktop's `DialogFork` (`fork-dialog.tsx`, `search-list.css:243-289`) in the compact palette
-/// dialog (`dialog.css:141-153`): 480 wide on bg-base with `--v2-elevation-overlay` and 12 pt
-/// corners, as tall as its rows up to 480, its top halfway down a 480-tall box but at least 48
-/// from the window's.
+/// Desktop's `DialogFork` (`fork-dialog.tsx`, `search-list.css:243-289`) in
+/// `<Dialog size="large" fit>`: large on bg-base with `--v2-elevation-overlay` and 12 pt corners,
+/// as tall as its rows up to the size's height, growing down from its top edge.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let zoom = s.zoom.max(0.5);
     let [win_w, win_h] = cx
         .layout_size("zoom")
         .map_or([1280.0 / zoom, 820.0 / zoom], |[w, h]| [w, h]);
-    let w = (win_w - 24.0).min(480.0);
-    let max_h = (win_h - 96.0).min(480.0);
+    let size = crate::widgets::DialogSize::Large;
+    let w = size.width(win_w);
+    let max_h = size.height(win_h);
     let all = s.fork_messages();
     let filtered = s.fork_filtered();
     let active = s.fork.active.as_ref().filter(|id| filtered.iter().any(|m| &m.id == *id));
@@ -513,6 +513,6 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .h_full()
         .fill(p.scrim)
         .transition(Transition::none());
-    [scrim, dialog.absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0)).raise()]
+    [scrim, dialog.absolute((win_w - w) / 2.0, size.top(win_h)).raise()]
 }
 

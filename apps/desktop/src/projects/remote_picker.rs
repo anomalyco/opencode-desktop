@@ -445,7 +445,7 @@ pub mod view {
     const ROW_H: f32 = 24.0;
     const INDENT: f32 = 16.0;
 
-    pub fn view(s: &App, p: &Pal) -> Vec<El> {
+    pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
         let Picker::Open(o) = &*s.remote_picker else { return Vec::new() };
         let k = kit(p);
         // `dialog-header`: the title and the server under it, and the 20 pt close button.
@@ -552,22 +552,23 @@ pub mod view {
             chosen = chosen.help(full);
         }
         let footer = row().key("directory-picker-footer").w_full().padding(16.0).gap(8.0).center_y().child(chosen).child(cancel).child(select);
-        // `size="large"`: 640 by 480.
+        // `<Dialog size="large" fit>` (`workspaces/selection/dialog.tsx`): large, on bg-base with
+        // 12 pt corners, as tall as its content up to the large height.
         let card = col()
-            .w(640.0)
-            .h(480.0)
-            .radius(6.0)
-            .fill(p.layer1)
+            .w_full()
+            .radius(12.0)
+            .fill(p.bg_base)
             .elevate(p.overlay)
             // The clip on a child: on the card it would clip the card's own shadow too.
-            .child(col().w_full().h_full().clip_rounded(6.0)
+            .child(col().w_full().clip_rounded(12.0)
             .child(header)
             // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
             .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
             .child(body)
             .child(footer));
         let card = col().key("directory-picker").role("dialog").label(o.title.clone()).modal(true, |s: &mut App| super::close(s, &mut Tx::default())).child(card);
-        crate::widgets::modal("directory-picker-modal", p, card, None)
+        let (size, fit) = (crate::widgets::DialogSize::Large, crate::widgets::Fit::Content);
+        crate::widgets::sized_modal("directory-picker-modal", p, size, fit, crate::widgets::dialog_window(cx, *s.zoom), card)
     }
 
     /// `directory-picker-browser`: 280 tall, 6 in, a 0.5 pt border (a whole device pixel that

@@ -453,7 +453,7 @@ return plugin.defineWindow(function(ctx)
     ctx:AddDialog({
         id = "pair",
         title = I18n:T("pair.title"),
-        size = "small",
+        size = "normal",
         render = function(v)
             return v:Memo("dialog", version(), function()
                 return dialogBody(v)

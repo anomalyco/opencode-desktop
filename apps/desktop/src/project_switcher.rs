@@ -589,17 +589,18 @@ fn drill(p: &Pal, key: &str, label: &str, on: impl Fn(&mut App, &mut Tx) + 'stat
 /// A row's title: `palette-menu-title`, 13 at 530.
 const TITLE: rune::TextStyle = UI_MED;
 
-/// The dialog (`dialog.css:5-60`): 480 wide on bg-base with `--v2-elevation-overlay` and 12 pt
-/// corners, as tall as it needs up to 480, its top halfway down a 480-tall box but at least 48
-/// from the window's. The search field (28 tall, transparent, the placeholder in the base ink at
+/// The dialog (`<Dialog size="large" fit>`, `new-session/location/dialog.tsx`): large, on bg-base
+/// with `--v2-elevation-overlay` and 12 pt corners, as tall as it needs up to the size's height,
+/// growing down from the size's top edge. The search field (28 tall, transparent, the placeholder in the base ink at
 /// half strength), a hairline 8 below it, and the rows 4 apart under it.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let [win_w, win_h] = cx
         .layout_size("window")
         .or_else(|| cx.layout_size("zoomed"))
         .unwrap_or([1280.0 / s.zoom.max(1e-3), 820.0 / s.zoom.max(1e-3)]);
-    let w = (win_w - 24.0).min(480.0);
-    let max_h = (win_h - 96.0).min(480.0);
+    let size = crate::widgets::DialogSize::Large;
+    let w = size.width(win_w);
+    let max_h = size.height(win_h);
     let q = s.project_switcher.query();
     let rows = s.project_switcher_rows();
     let active = s.project_switcher_active(&rows);
@@ -695,7 +696,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
             // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
             session_view::scroller::scroller("project-switcher-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().role("listbox").w_full().h(scroll_h), list),
         );
-    let y = ((win_h - 480.0) / 2.0).max(48.0);
+    let y = size.top(win_h);
     let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     [scrim, dialog.absolute((win_w - w) / 2.0, y)]
 }

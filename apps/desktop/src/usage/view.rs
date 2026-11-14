@@ -39,7 +39,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
 /// The dialog in a window `win_w` wide, while open.
 pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
     let open = s.usage.open.as_ref()?;
-    let width = (win_w - 32.0).min(512.0);
+    let width = widgets::DialogSize::Normal.width(win_w);
     let (body, footer) = match &open.load {
         Load::Ready(info) | Load::Refreshing { info, .. } => {
             let v = limits::view(info, open.model.as_ref(), open.credits);
@@ -47,7 +47,7 @@ pub(super) fn dialog(s: &App, p: &Pal, win_w: f32) -> Option<El> {
         }
         load => (fallback(p, load, width), None),
     };
-    // `w-[min(calc(100vw-32px),512px)]`, `dialog.css:19-28, 161-168`.
+    // `<Dialog fit>` (`usage/dialog.tsx`): the normal size, as tall as its content.
     Some(
         col()
             .key("usage-dialog")

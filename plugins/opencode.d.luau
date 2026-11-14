@@ -195,8 +195,8 @@ export type UiEventKind = "press" | "middle-press" | "hover" | "submit" | "chang
 --- A kind of menu entry.
 export type MenuEntryKind = "item" | "group" | "separator"
 
---- A dialog's width.
-export type DialogSize = "small" | "medium" | "large"
+--- A dialog's size: one of Desktop's three presets, each clamped to the window.
+export type DialogSize = "normal" | "large" | "x-large" | "small" | "medium"
 
 --- What a declared store keeps a value for.
 export type StoreScope = "global" | "session"
@@ -936,7 +936,7 @@ export type UiImageProps = {
     radius: number?,
     --- The fill under the image: shown while it loads and through its transparent pixels.
     placeholder: Color?,
-    --- Fades in over 150 ms as it lands, at once with reduced motion. Off by default.
+    --- Accepted for compatibility. Loaded images appear immediately.
     fadeIn: boolean?,
     --- A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it.
     preview: boolean?,
@@ -4688,9 +4688,9 @@ export type DialogSpec = {
     id: string,
     --- Its heading and accessible name.
     title: string?,
-    --- Its width.
+    --- Its size preset.
     size: DialogSize?,
-    --- Draws its body inside the host's dialog frame: Desktop's dialog, as tall as its content, layer-01 fill, overlay elevation and 6-point corners.
+    --- Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = "full"`).
     render: (view: View, props: DialogProps) -> UiNode?,
     --- Runs when Esc or a click outside closes it.
     onDismiss: (() -> ())?,

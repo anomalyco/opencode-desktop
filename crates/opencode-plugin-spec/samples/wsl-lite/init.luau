@@ -65,7 +65,7 @@ return plugin.defineWindow(function(ctx)
     ctx:AddDialog({
         id = "add",
         title = "Add WSL server",
-        size = "small",
+        size = "normal",
         render = function(view)
             return view:Memo("add", distro:Version(), function()
                 return ui.col({ gap = 12, w = "full" }, {

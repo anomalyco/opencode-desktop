@@ -404,7 +404,7 @@ pub struct DialogSpec {
     pub id: String,
     /// Its heading and accessible name.
     pub title: Option<String>,
-    /// Its width.
+    /// Its size preset.
     pub size: Option<DialogSize>,
 }
 impl_record!(DialogSpec, ["id", "title", "size"], ["render", "onDismiss"], []);

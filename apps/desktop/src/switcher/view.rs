@@ -68,14 +68,14 @@ pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Col
     }
 }
 
-/// The scrim, and the dialog where Desktop puts it: 480 wide (less 24 in a narrow window), its
-/// top halfway down a 480-tall box but at least 48 from the window's (`dialog.css:145-153`).
+/// The scrim, and the dialog where Desktop puts it: `<Dialog size="large" fit>`
+/// (`shell/commands/dialog.tsx`), as tall as its rows and growing down from the top edge.
 pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
     let [win_w, win_h] = cx.layout_size("window").or_else(|| cx.layout_size("zoomed")).unwrap_or([1280.0, 820.0]);
-    let w = (win_w - 24.0).min(480.0);
-    let max_h = (win_h - 96.0).min(480.0);
+    let size = crate::widgets::DialogSize::Large;
+    let w = size.width(win_w);
     let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog(s, p, w, max_h).absolute((win_w - w) / 2.0, ((win_h - 480.0) / 2.0).max(48.0))]
+    [scrim, dialog(s, p, w, size.height(win_h)).absolute((win_w - w) / 2.0, size.top(win_h))]
 }
 
 /// The dialog itself, `w` wide and as tall as its rows up to `max_h`.

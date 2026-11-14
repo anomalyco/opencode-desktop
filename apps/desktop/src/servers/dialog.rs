@@ -197,7 +197,7 @@ fn error_words(e: &Error) -> String {
 
 /// The dialog, while it's open.
 #[allow(deprecated)]
-pub fn view(s: &App, p: &Pal) -> Vec<El> {
+pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     let d = &s.settings_pages.servers.dialog;
     let Some(state) = d.state.as_ref() else { return Vec::new() };
     let v = machine::view(state);
@@ -273,7 +273,9 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
         .child(col().key("dialog-server-body").w_full().min_w(0.0).px(16.0).pt(16.0).pb(8.0).child(body))
         .child(row().key("dialog-server-footer").w_full().padding(16.0).gap(8.0).child(rune::spacer()).child(cancel).child(submit));
-    let card = col().w(480.0).radius(6.0).fill(p.layer1).elevate(p.overlay).child(card);
+    // `<Dialog fit class="settings-server-dialog">` (`servers/connect/dialog.tsx`): the normal size.
+    let card = col().radius(6.0).fill(p.layer1).elevate(p.overlay).child(card);
+    let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
     let card = col().key("dialog-server").role("dialog").label(title).modal(true, |s: &mut App| {
         let mut tx = Tx::default();
         close(s, &mut tx);

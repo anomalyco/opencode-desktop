@@ -8,6 +8,8 @@ use rune_theme_opencode::provider_icons;
 
 use crate::palette::{Elevate as _, Pal, kit};
 
+pub use session_view::dialog::DialogSize;
+
 /// Desktop's body copy in its views: 13 on 20 at 440, tracking -0.04.
 pub const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
 /// 13 on 20 at 530.
@@ -70,6 +72,41 @@ pub fn provider_mark(id: &str, color: Color) -> El {
 /// `--v2-elevation-overlay` on a dialog surface.
 pub fn overlay(p: &Pal, e: El) -> El {
     e.elevate(p.overlay)
+}
+
+/// The window a dialog clamps its size to, in zoomed points.
+pub fn dialog_window(cx: &rune::Cx<crate::App>, zoom: f32) -> [f32; 2] {
+    let zoom = zoom.max(0.5);
+    cx.layout_size("zoom").unwrap_or([1280.0 / zoom, 820.0 / zoom])
+}
+
+/// How a dialog's height follows its content (`<Dialog fit anchored>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fit {
+    /// The size's height.
+    Fixed,
+    /// As tall as its content, up to the size's most (`fit`).
+    Content,
+    /// As tall as its content within the size's height, its top edge kept (`fit anchored`).
+    Anchored,
+}
+
+/// `card` at preset `size` in a window `win`: its width, and its height or the most it grows to.
+pub fn sized(card: El, size: DialogSize, fit: Fit, win: [f32; 2]) -> El {
+    let [win_w, win_h] = win;
+    let card = card.w(size.width(win_w));
+    match fit {
+        Fit::Fixed => card.h(size.height(win_h)),
+        Fit::Content => card.max_h(size.max_height(win_h, false)),
+        Fit::Anchored => card.max_h(size.max_height(win_h, true)),
+    }
+}
+
+/// `card` at preset `size` in a window `win`, over its scrim (`modal`): centred, or with its top
+/// edge kept where it fits its content and is large or anchored.
+pub fn sized_modal(key: &str, p: &Pal, size: DialogSize, fit: Fit, win: [f32; 2], card: El) -> Vec<El> {
+    let kept = fit == Fit::Anchored || (fit == Fit::Content && size != DialogSize::Normal);
+    modal(key, p, sized(card, size, fit, win), kept.then(|| size.top(win[1])))
 }
 
 /// A dialog's scrim and its centring layer: a press on the scrim runs `dismiss`.
