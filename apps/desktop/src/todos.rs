@@ -36,6 +36,11 @@ impl Todo {
     }
 }
 
+thread_local! {
+    /// The open session's plan, and the session, transcripts version and revert it was read at.
+    static PLAN: std::cell::RefCell<Option<((String, u64, Option<String>), Vec<Todo>)>> = const { std::cell::RefCell::new(None) };
+}
+
 /// The plan in a transcript: the latest completed `todowrite` call's todos, among the messages
 /// a staged revert at `boundary` leaves.
 pub fn session_todos(t: &Transcript, boundary: Option<&str>) -> Vec<Todo> {
@@ -90,7 +95,18 @@ impl App {
             return Vec::new();
         }
         let Some(t) = self.transcripts.get(id) else { return Vec::new() };
-        let todos = session_todos(t, self.session(id).and_then(|i| i.revert.as_deref()));
+        let revert = self.session(id).and_then(|i| i.revert.as_deref());
+        // Every poll asks: the plan is read once per version of the transcripts, not by walking
+        // a long session back to its last plan each frame.
+        let version = (id.to_owned(), rune::Tracked::version(&self.transcripts), revert.map(str::to_owned));
+        let todos = PLAN.with_borrow_mut(|kept| match kept.as_ref().filter(|(v, _)| *v == version) {
+            Some((_, todos)) => todos.clone(),
+            None => {
+                let todos = session_todos(t, revert);
+                *kept = Some((version, todos.clone()));
+                todos
+            }
+        });
         if todos.iter().all(Todo::finished) { Vec::new() } else { todos }
     }
 }
