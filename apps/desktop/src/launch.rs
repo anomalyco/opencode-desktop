@@ -848,6 +848,9 @@ fn connect(s: &mut App, tx: &mut Tx) {
         if let Route::Session { id, server } = (*s.route).clone()
             && server == *crate::servers::runtime::active(s)
         {
+            // The open session's own server has answered: with tabs on several servers it can be
+            // later than `server.answered`, which is the first of them.
+            rune::marks::mark("session.server.answered");
             crate::telemetry::open_restored(&id, s.transcripts.get(&id).map_or(0, |t| t.messages.len()));
             s.open(&id, tx);
         }
