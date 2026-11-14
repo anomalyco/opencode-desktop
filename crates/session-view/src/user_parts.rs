@@ -217,8 +217,29 @@ pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (
 // Quote cards
 
 pub fn quote_preview(text: &str) -> String {
-    text.chars().take(PREVIEW).collect()
+    one_line(&text.chars().take(PREVIEW).collect::<String>())
 }
+
+/// A card's line as Desktop's `white-space: nowrap` draws it: every run of spaces and line
+/// breaks one space. A one-line text keeps its hard breaks, so a quote of two paragraphs
+/// would stack three lines in its 14 pt row, over the line above it.
+fn one_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A quote that starts on a lowercase letter was most likely cut mid-word or mid-sentence
+/// ("elieve escapability…"), so its first letters fade in rather than start hard. The
+/// selection doesn't say what came before it, so this is a guess.
+fn starts_cut(quote: &str) -> bool {
+    quote.trim_start().chars().next().is_some_and(char::is_lowercase)
+}
+
+/// `line`, its leading edge faded when `cut`.
+fn lead_fade(line: El, cut: bool) -> El {
+    if cut { el().shrink().clip_fade(LEAD_FADE, 0.0, 0.0, 0.0).child(line) } else { line }
+}
+
+const LEAD_FADE: f32 = 6.0;
 
 fn tooltip(q: &Quote) -> String {
     let text: String = if q.text.chars().count() > TOOLTIP { format!("{}…", q.text.chars().take(TOOLTIP).collect::<String>()) } else { q.text.clone() };
@@ -254,7 +275,7 @@ pub fn filename_truncated(path: &str, max: usize) -> String {
 }
 
 fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
-    let title = text(f.comment.clone()).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let title = text(one_line(&f.comment)).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let subtitle = row()
         .key("subtitle")
         .w_full()
@@ -282,29 +303,33 @@ fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
 pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
     let comment = q.comment();
     let quote = quote_preview(&q.text);
-    let title = comment.map_or_else(|| quote.clone(), str::to_owned);
+    let title = comment.map_or_else(|| quote.clone(), one_line);
     let label = if comment.is_some() { quote } else { opencode_i18n::t!("ui.commentCard.quote").to_owned() };
+    let cut = starts_cut(&q.text);
     let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let tip = tooltip(q);
     if comment.is_none() {
         title = title.help_when_truncated(tip.clone());
     }
-    let line = |key: &str, glyph, label: String, color| {
-        row().key(key).w_full().h(14.0).gap(4.0).center_y().min_w(0.0)
+    let title = lead_fade(title, cut && comment.is_none()).w_full();
+    // `attachment-card-subtitle` is 16 tall, as on a file's card.
+    let line = |key: &str, glyph, label: String, color, cut| {
+        row().key(key).w_full().h(16.0).gap(4.0).center_y().min_w(0.0)
             .child(icon(glyph, 12.0).color(color))
-            .child(text(label).font(CARD_SUBTITLE).color(color).truncate_fade())
+            .child(lead_fade(text(label).font(CARD_SUBTITLE).color(color).truncate_fade(), cut))
     };
-    let mut subtitle = el().key("subtitle").w_full().h(14.0);
+    let quoted = cut && comment.is_some();
+    let mut subtitle = el().key("subtitle").w_full().h(16.0);
     if hint {
         let edit = if comment.is_some() { opencode_i18n::t!("ui.commentCard.editComment") } else { opencode_i18n::t!("ui.commentCard.addComment") };
         subtitle = if crate::style::hover_none() && comment.is_none() {
-            subtitle.child(line("comment-line", &COMMENT, edit.to_owned(), p.text))
+            subtitle.child(line("comment-line", &COMMENT, edit.to_owned(), p.text, false))
         } else {
-            subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted).group_opacity(1.0, 0.0))
-                .child(line("comment-line", &COMMENT, edit.to_owned(), p.text).absolute(0.0, 0.0).group_opacity(0.0, 1.0))
+            subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted, quoted).group_opacity(1.0, 0.0))
+                .child(line("comment-line", &COMMENT, edit.to_owned(), p.text, false).absolute(0.0, 0.0).group_opacity(0.0, 1.0))
         };
     } else {
-        subtitle = subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted));
+        subtitle = subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted, quoted));
     }
     let mut c = col()
         .key("card")
