@@ -114,7 +114,6 @@
   "rune.review.noGit": "Не Git-репозиторий",
   "rune.review.scope": "Изменить область обзора",
   "rune.search.draft": "Черновик",
-  "rune.search.messagesOff": "Текст сообщений на этом устройстве пока не ищется",
   "rune.send.disconnected": "Нет подключения к серверу OpenCode",
   "rune.send.failed": "Не удалось отправить",
   "rune.send.nothingSent": "Ничего не отправлено",

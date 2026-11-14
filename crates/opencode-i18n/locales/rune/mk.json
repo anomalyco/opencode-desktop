@@ -114,7 +114,6 @@
   "rune.review.noGit": "Не е Git складиште",
   "rune.review.scope": "Промени го опсегот на прегледот",
   "rune.search.draft": "Нацрт",
-  "rune.search.messagesOff": "Текстот на пораките сè уште не се пребарува на овој уред",
   "rune.send.disconnected": "Нема врска со OpenCode сервер",
   "rune.send.failed": "Испраќањето не успеа",
   "rune.send.nothingSent": "Ништо не е испратено",

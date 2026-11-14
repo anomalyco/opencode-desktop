@@ -114,7 +114,6 @@
   "rune.review.noGit": "Git պահոց չէ",
   "rune.review.scope": "Փոխել վերանայման շրջանակը",
   "rune.search.draft": "Սևագիր",
-  "rune.search.messagesOff": "Հաղորդագրությունների տեքստը դեռ չի որոնվում այս սարքում",
   "rune.send.disconnected": "Միացված չէ OpenCode սերվերին",
   "rune.send.failed": "Չհաջողվեց ուղարկել",
   "rune.send.nothingSent": "Ոչինչ չի ուղարկվել",

@@ -114,7 +114,6 @@
   "rune.review.noGit": "Git deposu değil",
   "rune.review.scope": "İnceleme kapsamını değiştir",
   "rune.search.draft": "Taslak",
-  "rune.search.messagesOff": "Mesaj metni bu cihazda henüz aranmıyor",
   "rune.send.disconnected": "Bir OpenCode sunucusuna bağlı değil",
   "rune.send.failed": "Gönderilemedi",
   "rune.send.nothingSent": "Hiçbir şey gönderilmedi",

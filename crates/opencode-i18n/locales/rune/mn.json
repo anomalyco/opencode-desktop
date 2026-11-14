@@ -114,7 +114,6 @@
   "rune.review.noGit": "Git репозитори биш",
   "rune.review.scope": "Хяналтын хамрах хүрээг өөрчлөх",
   "rune.search.draft": "Ноорог",
-  "rune.search.messagesOff": "Энэ төхөөрөмж дээр мессежийн текстээс хараахан хайхгүй байна",
   "rune.send.disconnected": "OpenCode сервертэй холбогдоогүй",
   "rune.send.failed": "Илгээж чадсангүй",
   "rune.send.nothingSent": "Юу ч илгээгдсэнгүй",

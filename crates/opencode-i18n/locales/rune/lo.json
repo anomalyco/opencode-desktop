@@ -114,7 +114,6 @@
   "rune.review.noGit": "ບໍ່ແມ່ນບ່ອນເກັບ Git",
   "rune.review.scope": "ປ່ຽນຂອບເຂດການກວດສອບ",
   "rune.search.draft": "ສະບັບຮ່າງ",
-  "rune.search.messagesOff": "ຍັງບໍ່ໄດ້ຊອກຫາຂໍ້ຄວາມໃນອຸປະກອນນີ້ເທື່ອ",
   "rune.send.disconnected": "ບໍ່ໄດ້ເຊື່ອມຕໍ່ກັບເຊີບເວີ OpenCode",
   "rune.send.failed": "ສົ່ງບໍ່ສຳເລັດ",
   "rune.send.nothingSent": "ບໍ່ໄດ້ສົ່ງຫຍັງເລີຍ",

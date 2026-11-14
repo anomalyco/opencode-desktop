@@ -114,7 +114,6 @@
   "rune.review.noGit": "Ikke et Git-repository",
   "rune.review.scope": "Skift gennemgangens omfang",
   "rune.search.draft": "Kladde",
-  "rune.search.messagesOff": "Beskedtekst søges endnu ikke på denne enhed",
   "rune.send.disconnected": "Ikke forbundet til en OpenCode-server",
   "rune.send.failed": "Kunne ikke sende",
   "rune.send.nothingSent": "Intet blev sendt",

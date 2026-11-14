@@ -108,7 +108,8 @@ impl App {
             for ses in rows {
                 let (project_id, project) = project_of(r, ses);
                 let title = title_of(ses);
-                if !needle.is_empty() && ![title.as_str(), project.as_str(), ses.id.as_str()].iter().any(|t| t.to_lowercase().contains(&needle)) {
+                // Titles only, as official's `createServerSessionEntries` narrows (`shell/commands/palette.ts:439-440`).
+                if !needle.is_empty() && !title.to_lowercase().contains(&needle) {
                     continue;
                 }
                 out.push(Entry {

@@ -114,7 +114,6 @@
   "rune.review.noGit": "Nejde o repozitář Git",
   "rune.review.scope": "Změnit rozsah recenze",
   "rune.search.draft": "Koncept",
-  "rune.search.messagesOff": "Text zpráv se na tomto zařízení zatím neprohledává",
   "rune.send.disconnected": "Bez připojení k serveru OpenCode",
   "rune.send.failed": "Odeslání selhalo",
   "rune.send.nothingSent": "Nic nebylo odesláno",

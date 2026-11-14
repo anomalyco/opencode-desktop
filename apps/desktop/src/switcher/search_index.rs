@@ -1,4 +1,4 @@
-//! One index of the root sessions' titles, projects and ids, for the palette and Home's search,
+//! One index of the root sessions' titles and projects, for the palette and Home's search,
 //! kept with the server's shared data (`windows::peer`): every window of a server searches the
 //! same one. A key only scans it. At 512 roots or more it is built on a worker while a surface
 //! that searches is open (the palette, or Home's focused search) and the sessions changed since
@@ -53,11 +53,14 @@ struct Row {
     project: u32,
 }
 
-/// The sessions as the UI thread copied them: each root's `title\0project`, then its id after
-/// `opencode_search::EXACT` (an id matches only as typed), end to end.
+/// The sessions as the UI thread copied them: each root's `title\0project`, end to end, and its id.
+/// An id is never matched: official matches a palette query against titles (`shell/commands/palette.ts:439-440`,
+/// and the server's `title LIKE`, `core/src/session/store.ts:162`) and Home's against title and project
+/// (`home/sessions/search.ts:80`); only Home looks a whole typed id up (`lookup`).
 struct Snapshot {
     version: Version,
     text: String,
+    ids: Vec<Box<str>>,
     ends: Vec<u32>,
     rows: Vec<Row>,
     projects: Vec<String>,
@@ -79,14 +82,12 @@ pub(crate) struct Built {
 impl Built {
     fn from(s: Snapshot, prepare: bool) -> Self {
         let mut arena = SearchArena::default();
-        let mut ids = Vec::with_capacity(s.rows.len());
         let mut start = 0;
         for &end in &s.ends {
-            let row = &s.text[start..end as usize];
-            arena.push(row);
-            ids.push(row.rsplit(opencode_search::EXACT).next().unwrap_or_default().into());
+            arena.push(&s.text[start..end as usize]);
             start = end as usize;
         }
+        let ids = s.ids;
         arena.compact();
         let mut order: Vec<u32> = (0..s.rows.len() as u32).filter(|&i| !s.rows[i as usize].automation).collect();
         order.sort_unstable_by_key(|&i| std::cmp::Reverse(s.rows[i as usize].active_ms));
@@ -127,7 +128,9 @@ impl Built {
             Scope::Palette { archived } => r.archived == *archived,
             Scope::Home { .. } => !r.archived && project.is_none_or(|p| r.project == p),
         };
-        self.arena.ranked_scored(q, limit, |i| within(&self.rows[i]).then(|| (0, self.rows[i].active_ms)))
+        // The palette matches titles; Home titles and projects.
+        let fields = if matches!(scope, Scope::Palette { .. }) { 1 } else { 2 };
+        self.arena.ranked_scored_in(q, limit, fields, |i| within(&self.rows[i]).then(|| (0, self.rows[i].active_ms)))
     }
 }
 
@@ -299,7 +302,7 @@ impl App {
         let mut labels: HashMap<(&str, &str), (String, u32)> = HashMap::new();
         let mut projects: Vec<String> = Vec::new();
         let roots = self.sessions.iter().filter(|s| s.parent.is_none());
-        let (mut text, mut ends, mut rows) = (String::new(), Vec::new(), Vec::new());
+        let (mut text, mut ends, mut rows, mut ids) = (String::new(), Vec::new(), Vec::new(), Vec::new());
         for s in roots {
             let (label, project) = labels.entry((&s.project, &s.directory)).or_insert_with(|| {
                 let project = self.project_for_session(s).map_or(u32::MAX, |p| match projects.iter().position(|x| *x == p.id) {
@@ -312,11 +315,12 @@ impl App {
                 (self.project_label(s), project)
             });
             let title = if s.title.is_empty() { opencode_i18n::t!("rune.session.untitled") } else { s.title.as_str() };
-            let _ = write!(text, "{title}\0{label}{}{}", opencode_search::EXACT, s.id);
+            let _ = write!(text, "{title}\0{label}");
+            ids.push(s.id.as_str().into());
             ends.push(text.len() as u32);
             rows.push(Row { active_ms: s.active_ms(), archived: s.archived.is_some(), automation: crate::view::is_automation(&s.title), project: *project });
         }
-        Snapshot { version: self.session_version(), text, ends, rows, projects }
+        Snapshot { version: self.session_version(), text, ids, ends, rows, projects }
     }
 
     /// Keeps a large list's index up: lands a build, and starts the next when the sessions changed.

@@ -194,13 +194,6 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     } else {
         content_h += 6.0;
     }
-    // A profile without the search tables searches titles and the loaded sessions only: it says
-    // so under what it found.
-    if !q.trim().is_empty() && s.switcher.mode != SwitcherMode::Commands && matches!(s.fulltext(Surface::Palette), crate::fulltext::Shown::Off) {
-        let note = t!("rune.search.messagesOff");
-        results = results.child(row().key("switcher-fulltext-off").w_full().h(ROW_H).px(12.0).center_y().child(text(note).font(session_view::style::UI_SMALL).color(p.muted).truncate()));
-        content_h += ROW_H;
-    }
     let header = HEAD_H + entry_height(false) - ROW_H;
     let scroll_h = content_h.min(max_h - header).max(0.0);
 

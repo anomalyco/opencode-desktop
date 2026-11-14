@@ -114,7 +114,6 @@
   "rune.review.noGit": "Không phải kho Git",
   "rune.review.scope": "Đổi phạm vi xem xét",
   "rune.search.draft": "Bản nháp",
-  "rune.search.messagesOff": "Chưa tìm kiếm văn bản tin nhắn trên thiết bị này",
   "rune.send.disconnected": "Chưa kết nối với máy chủ OpenCode",
   "rune.send.failed": "Gửi thất bại",
   "rune.send.nothingSent": "Chưa gửi gì",

@@ -114,7 +114,6 @@
   "rune.review.noGit": "Nem Git-tároló",
   "rune.review.scope": "Az áttekintés hatókörének módosítása",
   "rune.search.draft": "Piszkozat",
-  "rune.search.messagesOff": "Az üzenetek szövegében ezen az eszközön még nem lehet keresni",
   "rune.send.disconnected": "Nincs kapcsolat OpenCode-kiszolgálóval",
   "rune.send.failed": "A küldés nem sikerült",
   "rune.send.nothingSent": "Semmi sem lett elküldve",

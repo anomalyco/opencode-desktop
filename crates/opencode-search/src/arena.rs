@@ -5,8 +5,6 @@ use memchr::memmem::Finder;
 
 use crate::SearchFold;
 
-/// Separates the end of a row that matches only as an exact substring (an id) from the rest.
-pub const EXACT: char = '\u{1f}';
 /// The least score of a row that holds the query as a substring: a subsequence scores less.
 pub const SUBSTRING: i32 = 5_000;
 
@@ -131,6 +129,18 @@ impl SearchArena {
         limit: usize,
         context: impl Fn(usize) -> Option<(i32, i64)>,
     ) -> Vec<(i32, i64, usize)> {
+        self.ranked_scored_in(query, limit, usize::MAX, context)
+    }
+
+    /// [`Self::ranked_scored`] over each row's first `fields` `\0`-separated fields only (a
+    /// surface that matches titles, of rows that hold `title\0project`).
+    pub fn ranked_scored_in(
+        &self,
+        query: &str,
+        limit: usize,
+        fields: usize,
+        context: impl Fn(usize) -> Option<(i32, i64)>,
+    ) -> Vec<(i32, i64, usize)> {
         let limit = limit.min(self.ends.len());
         if limit == 0 {
             return Vec::new();
@@ -181,6 +191,10 @@ impl SearchArena {
                 {
                     precise = mode.fold(&self.originals[i].1);
                     hay = &precise;
+                }
+                if fields != usize::MAX {
+                    let cut = hay.match_indices('\0').nth(fields.wrapping_sub(1)).map_or(hay.len(), |(i, _)| i);
+                    hay = &hay[..cut];
                 }
                 let score = if q.is_empty() {
                     0
@@ -248,12 +262,10 @@ impl SearchArena {
     }
 }
 
-/// What a row may match loosely: its text before [`EXACT`], one `\0` field at a time, so a
-/// query's letters never gather across fields or from an id (`title\0project\x1fid`), which
-/// only an exact substring finds.
+/// What a row may match loosely: one `\0` field at a time, so a query's letters never gather
+/// across fields (`title\0project`).
 fn fuzzy(hay: &str, q: &str) -> Option<i32> {
-    let loose = hay.split(EXACT).next().unwrap_or_default();
-    loose.split('\0').filter_map(|field| subsequence(field, q, |_| ())).max()
+    hay.split('\0').filter_map(|field| subsequence(field, q, |_| ())).max()
 }
 
 fn subsequence(hay: &str, q: &str, mut found: impl FnMut(Range<usize>)) -> Option<i32> {

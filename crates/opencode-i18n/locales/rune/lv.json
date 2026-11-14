@@ -114,7 +114,6 @@
   "rune.review.noGit": "Nav Git repozitorijs",
   "rune.review.scope": "Mainīt pārskatīšanas tvērumu",
   "rune.search.draft": "Melnraksts",
-  "rune.search.messagesOff": "Ziņojumu tekstā šajā ierīcē vēl nemeklē",
   "rune.send.disconnected": "Nav savienojuma ar OpenCode serveri",
   "rune.send.failed": "Neizdevās nosūtīt",
   "rune.send.nothingSent": "Nekas netika nosūtīts",

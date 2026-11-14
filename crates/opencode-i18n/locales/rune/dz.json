@@ -31,7 +31,6 @@
   "rune.menu.edit.findPrevious": "ཧེ་མམ་འཚོལ་ནི",
   "rune.openIn.failed": "ཁ་ཕྱེ་མ་ཚུགས།",
   "rune.search.draft": "ཟིན་བྲིས།",
-  "rune.search.messagesOff": "འཕྲིན་ཡིག་གི་ཡིག་འབྲུ་ འཕྲུལ་ཆས་འདི་ནང་ ད་ལྟོ་ཡང་མ་འཚོལ།",
   "rune.send.retry": "བསྐྱར་དུ་ཚོད་ལྟ་",
   "rune.session.header.openParent": "{{title}} ཁ་ཕྱེ།",
   "rune.storage.damaged.description": "OpenCode གི་ཉར་ཚགས་གནས་སྟངས་འདི་ཆ་ཁ་ཤོར་ཏེ་ལྷག་མ་ཚུགས་ནི་ལས་ གསརཔ་ཅིག་གིས་འགོ་བཙུགས་ཡི། ཧེ་མའི་ཁ་ཕྱེ་བའི་ཤོག་བྱང་དང་ཟིན་བྲིས་ཚུ་མེད་སྲིད། ཆ་ཁ་ཤོར་བའི་ཡིག་སྣོད་འདི་ {{path}} ནང་བཞག་ཡོད།",

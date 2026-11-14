@@ -6,8 +6,8 @@
 //! query of two characters or more; the newest question wins (`SearchSurface`).
 //!
 //! A profile without the tables (schema 2 off, `RUNE_STORAGE_V2`; storage in memory; the browser)
-//! answers each question with an error: titles and the loaded sessions are still searched, and the
-//! surface says message text isn't.
+//! answers each question with an error: the palette and Home then search what official's do
+//! (titles; Home's projects too), so they announce nothing.
 
 use std::sync::{Arc, Mutex};
 

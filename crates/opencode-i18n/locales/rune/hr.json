@@ -114,7 +114,6 @@
   "rune.review.noGit": "Nije Git repozitorij",
   "rune.review.scope": "Promijeni opseg pregleda",
   "rune.search.draft": "Skica",
-  "rune.search.messagesOff": "Tekst poruka još se ne pretražuje na ovom uređaju",
   "rune.send.disconnected": "Nema veze s OpenCode poslužiteljem",
   "rune.send.failed": "Slanje nije uspjelo",
   "rune.send.nothingSent": "Ništa nije poslano",

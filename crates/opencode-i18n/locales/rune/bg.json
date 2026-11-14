@@ -114,7 +114,6 @@
   "rune.review.noGit": "Не е Git хранилище",
   "rune.review.scope": "Промяна на обхвата на прегледа",
   "rune.search.draft": "Чернова",
-  "rune.search.messagesOff": "Текстът на съобщенията още не се търси на това устройство",
   "rune.send.disconnected": "Няма връзка със сървър на OpenCode",
   "rune.send.failed": "Изпращането не успя",
   "rune.send.nothingSent": "Нищо не е изпратено",

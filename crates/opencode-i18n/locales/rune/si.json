@@ -114,7 +114,6 @@
   "rune.review.noGit": "Git ගබඩාවක් නොවේ",
   "rune.review.scope": "සමාලෝචන විෂය පථය වෙනස් කරන්න",
   "rune.search.draft": "කෙටුම්පත",
-  "rune.search.messagesOff": "මෙම උපාංගයේ පණිවිඩ පෙළ තවම සොයන්නේ නැත",
   "rune.send.disconnected": "OpenCode සේවාදායකයකට සම්බන්ධ නැත",
   "rune.send.failed": "යැවීම අසාර්ථක විය",
   "rune.send.nothingSent": "කිසිවක් යවා නැත",

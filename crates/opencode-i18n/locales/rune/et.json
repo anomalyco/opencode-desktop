@@ -114,7 +114,6 @@
   "rune.review.noGit": "Pole Giti hoidla",
   "rune.review.scope": "Muuda ülevaatuse ulatust",
   "rune.search.draft": "Mustand",
-  "rune.search.messagesOff": "Sõnumite teksti selles seadmes veel ei otsita",
   "rune.send.disconnected": "Puudub ühendus OpenCode’i serveriga",
   "rune.send.failed": "Saatmine nurjus",
   "rune.send.nothingSent": "Midagi ei saadetud",

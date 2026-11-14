@@ -114,7 +114,6 @@
   "rune.review.noGit": "No és un repositori Git",
   "rune.review.scope": "Canvia l'abast de la revisió",
   "rune.search.draft": "Esborrany",
-  "rune.search.messagesOff": "El text dels missatges encara no es cerca en aquest dispositiu",
   "rune.send.disconnected": "No hi ha connexió amb cap servidor d'OpenCode",
   "rune.send.failed": "No s'ha pogut enviar",
   "rune.send.nothingSent": "No s'ha enviat res",

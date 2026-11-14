@@ -24,7 +24,8 @@ impl App {
             } else {
                 let mut arena = SearchArena::default();
                 for s in &found {
-                    arena.push(&format!("{}\0{}{}{}", title_of(s), self.project_label(s), opencode_search::EXACT, s.id));
+                    // Titles only, as the server matched them (`title LIKE`).
+                    arena.push(&title_of(s));
                 }
                 hits.extend(arena.ranked_scored(q, MATCHES, |i| Some((0, found[i].active_ms()))).into_iter().map(|(score, updated, i)| (score, updated, found[i])));
             }

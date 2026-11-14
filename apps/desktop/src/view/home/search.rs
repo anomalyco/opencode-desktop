@@ -85,25 +85,18 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
     let show_project = selected.is_none();
     // A result: `pl-[18px] pr-6`, the avatar and `gap-1.5`, inside the panel 12 wider than the field.
     let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 }).max(0.0);
-    // A profile without the search tables searches titles only: it says so under what it found.
-    let off = || {
-        matches!(s.fulltext(crate::fulltext::Surface::Home), crate::fulltext::Shown::Off).then(|| {
-            row().key("home-search-fulltext-off").w_full().pl(18.0).pr(24.0).pb(8.0).child(text(opencode_i18n::t!("rune.search.messagesOff")).font(session_view::style::UI_SMALL).color(p.muted).truncate())
-        })
-    };
     let body = if s.home_search_loading() {
         // `px-4 py-3`, a 16 pt Loader.
         row().key("home-search-loading").w_full().px(16.0).py(12.0).center().child(activity_ring_sized(p, 16.0))
     } else if results.is_empty() {
         // `my-1.5 px-4 pb-2`, 13/16 muted.
-        let empty = row()
+        row()
             .key("home-search-empty")
             .w_full()
             .px(16.0)
             .pb(8.0)
             .my(6.0)
-            .child(text(opencode_i18n::t!("home.sessions.search.noResults", query = s.search.text.trim())).font(UI).color(p.muted).truncate());
-        col().key("home-search-none").w_full().child(empty).children(off())
+            .child(text(opencode_i18n::t!("home.sessions.search.noResults", query = s.search.text.trim())).font(UI).color(p.muted).truncate())
     } else {
         let q = s.search.text.trim();
         let fold = opencode_search::SearchFold::for_query(q);
@@ -145,7 +138,6 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
                     rows,
                 ),
             )
-            .children(off())
     };
     col()
         .key("home-search-panel")

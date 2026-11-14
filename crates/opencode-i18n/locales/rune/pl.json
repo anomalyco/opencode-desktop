@@ -114,7 +114,6 @@
   "rune.review.noGit": "To nie jest repozytorium Git",
   "rune.review.scope": "Zmień zakres przeglądu",
   "rune.search.draft": "Wersja robocza",
-  "rune.search.messagesOff": "Tekst wiadomości nie jest jeszcze przeszukiwany na tym urządzeniu",
   "rune.send.disconnected": "Brak połączenia z serwerem OpenCode",
   "rune.send.failed": "Nie udało się wysłać",
   "rune.send.nothingSent": "Nic nie zostało wysłane",

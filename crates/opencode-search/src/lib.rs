@@ -6,6 +6,6 @@ pub mod fulltext;
 mod slab;
 pub mod tokenizer;
 
-pub use arena::{EXACT, SUBSTRING, SearchArena};
+pub use arena::{SUBSTRING, SearchArena};
 pub use fold::{Folded, SearchFold};
 pub use slab::{SlabFind, SlabMatch};

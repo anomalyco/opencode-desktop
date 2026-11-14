@@ -114,7 +114,6 @@
   "rune.review.noGit": "不是 Git 仓库",
   "rune.review.scope": "更改审查范围",
   "rune.search.draft": "草稿",
-  "rune.search.messagesOff": "此设备尚未搜索消息正文",
   "rune.send.disconnected": "未连接到 OpenCode 服务器",
   "rune.send.failed": "发送失败",
   "rune.send.nothingSent": "未发送任何内容",
