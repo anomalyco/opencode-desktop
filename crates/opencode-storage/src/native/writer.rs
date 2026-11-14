@@ -122,6 +122,15 @@ pub(crate) struct Writer {
     touched: HashMap<String, i64>,
     /// Rows written since the last flush, for its report.
     written: usize,
+    reservation: Reservation,
+}
+
+/// What the open wrote before the first frame without a sync (the draft journal's reservation,
+/// a new file's first tables): synced once, by the first frame's work, off the UI thread.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reservation {
+    Durable,
+    Unsynced,
 }
 
 /// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
@@ -153,6 +162,7 @@ impl Writer {
         Writer {
             conn,
             cache,
+            reservation: if boot_stale { Reservation::Unsynced } else { Reservation::Durable },
             search: super::search::State::BeforeFrame,
             clock,
             seq,
@@ -691,7 +701,24 @@ impl Writer {
         self.caches_event(WriteBehindEvent::CloseRequested);
     }
 
+    /// The reservation's pages reached the file through an unsynced checkpoint that also emptied
+    /// the WAL: until the file is synced, a power cut could keep the WAL's truncation and lose the
+    /// pages. One sync of the file closes that (a kill never could: the OS has the writes).
+    fn sync_reservation(&mut self) {
+        let t = Instant::now();
+        let synced = self.conn.path().map(std::path::PathBuf::from).ok_or(std::io::ErrorKind::NotFound.into()).and_then(|p| std::fs::OpenOptions::new().write(true).open(p)).and_then(|f| f.sync_all());
+        rune::marks::mark("storage.reservation.synced");
+        match synced {
+            Ok(()) => self.reservation = Reservation::Durable,
+            Err(e) => eprintln!("opencode-storage: couldn't sync the draft journal's reservation ({e}); the next synced checkpoint does"),
+        }
+        slow("syncing the draft journal's reservation", t);
+    }
+
     fn first_frame(&mut self, done: Option<Loaded>) {
+        if self.reservation == Reservation::Unsynced {
+            self.sync_reservation();
+        }
         let now = (self.clock)();
         if matches!(self.search, super::search::State::BeforeFrame) {
             self.conn.execute_batch(UNSYNCED).ok();
