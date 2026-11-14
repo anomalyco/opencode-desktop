@@ -1534,6 +1534,11 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             .turn_scope(servers::runtime::enter, servers::runtime::leave)
             .on_modifiers(view::home_modifiers)
             .on_visibility(visibility)
+            // Tab reaches every control on a Mac whatever its Keyboard navigation setting says,
+            // as official's page does in Chromium: with the setting off (macOS's default), shipped
+            // 2.2.7 Tabs through Home, Search sessions, New session, a reply's buttons and the
+            // prompt, where AppKit's rule left only the prompt and the tab strip.
+            .tab_visits_controls(true)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
