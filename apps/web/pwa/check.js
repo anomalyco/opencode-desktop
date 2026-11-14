@@ -1,8 +1,9 @@
 // The phone check (`?check=1`): what only the device can tell, measured where the app runs and
 // sent as `diag` lines to the page's server log (`scripts/web-serve.ts`). Numbers and names only:
 // never the server's address, a password or a picture. The page (index.html) imports this before
-// the app starts, so it reports a page that never draws too.
-const STEPS = ['browser', 'jspi', 'webgpu', 'handover', 'memory', 'frames', 'worker', 'standalone', 'textsize', 'safearea', 'keyboard', 'landscape'];
+// the app starts, so it reports a page that never draws too. The page's stages come first, each
+// posted the moment it's reached, so a page that stops names where.
+const STEPS = ['loaded', 'signin', 'compiled', 'firstframe', 'handover', 'browser', 'jspi', 'webgpu', 'memory', 'frames', 'worker', 'standalone', 'textsize', 'safearea', 'keyboard', 'landscape'];
 
 export function start({ say, ready }) {
   const controlledAtLoad = !!navigator.serviceWorker?.controller;
@@ -31,6 +32,11 @@ export function start({ say, ready }) {
     #check button { width: 100%; height: 52px; margin-top: 16px; font: 600 17px system-ui, sans-serif; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; }
     #check .code { margin: 16px 0; font: 600 22px/30px system-ui, sans-serif; text-align: center; }
     #check .code:empty, #check .error:empty { display: none; }
+    #check .mine { margin: 0 0 8px; font-weight: 600; color: CanvasText; }
+    /* While the sign-in form shows, the check is a bar at the foot and the form stays usable. */
+    #check[data-aside] { inset: auto 0 0 0; height: auto; overflow: hidden; border-top: 1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+    #check[data-aside] > :not(h1, .mine, .aside) { display: none; }
+    #check:not([data-aside]) .aside { display: none; }
     #check ul { margin-top: 16px; }`;
   document.head.append(style);
   const panel = document.createElement('section');
@@ -44,6 +50,8 @@ export function start({ say, ready }) {
   panel.innerHTML = `
     <div class="measuring" hidden></div>
     <h1 id="check-title"></h1>
+    <p class="mine"></p>
+    <p class="aside"></p>
     <p class="intro"></p>
     <div class="step"><p class="keyboard"></p><input id="check-field" type="text" enterkeyhint="done" autocomplete="off"></div>
     <div class="step"><p class="rotate"></p></div>
@@ -63,6 +71,8 @@ export function start({ say, ready }) {
     $('.measuring').textContent = say('rune.web.check.measuring');
     $('.measuring').hidden = !panel.hasAttribute('data-hidden');
     $('#check-title').textContent = say('rune.web.check.title');
+    $('.mine').textContent = say('rune.web.check.code', { code });
+    $('.aside').textContent = say('rune.web.check.signIn');
     $('.intro').textContent = say('rune.web.check.intro');
     $('.keyboard').textContent = say('rune.web.check.keyboard');
     field.placeholder = say('rune.web.check.field');
@@ -162,23 +172,82 @@ export function start({ say, ready }) {
   const marks = () => ['web.gpu.asked', 'web.gpu.ready', 'web.gpu.failed', 'web.gpu.lost', 'web.handover.drawn', 'web.handover.done', 'web.handover.failed', 'web.first.presented']
     .filter(n => mark(n) !== undefined).map(n => `${n.slice(4)} ${Math.round(mark(n))}ms`).join(' · ');
 
-  // After the first frame, or not within 30 s: the hand-over, memory, the worker, then 3 s of scrolling.
-  let presented = false;
-  document.addEventListener('runepresent', () => { presented = true; setTimeout(afterFirstFrame, 2500); }, { once: true });
+  // The page's stages, each posted as it's reached: loaded, signed in (or the form shown, and
+  // why), the module compiled, the first frame, the hand-over to the GPU. A stage that doesn't
+  // come names the last one that did.
+  const secs = ms => `${(ms / 1000).toFixed(1)} s`;
+  const reached = [];
+  const post = (items, partial = true) => fetch('diag', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true, body: JSON.stringify({ check: code, partial, items }) }).catch(() => {});
+  const stageSet = (id, state, value) => {
+    set(id, state, value);
+    if (state === 'ok') reached.push(id);
+    post([{ item: id, state, value: results.get(id).value }]);
+  };
+  const last = () => reached.length ? `last stage reached: ${reached.at(-1)}` : 'no stage reached';
+  const pageWords = () => document.querySelector('#status')?.textContent?.trim() ?? '';
+  stageSet('loaded', 'ok', `at ${secs(performance.now())} · ${controlledAtLoad ? 'served by the worker' : 'from the network'}`);
+  let signedIn = false, presented = false, failed = false;
+  const onStage = ({ name, value, at }) => {
+    if (name === 'form') {
+      panel.setAttribute('data-aside', '');
+      stageSet('signin', 'none', `sign-in form shown at ${secs(at)}: ${value}`);
+    } else if (name === 'signedin') {
+      signedIn = true;
+      panel.removeAttribute('data-aside');
+      stageSet('signin', 'ok', `at ${secs(at)} · ${{ offer: 'password given', kept: 'password kept on the device', none: 'no password needed' }[value] ?? value}`);
+      // The first frame is due within 30 s of signing in.
+      setTimeout(() => { if (!presented) firstFrameMissing(); }, 30000);
+    } else if (name === 'compiled') {
+      stageSet('compiled', 'ok', `module compiled and started at ${secs(at)}`);
+    } else if (name === 'error') {
+      const next = STEPS.slice(0, 4).find(id => !reached.includes(id)) ?? 'firstframe';
+      stageSet(next, 'fail', `error at ${secs(at)}: ${value} · ${last()}`);
+      finish();
+    }
+    render();
+  };
+  for (const entry of window.runeStages ?? []) onStage(entry);
+  document.addEventListener('runestage', e => onStage(e.detail));
+  // Not signed in after two minutes: the form is still up (or the page stopped before it).
   setTimeout(() => {
-    if (presented) return;
-    const words = document.querySelector('#status')?.textContent?.trim();
-    set('handover', 'fail', `no first frame in 30 s${words ? `: ${words}` : ''} · ${marks()}`);
+    if (signedIn || failed) return;
+    const form = document.querySelector('#connect');
+    stageSet('signin', 'fail', `not signed in after 120 s · ${form?.style.display === 'block' ? 'the sign-in form is showing' : 'no sign-in form either'} · ${last()}`);
+    finish();
+  }, 120000);
+  function firstFrameMissing() {
+    stageSet('firstframe', 'fail', `no first frame 30 s after signing in · ${last()}${pageWords() ? ` · page says: ${pageWords()}` : ''} · ${marks() || 'no marks'}`);
+    finish();
+  }
+  // A stop: what was measured goes now, and the code shows with it.
+  function finish() {
+    if (failed) return;
+    failed = true;
     worker();
-  }, 30000);
+    memory();
+    send();
+  }
+  document.addEventListener('runepresent', () => {
+    presented = true;
+    stageSet('firstframe', 'ok', `at ${secs(mark('web.first.presented') ?? performance.now())}`);
+    setTimeout(afterFirstFrame, 2500);
+  }, { once: true });
+  // The hand-over, or its failure, the moment the app marks it.
+  let handed = false;
+  const handover = () => {
+    if (handed) return;
+    if (mark('web.handover.done') !== undefined) { handed = true; stageSet('handover', 'ok', marks()); }
+    else if (mark('web.handover.failed') !== undefined || mark('web.gpu.failed') !== undefined) { handed = true; stageSet('handover', 'fail', marks()); }
+  };
+  try { new PerformanceObserver(handover).observe({ type: 'mark', buffered: true }); } catch { setInterval(handover, 1000); }
 
   async function afterFirstFrame() {
-    set('handover', mark('web.handover.done') !== undefined ? 'ok' : mark('web.gpu.asked') === undefined ? 'none' : 'fail', marks() || 'no marks');
     memory();
     worker();
     await frames();
-    // A hand-over can land after the scroll.
-    set('handover', mark('web.handover.done') !== undefined ? 'ok' : mark('web.gpu.asked') === undefined ? 'none' : 'fail', marks() || 'no marks');
+    // No WebGPU, or not handed over yet: what the marks say (a later hand-over still posts itself).
+    handover();
+    if (!handed) set('handover', mark('web.gpu.asked') === undefined ? 'none' : 'fail', `${navigator.gpu ? 'not handed over yet' : 'no WebGPU: stays on the CPU'} · ${marks() || 'no marks'}`);
     memory();
   }
 

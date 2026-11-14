@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "El disc és ple",
   "rune.storage.diskFull.description": "Els canvis no s'estan desant. El que canvieu es conserva mentre l'OpenCode s'executa i es desa tan bon punt hi hagi espai. Allibereu espai en aquest disc.",
   "rune.scale.tooLarge": "Massa gran per mostrar-ho aquí ({{size}})",
-  "rune.scale.save": "Desa la sortida completa…"
+  "rune.scale.save": "Desa la sortida completa…",
+  "rune.web.check.code": "El vostre codi: {{code}}",
+  "rune.web.check.signIn": "Inicieu la sessió a dalt. La comprovació continua després."
 }

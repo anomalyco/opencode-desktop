@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ڈسک بھر گئی اے",
   "rune.storage.diskFull.description": "تبدیلیاں محفوظ نئیں ہو رہیاں۔ OpenCode چلن تک تہاڈیاں تبدیلیاں رہندیاں نیں، تے جگہ ملدیاں ای محفوظ ہو جاندیاں نیں۔ ایس ڈسک تے کجھ جگہ خالی کرو۔",
   "rune.scale.tooLarge": "ਇੱਥੇ ਦਿਖਾਉਣ ਲਈ ਬਹੁਤ ਵੱਡਾ ਹੈ ({{size}})",
-  "rune.scale.save": "ਪੂਰੀ ਆਉਟਪੁੱਟ ਸੰਭਾਲੋ…"
+  "rune.scale.save": "ਪੂਰੀ ਆਉਟਪੁੱਟ ਸੰਭਾਲੋ…",
+  "rune.web.check.code": "ਤੁਹਾਡਾ ਕੋਡ: {{code}}",
+  "rune.web.check.signIn": "ਉੱਪਰ ਸਾਈਨ ਇਨ ਕਰੋ। ਉਸ ਤੋਂ ਬਾਅਦ ਜਾਂਚ ਜਾਰੀ ਰਹੇਗੀ।"
 }

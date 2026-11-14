@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ڈسک بھر گئی ہے",
   "rune.storage.diskFull.description": "تبدیلیاں محفوظ نہیں ہو رہیں۔ OpenCode چلنے تک آپ کی تبدیلیاں برقرار رہتی ہیں، اور جگہ ملتے ہی محفوظ ہو جاتی ہیں۔ اس ڈسک پر کچھ جگہ خالی کریں۔",
   "rune.scale.tooLarge": "یہاں دکھانے کے لیے بہت بڑا ہے ({{size}})",
-  "rune.scale.save": "مکمل آؤٹ پٹ محفوظ کریں…"
+  "rune.scale.save": "مکمل آؤٹ پٹ محفوظ کریں…",
+  "rune.web.check.code": "آپ کا کوڈ: {{code}}",
+  "rune.web.check.signIn": "اوپر سائن ان کریں۔ اس کے بعد جانچ جاری رہے گی۔"
 }

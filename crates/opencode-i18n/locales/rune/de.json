@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Der Datenträger ist voll",
   "rune.storage.diskFull.description": "Änderungen werden nicht gespeichert. Ihre Änderungen bleiben erhalten, solange OpenCode läuft, und werden gespeichert, sobald Platz frei ist. Geben Sie auf diesem Datenträger Speicherplatz frei.",
   "rune.scale.tooLarge": "Für die Anzeige hier zu groß ({{size}})",
-  "rune.scale.save": "Vollständige Ausgabe speichern…"
+  "rune.scale.save": "Vollständige Ausgabe speichern…",
+  "rune.web.check.code": "Ihr Code: {{code}}",
+  "rune.web.check.signIn": "Melden Sie sich oben an. Danach geht der Check weiter."
 }

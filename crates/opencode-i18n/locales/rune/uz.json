@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk to‘la",
   "rune.storage.diskFull.description": "O‘zgarishlar saqlanmayapti. O‘zgarishlaringiz OpenCode ishlab turguncha qoladi va joy bo‘shashi bilan saqlanadi. Bu diskda biroz joy bo‘shating.",
   "rune.scale.tooLarge": "Bu yerda koʻrsatish uchun juda katta ({{size}})",
-  "rune.scale.save": "Toʻliq natijani saqlash…"
+  "rune.scale.save": "Toʻliq natijani saqlash…",
+  "rune.web.check.code": "Kodingiz: {{code}}",
+  "rune.web.check.signIn": "Yuqorida tizimga kiring. Tekshiruv keyin davom etadi."
 }

@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk doludur",
   "rune.storage.diskFull.description": "Dəyişikliklər saxlanılmır. Dəyişdikləriniz OpenCode işlədikcə qalır və yer açılan kimi saxlanılır. Bu diskdə bir az yer boşaldın.",
   "rune.scale.tooLarge": "Burada göstərmək üçün çox böyükdür ({{size}})",
-  "rune.scale.save": "Tam çıxışı saxla…"
+  "rune.scale.save": "Tam çıxışı saxla…",
+  "rune.web.check.code": "Kodunuz: {{code}}",
+  "rune.web.check.signIn": "Yuxarıda daxil olun. Yoxlama sonra davam edəcək."
 }

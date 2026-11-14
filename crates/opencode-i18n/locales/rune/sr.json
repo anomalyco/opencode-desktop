@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Диск је пун",
   "rune.storage.diskFull.description": "Измене се не чувају. Ваше измене остају док OpenCode ради и чувају се чим буде простора. Ослободите мало простора на овом диску.",
   "rune.scale.tooLarge": "Превелико за приказ овде ({{size}})",
-  "rune.scale.save": "Сачувај цео излаз…"
+  "rune.scale.save": "Сачувај цео излаз…",
+  "rune.web.check.code": "Ваш код: {{code}}",
+  "rune.web.check.signIn": "Пријавите се изнад. Провера се наставља након тога."
 }

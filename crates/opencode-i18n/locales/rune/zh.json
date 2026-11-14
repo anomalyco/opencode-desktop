@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "磁盘已满",
   "rune.storage.diskFull.description": "更改未保存。OpenCode 运行期间你的更改会保留，一有空间就会保存。请在此磁盘上释放一些空间。",
   "rune.scale.tooLarge": "内容太大，无法在这里显示 ({{size}})",
-  "rune.scale.save": "保存完整输出…"
+  "rune.scale.save": "保存完整输出…",
+  "rune.web.check.code": "你的代码：{{code}}",
+  "rune.web.check.signIn": "请在上方登录。之后检查会继续。"
 }

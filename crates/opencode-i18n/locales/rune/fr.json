@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Le disque est plein",
   "rune.storage.diskFull.description": "Les modifications ne sont pas enregistrées. Vos modifications restent tant qu’OpenCode est ouvert et sont enregistrées dès qu’il y a de la place. Libérez de l’espace sur ce disque.",
   "rune.scale.tooLarge": "Trop volumineux pour être affiché ici ({{size}})",
-  "rune.scale.save": "Enregistrer la sortie complète…"
+  "rune.scale.save": "Enregistrer la sortie complète…",
+  "rune.web.check.code": "Votre code : {{code}}",
+  "rune.web.check.signIn": "Connectez-vous ci-dessus. La vérification reprend ensuite."
 }

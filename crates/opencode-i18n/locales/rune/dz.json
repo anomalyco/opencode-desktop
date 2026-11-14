@@ -76,5 +76,7 @@
   "rune.web.check.failed": "འཐུས་ཤོར།",
   "rune.web.check.none": "ཚད་མ་འཇལ།",
   "rune.scale.tooLarge": "ནཱ་ལུ་སྟོན་ནི་ལུ་སྦོམ་དྲགས་པས། ({{size}})",
-  "rune.scale.save": "གྲུབ་འབྲས་ཆ་མཉམ་སྲུང་བཞག་འབད།…"
+  "rune.scale.save": "གྲུབ་འབྲས་ཆ་མཉམ་སྲུང་བཞག་འབད།…",
+  "rune.web.check.code": "ཁྱོད་ཀྱི་ཨང་རྟགས་: {{code}}",
+  "rune.web.check.signIn": "གོང་ལུ་ནང་བསྐྱོད་འབད། དེ་ལས་ཞིབ་དཔྱད་འཕྲོ་མཐུད་འོང་།"
 }

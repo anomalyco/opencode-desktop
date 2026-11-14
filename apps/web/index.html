@@ -109,6 +109,15 @@
   })();
   const status = document.querySelector('#status');
   const params = new URLSearchParams(location.search);
+  // How far the page got, for the phone check (`check.js`), which may load after the first ones:
+  // the sign-in form shown (and why), signed in (and how), the module compiled, an error. Kinds and
+  // counts only, never an address or a password.
+  const stages = window.runeStages = [];
+  const stage = (name, value = '') => {
+    const entry = { name, value: String(value).slice(0, 200), at: Math.round(performance.now()) };
+    stages.push(entry);
+    document.dispatchEvent(new CustomEvent('runestage', { detail: entry }));
+  };
   // `?check=1`: the phone check over the app (`check.js`), started before the app so it reports
   // one that never draws too.
   if (params.has('check')) import('./check.js').then(check => check.start({ say, ready: messagesReady })).catch(error => console.error(error));
@@ -211,6 +220,7 @@
   const unstarted = (stage, words) => fetch('diag', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
     body: JSON.stringify({ stage, source: String(words ?? '').slice(0, 300), ua: navigator.userAgent, standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true }) }).catch(() => {});
   async function boot() {
+    stage('signedin', signIn);
     let drawn = false;
     document.addEventListener('runepresent', () => { drawn = true; }, { once: true });
     setTimeout(() => { if (!drawn) unstarted('no-frame-45s', status.textContent); }, 45000);
@@ -225,6 +235,7 @@
       const app = await import('./app.js');
       // The module's exports, for a measuring harness (its linear memory's size).
       globalThis.__runeWasm = await app.default({ module_or_path: module });
+      stage('compiled');
       // "Loading" stays until the first frame is on screen. Then the page offers to stay signed
       // in, once, if this open came with a password; then the preview notice, until its OK is
       // pressed once (the connect form says the same each time it shows).
@@ -262,6 +273,7 @@
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
       unstarted('start-error', status.textContent);
+      stage('error', status.textContent);
       console.error(error);
     }
   }
@@ -404,7 +416,7 @@
   // isn't this machine), and starts without reloading, so the password never enters an address.
   // A server that wants a password and has none is asked for one here, before the app starts.
   // `error` says why it asks: a function of the page's messages, which may not be in yet.
-  async function ask(at, error) {
+  async function ask(at, error, why) {
     await messagesReady;
     const form = document.querySelector('#connect');
     const url = document.querySelector('#server');
@@ -429,6 +441,7 @@
     message.textContent = error ? error() : '';
     message.style.display = error ? 'block' : 'none';
     form.style.display = 'block';
+    stage('form', why);
     (url.value ? field : url).focus();
     form.onsubmit = async event => {
       event.preventDefault();
@@ -437,6 +450,7 @@
       const result = await knockAny(next, typed);
       if (result.answer !== 'ok') {
         if (result.answer === 'password' && typed) report('form', next, typed, 'form');
+        stage('form', `refused: ${result.answer}${typed ? `, ${typed.length} characters` : ''}`);
         message.textContent = result.answer !== 'password' ? problem(result.answer) : typed ? refused(next, typed) : say('rune.web.connect.needsPassword');
         message.style.display = 'block';
         offerOrigin(next);
@@ -461,12 +475,12 @@
     if (result.answer === 'password') {
       if (given) report('open', at, given, kept ? 'kept' : 'address');
       if (kept) await forget(at);
-      ask(at, given ? () => refused(at, given) : () => say('rune.web.connect.needsPassword'));
+      ask(at, given ? () => refused(at, given) : () => say('rune.web.connect.needsPassword'), given ? (kept ? 'kept password refused' : 'password in the address refused') : 'needs a password');
       return;
     }
     // An address that isn't an OpenCode server, or that this page may not call, never starts the app.
     if (result.answer === 'notServer' || result.answer === 'insecure') {
-      ask(at, () => problem(result.answer));
+      ask(at, () => problem(result.answer), result.answer);
       return;
     }
     password = result.pw;
@@ -474,6 +488,6 @@
     connect(at, result.answer === 'ok');
   }
   if (server) open(server);
-  else ask(null, null);
+  else ask(null, null, 'no server');
 </script>
 </html>

@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disks ir pilns",
   "rune.storage.diskFull.description": "Izmaiņas netiek saglabātas. Jūsu izmaiņas paliek, kamēr darbojas OpenCode, un tiek saglabātas, tiklīdz ir vieta. Atbrīvojiet vietu šajā diskā.",
   "rune.scale.tooLarge": "Pārāk liels, lai parādītu šeit ({{size}})",
-  "rune.scale.save": "Saglabāt visu izvadi…"
+  "rune.scale.save": "Saglabāt visu izvadi…",
+  "rune.web.check.code": "Jūsu kods: {{code}}",
+  "rune.web.check.signIn": "Piesakieties augstāk. Pārbaude turpināsies pēc tam."
 }

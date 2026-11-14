@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "De schijf is vol",
   "rune.storage.diskFull.description": "Wijzigingen worden niet opgeslagen. Wat je wijzigt blijft bewaard zolang OpenCode draait, en wordt opgeslagen zodra er ruimte is. Maak ruimte vrij op deze schijf.",
   "rune.scale.tooLarge": "Te groot om hier weer te geven ({{size}})",
-  "rune.scale.save": "Volledige uitvoer opslaan…"
+  "rune.scale.save": "Volledige uitvoer opslaan…",
+  "rune.web.check.code": "Je code: {{code}}",
+  "rune.web.check.signIn": "Log hierboven in. De controle gaat daarna verder."
 }

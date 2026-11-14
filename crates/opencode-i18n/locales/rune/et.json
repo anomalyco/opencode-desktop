@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Ketas on täis",
   "rune.storage.diskFull.description": "Muudatusi ei salvestata. Sinu muudatused säilivad, kuni OpenCode töötab, ja salvestatakse kohe, kui ruumi on. Vabasta sellel kettal veidi ruumi.",
   "rune.scale.tooLarge": "Siin kuvamiseks liiga suur ({{size}})",
-  "rune.scale.save": "Salvesta kogu väljund…"
+  "rune.scale.save": "Salvesta kogu väljund…",
+  "rune.web.check.code": "Sinu kood: {{code}}",
+  "rune.web.check.signIn": "Logi ülal sisse. Kontroll jätkub pärast seda."
 }

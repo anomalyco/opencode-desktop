@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Levy on täynnä",
   "rune.storage.diskFull.description": "Muutoksia ei tallenneta. Muutoksesi säilyvät, kun OpenCode on käynnissä, ja tallentuvat heti, kun tilaa on. Vapauta tilaa tältä levyltä.",
   "rune.scale.tooLarge": "Liian suuri näytettäväksi tässä ({{size}})",
-  "rune.scale.save": "Tallenna koko tuloste…"
+  "rune.scale.save": "Tallenna koko tuloste…",
+  "rune.web.check.code": "Koodisi: {{code}}",
+  "rune.web.check.signIn": "Kirjaudu sisään yllä. Tarkistus jatkuu sen jälkeen."
 }

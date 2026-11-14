@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disken är full",
   "rune.storage.diskFull.description": "Ändringar sparas inte. Det du ändrar finns kvar medan OpenCode körs och sparas så snart det finns plats. Frigör lite utrymme på den här disken.",
   "rune.scale.tooLarge": "För stort för att visas här ({{size}})",
-  "rune.scale.save": "Spara hela utdataflödet…"
+  "rune.scale.save": "Spara hela utdataflödet…",
+  "rune.web.check.code": "Din kod: {{code}}",
+  "rune.web.check.signIn": "Logga in ovan. Kontrollen fortsätter sedan."
 }

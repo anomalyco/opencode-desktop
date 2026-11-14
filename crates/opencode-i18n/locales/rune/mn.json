@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Диск дүүрсэн",
   "rune.storage.diskFull.description": "Өөрчлөлт хадгалагдахгүй байна. Таны өөрчлөлт OpenCode ажиллаж байх хугацаанд хадгалагдаж, зай гармагц бичигдэнэ. Энэ дискэнд зай гаргана уу.",
   "rune.scale.tooLarge": "Энд харуулахад хэт том байна ({{size}})",
-  "rune.scale.save": "Гаралтыг бүтнээр нь хадгалах…"
+  "rune.scale.save": "Гаралтыг бүтнээр нь хадгалах…",
+  "rune.web.check.code": "Таны код: {{code}}",
+  "rune.web.check.signIn": "Дээр нэвтэрнэ үү. Шалгалт дараа нь үргэлжилнэ."
 }

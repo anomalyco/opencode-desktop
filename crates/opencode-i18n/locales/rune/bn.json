@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ডিস্ক পূর্ণ",
   "rune.storage.diskFull.description": "পরিবর্তন সংরক্ষণ হচ্ছে না। OpenCode চলা পর্যন্ত আপনার পরিবর্তন থাকবে, এবং জায়গা পেলেই সংরক্ষণ হবে। এই ডিস্কে কিছু জায়গা খালি করুন।",
   "rune.scale.tooLarge": "এখানে দেখানোর জন্য খুব বড় ({{size}})",
-  "rune.scale.save": "সম্পূর্ণ আউটপুট সংরক্ষণ করুন…"
+  "rune.scale.save": "সম্পূর্ণ আউটপুট সংরক্ষণ করুন…",
+  "rune.web.check.code": "আপনার কোড: {{code}}",
+  "rune.web.check.signIn": "ওপরে সাইন ইন করুন। তারপর পরীক্ষা চলবে।"
 }

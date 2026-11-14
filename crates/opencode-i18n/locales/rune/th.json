@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ดิสก์เต็ม",
   "rune.storage.diskFull.description": "ไม่ได้บันทึกการเปลี่ยนแปลง การเปลี่ยนแปลงของคุณยังอยู่ขณะที่ OpenCode ทำงาน และจะบันทึกทันทีที่มีพื้นที่ โปรดเพิ่มพื้นที่ว่างในดิสก์นี้",
   "rune.scale.tooLarge": "ใหญ่เกินกว่าจะแสดงที่นี่ ({{size}})",
-  "rune.scale.save": "บันทึกผลลัพธ์ทั้งหมด…"
+  "rune.scale.save": "บันทึกผลลัพธ์ทั้งหมด…",
+  "rune.web.check.code": "รหัสของคุณ: {{code}}",
+  "rune.web.check.signIn": "ลงชื่อเข้าใช้ด้านบน แล้วการตรวจจะดำเนินต่อ"
 }

@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "A lemez megtelt",
   "rune.storage.diskFull.description": "A módosítások nincsenek mentve. A módosításai megmaradnak, amíg az OpenCode fut, és amint lesz hely, mentésre kerülnek. Szabadítson fel helyet ezen a lemezen.",
   "rune.scale.tooLarge": "Túl nagy az itteni megjelenítéshez ({{size}})",
-  "rune.scale.save": "Teljes kimenet mentése…"
+  "rune.scale.save": "Teljes kimenet mentése…",
+  "rune.web.check.code": "A kódod: {{code}}",
+  "rune.web.check.signIn": "Jelentkezz be fent. Utána folytatódik az ellenőrzés."
 }

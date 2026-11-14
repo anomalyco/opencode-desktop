@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk je poln",
   "rune.storage.diskFull.description": "Spremembe se ne shranjujejo. Vaše spremembe ostanejo, dokler OpenCode teče, in se shranijo, takoj ko bo prostor. Sprostite nekaj prostora na tem disku.",
   "rune.scale.tooLarge": "Preveliko za prikaz tukaj ({{size}})",
-  "rune.scale.save": "Shrani celoten izpis…"
+  "rune.scale.save": "Shrani celoten izpis…",
+  "rune.web.check.code": "Vaša koda: {{code}}",
+  "rune.web.check.signIn": "Prijavite se zgoraj. Preverjanje se nato nadaljuje."
 }

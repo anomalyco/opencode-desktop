@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disku është plot",
   "rune.storage.diskFull.description": "Ndryshimet nuk po ruhen. Ndryshimet e tua mbeten sa kohë që OpenCode punon dhe ruhen sapo të ketë hapësirë. Liro pak hapësirë në këtë disk.",
   "rune.scale.tooLarge": "Tepër e madhe për t’u shfaqur këtu ({{size}})",
-  "rune.scale.save": "Ruaj gjithë daljen…"
+  "rune.scale.save": "Ruaj gjithë daljen…",
+  "rune.web.check.code": "Kodi juaj: {{code}}",
+  "rune.web.check.signIn": "Hyni më sipër. Kontrolli vazhdon më pas."
 }

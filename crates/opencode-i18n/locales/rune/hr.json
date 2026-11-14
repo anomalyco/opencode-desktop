@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk je pun",
   "rune.storage.diskFull.description": "Promjene se ne spremaju. Ono što promijenite ostaje dok OpenCode radi i sprema se čim bude prostora. Oslobodite malo prostora na ovom disku.",
   "rune.scale.tooLarge": "Preveliko za prikaz ovdje ({{size}})",
-  "rune.scale.save": "Spremi cijeli izlaz…"
+  "rune.scale.save": "Spremi cijeli izlaz…",
+  "rune.web.check.code": "Vaš kôd: {{code}}",
+  "rune.web.check.signIn": "Prijavite se gore. Provjera se nastavlja nakon toga."
 }

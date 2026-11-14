@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ディスクがいっぱいです",
   "rune.storage.diskFull.description": "変更が保存されていません。変更は OpenCode の実行中は保持され、空き容量ができしだい保存されます。このディスクの空き容量を増やしてください。",
   "rune.scale.tooLarge": "サイズが大きいため、ここには表示できません ({{size}})",
-  "rune.scale.save": "出力全体を保存…"
+  "rune.scale.save": "出力全体を保存…",
+  "rune.web.check.code": "コード: {{code}}",
+  "rune.web.check.signIn": "上でサインインしてください。チェックはその後に続きます。"
 }

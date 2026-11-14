@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Diskurinn er fullur",
   "rune.storage.diskFull.description": "Breytingar eru ekki vistaðar. Breytingarnar þínar haldast á meðan OpenCode keyrir og eru vistaðar um leið og pláss losnar. Losaðu pláss á þessum diski.",
   "rune.scale.tooLarge": "Of stórt til að birta hér ({{size}})",
-  "rune.scale.save": "Vista allt úttakið…"
+  "rune.scale.save": "Vista allt úttakið…",
+  "rune.web.check.code": "Kóðinn þinn: {{code}}",
+  "rune.web.check.signIn": "Skráðu þig inn hér fyrir ofan. Prófunin heldur svo áfram."
 }

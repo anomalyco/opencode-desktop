@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Cakera penuh",
   "rune.storage.diskFull.description": "Perubahan tidak disimpan. Perubahan anda kekal selagi OpenCode berjalan, dan disimpan sebaik sahaja ada ruang. Kosongkan sedikit ruang pada cakera ini.",
   "rune.scale.tooLarge": "Terlalu besar untuk dipaparkan di sini ({{size}})",
-  "rune.scale.save": "Simpan keseluruhan output…"
+  "rune.scale.save": "Simpan keseluruhan output…",
+  "rune.web.check.code": "Kod anda: {{code}}",
+  "rune.web.check.signIn": "Log masuk di atas. Semakan diteruskan selepas itu."
 }

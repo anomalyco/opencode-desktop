@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Dysk jest pełny",
   "rune.storage.diskFull.description": "Zmiany nie są zapisywane. Twoje zmiany zostają, dopóki działa OpenCode, i zostaną zapisane, gdy tylko będzie miejsce. Zwolnij trochę miejsca na tym dysku.",
   "rune.scale.tooLarge": "Za duże, by wyświetlić tutaj ({{size}})",
-  "rune.scale.save": "Zapisz pełne dane wyjściowe…"
+  "rune.scale.save": "Zapisz pełne dane wyjściowe…",
+  "rune.web.check.code": "Twój kod: {{code}}",
+  "rune.web.check.signIn": "Zaloguj się powyżej. Sprawdzanie będzie kontynuowane potem."
 }

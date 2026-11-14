@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk doly",
   "rune.storage.diskFull.description": "Üýtgeşmeler ýatda saklanmaýar. Üýtgeşmeleriňiz OpenCode işleýänçä galýar we ýer boşan badyna ýatda saklanýar. Bu diskde birneme ýer boşadyň.",
   "rune.scale.tooLarge": "Bu ýerde görkezmek üçin örän uly ({{size}})",
-  "rune.scale.save": "Doly çykyşy ýatda sakla…"
+  "rune.scale.save": "Doly çykyşy ýatda sakla…",
+  "rune.web.check.code": "Siziň koduňyz: {{code}}",
+  "rune.web.check.signIn": "Ýokarda giriň. Barlag soňra dowam eder."
 }

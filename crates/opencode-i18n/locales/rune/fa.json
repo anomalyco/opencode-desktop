@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "دیسک پر است",
   "rune.storage.diskFull.description": "تغییرات ذخیره نمی‌شوند. تغییرات شما تا وقتی OpenCode باز است می‌ماند و به‌محض آزاد شدن فضا ذخیره می‌شود. کمی از فضای این دیسک را آزاد کنید.",
   "rune.scale.tooLarge": "برای نمایش در اینجا بیش از حد بزرگ است ({{size}})",
-  "rune.scale.save": "ذخیرهٔ خروجی کامل…"
+  "rune.scale.save": "ذخیرهٔ خروجی کامل…",
+  "rune.web.check.code": "کد شما: {{code}}",
+  "rune.web.check.signIn": "بالا وارد شوید. بررسی پس از آن ادامه می‌یابد."
 }

@@ -114,5 +114,7 @@
   "rune.web.check.failed": "ނާކާމިޔާބު",
   "rune.web.check.none": "ނުމިނޭ",
   "rune.scale.tooLarge": "މިތަނުގައި ދައްކާލަން ވަރަށް ބޮޑު ({{size}})",
-  "rune.scale.save": "މުޅި ނަތީޖާ ސޭވް ކުރޭ…"
+  "rune.scale.save": "މުޅި ނަތީޖާ ސޭވް ކުރޭ…",
+  "rune.web.check.code": "ތިބާގެ ކޯޑު: {{code}}",
+  "rune.web.check.signIn": "މަތީގައި ސައިން އިން ކުރޭ. އެއަށްފަހު ޗެކް ކުރިއަށް ދާނެ."
 }

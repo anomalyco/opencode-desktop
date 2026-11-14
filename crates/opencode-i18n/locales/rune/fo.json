@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Diskurin er fullur",
   "rune.storage.diskFull.description": "Broytingar verða ikki goymdar. Tað, tú broytir, verður verandi, meðan OpenCode koyrir, og verður goymt, so skjótt sum pláss er. Frígev eitt sindur av plássi á hesum diski.",
   "rune.scale.tooLarge": "Ov stórt at vísa her ({{size}})",
-  "rune.scale.save": "Goym alt úttakið…"
+  "rune.scale.save": "Goym alt úttakið…",
+  "rune.web.check.code": "Tín kota: {{code}}",
+  "rune.web.check.signIn": "Rita inn omanfyri. Kanningin heldur fram aftaná."
 }

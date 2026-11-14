@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "El disco está lleno",
   "rune.storage.diskFull.description": "Los cambios no se están guardando. Lo que cambies se conserva mientras OpenCode esté abierto y se guarda en cuanto haya espacio. Libera espacio en este disco.",
   "rune.scale.tooLarge": "Demasiado grande para mostrarlo aquí ({{size}})",
-  "rune.scale.save": "Guardar la salida completa…"
+  "rune.scale.save": "Guardar la salida completa…",
+  "rune.web.check.code": "Tu código: {{code}}",
+  "rune.web.check.signIn": "Inicia sesión arriba. La comprobación sigue después."
 }

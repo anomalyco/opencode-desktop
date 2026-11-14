@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk penuh",
   "rune.storage.diskFull.description": "Perubahan tidak disimpan. Perubahan Anda tetap ada selama OpenCode berjalan, dan disimpan begitu ada ruang. Kosongkan sebagian ruang di disk ini.",
   "rune.scale.tooLarge": "Terlalu besar untuk ditampilkan di sini ({{size}})",
-  "rune.scale.save": "Simpan seluruh keluaran…"
+  "rune.scale.save": "Simpan seluruh keluaran…",
+  "rune.web.check.code": "Kode Anda: {{code}}",
+  "rune.web.check.signIn": "Masuk di atas. Pemeriksaan berlanjut setelahnya."
 }

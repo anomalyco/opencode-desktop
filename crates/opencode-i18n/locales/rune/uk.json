@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Диск заповнений",
   "rune.storage.diskFull.description": "Зміни не зберігаються. Ваші зміни залишаються, поки працює OpenCode, і збережуться, щойно з'явиться місце. Звільніть трохи місця на цьому диску.",
   "rune.scale.tooLarge": "Завеликий обсяг для показу тут ({{size}})",
-  "rune.scale.save": "Зберегти повний вивід…"
+  "rune.scale.save": "Зберегти повний вивід…",
+  "rune.web.check.code": "Ваш код: {{code}}",
+  "rune.web.check.signIn": "Увійдіть вище. Потім перевірка продовжиться."
 }

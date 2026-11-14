@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "තැටිය පිරී ඇත",
   "rune.storage.diskFull.description": "වෙනස්කම් සුරැකෙන්නේ නැත. OpenCode ක්‍රියාත්මක වන තාක් ඔබේ වෙනස්කම් පවතින අතර, ඉඩ ලැබුණු විගස සුරැකේ. මෙම තැටියේ ඉඩ ටිකක් නිදහස් කරන්න.",
   "rune.scale.tooLarge": "මෙහි පෙන්වීමට විශාල වැඩියි ({{size}})",
-  "rune.scale.save": "සම්පූර්ණ ප්‍රතිදානය සුරකින්න…"
+  "rune.scale.save": "සම්පූර්ණ ප්‍රතිදානය සුරකින්න…",
+  "rune.web.check.code": "ඔබේ කේතය: {{code}}",
+  "rune.web.check.signIn": "ඉහළින් පුරනය වන්න. ඉන්පසු පරීක්ෂාව දිගටම යයි."
 }

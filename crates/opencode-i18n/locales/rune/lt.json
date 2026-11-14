@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Diskas pilnas",
   "rune.storage.diskFull.description": "Pakeitimai neišsaugomi. Jūsų pakeitimai išlieka, kol veikia OpenCode, ir išsaugomi, kai tik atsiranda vietos. Atlaisvinkite vietos šiame diske.",
   "rune.scale.tooLarge": "Per didelis rodyti čia ({{size}})",
-  "rune.scale.save": "Įrašyti visą išvestį…"
+  "rune.scale.save": "Įrašyti visą išvestį…",
+  "rune.web.check.code": "Jūsų kodas: {{code}}",
+  "rune.web.check.signIn": "Prisijunkite viršuje. Patikra tęsis po to."
 }

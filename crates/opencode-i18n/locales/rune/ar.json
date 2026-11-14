@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "القرص ممتلئ",
   "rune.storage.diskFull.description": "لا يتم حفظ التغييرات. تبقى تغييراتك ما دام OpenCode يعمل، وتُحفظ فور توفر مساحة. حرّر بعض المساحة على هذا القرص.",
   "rune.scale.tooLarge": "الحجم أكبر من أن يُعرض هنا ({{size}})",
-  "rune.scale.save": "حفظ الناتج الكامل…"
+  "rune.scale.save": "حفظ الناتج الكامل…",
+  "rune.web.check.code": "رمزك: {{code}}",
+  "rune.web.check.signIn": "سجّل الدخول في الأعلى. يتابع الفحص بعد ذلك."
 }

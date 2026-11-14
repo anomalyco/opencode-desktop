@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disken er fuld",
   "rune.storage.diskFull.description": "Ændringer gemmes ikke. Det, du ændrer, bliver, mens OpenCode kører, og gemmes, så snart der er plads. Frigør noget plads på denne disk.",
   "rune.scale.tooLarge": "For stort til at blive vist her ({{size}})",
-  "rune.scale.save": "Gem hele outputtet…"
+  "rune.scale.save": "Gem hele outputtet…",
+  "rune.web.check.code": "Din kode: {{code}}",
+  "rune.web.check.signIn": "Log ind ovenfor. Tjekket fortsætter bagefter."
 }

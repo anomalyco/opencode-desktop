@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "ዲስኩ ሞልቷል",
   "rune.storage.diskFull.description": "ለውጦች እየተቀመጡ አይደሉም። የሚቀይሩት OpenCode እስከሚሰራ ድረስ ይቆያል፣ ቦታ እንደተገኘም ይቀመጣል። በዚህ ዲስክ ላይ የተወሰነ ቦታ ያስለቅቁ።",
   "rune.scale.tooLarge": "እዚህ ለማሳየት በጣም ትልቅ ነው ({{size}})",
-  "rune.scale.save": "ሙሉውን ውጤት አስቀምጥ…"
+  "rune.scale.save": "ሙሉውን ውጤት አስቀምጥ…",
+  "rune.web.check.code": "ኮድዎ፦ {{code}}",
+  "rune.web.check.signIn": "ከላይ ይግቡ። ፍተሻው ከዚያ ይቀጥላል።"
 }

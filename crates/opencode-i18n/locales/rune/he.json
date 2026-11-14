@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "הדיסק מלא",
   "rune.storage.diskFull.description": "השינויים לא נשמרים. השינויים שלך נשארים כל עוד OpenCode פועל, ונשמרים ברגע שיש מקום. פנו מעט מקום בדיסק הזה.",
   "rune.scale.tooLarge": "גדול מדי להצגה כאן ({{size}})",
-  "rune.scale.save": "שמירת הפלט המלא…"
+  "rune.scale.save": "שמירת הפלט המלא…",
+  "rune.web.check.code": "הקוד שלכם: {{code}}",
+  "rune.web.check.signIn": "התחברו למעלה. הבדיקה תמשיך אחר כך."
 }

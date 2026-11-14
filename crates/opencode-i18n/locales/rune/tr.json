@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk dolu",
   "rune.storage.diskFull.description": "Değişiklikler kaydedilmiyor. Değişiklikleriniz OpenCode çalıştığı sürece kalır ve yer açılır açılmaz kaydedilir. Bu diskte biraz yer açın.",
   "rune.scale.tooLarge": "Burada gösterilemeyecek kadar büyük ({{size}})",
-  "rune.scale.save": "Tam çıktıyı kaydet…"
+  "rune.scale.save": "Tam çıktıyı kaydet…",
+  "rune.web.check.code": "Kodunuz: {{code}}",
+  "rune.web.check.signIn": "Yukarıda oturum açın. Denetim ardından sürer."
 }

@@ -231,5 +231,7 @@
   "rune.storage.diskFull.title": "Disk je plný",
   "rune.storage.diskFull.description": "Změny se neukládají. Vaše změny zůstanou, dokud OpenCode běží, a uloží se, jakmile bude místo. Uvolněte na tomto disku trochu místa.",
   "rune.scale.tooLarge": "Příliš velké pro zobrazení zde ({{size}})",
-  "rune.scale.save": "Uložit celý výstup…"
+  "rune.scale.save": "Uložit celý výstup…",
+  "rune.web.check.code": "Váš kód: {{code}}",
+  "rune.web.check.signIn": "Přihlaste se výše. Kontrola pak bude pokračovat."
 }
