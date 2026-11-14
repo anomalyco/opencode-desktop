@@ -139,7 +139,7 @@ fn around(state: &mut dyn Any, mut tx: Option<&mut Tx>, run: &mut dyn FnMut(Opti
     cx::with_app(app, || run(tx.as_deref_mut()));
     match tx {
         Some(tx) => super::requests::carry_out(app, tx),
-        None => app.plugins.asked = true,
+        None => app.plugins.asked.set(true),
     }
 }
 

@@ -1302,7 +1302,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.side.was_composing && !composing && s.side.focused && !s.side.pressed && s.terminal_focus().is_none() {
         s.side.quiet = true;
     }
-    (s.side.was_composing, s.side.pressed) = (composing, false);
+    // Written only when it changes: a write to the side state rebuilds every region reading it.
+    if (s.side.was_composing, s.side.pressed) != (composing, false) {
+        (s.side.was_composing, s.side.pressed) = (composing, false);
+    }
     changed |= deep_links::drain(s, tx);
     changed |= quote::poll(s, now, tx);
     changed |= line_comments::poll(s, tx);

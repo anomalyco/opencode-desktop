@@ -243,7 +243,7 @@ pub struct PluginHost {
     /// The debug bar's FOCUS: every control draws its keyboard focus ring.
     pub force_focus: bool,
     /// A UI entry without a transaction asked for something: the next poll carries it out.
-    pub asked: bool,
+    pub asked: std::cell::Cell<bool>,
     /// Server events plugins listen for, waiting for the next poll.
     events: RefCell<Vec<(String, serde_json::Value)>>,
     watcher: Option<hot::Watcher>,
@@ -800,10 +800,11 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     servers::poll_actions(app, tx);
     let now = *app.clock;
     mark(&app.plugins, now);
-    let mut changed = app.plugins.asked;
-    if changed {
-        app.plugins.asked = false;
-    }
+    // Set and taken through a cell: a hover or visible-rows entry that asked for nothing writes
+    // no host state, so the regions showing plugin surfaces keep (the poll that carries out what
+    // it asked writes what that changes).
+    let asked = app.plugins.asked.replace(false);
+    let mut changed = false;
     changed |= dormant::poll(app, tx);
     if app.plugins.later.is_empty() {
         dormant::save(app);
@@ -848,7 +849,8 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         for (signal, args) in services::process::drain(&half, vm) {
             changed |= fire_value(app, i, signal, args);
         }
-        let caught = app.plugins.dormant.catch_up.remove(&*half.id).unwrap_or_default();
+        // Taken only when there is some: a write to the host rebuilds every region showing it.
+        let caught = if app.plugins.dormant.catch_up.contains_key(&*half.id) { app.plugins.dormant.catch_up.remove(&*half.id).unwrap_or_default() } else { Vec::new() };
         for (ty, data) in caught.iter().chain(&events) {
             let listeners: Vec<mlua::Value> = half.events.borrow().iter().filter(|(v, prefix, _)| *v == vm && ty.starts_with(prefix.as_str())).map(|(_, _, s)| s.clone()).collect();
             for signal in listeners {
@@ -874,7 +876,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         app.plugins.synced.set(epoch());
         crate::plugin_host::contrib::sync(app);
     }
-    changed
+    changed || asked
 }
 
 /// Fires `signal` of plugin `i`'s running VM with `args` (a list is spread).

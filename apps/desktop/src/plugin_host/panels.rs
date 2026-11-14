@@ -344,7 +344,7 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
     if let Some(script) = app.plugins.list[i].script() {
         cx::with_app(app, || script.spawn_fn(f, data, None).ok());
     }
-    app.plugins.asked = true;
+    app.plugins.asked.set(true);
 }
 
 /// Tab `tab` left `session`'s strip: its panel's `onClose` runs.

@@ -166,10 +166,12 @@ pub fn note_started(app: &mut App, i: usize) {
 
 /// Writes the records back off the app's thread, when one changed.
 pub fn save(app: &mut App) {
-    let d = &mut app.plugins.dormant;
-    if !std::mem::take(&mut d.dirty) {
+    // Read before it's taken: a write to the host rebuilds every region showing it.
+    if !app.plugins.dormant.dirty {
         return;
     }
+    let d = &mut app.plugins.dormant;
+    d.dirty = false;
     let (Some(path), Ok(json)) = (path(), serde_json::to_vec(&File { version: VERSION, plugins: d.records.clone() })) else { return };
     super::tasks::run(move || {
         if let Some(dir) = path.parent() {
