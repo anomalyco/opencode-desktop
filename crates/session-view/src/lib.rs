@@ -62,7 +62,6 @@ pub struct ViewState {
     pub expanded: disclosure::Disclosures,
     pub copied: copied::Copied,
     pub working: working::Working,
-    pub compactions: compaction::Compactions,
     pub diagram: diagram::Diagrams,
     pub media: images::MediaStore,
     pub line_hold: line_reveal::Hold,
@@ -77,7 +76,7 @@ impl ViewState {
     }
 }
 
-/// Implements [`TimelineHost`]'s 10 state-accessor pairs by delegating to a [`ViewState`] field.
+/// Implements [`TimelineHost`]'s state-accessor pairs by delegating to a [`ViewState`] field.
 #[macro_export]
 macro_rules! delegate_view_state {
     ($field:ident) => {
@@ -87,8 +86,6 @@ macro_rules! delegate_view_state {
         fn copied_state_mut(&mut self) -> &mut $crate::copied::Copied { &mut self.$field.copied }
         fn working_state(&self) -> &$crate::working::Working { &self.$field.working }
         fn working_state_mut(&mut self) -> &mut $crate::working::Working { &mut self.$field.working }
-        fn compactions_state(&self) -> &$crate::compaction::Compactions { &self.$field.compactions }
-        fn compactions_state_mut(&mut self) -> &mut $crate::compaction::Compactions { &mut self.$field.compactions }
         fn diagrams(&self) -> &$crate::diagram::Diagrams { &self.$field.diagram }
         fn diagrams_mut(&mut self) -> &mut $crate::diagram::Diagrams { &mut self.$field.diagram }
         fn media_store(&self) -> &$crate::images::MediaStore { &self.$field.media }
@@ -217,9 +214,6 @@ pub trait TimelineHost: Sized + 'static {
 
     fn working_state(&self) -> &working::Working;
     fn working_state_mut(&mut self) -> &mut working::Working;
-
-    fn compactions_state(&self) -> &compaction::Compactions;
-    fn compactions_state_mut(&mut self) -> &mut compaction::Compactions;
 
     fn diagrams(&self) -> &diagram::Diagrams;
     fn diagrams_mut(&mut self) -> &mut diagram::Diagrams;
@@ -485,7 +479,6 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= turn_errors::poll(s, tx);
     changed |= turns::poll(s, tx);
     changed |= working::sync(s);
-    changed |= compaction::sync(s);
     changed |= disclosure::poll(s, now, tx);
     changed |= timeline::projection_poll(s, tx);
     changed |= line_reveal::poll(s, now, tx);

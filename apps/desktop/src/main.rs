@@ -472,8 +472,6 @@ pub struct App {
     pub agent_hover: rune::Tracked<Option<String>>,
     /// When each run started, for the Working label's rhythm (`working.rs`).
     pub working: rune::Tracked<working::Working>,
-    /// Background compaction by directory and how each compaction enters (`compaction.rs`).
-    pub compactions: rune::Tracked<compaction::Compactions>,
     /// `--debug`: the status bar with the edge, the source and the last status.
     pub debug: rune::Tracked<bool>,
     pub status: rune::Tracked<String>,
@@ -691,12 +689,6 @@ impl session_view::TimelineHost for App {
     }
     fn working_state_mut(&mut self) -> &mut working::Working {
         &mut self.working
-    }
-    fn compactions_state(&self) -> &compaction::Compactions {
-        &self.compactions
-    }
-    fn compactions_state_mut(&mut self) -> &mut compaction::Compactions {
-        &mut self.compactions
     }
     fn diagrams(&self) -> &diagram::Diagrams {
         &self.diagram
@@ -1358,7 +1350,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     s.start_timers(tx);
     changed |= submit::poll(s, tx);
     changed |= working::sync(s);
-    changed |= compaction::sync(s);
     changed |= subagents::shells::poll(s, tx) | todos::sync(s, now, tx) | settings::pages::worktrees::poll(s, tx);
     if s.dock_face() != asked {
         s.morph(tx);

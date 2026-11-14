@@ -7,12 +7,11 @@
 //! ended closes it, and an error card follows. One the server admitted but hasn't started is a
 //! divider of its own.
 
-use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::sync::OnceLock;
 
-use opencode_kit::model::{Compaction, CompactionStatus, Message, Tokens};
-use rune::{AnimExt, Beat, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, Sequence, Spring, SpringPair, Transition, Tx, col, el, row, text};
+use opencode_kit::model::{Compaction, CompactionStatus, Tokens};
+use rune::{AnimExt, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, Spring, SpringPair, Transition, Tx, col, el, row, text};
 
 use rune_knobs::{Group, Knob};
 
@@ -20,86 +19,8 @@ use crate::TimelineHost;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, UI, markdown_tinted, readable};
 
-/// A new automatic compaction waits this long before it shows (`COMPACTION_GRACE_MS`).
-const GRACE: f64 = 0.4;
-/// One that finished at most this long before it mounts still fades in (`COMPACTION_RECENT_DONE_MS`).
-const RECENT_DONE_MS: i64 = 1_000;
 /// One pass of the light along the lines and of the glint on the label, in seconds.
 const CYCLE: f32 = 3.2;
-/// The quiet divider's fade in.
-static ENTER: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.32).easing(Easing::EASE_OUT)];
-
-#[derive(Default)]
-pub struct Compactions {
-    /// How each compaction in the open session entered.
-    pub seen: HashMap<String, Entrance>,
-}
-
-/// A quiet divider's entrance: Desktop's `CompactionEntranceState`
-/// (`session-ui/src/message/compaction-entrance-machine.ts:15-21`), each with when it mounted on
-/// the app clock. `disposed` is the entry leaving [`Compactions::seen`].
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Entrance {
-    /// New and running: it fades in once the grace is out, showing Compacting.
-    Grace { at: f64 },
-    /// The grace passed while it ran. It keeps the grace's fade, so nothing restarts, and a later
-    /// finish rolls Compacting to Compacted in place.
-    Revealed { at: f64 },
-    /// It finished inside the grace, or had just finished when it mounted: it fades in at once
-    /// as Compacted only.
-    Instant { at: f64 },
-    /// It was already running or finished when the history loaded: no entrance.
-    Settled,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Event {
-    /// `running.changed`, at `now` on the app clock. The grace's timer (`grace.elapsed`) is the
-    /// clock passing it, read here: nothing changes on screen when it fires.
-    Running { running: bool, now: f64 },
-}
-
-impl Entrance {
-    /// `createCompactionEntranceState`: `age_ms` is how long ago the compaction started.
-    pub fn mount(age_ms: i64, running: bool, now: f64) -> Entrance {
-        if running && age_ms < (GRACE * 1000.0) as i64 {
-            return Entrance::Grace { at: now };
-        }
-        if !running && age_ms < RECENT_DONE_MS {
-            return Entrance::Instant { at: now };
-        }
-        Entrance::Settled
-    }
-
-    /// `transitionCompactionEntrance`. True when it changed.
-    pub fn step(&mut self, event: Event) -> bool {
-        let Event::Running { running, now } = event;
-        let next = match *self {
-            Entrance::Grace { at } if now - at >= GRACE => Entrance::Revealed { at },
-            state => state,
-        };
-        let next = match next {
-            Entrance::Grace { .. } if !running => Entrance::Instant { at: now },
-            state => state,
-        };
-        let changed = next != *self;
-        *self = next;
-        changed
-    }
-
-    /// When it mounted, while it enters.
-    fn at(self) -> Option<f64> {
-        match self {
-            Entrance::Grace { at } | Entrance::Revealed { at } | Entrance::Instant { at } => Some(at),
-            Entrance::Settled => None,
-        }
-    }
-
-    /// `selectCompactionEnter`'s `grace`: it fades in after the grace.
-    fn graced(self) -> bool {
-        matches!(self, Entrance::Grace { .. } | Entrance::Revealed { .. })
-    }
-}
 
 /// One row of a compaction in the timeline.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,64 +59,6 @@ pub fn pieces(c: &Compaction) -> Vec<Piece> {
         v.push(Piece::Error);
     }
     v
-}
-
-thread_local! {
-    /// Whether the open session's transcript holds a compaction, and the version it was read at.
-    static ANY: std::cell::RefCell<Option<(String, Option<u64>, bool)>> = const { std::cell::RefCell::new(None) };
-}
-
-/// After the frame's events: notes when each compaction in the open session first showed and
-/// how it enters, and moves one that ended inside its grace to fading in as Compacted. Only the
-/// open session's are kept, so one seen again later shows as it is, as Desktop's remount does.
-/// True when what's drawn changed.
-pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
-    let now_ms = s.now_ms();
-    let clock = s.clock();
-    // Every poll comes here: with no compaction in the shown session and none seen, the state
-    // isn't written.
-    let any = s.active_session_id().and_then(|id| {
-        // Asked once per version of the transcript, not on every poll of a long one.
-        let version = s.transcript_version(id);
-        let kept = ANY.with_borrow(|k| k.as_ref().filter(|(sid, v, _)| sid == id && version.is_some() && *v == version).map(|k| k.2));
-        kept.or_else(|| {
-            let any = s.with_transcript(id, |t| t.messages.iter().any(|m| matches!(m, Message::Compaction(_))))?;
-            ANY.with_borrow_mut(|k| *k = Some((id.to_owned(), version, any)));
-            Some(any)
-        })
-    }).unwrap_or(false);
-    if !any && s.compactions_state().seen.is_empty() {
-        return false;
-    }
-    let mut compactions = std::mem::take(s.compactions_state_mut());
-    let mut changed = false;
-    let s_ref: &S = &*s;
-    let ran = s_ref.active_session_id().and_then(|id| {
-        s_ref.with_transcript(id, |t| {
-            let before = compactions.seen.len();
-            compactions.seen.retain(|cid, _| {
-                t.messages.iter().any(|m| matches!(m, Message::Compaction(c) if &c.id == cid))
-            });
-            changed |= compactions.seen.len() != before;
-            for m in &t.messages {
-                let Message::Compaction(c) = m else { continue };
-                let running = c.status == CompactionStatus::Running;
-                match compactions.seen.get_mut(&c.id) {
-                    None => {
-                        compactions.seen.insert(c.id.clone(), Entrance::mount(now_ms - c.created, running, clock));
-                        changed = true;
-                    }
-                    Some(entrance) => changed |= entrance.step(Event::Running { running, now: clock }),
-                }
-            }
-        })
-    });
-    if ran.is_none() && !compactions.seen.is_empty() {
-        compactions.seen.clear();
-        changed = true;
-    }
-    *s.compactions_state_mut() = compactions;
-    changed
 }
 
 /// Whether `piece` draws as a divider.
@@ -348,12 +211,9 @@ fn error_card(p: &Pal, message: &str) -> El {
 
 fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let running = c.status == CompactionStatus::Running;
-    let clock = s.clock();
-    let entrance = s.compactions_state().seen.get(&c.id).copied().unwrap_or(Entrance::Settled);
-    let at = entrance.at().unwrap_or(clock);
-    let delay = if entrance.graced() { GRACE } else { 0.0 };
-    // The light and the glint start with the fade in, after the grace.
-    let start = at + delay;
+    // Only the active divider needs a phase. Map the work's start to the animation clock;
+    // no per-poll history of which dividers have mounted is needed.
+    let start = if running { s.clock() - s.now_ms().saturating_sub(c.created).max(0) as f64 / 1000.0 } else { 0.0 };
     let body = summary(c);
     let expandable = !running && !body.is_empty();
     let key = Piece::Quiet.key(&c.id);
@@ -363,13 +223,10 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
     let words = quiet_label(s, p, running, open, start);
     let (over, under) = space(s, run);
     let mut divider = divider_bar(quiet_line(s, p, lit, start, false), words, quiet_line(s, p, lit, start, true), (over, under))
-        // A new key restarts the fade in, with everything inside at rest as Compacted.
-        .key(if matches!(entrance, Entrance::Instant { .. }) { "divider-now" } else { "divider" })
+        // A server status is not an entrance. Only ongoing work inside this divider cycles.
+        .key("divider")
         .label(if running { opencode_i18n::t!("ui.messagePart.compaction.running") } else { opencode_i18n::t!("ui.messagePart.compaction.done") })
         .transition(Transition::none());
-    if entrance.at().is_some() && clock - at < delay + 0.5 {
-        divider = divider.looping(LoopSpec::sequence(Sequence::new(&ENTER).delay(delay)));
-    }
     if expandable {
         let id = c.id.clone();
         divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
@@ -520,7 +377,7 @@ fn loop_delay(now: f64, start: f64) -> f64 {
 
 /// An opacity cycle with `stops` that starts at `start` on the app clock.
 fn cycle(start: f64, stops: &'static [(f32, f32)]) -> Cycle {
-    Cycle { period: CYCLE, phase: (start / f64::from(CYCLE)).rem_euclid(1.0) as f32, stops, still: 0.0, fps: 60.0 }
+    Cycle { period: CYCLE, phase: (start / f64::from(CYCLE)).rem_euclid(1.0) as f32, stops, still: 0.0, fps: Cycle::DISPLAY_RATE }
 }
 
 /// Points along `curve` from (`x0`, `y0`) to (`x1`, `y1`), the first left out.
@@ -552,7 +409,7 @@ fn light_stops() -> &'static [(f32, f32)] {
         let mut shape = vec![(0.0, 0.0)];
         shape.extend(eased(Easing::cubic(0.4, 0.0, 0.6, 1.0), (0.0, 0.0), (0.14, 1.0), 8));
         shape.extend([(0.495, 1.0), (0.7, 0.0), (1.0, 0.0)]);
-        let shape = Cycle { period: 1.0, phase: 0.0, stops: Box::leak(shape.into_boxed_slice()), still: 0.0, fps: 60.0 };
+        let shape = Cycle { period: 1.0, phase: 0.0, stops: Box::leak(shape.into_boxed_slice()), still: 0.0, fps: Cycle::DISPLAY_RATE };
         let travel = travel();
         let ramp = |t: f32| {
             let peak = BEAM * (SLIDE.0 + (SLIDE.1 - SLIDE.0) * travel.eval(t) + PEAK);
