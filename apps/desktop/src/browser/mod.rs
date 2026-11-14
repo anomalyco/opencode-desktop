@@ -99,6 +99,18 @@ impl App {
             && std::env::var_os("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Some(std::ffi::OsStr::new("1"))
     }
 
+    /// A link to `path`, inside the session's folder, opens as a page in the browser pane rather
+    /// than as a file tab, as Desktop's file plugin decides (`renderer.tsx` `fileOrPage`): an
+    /// HTML file, the browser on and able to run, the app's own server (which shares this disk:
+    /// the pane loads `file://` inside the workspace only) and a wide window.
+    pub fn opens_as_page(&self, path: &str) -> bool {
+        let html = std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
+        html && !self.browser_unsupported()
+            && !self.narrow()
+            && crate::servers::runtime::active(self).is_sidecar()
+            && self.plugins.list.iter().any(|p| p.manifest.id == PLUGIN && p.running())
+    }
+
     /// Zero-allocation lookup of the active browser tab ID in the routed session.
     pub fn active_browser_tab_id(&self) -> Option<u64> {
         self.active_browser_tab_for_session(self.active_session_id()?)

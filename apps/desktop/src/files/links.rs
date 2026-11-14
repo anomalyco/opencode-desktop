@@ -6,6 +6,7 @@
 //! | --- | --- |
 //! | `https:`, `mailto:`, `seer:`, any scheme but `file:` | The browser or the app that owns it (live runs only) |
 //! | `docs/plan.md`, `./x.md`, `../x.md`, `/abs/in/folder`, `~/…`, `file://…` | The file's tab, at `#L12`, `#L12-L20`, `:12` or `:12-20`; a `#heading` scrolls a rendered file to it |
+//! | An HTML file in the session's folder, on the app's own server with the browser on and the window wide | A page in the browser pane (`fileOrPage`, [`App::opens_as_page`]) |
 //! | A file outside the session's folder | Its default Mac app (the server reads only inside the folder) |
 //! | A file that isn't there | A toast naming it |
 //! | A bare word (`link`, `Makefile`) that isn't a file there | A toast saying it points nowhere (a bare word that is a file opens it) |
@@ -273,6 +274,10 @@ impl App {
                 if let Some(h) = heading {
                     self.scroll_to_heading(sid, &path, &h, tx);
                 }
+            }
+            Link::Inside { path, .. } if self.opens_as_page(&path) => {
+                let url = format!("file://{}", opencode_kit::path::encode_path(&opencode_kit::path::absolute(&self.link_directory(sid), &path)));
+                self.open_new_browser_tab_for_session(Some(sid), &url, None, true);
             }
             Link::Inside { path, lines, heading } => self.open_file_link(sid, &path, lines, heading, tx),
             Link::Outside { path } => self.open_outside_file(&path),
