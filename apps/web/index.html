@@ -204,7 +204,15 @@
       return [base + path, entry];
     }));
   }
+  // A page that doesn't start says so to its server's log (`POST diag`, `web-serve.ts`): an error
+  // on the way, or no first frame 45 s after it began, with the words it shows. No address or
+  // password, as `report`'s.
+  const unstarted = (stage, words) => fetch('diag', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
+    body: JSON.stringify({ stage, source: String(words ?? '').slice(0, 300), ua: navigator.userAgent, standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true }) }).catch(() => {});
   async function boot() {
+    let drawn = false;
+    document.addEventListener('runepresent', () => { drawn = true; }, { once: true });
+    setTimeout(() => { if (!drawn) unstarted('no-frame-45s', status.textContent); }, 45000);
     // Only a head start: the app reads for itself when this can't. It goes out before the page's
     // messages are in, as the module did: a language other than English fetches its catalog first.
     try { startFirstReads(); } catch {}
@@ -252,6 +260,7 @@
       password = null;
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
+      unstarted('start-error', status.textContent);
       console.error(error);
     }
   }

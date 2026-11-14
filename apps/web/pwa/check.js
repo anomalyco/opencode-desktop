@@ -97,7 +97,10 @@ export function start({ say, ready }) {
   const ua = navigator.userAgent;
   const ios = ua.match(/OS (\d+)[_.](\d+)(?:[_.](\d+))? like Mac OS X/);
   const safari = ua.match(/Version\/([\d.]+)/);
-  set('browser', 'ok', [ios ? `iOS ${ios.slice(1).filter(Boolean).join('.')}` : navigator.platform, safari ? `Safari ${safari[1]}` : '', `${screen.width}×${screen.height} @${devicePixelRatio}`, ua].filter(Boolean).join(' · '));
+  // From iOS 26 the UA's OS is frozen at 18_7; Safari's own version is the system's there.
+  const frozen = ios && safari && ios[1] === '18' && ios[2] === '7' && parseFloat(safari[1]) >= 26;
+  const system = ios ? `iOS ${frozen ? safari[1] : ios.slice(1).filter(Boolean).join('.')}` : navigator.platform;
+  set('browser', 'ok', [system, safari ? `Safari ${safari[1]}` : '', `${screen.width}×${screen.height} @${devicePixelRatio}`, ua].filter(Boolean).join(' · '));
   const jspi = 'Suspending' in WebAssembly;
   set('jspi', jspi ? 'ok' : 'fail', jspi ? 'WebAssembly.Suspending' : 'missing: the app cannot start');
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
