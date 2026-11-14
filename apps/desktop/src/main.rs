@@ -261,6 +261,8 @@ mod undo;
 mod updater;
 mod usage;
 mod view;
+mod wall;
+use wall::wall_ms;
 mod web_fetch;
 mod widgets;
 mod windows;
@@ -888,10 +890,6 @@ fn harness_writes() -> bool {
 /// A person, or the harness standing in for one, is at this run: it may write.
 fn attended() -> bool {
     !headless() || harness_writes()
-}
-
-fn wall_ms() -> i64 {
-    rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 impl App {
