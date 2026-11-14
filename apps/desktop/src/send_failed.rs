@@ -154,6 +154,18 @@ impl Log {
         (changed, next)
     }
 
+    /// Whether [`Self::tell_slow`] would change anything at `now`.
+    pub(crate) fn slow_writes(&self, now: f64) -> bool {
+        self.sent.iter().any(|s| matches!(s.phase, Phase::Sending { .. }) && s.sending.is_none_or(|(since, told)| !told && now + 1e-9 >= since + SLOW_SEND))
+    }
+
+    /// What [`Self::tell_slow`] returns when it changes nothing: when the next prompt turns slow.
+    pub(crate) fn slow_next(&self) -> (bool, Option<f64>) {
+        let next = self.sent.iter().filter(|s| matches!(s.phase, Phase::Sending { .. }))
+            .filter_map(|s| s.sending.filter(|&(_, told)| !told).map(|(since, _)| since + SLOW_SEND)).reduce(f64::min);
+        (false, next)
+    }
+
     /// Whether prompt `id` has been sending past [`SLOW_SEND`].
     pub(crate) fn slow(&self, id: &str) -> bool {
         self.get(id).is_some_and(|s| matches!(s.sending, Some((_, true))))

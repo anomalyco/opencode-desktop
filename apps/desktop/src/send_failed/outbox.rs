@@ -230,7 +230,10 @@ impl App {
         // A prompt sending past `SLOW_SEND` says so whether or not the link is up: a server that
         // took the POST and holds it is the case it's for.
         let now = *self.clock;
-        let (mut changed, slow_at) = self.unsent.tell_slow(now);
+        // Most polls change nothing: asked first, they leave the outbox unwritten, so the regions
+        // that read it (the timeline's footers) keep.
+        let log = rune::Tracked::untracked(&self.unsent);
+        let (mut changed, slow_at) = if log.slow_writes(now) { self.unsent.tell_slow(now) } else { log.slow_next() };
         if let Some(at) = slow_at {
             tx.wake_at(at);
         }
