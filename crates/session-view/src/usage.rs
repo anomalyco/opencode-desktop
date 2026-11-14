@@ -14,7 +14,9 @@ pub fn last_with_usage<'a>(t: &'a Transcript, boundary: Option<&str>, held: impl
     };
     let after = t.messages[..end].iter().rposition(|m| matches!(m, Message::Compaction(c) if c.status == CompactionStatus::Completed && held(&c.id))).map_or(0, |i| i + 1);
     t.messages[after..end].iter().rev().find_map(|m| match m {
-        Message::Assistant(a) if held(&a.id) => a.tokens.as_ref().map(|tokens| (a, tokens)),
+        // A step without usage is passed over before asking whether it's held: the host's
+        // answer costs a lookup, and a long session's steps mostly carry none.
+        Message::Assistant(a) if a.tokens.is_some() && held(&a.id) => a.tokens.as_ref().map(|tokens| (a, tokens)),
         _ => None,
     })
 }

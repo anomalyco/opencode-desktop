@@ -17,6 +17,7 @@ rune-parts = { path = "../rune-parts", features = ["view"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive"] }
+rustc-hash = "2"
 sha2 = "0.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -15,18 +15,23 @@ pub mod attachments;
 mod delivery;
 mod dividers;
 pub mod parts;
+mod projection;
 pub mod rhythm;
+mod span;
 
 pub use dividers::divider_runs;
 pub use parts::*;
+pub use projection::{Projection, poll as projection_poll, rows, wanted as projection_wanted};
 
 /// One timeline row's content, before it becomes a growth-stack child.
+#[derive(Clone, PartialEq)]
 pub struct RowSpec {
     pub key: String,
     pub content: RowContent,
     pub streaming: bool,
 }
 
+#[derive(Clone, PartialEq)]
 pub enum RowContent {
     /// `reply`: the room over it under a reply (0 for none), set by `rhythm`.
     User { message: usize, tight: bool, above: bool, below: bool, reply: f32, fold: Fold },
@@ -195,7 +200,7 @@ impl RowSpec {
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
                         let busy = *live && *block + 1 == blocks.len();
                         let el = match blocks.get(*block) {
-                            Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
+                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, busy, *live, fade).pt(*pt),
                             _ => col(),
                         };
                         self.wrap(s, el)
@@ -299,7 +304,7 @@ impl RowSpec {
                 let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
                 let busy = *live && *block + 1 == blocks.len();
                 match blocks.get(*block) {
-                    Some(Block::Group { key, steps }) => turns::group(s, p, &t.session, key, steps, busy, *live, fade).pt(*pt),
+                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, busy, *live, fade).pt(*pt),
                     Some(Block::Text { key, body, live, msg, part }) => {
                         // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
@@ -422,6 +427,23 @@ pub fn timeline_row_builds() -> usize {
 /// put: steers waiting under the actions row end the timeline with the gap alone.
 const TAIL: f32 = 92.0;
 
+/// The timeline's rows: the projection's, then the pills' lane under them while it shows.
+#[derive(Clone)]
+struct Shown {
+    rows: std::rc::Rc<projection::Projection>,
+    lane: Option<std::rc::Rc<RowSpec>>,
+}
+
+impl Shown {
+    fn len(&self) -> usize {
+        self.rows.len() + self.lane.is_some() as usize
+    }
+
+    fn get(&self, i: usize) -> &RowSpec {
+        self.rows.get(i).or(self.lane.as_deref()).expect("a timeline row")
+    }
+}
+
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
 /// its last row stands over the lane, clear of the fade into the composer. A session `header`
 /// scrolls with it and sticks over its top, as Desktop's (`virtualizer.tsx:1157-1177`, the
@@ -434,11 +456,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // Held room's streaming text draws past its row's edge into the room over Working.
     let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
-    let mut specs = t.map(|t| rows(s, t)).unwrap_or_default();
-    if t.is_some() && lane > 0.0 {
-        specs.push(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false });
-    }
-    let specs = std::rc::Rc::new(specs);
+    // The pills' lane ends the rows, apart from the projection it doesn't change.
+    let specs = Shown {
+        rows: t.map(|t| rows(s, t)).unwrap_or_default(),
+        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false })),
+    };
     let mut stack = col()
         .key("timeline")
         .w_full()
@@ -461,30 +483,34 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     if t.is_some() {
         let (marks, keys) = (marks.clone(), specs.clone());
         stack = stack.on_visible_rows(move |_: &mut S, shown| {
-            marks.shown(keys[shown.start.min(keys.len())..shown.end.min(keys.len())].iter().map(|r| r.key.clone()));
+            marks.shown((shown.start.min(keys.len())..shown.end.min(keys.len())).map(|i| keys.get(i).key.clone()));
             false
         });
     }
     // Eager construction is the benchmark and regression-test reference.
     if eager && let Some(t) = t {
         stack = stack.virtualize(80.0)
-            .children(specs.iter().map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
+            .children((0..specs.len()).map(|i| specs.get(i)).map(|r| marks.row(&r.key, r.build(s, p, t, e.word_fade).key(r.key.clone()))));
     } else if t.is_some() {
         let keys = specs.clone();
         let id = id.to_owned();
         let p = *p;
         let n = specs.len();
         let marks = marks.clone();
+        // A projection kept from the last build has the keys it had: the list needn't ask each
+        // row's again.
+        let version = (specs.rows.generation, specs.lane.is_some());
         stack = stack.virtual_rows(
             n,
             80.0,
-            move |_: &S, i| keys[i].key.clone().into(),
+            move |_: &S, i| keys.get(i).key.clone().into(),
             move |s: &S, i| {
                 // Rows build after this returns, maybe beside another timeline's.
                 crate::style::set_sticky_top(sticky);
-                marks.row(&specs[i].key, s.with_transcript(&id, |t| specs[i].build(s, &p, t, e.word_fade)).unwrap_or_else(col))
+                let r = specs.get(i);
+                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade)).unwrap_or_else(col))
             },
-        );
+        ).virtual_rows_version(version);
     }
     if t.is_none() {
         if let Some(head)=s.partial_output(id) {
@@ -542,195 +568,16 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     scroll
 }
 
-pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
-    let mut out = Vec::new();
-    let busy = s.timeline_busy(t) && !s.is_session_stopped(&t.session);
-    // A staged revert hides its boundary message and all after it, and the steers waiting behind them.
-    let revert = s.session_revert(&t.session);
-    let shown = t.visible_len(revert);
-    let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
-    let pending: Vec<&InboxItem> = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
-    let fold = crate::fold::place(s, &t.session);
-    // Working, or a compaction waiting to start, sits between the last prompt and the steers.
-    let queued = if revert.is_none() { s.queued_compaction(&t.session) } else { None };
-    // A new session's first prompt has no reply above it yet, and Working shows under it all the same.
-    let actions = last_assistant.or_else(|| (busy && revert.is_none() && shown > 0).then(|| shown - 1));
-    let runs_off = actions.is_some() || queued.is_some();
-    // Not the session's start while older messages remain to land above.
-    let older = s.more_above(&t.session);
-    // A turn's consecutive steps fold together (see `turns`), with the notices Timeline detail
-    // groups; prompts, notes and notices on their own rows end them, and hidden notices don't.
-    let detail = s.timeline_detail();
-    let mut steps: Vec<Entry> = Vec::new();
-    let mut start = 0;
-    // `steps` began with a shell command, whose turn holds only it and its notices.
-    let mut shell_turn = false;
-    // Each shell command's turn: where its first row goes, its message and the room over it.
-    let mut shell_gaps: Vec<(usize, usize, f32)> = Vec::new();
-    // The run under way (`execution`): its first prompt and the files its steps changed, and
-    // where the last run's Changed files went.
-    let mut run: Option<(String, std::collections::BTreeSet<String>)> = None;
-    let mut diff_at: Option<usize> = None;
-    let mut messages = t.messages[..shown].iter().enumerate().peekable();
-    while let Some((mi, m)) = messages.next() {
-        match m {
-            Message::Assistant(a) => {
-                // A reply doesn't join a shell command's turn.
-                if std::mem::take(&mut shell_turn) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                }
-                if let Some(r) = &mut run {
-                    r.1.extend(a.changed.iter().cloned());
-                }
-                if steps.is_empty() { start = mi; }
-                steps.push(Entry::Step(a));
-                // Steps after an interrupted one (the run went on after a stop) sit under an
-                // Interrupted divider (`projection.ts:554-582`, `session-timeline-row.tsx:1162-1182`),
-                // which hidden notices hide too.
-                if a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) && matches!(t.messages[..shown].get(mi + 1), Some(Message::Assistant(_))) {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false, &detail);
-                    if detail.placement(crate::detail::Category::Notices) != crate::detail::Placement::Hidden {
-                        out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
-                    }
-                }
-            }
-            // A run ends: with Changed files on, the files it changed list after its work.
-            Message::Notice(n) if n.kind == model::NoticeKind::Idle => match run.take().filter(|r| s.turn_diffs() && !r.1.is_empty()) {
-                Some((from, files)) => {
-                    turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                    diff_at = Some(out.len());
-                    out.push(RowSpec { key: format!("td-{}", n.id), content: RowContent::TurnDiff { idle: mi, from, files: files.into_iter().collect(), pt: 16.0 }, streaming: false });
-                }
-                None if !steps.is_empty() => steps.push(Entry::Skip),
-                None => {}
-            },
-            Message::Notice(n) if !steps.is_empty() || crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Grouped => {
-                match crate::detail::notice_placement(n, &detail) {
-                    crate::detail::Placement::Grouped => {
-                        if steps.is_empty() { start = mi; }
-                        steps.push(Entry::Notice(n));
-                    }
-                    crate::detail::Placement::Hidden => steps.push(Entry::Skip),
-                    crate::detail::Placement::Separate => {
-                        turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
-                    }
-                }
-            }
-            Message::Notice(n) => {
-                if crate::detail::notice_placement(n, &detail) == crate::detail::Placement::Separate {
-                    out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
-                }
-            }
-            Message::User { id, .. } => {
-                run.get_or_insert_with(|| (id.clone(), Default::default()));
-                let end = delivery::end(&steps, &t.messages[..shown], mi);
-                // Keep source indices: the virtualizer rebuilds each group from this slice.
-                if !steps.is_empty() { steps.extend(entries(&t.messages[mi..end], &detail)); }
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, end, false, &detail);
-                delivery::rows(&mut out, &t.messages[..shown], mi..end, older, &detail, &fold,
-                    pending.first().copied().filter(|_| !runs_off));
-                while messages.next_if(|(i, _)| *i < end).is_some() {}
-            }
-            // A shell command run from the composer is a turn of its own: its shell call, on its
-            // own row or in a group as Timeline detail places shells, with the notices that
-            // group after it (`projection.ts` Shell rows, `groupMessages`). It shows unless
-            // Shell is hidden, and a failed one always.
-            Message::Note { step, .. } => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                // Desktop's TurnGap over every turn but the first (16), whose row sits 8 lower
-                // than a turn's rows under a prompt.
-                shell_gaps.push((out.len(), mi, if out.is_empty() { 8.0 } else { 16.0 }));
-                start = mi;
-                steps.push(Entry::Step(step));
-                shell_turn = true;
-            }
-            Message::Compaction(c) => {
-                turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, &detail);
-                for piece in crate::compaction::pieces(c) {
-                    out.push(RowSpec { key: piece.key(&c.id), content: RowContent::Compaction { message: mi, piece, run: Run::default() }, streaming: false });
-                }
-            }
-        }
-    }
-    turn_rows(&mut out, &steps, start, shown, busy && revert.is_none(), &detail);
-    for (at, mi, gap) in shell_gaps {
-        if let Some(RowSpec { content: RowContent::Turn { start, pt, .. }, .. }) = out.get_mut(at)
-            && *start == mi
-        {
-            *pt = gap;
-        }
-    }
-    if let Some(last) = actions {
-        // Working lasts the whole run, like Desktop's session status: each step's message
-        // finishes before the next one starts, and those gaps used to blink it out.
-        let busy = busy || s.is_session_live(&t.session);
-        let actions = RowSpec { key: "turn-actions".into(), content: RowContent::Actions { message: last, busy, asking: busy && s.session_asking(&t.session), last: false }, streaming: false };
-        // The reply's footer stays with its words, above the run's Changed files.
-        match diff_at.filter(|at| at + 1 == out.len()) {
-            Some(at) => {
-                out.insert(at, actions);
-                // Desktop's footer ends at its Copy (`text-part-copy-wrapper`, 8 over a 20 high
-                // row); the lane reserved for Working runs on 8 under it, which Changed files takes
-                // from its own 16.
-                if let Some(RowSpec { content: RowContent::TurnDiff { pt, .. }, .. }) = out.get_mut(at + 1) {
-                    *pt -= crate::working::LANE - crate::working::COPY_AT.1 - crate::working::COPY;
-                }
-            }
-            None => out.push(actions),
-        }
-    }
-    // A compaction waiting to start sits under Working, above the steers, as Desktop's.
-    if let Some(id) = queued {
-        out.push(RowSpec { key: format!("cmpq-{id}"), content: RowContent::CompactionQueued(Run::default()), streaming: false });
-    }
-    // Undelivered steers wait under Working, as Desktop shows them, in the row each becomes
-    // when the server delivers it to the end of the transcript; Rune slides it up into place.
-    let mut prev = match t.messages[..shown].last() {
-        Some(Message::User { text, .. }) if steps.is_empty() && !runs_off => Some(text.as_str()),
-        _ => None,
-    };
-    // Background shells and subagents that came back wait among them, in the order the server
-    // admitted them (`visibleTimelineMessages`), each a notice of its own.
-    let notices: Vec<&model::Notice> = match s.inbox_for(&t.session) {
-        Some(i) if revert.is_none() => i.waiting_notices().filter(|n| crate::detail::notice_placement(n, &detail) != crate::detail::Placement::Hidden).collect(),
-        _ => Vec::new(),
-    };
-    // Job reports belong to work already started, not to the steers waiting to run.
-    let (jobs, notices): (Vec<_>, Vec<_>) = notices.into_iter().partition(|n| matches!(n.kind, model::NoticeKind::Job { .. }));
-    for n in jobs {
-        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
-        prev = None;
-    }
-    let mut notices = notices.into_iter().peekable();
-    for (k, item) in pending.iter().enumerate() {
-        while let Some(n) = notices.next_if(|n| n.id < item.id) {
-            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
-            prev = None;
-        }
-        let above = prev.is_some_and(|x| prompts_join(x, item));
-        let below = pending.get(k + 1).is_some_and(|n| prompts_join(&item.text, n)) && notices.peek().is_none_or(|n| n.id > pending[k + 1].id);
-        let tight = prompt_images(&mut out, &item.id, older);
-        out.push(RowSpec { key: format!("u-{}", item.id), content: RowContent::Pending { id: item.id.clone(), tight, above, below, reply: 0.0, fold: fold(&item.id) }, streaming: false });
-        prev = Some(&item.text);
-    }
-    for n in notices {
-        out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::PendingNotice(n.id.clone(), rhythm::NOTICE_PT), streaming: false });
-    }
-    dividers::stack(t, &mut out);
-    rhythm::space(t, &detail, &mut out);
-    // Input waiting to send (queued, or steers) lands as the turn ends, so the reply's footer
-    // takes its room only once nothing waits.
-    let waiting = s.inbox_for(&t.session).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some());
-    if let Some(RowSpec { content: RowContent::Actions { last, .. }, .. }) = out.last_mut() {
-        *last = !waiting;
-    }
-    out
+/// Transcript `t`'s rows, top to bottom, projected afresh ([`rows`] keeps them while what they
+/// read holds).
+pub(crate) fn project<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<RowSpec> {
+    let inputs = span::Inputs::read(s, t);
+    span::project(s, t, &inputs, 0..inputs.shown, true)
 }
 
 /// The keys of a transcript's rows, top to bottom.
 pub fn row_keys<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<String> {
-    rows(s, t).into_iter().map(|r| r.key).collect()
+    rows(s, t).iter().map(|r| r.key.clone()).collect()
 }
 
 /// A prompt's attachments (`attachments`), in a row 8 above its bubble. Returns whether its
@@ -770,7 +617,7 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
         let pt = part_gap(prev, tool);
         let content = RowContent::Turn { start, end, block: i, live, pt };
         match b {
-            Block::Group { key, steps } => {
+            Block::Group { key, steps, .. } => {
                 // An open group's steps arrive whole: as a streaming row, opening one paced its
                 // height at text-reveal speeds (seconds for a long group) and shutting snapped.
                 out.push(RowSpec { streaming: false, content, key });

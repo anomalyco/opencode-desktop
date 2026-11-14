@@ -264,6 +264,8 @@ pub fn user_comments(id: &str) -> Arc<[PromptComment]> {
 /// Records the comments on user message `id`, as a local echo of a sent prompt has them.
 pub fn set_user_comments(id: &str, comments: Vec<PromptComment>) {
     let mut store = store().lock().unwrap();
+    if store.get(id).map_or(comments.is_empty(), |old| old.as_ref() == comments.as_slice()) { return; }
+    crate::model::extras_changed();
     if comments.is_empty() {
         store.remove(id);
     } else {

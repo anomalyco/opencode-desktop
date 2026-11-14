@@ -33,6 +33,30 @@ pub(super) fn stack(t: &Transcript, out: &mut [RowSpec]) {
     }
 }
 
+/// [`stack`] for rows `at` alone, against the rows beside them: where two spans of a projection
+/// meet (`projection`). A projection's rows hold no lane.
+pub(super) fn stack_at(t: &Transcript, out: &mut [RowSpec], at: std::ops::Range<usize>) {
+    for i in at {
+        if out.get(i).is_none_or(|r| kind(t, &r.content) != Kind::Divider) {
+            continue;
+        }
+        let above = match i.checked_sub(1).map(|j| kind(t, &out[j].content)) {
+            Some(Kind::Divider) => Beside::Divider,
+            Some(Kind::Prompt) => Beside::Spaced,
+            _ => Beside::Other,
+        };
+        let below = match out.get(i + 1).map(|r| kind(t, &r.content)) {
+            Some(Kind::Divider) => Beside::Divider,
+            Some(Kind::Prompt | Kind::Roomy) | None => Beside::Spaced,
+            Some(Kind::Other) => Beside::Other,
+        };
+        match &mut out[i].content {
+            RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = Run { above, below },
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Divider,
@@ -62,11 +86,11 @@ fn kind(t: &Transcript, c: &RowContent) -> Kind {
 
 /// Each divider row's key and what sits beside it, top to bottom.
 pub fn divider_runs<S: TimelineHost>(s: &S, t: &Transcript) -> Vec<(String, Run)> {
-    super::rows(s, t).into_iter().filter(|r| kind(t, &r.content) == Kind::Divider).map(|r| {
+    super::rows(s, t).iter().filter(|r| kind(t, &r.content) == Kind::Divider).map(|r| {
         let run = match r.content {
             RowContent::Notice(_, run, _) | RowContent::Compaction { run, .. } | RowContent::CompactionQueued(run) | RowContent::TurnDivider(run) => run,
             _ => unreachable!(),
         };
-        (r.key, run)
+        (r.key.clone(), run)
     }).collect()
 }

@@ -150,6 +150,14 @@ impl Ends {
         effect
     }
 
+    /// Whether `event` would change session `id`'s follow state. A viewport reports where it
+    /// stands after every scroll; a report that changes nothing mustn't write the state the
+    /// timeline's region reads, which would build every row again.
+    pub fn moves(&self, id: &str, event: Event) -> bool {
+        let now = self.follow.get(id).cloned().unwrap_or_default();
+        follow::step(now.clone(), event).0 != now
+    }
+
     pub fn set_far(&mut self, id: &str, far: bool) {
         self.step(Some(id), Event::Far(far));
     }
@@ -194,13 +202,13 @@ pub fn settle_held(tx: &mut Tx, held: Option<&(String, String, f32)>) {
 /// Records whether session `id`'s timeline stands far enough up to show the button.
 fn far<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) + 'static {
     let id = id.to_owned();
-    move |s: &mut S, far| s.ends_mut().set_far(&id, far)
+    move |s: &mut S, far| if s.ends().moves(&id, Event::Far(far)) { s.ends_mut().set_far(&id, far) }
 }
 
 /// Records whether session `id`'s timeline shows its end.
 fn at_end<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) + 'static {
     let id = id.to_owned();
-    move |s: &mut S, at| s.ends_mut().set_at_end(&id, at)
+    move |s: &mut S, at| if s.ends().moves(&id, Event::AtEnd(at)) { s.ends_mut().set_at_end(&id, at) }
 }
 
 /// The button as it stands: frosted glass, the timeline blurred at 2 pt under bg-base at 92%

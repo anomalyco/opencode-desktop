@@ -129,6 +129,8 @@ pub fn user_path_attachments(id: &str) -> Arc<[PathAttachment]> {
 /// Records path-referenced attachments (`metadata.attachments`) on user message `id`.
 pub fn set_user_path_attachments(id: &str, items: Vec<PathAttachment>) {
     let mut store = path_store().lock().unwrap();
+    if store.get(id).map_or(items.is_empty(), |old| old.as_ref() == items.as_slice()) { return; }
+    crate::model::extras_changed();
     if items.is_empty() {
         store.remove(id);
     } else {

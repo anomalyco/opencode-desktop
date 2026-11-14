@@ -54,11 +54,54 @@ pub enum Calls {
     Files,
 }
 
+/// Where a group's step comes from: its entry (the turn's message, counted from the turn's
+/// first) and part, so an open group's virtual rows find a step again from the transcript
+/// without folding the turn. `n`: a thought's index among its message's thoughts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Loc {
+    pub entry: u32,
+    pub part: u32,
+    pub n: u32,
+}
+
+impl Loc {
+    /// A notice's entry has no part.
+    const NOTICE: u32 = u32::MAX;
+
+    /// The step this names in the turn's `messages` (one entry each, as [`fold_with`] read them).
+    pub fn step<'a>(self, messages: &'a [opencode_kit::model::Message]) -> Option<Step<'a>> {
+        use opencode_kit::model::Message;
+        let m = messages.get(self.entry as usize)?;
+        if self.part == Loc::NOTICE {
+            return match m {
+                Message::Notice(n) => Some(Step::Notice(n)),
+                _ => None,
+            };
+        }
+        let a = match m {
+            Message::Assistant(a) => a,
+            Message::Note { step, .. } => &**step,
+            _ => return None,
+        };
+        Some(match a.parts.get(self.part as usize)? {
+            Part::Text { text } => Step::Text { body: text },
+            Part::Reasoning { text, started, completed } => Step::Thought {
+                msg: &a.id,
+                index: self.n as usize,
+                body: text,
+                secs: completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64),
+                started: *started,
+            },
+            Part::Tool { id, name, title, status, input, files, metadata } => Step::Tool { id, name, title, status, files, input, metadata },
+        })
+    }
+}
+
 /// One timeline row of a turn's assistant work.
 #[derive(Debug)]
 pub enum Block<'a> {
-    /// Folded thoughts, tool calls, notices and commentary.
-    Group { key: String, steps: Vec<Step<'a>> },
+    /// Folded thoughts, tool calls, notices and commentary; `at`: each step's [`Loc`].
+    Group { key: String, steps: Vec<Step<'a>>, at: Vec<Loc> },
     Text { key: String, body: &'a str, msg: usize, part: usize, live: bool },
     /// A subagent call. `session`: its child session, once the call names it.
     Agent { id: &'a str, agent: &'a str, title: &'a str, status: &'a ToolStatus, session: Option<&'a str>, metadata: &'a serde_json::Value },
@@ -83,11 +126,12 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
     let commentary = commentary(entries, !live);
     let mut out: Vec<Block<'a>> = Vec::new();
     let mut group: Vec<Step<'a>> = Vec::new();
+    let mut at: Vec<Loc> = Vec::new();
     let mut key: Option<String> = None;
-    let flush = |out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, key: &mut Option<String>| {
+    let flush = |out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, at: &mut Vec<Loc>, key: &mut Option<String>| {
         if !group.is_empty() {
             let key = key.take().unwrap_or_else(|| String::from("c-"));
-            out.push(Block::Group { key, steps: std::mem::take(group) });
+            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at) });
         }
     };
     let last = entries.iter().rposition(|e| matches!(e, Entry::Step(_)));
@@ -98,6 +142,7 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                     key = Some(format!("c-{}", n.id));
                 }
                 group.push(Step::Notice(n));
+                at.push(Loc { entry: mi as u32, part: Loc::NOTICE, n: 0 });
                 continue;
             }
             Entry::Skip => continue,
@@ -109,11 +154,13 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
         let (mut texts, mut thoughts) = (0, 0);
         for (pi, part) in a.parts.iter().enumerate() {
             let is_last = live_msg && pi + 1 == a.parts.len();
-            let mut fold_in = |group: &mut Vec<Step<'a>>, first: String, step: Step<'a>| {
+            // The group's key is its first step's: only that one formats it.
+            let mut fold_in = |group: &mut Vec<Step<'a>>, at: &mut Vec<Loc>, first: &dyn Fn() -> String, step: Step<'a>, n: usize| {
                 if group.is_empty() {
-                    key = Some(first);
+                    key = Some(first());
                 }
                 group.push(step);
+                at.push(Loc { entry: mi as u32, part: pi as u32, n: n as u32 });
             };
             match part {
                 Part::Text { text } => {
@@ -123,12 +170,12 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                     if text.trim().is_empty() && !is_last {
                         continue;
                     }
-                    let placement = if commentary.contains(&(mi, pi)) { detail.placement(Category::Commentary) } else { Placement::Separate };
+                    let placement = if commentary.binary_search(&(mi, pi)).is_ok() { detail.placement(Category::Commentary) } else { Placement::Separate };
                     match placement {
                         Placement::Hidden => {}
-                        Placement::Grouped => fold_in(&mut group, format!("c-{}-t{n}", a.id), Step::Text { body: text }),
+                        Placement::Grouped => fold_in(&mut group, &mut at, &|| format!("c-{}-t{n}", a.id), Step::Text { body: text }, 0),
                         Placement::Separate => {
-                            flush(&mut out, &mut group, &mut key);
+                            flush(&mut out, &mut group, &mut at, &mut key);
                             out.push(Block::Text { key: format!("t-{}-{n}", a.id), body: text, msg: mi, part: pi, live: is_last });
                         }
                     }
@@ -143,9 +190,9 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                     let step = Step::Thought { msg: &a.id, index: n, body: text, secs, started: *started };
                     match detail.placement(Category::Thinking) {
                         Placement::Hidden => {}
-                        Placement::Grouped => fold_in(&mut group, format!("c-{}-{n}", a.id), step),
+                        Placement::Grouped => fold_in(&mut group, &mut at, &|| format!("c-{}-{n}", a.id), step, n),
                         Placement::Separate => {
-                            flush(&mut out, &mut group, &mut key);
+                            flush(&mut out, &mut group, &mut at, &mut key);
                             out.push(Block::Thought { key: format!("th-{}-{n}", a.id), step });
                         }
                     }
@@ -156,7 +203,7 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                         "todowrite" => {}
                         "question" => {
                             if !matches!(status, ToolStatus::Pending | ToolStatus::Running) {
-                                flush(&mut out, &mut group, &mut key);
+                                flush(&mut out, &mut group, &mut at, &mut key);
                                 out.push(Block::Question { id, status, input, metadata });
                             }
                         }
@@ -165,16 +212,16 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                             let failed = crate::detail::failed(name, status, metadata);
                             match (detail.placement(category), failed) {
                                 (Placement::Hidden, false) => {}
-                                (Placement::Grouped, _) => fold_in(&mut group, format!("c-{id}"), step),
+                                (Placement::Grouped, _) => fold_in(&mut group, &mut at, &|| format!("c-{id}"), step, 0),
                                 (Placement::Separate, false) if category == Category::Subagents => {
-                                    flush(&mut out, &mut group, &mut key);
+                                    flush(&mut out, &mut group, &mut at, &mut key);
                                     // `agent` today; older servers' `task` calls said `subagent_type`.
                                     let agent = input["agent"].as_str().or(input["subagent_type"].as_str()).unwrap_or("general");
                                     let session = opencode_kit::model::subagent_session(input, metadata);
                                     out.push(Block::Agent { id, agent, title, status, session, metadata });
                                 }
                                 (_, failed) => {
-                                    flush(&mut out, &mut group, &mut key);
+                                    flush(&mut out, &mut group, &mut at, &mut key);
                                     let kind = if failed {
                                         Calls::One
                                     } else if grouped_read(&step) {
@@ -196,28 +243,27 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
             }
         }
     }
-    flush(&mut out, &mut group, &mut key);
+    flush(&mut out, &mut group, &mut at, &mut key);
     out
 }
 
 /// The turn's commentary (`turnCommentary`), by entry and part: text a later tool call in the
 /// turn follows. A `settled` turn whose every text would be commentary keeps its last as the
-/// answer, so it still ends with something to read.
+/// answer, so it still ends with something to read. Sorted, for `binary_search`.
 fn commentary(entries: &[Entry], settled: bool) -> Vec<(usize, usize)> {
-    let parts: Vec<(usize, usize, &Part)> = entries.iter().enumerate()
-        .flat_map(|(mi, e)| match e {
-            Entry::Step(a) => a.parts.iter().enumerate().map(|(pi, p)| (mi, pi, p)).collect::<Vec<_>>(),
-            Entry::Notice(_) | Entry::Skip => Vec::new(),
-        })
-        .collect();
-    let Some(last_tool) = parts.iter().rposition(|(_, _, p)| matches!(p, Part::Tool { .. })) else { return Vec::new() };
-    let is_text = |p: &Part| matches!(p, Part::Text { text } if !text.trim().is_empty());
-    let mut out: Vec<(usize, usize)> = parts[..last_tool].iter().filter(|(_, _, p)| matches!(p, Part::Text { .. })).map(|(mi, pi, _)| (*mi, *pi)).collect();
-    let texts: Vec<(usize, usize)> = parts.iter().filter(|(_, _, p)| is_text(p)).map(|(mi, pi, _)| (*mi, *pi)).collect();
-    if settled && texts.iter().all(|t| out.contains(t))
-        && let Some(answer) = texts.last()
-    {
-        out.retain(|t| t != answer);
+    let parts = || entries.iter().enumerate().flat_map(|(mi, e)| {
+        let parts: &[Part] = match e {
+            Entry::Step(a) => &a.parts,
+            Entry::Notice(_) | Entry::Skip => &[],
+        };
+        parts.iter().enumerate().map(move |(pi, p)| ((mi, pi), p))
+    });
+    let Some(last_tool) = parts().filter(|(_, p)| matches!(p, Part::Tool { .. })).last().map(|(at, _)| at) else { return Vec::new() };
+    let mut out: Vec<(usize, usize)> = parts().take_while(|(at, _)| *at < last_tool).filter(|(_, p)| matches!(p, Part::Text { .. })).map(|(at, _)| at).collect();
+    // Every text that shows is commentary only when the last of them comes before the last call.
+    let answer = parts().filter(|(_, p)| matches!(p, Part::Text { text } if !text.trim().is_empty())).last().map(|(at, _)| at);
+    if settled && let Some(answer) = answer.filter(|a| *a < last_tool) {
+        out.retain(|t| *t != answer);
     }
     out
 }
@@ -433,7 +479,7 @@ const GROUP_GAP: f32 = 8.0;
 /// the group scrolls past. `busy`: the group is the live end of the turn; `live`: the turn is
 /// still running, so a step still under way shimmers.
 #[allow(clippy::too_many_arguments)]
-pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step], busy: bool, live: bool, fade: f32) -> El {
+pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step], at: &[Loc], turn: std::ops::Range<usize>, busy: bool, live: bool, fade: f32) -> El {
     let open = s.expanded().contains(key);
     let shutting = !open && crate::disclosure::is_shutting(s, key);
     let l = label(steps, busy);
@@ -493,47 +539,38 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     let mut c = col().w_full().child(trigger);
     if open || shutting {
         // A file header in the steps sticks under the label and its 8 pt.
-        let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() + 28.0 + GROUP_GAP };
+        let top = crate::style::sticky_top();
         // The row's clip reveals the steps as it grows, so they don't fade in as well.
         // 8 under the label (inside the steps, so a shut box is no taller than nothing), then the
         // rail 6 in from the steps' top and bottom.
         // The steps stack as growth rows on the fold's spring, so a step folding open or shut
         // in the middle slides the ones under it rather than moving them at once (t1484).
+        // They're virtual rows: an open group of a thousand calls builds the ones in view, each
+        // found again from the transcript by its place (`Loc`), never the whole turn's fold.
         let fold = crate::disclosure::fold(s.knobs());
-        let feather = s.knobs().get(&crate::disclosure::FOLD_FEATHER);
         let edge = rune::StreamEdge { word_fade: 0.0, ..rune::edge::FEATHER };
-        let mut list = col().key("rows").w_full().gap(8.0).transition(rune::Transition::none()).growth(rune::GrowthSpec { spring: fold, edge });
-        let mut i = 0;
-        while i < steps.len() {
-            let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
-            let (n, item) = match &steps[i] {
-                st @ Step::Thought { .. } => (1, thought(s, p, st, live, fade)),
-                // 28 high like the steps around it (`py-1`).
-                Step::Notice(n) => (1, col().key(format!("notice-{}", n.id)).w_full().py(4.0).child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default()))),
-                Step::Text { body } => (1, col().key(format!("text-{i}")).w_full().child(crate::timeline::markdown_view::<S>(p, body, fade, false))),
-                st @ Step::Tool { .. } if grouped_read(st) => {
-                    let calls: Vec<crate::tools::Call> = steps[i..i + run(grouped_read)].iter().filter_map(call).collect();
-                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls));
-                    (calls.len(), el.key(format!("reads-{}", calls[0].id)))
-                }
-                st @ Step::Tool { .. } if file_tool(st) => {
-                    let calls: Vec<crate::tools::Call> = steps[i..i + run(file_tool)].iter().filter_map(call).collect();
-                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls));
-                    (calls.len(), col().key(format!("files-{}", calls[0].id)).w_full().child(el))
-                }
-                st @ Step::Tool { .. } if named_skill(st) => {
-                    let calls: Vec<crate::tools::Call> = steps[i..i + run(named_skill)].iter().filter_map(call).collect();
-                    let el = crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls));
-                    (calls.len(), col().key(format!("skills-{}", calls[0].id)).w_full().child(el))
-                }
-                st @ Step::Tool { id, files, .. } => {
-                    let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &call(st).expect("a tool step")));
-                    (1, step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0))))
-                }
-            };
-            list = list.child(item.fold_glide(fold).fold_feather(feather));
-            i += n;
-        }
+        let items = std::rc::Rc::new(plan(steps));
+        let keys: std::rc::Rc<Vec<String>> = std::rc::Rc::new(items.iter().map(|&(i, _)| item_key(steps, i)).collect());
+        let at: std::rc::Rc<[Loc]> = at.into();
+        let version = (key, &*keys);
+        let (count, session, p) = (items.len(), session.to_owned(), *p);
+        let (row_keys, span) = (keys.clone(), turn);
+        let list = col().key("rows").w_full().transition(rune::Transition::none()).growth(rune::GrowthSpec { spring: fold, edge })
+            .virtual_rows(count, 36.0, move |_: &S, j| row_keys[j].clone().into(), move |s: &S, j| {
+                // Rows build after the group's row returns, maybe beside another timeline's.
+                crate::style::set_sticky_top(top);
+                let (i, n) = items[j];
+                let built = s.with_transcript(&session, |t| {
+                    let messages = t.messages.get(span.clone())?;
+                    let steps: Vec<Step> = at.get(i..i + n)?.iter().map(|l| l.step(messages)).collect::<Option<_>>()?;
+                    let cx = crate::tools::Ctx { session: &session, live, sticky: top + 28.0 + GROUP_GAP };
+                    Some(step_item(s, &p, cx, &steps, live, fade))
+                }).flatten().unwrap_or_else(col);
+                // 8 apart: the gap is the row's own, so the list holds rows alone.
+                let feather = s.knobs().get(&crate::disclosure::FOLD_FEATHER);
+                col().w_full().pt(if j == 0 { 0.0 } else { 8.0 }).child(built).fold_glide(crate::disclosure::fold(s.knobs())).fold_feather(feather)
+            })
+            .virtual_rows_version(version);
         let rail = el().key("rail").pin(Some(-0.25), Some(14.0), None, Some(6.0)).w(0.5).fill(p.border);
         let list = col().key("steps").w_full().pt(GROUP_GAP).pl(12.0).transition(rune::Transition::none()).child(rail).child(list);
 
@@ -546,6 +583,65 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     c
 }
 
+/// An open group's rows: each the step at its first index and how many steps it draws (plain
+/// reads, file edits and named skills in a row share one).
+fn plan(steps: &[Step]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < steps.len() {
+        let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
+        let n = match &steps[i] {
+            st @ Step::Tool { .. } if grouped_read(st) => run(grouped_read),
+            st @ Step::Tool { .. } if file_tool(st) => run(file_tool),
+            st @ Step::Tool { .. } if named_skill(st) => run(named_skill),
+            _ => 1,
+        };
+        out.push((i, n));
+        i += n;
+    }
+    out
+}
+
+/// The key of the group row whose first step is `steps[i]`, as [`step_item`] keys it.
+fn item_key(steps: &[Step], i: usize) -> String {
+    match &steps[i] {
+        Step::Thought { msg, index, .. } => format!("r-{msg}-{index}"),
+        Step::Notice(n) => format!("notice-{}", n.id),
+        Step::Text { .. } => format!("text-{i}"),
+        st @ Step::Tool { id, .. } if grouped_read(st) => format!("reads-{id}"),
+        st @ Step::Tool { id, .. } if file_tool(st) => format!("files-{id}"),
+        st @ Step::Tool { id, .. } if named_skill(st) => format!("skills-{id}"),
+        Step::Tool { id, .. } => format!("step-{id}"),
+    }
+}
+
+/// One open group's row, `steps` those it draws ([`plan`]).
+fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, steps: &[Step], live: bool, fade: f32) -> El {
+    let Some(first) = steps.first() else { return col() };
+    match first {
+        st @ Step::Thought { .. } => thought(s, p, st, live, fade),
+        // 28 high like the steps around it (`py-1`).
+        Step::Notice(n) => col().key(format!("notice-{}", n.id)).w_full().py(4.0).child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default())),
+        // Commentary is keyed by its place among the group's steps, as it has no id.
+        Step::Text { body } => col().w_full().child(crate::timeline::markdown_view::<S>(p, body, fade, false)),
+        st @ Step::Tool { .. } if grouped_read(st) => {
+            let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
+            crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls)).key(format!("reads-{}", calls[0].id))
+        }
+        st @ Step::Tool { .. } if file_tool(st) => {
+            let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
+            col().key(format!("files-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
+        }
+        st @ Step::Tool { .. } if named_skill(st) => {
+            let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
+            col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
+        }
+        st @ Step::Tool { id, files, .. } => {
+            let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &call(st).expect("a tool step")));
+            step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0)))
+        }
+    }
+}
 /// An edit, write or patch that didn't fail: it joins the file card of the steps beside it.
 fn file_tool(st: &Step) -> bool {
     call(st).is_some_and(|c| crate::tools::is_file_tool(&c))

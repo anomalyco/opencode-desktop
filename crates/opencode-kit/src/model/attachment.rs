@@ -115,6 +115,20 @@ pub(crate) fn retain_user_files(keep: &dyn Fn(&str) -> bool) {
     user_file_store().lock().unwrap().retain(|id, _| keep(id));
 }
 
+/// Moves whenever a prompt's files, comments or path attachments change: what a prompt's row
+/// shows beside its words, held outside the transcript. A projection of the timeline that read
+/// them keeps while it holds.
+pub fn prompt_extras_generation() -> u64 {
+    EXTRAS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static EXTRAS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Records that a prompt's extras changed ([`prompt_extras_generation`]).
+pub(crate) fn extras_changed() {
+    EXTRAS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The files on user message `id` (empty when it has none).
 pub fn user_files(id: &str) -> Arc<[Attachment]> {
     user_file_store().lock().unwrap().get(id).cloned().unwrap_or_else(|| Arc::from([]))
@@ -127,8 +141,9 @@ pub fn set_user_files(id: &str, files: Vec<Attachment>) {
     // identity so clients can keep already-decoded images while the refresh is parsed.
     if store.get(id).is_some_and(|old| old.as_ref() == files.as_slice()) { return; }
     if files.is_empty() {
-        store.remove(id);
+        if store.remove(id).is_some() { extras_changed(); }
     } else {
         store.insert(id.to_owned(), files.into());
+        extras_changed();
     }
 }

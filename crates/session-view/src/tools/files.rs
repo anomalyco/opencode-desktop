@@ -273,7 +273,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     }
     if open {
         let corner = if end { RADIUS } else { 0.0 };
-        let views = col().key("views").w_full().children(item.diffs().iter().map(|fd| super::diff::view(p, fd)));
+        let views = col().key("views").w_full().children(item.diffs().into_iter().map(|fd| super::diff::view::<S>(p, fd)));
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
         // border is the content's top, which has none of its own (`border-top: 0`).
         out = out.child(crate::disclosure::reveal(

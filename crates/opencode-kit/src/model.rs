@@ -15,7 +15,8 @@ mod pending;
 pub mod preview;
 mod tool;
 
-pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, set_user_files, user_files};
+pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
+pub(crate) use attachment::extras_changed;
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
 pub use inbox::{Delivery, Inbox, InboxChange, InboxItem, NoticeEffect, NoticeEvent, NoticeState, inbox_payload, parse_inbox_item, step_notice};
@@ -240,6 +241,8 @@ pub fn retain_user_messages(keep: &dyn Fn(&str) -> bool) {
     user_created_store().lock().unwrap().retain(|id, _| keep(id));
     crate::mention::retain_user_messages(keep);
     crate::quote::retain_user_comments(keep);
+    // What was let go of a projection may have read: it projects again.
+    extras_changed();
 }
 
 /// When user message `id` was sent (ms), once known: a reply's duration runs from it.

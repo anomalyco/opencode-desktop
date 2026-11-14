@@ -189,7 +189,7 @@ fn prompts(s: &App, sid: &str) -> (Vec<(String, String)>, HashMap<String, String
     let mut list: Vec<(String, String)> = Vec::new();
     let mut turns = HashMap::new();
     let mut current: Option<String> = None;
-    for r in rows(s, t) {
+    for r in rows(s, t).iter() {
         let prompt = match &r.content {
             RowContent::User { message, .. } => match &t.messages[*message] {
                 Message::User { id, .. } => Some(id.clone()),

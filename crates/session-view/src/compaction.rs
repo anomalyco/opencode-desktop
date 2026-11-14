@@ -140,6 +140,11 @@ pub fn pieces(c: &Compaction) -> Vec<Piece> {
     v
 }
 
+thread_local! {
+    /// Whether the open session's transcript holds a compaction, and the version it was read at.
+    static ANY: std::cell::RefCell<Option<(String, Option<u64>, bool)>> = const { std::cell::RefCell::new(None) };
+}
+
 /// After the frame's events: notes when each compaction in the open session first showed and
 /// how it enters, and moves one that ended inside its grace to fading in as Compacted. Only the
 /// open session's are kept, so one seen again later shows as it is, as Desktop's remount does.
@@ -149,7 +154,16 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
     let clock = s.clock();
     // Every poll comes here: with no compaction in the shown session and none seen, the state
     // isn't written.
-    let any = s.active_session_id().and_then(|id| s.with_transcript(id, |t| t.messages.iter().any(|m| matches!(m, Message::Compaction(_))))).unwrap_or(false);
+    let any = s.active_session_id().and_then(|id| {
+        // Asked once per version of the transcript, not on every poll of a long one.
+        let version = s.transcript_version(id);
+        let kept = ANY.with_borrow(|k| k.as_ref().filter(|(sid, v, _)| sid == id && version.is_some() && *v == version).map(|k| k.2));
+        kept.or_else(|| {
+            let any = s.with_transcript(id, |t| t.messages.iter().any(|m| matches!(m, Message::Compaction(_))))?;
+            ANY.with_borrow_mut(|k| *k = Some((id.to_owned(), version, any)));
+            Some(any)
+        })
+    }).unwrap_or(false);
     if !any && s.compactions_state().seen.is_empty() {
         return false;
     }

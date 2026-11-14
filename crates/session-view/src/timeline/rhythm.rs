@@ -76,7 +76,10 @@ fn prose(body: &str, footer: bool) -> Edges {
     Edges { top: edge(body.trim_start().starts_with("```")), bottom: edge(body.trim_end().ends_with("```")), footer }
 }
 
-fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Edges {
+/// The last turn [`edges`] folded: a turn's rows sit together, so each turn folds once.
+type Folded<'a> = Option<((usize, usize, bool), Vec<Block<'a>>)>;
+
+fn edges<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowContent, folded: &mut Folded<'a>) -> Edges {
     match row {
         RowContent::User { .. } | RowContent::Pending { .. } => both(Kind::Prompt, 0.0),
         RowContent::Notice(i, ..) => match &t.messages[*i] {
@@ -93,8 +96,11 @@ fn edges(t: &Transcript, detail: &crate::detail::Detail, row: &RowContent) -> Ed
             _ => both(Kind::Prose, 0.0),
         },
         RowContent::Turn { start, end, block, live, .. } => {
-            let blocks = turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail);
-            match blocks.get(*block) {
+            let turn = (*start, *end, *live);
+            if folded.as_ref().is_none_or(|(at, _)| *at != turn) {
+                *folded = Some((turn, turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail)));
+            }
+            match folded.as_ref().and_then(|(_, blocks)| blocks.get(*block)) {
                 Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => both(Kind::Tool, TOOL_INSET),
                 Some(Block::Agent { .. }) => both(Kind::Quiet, 0.0),
@@ -125,12 +131,22 @@ const TOOL_INSET: f32 = 4.0;
 
 /// Sets the room over each row in `out` from the row above it (see the table above).
 pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec]) {
-    let mut above: Option<Edges> = None;
-    for row in out.iter_mut() {
+    space_at(t, detail, out, 0..out.len());
+}
+
+/// [`space`] for rows `at` alone, from the row above them: where two spans of a projection meet
+/// (`projection`).
+pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec], at: std::ops::Range<usize>) {
+    let mut folded: Folded = None;
+    let mut above: Option<Edges> = out[..at.start.min(out.len())].iter().rev()
+        .find(|r| !matches!(r.content, RowContent::Lane(_)))
+        .map(|r| edges(t, detail, &r.content, &mut folded));
+    let end = at.end.min(out.len());
+    for row in out[at.start.min(end)..end].iter_mut() {
         if matches!(row.content, RowContent::Lane(_)) {
             continue;
         }
-        let here = edges(t, detail, &row.content);
+        let here = edges(t, detail, &row.content, &mut folded);
         if let Some(prev) = above.filter(|p| p.bottom.0 != Kind::Other) {
             // A footer's room counts toward the gap under the words it closes.
             let room = (gap(prev.bottom.0, here.top.0) - prev.bottom.1 - prev.footer - here.top.1).max(0.0);

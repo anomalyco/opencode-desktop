@@ -251,23 +251,50 @@ fn followed(s: &App) -> Vec<(String, String, bool)> {
     let Some(t) = s.transcripts.get(id) else { return Vec::new() };
     let directory = s.session(id).map_or("", |i| i.directory.as_str());
     let running = |shell: &str| s.shells.running.iter().any(|r| r.id == shell);
-    let steps = t.messages.iter().filter_map(|m| match m {
-        Message::Assistant(a) => Some(a),
-        Message::Note { step, .. } => Some(&**step),
-        _ => None,
+    fn step(m: &Message) -> Option<&opencode_kit::model::Assistant> {
+        match m {
+            Message::Assistant(a) => Some(a),
+            Message::Note { step, .. } => Some(&**step),
+            _ => None,
+        }
+    }
+    // Which calls could follow a shell is the transcript's to say: found once per version of it,
+    // not on every poll of a long session.
+    let version = rune::Tracked::version(&s.transcripts);
+    let calls = FOLLOWABLE.with_borrow_mut(|kept| {
+        if kept.0.as_ref().is_none_or(|(sid, v)| sid != id || *v != version) {
+            let at = t.messages.iter().enumerate().filter_map(|(mi, m)| step(m).map(|a| (mi, a)))
+                .flat_map(|(mi, a)| a.parts.iter().enumerate().map(move |(pi, p)| (mi, pi, p)))
+                .filter_map(|(mi, pi, p)| match p {
+                    Part::Tool { id, name, status, input, metadata, .. } if name == "shell" => {
+                        let call = session_view::tools::Call { id, name, status, input, metadata };
+                        // A saved shell has nothing to follow, running or not.
+                        session_view::tools::shell_follow(&call, |_| false).map(|_| (mi, pi))
+                    }
+                    _ => None,
+                })
+                .collect();
+            *kept = (Some((id.clone(), version)), at);
+        }
+        kept.1.clone()
     });
-    steps
-        .flat_map(|a| a.parts.iter())
-        .filter_map(|p| match p {
-            Part::Tool { id, name, status, input, metadata, .. } if name == "shell" => {
+    calls
+        .into_iter()
+        .filter_map(|(mi, pi)| match step(t.messages.get(mi)?)?.parts.get(pi)? {
+            Part::Tool { id, name, status, input, metadata, .. } => {
                 let call = session_view::tools::Call { id, name, status, input, metadata };
-                // A saved shell has nothing to follow; asking first spares `console_open`'s key on every poll.
                 let (shell, live) = session_view::tools::shell_follow(&call, running)?;
                 session_view::tools::console_open(s, &call).then(|| (shell.to_owned(), directory.to_owned(), live))
             }
             _ => None,
         })
         .collect()
+}
+
+thread_local! {
+    /// The open session's shell calls that can follow their shell, by message and part, and the
+    /// session and transcripts version they were found at.
+    static FOLLOWABLE: std::cell::RefCell<(Option<(String, u64)>, Vec<(usize, usize)>)> = const { std::cell::RefCell::new((None, Vec::new())) };
 }
 
 /// Runs the reads and waits of the timeline consoles' followers.

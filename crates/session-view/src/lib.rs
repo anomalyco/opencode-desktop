@@ -118,6 +118,12 @@ pub trait TimelineHost: Sized + 'static {
     fn with_transcript<R>(&self, session: &str, f: impl FnOnce(&Transcript) -> R) -> Option<R> {
         self.transcript(session).map(f)
     }
+    /// A number that moves whenever session `session`'s transcript may have changed (a
+    /// `Tracked` cell's version), so the timeline keeps its projection while it holds. `None`,
+    /// the default: the host can't say, and the timeline projects its rows on every build.
+    fn transcript_version(&self, _session: &str) -> Option<u64> {
+        None
+    }
     fn session_directory(&self, _session: &str) -> Option<&str> {
         None
     }
@@ -481,6 +487,7 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= working::sync(s);
     changed |= compaction::sync(s);
     changed |= disclosure::poll(s, now, tx);
+    changed |= timeline::projection_poll(s, tx);
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);

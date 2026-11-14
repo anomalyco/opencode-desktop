@@ -642,6 +642,10 @@ impl session_view::TimelineHost for App {
     fn transcript(&self, session: &str) -> Option<&Transcript> {
         self.transcripts.get(session)
     }
+    fn transcript_version(&self, _session: &str) -> Option<u64> {
+        // Every write to any transcript goes through the map's `Tracked` cell.
+        Some(rune::Tracked::version(&self.transcripts))
+    }
     fn session_directory(&self, session: &str) -> Option<&str> {
         self.session(session).map(|i| i.directory.as_str())
     }
@@ -1372,6 +1376,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed |= s.glows.poll(&s.knobs, now, tx, held.as_ref());
     }
     changed |= disclosure::poll(s, now, tx);
+    changed |= session_view::timeline::projection_poll(s, tx);
     changed |= line_reveal::poll(s, now, tx);
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
