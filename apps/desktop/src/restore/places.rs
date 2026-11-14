@@ -117,6 +117,9 @@ impl App {
                 crate::windows::store::save(&self.window, KEY, &value);
                 self.timeline_kept.written = Some(value);
                 self.timeline_kept.candidate = None;
+                // The boot preview follows the place to its turn, so a launch after a crash
+                // draws it in its first frame too.
+                self.preview_place();
             }
             Some((v, at)) if *v == value => tx.wake_at(at + SETTLE),
             _ => {

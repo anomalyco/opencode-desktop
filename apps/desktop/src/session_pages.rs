@@ -424,7 +424,7 @@ impl super::App {
             // Mount the finished transcript at its end, or where it was read, without
             // resetting input or focus.
             session_view::jump::settle(self, tx);
-            self.ends.land(&id, tx);
+            self.land_place(&id, tx);
             if let Some(page) = self.pages.pool.as_ref().and_then(|p| p.peek(&id)) { self.schedule_history(&page, tx); }
             return true;
         }

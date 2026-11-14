@@ -1,11 +1,14 @@
 //! The shown session's first screen, kept in the app's database so the next launch paints it
 //! from the boot packet before any server answers (`opencode_kit::model::preview`, a compact
 //! binary form decoded without parsing JSON). It's the session's last two turns (what a window
-//! opened at the bottom shows, and one scroll step up), at most [`BYTES`].
+//! opened at the bottom shows, and one scroll step up), at most [`BYTES`]; read up from its end,
+//! it runs from the turn of the place the window keeps (`places`) when that fits, so the next
+//! launch draws the place in its first frame.
 //!
 //! It's written when it would change what a launch shows: when the shown session settles (its
-//! reply finished, a message came or went), and, streaming or not, as the window hides, closes
-//! or quits. A streamed token never writes it.
+//! reply finished, a message came or went), when the window's place moves to another turn and
+//! holds still (`App::preview_place`, as the place is written), and, streaming or not, as the
+//! window hides, closes or quits. A streamed token or a scroll step never writes it.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -19,7 +22,7 @@ use crate::{App, Route};
 const BYTES: usize = 48 * 1024;
 
 /// What each session's preview was last written (or read) from: its messages' stamp, and the
-/// message the place it starts from stood on.
+/// turn the place it starts from stood in.
 #[derive(Default)]
 pub struct Previews(HashMap<String, (u64, Option<usize>)>);
 
@@ -38,19 +41,20 @@ pub(super) fn stamp(messages: &[Message]) -> u64 {
     h.finish()
 }
 
+/// The first message of the turn message `at` is in.
+fn turn_of(messages: &[Message], at: usize) -> usize {
+    messages[..=at.min(messages.len().saturating_sub(1))].iter().rposition(|m| matches!(m, Message::User { .. })).unwrap_or(0)
+}
+
 /// The preview's bytes: from the start of the turn before the last, trimmed from the front to fit.
-/// A window read up from its end (`place`, the first message of the row it stood on) keeps from
-/// that row's turn instead when it fits, so the next launch draws the place in its first frame.
-fn encode(messages: &[Message], place: Option<usize>) -> Vec<u8> {
+/// From `turn`, the place's, instead when that's further up and fits.
+fn encode(messages: &[Message], turn: Option<usize>) -> Vec<u8> {
     let users: Vec<usize> = messages.iter().enumerate().filter(|(_, m)| matches!(m, Message::User { .. })).map(|(i, _)| i).collect();
     let mut start = users.len().checked_sub(2).map_or(0, |i| users[i]);
-    if let Some(at) = place {
-        let turn = users.iter().rev().find(|&&u| u <= at).copied().unwrap_or(0);
-        if turn < start {
-            let bytes = preview::encode(&messages[turn..]);
-            if bytes.len() <= BYTES {
-                return bytes;
-            }
+    if let Some(turn) = turn.filter(|&t| t < start) {
+        let bytes = preview::encode(&messages[turn..]);
+        if bytes.len() <= BYTES {
+            return bytes;
         }
     }
     loop {
@@ -77,6 +81,41 @@ impl App {
         true
     }
 
+    /// The turn the shown session's place stands in, when it's read up from its end.
+    fn place_turn(&self, id: &str, messages: &[Message]) -> Option<usize> {
+        let t = self.transcripts.get(id)?;
+        let (row, _) = self.ends.place(id)?;
+        session_view::timeline::row_message(self, t, &row).map(|at| turn_of(messages, at))
+    }
+
+    /// Writes the shown session's preview if what it would hold (`stamp`, from `turn`) isn't
+    /// what it holds.
+    fn write_preview(&mut self, server: &str, id: &str, stamp: u64, turn: Option<usize>) {
+        if self.restore.previews.0.get(id) == Some(&(stamp, turn)) {
+            return;
+        }
+        let Some(t) = self.transcripts.get(id) else { return };
+        let updated = self.session(id).map_or(0, |s| s.updated);
+        crate::storage::set_preview(server, id, Some((updated, Arc::from(encode(&t.messages, turn)))));
+        self.restore.previews.0.insert(id.to_owned(), (stamp, turn));
+    }
+
+    /// The shown session's place moved and held still (`places`): its preview runs from the
+    /// place's turn now. Not while streaming, and not while the transcript is still the boot
+    /// record's.
+    pub(super) fn preview_place(&mut self) {
+        let Route::Session { server, id } = &*self.route else { return };
+        let Some(t) = self.transcripts.get(id) else { return };
+        let streaming = matches!(t.messages.last(), Some(Message::Assistant(a)) if a.completed.is_none());
+        if streaming || t.messages.is_empty() || self.launch.cold_transcript.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        let stamp = stamp(&t.messages);
+        let turn = self.place_turn(id, &t.messages);
+        let (server, id) = (server.as_str().to_owned(), id.clone());
+        self.write_preview(&server, &id, stamp, turn);
+    }
+
     /// Keeps the shown session's preview current: when it settles, or (`now`) whatever it's doing,
     /// as the window hides, closes or quits.
     pub(crate) fn poll_preview(&mut self, now: bool) {
@@ -96,17 +135,13 @@ impl App {
             rune::marks::mark("state.copy.encoded");
             bytes
         });
-        // Read up from its end, the window's place says where its preview starts: written as the
-        // messages change and as the window hides, closes or quits, never per scroll step.
+        // The place is read as the messages change and as the window hides, closes or quits; as
+        // it moves, `preview_place` keeps up.
         let kept = self.restore.previews.0.get(id).copied();
-        let place = (now || kept.is_none_or(|(s, _)| s != stamp)).then(|| self.ends.place(id).and_then(|(row, _)| session_view::timeline::row_message(self, t, &row)));
-        let updated = self.session(id).map_or(0, |s| s.updated);
-        if let Some(place) = place.filter(|p| kept != Some((stamp, *p))) {
-            crate::storage::set_preview(server.as_str(), id, Some((updated, Arc::from(encode(&t.messages, place)))));
-            self.restore.previews.0.insert(id.clone(), (stamp, place));
-        }
+        let turn = if now || kept.is_none_or(|(s, _)| s != stamp) { self.place_turn(id, &t.messages) } else { kept.and_then(|(_, turn)| turn) };
+        let (server, id) = (server.clone(), id.clone());
+        self.write_preview(server.as_str(), &id, stamp, turn);
         if let Some(bytes) = copy {
-            let (server, id) = (server.clone(), id.clone());
             self.store_copy(&server, &id, stamp, bytes);
         }
     }
