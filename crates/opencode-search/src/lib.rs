@@ -2,6 +2,7 @@
 
 mod arena;
 mod fold;
+pub mod fulltext;
 mod slab;
 pub mod tokenizer;
 
