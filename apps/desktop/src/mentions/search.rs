@@ -12,7 +12,7 @@
 use rune::machine::{Attempt, Effects, Seq};
 
 /// `MENTION_FILE_DEBOUNCE_MS`.
-pub const FILE_DEBOUNCE: f64 = 0.15;
+pub const FILE_DEBOUNCE: f64 = 0.100;
 /// `MENTION_SEARCH_TIMEOUT_MS`.
 pub const TIMEOUT: f64 = 10.0;
 
@@ -131,6 +131,7 @@ fn changed(seq: &mut Seq, state: &mut Search, query: &str, server: bool, now: f6
         }
         _ => Sessions::Disabled,
     };
+    let files = if server { files } else { Files::Idle };
     if let Files::Debouncing { due, .. } = &files {
         effects.push(Effect::WakeAt(*due));
     }

@@ -203,6 +203,7 @@ mod session_menu_stories;
 mod session_menu_view;
 mod send_failed;
 mod session_cost;
+mod session_catalog;
 mod session_open;
 mod session_pages;
 mod session_state;
@@ -303,6 +304,7 @@ pub struct App {
     /// holds in turn (`windows::peer`).
     pub projects: rune::Tracked<Vec<Project>>,
     pub sessions: rune::Tracked<Vec<SessionInfo>>,
+    catalog: session_catalog::Catalog,
     pub route: rune::Tracked<Route>,
     /// The open tab this window left for Home, independent of tab order or layout.
     home_return_tab: rune::Tracked<Option<String>>,
@@ -1175,6 +1177,9 @@ impl App {
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
+        if self.sessions.len() >= 512 {
+            return self.catalog.lookup(&self.sessions, id).map(|(i, _)| &self.sessions[i]);
+        }
         self.sessions.iter().find(|s| s.id == id)
     }
 

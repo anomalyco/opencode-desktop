@@ -25,7 +25,7 @@ struct SessionsKey {
     directory: String,
     counts: (usize, usize, usize),
     /// Moves when a session is added, renamed or updated.
-    stamp: i64,
+    stamp: (u64, u64, u64),
 }
 
 struct Session {
@@ -73,7 +73,7 @@ impl App {
             },
             directory: self.composer_directory(),
             counts: (self.sessions.len(), self.mentions.found.len(), self.tabs.len()),
-            stamp: self.sessions.iter().chain(&self.mentions.found).fold(0i64, |sum, s| sum.wrapping_add(s.updated)),
+            stamp: (rune::Tracked::version(&self.sessions), rune::Tracked::version(&self.projects), rune::Tracked::version(&self.tabs)),
         }
     }
 
@@ -119,13 +119,10 @@ impl App {
         match &*self.source {
             Source::Live { .. } => self.mentions.search.files().iter().map(|p| shown_path(p)).collect(),
             _ => {
-                let index = &self.mentions.file_index;
                 if query.trim().is_empty() || query.chars().any(char::is_whitespace) {
                     return Vec::new();
                 }
-                let targets: Vec<[Target; 1]> = index.iter().map(|p| [Target::new(&shown_path(p))]).collect();
-                let objects: Vec<&[Target]> = targets.iter().map(|t| &t[..]).collect();
-                fuzzysort::go(&query.to_lowercase(), &objects).into_iter().take(FILE_LIMIT).map(|i| shown_path(&index[i])).collect()
+                self.mentions.local_paths(query, FILE_LIMIT)
             }
         }
     }

@@ -379,7 +379,7 @@ pub struct WindowMcp {
     waker: Waker,
     tx: Sender<RoutedCall>,
     rx: Receiver<RoutedCall>,
-    last_stamp: Option<u64>,
+    registration: Registration,
     force_enabled: bool,
 }
 
@@ -392,7 +392,7 @@ impl Default for WindowMcp {
             waker: Arc::new(|| {}),
             tx,
             rx,
-            last_stamp: None,
+            registration: Registration::Absent,
             force_enabled: false,
         }
     }
@@ -404,16 +404,32 @@ impl Drop for WindowMcp {
     }
 }
 
+#[derive(Default)]
+enum Registration { #[default] Absent, Published(u64) }
+
+enum Publish { Keep, Remove, Update }
+
+impl Registration {
+    fn step(&mut self, stamp: Option<u64>) -> Publish {
+        match (&*self, stamp) {
+            (Self::Absent, None) => Publish::Keep,
+            (Self::Published(was), Some(now)) if *was == now => Publish::Keep,
+            (_, None) => { *self = Self::Absent; Publish::Remove }
+            (_, Some(now)) => { *self = Self::Published(now); Publish::Update }
+        }
+    }
+}
+
 impl App {
     pub fn setup_rune_mcp(&mut self, waker: Waker) {
         self.rune_mcp.waker = waker;
-        self.rune_mcp.last_stamp = None;
+        self.close_rune_mcp();
         sync_window(self);
     }
 
     pub fn close_rune_mcp(&mut self) {
         self.rune_mcp.hub.remove_window(self.rune_mcp.window_id);
-        self.rune_mcp.last_stamp = None;
+        self.rune_mcp.registration = Registration::Absent;
     }
 
 }
@@ -446,15 +462,9 @@ fn mcp_active(s: &App) -> Option<&Server> {
     (*allow_send).then_some(server)
 }
 
-fn sync_stamp(s: &App, active_srv: Option<&Server>) -> u64 {
+fn sync_stamp(s: &App, server: &Server) -> u64 {
     let mut h = DefaultHasher::new();
-    match active_srv {
-        Some(srv) => {
-            1u8.hash(&mut h);
-            srv.endpoint_key().hash(&mut h);
-        }
-        None => 0u8.hash(&mut h),
-    }
+    server.endpoint_key().hash(&mut h);
     crate::plugin_host::mcp_tools_generation().hash(&mut h);
     s.route.hash(&mut h);
     s.draft_dir().hash(&mut h);
@@ -469,27 +479,19 @@ fn sync_stamp(s: &App, active_srv: Option<&Server>) -> u64 {
         t.id.hash(&mut h);
         t.directory.hash(&mut h);
     }
-    s.sessions.len().hash(&mut h);
-    for info in &s.sessions {
-        info.id.hash(&mut h);
-        info.parent.hash(&mut h);
-        info.directory.hash(&mut h);
-    }
+    (rune::Tracked::id(&s.sessions), rune::Tracked::version(&s.sessions)).hash(&mut h);
     h.finish()
 }
 
 fn sync_window(s: &mut App) {
     let active_srv = mcp_active(s).cloned();
-    let stamp = sync_stamp(s, active_srv.as_ref());
-    if s.rune_mcp.last_stamp == Some(stamp) {
-        return;
+    let stamp = active_srv.as_ref().map(|server| sync_stamp(s, server));
+    match s.rune_mcp.registration.step(stamp) {
+        Publish::Keep => return,
+        Publish::Remove => { s.rune_mcp.hub.remove_window(s.rune_mcp.window_id); return; }
+        Publish::Update => (),
     }
-    s.rune_mcp.last_stamp = Some(stamp);
-
-    let Some(server) = active_srv else {
-        s.rune_mcp.hub.remove_window(s.rune_mcp.window_id);
-        return;
-    };
+    let Some(server) = active_srv else { return };
 
     let mut folders = BTreeSet::new();
     for p in s.used_projects() {

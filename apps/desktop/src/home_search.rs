@@ -183,6 +183,7 @@ impl Search {
 
 pub struct HomeSearch {
     pub search: Search,
+    index: std::cell::RefCell<Option<HomeIndex>>,
     active: Highlight,
     /// The Home row under the pointer: it shows its worktree and branch (`HomeSessionLocation`).
     pub(crate) hovered: Option<String>,
@@ -198,7 +199,7 @@ pub struct HomeSearch {
 
 impl Default for HomeSearch {
     fn default() -> Self {
-        HomeSearch { search: Search::default(), active: Highlight::default(), hovered: None, alt_held: false, hold: crate::view::HomeHold::Free, loaded: Vec::new(), lookup: Latest::default() }
+        HomeSearch { search: Search::default(), index: Default::default(), active: Highlight::default(), hovered: None, alt_held: false, hold: crate::view::HomeHold::Free, loaded: Vec::new(), lookup: Latest::default() }
     }
 }
 
@@ -215,6 +216,12 @@ impl HomeSearch {
     pub fn query_changed(&mut self) {
         self.active.clear();
     }
+}
+
+struct HomeIndex {
+    revision: (u64, u64, Option<String>),
+    rows: Vec<usize>,
+    arena: opencode_search::SearchArena,
 }
 
 /// Desktop's `looksLikeSessionID`: `value.length > 20 && value.startsWith("ses_")`.
@@ -285,8 +292,21 @@ impl App {
         if q.is_empty() {
             return vec![];
         }
-        let fold = crate::language::search_fold();
-        let records: Vec<&SessionInfo> = self.home_roots(selected).filter(|ses| fold.contains(&format!("{} {}", title_of(ses), self.project_label(ses)), q)).collect();
+        let revision = (rune::Tracked::version(&self.sessions), rune::Tracked::version(&self.projects), selected.map(|p| p.id.clone()));
+        let mut cache = self.home_search.index.borrow_mut();
+        if cache.as_ref().is_none_or(|i| i.revision != revision) {
+            let mut rows: Vec<_> = self.sessions.iter().enumerate().filter(|(_, s)| s.parent.is_none() && s.archived.is_none() && selected.is_none_or(|p| self.project_for_session(s).is_some_and(|v| v.id == p.id))).map(|(i,_)| i).collect();
+            rows.sort_unstable_by(|&a,&b| self.sessions[b].active_ms().cmp(&self.sessions[a].active_ms()).then_with(|| self.sessions[a].id.cmp(&self.sessions[b].id)));
+            let mut labels = std::collections::HashMap::new();
+            let mut arena = opencode_search::SearchArena::default();
+            for &i in &rows {
+                let s = &self.sessions[i];
+                let name = labels.entry((&s.project,&s.directory)).or_insert_with(||self.project_label(s));
+                arena.push(&format!("{} {} {}", title_of(s), name, s.id));
+            }
+            *cache = Some(HomeIndex { revision, rows, arena });
+        }
+        let records: Vec<&SessionInfo> = cache.iter().flat_map(|i| i.arena.query(q, 50).into_iter().map(|n| &self.sessions[i.rows[n]])).collect();
         match self.home_search.search.exact().filter(|exact| !records.iter().any(|r| r.id == exact.id)) {
             Some(exact) => std::iter::once(exact).chain(records).collect(),
             None => records,

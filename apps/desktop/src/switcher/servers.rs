@@ -60,7 +60,7 @@ pub(crate) fn open(s: &mut App) -> Vec<Remote> {
     }
     let visible = crate::servers::registry::visible(s);
     let active = crate::servers::runtime::active(s).clone();
-    let usable: Vec<ServerKey> = visible.iter().map(|e| e.key()).filter(|k| !opencode_kit::servers::health::is_failed(crate::servers::health::get(k).as_ref())).collect();
+    let usable: Vec<ServerKey> = visible.iter().map(|e| e.key()).collect();
     let count = usable.len();
     let waker = (*s.waker).clone();
     let mut out = Vec::new();
@@ -158,7 +158,8 @@ impl App {
             }
             let fx = search::step(&mut seq, &mut r.source, search::Event::Tick { now });
             run(r, fx, tx);
-            if r.source.query() != Some(q.as_str()) {
+            let ask = ask && !opencode_kit::servers::health::is_failed(crate::servers::health::get(&r.server).as_ref());
+            if r.source.query() != Some(q.as_str()) || (!ask && r.source.loading()) {
                 let fx = search::step(&mut seq, &mut r.source, search::Event::Query { query: q.clone(), ask, wait: !q.is_empty(), now });
                 run(r, fx, tx);
             }

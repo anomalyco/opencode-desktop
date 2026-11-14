@@ -8,7 +8,7 @@
 use rune::machine::{Attempt, Effects, Seq};
 
 /// `PALETTE_SESSION_DEBOUNCE_MS`.
-pub(crate) const DEBOUNCE: f64 = 0.15;
+pub(crate) const DEBOUNCE: f64 = 0.100;
 /// `PALETTE_SEARCH_TIMEOUT_MS`.
 pub(crate) const TIMEOUT: f64 = 10.0;
 

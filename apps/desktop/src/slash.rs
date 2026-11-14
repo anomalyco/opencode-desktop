@@ -43,6 +43,7 @@ pub struct Slash {
     pub commands: Vec<Command>,
     dir: Option<String>,
     fetch: Latest<(String, Vec<Command>)>,
+    projection: std::cell::RefCell<Option<(Vec<Item>, opencode_search::SearchArena)>>,
 }
 
 impl Slash {
@@ -112,16 +113,17 @@ impl App {
     /// of them, in order, for no query.
     pub fn slash_items(&self) -> Vec<Item> {
         let Some(query) = self.slash_query() else { return Vec::new() };
-        use crate::mentions::fuzzysort::{Target, go};
         let list = self.slash_list();
-        let needle = query.to_lowercase();
-        if needle.is_empty() {
+        if query.is_empty() {
             return list;
         }
-        let targets: Vec<[Target; 2]> = list.iter().map(|c| [Target::new(&c.name), Target::new(&c.title)]).collect();
-        let objects: Vec<&[Target]> = targets.iter().map(|t| &t[..]).collect();
-        let mut list: Vec<Option<Item>> = list.into_iter().map(Some).collect();
-        go(&needle, &objects).into_iter().filter_map(|i| list[i].take()).collect()
+        let mut cache = self.add.slash.projection.borrow_mut();
+        if cache.as_ref().is_none_or(|(last, _)| *last != list) {
+            let mut arena = opencode_search::SearchArena::default();
+            for row in &list { arena.push(&format!("{}\0{}", row.name, row.title)); }
+            *cache = Some((list, arena));
+        }
+        cache.iter().flat_map(|(list, arena)| arena.query(&query, list.len()).into_iter().map(|i| list[i].clone())).collect()
     }
 
     pub fn slash_active(&self) -> Option<String> {

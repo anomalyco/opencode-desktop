@@ -471,9 +471,9 @@ impl App {
         }
         let needle = clean.to_lowercase();
         let found = found.into_iter().flat_map(|f| f.items.iter()).filter(|p| subsequence(&p.to_lowercase(), &needle));
-        let known = self.files.sessions.get(sid).into_iter().flat_map(|w| w.known_files.iter()).filter(|p| p.to_lowercase().contains(&needle));
+        let known = self.files.sessions.get(sid).map(|w| w.local_files(&clean, MATCHES)).unwrap_or_default();
         let mut out: Vec<String> = Vec::new();
-        for p in found.chain(known) {
+        for p in found.chain(known.iter()) {
             if !out.contains(p) {
                 out.push(p.clone());
             }
@@ -761,4 +761,3 @@ pub(crate) fn encode(s: &str) -> String {
         })
         .collect()
 }
-

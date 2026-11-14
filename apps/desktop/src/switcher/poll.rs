@@ -148,9 +148,11 @@ impl App {
                     let Source::Live { server, .. } = &*self.source else {
                         // The fixture's folder and `find_files` (files only its server has seen)
                         // are the answer, `find_ms` later as a server's would be (at once without it).
-                        let mut known = self.files.sessions.get(&sid).map(|w| w.known_files.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
-                        known.extend(self.fixture["find_files"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)));
-                        let items: Vec<String> = crate::files::data::rank_file_query(&known, &query).into_iter().filter(|p| p.to_lowercase().contains(&query.to_lowercase())).collect();
+                        let mut items = self.files.sessions.get(&sid).map(|w| w.local_files(&query, super::MATCHES)).unwrap_or_default();
+                        let extra: Vec<_> = self.fixture["find_files"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+                        for path in crate::files::data::rank_file_query(&extra, &query) {
+                            if !items.contains(&path) { items.push(path); }
+                        }
                         match self.fixture["find_ms"].as_f64() {
                             Some(ms) if ms > 0.0 => {
                                 let at = tx.clock() + ms / 1000.0;

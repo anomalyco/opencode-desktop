@@ -45,6 +45,7 @@ rune-mac.workspace = true
 rune-notify.workspace = true
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }
+opencode-search = { path = "../../crates/opencode-search" }
 opencode-storage = { path = "../../crates/opencode-storage" }
 opencode-plugin-spec = { path = "../../crates/opencode-plugin-spec" }
 otlp-lite = { path = "../../crates/otlp-lite" }

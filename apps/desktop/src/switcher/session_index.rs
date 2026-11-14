@@ -1,9 +1,17 @@
 use super::*;
+use opencode_search::SearchArena;
 
 pub(super) struct Index {
-    counts: (usize, usize),
+    revision: (u64, u64, usize),
+    active: Bucket,
+    archived: Bucket,
+}
+
+#[derive(Default)]
+struct Bucket {
     rows: Vec<Row>,
-    search: String,
+    arena: SearchArena,
+    last: Option<(String, Vec<usize>)>,
 }
 
 struct Row {
@@ -12,46 +20,36 @@ struct Row {
     description: String,
     project: String,
     updated: i64,
-    archived: bool,
-    end: usize,
 }
 
 impl App {
     pub(super) fn session_matches(&self, q: &str, group: &'static str, archived: bool) -> Vec<Entry> {
-        let mut index = self.switcher.index.borrow_mut();
-        let counts = (self.sessions.len(), self.switcher.loaded.len());
-        if index.as_ref().is_none_or(|i| i.counts != counts) {
+        let mut cache = self.switcher.index.borrow_mut();
+        let revision = (rune::Tracked::version(&self.sessions), rune::Tracked::version(&self.projects), self.switcher.loaded.len());
+        if cache.as_ref().is_none_or(|i| i.revision != revision) {
             let mut labels = HashMap::new();
-            let mut search = String::new();
-            let rows = self.merged_roots(&self.switcher.loaded).into_iter().map(|s| {
+            let mut index = Index { revision, active: Bucket::default(), archived: Bucket::default() };
+            for s in self.merged_roots(&self.switcher.loaded) {
                 let description = labels.entry((&s.project, &s.directory)).or_insert_with(|| self.project_label(s)).clone();
                 let title = title_of(s);
-                search.push_str(&format!("{}\0{}\0{}\0", title, description, s.id).to_lowercase());
-                Row { id: s.id.clone(), title, description, project: s.project.clone(), updated: s.updated, archived: s.archived.is_some(), end: search.len() }
-            }).collect();
-            *index = Some(Index { counts, rows, search });
-        }
-        let needle = q.to_lowercase();
-        if needle.contains('\0') { return Vec::new(); }
-        let finder = memchr::memmem::Finder::new(needle.as_bytes());
-        let index = index.as_ref().unwrap();
-        let mut offset = 0;
-        let mut next = 0;
-        // One contiguous search skips nonmatches without starting a matcher for every row.
-        std::iter::from_fn(|| {
-            if !needle.is_empty() {
-                let hit = offset + finder.find(&index.search.as_bytes()[offset..])?;
-                next += index.rows[next..].partition_point(|r| r.end <= hit);
+                let bucket = if s.archived.is_some() { &mut index.archived } else { &mut index.active };
+                bucket.arena.push(&format!("{title}\0{description}\0{}", s.id));
+                bucket.rows.push(Row { id: s.id.clone(), title, description, project: s.project.clone(), updated: s.updated });
             }
-            let row = index.rows.get(next)?;
-            offset = row.end;
-            next += 1;
-            Some(row)
-        }).filter(|r| r.archived == archived && !(q.is_empty() && crate::view::is_automation(&r.title)))
-        .take(if q.is_empty() { RECENT_SESSIONS } else { MATCHES }).map(|r| Entry {
-            key: format!("session:{}", r.id), action: Action::Session(r.id.clone()), title: r.title.clone(),
-            project: r.project.clone(), description: r.description.clone(), hint: None, chord: None, group,
-            updated: Some(r.updated), open: self.tabs.iter().any(|t| t.id == r.id),
+            *cache = Some(index);
+        }
+        let Some(index) = cache.as_mut() else { return Vec::new() };
+        let bucket = if archived { &mut index.archived } else { &mut index.active };
+        if bucket.last.as_ref().is_none_or(|r| r.0 != q) {
+            let ids = if q.is_empty() {
+                bucket.rows.iter().enumerate().filter(|(_, r)| !crate::view::is_automation(&r.title)).take(RECENT_SESSIONS).map(|(i, _)| i).collect()
+            } else { bucket.arena.query(q, MATCHES) };
+            bucket.last = Some((q.to_owned(), ids));
+        }
+        bucket.last.iter().flat_map(|(_, hits)| hits).map(|&i| {
+            let r = &bucket.rows[i];
+            Entry { key: format!("session:{}", r.id), action: Action::Session(r.id.clone()), title: r.title.clone(), project: r.project.clone(),
+                description: r.description.clone(), hint: None, chord: None, group, updated: Some(r.updated), open: self.tabs.iter().any(|t| t.id == r.id) }
         }).collect()
     }
 }

@@ -185,10 +185,7 @@ pub(crate) fn search_paths(
     latest: impl FnOnce(&mut App) -> &mut rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
 ) -> Option<Vec<String>> {
     let crate::Source::Live { server, .. } = &*s.source else {
-        let index = &s.mentions.file_index;
-        let targets: Vec<[crate::mentions::fuzzysort::Target; 1]> = index.iter().map(|p| [crate::mentions::fuzzysort::Target::new(&crate::mentions::shown_path(p))]).collect();
-        let objects: Vec<&[crate::mentions::fuzzysort::Target]> = targets.iter().map(|t| &t[..]).collect();
-        return Some(crate::mentions::fuzzysort::go(&query.to_lowercase(), &objects).into_iter().map(|i| crate::mentions::shown_path(&index[i])).collect());
+        return Some(s.mentions.local_paths(&query, 50));
     };
     let (server, directory) = (server.clone(), s.composer_directory());
     latest(s).request(query, move |query| {

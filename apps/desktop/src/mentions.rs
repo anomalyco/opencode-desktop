@@ -94,6 +94,7 @@ pub struct Mentions {
     sessions_fetch: Latest<(Attempt, Option<Vec<SessionInfo>>)>,
     /// The fixture's files, searched locally.
     pub file_index: Vec<String>,
+    fixture_paths: std::cell::OnceCell<crate::files::path_index::PathIndex>,
     /// What the rows are matched against, kept until what they come from changes.
     cache: std::cell::RefCell<index::Cache>,
 }
@@ -112,6 +113,7 @@ impl Default for Mentions {
             files_fetch: Latest::default(),
             sessions_fetch: Latest::default(),
             file_index: Vec::new(),
+            fixture_paths: Default::default(),
             cache: Default::default(),
         }
     }
@@ -135,6 +137,11 @@ impl Mentions {
         self.skills = skills(&fixture["skills"]);
         self.references = references(&fixture["references"]);
         self.file_index = found_paths(&fixture["files"]);
+        self.fixture_paths.take();
+    }
+
+    pub(crate) fn local_paths(&self, q: &str, limit: usize) -> Vec<String> {
+        self.fixture_paths.get_or_init(|| crate::files::path_index::PathIndex::new(self.file_index.iter().map(|p| shown_path(p)))).query(q, limit)
     }
 }
 
@@ -339,6 +346,7 @@ impl App {
                 m.agents = agents.unwrap_or(std::mem::take(&mut m.agents));
                 m.skills = skills.unwrap_or(std::mem::take(&mut m.skills));
                 m.references = references.unwrap_or(std::mem::take(&mut m.references));
+                *m.cache.get_mut() = Default::default();
                 changed = true;
             }
             search::step_catalog(&mut m.seq, &mut m.catalog, search::CatalogEvent::Answered { attempt, failed });
@@ -350,8 +358,9 @@ impl App {
             changed |= m.search != before;
         }
         if let Some((attempt, list)) = sessions {
-            if let Some(list) = list {
+            if let Some(list) = list && matches!(&m.search, search::Search::Active {sessions: search::Sessions::Loading {attempt: current, ..}, ..} if *current == attempt) {
                 upsert_sessions(&mut m.found, list);
+                *m.cache.get_mut() = Default::default();
                 changed = true;
             }
             effects.extend(search::step(&mut m.seq, &mut m.search, search::Event::Sessions { attempt }));
@@ -410,4 +419,3 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let spec = Spec { key: "mentions", label: opencode_i18n::t!("rune.composer.mentions"), empty: opencode_i18n::t!("ui.promptInput.noMatchingItems"), width, boundary: list::boundary(cx), search: None };
     Some(popup(p, spec, rows, active.as_deref(), |s, key, tx| s.suggest_pointed(key, tx), |s, key, tx| s.suggest_pick(key, tx)))
 }
-

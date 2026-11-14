@@ -10,6 +10,7 @@ mod link_tip_stories;
 pub mod links;
 pub mod markdown;
 pub mod narrow;
+pub(crate) mod path_index;
 mod markdown_stories;
 mod stories;
 pub mod video;
@@ -34,6 +35,7 @@ use data::{
 pub struct SessionFiles {
     pub docs: HashMap<String, CodeDocState>,
     pub known_files: BTreeSet<String>,
+    pub(crate) paths: std::cell::OnceCell<path_index::PathIndex>,
     pub known_dirs: BTreeSet<String>,
     pub expanded_dirs: BTreeSet<String>,
     pub listed_dirs: BTreeSet<String>,
@@ -120,6 +122,7 @@ impl Default for SessionFiles {
         Self {
             docs: HashMap::new(),
             known_files: BTreeSet::new(),
+            paths: Default::default(),
             known_dirs: BTreeSet::new(),
             expanded_dirs: BTreeSet::new(),
             listed_dirs: BTreeSet::new(),
@@ -141,6 +144,9 @@ impl Default for SessionFiles {
 }
 
 impl SessionFiles {
+    pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
+        self.paths.get_or_init(|| path_index::PathIndex::new(self.known_files.iter().cloned())).query(q, limit)
+    }
     pub fn rebuild_tree(&mut self) {
         self.tree = build_workspace_tree(&self.known_files, &self.known_dirs, &self.expanded_dirs);
     }
@@ -217,7 +223,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             if is_dir {
                 ws.known_dirs.insert(path);
             } else {
-                ws.known_files.insert(path);
+                if ws.known_files.insert(path) { ws.paths.take(); }
             }
         }
         ws.ready = true;
@@ -402,6 +408,7 @@ impl App {
                 let wrap = self.files.wrap;
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 ws.known_files = files;
+                ws.paths.take();
                 ws.expanded_dirs.insert("src".into());
                 ws.expanded_dirs.insert("src/net".into());
                 for (path, text) in contents {
@@ -482,7 +489,7 @@ impl App {
                 let (_, contents) = load_fixture_workspace(&self.fixture);
                 let wrap = self.files.wrap;
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
-                ws.known_files.insert(path.to_owned());
+                if ws.known_files.insert(path.to_owned()) { ws.paths.take(); }
                 let mut doc = wrap.doc(path, "");
                 if let Some(txt) = contents.get(path) {
                     doc.set_text(txt);
@@ -607,9 +614,12 @@ impl App {
             return Vec::new();
         };
         let mut pool: Vec<String> = ws.search.found().to_vec();
-        for f in &ws.known_files {
-            if !pool.contains(f) {
-                pool.push(f.clone());
+        let (clean, _) = data::parse_path_and_line(q);
+        let local = ws.local_files(clean.trim(), 100);
+        if pool.is_empty() { return local; }
+        for f in local {
+            if !pool.contains(&f) {
+                pool.push(f);
             }
         }
         rank_file_query(&pool, q)
