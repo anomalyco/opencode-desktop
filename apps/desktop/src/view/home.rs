@@ -54,9 +54,10 @@ impl Tier {
 
 /// `max-w-[1080px]`, and the 280 pt projects column 32 from the sessions (`lg:gap-8`).
 /// Home's labels: Desktop's rows, headings and project list leave letter-spacing normal (13 px at
-/// 440 or 530), where its controls take -0.04 (`UI`).
-const HOME: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0);
-const HOME_MED: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(16.0);
+/// 440 or 530), where its controls take -0.04 (`UI`), on Desktop's 24 px line: a 16 pt line centred
+/// in the row put the text half a device pixel lower at 1.875x, a pixel lower once rounded.
+const HOME: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
+const HOME_MED: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(24.0);
 
 const GRID_MAX: f32 = 1080.0;
 const PROJECTS_W: f32 = 280.0;
@@ -461,10 +462,12 @@ impl Parts {
         // `max-w-[min(70%,480px)] flex-[0_1_auto]` beside the project, else the whole room.
         // Each in its own direction (`view.tsx:908`, `:959`), so a Latin project name runs to the
         // row's far end right to left.
-        let title = text(title_of(ses)).font(HOME_MED).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
+        // Stacked on a narrow window, the two labels take 16 pt lines (`view.css`'s mobile rule).
+        let (title_font, project_font) = if stacked { (HOME_MED.lh(16.0), HOME.lh(16.0)) } else { (HOME_MED, HOME) };
+        let title = text(title_of(ses)).font(title_font).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
         // The room after the title grows; the name keeps to its start, beside the title, whichever way it
         // reads (a left-to-right name in a right-to-left row would otherwise sit at the row's far end).
-        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(HOME).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
+        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(project_font).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
         if stacked && show_project {
             // Official centres its 32 pt labels in the 48 pt row (`items-center`): 8 above them.
             let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().mt(8.0).child(title).children(project_el.clone());
