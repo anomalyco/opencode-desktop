@@ -12,7 +12,7 @@
 //
 // The list (apps/web/warm.txt) holds keys of the functions' names, so it outlives a build; a name the
 // module no longer has is skipped, and a function new to the path compiles on the page as before.
-// operation-detox's harness/web/warm-list.mjs makes it from a `-Names` build: the order from a
+// operation-detox's harness/web/warm-list.mjs makes it from wasm-bindgen's output (names kept): the order from a
 // trace of the page, and without the functions that ran on (or ran long) when called this way.
 //
 // Usage: bun scripts/web-warm.ts <app_bg.wasm> <warm.txt> [--keep-names]
@@ -105,6 +105,7 @@ function resolve() {
   if (functionSection) { p = functionSection.start; for (let n = u32(), i = 0; i < n; i++) funcTypes.push(u32()); }
   const tableSection = find(4);
   if (!tableSection || !find(7) || !find(9)) return skip('no table, export or element section to add to');
+  if (bytes.includes(Buffer.from('\u0006__warm'))) return skip('the module already has its warming table');
   p = tableSection.start;
   tables += u32();
   // The functions' names and the stack pointer's global.
