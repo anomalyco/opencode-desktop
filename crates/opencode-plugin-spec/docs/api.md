@@ -1569,7 +1569,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `fit` | `ImageFit?` | How it fills its box. |
 | `radius` | `number?` | Corner radius. |
 | `placeholder` | `Color?` | The fill under the image: shown while it loads and through its transparent pixels. |
-| `fadeIn` | `boolean?` | Fades in over 150 ms as it lands, at once with reduced motion. Off by default. |
+| `fadeIn` | `boolean?` | Accepted for compatibility. Loaded images appear immediately. |
 | `preview` | `boolean?` | A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it. |
 
 ### UiVideoProps

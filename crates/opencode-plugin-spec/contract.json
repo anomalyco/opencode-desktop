@@ -571,7 +571,7 @@
       { "name": "fit", "type": "ImageFit?", "doc": "How it fills its box." },
       { "name": "radius", "type": "number?", "doc": "Corner radius." },
       { "name": "placeholder", "type": "Color?", "doc": "The fill under the image: shown while it loads and through its transparent pixels." },
-      { "name": "fadeIn", "type": "boolean?", "doc": "Fades in over 150 ms as it lands, at once with reduced motion. Off by default." },
+      { "name": "fadeIn", "type": "boolean?", "doc": "Accepted for compatibility. Loaded images appear immediately." },
       { "name": "preview", "type": "boolean?", "doc": "A press opens it in the app's image viewer, which grows it out of its place, with zoom; Escape flies it back. Give it a `label`: the viewer's name for it." }
     ] },
     { "name": "UiVideoProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.video` props. Give it a size.", "fields": [

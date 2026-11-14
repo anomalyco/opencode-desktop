@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
-use rune::{Beat, Easing, El, Sequence, SurfaceFit, Transition, el};
+use rune::{El, SurfaceFit, Transition, el};
 use rune_luau::NodeArgs;
 
 use super::{app_now, method, record};
@@ -141,9 +141,6 @@ pub fn video_node(a: &mut NodeArgs) -> Result<El, String> {
     Ok(out)
 }
 
-/// A fading picture's `opacity` from 0 to 1 over 150 ms ease-out (`sources.css` `site-icon-image`).
-pub static FADE_IN: [Beat; 2] = [Beat::new(0.0).opacity(0.0), Beat::new(0.15).opacity(1.0).easing(Easing::EASE_OUT)];
-
 /// `ui.image(props, fallback?)`: the image fitted in its box over its placeholder, the fallback
 /// in its place once it failed, and the image viewer on a press with `preview`.
 pub fn node(a: &mut NodeArgs) -> Result<El, String> {
@@ -169,7 +166,6 @@ pub fn node(a: &mut NodeArgs) -> Result<El, String> {
     };
     let radius = a.number("radius").unwrap_or(0.0) as f32;
     let placeholder = a.color("placeholder");
-    let fade = a.flag("fadeIn");
     let label = a.string("label").map(str::to_owned);
     let loaded = matches!(state, Some(Load::Loaded { .. }));
     let mut out = el().role("img");
@@ -183,20 +179,10 @@ pub fn node(a: &mut NodeArgs) -> Result<El, String> {
         out = out.fill(c);
     }
     let image = state.and_then(Load::image);
-    out = if fade || placeholder.is_some() {
-        // Over a placeholder, or fading in: a layer of its own over the box. Fading, it mounts as
-        // the picture shows and plays `opacity: 0` to 1 over 150 ms ease-out from that frame
-        // (`transition: opacity 150ms ease-out`), cached or not: Chromium's `load` event lands
-        // after the `<img>` mounts either way. `animated_changes`: it plays inside a panel whose
-        // contents land at once.
-        match image.filter(|_| loaded || !fade) {
-            Some(image) => {
-                let mut pic = draw(el().key("image").w_full().h_full(), image.pixels());
-                if fade {
-                    pic = pic.animated_changes().transition(Transition::none()).sequence(Sequence::new(&FADE_IN));
-                }
-                out.child(pic)
-            }
+    out = if placeholder.is_some() {
+        // Transparent pixels still show the placeholder underneath. Decode completion is not input.
+        match image {
+            Some(image) => out.child(draw(el().key("image").w_full().h_full().transition(Transition::none()), image.pixels())),
             None => out,
         }
     } else {

@@ -138,7 +138,6 @@ local FAVICON = table.freeze({
     radius = 8,
     fit = "cover" :: ImageFit,
     placeholder = "surface-2" :: Color,
-    fadeIn = true,
     border = "avatar-ring",
     borderWidth = 0.5,
 })

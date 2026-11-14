@@ -183,9 +183,11 @@ impl Wordmark {
                 Effects::default()
             }
             (Scramble::Still, Event::Poll { .. }) => Effects::default(),
-            (Scramble::Pending { .. }, Event::Poll { reduced: true, .. }) => {
+            (_, Event::Poll { reduced: true, .. }) => {
                 self.scramble = Scramble::Still;
-                Effects::default()
+                let drew = self.letters != TARGET;
+                self.letters = TARGET;
+                Effects { drew, wake: None }
             }
             (Scramble::Pending { since }, Event::Poll { now, .. }) => {
                 // Desktop's order: every letter's start, then every letter's settle tick.

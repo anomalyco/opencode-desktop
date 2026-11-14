@@ -249,9 +249,9 @@ impl App {
         if page == Page::Models {
             self.settings_pages.search.focused = true;
         }
-        // About's wordmark scrambles each time the page shows (`AnimatedWordmark`'s `active`).
-        if page == Page::About || self.settings_pages.page == Page::About {
-            self.settings_pages.wordmark.activate(page == Page::About);
+        // Restoring or navigating history paints the spelled wordmark, even mid-scramble.
+        if self.settings_pages.page == Page::About {
+            self.settings_pages.wordmark.activate(false);
         }
         self.settings_pages.page = page;
     }
@@ -260,7 +260,11 @@ impl App {
         tx.instant();
         tx.scroll_to_instant("settings", 0.0, 0.0);
         super::search::leave(self);
+        let about = page == Page::About;
         self.show_settings_page(page);
+        if about {
+            self.settings_pages.wordmark.activate(true);
+        }
     }
 }
 
