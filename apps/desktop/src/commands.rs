@@ -99,13 +99,17 @@ pub struct Command {
     pub section: Option<Section>,
     /// Kept out of the palette; its keys and Settings › Shortcuts still have it.
     pub hidden: bool,
+    /// A plugin's `featured` command: among the palette's opening rows.
+    pub featured: bool,
     pub run: Run,
 }
 
-/// The palette's opening rows over a session, in this order (`palette.ts:57-59`): New session,
-/// Previous and Next session, the featured Toggle terminal (`gui-plugins/src/terminal/renderer.tsx:89`)
-/// and Toggle review. Desktop's `workspace.new` has no command here yet.
-pub const COMMON: [&str; 5] = ["new", "previous-tab", "next-tab", "terminal", "side"];
+/// The palette's opening rows over a session, in this order (`palette.ts:57-60,160-165`): New
+/// session, Previous and Next session, then every `featured` command (the terminal plugin's
+/// Toggle terminal, `gui-plugins/src/terminal/renderer.tsx:89`), then Toggle review. Desktop's
+/// `workspace.new` has no command here yet.
+pub const COMMON: [&str; 3] = ["new", "previous-tab", "next-tab"];
+pub const COMMON_VIEW: [&str; 1] = ["side"];
 
 /// The opening rows on Home (`HomeCommandPalette`: the first five commands Desktop registers
 /// there, `settings/command.tsx` then `shell/titlebar/tab-strip.tsx`).
@@ -141,6 +145,7 @@ impl App {
             chord: None,
             section: c.section,
             hidden: c.hidden,
+            featured: false,
             run: Run::Fn(c.run),
         });
         own.chain(crate::plugin_host::commands(self, offered)).collect()

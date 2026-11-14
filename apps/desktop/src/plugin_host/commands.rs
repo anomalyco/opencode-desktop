@@ -30,6 +30,8 @@ pub struct Cmd {
     pub keybind: Option<Keybind>,
     pub section: Option<Section>,
     pub hidden: bool,
+    /// Among the palette's opening rows (`featured`, `palette.ts:160-165`).
+    pub featured: bool,
     pub editable: bool,
     pub needs_session: bool,
     pub enabled: bool,
@@ -53,6 +55,7 @@ pub fn all(app: &App) -> Vec<Cmd> {
             keybind: s.bind.as_deref().and_then(|b| b.parse::<Keybind>().ok()).filter(|k| !k.chords().is_empty()),
             section: s.section.map(section),
             hidden: flag(app, i, key, "hidden", hidden.as_ref(), s.hidden, false),
+            featured: s.featured == Some(true),
             editable: s.editable == Some(true),
             needs_session: s.requires_session == Some(true),
             enabled: flag(app, i, key, "enabled", enabled.as_ref(), s.enabled, true),
@@ -402,6 +405,7 @@ pub fn commands(app: &App, only_offered: bool) -> Vec<crate::commands::Command> 
             chord: c.keybind.as_ref().and_then(|k| k.chords().first().copied()),
             section: c.section,
             hidden: c.hidden,
+            featured: c.featured,
             run: crate::commands::Run::Plugin(c.id),
         })
         .collect()

@@ -414,8 +414,12 @@ impl App {
         }
         if q.is_empty() {
             // `preferredCommandEntries` over a session; Home's first five (`HomeCommandPalette`).
-            let ids: &[&str] = if self.route == Route::Home { &crate::commands::HOME_COMMON } else { &crate::commands::COMMON };
-            let common: Vec<Entry> = ids.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command).collect();
+            let common: Vec<Entry> = if self.route == Route::Home {
+                crate::commands::HOME_COMMON.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).map(command).collect()
+            } else {
+                let pick = |ids: &[&str]| ids.iter().filter_map(|id| all.iter().find(|c| c.id == *id)).collect::<Vec<_>>();
+                pick(&crate::commands::COMMON).into_iter().chain(all.iter().filter(|c| c.featured)).chain(pick(&crate::commands::COMMON_VIEW)).map(command).collect()
+            };
             return common.into_iter().chain(self.switcher_recent_files()).chain(sessions.into_iter().take(RECENT)).collect();
         }
         let found: Vec<Entry> = all

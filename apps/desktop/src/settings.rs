@@ -375,6 +375,11 @@ impl App {
         if ev.key == Key::Escape {
             tx.instant();
             self.close_settings();
+            // Desktop leaves nothing focused once Escape leaves Settings for Home (`esc-settings`),
+            // where the removed rail's focus would otherwise fall to the titlebar's New session.
+            if *self.route == crate::Route::Home {
+                tx.blur();
+            }
             return true;
         }
         false

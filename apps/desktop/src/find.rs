@@ -318,6 +318,8 @@ impl App {
                 Effect::BlurInput => {
                     self.find.input.focused = false;
                     self.find.input.cancel_composition();
+                    // The bar's field leaves the tree: nothing takes its focus, not the next control.
+                    tx.blur();
                 }
                 Effect::Reveal => self.seek_active(tx),
             }
