@@ -3,6 +3,8 @@
 //! sessions, then a divider and the side tabs. The projects are one server's, the one the current
 //! tab is on (else Home's), which the window works against (`servers::runtime`); the tabs are
 //! every server's.
+use std::rc::Rc;
+
 use rune_kit::ScrollBar;
 use rune_kit::shell::TabOrientation;
 
@@ -28,7 +30,7 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     let st = &s.project_state;
     let mut section = col().key("organize-projects").w_full().gap(8.0).child(header(p, st.organize_collapsed));
     if !st.organize_collapsed {
-        section = section.child(col().key("organize-project-list").w_full().gap(4.0).children(projects(s, p)));
+        section = section.child(projects(s, p));
     }
     // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
     // `ScrollView`, `sidebar-organized.tsx:118-158`).
@@ -81,20 +83,43 @@ fn header(p: &Pal, collapsed: bool) -> El {
 }
 
 /// The used projects in the list's order (the first seven, or all after Show more), each with its
-/// sessions while open.
-fn projects(s: &App, p: &Pal) -> Vec<El> {
+/// sessions while open. Only the blocks in sight are built (a virtual list): Show more over
+/// hundreds of projects builds a screenful.
+fn projects(s: &App, p: &Pal) -> El {
     let st = &s.project_state;
     let used = s.organized_projects();
     let shown = if st.organize_all { used.len() } else { used.len().min(PROJECTS) };
-    let mut rows: Vec<El> = used[..shown].iter().enumerate().map(|(i, proj)| project(s, p, proj, i)).collect();
-    if used.len() > PROJECTS {
-        let label = if st.organize_all { t!("sidebar.organize.showLess") } else { t!("sidebar.organize.showMore") };
-        rows.push(small_button(p, "organize-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            s.project_state.organize_all = !s.project_state.organize_all;
-        }));
-    }
-    rows
+    let more = used.len() > PROJECTS;
+    let ids: Rc<Vec<String>> = Rc::new(used[..shown].iter().map(|proj| proj.id.clone()).collect());
+    let n = ids.len() + usize::from(more);
+    let version = (ids.clone(), more);
+    let (keys, built, pal) = (ids.clone(), ids, *p);
+    col()
+        .key("organize-project-list")
+        .w_full()
+        .gap(4.0)
+        .growth(rune::GrowthSpec::default())
+        .virtual_rows(
+            n,
+            // A shut project's row.
+            28.0,
+            // The rows' keys are their blocks' own (a row takes its key), so paths stay as they were.
+            move |_: &App, i| keys.get(i).map_or_else(|| "organize-more".to_owned(), |id| format!("so-{id}")).into(),
+            move |s: &App, i| match built.get(i) {
+                Some(id) => match s.projects.iter().find(|proj| proj.id == *id) {
+                    Some(proj) => project(s, &pal, proj, i),
+                    None => el().key(format!("so-{id}")).h(28.0),
+                },
+                None => {
+                    let label = if s.project_state.organize_all { t!("sidebar.organize.showLess") } else { t!("sidebar.organize.showMore") };
+                    small_button(&pal, "organize-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
+                        tx.instant();
+                        s.project_state.organize_all = !s.project_state.organize_all;
+                    })
+                }
+            },
+        )
+        .virtual_rows_version(version)
 }
 
 /// A project's row (`ProjectRow`): its icon and name toggle its sessions, or drag the project and
