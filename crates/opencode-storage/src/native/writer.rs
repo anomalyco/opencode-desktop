@@ -123,6 +123,7 @@ pub(crate) struct Writer {
     /// Rows written since the last flush, for its report.
     written: usize,
     reservation: Reservation,
+    origin: super::search::Origin,
 }
 
 /// What the open wrote before the first frame without a sync (the draft journal's reservation,
@@ -155,14 +156,16 @@ fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut Writ
 
 impl Writer {
     /// `wal_dirty`: the WAL holds frames to checkpoint; `boot_stale`: the boot record is behind
-    /// the tables (the open reserved the draft journal, whose place the record names).
-    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, boot_stale: bool) -> Writer {
+    /// the tables (the open reserved the draft journal, whose place the record names); `created`:
+    /// this open made the file, so schema 2 is its own (`search::Origin`).
+    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, boot_stale: bool, created: bool) -> Writer {
         let mut seq = Seq::default();
         let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale } } else { WalState::Clean };
         Writer {
             conn,
             cache,
             reservation: if boot_stale { Reservation::Unsynced } else { Reservation::Durable },
+            origin: if created { super::search::Origin::Made } else { super::search::Origin::Found },
             search: super::search::State::BeforeFrame,
             clock,
             seq,
@@ -722,7 +725,7 @@ impl Writer {
         let now = (self.clock)();
         if matches!(self.search, super::search::State::BeforeFrame) {
             self.conn.execute_batch(UNSYNCED).ok();
-            let initialized = super::search::initialize(&mut self.conn, now);
+            let initialized = super::search::initialize(&mut self.conn, now, self.origin);
             self.conn.execute_batch(SYNCED).ok();
             self.bound_unsynced();
             self.search = match initialized {

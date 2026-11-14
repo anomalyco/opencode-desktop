@@ -120,7 +120,9 @@ pub struct Opening {
 
 impl Opening {
     pub(super) fn start(config: StorageConfig) -> Opening {
-        journal::pending();
+        if journal::SUPPORTED {
+            journal::pending();
+        }
         let (tx, boot) = mpsc::channel();
         let (go, gate) = match config.after_claim {
             true => {
@@ -268,7 +270,8 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     // SQLite in the way (another process may hold its lock). A place that doesn't hold it any
     // more: the packet goes as it is, and stage B reserves the journal again.
     if let Some(mut p) = owe.packet.take() {
-        if p.source == BootSource::Raw
+        if journal::SUPPORTED
+            && p.source == BootSource::Raw
             && let Some(loc) = owe.hint.take()
             && attach_journal(&config, &mut report, &mut owe, &loc, false)
         {
@@ -342,7 +345,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
             // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.reserved);
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.reserved, report.created);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {
@@ -511,7 +514,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
     }
     // The draft journal exists before the windows get their packet (so before any key), and in a
     // new file before any other table, so its first page is inside the boot read's first 128 KiB.
-    if owe.want_journal && !journal::attached() {
+    if owe.want_journal && journal::SUPPORTED && !journal::attached() {
         // The WAL holds frames here: the file alone may be behind, so SQLite confirms the row.
         let hinted = owe.hint.take().is_some_and(|loc| journal::row_ok(&conn, &loc) && attach_journal(config, report, owe, &loc, false));
         let existing = if hinted { None } else { journal::location(&conn)? };

@@ -18,14 +18,22 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use super::schema::{self, FLAG_BITS, FLAG_MASK};
 
+/// Whose the file is, for schema 2: made by this open, or found (an existing profile, which is
+/// this build's when it has its journal).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    Made,
+    Found,
+}
+
 /// Registers the tokenizer and brings the file to schema 2; false when it stays at 1 (a profile
 /// from before the journal, the switch off: `schema::upgrade_existing`).
-pub(crate) fn initialize(c: &mut Connection, now: i64) -> rusqlite::Result<bool> {
+pub(crate) fn initialize(c: &mut Connection, now: i64, origin: Origin) -> rusqlite::Result<bool> {
     tokenizer::register(c)?;
     let version = schema::user_version(c)?;
     if version >> FLAG_BITS == schema::SCHEMA_VERSION { return Ok(true) }
     if version >> FLAG_BITS != schema::BASE_SCHEMA { return Err(rusqlite::Error::InvalidQuery) }
-    if super::journal::location(c)?.is_none() && !schema::upgrade_existing() { return Ok(false) }
+    if origin == Origin::Found && super::journal::location(c)?.is_none() && !schema::upgrade_existing() { return Ok(false) }
     let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Schema 2's tables at version 1: an older build opened the file since and set its version
     // back. Its writes aren't indexed, so the derived tables go and are made again.
