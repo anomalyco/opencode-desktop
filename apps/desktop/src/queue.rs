@@ -205,13 +205,15 @@ impl App {
     }
 
     /// `session.inbox.*` in the server's copy (`App::apply_shared`): a delivered prompt joins
-    /// the end of the transcript, where the server puts it. What a listing dropped goes with the
-    /// event, so each window keeps the steers it sent that the server hasn't confirmed.
-    pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> crate::events::InboxDone {
+    /// the end of the transcript, where the server puts it.
+    pub fn apply_inbox(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
         let inbox = self.inboxes.entry(sid.to_owned()).or_default();
-        let old = if ty == "session.inbox.listed" { inbox.items.clone() } else { vec![] };
         let change = inbox.apply(ty, data);
-        let dropped = old.into_iter().filter(|o| !inbox.items.iter().any(|i| i.id == o.id)).collect();
+        self.finish_inbox(sid, change)
+    }
+
+    fn finish_inbox(&mut self, sid: &str, change: InboxChange) -> bool {
+        let inbox = self.inboxes.get_mut(sid).unwrap();
         // The server admits every prompt to its inbox, a send to an idle session too. That one
         // already shows as its prompt, which is where it stays, so it never waits as a steer.
         if let Some(t) = self.transcripts.get(sid) {
@@ -228,7 +230,7 @@ impl App {
                 t.messages.push(Message::Notice(n));
             }
         }
-        let changed = match change {
+        match change {
             InboxChange::None => notices,
             InboxChange::Changed => true,
             InboxChange::Delivered(item) => {
@@ -242,34 +244,35 @@ impl App {
                 }
                 true
             }
-        };
-        crate::events::InboxDone { changed, dropped }
+        }
     }
 
-    /// After `apply_inbox`, in each window: its own sends the event admits or delivers, and its
-    /// unconfirmed steers a listing dropped, which come back.
-    pub fn inbox_landed(&mut self, ty: &str, data: &serde_json::Value, sid: &str, done: &crate::events::InboxDone) -> bool {
+    /// After `apply_inbox`, in each window: its own sends the event admits or delivers.
+    pub fn inbox_landed(&mut self, ty: &str, data: &serde_json::Value, sid: &str) -> bool {
         let id = data["inboxID"].as_str().unwrap_or("");
-        let mut admitted = match ty {
+        let admitted = match ty {
             "session.inbox.enqueued" => self.admitted_send(id),
             "session.inbox.delivered" => self.accept_send(id),
             _ => false,
         };
-        if ty == "session.inbox.listed" {
-            let inbox = self.inboxes.entry(sid.to_owned()).or_default();
-            let before = inbox.items.len();
-            self.unsent.preserve_inbox(sid, inbox, done.dropped.clone());
-            if let Some(t) = self.transcripts.get(sid) {
-                inbox.items.retain(|i| !t.messages.iter().any(|m| m.id() == i.id));
-            }
-            if inbox.items.len() != before {
-                crate::windows::peer::touch(self);
-                admitted = true;
-            }
-            let ids: Vec<String> = data["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
-            admitted |= self.judge_sends_by_inbox(sid, &ids);
-            self.check_sends();
-        }
+        self.sync_queue(sid);
+        admitted
+    }
+
+    pub fn inbox_listed(&mut self, sid: &str, rows: &[serde_json::Value]) {
+        let inbox = self.inboxes.entry(sid.to_owned()).or_default();
+        let previous = std::mem::take(&mut inbox.items);
+        inbox.replace(rows);
+        let dropped = previous.into_iter().filter(|o| !inbox.items.iter().any(|i| i.id == o.id)).collect();
+        self.unsent.preserve_inbox(sid, inbox, dropped);
+        self.finish_inbox(sid, InboxChange::Changed);
+        let ids: Vec<_> = rows.iter().filter_map(|i| i["id"].as_str().map(str::to_owned)).collect();
+        self.judge_sends_by_inbox(sid, &ids);
+        self.check_sends();
+        self.sync_queue(sid);
+    }
+
+    fn sync_queue(&mut self, sid: &str) {
         // The queue hears the server's queued prompts whenever they change (`inbox.synced`).
         if let Some(queue) = self.queue_ops.get(sid) {
             let ids = self.inboxes.get(sid).map(|i| i.queued().map(|i| i.id.clone()).collect()).unwrap_or_default();
@@ -277,7 +280,6 @@ impl App {
             self.step_queue(sid, Event::Synced { ids, delivered });
         }
         crate::rewind::inbox_changed(self, sid);
-        admitted || done.changed
     }
 
     /// A fetched page that already has a prompt means its delivery event was missed.

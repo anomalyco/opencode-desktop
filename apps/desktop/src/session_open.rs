@@ -100,6 +100,7 @@ impl App {
     /// (what's running, the session list and projects, pending requests), like the first load,
     /// once for all its windows (`App::apply_shared`).
     pub(crate) fn resync_shared(&mut self) {
+        self.refresh_recent();
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
         let _ = r.send(Request::Active);
         let _ = r.send(Request::Sessions);

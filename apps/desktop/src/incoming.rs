@@ -39,6 +39,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
             crate::events::Heard::Message(m) => message(s, m.clone(), tx),
         };
     }
+    s.poll_recent_reload(tx);
     changed
 }
 
@@ -101,21 +102,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         reconnect::heard(s);
     }
     match m {
-        Incoming::Sessions(mut list) => {
+        Incoming::Sessions(list) => {
             s.session_search.invalidate();
-            for n in &mut list {
-                if let Some(old) = s.session(&n.id) {
-                    n.viewed = n.viewed.max(old.viewed);
-                }
-            }
-            // Sessions past the page (a tab's, a subagent's parent) stay known.
-            let rest: Vec<SessionInfo> = s.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
-            list.extend(rest);
-            *s.sessions = list;
-            s.sidebar_inbox.heard_sessions();
+            s.sessions_listed(list);
             s.sort_projects();
             crate::rewind::read_sessions(s);
-            s.note_tab_titles();
         }
         Incoming::Info(mut info) => {
             s.session_search.invalidate();
@@ -158,13 +149,21 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
                 session_view::jump::settle(s, tx);
             }
         }
-        // A write's answer that comes as an event (an interrupt's acknowledgement).
+        Incoming::LookupMissing(_) | Incoming::Config { .. } => return false,
+        Incoming::Inbox { session, items } => s.inbox_listed(&session, &items),
+        Incoming::Worktrees { project, directories } => s.worktrees_listed(project, directories),
+        Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
+        Incoming::InterruptAcknowledged { session, interrupted } => {
+            if !interrupted { stop::confirmed(s, &session); }
+        }
+        Incoming::WorktreeCreated { project } => s.worktree_updated(&project),
+        Incoming::RequestReplied(id) => s.reply_answered(&id, Ok(())),
+        Incoming::PromptAccepted { id, .. } => {
+            let admitted = s.admitted_send(&id);
+            s.pump_outbox();
+            return admitted;
+        }
         Incoming::Event { ty, data } => {
-            if ty == "client.prompt.accepted" {
-                let admitted = s.admitted_send(data["id"].as_str().unwrap_or(""));
-                s.pump_outbox();
-                return admitted;
-            }
             if crate::motion_log::wanted() { s.motion_events.note(&ty); }
             return s.apply_event(&ty, &data);
         }

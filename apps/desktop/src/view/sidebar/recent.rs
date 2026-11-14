@@ -27,9 +27,9 @@ fn partition(s: &App) -> (Vec<&SessionInfo>, Vec<&SessionInfo>, bool) {
     let st = &s.project_state.recent;
     let pinned: Vec<&SessionInfo> = st.pins.iter().filter_map(|k| super::state::split(k)).filter(|(server, _)| *server == here.as_str()).filter_map(|(_, id)| s.session(id)).filter(|i| i.archived.is_none()).collect();
     let mut recent: Vec<&SessionInfo> = s.sessions.iter().filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && !pinned.iter().any(|p| p.id == i.id)).collect();
-    recent.sort_by(|a, b| b.active_ms().cmp(&a.active_ms()).then_with(|| a.id.cmp(&b.id)));
+    recent.sort_by_key(|sesh| (std::cmp::Reverse(s.recent_page.time(sesh)), &sesh.id));
     let cutoff = *s.now_ms - WINDOW_MS;
-    let in_window = recent.iter().position(|i| i.active_ms() < cutoff).unwrap_or(recent.len());
+    let in_window = recent.iter().position(|i| s.recent_page.time(i) < cutoff).unwrap_or(recent.len());
     let limit = in_window.min(VISIBLE) + st.revealed;
     let more = recent.len() > limit;
     recent.truncate(limit);

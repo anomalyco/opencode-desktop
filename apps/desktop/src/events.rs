@@ -57,25 +57,15 @@ impl StreamEvent {
 pub struct Done {
     /// Running sessions, idle and busy marks, requests (`apply_status`).
     pub status: bool,
-    pub inbox: InboxDone,
+    pub inbox: bool,
     /// A revert's mark moved.
     pub revert: bool,
     /// The session's agent or model, archive or metadata.
     pub info: bool,
     /// The session's transcript.
     pub transcript: bool,
-    /// The session's recency, or its title.
-    pub touched: bool,
     pub renamed: bool,
     pub project: bool,
-}
-
-/// What a `session.inbox.*` event changed.
-#[derive(Default)]
-pub struct InboxDone {
-    pub changed: bool,
-    /// Items a listing dropped, which windows that sent them and wait to hear bring back.
-    pub dropped: Vec<opencode_kit::model::InboxItem>,
 }
 
 impl App {
@@ -94,7 +84,7 @@ impl App {
         }
     }
 
-    /// An event this window alone hears (a fixture's, a write's answer): both steps here.
+    /// An event this window alone hears (e.g. fixture playback): both steps here.
     pub(crate) fn apply_event(&mut self, ty: &str, data: &Value) -> bool {
         let Heard::Event(e) = self.apply_shared(Incoming::Event { ty: ty.to_owned(), data: data.clone() }) else { return false };
         self.react(&e)
@@ -129,27 +119,22 @@ impl App {
                 None => t.apply(ty, data, now),
             };
         }
-        if ty.starts_with("session.") && !sid.is_empty() {
-            if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                // A read's reply (opening a session lists its inbox) isn't activity: bumping it
-                // would move the row a press opened to the top of the lists sorted by it.
-                let read = matches!(ty, "session.inbox.listed" | "session.lookup.missing");
-                if !read && (s.updated < now - 1000 || ty == "session.step.ended") {
-                    s.updated = now;
-                    done.touched = true;
-                }
-                if ty == "session.renamed"
-                    && let Some(t) = data["title"].as_str()
-                {
-                    s.title = t.to_owned();
-                    done.renamed = true;
-                }
-            } else if (ty == "session.created" || ty == "session.step.started")
-                && let Source::Live { requests: Some(r), .. } = &*self.source
-            {
-                // A session we haven't listed: refresh the list (one GET).
-                let _ = r.send(Request::Sessions);
+        if ty == "session.renamed" && let Some(title) = data["title"].as_str()
+            && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            session.title = title.to_owned();
+            done.renamed = true;
+        }
+        if ty == "session.updated" {
+            let info = data.get("info").unwrap_or(data);
+            let id = info["id"].as_str().unwrap_or(&sid);
+            if let Some(updated) = info["time"]["updated"].as_i64()
+                && let Some(session) = self.sessions.iter_mut().find(|s| s.id == id) {
+                session.updated = updated;
+                done.info = true;
             }
+        }
+        if crate::recent_page::reloads_on(self, ty, data, &sid) {
+            self.schedule_recent_reload();
         }
         if ty == "project.updated"
             && let Some(updated) = opencode_kit::model::parse_project(data)
@@ -168,22 +153,14 @@ impl App {
     fn apply_status(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
-            "session.interrupt.acknowledged" => {
-                // An idle/already-stopping execution has no new end event to send us.
-                if data["interrupted"] == false {
-                    crate::stop::confirmed(self, sid);
-                }
-                true
-            }
             "session.execution.started" => {
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);
                 }
                 self.stops.forget(sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
-                let now = *self.now_ms;
-                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                    s.busy = Some(now);
+                if let Some(at) = data["eventCreated"].as_i64() && let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.busy = Some(at);
                 }
                 self.running.insert(sid.to_owned())
             }
@@ -193,9 +170,8 @@ impl App {
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }
-                let now = *self.now_ms;
-                if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
-                    s.idle = Some(now);
+                if let Some(at) = data["eventCreated"].as_i64() && let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.idle = Some(at);
                 }
                 // The server's own idle mark, like Desktop's re-read after a run ends.
                 if let Source::Live { requests: Some(r), .. } = &*self.source {
@@ -268,7 +244,6 @@ impl App {
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
         changed |= done.status | self.status_landed(ty, data, &sid);
-        changed |= crate::permission::event(self, ty, data);
         changed |= self.note_review_event(ty);
         if ty.starts_with("pty.") || ty.starts_with("persistent-pty.") {
             changed |= self.apply_pty_event(ty, data);
@@ -277,7 +252,7 @@ impl App {
         crate::sounds::event(self, e, &sid);
         crate::speech::event(self, ty, data, &sid);
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
-            changed |= self.inbox_landed(ty, data, &sid, &done.inbox);
+            changed |= done.inbox | self.inbox_landed(ty, data, &sid);
             crate::background::admitted(self, ty, data, &sid);
         }
         if ty.starts_with("shell.") {
@@ -285,9 +260,6 @@ impl App {
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= done.revert | self.revert_landed(ty, data, &sid);
-        }
-        if ty == "session.lookup.missing" {
-            self.session_refs.missing(data);
         }
         if matches!(ty, "session.agent.selected" | "session.model.selected") {
             self.selected_landed(&sid);
@@ -301,25 +273,15 @@ impl App {
         // updates its state without rebuilding the view.
         changed |= done.transcript && self.shows_transcript(&sid);
         if ty.starts_with("session.") && !sid.is_empty() {
-            // A plain session page with side/top tabs shows neither the age nor the
-            // recency order of unrelated sessions. Still keep their metadata current.
-            let shows_age = !matches!(*self.route, Route::Session { .. }) || self.shows_transcript(&sid)
-                || self.tab_layout() == crate::layout_state::TabLayout::Inbox || self.switcher.open
-                || self.suggest.state.context().is_some() || self.side_open() || self.settings.open;
-            if done.touched || done.renamed {
-                self.session_search.invalidate();
-            }
-            changed |= (done.touched && shows_age) || done.renamed;
             // A step started in the open session may follow a prompt we haven't seen.
             if ty == "session.step.started" && self.route == Route::here(sid.clone()) {
                 self.reload_session(&sid);
             }
         }
-        if (ty.starts_with("worktree.") || ty == "vcs.branch.listed") && self.apply_worktree_event(ty, data) {
-            self.session_search.invalidate();
-            changed = true;
+        if ty == "worktree.updated" && let Some(project) = data["projectID"].as_str() {
+            self.worktree_updated(project);
         }
-        if done.project {
+        if done.project || done.renamed || (ty == "session.updated" && done.info) {
             self.session_search.invalidate();
             changed = true;
         }
@@ -383,10 +345,10 @@ impl App {
 impl App {
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
-        let now = *self.now_ms;
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
-            "session.archived" | "session.unarchived" => i.archived = (ty == "session.archived").then_some(now),
+            "session.archived" => i.archived = data["eventCreated"].as_i64(),
+            "session.unarchived" => i.archived = None,
             "session.metadata.updated" => i.metadata = data["metadata"].clone(),
             _ => return false,
         }

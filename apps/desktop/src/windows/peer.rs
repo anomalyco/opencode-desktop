@@ -36,6 +36,8 @@ use crate::{App, Source};
 /// One server's session data.
 #[derive(Default)]
 pub struct ServerData {
+    recent_page: crate::recent_page::Page,
+    recent_reload: crate::recent_page::Reload,
     projects: Vec<Project>,
     sessions: Vec<SessionInfo>,
     transcripts: HashMap<String, Transcript>,
@@ -51,6 +53,8 @@ pub struct ServerData {
 impl ServerData {
     /// Trades places with the window's fields: no copies, no allocations.
     fn swap(&mut self, s: &mut App) {
+        std::mem::swap(&mut self.recent_page, &mut s.recent_page);
+        std::mem::swap(&mut self.recent_reload, &mut s.recent_reload);
         std::mem::swap(&mut self.projects, &mut s.projects);
         std::mem::swap(&mut self.sessions, &mut s.sessions);
         std::mem::swap(&mut self.transcripts, &mut s.transcripts);
@@ -72,6 +76,7 @@ impl ServerData {
     /// A window joins with what it read: what this copy lacks goes in (sessions and transcripts
     /// no other window loaded, its projects while none are listed).
     fn absorb(&mut self, mut from: ServerData) {
+        if self.sessions.is_empty() { self.recent_page = from.recent_page; }
         if self.projects.is_empty() {
             self.projects = from.projects;
         }
@@ -284,6 +289,7 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
 /// What a window has read of its server and can show without it: its projects, sessions and
 /// loaded transcripts, copied out of the copy.
 pub struct Reading {
+    recent_page: crate::recent_page::Page,
     projects: Vec<Project>,
     sessions: Vec<SessionInfo>,
     transcripts: HashMap<String, Transcript>,
@@ -292,7 +298,7 @@ pub struct Reading {
 /// The window's reading of its server, before its half is replaced (the server signed us out,
 /// moved, or signed back in): what it read stays on screen instead of going with the copy.
 pub fn reading(s: &App) -> Reading {
-    Reading { projects: (*s.projects).clone(), sessions: (*s.sessions).clone(), transcripts: (*s.transcripts).clone() }
+    Reading { recent_page: (*s.recent_page).clone(), projects: (*s.projects).clone(), sessions: (*s.sessions).clone(), transcripts: (*s.transcripts).clone() }
 }
 
 /// Puts `reading` into a fresh half's empty fields.
@@ -301,6 +307,7 @@ pub fn keep_reading(s: &mut App, reading: Reading) {
         *s.projects = reading.projects;
     }
     if s.sessions.is_empty() {
+        *s.recent_page = reading.recent_page;
         *s.sessions = reading.sessions;
     }
     for (id, t) in reading.transcripts {

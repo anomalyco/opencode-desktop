@@ -192,6 +192,7 @@ mod quote_stories;
 mod quote_card_stories;
 mod raster_probe_stories;
 mod recently_closed;
+mod recent_page;
 mod restore;
 mod review;
 mod route;
@@ -317,6 +318,8 @@ pub struct App {
     /// holds in turn (`windows::peer`).
     pub projects: rune::Tracked<Vec<Project>>,
     pub sessions: rune::Tracked<Vec<SessionInfo>>,
+    pub recent_page: rune::Tracked<recent_page::Page>,
+    pub recent_reload: recent_page::Reload,
     catalog: session_catalog::Catalog,
     session_search: switcher::search_index::SessionSearch,
     pub route: rune::Tracked<Route>,
@@ -1325,7 +1328,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= incoming::poll(s, tx);
     if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
         while s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {
-            let (_, ty, mut data) = s.playback.pop_front().unwrap();
+            let (at, ty, mut data) = s.playback.pop_front().unwrap();
+            if ty.starts_with("session.execution.") || ty == "session.archived" {
+                data["eventCreated"] = (*s.base_ms + (at * 1000.0) as i64).into();
+            }
             // A scripted delivery names the oldest prompt of its kind, which has no id until sent.
             if let Some(kind) = Delivery::parse(&data["next"])
                 && let Some(item) = s.inboxes.get(data["sessionID"].as_str().unwrap_or("")).and_then(|i| i.items.iter().find(|i| i.delivery == kind))
@@ -1551,6 +1557,7 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
 /// A window shown or hidden: hidden, what it changed lands at once, without waiting for it
 /// (Desktop flushes its stores on `visibilitychange` to hidden, `renderer/platform/storage.ts`).
 fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
+    if shown { s.reload_recent_on_focus(); }
     status_toast::visibility(s, shown, tx);
     egg::visibility(s, shown, tx);
     if !shown && s.persists() {

@@ -124,7 +124,7 @@ impl App {
                 crate::servers::runtime::with_server(app, &key, |app| {
                     app.queue_runs.0.remove(&(session.clone(), attempt.0));
                     if let Some(items) = listed {
-                        app.apply_event("session.inbox.listed", &serde_json::json!({ "sessionID": session, "items": items }));
+                        app.inbox_listed(&session, &items);
                     }
                     let now = *app.clock;
                     app.step_queue(&session, if ok { Event::Succeeded { attempt, now: now } } else { Event::Failed { attempt, hidden, why, now: now } });

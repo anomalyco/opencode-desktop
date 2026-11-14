@@ -772,19 +772,8 @@ impl App {
             *self.projects = opencode_kit::model::parse_projects(&f.projects);
         }
         if let Some(sessions) = &f.sessions {
-            // Sessions past the page (another window's tab, a subagent's parent) stay known,
-            // and a session read since keeps what it was marked read up to.
-            let mut list = opencode_kit::model::parse_sessions(sessions);
-            for n in &mut list {
-                if let Some(old) = self.sessions.iter().find(|o| o.id == n.id) {
-                    n.viewed = n.viewed.max(old.viewed);
-                }
-            }
-            let rest: Vec<_> = self.sessions.drain(..).filter(|o| !list.iter().any(|n| n.id == o.id)).collect();
-            list.extend(rest);
-            *self.sessions = list;
-            self.sidebar_inbox.heard_sessions();
-            self.note_tab_titles();
+            self.refresh_recent();
+            self.sessions_listed(opencode_kit::model::parse_sessions(sessions));
         }
         crate::connect::picker_reads::first(self, [f.providers, f.config, f.models, f.agents]);
         if let Some(a) = f.active.as_ref().filter(|_| !joined) {
@@ -880,7 +869,7 @@ fn connect(s: &mut App, tx: &mut Tx) {
     {
         let id = id.clone();
         let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
-        s.apply_inbox("session.inbox.listed", &serde_json::json!({ "sessionID": id, "items": items }), &id);
+        s.inbox_listed(&id, &items);
         if let Some(dir) = s.session(&id).map(|i| i.directory.clone()) {
             crate::subagents::shells::list(s, &dir);
         }

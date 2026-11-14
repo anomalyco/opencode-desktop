@@ -162,10 +162,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::CancelForm { session, form } => server.cancel_form(&session, &form),
                         Write::Interrupt(session) => server.stop(&session).map(|interrupted| {
                             if let Some(interrupted) = interrupted {
-                                let _ = inbox_tx.send(Incoming::Event {
-                                    ty: "session.interrupt.acknowledged".into(),
-                                    data: serde_json::json!({ "sessionID": session, "interrupted": interrupted }),
-                                });
+                                let _ = inbox_tx.send(Incoming::InterruptAcknowledged { session, interrupted });
                             }
                         }),
                         Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
@@ -199,7 +196,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }),
                         Write::StartInNewWorktree { session, project, from, branch, prompt } => {
                             let made = || {
-                                let _ = inbox_tx.send(Incoming::Event { ty: "worktree.updated".into(), data: serde_json::json!({ "projectID": project }) });
+                                let _ = inbox_tx.send(Incoming::WorktreeCreated { project: project.clone() });
                             };
                             server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
                                 let _ = inbox_tx.send(Incoming::Created(info));
@@ -244,10 +241,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         return ControlFlow::Continue(());
                     }
                     if result.is_ok() && let Some(id) = &request_id {
-                        let _ = inbox_tx.send(Incoming::Event { ty: "client.request.replied".into(), data: serde_json::json!({ "requestID": id }) });
+                        let _ = inbox_tx.send(Incoming::RequestReplied(id.clone()));
                     }
                     if result.is_ok() && let Some((session,id)) = &prompt_id {
-                        let _ = inbox_tx.send(Incoming::Event { ty: "client.prompt.accepted".into(), data: serde_json::json!({"sessionID":session,"id":id}) });
+                        let _ = inbox_tx.send(Incoming::PromptAccepted { session: session.clone(), id: id.clone() });
                     }
                     if let Some(mut data) = session_write {
                         data["ok"] = serde_json::json!(result.is_ok());
@@ -309,7 +306,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         // A miss (deleted, another server's) says so quietly, not as a status.
                         Request::Lookup(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
-                            Err(_) => send(Incoming::Event { ty: "session.lookup.missing".into(), data: serde_json::json!({ "sessionID": id }) }),
+                            Err(_) => send(Incoming::LookupMissing(id)),
                         },
                         Request::Active => match server.get("/api/session/active") {
                             Ok(v) => {
@@ -323,27 +320,18 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             // A server without it leaves compactions loud, as Desktop does.
                             let v = server.get(&format!("/api/config?location%5Bdirectory%5D={}", encode_component(&dir)));
                             let on = v.is_ok_and(|v| model::background_compaction(&v));
-                            send(Incoming::Event { ty: "config.listed".into(), data: serde_json::json!({ "directory": dir, "backgroundCompaction": on }) })
+                            send(Incoming::Config { directory: dir, background_compaction: on })
                         }
                         Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {
-                            Ok(v) => send(Incoming::Event {
-                                ty: "worktree.listed".into(),
-                                data: serde_json::json!({ "projectID": project, "directories": model::parse_worktrees(&v, &root) }),
-                            }),
+                            Ok(v) => send(Incoming::Worktrees { project, directories: model::parse_worktrees(&v, &root) }),
                             Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Branches { directory, search } => {
-                            let data = match server.branches(&directory, &search) {
-                                Ok(branches) => serde_json::json!({ "directory": directory, "search": search, "branches": branches }),
-                                Err(_) => serde_json::json!({ "directory": directory, "search": search, "failed": true }),
-                            };
-                            send(Incoming::Event { ty: "vcs.branch.listed".into(), data })
+                            let result = server.branches(&directory, &search);
+                            send(Incoming::Branches { directory, search, result })
                         }
                         Request::Inbox(id) => match server.read(&format!("/api/session/{id}/inbox")) {
-                            Ok(v) => send(Incoming::Event {
-                                ty: "session.inbox.listed".into(),
-                                data: serde_json::json!({ "sessionID": id, "items": list(&v) }),
-                            }),
+                            Ok(v) => send(Incoming::Inbox { session: id, items: list(&v) }),
                             Err(e) => send(Incoming::Failed(e)),
                         },
                         // As Desktop's family sync, a failed read leaves the family as it was.
