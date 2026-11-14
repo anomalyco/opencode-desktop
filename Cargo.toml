@@ -66,6 +66,9 @@ winit = { git = "https://github.com/anomalyco/rune", rev = "7608d836ef4c9774300d
 # Rune's accesskit_windows (0.35.2 as published plus `vendor/accesskit_windows.patch`: headings and
 # landmarks reach UI Automation). At the same rev as `rune`.
 accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "7608d836ef4c9774300d40215570774cbf88b421" }
+# Rune's accesskit_macos (0.27.2 as published plus `vendor/accesskit_macos.patch`: headings reach
+# VoiceOver as AppKit's AXHeading with their level). At the same rev as `rune`.
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "7608d836ef4c9774300d40215570774cbf88b421" }
 # Rune's parley_engine (0.12.0 as published plus `vendor/parley_engine.patch`: UAX #9 rule L1 at a
 # paragraph's end, so Unicode's BidiTest.txt passes whole; segmenters and font metrics made once,
 # not for every text and run). Keep the rev equal to the `rune` rev.
