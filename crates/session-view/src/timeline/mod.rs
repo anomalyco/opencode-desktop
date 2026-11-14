@@ -452,11 +452,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_fade(fade)
         // A Tab stop that pages with the keys, as Desktop's `ScrollView` (`tabIndex={0}`,
-        // `scroll-view.tsx:546-548`), drawing no ring. The header's controls follow it.
+        // `scroll-view.tsx:546-548`). Desktop draws it no ring; a keyboard user is shown one,
+        // inside its edge, so a Tab onto it isn't invisible. The header's controls follow it.
         .focusable(true)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        .no_focus_ring()
+        .focus_ring(2.0, -2.0, p.v2.border_focus)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.
