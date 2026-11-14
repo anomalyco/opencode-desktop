@@ -63,6 +63,8 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         // A mouse selects a top tab as it goes down, as Desktop's do; a finger only on a tap, so
         // a long press opens the tab's menu and selects nothing.
         .select_on_drag_start(!vertical && !session_view::style::touch_controls())
+        // `tab-nav.css`'s `(hover: none)`: every tab shows its close button, its mark beside it.
+        .hover_none(session_view::style::hover_none())
         .on_select(|s: &mut App, id, tx| s.select_tab(id, tx))
         .on_close(|s: &mut App, id, tx| s.close_tab(id, tx))
         .on_double_click(|s: &mut App, id, tx| {
