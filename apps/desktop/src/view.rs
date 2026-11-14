@@ -358,19 +358,18 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // Its own ground runs under the insets; its controls stay clear of them.
     let touch_bar = composer::touch::bar(s, p).map(|bar| bar.pl(8.0 + inset_l).pr(8.0 + inset_r).min_h(57.0 + inset_b).h(57.0 + inset_b).pb(inset_b));
     let foot_clear = if touch_bar.is_none() { inset_b } else { 0.0 };
-    let window = if bottom.is_empty() && touch_bar.is_none() {
-        root.pb(foot_clear)
-    } else {
-        col()
-            .key("window-column")
-            .w_full()
-            .h_full()
-            .fill(p.bg_deep)
-            .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
-            .child(col().key("plugin-window-bottom").w_full().children(bottom))
-            .children(touch_bar)
-            .pb(foot_clear)
-    };
+    // One shape whether the foot holds anything or not: a plugin filling its slot at idle (after
+    // the first frames) mustn't move the window's tree under a new path, which mounts every
+    // element afresh and puts each scroll view back on its start or end.
+    let window = col()
+        .key("window-column")
+        .w_full()
+        .h_full()
+        .fill(p.bg_deep)
+        .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
+        .children((!bottom.is_empty()).then(|| col().key("plugin-window-bottom").w_full().children(bottom)))
+        .children(touch_bar)
+        .pb(foot_clear);
     // The web app's `#root` is `p-px` (`packages/app/index.html`; Desktop's renderer isn't): the
     // whole shell sits 1 pt in from the page's edges, and the panels' shadows end there, as `<main>`'s
     // overflow clips them. Sheets and menus, fixed to the page, don't.
