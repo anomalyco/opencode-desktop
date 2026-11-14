@@ -292,8 +292,8 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .inline_code_font(1.0, 530.0)
         .inline_code_pad(4.0)
         .code_block(p.code_bg, p.border)
-        // A block sits as far from the words after it as from the words before (`timeline::rhythm`).
-        .code_margin(crate::timeline::rhythm::BLOCK, crate::timeline::rhythm::BLOCK)
+        // Kit's default code margins are Desktop's: 12 over a block, 24 under it, so two blocks in a
+        // row stand 24 apart (`markdown.css:420-422`, `pre { margin: 12px 0 24px }`).
         // Code no token colours: Pierre's `editor.foreground`, the v1 `text-base`.
         .code_block_text(p.syntax.parameter)
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).

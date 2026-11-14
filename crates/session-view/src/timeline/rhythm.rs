@@ -7,12 +7,12 @@
 //! | prose, prose (a reply's words)                            | `PROSE` 12 |
 //! | quiet, quiet (notices, Used N, thoughts, calls, subagents) | `TIGHT` 8  |
 //! | any other pair: a card (code, a question, an error), prose beside quiet rows, a prompt above | `BLOCK` 16 |
-//! | a reply's last row, the next prompt                       | `TURN` 48  |
+//! | a reply's last row, the next prompt                       | `TURN` 44  |
 //!
 //! So prose runs at its own paragraph gap, quiet rows hold together as one group with even room
-//! above and below it, a card has the same room on both sides (Markdown's code blocks too:
-//! `style::markdown_style`), and the next prompt stands `TURN` under a reply, more than the
-//! room between a prompt and its own reply, so a prompt reads with the work under it.
+//! above and below it, a card has the same room on both sides (inside a reply, Markdown's code
+//! blocks keep Desktop's own 12 over and 24 under), and the next prompt stands `TURN` under a reply,
+//! as far as Desktop's.
 //!
 //! Dividers, Changed files, a reply's footer and a tool's pictures keep their own room; a row
 //! under one of them keeps the room it was built with. A finished turn a later prompt follows
@@ -30,8 +30,9 @@ pub const PROSE: f32 = 12.0;
 pub const TIGHT: f32 = 8.0;
 /// Around a group of quiet rows, a card, and under a prompt.
 pub const BLOCK: f32 = 16.0;
-/// Over a prompt under a reply: past a prompt's 28 meta room and `BLOCK` under it (44).
-pub const TURN: f32 = 48.0;
+/// Over a prompt under a reply: Desktop's room from a reply's last line box to the next prompt's
+/// bubble (43.78 on Windows, `proof/layout-cards/blocks/turn-1`; 52.2 to its text on the Mac).
+pub const TURN: f32 = 44.0;
 /// A notice's room over it where nothing here spaces it (under a divider or a footer).
 pub const NOTICE_PT: f32 = 12.0;
 
