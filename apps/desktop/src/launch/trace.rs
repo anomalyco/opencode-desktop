@@ -333,7 +333,7 @@ pub fn finish(windows: usize) {
         "marks_ns": marks,
         "metrics": metrics,
         "notes": notes,
-        "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| serde_json::json!({ "bytes": all, "plugin_bytes": plugins })),
+        "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| { let (miss, pending) = crate::storage::boot_how(); serde_json::json!({ "bytes": all, "plugin_bytes": plugins, "raw_miss": miss, "wal_pending": pending }) }),
     });
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
