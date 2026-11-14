@@ -120,7 +120,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             answers = answers.child(custom(s, p, &f, tab, multi, editing, ring && focus >= list.len()));
         }
         // No bar, as Desktop hides it (`question-prompt.css:186-194`).
-        crate::scroller::scroller(format!("q-scroll-{tab}")).hidden(col().w_full().shrink().min_h(0.0).transition(fade()), answers)
+        // Room for the picked card's shadow, which the scroll box would clip (`margin: -4px; padding: 4px`).
+        crate::scroller::scroller(format!("q-scroll-{tab}")).hidden(col().w_full().shrink().min_h(0.0).mx(-4.0).my(-4.0).transition(fade()), answers.padding(4.0))
     });
 
     let body = col()
@@ -203,17 +204,23 @@ fn feedback(keyboard: bool) -> Anim {
     if keyboard { Anim::INSTANT } else { Anim::new(Curve::tween(0.12, Easing::EASE)) }
 }
 
-/// An answer's card (`question-option`): `layer-01` under a hairline; picked, the focus colour's
-/// wash and no hairline; under the pointer, `layer-02`; moved to by key, the focus ring. The
+/// An answer's card (`question-option`): `bg-base` under a hairline; picked, a raised card on a
+/// `layer-01` wash (#62896); under the pointer, `layer-02`; moved to by key, the focus ring. The
 /// hover's `background-color` and the wash's opacity (its `::before`) both ease on `feedback`;
 /// the hairline goes at once (`box-shadow` isn't transitioned). The hover is the pointer's own
 /// track, so moving over the answers commits nothing.
 fn card(p: &Pal, picked: bool, ring: bool, keyboard: bool) -> El {
     let ease = feedback(keyboard);
-    let wash = p.q.focus.alpha(0.15);
-    // Its hairline and ring change at once (`Spring::NONE`): only the hover and the wash ease.
-    let c = row().w_full().gap(8.0).radius(6.0).fill(p.layer1).motion(Spring::NONE).hover_motion(ease, ease);
-    let c = if picked { c } else { c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() }) };
+    let wash = p.layer1;
+    // Its hairline, elevation and ring change at once (`Spring::NONE`): only the hover and the wash ease.
+    let c = row().w_full().gap(8.0).radius(6.0).fill(p.bg_base).motion(Spring::NONE).hover_motion(ease, ease);
+    let c = if picked {
+        // `--v2-elevation-raised`; CSS paints its first shadow on top, so the last goes first.
+        let [far, near, edge_ring, edge] = p.raised;
+        c.box_shadow(edge).box_shadow(edge_ring).box_shadow(near).box_shadow(far)
+    } else {
+        c.hover(p.layer2).box_shadow(Shadow { spread: 0.5, color: p.border, inset: true, ..Shadow::default() })
+    };
     // Under a contrast theme every card has a solid edge, so the ring is three times as wide.
     let c = if ring { c.box_shadow(Shadow { spread: if p.forced { 3.0 } else { 1.0 }, color: p.q.focus, inset: true, ..Shadow::default() }) } else { c };
     c.child(el().key("wash").absolute(0.0, 0.0).w_full().h_full().radius(6.0).fill(wash).opacity(if picked { 1.0 } else { 0.0 }).opacity_motion(ease))
