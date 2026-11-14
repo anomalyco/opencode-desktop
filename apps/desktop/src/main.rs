@@ -1272,6 +1272,11 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= servers::health::poll(s, tx);
     changed |= projects::home::poll(s, viewed || changed, tx);
     changed |= project_switcher::poll(s);
+    // A project's image the icon worker found (or lost): the tiles that read the icons draw again.
+    if rune::Tracked::untracked(&s.icons).take_found() {
+        rune::Tracked::touch(&s.icons);
+        changed = true;
+    }
     changed |= dictation::poll(s, now, tx);
     changed |= launch::poll(s, tx);
     launch::trace::poll(tx);

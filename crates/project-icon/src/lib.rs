@@ -25,6 +25,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Sender, channel};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use rune::time::Instant;
@@ -100,6 +101,8 @@ struct Inner {
     /// The worker that finds and decodes projects' icons, started by the first job (`Inner::jobs`).
     jobs: std::cell::OnceCell<Sender<Job>>,
     found: Arc<Mutex<HashMap<String, Found>>>,
+    /// The worker changed what a tile shows since the app last asked (`Icons::take_found`).
+    changed: Arc<AtomicBool>,
     wake: Waker,
 }
 
@@ -110,16 +113,14 @@ impl Inner {
     fn jobs(&self) -> &Sender<Job> {
         self.jobs.get_or_init(|| {
             let (jobs, rx) = channel::<Job>();
-            let (c, fd, wake) = (self.cache.clone(), self.found.clone(), self.wake.clone());
+            let (c, fd, changed, wake) = (self.cache.clone(), self.found.clone(), self.changed.clone(), self.wake.clone());
             rune::task::serve("project-icons", rx, move |job| {
-                    {
-                        let had = fd.lock().unwrap().get(&job.entry).is_some_and(|f| f.icon.is_some());
-                        let done = run(&c, &job);
-                        let wake_now = matches!(&done, Some((_, Some(Shown::Vector(..))))) || (done.is_none() && had);
-                        settle(&fd, &job.entry, done);
-                        if wake_now {
-                            wake();
-                        }
+                    // Once the tile's entry says what it shows, and only if that moved: the app's
+                    // poll then redraws what reads the icons (the image cache's own wake can come
+                    // before the entry is settled).
+                    if settle(&fd, &job.entry, run(&c, &job)) {
+                        changed.store(true, Ordering::Release);
+                        wake();
                     }
                     std::ops::ControlFlow::Continue(())
                 })
@@ -164,6 +165,12 @@ impl Icons {
         let mut icons = Icons::default();
         icons.set_waker(waker);
         icons
+    }
+
+    /// Whether the worker changed what a tile shows (an image found, or gone) since the last call:
+    /// what draws the icons must be built again. Call from the app's poll.
+    pub fn take_found(&self) -> bool {
+        self.inner.borrow().as_ref().is_some_and(|inner| inner.changed.swap(false, Ordering::AcqRel))
     }
 
     /// Call from `AppSpec::setup`, before the first view.
@@ -215,7 +222,7 @@ impl Icons {
         let inner = inner.get_or_insert_with(|| {
             let wake = self.waker.clone().unwrap_or_else(|| Arc::new(|| {}));
             let cache = Arc::new(ImageCache::new(wake.clone()));
-            Inner { cache, jobs: std::cell::OnceCell::new(), found: Default::default(), wake }
+            Inner { cache, jobs: std::cell::OnceCell::new(), found: Default::default(), changed: Default::default(), wake }
         });
         f(inner)
     }
@@ -411,21 +418,24 @@ impl Icons {
     }
 }
 
-fn settle(found: &Mutex<HashMap<String, Found>>, dir: &str, done: Option<(Key, Option<Shown>)>) {
+/// Records what the lookup found for `dir`; true when what its tile shows changed.
+fn settle(found: &Mutex<HashMap<String, Found>>, dir: &str, done: Option<(Key, Option<Shown>)>) -> bool {
     let mut found = found.lock().unwrap();
     let f = found.entry(dir.to_owned()).or_default();
     f.pending = false;
     f.checked = Some(Instant::now());
     match done {
         // The same source as before: keep its pixels.
-        Some((key, None)) if f.key.as_ref() == Some(&key) => {}
+        Some((key, None)) if f.key.as_ref() == Some(&key) => false,
         Some((key, shown)) => {
+            let moved = shown.is_some() || f.icon.is_some();
             f.key = Some(key);
             f.icon = shown;
+            moved
         }
         None => {
             f.key = None;
-            f.icon = None;
+            f.icon.take().is_some()
         }
     }
 }
