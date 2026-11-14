@@ -14,6 +14,7 @@ pub struct SearchArena {
     masks: Vec<[u64; 64]>,
     // Non-ASCII rows only: a query that specifies accents can ask for the original.
     originals: Vec<(usize, Box<str>)>,
+    first_letters: Option<(usize, Box<[Vec<usize>; 26]>)>,
 }
 
 fn mask(s: &str) -> u64 {
@@ -33,6 +34,7 @@ fn boundary(c: u8) -> bool {
 
 impl SearchArena {
     pub fn push(&mut self, text: &str) -> usize {
+        self.first_letters = None;
         let id = self.ends.len();
         if id % 64 == 0 {
             self.masks.push([0; 64]);
@@ -64,15 +66,44 @@ impl SearchArena {
         self.originals.shrink_to_fit();
     }
 
+    /// Build once with immutable rows, not when the list opens. Keep only the
+    /// best `limit` rows per letter. Other scopes and larger limits still use
+    /// full ranking; an exclusion after truncation would lose valid hits.
+    pub fn prepare_first_letters(&mut self, limit: usize) {
+        self.first_letters = Some((
+            limit,
+            Box::new(std::array::from_fn(|i| {
+                self.ranked(&char::from(b'a' + i as u8).to_string(), limit, |_| {
+                    Some((0, 0))
+                })
+            })),
+        ));
+    }
+
     pub fn allocated_bytes(&self) -> usize {
         self.data.capacity()
             + self.ends.capacity() * size_of::<usize>()
             + self.masks.capacity() * 512
             + self.originals.capacity() * size_of::<(usize, Box<str>)>()
             + self.originals.iter().map(|r| r.1.len()).sum::<usize>()
+            + self.first_letters.as_ref().map_or(0, |(_, lists)| {
+                size_of_val(lists.as_ref())
+                    + lists
+                        .iter()
+                        .map(|v| v.capacity() * size_of::<usize>())
+                        .sum::<usize>()
+            })
     }
 
     pub fn query(&self, query: &str, limit: usize) -> Vec<usize> {
+        if let [b] = query.trim().as_bytes()
+            && b.is_ascii_alphabetic()
+            && let Some((prepared, first)) = &self.first_letters
+            && limit <= *prepared
+        {
+            let rows = &first[usize::from(b.to_ascii_lowercase() - b'a')];
+            return rows[..limit.min(rows.len())].to_vec();
+        }
         self.ranked(query, limit, |_| Some((0, 0)))
     }
 
