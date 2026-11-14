@@ -98,9 +98,12 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
         .children(crate::session_state::status(s, p))
         .children(crate::find::bar(s, p).map(|bar| bar.shrink().min_w(0.0)))
         .children(slots)
+        // Pulled back over its gap, so with the side region open it takes no room at all: the
+        // actions end 12 from the header's end, as Desktop's do.
         .children(s.stage.is_none().then(|| {
             el().key("header-side-slot")
-                .w(if reserve_side { 28.0 } else { 0.0 })
+                .ml(-8.0)
+                .w(if reserve_side { 36.0 } else { 0.0 })
                 .h(28.0)
                 .motion(crate::panels::view::SIDE_SPRING)
         }));
