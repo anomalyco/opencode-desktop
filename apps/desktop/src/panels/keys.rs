@@ -74,6 +74,16 @@ impl App {
     /// have moved. Otherwise those checks are skipped: nothing they read changed.
     pub fn poll_panels(&mut self, fresh: bool, tx: &mut Tx) -> bool {
         let mut changed = false;
+        // A session's shut side region is built once the window is idle (`SideState::warm`).
+        if !self.side.warm && matches!(*self.route, crate::Route::Session { .. }) {
+            let quiet = crate::idle::quiet_for();
+            if quiet >= crate::idle::AFTER {
+                self.side.warm = true;
+                changed = true;
+            } else {
+                tx.wake_after(crate::idle::AFTER - quiet);
+            }
+        }
         if let Some(sid) = self.side.closing.session().map(str::to_owned) {
             let shut = self.side_region_shut(&sid, None);
             let effects = self.side.closing.step(Event::Frame { clock: *self.clock, shut });

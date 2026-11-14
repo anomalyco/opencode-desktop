@@ -111,7 +111,8 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
     let bleed = if shown { SIDE_BLEED } else { 0.0 };
     let mut clip = el().key("side-region-clip").pin(Some(-bleed), Some(0.0), Some(0.0), Some(0.0)).clip_soft(0.0);
 
-    if let Some(reg) = reg.as_ref() {
+    // Shut and never shown, it isn't laid out until the window is idle (`SideState::warm`).
+    if let Some(reg) = reg.as_ref().filter(|_| col_open || shown || s.side.mounted || s.side.warm) {
         let env_scale = cx.env().scale;
         let col_h = if col_open || s.side.mounted {
             cx.layout_size("side-column")
