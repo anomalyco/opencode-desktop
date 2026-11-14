@@ -125,6 +125,12 @@ impl Dormant {
             let found = read_file();
             self.old_file = found.is_none();
             self.records = found.unwrap_or_default();
+            // IB-3 measuring: the first launch after an update that changed these plugins.
+            for id in std::env::var("IB3_STALE").unwrap_or_default().split(',').filter(|s| !s.is_empty()) {
+                if let Some(r) = self.records.get_mut(id) {
+                    r.hash.push('x');
+                }
+            }
         }
     }
 
