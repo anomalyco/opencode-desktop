@@ -6,7 +6,8 @@
 //! |-----------------------------------------------------------|------------|
 //! | prose, prose (a reply's words)                            | `PROSE` 12 |
 //! | quiet, quiet (notices, Used N, thoughts, calls, subagents) | `TIGHT` 8  |
-//! | any other pair: a card (code, a question, an error), prose beside quiet rows, a prompt above | `BLOCK` 16 |
+//! | a prompt (its 28 meta room included), its reply's first row | `REPLY` 24 |
+//! | any other pair: a card (code, a question, an error), prose beside quiet rows | `BLOCK` 16 |
 //! | a reply's last row, the next prompt                       | `TURN` 44  |
 //!
 //! So prose runs at its own paragraph gap, quiet rows hold together as one group with even room
@@ -28,8 +29,11 @@ use crate::turns::{self, Block};
 pub const PROSE: f32 = 12.0;
 /// Between quiet rows, which read as one group.
 pub const TIGHT: f32 = 8.0;
-/// Around a group of quiet rows, a card, and under a prompt.
+/// Around a group of quiet rows and a card.
 pub const BLOCK: f32 = 16.0;
+/// Under a prompt's meta row, over its reply: Desktop's 24 from the user message's box to the
+/// reply's first block (`proof/layout-cards/blocks/turn-1`: 129 to 153), 52 from the bubble.
+pub const REPLY: f32 = 24.0;
 /// Over a prompt under a reply: Desktop's room from a reply's last line box to the next prompt's
 /// bubble (43.78 on Windows, `proof/layout-cards/blocks/turn-1`; 52.2 to its text on the Mac).
 pub const TURN: f32 = 44.0;
@@ -102,6 +106,7 @@ fn gap(above: Kind, below: Kind) -> f32 {
     match (above, below) {
         (Kind::Prose, Kind::Prose) => PROSE,
         (Kind::Quiet, Kind::Quiet) => TIGHT,
+        (Kind::Prompt, _) => REPLY,
         _ => BLOCK,
     }
 }
