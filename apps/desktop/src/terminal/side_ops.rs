@@ -91,6 +91,12 @@ pub(crate) fn key_terminal(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // ⌘W closes the terminal (Desktop's scoped `terminal.close`); the strip's tab keys stay the strip's.
     if Bind::TabClose.matches_tx(ev, tx) {
         s.close_side_tab(&panel_key(PLUGIN, &id), tx);
+        // The keyboard stays somewhere: on the terminal the pane shows next, else back in the
+        // prompt, as Desktop's composer takes focus when its terminal closes.
+        match s.terminal_focus().filter(|(_, next)| s.side_tab_visible(&panel_key(PLUGIN, next))) {
+            Some(_) => tx.focus(super::grid::SCREEN_KEY, tx.focus_visible()),
+            None => tx.focus("prompt", tx.focus_visible()),
+        }
         return true;
     }
     if [Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) {
