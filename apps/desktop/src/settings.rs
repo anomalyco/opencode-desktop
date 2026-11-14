@@ -136,7 +136,9 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             open: false,
-            show_agent: false,
+            // Desktop shows the composer's agent picker by default (`settings/model.tsx:308`,
+            // `showCustomAgents: true`).
+            show_agent: true,
             scheme: Scheme::default(),
             fold_user: false,
             terminal_placement: crate::panels::DockPlacement::Side,
@@ -226,7 +228,7 @@ impl Settings {
         let d = Settings::default();
         Settings {
             open: false,
-            show_agent: v["showAgentPicker"].as_bool().unwrap_or(false),
+            show_agent: v["showAgentPicker"].as_bool().unwrap_or(true),
             scheme: Scheme::ALL.into_iter().find(|s| Some(s.name()) == v["appearance"].as_str()).unwrap_or_default(),
             fold_user: v["foldUserMessages"].as_bool().unwrap_or(d.fold_user),
             terminal_placement: crate::panels::DockPlacement::parse(v["terminalPlacement"].as_str()),
