@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompt dalam antrean",
   "rune.review.noGit": "Bukan repositori Git",
   "rune.review.scope": "Ubah cakupan tinjauan",
+  "rune.search.draft": "Draf",
+  "rune.search.messagesOff": "Teks pesan belum dicari di perangkat ini",
   "rune.send.disconnected": "Tidak terhubung ke server OpenCode",
   "rune.send.failed": "Gagal mengirim",
   "rune.send.nothingSent": "Tidak ada yang terkirim",

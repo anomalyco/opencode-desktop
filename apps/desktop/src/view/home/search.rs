@@ -85,25 +85,55 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
     let show_project = selected.is_none();
     // A result: `pl-[18px] pr-6`, the avatar and `gap-1.5`, inside the panel 12 wider than the field.
     let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 }).max(0.0);
+    // A profile without the search tables searches titles only: it says so under what it found.
+    let off = || {
+        matches!(s.fulltext(crate::fulltext::Surface::Home), crate::fulltext::Shown::Off).then(|| {
+            row().key("home-search-fulltext-off").w_full().pl(18.0).pr(24.0).pb(8.0).child(text(opencode_i18n::t!("rune.search.messagesOff")).font(session_view::style::UI_SMALL).color(p.muted).truncate())
+        })
+    };
     let body = if s.home_search_loading() {
         // `px-4 py-3`, a 16 pt Loader.
         row().key("home-search-loading").w_full().px(16.0).py(12.0).center().child(activity_ring_sized(p, 16.0))
     } else if results.is_empty() {
         // `my-1.5 px-4 pb-2`, 13/16 muted.
-        row()
+        let empty = row()
             .key("home-search-empty")
             .w_full()
             .px(16.0)
             .pb(8.0)
             .my(6.0)
-            .child(text(opencode_i18n::t!("home.sessions.search.noResults", query = s.search.text.trim())).font(UI).color(p.muted).truncate())
+            .child(text(opencode_i18n::t!("home.sessions.search.noResults", query = s.search.text.trim())).font(UI).color(p.muted).truncate());
+        col().key("home-search-none").w_full().child(empty).children(off())
     } else {
+        let q = s.search.text.trim();
+        let fold = opencode_search::SearchFold::for_query(q);
         let rows = col()
             .key("home-search-rows")
             .w_full()
             .gap(1.0)
             .pb(8.0)
-            .children(results.iter().map(|ses| result_row(s, p, ses, active.as_deref() == Some(ses.id.as_str()), show_project, labels_w, narrow)));
+            .children(results.iter().map(|ses| {
+                // A session only its messages matched shows the line of context under its row.
+                let found = s.fulltext_row(crate::fulltext::Surface::Home, &ses.id).filter(|_| !fold.fold(&ses.title).contains(&fold.fold(q)));
+                let r = result_row(s, p, ses, active.as_deref() == Some(ses.id.as_str()), show_project, labels_w, narrow);
+                let Some((rows, at)) = found else { return r };
+                // A reader hears what matched with the row; the line itself is a picture of it.
+                let r = r.description(rows[at].snippet.text.clone());
+                let id = ses.id.clone();
+                let line = row()
+                    .key("srf-line")
+                    .w_full()
+                    .pl(18.0 + 22.0)
+                    .pr(24.0)
+                    .pb(6.0)
+                    .a11y_hidden()
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                        s.clear_home_search(false, tx);
+                        s.open(&id, tx);
+                    })
+                    .child(crate::switcher::view::snippet_line(p, &rows[at]));
+                col().key(format!("srf-{}", ses.id)).w_full().child(r).child(line)
+            }));
         col()
             .key("home-search-results")
             .w_full()
@@ -118,6 +148,7 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
                     rows,
                 ),
             )
+            .children(off())
     };
     col()
         .key("home-search-panel")

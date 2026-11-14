@@ -113,6 +113,8 @@
   "rune.queue.label": "ប្រអប់បញ្ចូលក្នុងជួរ",
   "rune.review.noGit": "មិនមែនជាឃ្លាំង Git ទេ",
   "rune.review.scope": "ប្តូរវិសាលភាពនៃការពិនិត្យ",
+  "rune.search.draft": "សេចក្ដីព្រាង",
+  "rune.search.messagesOff": "មិនទាន់ស្វែងរកអត្ថបទសារនៅលើឧបករណ៍នេះនៅឡើយទេ",
   "rune.send.disconnected": "មិនបានតភ្ជាប់ទៅម៉ាស៊ីនមេ OpenCode ទេ",
   "rune.send.failed": "ការផ្ញើបរាជ័យ",
   "rune.send.nothingSent": "មិនបានផ្ញើអ្វីទេ",

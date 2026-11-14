@@ -113,6 +113,8 @@
   "rune.queue.label": "რიგში მყოფი მოთხოვნები",
   "rune.review.noGit": "Git რეპოზიტორია არ არის",
   "rune.review.scope": "მიმოხილვის არეალის შეცვლა",
+  "rune.search.draft": "მონახაზი",
+  "rune.search.messagesOff": "შეტყობინებების ტექსტი ამ მოწყობილობაზე ჯერ არ იძებნება",
   "rune.send.disconnected": "OpenCode სერვერთან კავშირი არ არის",
   "rune.send.failed": "გაგზავნა ვერ მოხერხდა",
   "rune.send.nothingSent": "არაფერი გაიგზავნა",

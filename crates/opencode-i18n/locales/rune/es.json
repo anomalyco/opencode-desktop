@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompts en cola",
   "rune.review.noGit": "No es un repositorio Git",
   "rune.review.scope": "Cambiar el alcance de la revisión",
+  "rune.search.draft": "Borrador",
+  "rune.search.messagesOff": "El texto de los mensajes aún no se busca en este dispositivo",
   "rune.send.disconnected": "No hay conexión con un servidor de OpenCode",
   "rune.send.failed": "No se pudo enviar",
   "rune.send.nothingSent": "No se envió nada",

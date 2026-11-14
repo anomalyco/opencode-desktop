@@ -113,6 +113,8 @@
   "rune.queue.label": "Промптҳо дар навбат",
   "rune.review.noGit": "Анбори Git нест",
   "rune.review.scope": "Тағйир додани доираи баррасӣ",
+  "rune.search.draft": "Сиёҳнавис",
+  "rune.search.messagesOff": "Матни паёмҳо дар ин дастгоҳ ҳоло ҷустуҷӯ намешавад",
   "rune.send.disconnected": "Ба сервери OpenCode пайваст нест",
   "rune.send.failed": "Фиристодан нашуд",
   "rune.send.nothingSent": "Ҳеҷ чиз фиристода нашуд",

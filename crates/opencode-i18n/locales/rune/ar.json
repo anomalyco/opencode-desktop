@@ -113,6 +113,8 @@
   "rune.queue.label": "الموجّهات في قائمة الانتظار",
   "rune.review.noGit": "ليس مستودع Git",
   "rune.review.scope": "تغيير نطاق المراجعة",
+  "rune.search.draft": "مسودة",
+  "rune.search.messagesOff": "لا يُبحث في نص الرسائل على هذا الجهاز بعد",
   "rune.send.disconnected": "غير متصل بخادم OpenCode",
   "rune.send.failed": "فشل الإرسال",
   "rune.send.nothingSent": "لم يُرسل شيء",

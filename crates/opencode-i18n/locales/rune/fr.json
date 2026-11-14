@@ -113,6 +113,8 @@
   "rune.queue.label": "Invites en file d’attente",
   "rune.review.noGit": "Pas un dépôt Git",
   "rune.review.scope": "Changer la portée de la revue",
+  "rune.search.draft": "Brouillon",
+  "rune.search.messagesOff": "Le texte des messages n’est pas encore recherché sur cet appareil",
   "rune.send.disconnected": "Non connecté à un serveur OpenCode",
   "rune.send.failed": "Échec de l’envoi",
   "rune.send.nothingSent": "Rien n’a été envoyé",

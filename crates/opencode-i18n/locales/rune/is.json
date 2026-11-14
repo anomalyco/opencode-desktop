@@ -113,6 +113,8 @@
   "rune.queue.label": "Kvaðningar í biðröð",
   "rune.review.noGit": "Ekki Git-geymsla",
   "rune.review.scope": "Breyta umfangi yfirferðar",
+  "rune.search.draft": "Drög",
+  "rune.search.messagesOff": "Ekki er enn leitað í texta skilaboða á þessu tæki",
   "rune.send.disconnected": "Ekki tengt við OpenCode-netþjón",
   "rune.send.failed": "Ekki tókst að senda",
   "rune.send.nothingSent": "Ekkert var sent",

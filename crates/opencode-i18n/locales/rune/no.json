@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompter i kø",
   "rune.review.noGit": "Ikke et Git-repository",
   "rune.review.scope": "Endre omfanget av gjennomgangen",
+  "rune.search.draft": "Utkast",
+  "rune.search.messagesOff": "Meldingstekst søkes ikke ennå på denne enheten",
   "rune.send.disconnected": "Ikke koblet til en OpenCode-server",
   "rune.send.failed": "Kunne ikke sende",
   "rune.send.nothingSent": "Ingenting ble sendt",

@@ -113,6 +113,8 @@
   "rune.queue.label": "Jonossa olevat kehotteet",
   "rune.review.noGit": "Ei Git-tietovarasto",
   "rune.review.scope": "Muuta tarkistuksen laajuutta",
+  "rune.search.draft": "Luonnos",
+  "rune.search.messagesOff": "Viestien tekstiä ei vielä haeta tällä laitteella",
   "rune.send.disconnected": "Ei yhteyttä OpenCode-palvelimeen",
   "rune.send.failed": "Lähetys epäonnistui",
   "rune.send.nothingSent": "Mitään ei lähetetty",

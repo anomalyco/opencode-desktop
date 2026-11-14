@@ -55,6 +55,8 @@
   "rune.menu.edit.findPrevious": "ކުރިން އޮތް ހޯދާ",
   "rune.openIn.failed": "ނުހުޅުވުނު",
   "rune.review.noGit": "Git ރިޕޮސިޓަރީއެއް ނޫން",
+  "rune.search.draft": "ޑްރާފްޓް",
+  "rune.search.messagesOff": "މި ޑިވައިސްގައި މެސެޖުތަކުގެ ލިޔުން އަދި ހޯދައެއް ނުލެވޭ",
   "rune.send.disconnected": "OpenCode ސަރވަރަކާ ގުޅިފައެއް ނުވޭ",
   "rune.send.failed": "ފޮނުވުން ނާކާމިޔާބުވެއްޖެ",
   "rune.send.nothingSent": "އެއްވެސް އެއްޗެއް ނުފޮނުވޭ",

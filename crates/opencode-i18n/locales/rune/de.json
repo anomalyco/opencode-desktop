@@ -113,6 +113,8 @@
   "rune.queue.label": "Eingereihte Prompts",
   "rune.review.noGit": "Kein Git-Repository",
   "rune.review.scope": "Überprüfungsbereich ändern",
+  "rune.search.draft": "Entwurf",
+  "rune.search.messagesOff": "Nachrichtentext wird auf diesem Gerät noch nicht durchsucht",
   "rune.send.disconnected": "Nicht mit einem OpenCode-Server verbunden",
   "rune.send.failed": "Senden fehlgeschlagen",
   "rune.send.nothingSent": "Es wurde nichts gesendet",

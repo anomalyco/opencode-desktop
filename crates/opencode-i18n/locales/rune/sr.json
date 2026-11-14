@@ -113,6 +113,8 @@
   "rune.queue.label": "Промптови у реду чекања",
   "rune.review.noGit": "Није Git спремиште",
   "rune.review.scope": "Промени обим прегледа",
+  "rune.search.draft": "Нацрт",
+  "rune.search.messagesOff": "Текст порука се још не претражује на овом уређају",
   "rune.send.disconnected": "Нема везе са OpenCode сервером",
   "rune.send.failed": "Слање није успело",
   "rune.send.nothingSent": "Ништа није послато",

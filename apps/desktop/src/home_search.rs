@@ -285,7 +285,17 @@ impl App {
             return vec![];
         }
         let scope = crate::switcher::search_index::Scope::Home { project: selected.map(|p| p.id.clone()) };
-        let records: Vec<&SessionInfo> = self.find_sessions(scope, q, 50).into_iter().filter(|(score, _, _)| *score >= opencode_search::SUBSTRING).filter_map(|(_, _, id)| self.search_session(&id)).filter(|s| s.archived.is_none()).collect();
+        let mut records: Vec<&SessionInfo> = self.find_sessions(scope, q, 50).into_iter().filter(|(score, _, _)| *score >= opencode_search::SUBSTRING).filter_map(|(_, _, id)| self.search_session(&id)).filter(|s| s.archived.is_none()).collect();
+        // Then the sessions only their messages match (full text), each with its line of context.
+        if let crate::fulltext::Shown::Rows(rows) = self.fulltext(crate::fulltext::Surface::Home) {
+            for r in rows.iter() {
+                if !records.iter().any(|s| s.id == r.session)
+                    && let Some(s) = self.search_session(&r.session)
+                {
+                    records.push(s);
+                }
+            }
+        }
         match self.home_search.search.exact().filter(|exact| !records.iter().any(|r| r.id == exact.id)) {
             Some(exact) => std::iter::once(exact).chain(records).collect(),
             None => records,

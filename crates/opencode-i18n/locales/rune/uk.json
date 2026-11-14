@@ -113,6 +113,8 @@
   "rune.queue.label": "Запити в черзі",
   "rune.review.noGit": "Не Git-репозиторій",
   "rune.review.scope": "Змінити область огляду",
+  "rune.search.draft": "Чернетка",
+  "rune.search.messagesOff": "Текст повідомлень на цьому пристрої поки не шукається",
   "rune.send.disconnected": "Немає підключення до сервера OpenCode",
   "rune.send.failed": "Не вдалося надіслати",
   "rune.send.nothingSent": "Нічого не надіслано",

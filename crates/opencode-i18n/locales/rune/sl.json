@@ -113,6 +113,8 @@
   "rune.queue.label": "Pozivi v čakalni vrsti",
   "rune.review.noGit": "Ni repozitorij Git",
   "rune.review.scope": "Spremeni obseg pregleda",
+  "rune.search.draft": "Osnutek",
+  "rune.search.messagesOff": "Besedilo sporočil se v tej napravi še ne išče",
   "rune.send.disconnected": "Ni povezave s strežnikom OpenCode",
   "rune.send.failed": "Pošiljanje ni uspelo",
   "rune.send.nothingSent": "Nič ni bilo poslano",

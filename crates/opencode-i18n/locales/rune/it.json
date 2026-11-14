@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompt in coda",
   "rune.review.noGit": "Non è un repository Git",
   "rune.review.scope": "Cambia ambito della revisione",
+  "rune.search.draft": "Bozza",
+  "rune.search.messagesOff": "Il testo dei messaggi non viene ancora cercato su questo dispositivo",
   "rune.send.disconnected": "Non connesso a un server OpenCode",
   "rune.send.failed": "Invio non riuscito",
   "rune.send.nothingSent": "Non è stato inviato nulla",

@@ -216,6 +216,7 @@ mod send_failed;
 mod session_cost;
 mod session_catalog;
 mod transcript_index;
+mod fulltext;
 mod session_open;
 mod session_pages;
 mod session_state;
@@ -322,6 +323,8 @@ pub struct App {
     pub recent_reload: recent_page::Reload,
     catalog: session_catalog::Catalog,
     session_search: switcher::search_index::SessionSearch,
+    /// The palette's and Home's questions to the message text kept on this device.
+    fulltext: fulltext::Surfaces,
     pub route: rune::Tracked<Route>,
     /// The open tab this window left for Home, independent of tab order or layout.
     home_return_tab: rune::Tracked<Option<String>>,
@@ -1383,6 +1386,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_home_search(tx);
     changed |= s.poll_switcher(tx);
     changed |= s.poll_session_search(now, tx);
+    changed |= s.poll_fulltext();
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands(tx);
     changed |= s.poll_suggestions(tx);

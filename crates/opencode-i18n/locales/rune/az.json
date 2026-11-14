@@ -113,6 +113,8 @@
   "rune.queue.label": "Növbədəki promptlar",
   "rune.review.noGit": "Git deposu deyil",
   "rune.review.scope": "Baxış əhatəsini dəyiş",
+  "rune.search.draft": "Qaralama",
+  "rune.search.messagesOff": "Mesaj mətni bu cihazda hələ axtarılmır",
   "rune.send.disconnected": "OpenCode serverinə qoşulmayıb",
   "rune.send.failed": "Göndərilə bilmədi",
   "rune.send.nothingSent": "Heç nə göndərilmədi",

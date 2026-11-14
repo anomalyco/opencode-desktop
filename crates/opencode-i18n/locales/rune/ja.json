@@ -113,6 +113,8 @@
   "rune.queue.label": "キュー内のプロンプト",
   "rune.review.noGit": "Git リポジトリではありません",
   "rune.review.scope": "レビュー範囲を変更",
+  "rune.search.draft": "下書き",
+  "rune.search.messagesOff": "このデバイスではまだメッセージ本文を検索できません",
   "rune.send.disconnected": "OpenCode サーバーに接続されていません",
   "rune.send.failed": "送信に失敗しました",
   "rune.send.nothingSent": "何も送信されませんでした",

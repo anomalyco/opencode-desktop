@@ -113,6 +113,8 @@
   "rune.queue.label": "Solicitări în coadă",
   "rune.review.noGit": "Nu este un depozit Git",
   "rune.review.scope": "Schimbă domeniul revizuirii",
+  "rune.search.draft": "Ciornă",
+  "rune.search.messagesOff": "Textul mesajelor nu este încă căutat pe acest dispozitiv",
   "rune.send.disconnected": "Nu ești conectat la un server OpenCode",
   "rune.send.failed": "Trimiterea a eșuat",
   "rune.send.nothingSent": "Nu s-a trimis nimic",

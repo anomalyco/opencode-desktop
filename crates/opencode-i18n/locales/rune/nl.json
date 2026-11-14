@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompts in de wachtrij",
   "rune.review.noGit": "Geen Git-repository",
   "rune.review.scope": "Reviewbereik wijzigen",
+  "rune.search.draft": "Concept",
+  "rune.search.messagesOff": "Berichttekst wordt op dit apparaat nog niet doorzocht",
   "rune.send.disconnected": "Niet verbonden met een OpenCode-server",
   "rune.send.failed": "Versturen mislukt",
   "rune.send.nothingSent": "Er is niets verstuurd",

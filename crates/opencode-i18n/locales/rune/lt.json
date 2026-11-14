@@ -113,6 +113,8 @@
   "rune.queue.label": "Užklausos eilėje",
   "rune.review.noGit": "Ne Git saugykla",
   "rune.review.scope": "Keisti peržiūros apimtį",
+  "rune.search.draft": "Juodraštis",
+  "rune.search.messagesOff": "Žinučių tekstas šiame įrenginyje dar neieškomas",
   "rune.send.disconnected": "Neprisijungta prie OpenCode serverio",
   "rune.send.failed": "Nepavyko išsiųsti",
   "rune.send.nothingSent": "Nieko neišsiųsta",

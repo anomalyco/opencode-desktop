@@ -113,6 +113,8 @@
   "rune.queue.label": "Nobatdaky promptlar",
   "rune.review.noGit": "Git ammary däl",
   "rune.review.scope": "Gözden geçiriş gerimini üýtget",
+  "rune.search.draft": "Garalama",
+  "rune.search.messagesOff": "Bu enjamda hat tekstinden entek gözlenmeýär",
   "rune.send.disconnected": "OpenCode serwerine birikmedik",
   "rune.send.failed": "Iberip bolmady",
   "rune.send.nothingSent": "Hiç zat iberilmedi",

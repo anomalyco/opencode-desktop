@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompter i kö",
   "rune.review.noGit": "Inte ett Git-repo",
   "rune.review.scope": "Ändra granskningens omfång",
+  "rune.search.draft": "Utkast",
+  "rune.search.messagesOff": "Meddelandetext söks inte ännu på den här enheten",
   "rune.send.disconnected": "Inte ansluten till en OpenCode-server",
   "rune.send.failed": "Det gick inte att skicka",
   "rune.send.nothingSent": "Inget skickades",

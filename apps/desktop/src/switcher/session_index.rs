@@ -31,6 +31,19 @@ impl App {
             hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
             hits.truncate(limit);
         }
+        // Then the sessions only their messages match (full text), in its order; each row shows
+        // its line of context.
+        if !q.trim().is_empty()
+            && let crate::fulltext::Shown::Rows(rows) = self.fulltext(crate::fulltext::Surface::Palette)
+        {
+            for r in rows.iter() {
+                if !hits.iter().any(|(_, _, s)| s.id == r.session)
+                    && let Some(s) = self.search_session(&r.session)
+                {
+                    hits.push((0, s.active_ms(), s));
+                }
+            }
+        }
         hits.into_iter()
             .map(|(_, _, s)| Entry {
                 key: format!("session:{}", s.id),

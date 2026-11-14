@@ -9,6 +9,7 @@ use super::shown::Empty;
 use super::{Action, Entry, SwitcherMode};
 use crate::App;
 use crate::palette::{Elevate as _, Pal};
+use crate::fulltext::{Row, Surface};
 use crate::view::{UI, UI_MED};
 use opencode_i18n::t;
 
@@ -22,6 +23,24 @@ const STACKED_H: f32 = 40.0;
 
 fn entry_height(stacked: bool) -> f32 {
     if session_view::style::touch_controls() { 44.0 } else if stacked { STACKED_H } else { ROW_H }
+}
+
+/// A session only its messages matched: its title, and under it the line of context (6 above
+/// and below, the title's 18 and the line's 16).
+const SNIPPET_H: f32 = 46.0;
+
+/// `e`'s row height: with its line of context, stacked, or one line.
+fn height(s: &App, e: &Entry, q: &str) -> f32 {
+    if snippet(s, e, q).is_some() { SNIPPET_H.max(entry_height(false)) } else { entry_height(stacked(s, e)) }
+}
+
+/// The full text row a session's palette row shows under its title: when its messages matched
+/// and its title doesn't hold the query.
+fn snippet(s: &App, e: &Entry, q: &str) -> Option<(std::sync::Arc<Vec<Row>>, usize)> {
+    let Action::Session(id) = &e.action else { return None };
+    let found = s.fulltext_row(Surface::Palette, id)?;
+    let fold = opencode_search::SearchFold::for_query(q.trim());
+    (!fold.fold(&e.title).contains(&fold.fold(q.trim()))).then_some(found)
 }
 
 /// Whether `e`'s row stacks its description under its title: the window is 640 pt or narrower
@@ -136,7 +155,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         // Rows left out since the last built one: their count and heights.
         let mut skipped = (0usize, 0.0_f32);
         for (n, e) in entries[i..end].iter().enumerate() {
-            let h = entry_height(stacked(s, e));
+            let h = height(s, e, q);
             let lit = active.as_deref() == Some(e.key.as_str());
             if lit || (top < window.end && top + h > window.start) {
                 if skipped.0 > 0 {
@@ -152,8 +171,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         if skipped.0 > 0 {
             section = section.child(gap_for(group, size, skipped));
         }
-        let tall = entries[i..end].iter().filter(|e| stacked(s, e)).count() as f32;
-        content_h += ROW_H + (end - i) as f32 * (entry_height(false) + GAP) + tall * (entry_height(true) - entry_height(false)) + if last { 0.0 } else { GAP };
+        content_h += ROW_H + entries[i..end].iter().map(|e| height(s, e, q) + GAP).sum::<f32>() + if last { 0.0 } else { GAP };
         results = results.child(section);
         i = end;
     }
@@ -175,6 +193,13 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         }
     } else {
         content_h += 6.0;
+    }
+    // A profile without the search tables searches titles and the loaded sessions only: it says
+    // so under what it found.
+    if !q.trim().is_empty() && s.switcher.mode != SwitcherMode::Commands && matches!(s.fulltext(Surface::Palette), crate::fulltext::Shown::Off) {
+        let note = t!("rune.search.messagesOff");
+        results = results.child(row().key("switcher-fulltext-off").w_full().h(ROW_H).px(12.0).center_y().child(text(note).font(session_view::style::UI_SMALL).color(p.muted).truncate()));
+        content_h += ROW_H;
     }
     let header = HEAD_H + entry_height(false) - ROW_H;
     let scroll_h = content_h.min(max_h - header).max(0.0);
@@ -236,19 +261,22 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
             let trailing_w = trailing.as_ref().map_or(0.0, |(_, w)| w + 8.0);
             let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
             let archived = s.switcher.mode == SwitcherMode::Archived;
-            row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(row_text(p, e, q, text_w, archived, stacked(s, e)))
+            let words = row_text(p, e, q, text_w, archived, stacked(s, e));
+            let words = match snippet(s, e, q) {
+                Some((rows, at)) => col().key("found").grow(1.0).shrink().min_w(0.0).gap(0.0).child(words).child(snippet_line(p, &rows[at])),
+                None => words,
+            };
+            row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(words)
         }
     };
     let r = row()
         .key(format!("sw-{}", e.key))
         .role("option")
-        // A reader hears the highlighted row as selected (A11Y's contract).
-        .focus_selected(active)
         .label(e.title.clone())
         // Selected while highlighted, as official's `aria-selected` option is.
         .focus_selected(active)
         .w_full()
-        .h(entry_height(stacked(s, e)))
+        .h(height(s, e, q))
         .px(6.0)
         .gap(8.0)
         .center_y()
@@ -282,6 +310,11 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.switcher_run(action.clone(), tx))
         .child(main);
+    // A reader hears what matched in a session only its messages matched.
+    let r = match snippet(s, e, q) {
+        Some((rows, at)) => r.description(rows[at].snippet.text.clone()),
+        None => r,
+    };
     // A row runs on the click, a release over the row it went down on (`SearchList`'s
     // `onClick`); a session's page starts loading on the press so it's there by then.
     let r = if let Action::Session(id) = &e.action {
@@ -293,6 +326,26 @@ fn entry_row(s: &App, p: &Pal, e: &Entry, active: bool, q: &str, w: f32) -> El {
         })
     } else { r };
     r.children(trailing.map(|(el, _)| el))
+}
+
+/// A full text row's line of context (`UI_SMALL`, `text-faint`): what matched in the accent, an
+/// ellipsis where it was cut, "Draft" before a draft's, and the session's other matches as "+n"
+/// at its end.
+pub(crate) fn snippet_line(p: &Pal, r: &Row) -> El {
+    let small = session_view::style::UI_SMALL;
+    let lead = if r.snippet.cut_before { "\u{2026}" } else { "" };
+    let tail = if r.snippet.cut_after { "\u{2026}" } else { "" };
+    let body = format!("{lead}{}{tail}", r.snippet.text);
+    let spans: Vec<Span> = r.snippet.marks.iter().map(|m| Span::new(m.start + lead.len(), m.end + lead.len()).color(p.accent)).collect();
+    let mut line = row().key("snippet").w_full().min_w(0.0).h(16.0).gap(6.0).center_y();
+    if r.kind == opencode_search::fulltext::Kind::Draft {
+        line = line.child(text(t!("rune.search.draft")).key("kind").font(small).color(p.muted));
+    }
+    line = line.child(text(body).key("context").font(small).color(p.faint).spans(spans).truncate().grow(1.0).shrink().min_w(0.0).dir(rune::Direction::Auto));
+    if r.more > 0 {
+        line = line.child(text(format!("+{}", r.more)).key("more").font(small.features("\"tnum\"")).color(p.muted));
+    }
+    line
 }
 
 /// `command-palette-row-text`: the title (`palette-menu-title`, 13 at 530) and, 6 after it, the

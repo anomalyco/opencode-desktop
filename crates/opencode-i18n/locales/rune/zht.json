@@ -113,6 +113,8 @@
   "rune.queue.label": "已排入佇列的提示",
   "rune.review.noGit": "不是 Git 儲存庫",
   "rune.review.scope": "變更檢閱範圍",
+  "rune.search.draft": "草稿",
+  "rune.search.messagesOff": "此裝置尚未搜尋訊息內文",
   "rune.send.disconnected": "未連線到 OpenCode 伺服器",
   "rune.send.failed": "傳送失敗",
   "rune.send.nothingSent": "未傳送任何內容",

@@ -113,6 +113,8 @@
   "rune.queue.label": "Προτροπές σε ουρά",
   "rune.review.noGit": "Δεν είναι αποθετήριο Git",
   "rune.review.scope": "Αλλαγή εύρους επισκόπησης",
+  "rune.search.draft": "Πρόχειρο",
+  "rune.search.messagesOff": "Το κείμενο των μηνυμάτων δεν αναζητείται ακόμη σε αυτή τη συσκευή",
   "rune.send.disconnected": "Δεν υπάρχει σύνδεση με διακομιστή OpenCode",
   "rune.send.failed": "Η αποστολή απέτυχε",
   "rune.send.nothingSent": "Δεν στάλθηκε τίποτα",

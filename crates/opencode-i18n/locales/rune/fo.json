@@ -113,6 +113,8 @@
   "rune.queue.label": "Prompt í bíðirøð",
   "rune.review.noGit": "Ikki ein Git-goymsla",
   "rune.review.scope": "Broyt umfangið av gjøgnumgongdini",
+  "rune.search.draft": "Uppskot",
+  "rune.search.messagesOff": "Boðstekstur verður enn ikki leitaður á hesi eindini",
   "rune.send.disconnected": "Ikki knýtt at einum OpenCode-ambætara",
   "rune.send.failed": "Ikki møguligt at senda",
   "rune.send.nothingSent": "Einki varð sent",

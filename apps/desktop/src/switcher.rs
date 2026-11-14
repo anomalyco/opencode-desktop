@@ -30,7 +30,7 @@ use crate::{App, Route, Source};
 mod poll;
 mod search;
 mod servers;
-mod view;
+pub(crate) mod view;
 pub(crate) use view::{highlighted, relative_time};
 mod band;
 pub(crate) mod search_index;
@@ -604,9 +604,27 @@ impl App {
             }
             return;
         }
+        // A session only its messages matched opens with Find on the query, so what matched
+        // lights in its timeline (a draft's words are in its composer).
+        let q = self.switcher.query().trim().to_owned();
+        let find = match &action {
+            Action::Session(id) => self
+                .fulltext_row(crate::fulltext::Surface::Palette, id)
+                .filter(|(rows, at)| rows[*at].kind != opencode_search::fulltext::Kind::Draft)
+                .filter(|_| self.session(id).is_none_or(|s| !opencode_search::SearchFold::for_query(&q).fold(&s.title).contains(&opencode_search::SearchFold::for_query(&q).fold(&q))))
+                .is_some(),
+            _ => false,
+        };
         self.close_switcher(false);
         match action {
             Action::Session(_) if restore => {}
+            Action::Session(id) if find => {
+                self.open(&id, tx);
+                if let Some(open) = &mut *self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
+                self.open_find(tx);
+                self.find.input.replace_text(q.clone());
+                crate::find::typed(self, tx);
+            }
             Action::Session(id) => {
                 // A session only the search knows joins the list, so its tab has a title.
                 if self.session(&id).is_none()

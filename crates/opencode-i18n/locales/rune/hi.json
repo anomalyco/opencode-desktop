@@ -113,6 +113,8 @@
   "rune.queue.label": "कतारबद्ध प्रॉम्प्ट",
   "rune.review.noGit": "Git रिपॉज़िटरी नहीं है",
   "rune.review.scope": "समीक्षा का दायरा बदलें",
+  "rune.search.draft": "ड्राफ़्ट",
+  "rune.search.messagesOff": "इस डिवाइस पर संदेशों का टेक्स्ट अभी खोजा नहीं जाता",
   "rune.send.disconnected": "किसी OpenCode सर्वर से कनेक्ट नहीं है",
   "rune.send.failed": "भेजा नहीं जा सका",
   "rune.send.nothingSent": "कुछ नहीं भेजा गया",
