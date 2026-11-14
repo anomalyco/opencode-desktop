@@ -73,14 +73,30 @@ impl RowSpec {
     }
 
     fn wrap<S: TimelineHost>(&self, s: &S, el: El) -> El {
-        self.wrap_paced(s, el, false)
+        self.wrap_paced(s, None, el, false)
+    }
+
+    /// A prompt's row: [`Self::wrap`] with its turn heading first, so a reader reaches the
+    /// heading, then the prompt.
+    fn wrap_turn<S: TimelineHost>(&self, s: &S, turn: (usize, usize), text: &str, bubble: El) -> El {
+        // Out of layout and drawing nothing: the row's top line, for a reader's heading keys.
+        // The count and place are in its words, true whether the other turns are mounted or not.
+        let heading = el()
+            .key("turn-heading")
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h(1.0)
+            .role("heading")
+            .level(2)
+            .label(turn_words(turn, text));
+        self.wrap_paced(s, Some(heading), bubble, false)
     }
 
     /// [`Self::wrap`], with `paced` streaming rows climbing at the stream's pace rather than a
     /// line at a time: a reply with a fenced block in it, whose diagram, outline or code can
     /// grow by many lines in one build.
-    fn wrap_paced<S: TimelineHost>(&self, s: &S, el: El, paced: bool) -> El {
-        let row = col().w_full().max_w(crate::style::content_w()).child(el);
+    fn wrap_paced<S: TimelineHost>(&self, s: &S, heading: Option<El>, el: El, paced: bool) -> El {
+        let row = col().w_full().max_w(crate::style::content_w()).children(heading).child(el);
         let k = s.knobs();
         if self.streaming && (paced || crate::line_reveal::reveal(k) == crate::line_reveal::Reveal::HeldRoom) {
             row.streaming(true)
@@ -115,9 +131,9 @@ impl RowSpec {
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
         if !live && turn_footer_text(t, mi, part) {
             let words = words.child(turn_footer(s, p, t, mi, part));
-            return self.wrap_paced(s, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
+            return self.wrap_paced(s, None, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
         }
-        let row = self.wrap_paced(s, words, body.contains("```"));
+        let row = self.wrap_paced(s, None, words, body.contains("```"));
         if footer { row.hover_group_shared(REPLY_HOVER).hover_motion(crate::style::INSTANT, crate::style::INSTANT) } else { row }
     }
 
@@ -192,11 +208,12 @@ impl RowSpec {
                     {
                         let open = s.expanded().contains(&crate::fold::key(id));
                         let meta = prompt_meta(s, t, Some(*message));
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits());
+                        let turn = turn_of(t, *message);
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn);
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
-                            self.wrap(s, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
+                            self.wrap_turn(s, turn, text, user_bubble(s, p, &t.session, id, text, run, 0.0, false, None, &meta))
                         });
                     }
                 }
@@ -209,7 +226,8 @@ impl RowSpec {
                 Message::User { id, text, .. } => {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
                     let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
-                    user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)))
+                    let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)));
+                    return self.wrap_turn(s, turn_of(t, *message), text, bubble);
                 }
                 _ => unreachable!(),
             },
@@ -342,6 +360,34 @@ fn group_hash(messages: &[Message]) -> u64 {
         }
     }
     h.finish()
+}
+
+/// A turn heading's words take at most this many characters of the prompt.
+const TURN_WORDS: usize = 80;
+
+/// What a reader hears of a turn: "Prompt 3 of 12: " and the prompt's first line, cut to
+/// [`TURN_WORDS`] characters. Its heading's name, and what Previous and Next message say.
+pub fn turn_words((turn, turns): (usize, usize), text: &str) -> String {
+    let first: String = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(TURN_WORDS).collect();
+    opencode_i18n::t!("rune.a11y.turn", turn = turn, turns = turns, text = first)
+}
+
+/// Prompt `message`'s place among the transcript's prompts, 1-based, and how many there are,
+/// for its turn heading. Counted once per transcript as it stands (its session, length and last
+/// message), not per row build.
+pub fn turn_of(t: &Transcript, message: usize) -> (usize, usize) {
+    thread_local! {
+        static TURNS: std::cell::RefCell<(Option<(String, usize, Option<String>)>, Vec<usize>)> = const { std::cell::RefCell::new((None, Vec::new())) };
+    }
+    let stamp = (t.session.clone(), t.messages.len(), t.messages.last().map(|m| m.id().to_owned()));
+    TURNS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.0.as_ref() != Some(&stamp) {
+            c.1 = t.messages.iter().enumerate().filter(|(_, m)| matches!(m, Message::User { .. })).map(|(i, _)| i).collect();
+            c.0 = Some(stamp);
+        }
+        (c.1.partition_point(|&i| i < message) + 1, c.1.len())
+    })
 }
 
 thread_local! {

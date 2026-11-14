@@ -165,6 +165,17 @@ fn jump(s: &mut App, sid: &str, current: Option<String>, offset: i32, tx: &mut T
     }
     let (prompt, row) = list[target as usize].clone();
     tx.scroll_into_view_in(scroll, row.clone());
+    // A reader hears where the step landed, the turn's heading's words: the row is mounted by
+    // this scroll, its heading in the tree when the reader looks.
+    if let Some(t) = s.transcripts.get(sid)
+        && let Some((i, text)) = t.messages.iter().enumerate().find_map(|(i, m)| match m {
+            Message::User { id, text, .. } if *id == prompt => Some((i, text.clone())),
+            _ => None,
+        })
+    {
+        let words = session_view::timeline::turn_words(session_view::timeline::turn_of(t, i), &text);
+        s.speech.say(words, rune::LiveRegion::Polite);
+    }
     step(&mut s.message_nav.cursor, Event::Jumped { session: sid, prompt: &prompt, row: &row });
     tx.wake_after(Duration::ZERO);
 }
