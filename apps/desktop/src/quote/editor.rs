@@ -12,6 +12,7 @@ use crate::App;
 use crate::palette::{Elevate as _, Pal};
 use crate::send_failed::SendResult;
 use crate::quote::comment::{self, Anchor, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
+use crate::quote::place::{self, Place, Placing};
 
 /// `quote-comment.tsx` `GAP`, `WIDTH`.
 const GAP: f32 = 8.0;
@@ -38,6 +39,7 @@ pub fn open(s: &mut App, key: u64, anchor: Option<Anchor>) {
     let q = &mut *s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::Opened { key, saved, anchor });
     q.opening.set(0.0);
+    q.placing.set(Placing::Unplaced);
     s.composer.focused = false;
 }
 
@@ -272,14 +274,34 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let opening = s.quote.opening.get();
     let height = measured.unwrap_or(0.0);
     let rect = cx.window_layout(&crate::quote_cards::chip_key(key)).map(shell).unwrap_or([GAP, vh - GAP, 0.0, 0.0]);
-    let source = s.quote.comment.anchor().and_then(|a| (opening > 0.0).then(|| source_position(a, cx, shell, width, opening)).flatten());
-    let left = source.map_or(rect[0], |(_, l)| l).max(GAP).min(vw - width - GAP);
-    // The bottom edge stays where it opened as the draft grows upward.
-    let above = rect[1] - opening - GAP;
-    let desired = source.map_or(if above >= GAP { above } else { rect[1] + rect[3] + GAP }, |(t, _)| t);
-    let bottom = (vh - GAP).min((GAP + opening).max(desired + opening));
-    let available = (bottom - GAP).max(0.0);
-    let top = GAP.max(bottom - height);
+    let header = if s.narrow() { 0.0 } else { session_view::style::HEADER_H };
+    let was = s.quote.placing.get();
+    let spot = s.quote.comment.anchor().and_then(|a| (opening > 0.0).then(|| source_position(a, cx, shell, width, opening, header, was)).flatten());
+    // The bottom edge stays where it opened as the draft grows upward. By its text it's drawn in
+    // the timeline's band, so it goes out under the header or the composer with the text.
+    let (band, left, bottom, available, place) = match spot {
+        Some(spot) => {
+            let bottom = spot.top + opening;
+            ([0.0, spot.band[0], vw, spot.band[1]], spot.left, bottom, (bottom - spot.band[0] - GAP).max(opening), spot.place)
+        }
+        None => {
+            let above = rect[1] - opening - GAP;
+            let desired = if above >= GAP { above } else { rect[1] + rect[3] + GAP };
+            let bottom = (vh - GAP).min((GAP + opening).max(desired + opening));
+            ([0.0, 0.0, vw, vh], rect[0], bottom, (bottom - GAP).max(0.0), Place::Card)
+        }
+    };
+    let left = left.max(GAP).min(vw - width - GAP);
+    let top = if place == Place::Card { GAP.max(bottom - height) } else { bottom - height };
+    let mut next = was;
+    let reduced = cx.is_reduced_motion();
+    for effect in place::step(&mut next, place::Event::Placed { place, at: [left - band[0], top - band[1]] }) {
+        place::AT.with(|at| match effect {
+            place::Effect::Glide(to) if !reduced => at.set(to),
+            place::Effect::Land(to) | place::Effect::Glide(to) => at.snap(to),
+        });
+    }
+    s.quote.placing.set(next);
 
     let preview_lines = if s.quote.comment.anchor().is_some() { 2 } else { 4 };
     let preview = row()
@@ -334,10 +356,17 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     });
     // `MenuScroll` (`quote-comment.tsx:147`).
     let body = session_view::scroller::scroller("quote-comment-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(p, col().w_full().max_h(available), col().w_full().child(shell_col).children(alert));
-    Some(
-        col()
+    let editor = col()
             .key("quote-comment")
-            .absolute(left, top)
+            // Placed by its live offset, which glides when it changes side.
+            .absolute(0.0, 0.0)
+            .live_offset(place::AT.with(|at| at.smooth(place::spring(&s.knobs))))
+            .on_drawn_layout_tx(|s: &mut App, _, tx: &mut Tx| {
+                let mut placing = s.quote.placing.get();
+                place::step(&mut placing, place::Event::Rested);
+                s.quote.placing.set(placing);
+                tx.live_only();
+            })
             .w(width)
             .radius(8.0)
             .fill(p.layer1)
@@ -351,20 +380,45 @@ pub fn view(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
             .preserve_focus_on_press(true)
             .keeps_text_selection()
             .on_press(|_: &mut App| {})
-            .child(body),
-    )
+            .child(body);
+    let layer = el().key("quote-comment-band").absolute(band[0], band[1]);
+    let layer = if place == Place::Card { layer.w_full().h_full() } else { layer.w(band[2]).h(band[3]).clip_rounded(0.0) };
+    Some(layer.child(editor))
+}
+
+/// Where the editor stands by its quote's text: its top and left for its opening height, and
+/// the timeline's band under the header and over the composer, `[top, height]`, it's drawn in.
+struct Spot {
+    top: f32,
+    left: f32,
+    place: Place,
+    band: [f32; 2],
 }
 
 /// `ComposerQuoteAnchor` and `quotePosition`: over a short or backward quote, else under it,
-/// whichever fits in the timeline, centred on its visible lines; pinned to the timeline's
-/// bottom edge when its text has scrolled out of the list.
-fn source_position(a: &Anchor, cx: &mut Cx<App>, shell: impl Fn([f32; 4]) -> [f32; 4], width: f32, height: f32) -> Option<(f32, f32)> {
+/// whichever fits in the timeline, centred on its visible lines. Where neither fits it keeps the
+/// side it's on and scrolls with its text, out of the band when the text goes (Kit, t1564);
+/// while the text's row isn't laid out it waits past the band's edge the text left by.
+fn source_position(a: &Anchor, cx: &mut Cx<App>, shell: impl Fn([f32; 4]) -> [f32; 4], width: f32, height: f32, header: f32, was: Placing) -> Option<Spot> {
     let view = shell(cx.window_layout(&format!("scroll-{}", a.session))?);
     let (b_top, b_bottom, b_left, b_right) = (view[1], view[1] + view[3], view[0], view[0] + view[2]);
-    let pinned = b_bottom - height - GAP;
-    if cx.hover_none() { return Some((pinned, (b_left + b_right - width) * 0.5)); }
+    // The timeline runs on under the composer.
+    let dock = cx.window_layout("dock").map(&shell).map_or(b_bottom, |d| d[1]);
+    let band = [b_top + header, (b_bottom.min(dock) - b_top - header).max(0.0)];
+    let (high, low) = (band[0] + GAP, band[0] + band[1] - GAP - height);
+    let spot = |top: f32, left: f32, place: Place| Some(Spot { top, left, place, band });
+    if cx.hover_none() { return spot(low.max(high), (b_left + b_right - width) * 0.5, Place::Pinned); }
     let centred = |l: f32, r: f32| ((l + r - width) / 2.0).max(b_left + GAP).min((b_left + GAP).max(b_right - width - GAP));
-    let Some(origin) = cx.window_layout(&a.path).map(&shell) else { return Some((pinned, centred(b_left, b_right))) };
+    let preferred = if a.short || a.backward { Place::Above } else { Place::Below };
+    let side = match was.place() {
+        Some(side @ (Place::Above | Place::Below)) => side,
+        _ => preferred,
+    };
+    let Some(origin) = cx.window_layout(&a.path).map(&shell) else {
+        let left = was.at().map_or_else(|| centred(b_left, b_right), |[x, _]| x);
+        let gone_up = was.at().is_some_and(|[_, y]| y < band[1] / 2.0);
+        return spot(if gone_up { band[0] - height * 2.0 - GAP } else { band[0] + band[1] + GAP }, left, side);
+    };
     let rects: Vec<[f32; 4]> = a.rects.iter().map(|r| [origin[0] + r[0], origin[1] + r[1], r[2], r[3]]).collect();
     let (first, last) = (rects.first()?, rects.last()?);
     let (top, bottom) = (first[1], last[1] + last[3]);
@@ -372,13 +426,11 @@ fn source_position(a: &Anchor, cx: &mut Cx<App>, shell: impl Fn([f32; 4]) -> [f3
     let shown: Vec<&[f32; 4]> = if visible.is_empty() { rects.iter().collect() } else { visible };
     let left = shown.iter().map(|r| r[0]).fold(f32::INFINITY, f32::min);
     let right = shown.iter().map(|r| r[0] + r[2]).fold(f32::NEG_INFINITY, f32::max);
-    let above = top - height - GAP;
-    let below = bottom + GAP;
-    let fits_above = above >= b_top + GAP && top <= b_bottom;
-    let fits_below = below + height <= b_bottom - GAP && bottom >= b_top;
-    let sides = if a.short || a.backward { [(fits_above, above), (fits_below, below)] } else { [(fits_below, below), (fits_above, above)] };
-    let y = sides.iter().find(|(fits, _)| *fits).map_or(pinned, |(_, y)| *y);
-    Some((y, centred(left, right)))
+    let y = |place: Place| if place == Place::Above { top - height - GAP } else { bottom + GAP };
+    let other = if preferred == Place::Above { Place::Below } else { Place::Above };
+    let fits = |place: Place| (high..=low).contains(&y(place));
+    let place = [preferred, other].into_iter().find(|&p| fits(p)).unwrap_or(side);
+    spot(y(place), centred(left, right), place)
 }
 
 /// The compact action (`line-comment-v2-submit`, a small `IconButton`): a tick in `ghost-muted`

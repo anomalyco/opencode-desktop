@@ -8,5 +8,7 @@ pub const SIXTH: &str = "ses_fx0006aaaaaaaaaaaaaaaaaa";
 pub const TOUR: &str = "ses_fx0020aaaaaaaaaaaaaaaaaa";
 /// The main session's first prompt.
 pub const PROMPT: &str = "msg_001a162c32a80001fixture00";
+/// The main session's last prompt.
+pub const LAST_PROMPT: &str = "msg_001a162cb67e0006fixture00";
 /// The row key of the main session's reply with the watchdog's code.
 pub const REPLY_ROW: &str = "t-msg_001a162c36130003fixture00-0";
