@@ -68,8 +68,15 @@ pub fn wordmark(s: &App, p: &Pal, width: f32, top: Option<f32>, dark: bool) -> E
             el().key("egg-grip")
                 .absolute(at[0] + gx as f32 * k, at[1] + gy as f32 * k)
                 .size(gw as f32 * k, gh as f32 * k)
-                .a11y_hidden()
-                .focusable(false)
+                // The keyboard's way in, where the pointer's is: in the tab order (Desktop's egg is
+                // the pointer's alone), Enter or Space plays it as a hand would.
+                .role("button")
+                .label(opencode_i18n::t!("rune.egg.play"))
+                .focusable(true)
+                // A pull with the pointer leaves the composer focused, as Desktop's grip (its
+                // `pointerdown` prevents the default) doesn't take focus.
+                .preserve_focus_on_press(true)
+                .on_key(|s: &mut App, ev, tx| super::grip_key(s, ev, tx))
                 .cursor(if held { Cursor::Grabbing } else { Cursor::Grab })
                 .on_drag(move |s: &mut App, d, tx| {
                     let (x, y) = (stage.x + gx * stage.k + f64::from(d.x), stage.y + gy * stage.k + f64::from(d.y));
@@ -94,7 +101,7 @@ fn rest_geo(width: f32, top: Option<f32>, dark: bool) -> Geo {
     let content = (width - 48.0).min(880.0);
     let x = 24.0 + (width - 48.0 - content) / 2.0 + (content - span) / 2.0;
     let y = f64::from(top.unwrap_or(0.0));
-    Geo { panel: [0.0, 0.0, width, 0.0], logo: [x, y, span, span * 42.0 / 234.0], composer: None, wrap: None, radius: 10.0, dark }
+    Geo { panel: [0.0, 0.0, width, 0.0], logo: [x, y, span, span * 42.0 / 234.0], composer: None, wrap: None, radius: f64::from(session_view::composer::RADIUS), dark }
 }
 
 /// The geometry the last layout put on screen, read while the egg is out (each read re-runs

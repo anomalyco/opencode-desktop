@@ -17,7 +17,7 @@ mod ease;
 pub mod gpu;
 pub mod lodger;
 pub mod pins;
-mod rng;
+pub mod rng;
 pub mod sound;
 pub mod view;
 pub mod wordmark;
@@ -39,6 +39,8 @@ pub struct Egg {
     pub live: Option<Box<Live>>,
     /// The page's geometry from its last build, for the palette's way in before the egg is out.
     pub rest: Cell<Geo>,
+    /// The egg has come out once in this run: from then the palette offers its game.
+    pub found: bool,
     /// The window is off screen (minimised, hidden or covered whole): Desktop's frame loops stop
     /// with `requestAnimationFrame`, and so do the egg's.
     pub off_screen: bool,
@@ -306,6 +308,9 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     // in its own frame, before the board's.
     if matches!(live.state, State::Idle { .. }) {
         live.lodger.schedule_blink(live.state, now, &mut live.rng);
+    }
+    if !matches!(live.state, State::Hidden | State::Drag | State::Snap) {
+        s.egg.found = true;
     }
     if live.game.is_some() {
         step_game(live, now, tx);
@@ -639,18 +644,33 @@ rune_register::register!(crate::commands::COMMANDS: crate::commands::Cmd = [
     crate::commands::Cmd::new("egg.play", opencode_i18n::key!("rune.egg.play"), play).when(can_play),
 ]);
 
-/// The draft page shows, and the lodger is in the "e" or perched, with no game yet. Under
-/// Reduce Motion there's no game to play (`wordmark-machine.ts:209`).
+/// The draft page shows, the lodger is in the "e" or perched with no game yet, and the egg has
+/// been found in this run: an Easter egg the palette lists isn't hidden. Under Reduce Motion there's
+/// no game to play (`wordmark-machine.ts:209`).
 fn can_play(s: &App) -> bool {
-    !*s.reduced_motion && matches!(&*s.route, crate::Route::Draft(_)) && s.egg.live.as_deref().is_none_or(|l| l.auto == Auto::Off && matches!(l.state, State::Hidden | State::Idle { .. }))
+    s.egg.found && !*s.reduced_motion && matches!(&*s.route, crate::Route::Draft(_)) && s.egg.live.as_deref().is_none_or(|l| l.auto == Auto::Off && matches!(l.state, State::Hidden | State::Idle { .. }))
 }
 
 fn play(s: &mut App, tx: &mut Tx) {
     let now = tx.clock();
     let live = s.egg.live.get_or_insert_with(|| Box::new(Live::new(now, s.egg.rest.get(), *s.reduced_motion)));
-    live.auto = if live.state == State::Hidden { Auto::Pull(0) } else { Auto::Perch };
+    live.auto = match live.state {
+        State::Hidden => Auto::Pull(0),
+        State::Idle { .. } => Auto::Perch,
+        _ => return,
+    };
     tx.instant();
     tx.wake_after(Duration::ZERO);
+}
+
+/// Enter or Space on the "e" (or the perched lodger): the palette's play.
+pub fn grip_key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    let press = matches!(&ev.key, rune::Key::Enter) || matches!(&ev.key, rune::Key::Text(t) if t == " ");
+    if !press {
+        return false;
+    }
+    play(s, tx);
+    true
 }
 
 /// One step of the palette's play: the pointer's press, move or release for this frame.
@@ -681,6 +701,8 @@ fn drive(s: &mut App, tx: &mut Tx) {
             Auto::Perch
         }
         Auto::Perch => match state {
+            // Under Reduce Motion a drop on the composer plays nothing: the lodger stays perched.
+            State::Idle { .. } if live.lodger.still => Auto::Off,
             State::Idle { .. } => {
                 grab_at(s, geo, perch[0], perch[1], tx);
                 Auto::Carry { from: perch, step: 1 }

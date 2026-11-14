@@ -40,7 +40,7 @@ pub fn animating() -> bool {
 pub type Shape = [f32; 24];
 
 #[repr(C)]
-#[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct SlotUniform {
     pass: [f32; 4],
     clip: [f32; 4],
@@ -101,12 +101,15 @@ struct Layer {
     bind: wgpu::BindGroup,
     quads: Buffer,
     blit_uniform: wgpu::Buffer,
+    blit_written: Option<SlotUniform>,
     blit_bind: wgpu::BindGroup,
 }
 
 /// A slot's uniform and shape buffer.
 struct SlotRes {
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: a write (a staging buffer on D3D12) only when it changes.
+    written: Option<SlotUniform>,
     bind: wgpu::BindGroup,
     shapes: Buffer,
 }
@@ -216,13 +219,16 @@ impl EggGpu {
             _ => None,
         };
         if let Some((n, Some(at))) = layer
-            && let Some(l) = &gpu.layers[n]
+            && let Some(l) = &mut gpu.layers[n]
         {
             // The part of the texture this frame drew.
             let mut u = uniform(at.dest);
             u.flags[1] = l.size[0] as f32 / l.cap[0] as f32;
             u.flags[2] = l.size[1] as f32 / l.cap[1] as f32;
-            queue.write_buffer(&l.blit_uniform, 0, bytemuck::bytes_of(&u));
+            if l.blit_written != Some(u) {
+                queue.write_buffer(&l.blit_uniform, 0, bytemuck::bytes_of(&u));
+                l.blit_written = Some(u);
+            }
             let bind = l.blit_bind.clone();
             pass.set_pipeline(gpu.blit_pipe(device, site.format));
             pass.set_bind_group(0, &bind, &[]);
@@ -231,12 +237,16 @@ impl EggGpu {
         if site.mark == FRONT {
             return;
         }
-        let Some(res) = gpu.slots.get(&site.mark) else { return };
+        let Some(res) = gpu.slots.get_mut(&site.mark) else { return };
         let Some(buf) = &res.shapes.buf else { return };
         if res.shapes.count == 0 {
             return;
         }
-        queue.write_buffer(&res.uniform, 0, bytemuck::bytes_of(&uniform([0.0; 4])));
+        let u = uniform([0.0; 4]);
+        if res.written != Some(u) {
+            queue.write_buffer(&res.uniform, 0, bytemuck::bytes_of(&u));
+            res.written = Some(u);
+        }
         let count = res.shapes.count;
         let bind = res.bind.clone();
         let buf = buf.clone();
@@ -287,7 +297,7 @@ impl Gpu {
             let dummy = device.create_texture(&wgpu::TextureDescriptor { label: Some("egg none"), size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::TEXTURE_BINDING, view_formats: &[] });
             let view = dummy.create_view(&wgpu::TextureViewDescriptor::default());
             let bind = slot_bind(device, layout, &uniform, &view, sampler);
-            SlotRes { uniform, bind, shapes: Buffer::new() }
+            SlotRes { uniform, written: None, bind, shapes: Buffer::new() }
         })
     }
 
@@ -347,7 +357,7 @@ impl Gpu {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("egg layer"), layout: &self.layer_layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() }] });
         let blit_uniform = device.create_buffer(&wgpu::BufferDescriptor { label: Some("egg blit"), size: std::mem::size_of::<SlotUniform>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let blit_bind = slot_bind(device, &self.slot_layout, &blit_uniform, &view, &self.sampler);
-        Layer { view, size: cap, cap, uniform, bind, quads: Buffer::new(), blit_uniform, blit_bind }
+        Layer { view, size: cap, cap, uniform, bind, quads: Buffer::new(), blit_uniform, blit_written: None, blit_bind }
     }
 
     fn shape_pipe(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {

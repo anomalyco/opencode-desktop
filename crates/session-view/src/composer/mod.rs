@@ -51,6 +51,10 @@ pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: 
     }
 }
 
+/// The composer box's corner radius: Desktop's form is `rounded-xl`, 10 px (`editor.tsx:254`).
+/// The new-session Easter egg's paddle grows out of the composer from this radius.
+pub const RADIUS: f32 = 10.0;
+
 /// Renders the shared composer in its bottom dock (`12pt` side and bottom inset, matching
 /// `jump-lane` so the timeline runs right down to its top edge).
 pub fn dock<S: ComposerHost>(s: &S, p: &Pal) -> El {
@@ -441,7 +445,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .max_w(crate::style::dock_w())
         .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
         // `rounded-xl` (`editor.tsx:254`): the app's `--radius-xl` is 0.625rem (`theme.css:50`).
-        .corners([10.0; 4])
+        .corners([RADIUS; 4])
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.

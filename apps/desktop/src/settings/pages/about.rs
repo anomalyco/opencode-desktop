@@ -136,15 +136,17 @@ const TICK: f64 = 0.075;
 pub struct Wordmark {
     pub letters: [u8; 8],
     scramble: Scramble,
-    seed: u64,
+    /// The last poll's clock: a page opens in an input handler, which runs after its frame's
+    /// poll, so this is when it opened (Desktop's effect starts its timers there and then).
+    clock: f64,
 }
 
-/// The scramble's phase: spelled, opened and waiting for its first poll, or running from
-/// `start` (the app's clock) with each letter's settle tick and the last tick drawn.
+/// The scramble's phase: spelled, opened at `since` and waiting for its first poll, or running
+/// from `start` (the app's clock) with each letter's settle tick and the last tick drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Scramble {
     Still,
-    Pending,
+    Pending { since: f64 },
     Running { start: f64, settles: [u8; 8], drawn: u8 },
 }
 
@@ -164,7 +166,7 @@ struct Effects {
 
 impl Default for Wordmark {
     fn default() -> Self {
-        Wordmark { letters: TARGET, scramble: Scramble::Still, seed: 0x9E37_79B9_7F4A_7C15 }
+        Wordmark { letters: TARGET, scramble: Scramble::Still, clock: 0.0 }
     }
 }
 
@@ -176,34 +178,40 @@ impl Wordmark {
     fn step(&mut self, event: Event) -> Effects {
         match (self.scramble, event) {
             (_, Event::Active(active)) => {
-                self.scramble = if active { Scramble::Pending } else { Scramble::Still };
+                self.scramble = if active { Scramble::Pending { since: self.clock } } else { Scramble::Still };
                 self.letters = TARGET;
                 Effects::default()
             }
             (Scramble::Still, Event::Poll { .. }) => Effects::default(),
-            (Scramble::Pending, Event::Poll { reduced: true, .. }) => {
+            (Scramble::Pending { .. }, Event::Poll { reduced: true, .. }) => {
                 self.scramble = Scramble::Still;
                 Effects::default()
             }
-            (Scramble::Pending, Event::Poll { now, .. }) => {
-                self.seed ^= now.to_bits() | 1;
-                let mut settles = [0; 8];
-                for i in 0..8 {
-                    self.letters[i] = self.random(CHOICES);
-                    settles[i] = 6 + self.random(8);
-                }
-                self.scramble = Scramble::Running { start: now, settles, drawn: 0 };
-                Effects { drew: true, wake: Some(now + TICK) }
+            (Scramble::Pending { since }, Event::Poll { now, .. }) => {
+                // Desktop's order: every letter's start, then every letter's settle tick.
+                let mut random = random(now);
+                let starts: [u8; 8] = std::array::from_fn(|_| pick(&mut random, CHOICES));
+                let settles: [u8; 8] = std::array::from_fn(|_| 6 + pick(&mut random, 8));
+                self.letters = starts;
+                self.scramble = Scramble::Running { start: since, settles, drawn: 0 };
+                // A first poll that comes late catches up on the ticks already due.
+                let fx = self.step(Event::Poll { now, reduced: false });
+                Effects { drew: true, wake: fx.wake }
             }
             (Scramble::Running { start, settles, drawn }, Event::Poll { now, .. }) => {
-                let tick = ((now - start) / TICK).floor().clamp(0.0, 255.0) as u8;
+                // Desktop's timer for a tick fires on the frame its time is due, exactly on it too.
+                let tick = ((now - start + 1e-9) / TICK).floor().clamp(0.0, 255.0) as u8;
                 let last = settles.iter().copied().max().unwrap_or(0);
-                let drew = tick > drawn;
-                if drew {
+                let tick = tick.min(last);
+                // Each tick is a timer of Desktop's that draws for the letters still moving, so a
+                // frame that spans two runs both.
+                let mut random = random(now);
+                for at in drawn + 1..=tick {
                     for i in 0..8 {
-                        self.letters[i] = if tick >= settles[i] { TARGET[i] } else { self.random(CHOICES) };
+                        self.letters[i] = if at >= settles[i] { TARGET[i] } else { pick(&mut random, CHOICES) };
                     }
                 }
+                let drew = tick > drawn;
                 if tick >= last {
                     self.scramble = Scramble::Still;
                     return Effects { drew, wake: None };
@@ -213,23 +221,31 @@ impl Wordmark {
             }
         }
     }
+}
 
-    fn random(&mut self, below: u8) -> u8 {
-        // xorshift64*: a scramble needs no better.
-        self.seed ^= self.seed >> 12;
-        self.seed ^= self.seed << 25;
-        self.seed ^= self.seed >> 27;
-        (self.seed.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) as u8 % below
-    }
+/// `Math.random`: the egg's stream, Desktop's page having one.
+fn random(now: f64) -> crate::egg::rng::Rng {
+    crate::egg::rng::Rng::new(now.to_bits())
+}
+
+/// `Math.floor(Math.random() * below)`.
+fn pick(random: &mut crate::egg::rng::Rng, below: u8) -> u8 {
+    (random.next() * f64::from(below)).floor() as u8
 }
 
 /// Runs the scramble on the app's clock: an opening's first letters, then each tick's.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let reduced = *s.reduced_motion;
-    if s.settings_pages.wordmark.scramble == Scramble::Still {
+    let w = &mut s.settings_pages.wordmark;
+    if w.scramble == Scramble::Still {
+        w.clock = now;
         return false;
     }
-    let fx = s.settings_pages.wordmark.step(Event::Poll { now, reduced });
+    let fx = w.step(Event::Poll { now, reduced });
+    w.clock = now;
+    if tracing() {
+        trace(w, now);
+    }
     if fx.drew {
         tx.instant();
     }
@@ -238,10 +254,34 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     }
     fx.drew
 }
+
+/// `--about-trace <file>` (proof runs): the letters at each poll while they move.
+fn tracing() -> bool {
+    thread_local! {
+        static ON: bool = crate::arg("--about-trace").is_some();
+    }
+    ON.with(|o| *o)
+}
+
+fn trace(w: &Wordmark, now: f64) {
+    use std::io::Write;
+    thread_local! {
+        static OUT: std::cell::RefCell<Option<std::fs::File>> =
+            std::cell::RefCell::new(crate::arg("--about-trace").and_then(|p| std::fs::File::create(p).ok()));
+    }
+    const NAMES: [char; 6] = ['o', 'p', 'e', 'n', 'c', 'd'];
+    let letters: String = w.letters.iter().map(|&l| NAMES[usize::from(l)]).collect();
+    OUT.with_borrow_mut(|f| {
+        if let Some(f) = f {
+            let _ = writeln!(f, "{{\"t\":{now:.6},\"letters\":\"{letters}\"}}");
+        }
+    });
+}
 /// The wordmark spelling `letters`, `k` points a unit of its 234 by 42 grid, each letter 30 on.
 fn wordmark(letters: &[u8; 8], k: f32, stem: rune::Color, weak: rune::Color) -> El {
-    // A picture: right to left doesn't mirror it.
-    let mut logo = el().size(234.0 * k, 42.0 * k).dir(rune::Direction::Ltr);
+    // A picture: right to left doesn't mirror it. Desktop's is an SVG, whose edges fall between
+    // pixels at this scale (178/234) and are anti-aliased there, not snapped.
+    let mut logo = el().size(234.0 * k, 42.0 * k).dir(rune::Direction::Ltr).pixel_snap(false);
     for (i, &letter) in letters.iter().enumerate() {
         for &(x, y, w, h, shadow) in LETTERS[usize::from(letter) % LETTERS.len()] {
             logo = logo.child(el().key(format!("l{i}-{x}-{y}-{w}-{h}")).absolute((x + i as f32 * 30.0) * k, y * k).size(w * k, h * k).fill(if shadow { weak } else { stem }));
