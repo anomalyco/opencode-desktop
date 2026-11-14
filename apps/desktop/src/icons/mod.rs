@@ -12,7 +12,8 @@ use crate::palette::Pal;
 mod stories;
 
 /// How project icons catch the light (`project_icon::Finish`), for Kit to pick one.
-pub const FINISH: Knob = Knob::choice("Icon finish", &Finish::NAMES, 0).about("How project icons catch the light").hints(&[
+/// Flat by default, Desktop's own tile (`project-avatar.css`); Candy and Glass stay a pick away.
+pub const FINISH: Knob = Knob::choice("Icon finish", &Finish::NAMES, 2).about("How project icons catch the light").hints(&[
     "Glossy top band, deep body, shadow",
     "iOS's soft highlight and fading edge",
     "Desktop's flat tile, as before",
