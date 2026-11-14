@@ -68,10 +68,7 @@ pub fn running_for<'a>(s: &'a App, id: &str) -> Vec<&'a Shell> {
     let held: Vec<(Option<&str>, &str)> = s
         .transcripts
         .get(id)
-        .and_then(|t| t.messages.iter().rev().find_map(|m| match m {
-            Message::Assistant(a) if a.completed.is_none() => Some(a),
-            _ => None,
-        }))
+        .and_then(|t| t.open_reply())
         .map_or_else(Vec::new, |a| a.parts.iter().filter_map(|p| match p {
             Part::Tool { name, status: ToolStatus::Running, input, metadata, .. } if name == "shell" => Some((metadata["shellID"].as_str(), input["command"].as_str().unwrap_or(""))),
             _ => None,

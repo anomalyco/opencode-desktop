@@ -59,12 +59,35 @@ fn sessions(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     lazy_signals(lua, vmx, t, "Sessions", &["Changed", "RoutedChanged"])
 }
 
+thread_local! {
+    /// Each session's step with usage, by its place, and what it was read from: the transcripts'
+    /// and the context windows' versions and the staged revert. Every poll asks; a long session
+    /// without usage would be read through each time.
+    static LAST_USAGE: std::cell::RefCell<std::collections::HashMap<String, ((u64, u64, Option<String>), Option<usize>)>> = Default::default();
+}
+
+/// Session `id`'s step whose tokens fill the context window (`session_view::usage`).
+fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::Assistant, &'a opencode_kit::model::Tokens)> {
+    let info = app.session(id)?;
+    let t = app.transcripts.get(&info.id)?;
+    let key = (rune::Tracked::version(&app.transcripts), rune::Tracked::version(&app.context_windows), info.revert.clone());
+    let at = LAST_USAGE.with_borrow_mut(|kept| match kept.get(id) {
+        Some((k, at)) if *k == key => *at,
+        _ => {
+            let at = session_view::usage::last_with_usage_at(t, info.revert.as_deref(), |m| app.holds(id, m));
+            kept.insert(id.to_owned(), (key, at));
+            at
+        }
+    });
+    session_view::usage::at(t, at?)
+}
+
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
 pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
     let t = app.transcripts.get(&info.id);
-    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref(), |m| app.holds(id, m)));
+    let last = last_usage(app, id);
     let cost = app.session_cost(id);
     let messages = t.map(|t| t.messages.len());
     let usage = last.map(|(_, k)| (k.input, k.output, k.reasoning, k.cache_read, k.cache_write));
@@ -131,7 +154,7 @@ fn other_server_session(lua: &Lua, app: &App, tab: &crate::tabs::Tab) -> mlua::R
 fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let Some(info) = app.session(id) else { return Ok(Value::Nil) };
     let t = app.transcripts.get(&info.id);
-    let last = t.and_then(|t| session_view::usage::last_with_usage(t, info.revert.as_deref(), |m| app.holds(id, m)));
+    let last = last_usage(app, id);
     let busy = app.subtree_running(&info.id);
     let version = (session_version(app, id) >> 11) as f64;
     let cost = app.session_cost(id);

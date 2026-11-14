@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use rune::{El, KeyEvent, Tx, row, text};
 
 use opencode_kit::client::Write;
-use opencode_kit::model::{Message, Part, ToolStatus};
+use opencode_kit::model::{Part, ToolStatus};
 
 use crate::palette::Pal;
 use crate::view::UI_MED;
@@ -117,10 +117,7 @@ fn blocking_calls(s: &App, session: &str) -> Vec<(String, Option<i64>)> {
         return Vec::new();
     }
     let Some(t) = s.transcripts.get(session) else { return Vec::new() };
-    let reply = t.messages.iter().rev().find_map(|m| match m {
-        Message::Assistant(a) if a.completed.is_none() => Some(a),
-        _ => None,
-    });
+    let reply = t.open_reply();
     reply.map_or_else(Vec::new, |a| {
         a.parts.iter().filter_map(|p| match p {
             Part::Tool { id, name, status: ToolStatus::Running, metadata, .. } if name == "shell" || name == "subagent" => Some((id.clone(), opencode_kit::model::tool_ran(metadata))),

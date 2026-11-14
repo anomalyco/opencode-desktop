@@ -502,6 +502,17 @@ impl Transcript {
             || matches!(last, Some(Message::User { .. }))
     }
 
+    /// The latest assistant step while it's unfinished: the reply whose calls are running. Only
+    /// the newest step can be; an older one left without its end (a stream that dropped) isn't
+    /// the one at work. It stops at the newest assistant step, so it reads a few messages at any
+    /// transcript size.
+    pub fn open_reply(&self) -> Option<&Assistant> {
+        self.messages.iter().rev().find_map(|m| match m {
+            Message::Assistant(a) => Some(a),
+            _ => None,
+        }).filter(|a| a.completed.is_none())
+    }
+
     /// What a stream that drops now leaves mid-text: the assistant steps still open, and
     /// ([`UNSEEN`]) any step the drop hides the start of, until the next page read says.
     pub fn open_steps(&self) -> HashSet<String> {

@@ -339,7 +339,10 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
         Message::Assistant(a) if a.created > 0 => Some(a.created),
         _ => None,
     });
-    let done = t.messages[prompt.map_or(0, |i| i + 1)..].iter().rev().find_map(|m| match m {
+    // The turn runs to the next prompt: its own last step's end, not the session's.
+    let from = prompt.map_or(0, |i| i + 1);
+    let end = t.messages[message..].iter().position(|m| matches!(m, Message::User { .. })).map_or(t.messages.len(), |n| message + n);
+    let done = t.messages[from..end].iter().rev().find_map(|m| match m {
         Message::Assistant(a) => a.completed,
         _ => None,
     });
@@ -360,7 +363,7 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
 /// The turn's tail: Working while it runs (unless it waits on a question or permission, `asking`,
 /// as Desktop's `showWorking`), then the reply's Copy footer, with room of its own over the
 /// timeline's tail when it ends the timeline (`last`).
-pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, last: bool, session: &str, message: &Message) -> El {
+pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -403,8 +406,10 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
     let interrupted = !busy && (matches!(message, Message::Assistant(a) if a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind))) || s.is_session_stopped(session));
     // "Model · 1s" after Copy, 4 apart, the separator 4 from each item; a variant follows its
     // model with no separator.
+    // The message's place, from its row (`index`): not a walk of the transcript for each row.
+    let at = |t: &Transcript| t.messages.get(index).filter(|m| m.id() == message.id()).map(|_| index).or_else(|| t.messages.iter().position(|m| m.id() == message.id()));
     let items = (!busy && has_text)
-        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).map(|i| reply_meta(s, t, i)).unwrap_or_default()))
+        .then(|| s.with_transcript(session, |t| at(t).map(|i| reply_meta(s, t, i)).unwrap_or_default()))
         .flatten()
         .unwrap_or_default();
     let meta = |items: Vec<(String, bool)>| {
@@ -420,7 +425,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
     // The Sources experiment's chip leads a finished turn's footer that searched the web: it
     // stays in view, 16 under the reply, and Copy follows it 8 on (`text-part-footer`).
     let sources = (!busy && has_text && s.knobs().get(&crate::knobs::SOURCES_ENABLED) > 0.5)
-        .then(|| s.with_transcript(session, |t| t.messages.iter().position(|m| m.id() == message.id()).and_then(|i| crate::sources_chip::of(t, i))).flatten())
+        .then(|| s.with_transcript(session, |t| at(t).and_then(|i| crate::sources_chip::of(t, i))).flatten())
         .flatten();
     // A finished reply's footer (`text-part-copy-wrapper`: 8 under it, 20 tall) sits over the
     // Working lane, which Desktop's timeline tail keeps empty under it (`virtualizer.tsx:152`).

@@ -280,7 +280,7 @@ impl RowSpec {
             RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
-            RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, &t.messages[*message])),
+            RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, *message, &t.messages[*message])),
             RowContent::UserImages { id, pt } => attachments::view(s, p, id).map_or_else(col, |a| col().w_full().child(a)).pt(*pt),
             RowContent::ToolImages { start, end, tool } => {
                 let files = t.messages[*start..*end].iter().find_map(|m| match m {
