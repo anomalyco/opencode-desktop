@@ -17,7 +17,8 @@
 use rusqlite::Connection;
 
 /// Bumped with every migration added below.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const BASE_SCHEMA: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// `user_version` = `SCHEMA_VERSION << 16 | flags`: one header field answers, before any table
 /// is read, what the open needs to know.
@@ -104,5 +105,7 @@ pub fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
 }
 
 pub fn set_flags(conn: &Connection, flags: u32) -> rusqlite::Result<()> {
-    conn.execute_batch(&format!("PRAGMA user_version = {}", (SCHEMA_VERSION << FLAG_BITS) | flags))
+    // An import changes only flags. In particular it must not skip a deferred migration.
+    let version = (user_version(conn)? >> FLAG_BITS).max(BASE_SCHEMA);
+    conn.pragma_update(None, "user_version", (version << FLAG_BITS) | flags)
 }

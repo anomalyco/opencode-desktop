@@ -53,10 +53,15 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
             w.push(Kind::State, name, key, value.as_bytes());
         }
     }
+    let revs = table_exists(tx, "draft_rev")?;
     for (ns, tab) in &recent {
         let key = format!("{ns}:draft:{tab}");
         if let Some(text) = super::sql::read_document(tx, &key)?.filter(|t| t.len() <= DOC_CAP) {
             w.push(Kind::Document, &key, "", text.as_bytes());
+        }
+        if revs {
+            let rev: i64 = tx.prepare_cached("SELECT rev FROM draft_rev WHERE key = ?1")?.query_row([&key], |r| r.get(0)).optional()?.unwrap_or(0);
+            w.push(Kind::DraftRev, &key, "", &rev.to_le_bytes());
         }
         if let Some((server, session)) = session_of(tab) {
             let row: Option<(i64, Vec<u8>)> = tx.prepare_cached("SELECT updated_at, data FROM session_preview WHERE server = ?1 AND session = ?2")?.query_row([server, session], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
@@ -88,6 +93,9 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     for (id, sha) in &trust {
         w.push(Kind::Trust, id, "", sha.as_bytes());
     }
+    if let Some(loc) = super::journal::location(tx)? {
+        w.push(Kind::Journal, "", "", &loc.encode());
+    }
     let shown: Vec<&str> = recent.iter().filter_map(|(_, tab)| Some(session_of(tab)?.1)).collect();
     let covered = super::schema::user_version(tx)? & super::schema::FLAG_PLUGINS != 0;
     let rows = crate::plugins::native::slice_rows(tx, &shown)?;
@@ -98,6 +106,33 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     // application_id is a signed 32-bit header field: the same bits.
     tx.execute_batch(&format!("PRAGMA application_id = {}", generation as i32))?;
     Ok(bytes.len())
+}
+
+fn table_exists(c: &Connection, name: &str) -> rusqlite::Result<bool> {
+    c.prepare_cached("SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)")?.query_row([name], |r| r.get(0))
+}
+
+impl BootPacket {
+    /// Where the draft journal is, as the record names it.
+    pub(crate) fn journal_location(&self) -> Option<super::journal::Location> {
+        self.of(Kind::Journal).next().and_then(|e| super::journal::Location::decode(&self.bytes_of(e)))
+    }
+
+    /// A shown draft's revision in the database; none when the record doesn't say.
+    pub(crate) fn draft_rev(&self, key: &str) -> Option<u64> {
+        self.of(Kind::DraftRev).find(|e| self.str_of(&e.a) == key).and_then(|e| Some(i64::from_le_bytes(self.bytes_of(e).try_into().ok()?) as u64))
+    }
+
+    /// The drafts the journal holds that are newer than what the record shows: the first frame
+    /// shows them. Only drafts the record knows the revision of (shown ones); stage B decides
+    /// the rest against the database.
+    pub(crate) fn apply_journal(&mut self, recovered: &[super::journal::Recovered]) {
+        for r in recovered {
+            if self.draft_rev(&r.key).is_some_and(|rev| r.seq > rev) {
+                self.overlay.push((r.key.clone(), r.text.clone()));
+            }
+        }
+    }
 }
 
 /// The record from SQLite (stage A's fallback, and stage B).
@@ -144,7 +179,7 @@ pub fn read_raw(db: &Path) -> FastBoot {
     let usable = page_size - usize::from(first[20]);
     let version = u32::from_be_bytes([first[60], first[61], first[62], first[63]]);
     let generation = u32::from_be_bytes([first[68], first[69], first[70], first[71]]);
-    if version >> FLAG_BITS != SCHEMA_VERSION || version & FLAG_BOOT_PAGE2 == 0 {
+    if !(super::schema::BASE_SCHEMA..=SCHEMA_VERSION).contains(&(version >> FLAG_BITS)) || version & FLAG_BOOT_PAGE2 == 0 {
         return FastBoot::UseSqlite("boot isn't on page 2");
     }
     // Pages smaller than 64 KiB: page 2 is already in the first read.
@@ -183,7 +218,7 @@ fn wal_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
-fn read_some(file: &std::fs::File, buf: &mut [u8], offset: u64) -> Option<usize> {
+pub(super) fn read_some(file: &std::fs::File, buf: &mut [u8], offset: u64) -> Option<usize> {
     #[cfg(windows)]
     use std::os::windows::fs::FileExt;
     #[cfg(unix)]
@@ -262,7 +297,7 @@ fn data_column(record: &[u8]) -> Option<(usize, usize)> {
 }
 
 /// How much of a table leaf cell's payload stays on the page (fileformat2 §1.6).
-fn local_size(payload: usize, usable: usize) -> usize {
+pub(super) fn local_size(payload: usize, usable: usize) -> usize {
     let max = usable - 35;
     if payload <= max {
         return payload;
@@ -287,7 +322,7 @@ fn serial_len(t: u64) -> Option<usize> {
 }
 
 /// A big-endian base-128 varint (up to 9 bytes): its value and length.
-fn varint(b: &[u8]) -> Option<(u64, usize)> {
+pub(super) fn varint(b: &[u8]) -> Option<(u64, usize)> {
     let mut v: u64 = 0;
     for (i, byte) in b.iter().take(9).enumerate() {
         if i == 8 {

@@ -208,6 +208,11 @@ impl App {
         // What was read is what's stored: nothing is written until something changes.
         self.restore.written = Written::default();
         self.note_written();
+        // `side` is stored as it was read (a profile from before `side.rest` has every session's
+        // panels in it): once hydrated, the split is written (`hydrate_restore`).
+        if let Some(side) = &doc.side {
+            self.restore.written.keys.insert("side", side.clone());
+        }
         self.restore.stamp = Some(self.restore_stamp());
         if crate::storage::is_ready() {
             self.hydrate_restore();
@@ -281,6 +286,10 @@ impl App {
             *self.closed = closed;
             self.restore.written.keys.insert("tabs.closed", closed_json(&self.closed));
             self.restore.written.keys.insert("rune.closedDrafts", self.closed.drafts_json());
+            self.side.restore_rest(&raw["side.rest"]);
+            self.restore.written.keys.insert("side.rest", raw["side.rest"].clone());
+            // The next poll compares every row with what's stored (writes only what differs).
+            self.restore.stamp = None;
         }
         let (ready, pending) = crate::windows::store::drafts(&self.window);
         self.take_drafts(&ready);
@@ -382,10 +391,21 @@ impl App {
         true
     }
 
-    /// The window's own rows (Desktop's `opencode.window.<id>.dat` keys) as they stand.
-    fn window_keys(&self) -> [(&'static str, Value); 5] {
+    /// The window's own rows (Desktop's `opencode.window.<id>.dat` keys) as they stand. The side
+    /// panels of sessions with a tab open here are `side` (in the boot record, the first frame
+    /// draws them); every other session's are `side.rest`, read after it, so the record doesn't
+    /// grow with every session ever opened (3,600 sessions made it 1.2 MB).
+    fn window_keys(&self) -> [(&'static str, Value); 6] {
         let recent = self.current_tab().and_then(|uid| self.tab(&uid)).map(|t| json!({ "key": t.key().encode() }));
-        [("lastActiveUrl", json!(page_href(self))), ("tabs.recent", recent.unwrap_or(Value::Null)), ("side", self.side.to_json()), ("tabs.closed", closed_json(&self.closed)), ("rune.closedDrafts", self.closed.drafts_json())]
+        let hot = |k: &str| self.tabs.iter().any(|t| t.id == k) || matches!(&*self.route, Route::Session { id, .. } if id == k);
+        [
+            ("lastActiveUrl", json!(page_href(self))),
+            ("tabs.recent", recent.unwrap_or(Value::Null)),
+            ("side", self.side.to_json_where(hot)),
+            ("side.rest", self.side.to_json_where(|k| !hot(k))),
+            ("tabs.closed", closed_json(&self.closed)),
+            ("rune.closedDrafts", self.closed.drafts_json()),
+        ]
     }
 
     /// Every window's rows this one shares (Desktop's global `layout` sidebar, `sidebar.inbox`,
@@ -489,8 +509,9 @@ impl App {
         }
         let hydrated = self.hydrated();
         for (key, value) in self.window_keys() {
-            // The closed tabs on disk aren't in memory until the window is hydrated.
-            if (matches!(key, "tabs.closed" | "rune.closedDrafts") && !hydrated) || self.restore.written.keys.get(key) == Some(&value) {
+            // The closed tabs and the other sessions' panels on disk aren't in memory until the
+            // window is hydrated.
+            if (matches!(key, "tabs.closed" | "rune.closedDrafts" | "side.rest") && !hydrated) || self.restore.written.keys.get(key) == Some(&value) {
                 continue;
             }
             crate::windows::store::save(&self.window, key, &value);

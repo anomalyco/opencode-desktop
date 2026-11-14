@@ -37,6 +37,19 @@ pub fn encode(messages: &[Message]) -> Vec<u8> {
 /// Decodes what [`encode`] wrote, putting each user message's files, path cards, comments,
 /// mentions and send time back where the timeline reads them. None for other bytes.
 pub fn decode(bytes: &[u8]) -> Option<Vec<Message>> {
+    read(bytes, Extras::Restore)
+}
+
+/// Reads message bodies for an offline index. Unlike restoring a timeline, this never
+/// populates global attachment, path or comment stores for sessions nobody opened.
+pub fn decode_for_search(bytes: &[u8]) -> Option<Vec<Message>> {
+    read(bytes, Extras::Skip)
+}
+
+#[derive(Clone, Copy)]
+enum Extras { Restore, Skip }
+
+fn read(bytes: &[u8], extras: Extras) -> Option<Vec<Message>> {
     let mut r = R { b: bytes, at: 0 };
     if r.u8()? != VERSION {
         return None;
@@ -44,7 +57,7 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<Message>> {
     let n = r.n()?;
     let mut out = Vec::with_capacity(n.min(4096));
     for _ in 0..n {
-        out.push(read_message(&mut r)?);
+        out.push(read_message(&mut r, extras)?);
     }
     (r.at == bytes.len()).then_some(out)
 }
@@ -189,11 +202,11 @@ fn message(w: &mut W, m: &Message) {
     }
 }
 
-fn read_message(r: &mut R<'_>) -> Option<Message> {
+fn read_message(r: &mut R<'_>, extras: Extras) -> Option<Message> {
     Some(match r.u8()? {
         0 => {
             let (id, text) = (r.s()?, r.s()?);
-            read_user_extras(r, &id)?;
+            match extras { Extras::Restore => read_user_extras(r, &id)?, Extras::Skip => skip_extras(r)? }
             Message::User { id, text }
         }
         1 => Message::Assistant(read_assistant(r)?),
@@ -243,6 +256,15 @@ fn user_extras(w: &mut W, id: &str) {
         });
     }
     w.oi(super::user_created(id));
+}
+
+fn skip_extras(r: &mut R<'_>) -> Option<()> {
+    for _ in 0..r.n()? { r.raw()?; r.raw()?; r.raw()?; if r.b()? { r.raw()?; } }
+    for _ in 0..r.n()? { r.raw()?; r.raw()?; r.raw()?; }
+    r.raw()?;
+    for _ in 0..r.n()? { r.n()?; r.n()?; r.u8()?; }
+    r.oi()?;
+    Some(())
 }
 
 fn read_user_extras(r: &mut R<'_>, id: &str) -> Option<()> {

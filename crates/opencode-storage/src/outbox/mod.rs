@@ -15,11 +15,13 @@ use crate::cache::OutboxCache;
 use crate::{Cmd, Done, Loaded, OutboxRow, Storage, StorageError};
 
 /// A prompt's first row, the blobs it names (id, bytes), and the documents removed in the same
-/// transaction (the composer draft the prompt's words left: they're the row's now).
+/// transaction (the composer draft the prompt's words left: they're the row's now), each with
+/// the draft journal's revision of the words it held ([`crate::journal::latest`]): the row
+/// settles them, so a relaunch doesn't bring words that were sent back into the composer.
 pub struct OutboxPut {
     pub row: OutboxRow,
     pub blobs: Vec<(String, Arc<[u8]>)>,
-    pub clear_documents: Vec<String>,
+    pub clear_documents: Vec<(String, u64)>,
 }
 
 /// Builds a prompt's first row, on the storage thread.

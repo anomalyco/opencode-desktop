@@ -6,7 +6,9 @@
 mod boot;
 pub mod boot_record;
 pub mod import;
+pub mod journal;
 mod schema;
+pub mod search;
 pub mod seed;
 pub(crate) mod sql;
 mod writer;
@@ -14,6 +16,7 @@ mod writer;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 pub use boot::{BootReport, Opening};
@@ -137,6 +140,7 @@ pub(crate) enum Writer {
 /// wake-up of its own; anything else, or a write to a buffer with no timer armed, wakes it at once.
 #[derive(Default)]
 pub(crate) struct Queue {
+    queries: search::query::Lane,
     pub(crate) cmds: Vec<Cmd>,
     /// The buffers (crate::BUFFER_*) whose timer is armed.
     pub(crate) armed: u8,
@@ -153,15 +157,16 @@ pub(crate) fn lock_queue(q: &SharedQueue) -> std::sync::MutexGuard<'_, Queue> {
 pub(crate) struct Backend {
     writer: Mutex<Writer>,
     queue: SharedQueue,
+    urgent: Arc<AtomicU64>,
 }
 
 impl Backend {
     pub(crate) fn memory() -> Backend {
-        Backend { writer: Mutex::new(Writer::Off), queue: SharedQueue::default() }
+        Backend { writer: Mutex::new(Writer::Off), queue: SharedQueue::default(), urgent: Arc::default() }
     }
 
     pub(crate) fn parked(w: writer::Writer) -> Backend {
-        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default() }
+        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Writer> {
@@ -175,10 +180,11 @@ impl Backend {
             Writer::Parked(parked) => {
                 let (tx, rx) = mpsc::channel();
                 let queue = self.queue.clone();
+                let urgent = self.urgent.clone();
                 // Below normal: a commit the UI thread asked for (`commit_soon`) never preempts it.
                 let spawned = std::thread::Builder::new().name("opencode-storage".into()).spawn(move || {
                     boot::priority(-1);
-                    parked.run(rx, queue)
+                    parked.run(rx, queue, urgent)
                 });
                 match spawned {
                     Ok(join) => {
@@ -218,6 +224,7 @@ impl Backend {
     /// Queues `cmd`; true when the writer must be woken for it.
     fn enqueue(&self, cmd: Cmd) -> bool {
         let mut q = lock_queue(&self.queue);
+        self.urgent.fetch_add(1, Ordering::Release);
         if matches!(cmd, Cmd::CommitSoon) {
             if q.commit_queued {
                 return false;
@@ -227,6 +234,12 @@ impl Backend {
         let wake = q.armed & cmd.buffer() == 0;
         q.cmds.push(cmd);
         wake
+    }
+
+    fn query(&self, q: search::query::Query) {
+        let Some(tx) = self.sender() else { return q.unavailable("storage is in memory".into()) };
+        lock_queue(&self.queue).queries.replace(q);
+        tx.send(writer::Msg::Wake).ok();
     }
 
     pub(crate) fn flush(&self, reason: FlushReason, deadline: Duration) -> FlushReport {
@@ -247,19 +260,12 @@ impl Backend {
         if tx.send(writer::Msg::Flush { reason, started, reply }).is_err() {
             return FlushReport { clean: true, ..FlushReport::default() };
         }
+        self.urgent.fetch_add(1, Ordering::Release);
         answer.recv_timeout(deadline).unwrap_or(FlushReport { timed_out: true, micros: micros(started), ..FlushReport::default() })
     }
 
     pub(crate) fn first_frame(&self, done: Option<Loaded>) {
-        // The deferred import or seed needs the writer; a settled profile starts nothing.
-        let deferred = match &*self.lock() {
-            Writer::Parked(w) => w.has_deferred(),
-            Writer::Running { .. } => true,
-            Writer::Off => false,
-        };
-        if !deferred {
-            return;
-        }
+        // Search registration is connection-local, even on a fully migrated profile.
         if let Some(tx) = self.sender() {
             tx.send(writer::Msg::FirstFrame { done }).ok();
         }
@@ -267,6 +273,9 @@ impl Backend {
 
     pub(crate) fn close(&self) -> FlushReport {
         let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
+        // Before the writer stops (its repage may move pages): the journal is clean when every
+        // draft it holds is in the database.
+        journal::finish(!report.timed_out && crate::write_trouble().is_none());
         let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();

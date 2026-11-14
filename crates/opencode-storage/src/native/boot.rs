@@ -20,7 +20,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::boot_record::{self, BootPacket, BootSource, FastBoot};
 use super::import::{self, ImportSummary};
 use super::schema::{self, FLAG_BITS, FLAG_BOOT_PAGE2, FLAG_MASK, FLAG_SEED_SETTLED, ImportGroup, SCHEMA_VERSION};
-use super::{Backend, StorageConfig, sql, writer};
+use super::{Backend, StorageConfig, journal, sql, writer};
 use crate::cache::{Cache, Doc, Namespace, OutboxCache};
 use crate::{Storage, WindowFrame};
 
@@ -64,6 +64,15 @@ pub struct BootReport {
     pub plugins: usize,
     pub migrated: Vec<&'static str>,
     pub import: ImportSummary,
+    /// The draft journal: mapping, reserving and reading it, ns.
+    pub journal_ns: u64,
+    /// It was reserved by this open (a new profile, the first launch after the update).
+    pub journal_reserved: bool,
+    /// Drafts it held at launch, and of them those newer than the database, written to it.
+    pub journal_recovered: usize,
+    pub journal_written: usize,
+    /// Why this run has no journal, when it hasn't.
+    pub journal_error: Option<String>,
 }
 
 const MMAP_SIZE: i64 = 64 * 1024 * 1024;
@@ -103,6 +112,7 @@ pub struct Opening {
 
 impl Opening {
     pub(super) fn start(config: StorageConfig) -> Opening {
+        journal::pending();
         let (tx, boot) = mpsc::channel();
         let (go, gate) = match config.after_claim {
             true => {
@@ -184,6 +194,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     // What the first frame shows if another process holds the file: the last checkpoint's
     // record, or a first-run screen when the file can't even be read.
     let mut held: Option<BootPacket> = None;
+    let mut owe = Owe { want_journal: true, ..Owe::default() };
     match boot_record::read_raw(&config.path) {
         FastBoot::Record(bytes) => {
             report.raw_read_ns = ns(t0);
@@ -198,8 +209,17 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
                     p.read_ns = report.raw_read_ns;
                     p.decode_ns = report.decode_ns;
                     report.stage_a_ns = ns(t0);
-                    packet = Some(p.clone());
-                    send(p);
+                    owe.hint = p.journal_location();
+                    // A record that names a journal waits for it (after the claim): what it holds
+                    // may be newer than the record, and the first frame shows the newer. One that
+                    // names none (the first launch after the update) has nothing to wait for: the
+                    // journal is reserved beside the first frame, before the first key.
+                    if owe.hint.is_some() {
+                        owe.packet = Some(p);
+                    } else {
+                        packet = Some(p.clone());
+                        send(p);
+                    }
                 }
                 None => report.raw_miss = Some("torn record"),
             }
@@ -210,13 +230,15 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
                 p.source = BootSource::Checkpoint;
                 p
             });
+            owe.hint = held.as_ref().and_then(BootPacket::journal_location);
         }
         FastBoot::Denied => {
             report.raw_miss = Some("another process holds the file");
             held = Some(BootPacket::held_empty());
         }
         // A new profile with nothing to import or seed from: the first frame is a first run, so
-        // it needn't wait for the database to be made (its schema takes ~13,000 µs).
+        // it needn't wait for the database to be made (its schema takes ~13,000 µs). The journal
+        // is reserved beside it, before the first key (`journal::wait_ready`).
         FastBoot::UseSqlite(why) if why == "no database file" && nothing_to_import(&config) => {
             report.raw_miss = Some(why);
             report.stage_a_ns = ns(t0);
@@ -225,14 +247,39 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
-    // SQLite takes the file's lock: not before this process is the app's one instance.
+    // SQLite takes the file's lock, and the journal is written: not before this process is the
+    // app's one instance.
     if !gate.wait() {
+        if let Some(p) = owe.packet.take() {
+            send(p);
+        }
+        journal::decided();
         return (Storage::memory(), report);
     }
+    // The record names the journal's place: mapped here, so the windows get their packet without
+    // SQLite in the way (another process may hold its lock). A place that doesn't hold it any
+    // more: the packet goes as it is, and stage B reserves the journal again.
+    if let Some(mut p) = owe.packet.take() {
+        if p.source == BootSource::Raw
+            && let Some(loc) = owe.hint.take()
+            && attach_journal(&config, &mut report, &mut owe, &loc, false)
+        {
+            p.apply_journal(&owe.recovered);
+            journal::decided();
+        }
+        report.stage_a_ns = ns(t0);
+        packet = Some(p.clone());
+        send(p);
+    }
     let mut result = match held.take() {
-        Some(fallback) => held_open(&config, &mut report, t0, send, &mut early, gate, fallback, &mut packet),
-        None => stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early, Lock::Wait),
+        Some(fallback) => held_open(&config, &mut report, t0, send, &mut owe, &mut early, gate, fallback, &mut packet),
+        None => stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait),
     };
+    // The packet waited on stage B for its journal: the windows have it now (or, when stage B
+    // couldn't open the file, get it without one).
+    if let Some(p) = owe.sent.take().or_else(|| owe.packet.take().inspect(|p| send(p.clone()))) {
+        packet = Some(p);
+    }
     // Another process holds the file (an instance still exiting, a tool reading it): wait for it
     // a while longer (busy_timeout is 5 s a try) rather than give the windows a store that can't
     // keep what they write. The first frame is built already (from the record), so the windows
@@ -241,7 +288,10 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     while tries < if packet.is_some() { BUSY_TRIES } else { 2 } && result.as_ref().is_err_and(|e| is_held(e, &config)) {
         tries += 1;
         report.busy_retries += 1;
-        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut early, Lock::Wait);
+        result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait);
+        if let Some(p) = owe.sent.take() {
+            packet = Some(p);
+        }
     }
     // The first frame showed the checkpoint (or a first run): the database the lock let go of is
     // used only if it still holds what the windows were built from.
@@ -252,11 +302,12 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         result = Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), Some("the saved state changed while another process held it".into())));
     }
     report.total_ns = ns(t0);
+    journal::decided();
     match result {
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
             // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw);
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.reserved);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {
@@ -291,6 +342,7 @@ fn held_open(
     report: &mut BootReport,
     t0: Instant,
     send: &dyn Fn(BootPacket),
+    owe: &mut Owe,
     early: &mut Vec<super::EarlyCache>,
     gate: &Gate,
     fallback: BootPacket,
@@ -300,7 +352,7 @@ fn held_open(
         // A file this process can't read at all isn't probed: Windows' open retries a sharing
         // violation for about 1.4 s before it fails.
         if fallback.source == BootSource::Checkpoint {
-            let result = stage_b(config, report, t0, Some(send), early, Lock::Probe);
+            let result = stage_b(config, report, t0, Some(send), owe, early, Lock::Probe);
             if result.as_ref().is_ok() || result.as_ref().is_err_and(|e| !is_held(e, config)) {
                 return result;
             }
@@ -311,7 +363,10 @@ fn held_open(
             report.stage_a_ns = ns(t0);
             *packet = Some(fallback.clone());
             send(fallback);
-            return stage_b(config, report, t0, None, early, Lock::Wait);
+            // Nothing this run changes is saved: no journal either.
+            owe.want_journal = false;
+            journal::decided();
+            return stage_b(config, report, t0, None, owe, early, Lock::Wait);
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
@@ -372,17 +427,53 @@ impl Gate {
         self.wanted.load(std::sync::atomic::Ordering::Acquire)
     }
 }
-/// SQLite's part. `send` is set when stage A still owes the UI its packet: then the record is
-/// read through SQLite as soon as the schema and import allow.
-fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: Option<&dyn Fn(BootPacket)>, early: &mut Vec<super::EarlyCache>, lock: Lock) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
+/// What the open still owes the windows, and what the draft journal brought.
+#[derive(Default)]
+struct Owe {
+    /// A packet read before SQLite (or a new profile's empty one), sent once the journal exists.
+    packet: Option<BootPacket>,
+    /// What was sent from inside stage B.
+    sent: Option<BootPacket>,
+    /// Where a record said the journal is.
+    hint: Option<journal::Location>,
+    /// The drafts the journal held at launch.
+    recovered: Vec<journal::Recovered>,
+    /// The journal was reserved by this open: the boot record must name it.
+    reserved: bool,
+    /// This run keeps a journal (not one that shows another process's file, saving nothing).
+    want_journal: bool,
+}
+
+fn attach_journal(config: &StorageConfig, report: &mut BootReport, owe: &mut Owe, loc: &journal::Location, fresh: bool) -> bool {
+    let t = Instant::now();
+    let now_us = u64::try_from((config.clock)()).unwrap_or(0).saturating_mul(1000);
+    let ok = match journal::attach(&config.path, loc, fresh, now_us) {
+        Ok(r) => {
+            report.journal_recovered = r.len();
+            owe.recovered = r;
+            true
+        }
+        Err(e) => {
+            report.journal_error = Some(e);
+            false
+        }
+    };
+    report.journal_ns += ns(t);
+    rune::marks::mark("storage.journal");
+    ok
+}
+
+/// SQLite's part. `send` is set when stage A still owes the UI its packet: then the journal is
+/// made sure of and the packet sent (`owe.packet`), or the record is read through SQLite as soon
+/// as the schema and import allow.
+fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut send: Option<&dyn Fn(BootPacket)>, owe: &mut Owe, early: &mut Vec<super::EarlyCache>, lock: Lock) -> rusqlite::Result<(Connection, Cache, import::Deferred)> {
     let mut at = Instant::now();
     let lap = |at: &mut Instant| {
         let n = ns(*at);
         *at = Instant::now();
         n
     };
-    let (mut conn, created) = connect(&config.path)?;
-    report.created = created;
+    let (mut conn, mut created) = connect(&config.path)?;
     report.open_ns = lap(&mut at);
     // A probe answers busy at once: the pragmas already read the file (and so take its lock).
     if lock == Lock::Probe {
@@ -390,14 +481,74 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
     }
     configure(&conn, lock == Lock::Wait)?;
     report.pragma_ns = lap(&mut at);
-    let version = schema::user_version(&conn)?;
+    let mut version = schema::user_version(&conn)?;
+    // A file whose creation never finished (it gets its version last; a new file's first writes
+    // have no journal, see below): nothing is in it yet, so it's made again.
+    if version == 0 && !created {
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            std::fs::remove_file(format!("{}{suffix}", config.path.display())).ok();
+        }
+        (conn, created) = connect(&config.path)?;
+        configure(&conn, lock == Lock::Wait)?;
+        version = 0;
+    }
+    report.created = created;
     // The first read took the lock (exclusive mode keeps it): the rest may wait as usual.
     if lock == Lock::Probe {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
     }
     let mut flags = version & FLAG_MASK;
-    if version >> FLAG_BITS != SCHEMA_VERSION {
-        conn.execute_batch("PRAGMA journal_mode = WAL")?;
+    if version >> FLAG_BITS > SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    let new = version >> FLAG_BITS < schema::BASE_SCHEMA;
+    rune::marks::mark("storage.sqlite");
+    if new {
+        // A new file's first tables and the journal's pages go straight into it: no WAL to write
+        // them to and checkpoint them out of before the windows can have their packet. A kill
+        // before the version is set leaves a file that's made again (above).
+        conn.execute_batch("PRAGMA journal_mode = OFF")?;
+    }
+    // The draft journal exists before the windows get their packet (so before any key), and in a
+    // new file before any other table, so its first page is inside the boot read's first 128 KiB.
+    if owe.want_journal && !journal::attached() {
+        let hinted = owe.hint.take().is_some_and(|loc| attach_journal(config, report, owe, &loc, false));
+        if !hinted {
+            let t = Instant::now();
+            match journal::provision(&conn, &config.path, config.clock) {
+                Ok((loc, fresh)) => {
+                    report.journal_reserved = fresh;
+                    report.journal_ns += ns(t);
+                    // The record didn't name this place: the next checkpoint's record will.
+                    owe.reserved = true;
+                    // A recorded place that no longer holds this database's journal (an outside
+                    // tool rewrote the file) is reserved again.
+                    if !attach_journal(config, report, owe, &loc, fresh) && !fresh {
+                        conn.execute_batch("DELETE FROM journal_meta")?;
+                        if let Ok((loc, true)) = journal::provision(&conn, &config.path, config.clock) {
+                            report.journal_reserved = true;
+                            attach_journal(config, report, owe, &loc, true);
+                        }
+                    }
+                }
+                Err(e) => report.journal_error = Some(e.to_string()),
+            }
+        }
+    }
+    // The windows' first key may go now (it waited, if it came first: `journal::wait_ready`).
+    journal::decided();
+    if let (Some(s), Some(mut p)) = (send, owe.packet.take()) {
+        p.apply_journal(&owe.recovered);
+        report.stage_a_ns = ns(t0);
+        owe.sent = Some(p.clone());
+        s(p);
+        send = None;
+    }
+    if new {
+        // Nothing of the user's is in a new file yet: its switch to WAL needn't sync either.
+        conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+        rune::marks::mark("storage.wal");
         let (migrated, page2) = schema::migrate(&mut conn, (config.clock)())?;
         report.migrated = migrated;
         flags = if page2 { flags | FLAG_BOOT_PAGE2 } else { flags & !FLAG_BOOT_PAGE2 };
@@ -436,12 +587,19 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
         let t = Instant::now();
         // The raw read refused (the WAL holds frames after a crash, a new file, a torn record):
         // the record on file may be stale, so it's rebuilt from the tables first.
-        let tx = rusqlite::Transaction::new_unchecked(&conn, rusqlite::TransactionBehavior::Immediate)?;
-        boot_record::rebuild(&tx)?;
-        tx.commit()?;
+        // Unsynced (the first frame waits on it; the quit's or the next synced checkpoint makes it
+        // durable): a sync on a busy disk took seconds here.
+        conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0")?;
+        let rebuilt = rusqlite::Transaction::new_unchecked(&conn, rusqlite::TransactionBehavior::Immediate).and_then(|tx| {
+            boot_record::rebuild(&tx)?;
+            tx.commit()
+        });
+        conn.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000")?;
+        rebuilt?;
         let stored = boot_record::from_sqlite(&conn)?;
         let packet = stored.and_then(BootPacket::parse).map(|mut p| {
             p.source = BootSource::Sqlite;
+            p.apply_journal(&owe.recovered);
             p
         });
         report.boot_source = packet.as_ref().map_or(BootSource::Empty, |p| p.source);
@@ -452,6 +610,18 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: O
         send(packet.unwrap_or_default());
         sums = offer_early(&conn, early, report, t0);
         at = Instant::now();
+    }
+    // The drafts the journal kept that the database doesn't have yet go into it now (and so
+    // into the cache read next).
+    if journal::attached() && !owe.recovered.is_empty() {
+        let t = Instant::now();
+        conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA wal_autocheckpoint = 0")?;
+        report.journal_written = journal::reconcile(&conn, &std::mem::take(&mut owe.recovered), (config.clock)()).len();
+        conn.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA wal_autocheckpoint = 1000")?;
+        report.journal_ns += ns(t);
+        // What it wrote is in the WAL, and a shown draft may be in the boot record: both are
+        // the writer's to checkpoint (and rebuild).
+        owe.reserved |= report.journal_written > 0;
     }
     let mut cache = read(&conn, report)?;
     // What was offered is what's stored: putting the same bytes back writes nothing.

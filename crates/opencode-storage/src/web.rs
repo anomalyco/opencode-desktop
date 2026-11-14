@@ -382,7 +382,7 @@ fn idb(web: &Rc<RefCell<Web>>, cmd: Cmd) {
     }
     let now = now_ms();
     match cmd {
-        Cmd::Doc { key, value } => {
+        Cmd::Doc { key, value, .. } => {
             put(web, "documents", &key, value.map(|v| JsValue::from_str(&v)).as_ref(), None);
             let effects = {
                 let mut w = web.borrow_mut();

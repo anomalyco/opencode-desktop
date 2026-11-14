@@ -20,6 +20,33 @@ mod outbox;
 mod plugins;
 mod stores;
 
+/// The draft journal (native: `native::journal`): what the composer has, kept through a kill
+/// even while the database's writes wait on a busy disk. A no-op on the web.
+pub mod journal {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::native::journal::{is_draft_key, latest, record, wait_ready};
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn wait_ready(_limit: std::time::Duration) -> bool {
+        false
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn record(_key: &str, _text: Option<&str>) -> u64 {
+        0
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn latest(_key: &str) -> u64 {
+        0
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn is_draft_key(key: &str) -> bool {
+        key.starts_with("opencode.window.") && key.contains(".dat:draft:")
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(target_arch = "wasm32")]
@@ -156,7 +183,8 @@ pub(crate) use outbox::OutboxOp;
 pub(crate) enum Cmd {
     State { name: String, key: String, value: Option<Arc<str>> },
     ClearState { name: String },
-    Doc { key: String, value: Option<Arc<str>> },
+    /// `rev`: the draft journal's revision of this text (0 for a document it doesn't record).
+    Doc { key: String, value: Option<Arc<str>>, rev: u64 },
     Blob { id: String, data: Arc<[u8]> },
     Window { id: String, frame: Option<WindowFrame> },
     PluginRecord { id: String, record: PluginRecord, done: Option<Done> },

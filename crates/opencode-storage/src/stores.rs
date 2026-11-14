@@ -121,6 +121,12 @@ impl DocumentStore<'_> {
     /// Sets (`Some`) or removes a document. Long strings are split into chunks on the storage
     /// thread, never on the caller's.
     pub fn set(&self, key: &str, value: Option<String>) {
+        self.set_rev(key, value, 0);
+    }
+
+    /// [`DocumentStore::set`] for a draft the journal recorded at revision `rev`
+    /// ([`crate::journal::record`]): the database keeps the revision with it.
+    pub fn set_rev(&self, key: &str, value: Option<String>, rev: u64) {
         {
             let cache = self.storage.cache();
             let same = match (cache.docs.get(key), &value) {
@@ -140,7 +146,7 @@ impl DocumentStore<'_> {
                 None => cache.docs.remove(key),
             };
         }
-        self.storage.send(Cmd::Doc { key: key.to_owned(), value });
+        self.storage.send(Cmd::Doc { key: key.to_owned(), value, rev });
     }
 
     /// The keys stored under `prefix` (what's in memory and what waits on disk).
@@ -208,6 +214,8 @@ impl WindowStore<'_> {
     pub fn forget(&self, id: &str) {
         let name = crate::window_namespace(id);
         let drafts = self.storage.documents().keys(&format!("{name}:"));
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::native::journal::forget_window(&name);
         self.storage.cache().windows.remove(id);
         self.storage.send(Cmd::Window { id: id.to_owned(), frame: None });
         self.storage.state().clear(&name);

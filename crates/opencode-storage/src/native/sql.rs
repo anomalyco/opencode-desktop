@@ -194,16 +194,27 @@ const REFERENCED: &str = "
     UNION SELECT substr(json_extract(f.value, '$.uri'), 6) FROM outbox, json_each(outbox.prompt_json, '$.files') AS f
     WHERE json_valid(outbox.prompt_json) AND json_extract(f.value, '$.uri') LIKE 'blob:%'";
 
-/// Drops blobs nothing references and nothing touched since `before_ms`; returns the oldest
-/// `touched_at` among unreferenced blobs it kept (`collectBlobs`, `drafts.ts:183-195`).
+/// How many blobs one sweep drops at most: a sweep is one writer turn, and a profile with
+/// thousands of orphans shouldn't hold the writer (or a quit behind it) for seconds.
+const COLLECT_BATCH: i64 = 64;
+
+/// Drops blobs nothing references and nothing touched since `before_ms`, oldest first, at most
+/// [`COLLECT_BATCH`]; returns the oldest `touched_at` among unreferenced blobs left (an orphan
+/// still inside the grace period, or the next batch's) (`collectBlobs`, `drafts.ts:183-195`).
 pub fn collect_blobs(conn: &Connection, before_ms: i64) -> rusqlite::Result<Option<i64>> {
     let tx = conn.unchecked_transaction()?;
     if !tx.query_row("SELECT EXISTS (SELECT 1 FROM blob)", [], |r| r.get::<_, bool>(0))? {
         return Ok(None);
     }
-    // A NULL among the ids would make every `NOT IN` unknown, and nothing would go.
-    tx.execute(&format!("WITH refs(id) AS ({REFERENCED}) DELETE FROM blob WHERE touched_at < ?1 AND id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL)"), [before_ms])?;
-    let oldest = tx.query_row(&format!("WITH refs(id) AS ({REFERENCED}) SELECT MIN(touched_at) FROM blob WHERE id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL)"), [], |r| r.get::<_, Option<i64>>(0))?;
+    // A NULL among the ids would make every `NOT IN` unknown, and nothing would go. In
+    // `touched_at` order (the `blob_by_touch` index), so a batch reads only what it drops.
+    tx.execute(
+        &format!("WITH refs(id) AS ({REFERENCED}) DELETE FROM blob WHERE rowid IN (SELECT rowid FROM blob WHERE touched_at < ?1 AND id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL) ORDER BY touched_at LIMIT {COLLECT_BATCH})"),
+        [before_ms],
+    )?;
+    let oldest = tx
+        .query_row(&format!("WITH refs(id) AS ({REFERENCED}) SELECT touched_at FROM blob WHERE id NOT IN (SELECT id FROM refs WHERE id IS NOT NULL) ORDER BY touched_at LIMIT 1"), [], |r| r.get::<_, i64>(0))
+        .optional()?;
     tx.commit()?;
     Ok(oldest)
 }

@@ -77,6 +77,8 @@ pub struct Sent {
     /// The composer draft its words left, cleared in the transaction of its first row, so a crash
     /// never finds them both in the outbox and back in the composer (a second send).
     left_draft: Option<String>,
+    /// The draft journal's revision of those words: the row settles it.
+    left_rev: u64,
 }
 
 /// Whether a receipt check is out.
@@ -219,6 +221,7 @@ impl Sent {
             handoffs: 0,
             sending: None,
             left_draft: None,
+            left_rev: 0,
         }
     }
 

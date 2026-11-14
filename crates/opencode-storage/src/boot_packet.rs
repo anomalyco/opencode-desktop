@@ -15,7 +15,7 @@ pub(crate) const DOC_CAP: usize = 64 * 1024;
 pub(crate) const PREVIEW_CAP: usize = 256 * 1024;
 /// Window keys the first frame doesn't draw from (closed tabs, migration leftovers): they load
 /// with the rest.
-pub(crate) const LAZY_KEYS: [&str; 2] = ["tabs.closed", "legacy"];
+pub(crate) const LAZY_KEYS: [&str; 3] = ["tabs.closed", "legacy", "side.rest"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -34,6 +34,10 @@ pub enum Kind {
     Covered = 9,
     /// A session a window shows: its plugin values are in the record.
     Shown = 10,
+    /// Where the draft journal is (native: `native::journal::Location`).
+    Journal = 12,
+    /// A shown draft's revision in the database (`draft_rev`), whether or not it has a document.
+    DraftRev = 13,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +59,8 @@ pub struct BootPacket {
     /// Nanoseconds from the open's start to the packet, and the parts.
     pub read_ns: u64,
     pub decode_ns: u64,
+    /// Shown drafts the journal held newer than the record: the first frame shows these.
+    pub(crate) overlay: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -116,6 +122,11 @@ impl BootPacket {
         std::str::from_utf8(&self.bytes[r.clone()]).unwrap_or_default()
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) fn bytes_of(&self, e: &Entry) -> &[u8] {
+        &self.bytes[e.value.clone()]
+    }
+
     pub(crate) fn of(&self, kind: Kind) -> impl Iterator<Item = &Entry> {
         self.entries.iter().filter(move |e| e.kind == kind as u8)
     }
@@ -139,6 +150,9 @@ impl BootPacket {
 
     /// A visible draft's text (`draft_document(window, tab_key)`).
     pub fn document(&self, key: &str) -> Option<&str> {
+        if let Some((_, text)) = self.overlay.iter().find(|(k, _)| k == key) {
+            return Some(text);
+        }
         self.of(Kind::Document).find(|e| self.str_of(&e.a) == key).map(|e| self.str_of(&e.value))
     }
 
@@ -174,6 +188,9 @@ impl BootPacket {
             if matches!(cache.get(name, key), crate::Lookup::Ready(None)) {
                 cache.set(name, key.to_owned(), Some(self.str_of(&e.value).into()));
             }
+        }
+        for (key, text) in &self.overlay {
+            cache.docs.entry(key.clone()).or_insert_with(|| crate::cache::Doc::Present(text.as_str().into()));
         }
         for e in self.of(Kind::Document) {
             cache.docs.entry(self.str_of(&e.a).to_owned()).or_insert_with(|| crate::cache::Doc::Present(self.str_of(&e.value).into()));

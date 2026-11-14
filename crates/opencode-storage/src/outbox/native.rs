@@ -10,7 +10,7 @@ use crate::native::sql;
 /// An outbox request with its builder run: what to commit (with its blobs and the documents it
 /// clears), or what to read.
 pub(crate) enum Prepared {
-    Write(Written, Vec<(String, Arc<[u8]>)>, Vec<String>),
+    Write(Written, Vec<(String, Arc<[u8]>)>, Vec<(String, u64)>),
     Read { server: String, adopt: Vec<String>, done: OutboxRead },
 }
 
@@ -31,12 +31,17 @@ pub(crate) fn prepare(op: OutboxOp) -> Prepared {
 
 /// Commits a write inside the caller's transaction. A blob already stored (a draft held the
 /// same image) isn't written again; an update of a row that isn't there is an error.
-pub(crate) fn write(c: &Connection, w: &Written, blobs: &[(String, Arc<[u8]>)], clear: &[String], now_ms: i64) -> rusqlite::Result<()> {
+pub(crate) fn write(c: &Connection, w: &Written, blobs: &[(String, Arc<[u8]>)], clear: &[(String, u64)], now_ms: i64) -> rusqlite::Result<()> {
     match w {
         Written::Put(row) => {
+            crate::native::search::index::outbox(c, &row.server, &row.id, now_ms)?;
             rune::marks::mark("outbox.sql");
-            for key in clear {
+            for (key, rev) in clear {
                 sql::put_document(c, key, None)?;
+                crate::native::search::index::draft(c, key, now_ms)?;
+                if *rev > 0 {
+                    crate::native::journal::put_rev(c, key, *rev)?;
+                }
             }
             for (id, data) in blobs {
                 if !blob_stored(c, id)? {
@@ -56,7 +61,10 @@ pub(crate) fn write(c: &Connection, w: &Written, blobs: &[(String, Arc<[u8]>)], 
             }
             Ok(())
         }
-        Written::Delete { server, id } => sql::delete_outbox(c, server, id),
+        Written::Delete { server, id } => {
+            crate::native::search::index::outbox(c,server,id,now_ms)?;
+            sql::delete_outbox(c, server, id)
+        },
     }
 }
 

@@ -148,7 +148,7 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
 #[derive(Default)]
 struct Queued {
     state: Vec<(String, String, Option<Arc<str>>)>,
-    docs: Vec<(String, Option<String>)>,
+    docs: Vec<(String, Option<String>, u64)>,
     frames: Vec<(String, WindowFrame)>,
     forgotten: Vec<String>,
     previews: Vec<(String, String, Option<(i64, Arc<[u8]>)>)>,
@@ -162,7 +162,7 @@ impl Queued {
     }
 
     fn doc(&self, key: &str) -> Option<Option<String>> {
-        self.docs.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+        self.docs.iter().rev().find(|(k, ..)| k == key).map(|(_, v, _)| v.clone())
     }
 
     fn apply(self, s: &Storage) {
@@ -172,8 +172,8 @@ impl Queued {
                 None => s.state().delete(&name, &key),
             };
         }
-        for (key, value) in self.docs {
-            s.documents().set(&key, value);
+        for (key, value, rev) in self.docs {
+            s.documents().set_rev(&key, value, rev);
         }
         for (id, frame) in self.frames {
             s.windows().set_frame(&id, frame);
@@ -315,6 +315,11 @@ fn config() -> Option<StorageConfig> {
 pub fn presented() {
     send(Event::TakeBoot);
     send(Event::Presented);
+    // Before the first input: the draft journal exists (a new profile's, or the first launch
+    // after an update's, is reserved beside the first frame and is almost always ready by now).
+    if opencode_storage::journal::wait_ready(Duration::from_millis(500)) {
+        rune::marks::mark("storage.journal.waited");
+    }
 }
 
 /// Window `waker` is woken once the storage is ready (at once when it is).
@@ -434,17 +439,32 @@ pub fn doc(key: &str) -> Lookup {
     )
 }
 
-/// Sets or removes a document. An unchanged one writes nothing.
+/// Sets or removes a document. An unchanged one writes nothing. A draft goes into the draft
+/// journal first (a memory copy), so a kill keeps it even while the database's commit waits.
 pub fn set_doc(key: &str, value: Option<String>) {
+    let rev = opencode_storage::journal::record(key, value.as_deref());
+    put_doc(key, value, rev);
+}
+
+/// A draft whose words a prompt takes (`send_failed`): removed without a journal record, since
+/// until the prompt's row is committed the words are only there. Returns the revision the row
+/// settles ([`opencode_storage::OutboxPut::clear_documents`]).
+pub fn hand_off_doc(key: &str) -> u64 {
+    let rev = opencode_storage::journal::latest(key);
+    put_doc(key, None, 0);
+    rev
+}
+
+fn put_doc(key: &str, value: Option<String>, rev: u64) {
     with(
         |s| {
-            s.documents().set(key, value.clone());
+            s.documents().set_rev(key, value.clone(), rev);
             s.commit_soon();
         },
         |boot, queued| {
             let current = queued.doc(key).unwrap_or_else(|| boot.document(key).map(str::to_owned));
             if current != value {
-                queued.docs.push((key.to_owned(), value.clone()));
+                queued.docs.push((key.to_owned(), value.clone(), rev));
             }
         },
     );

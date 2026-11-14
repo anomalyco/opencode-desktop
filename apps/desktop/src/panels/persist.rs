@@ -64,12 +64,26 @@ impl SideState {
     }
 
     pub fn to_json(&self) -> Value {
+        self.to_json_where(|_| true)
+    }
+
+    /// The sessions `keep` names, as [`SideState::to_json`] keeps them.
+    pub fn to_json_where(&self, keep: impl Fn(&str) -> bool) -> Value {
         let sessions: serde_json::Map<String, Value> = self
             .sessions
             .iter()
+            .filter(|(k, _)| keep(k))
             .map(|(k, v)| (k.clone(), v.to_json()))
             .collect();
         json!({ "sessions": sessions })
+    }
+
+    /// Takes the sessions `v` holds that aren't here yet (the window's `side.rest`, read after
+    /// the first frame): what the first frame drew stays as it is.
+    pub fn restore_rest(&mut self, v: &Value) {
+        for (k, val) in v["sessions"].as_object().into_iter().flatten() {
+            self.sessions.entry(k.clone()).or_insert_with(|| SessionSideState::from_json(val));
+        }
     }
 
     pub fn restore_json(&mut self, v: &Value) {

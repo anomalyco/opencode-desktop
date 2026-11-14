@@ -15,7 +15,10 @@ base64 = "0.22"
 twox-hash = { version = "2", default-features = false, features = ["xxhash3_64"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache", "hooks", "pointer"] }
+opencode-search = { path = "../opencode-search" }
+memmap2 = "0.9"
+zstd = { version = "0.13", default-features = false }
 opencode-kit = { path = "../opencode-kit" }
 
 [target.'cfg(windows)'.dependencies]

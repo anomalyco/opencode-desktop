@@ -3391,7 +3391,9 @@ dependencies = [
  "base64 0.22.1",
  "indexmap",
  "js-sys",
+ "memmap2",
  "opencode-kit",
+ "opencode-search",
  "rune",
  "rusqlite",
  "serde",
@@ -3401,6 +3403,7 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]
