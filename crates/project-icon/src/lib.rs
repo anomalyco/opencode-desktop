@@ -97,8 +97,36 @@ pub struct Icons {
 
 struct Inner {
     cache: Arc<ImageCache>,
-    jobs: Sender<Job>,
+    /// The worker that finds and decodes projects' icons, started by the first job (`Inner::jobs`).
+    jobs: std::cell::OnceCell<Sender<Job>>,
     found: Arc<Mutex<HashMap<String, Found>>>,
+    wake: Waker,
+}
+
+impl Inner {
+    /// The icon worker's queue: its thread starts with the first job, so a window that draws only
+    /// letter tiles (repository icons off, no server images) starts none, and the first frame
+    /// that draws a tile doesn't start a thread.
+    fn jobs(&self) -> &Sender<Job> {
+        self.jobs.get_or_init(|| {
+            let (jobs, rx) = channel::<Job>();
+            let (c, fd, wake) = (self.cache.clone(), self.found.clone(), self.wake.clone());
+            rune::task::serve("project-icons", rx, move |job| {
+                    {
+                        let had = fd.lock().unwrap().get(&job.entry).is_some_and(|f| f.icon.is_some());
+                        let done = run(&c, &job);
+                        let wake_now = matches!(&done, Some((_, Some(Shown::Vector(..))))) || (done.is_none() && had);
+                        settle(&fd, &job.entry, done);
+                        if wake_now {
+                            wake();
+                        }
+                    }
+                    std::ops::ControlFlow::Continue(())
+                })
+                .expect("project icon worker");
+            jobs
+        })
+    }
 }
 
 #[derive(Default)]
@@ -187,23 +215,7 @@ impl Icons {
         let inner = inner.get_or_insert_with(|| {
             let wake = self.waker.clone().unwrap_or_else(|| Arc::new(|| {}));
             let cache = Arc::new(ImageCache::new(wake.clone()));
-            let found: Arc<Mutex<HashMap<String, Found>>> = Default::default();
-            let (jobs, rx) = channel::<Job>();
-            let (c, fd) = (cache.clone(), found.clone());
-            rune::task::serve("project-icons", rx, move |job| {
-                    {
-                        let had = fd.lock().unwrap().get(&job.entry).is_some_and(|f| f.icon.is_some());
-                        let done = run(&c, &job);
-                        let wake_now = matches!(&done, Some((_, Some(Shown::Vector(..))))) || (done.is_none() && had);
-                        settle(&fd, &job.entry, done);
-                        if wake_now {
-                            wake();
-                        }
-                    }
-                    std::ops::ControlFlow::Continue(())
-                })
-                .expect("project icon worker");
-            Inner { cache, jobs, found }
+            Inner { cache, jobs: std::cell::OnceCell::new(), found: Default::default(), wake }
         });
         f(inner)
     }
@@ -238,7 +250,7 @@ impl Icons {
                     }
                     settle(&inner.found, &entry, done);
                 } else {
-                    let _ = inner.jobs.send(job);
+                    let _ = inner.jobs().send(job);
                 }
             }
             let found = inner.found.lock().unwrap();
