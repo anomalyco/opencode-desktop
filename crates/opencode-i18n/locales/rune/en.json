@@ -179,6 +179,8 @@
   "rune.stop.unconfirmed": "The server didn't confirm the stop",
   "rune.stop.unreachable": "Can't reach OpenCode to stop the session",
   "rune.storage.checkpoint.description": "Another program has OpenCode's saved state open. You're seeing it as of its last checkpoint, which may miss your latest changes. What you change now is lost when OpenCode quits.",
+  "rune.storage.damaged.description": "OpenCode's saved state was damaged and couldn't be read, so it started with a new one. Your open tabs and drafts from before may be missing. The damaged file is kept at {{path}}.",
+  "rune.storage.damaged.title": "Started with new saved state",
   "rune.storage.firstRun.description": "Another program is holding OpenCode's saved state, so this is a fresh start. Your saved state is untouched. What you change now is lost when OpenCode quits.",
   "rune.storage.memoryOnly.description": "OpenCode couldn't open its saved state ({{why}}). What you change now is lost when it quits.",
   "rune.storage.memoryOnly.title": "Changes won't be saved",

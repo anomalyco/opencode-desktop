@@ -118,10 +118,13 @@ pub(crate) fn namespace_of(key: &str) -> Option<&str> {
 /// Records draft `key`'s new text (none: cleared) and returns its revision, for the writer to
 /// store beside it; 0 without a journal (a run in memory, a profile that couldn't reserve one).
 pub fn record(key: &str, text: Option<&str>) -> u64 {
-    let Some(j) = JOURNAL.get().filter(|j| j.open.load(Ordering::Acquire)) else { return 0 };
     if !is_draft_key(key) {
         return 0;
     }
+    if JOURNAL.get().is_none() && !(HOLDING.load(Ordering::Acquire) && hold(key, text)) {
+        return 0;
+    }
+    let Some(j) = JOURNAL.get().filter(|j| j.open.load(Ordering::Acquire)) else { return 0 };
     let seq = j.seq.fetch_add(1, Ordering::AcqRel) + 1;
     if j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         return seq;
@@ -177,7 +180,10 @@ pub(crate) fn forget_window(namespace: &str) {
 /// marked clean (the next launch reads its header and nothing else). No more records after this.
 pub(crate) fn finish(saved: bool) {
     let Some(j) = JOURNAL.get() else { return };
-    j.open.store(false, Ordering::Release);
+    // Closed already: abandoned with a damaged file, which is left as it was found.
+    if !j.open.swap(false, Ordering::AcqRel) {
+        return;
+    }
     while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         std::hint::spin_loop();
     }
@@ -348,8 +354,31 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
         #[allow(unsafe_code)]
         unsafe { &mut *j.inner.get() }.switch(&j, "");
     }
-    JOURNAL.set(j).map_err(|_| "the journal is already open".to_owned())?;
+    // What the windows typed while this was decided goes in first, then it's published (under the
+    // lock `hold` takes, so no key falls between the two and every later key has a later seq).
+    let mut e = early();
+    if let Early::Holding(held) = std::mem::replace(&mut *e, Early::Decided) {
+        #[allow(unsafe_code)]
+        let inner = unsafe { &mut *j.inner.get() };
+        for (key, text) in held {
+            let seq = j.seq.fetch_add(1, Ordering::AcqRel) + 1;
+            inner.write(&j, &key, seq, text.as_deref());
+        }
+    }
+    HOLDING.store(false, Ordering::Release);
+    let published = JOURNAL.set(j).map_err(|_| "the journal is already open".to_owned());
+    drop(e);
+    published?;
     Ok(recovered)
+}
+
+/// The file the journal is in was damaged and is moved aside: nothing more is written to it
+/// (it's kept as it was found), and this run has no journal.
+pub(crate) fn abandon() {
+    if let Some(j) = JOURNAL.get() {
+        j.open.store(false, Ordering::Release);
+    }
+    decided();
 }
 
 /// Whether a journal is mapped for this run.
@@ -357,40 +386,52 @@ pub(crate) fn attached() -> bool {
     JOURNAL.get().is_some()
 }
 
-/// Where the open is with the journal, for the first key: whether there will be one is decided
-/// on the open's thread (mapped from the record, reserved by stage B, or none).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Readiness {
-    /// No open was started (a run in memory): nothing to wait for.
+/// The keys that come before the journal is decided (a new profile, the first launch after the
+/// update: it's reserved beside the first frame, and the first input never waits for it). They
+/// go to the database as always; their newest text per draft is held here and copied into the
+/// journal the moment it's mapped. Until then they're in memory only (the guarantees table's one
+/// exception).
+enum Early {
+    /// No open was started (a run in memory): nothing is held.
     Idle,
-    Pending,
+    /// The open is deciding: each draft's newest change since it started.
+    Holding(HashMap<String, Option<String>>),
+    /// Mapped (what was held is in it) or this run has none.
     Decided,
 }
 
-static READY: (Mutex<Readiness>, std::sync::Condvar) = (Mutex::new(Readiness::Idle), std::sync::Condvar::new());
+static EARLY: Mutex<Early> = Mutex::new(Early::Idle);
+/// `EARLY` is `Holding`: read without the lock on every key of a run without a journal.
+static HOLDING: AtomicBool = AtomicBool::new(false);
 
-/// An open started: the first key waits for the journal to be decided.
+fn early() -> std::sync::MutexGuard<'static, Early> {
+    EARLY.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// An open started: keys until it decides are held for the journal.
 pub(crate) fn pending() {
-    *READY.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Readiness::Pending;
+    *early() = Early::Holding(HashMap::new());
+    HOLDING.store(true, Ordering::Release);
 }
 
-/// The journal is mapped, or this run has none.
+/// This run has no journal (or has it already): nothing more is held.
 pub(crate) fn decided() {
-    *READY.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Readiness::Decided;
-    READY.1.notify_all();
+    let mut e = early();
+    *e = Early::Decided;
+    HOLDING.store(false, Ordering::Release);
 }
 
-/// Called once, after the first frame and before the first input is handled: waits (at most
-/// `limit`) for the journal to be decided, so the first key of a new profile, or of the first
-/// launch after an update, is kept too. It's reserved beside the first frame and is almost always
-/// ready before it; true when it waited.
-pub fn wait_ready(limit: std::time::Duration) -> bool {
-    let guard = READY.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if *guard != Readiness::Pending {
-        return false;
+/// No journal yet: holds the key while the open is deciding. True when the journal was
+/// published meanwhile (the publish takes the same lock), so the caller records it there.
+fn hold(key: &str, text: Option<&str>) -> bool {
+    let mut e = early();
+    if JOURNAL.get().is_some() {
+        return true;
     }
-    let _ = READY.1.wait_timeout_while(guard, limit, |r| *r == Readiness::Pending);
-    true
+    if let Early::Holding(held) = &mut *e {
+        held.insert(key.to_owned(), text.map(str::to_owned));
+    }
+    false
 }
 
 /// Makes sure the database has its journal (the first launch of a new profile, the first after
@@ -427,6 +468,9 @@ pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rus
         rune::marks::mark("journal.located");
         loc.instance = instance(clock);
         conn.execute("INSERT INTO journal_meta (id, location) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET location = excluded.location", [loc.encode()])?;
+        // The boot record as it stood when the journal was reserved (row 2): until this build
+        // rebuilds it (naming the journal), an unchanged record means nobody else did either.
+        conn.execute("INSERT INTO journal_meta (id, location) VALUES (2, ?1) ON CONFLICT (id) DO UPDATE SET location = excluded.location", [boot_sum(conn)?.to_le_bytes()])?;
         Ok(loc)
     })();
     if reserved.is_err() {
@@ -434,6 +478,24 @@ pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rus
     }
     conn.execute_batch("PRAGMA synchronous = NORMAL")?;
     reserved.map(|l| (l, true))
+}
+
+/// The boot record's checksum (0 without one).
+fn boot_sum(conn: &Connection) -> rusqlite::Result<u64> {
+    let data: Option<Vec<u8>> = conn.query_row("SELECT data FROM boot WHERE id = 1", [], |r| r.get(0)).optional()?;
+    Ok(data.map_or(0, |d| twox_hash::XxHash3_64::oneshot(&d)))
+}
+
+/// Whether the journal's records can be trusted against the database: the boot record names it
+/// (this build rebuilt it since the reservation), or it's the record the reservation saw
+/// (nothing rebuilt it since). Otherwise a build without the journal rebuilt it (a rollback): it
+/// may have saved newer text than the journal holds.
+pub(crate) fn current(conn: &Connection, record_names_it: bool) -> bool {
+    if record_names_it {
+        return true;
+    }
+    let seen: Option<Vec<u8>> = conn.query_row("SELECT location FROM journal_meta WHERE id = 2", [], |r| r.get(0)).optional().ok().flatten();
+    seen.and_then(|b| b.try_into().ok()).map(u64::from_le_bytes).is_some_and(|s| boot_sum(conn).is_ok_and(|now| now == s))
 }
 
 /// The journal's place as last recorded, when the table has one.

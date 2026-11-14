@@ -21,6 +21,11 @@ use super::boot_record::{self, BootPacket, BootSource, FastBoot};
 use super::import::{self, ImportSummary};
 use super::schema::{self, FLAG_BITS, FLAG_BOOT_PAGE2, FLAG_MASK, FLAG_SEED_SETTLED, ImportGroup, SCHEMA_VERSION};
 use super::{Backend, StorageConfig, journal, sql, writer};
+
+mod damaged;
+mod owed;
+use damaged::{adopt_shown, damaged, keep_damaged};
+use owed::{Owe, attach_journal, record_names_journal};
 use crate::cache::{Cache, Doc, Namespace, OutboxCache};
 use crate::{Storage, WindowFrame};
 
@@ -73,6 +78,9 @@ pub struct BootReport {
     pub journal_written: usize,
     /// Why this run has no journal, when it hasn't.
     pub journal_error: Option<String>,
+    /// The file couldn't be read (damaged: a power cut, a disk error) and was moved here; this
+    /// run started a new one beside it.
+    pub damaged: Option<std::path::PathBuf>,
 }
 
 const MMAP_SIZE: i64 = 64 * 1024 * 1024;
@@ -238,7 +246,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         }
         // A new profile with nothing to import or seed from: the first frame is a first run, so
         // it needn't wait for the database to be made (its schema takes ~13,000 µs). The journal
-        // is reserved beside it, before the first key (`journal::wait_ready`).
+        // is reserved beside it; keys before it are held for it (`journal::hold`).
         FastBoot::UseSqlite(why) if why == "no database file" && nothing_to_import(&config) => {
             report.raw_miss = Some(why);
             report.stage_a_ns = ns(t0);
@@ -291,6 +299,33 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait);
         if let Some(p) = owe.sent.take() {
             packet = Some(p);
+        }
+    }
+    // A file SQLite can't read (a power cut or a disk error damaged it): moved aside, once, and a
+    // new one made in its place. The windows are told where the old one is. The moved file is
+    // never opened again, so a launch can't meet it twice.
+    if result.as_ref().is_err_and(|e| !is_held(e, &config)) && damaged(&config.path) {
+        journal::abandon();
+        match keep_damaged(&config.path, (config.clock)()) {
+            Ok(kept) => {
+                eprintln!("opencode-storage: the database was damaged; kept as {} and started a new one", kept.display());
+                report.damaged = Some(kept);
+                result = stage_b(&config, &mut report, t0, if packet.is_some() { None } else { Some(send) }, &mut owe, &mut early, Lock::Wait);
+                if let Some(p) = owe.sent.take() {
+                    packet = Some(p);
+                }
+                // The windows show what the damaged file's boot record held (it was still
+                // readable): that much goes into the new file, so the next launch shows it too.
+                if let (Ok((conn, cache, _)), Some(p)) = (&mut result, &packet)
+                    && p.source == BootSource::Raw
+                {
+                    match adopt_shown(conn, p, (config.clock)()) {
+                        Ok(()) => p.fill_cache(cache),
+                        Err(e) => eprintln!("opencode-storage: couldn't keep what the damaged file showed ({e})"),
+                    }
+                }
+            }
+            Err(e) => eprintln!("opencode-storage: the database is damaged and couldn't be moved aside ({e})"),
         }
     }
     // The first frame showed the checkpoint (or a first run): the database the lock let go of is
@@ -427,46 +462,6 @@ impl Gate {
         self.wanted.load(std::sync::atomic::Ordering::Acquire)
     }
 }
-/// What the open still owes the windows, and what the draft journal brought.
-#[derive(Default)]
-struct Owe {
-    /// A packet read before SQLite (or a new profile's empty one), sent once the journal exists.
-    packet: Option<BootPacket>,
-    /// What was sent from inside stage B.
-    sent: Option<BootPacket>,
-    /// Where a record said the journal is.
-    hint: Option<journal::Location>,
-    /// The drafts the journal held at launch.
-    recovered: Vec<journal::Recovered>,
-    /// The journal was reserved by this open: the boot record must name it.
-    reserved: bool,
-    /// This run keeps a journal (not one that shows another process's file, saving nothing).
-    want_journal: bool,
-}
-
-fn attach_journal(config: &StorageConfig, report: &mut BootReport, owe: &mut Owe, loc: &journal::Location, fresh: bool) -> bool {
-    let t = Instant::now();
-    let now_us = u64::try_from((config.clock)()).unwrap_or(0).saturating_mul(1000);
-    let ok = match journal::attach(&config.path, loc, fresh, now_us) {
-        Ok(r) => {
-            report.journal_recovered = r.len();
-            owe.recovered = r;
-            true
-        }
-        Err(e) => {
-            report.journal_error = Some(e);
-            false
-        }
-    };
-    report.journal_ns += ns(t);
-    rune::marks::mark("storage.journal");
-    ok
-}
-
-fn record_names_journal(conn: &rusqlite::Connection) -> bool {
-    boot_record::from_sqlite(conn).ok().flatten().and_then(BootPacket::parse).is_some_and(|p| p.journal_location().is_some())
-}
-
 /// SQLite's part. `send` is set when stage A still owes the UI its packet: then the journal is
 /// made sure of and the packet sent (`owe.packet`), or the record is read through SQLite as soon
 /// as the schema and import allow.
@@ -524,10 +519,12 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
         if !hinted && !new && existing.is_none() && !schema::upgrade_existing() {
             report.journal_error = Some("off for profiles made before it (RUNE_STORAGE_V2=1 turns it on)".into());
         } else if !hinted {
-            // A journal the boot record doesn't name: a build without the journal rebuilt the
-            // record since (a rollback), so what the journal holds may be older than what that
-            // build saved. Its records are dropped: the place is reserved again, zeroed.
-            if existing.is_some() && !new && !record_names_journal(&conn) {
+            // A journal the boot record doesn't name, in a record that changed since the
+            // reservation: a build without the journal rebuilt it (a rollback), so what the
+            // journal holds may be older than what that build saved. Its records are dropped:
+            // the place is reserved again, zeroed. (A record nobody rebuilt yet, the first launch
+            // after the update killed early, keeps them: `journal::current`.)
+            if existing.is_some() && !new && !journal::current(&conn, record_names_journal(&conn)) {
                 conn.execute_batch("DELETE FROM journal_meta")?;
             }
             let t = Instant::now();
@@ -551,7 +548,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
             }
         }
     }
-    // The windows' first key may go now (it waited, if it came first: `journal::wait_ready`).
+    // Decided: keys held meanwhile are in the journal, or (no journal) the database's alone.
     journal::decided();
     if let (Some(s), Some(mut p)) = (send, owe.packet.take()) {
         p.apply_journal(&owe.recovered);

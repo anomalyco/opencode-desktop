@@ -47,9 +47,28 @@ enum Effect {
     /// Hand the writes made while booting to the storage; with why the database didn't open, when
     /// it didn't. Once the first frame is up ([`Frame::Presented`]), tell the storage and wake every
     /// window.
-    Adopt(Storage, Queued, Option<String>, Frame),
+    Adopt(Storage, Queued, Opened, Frame),
     /// The first frame is up after an early adoption: tell the storage, wake every window.
     Presented(Storage),
+}
+
+/// How the database opened, for what the windows are told.
+enum Opened {
+    Saving,
+    /// It couldn't (why): this run keeps its changes in memory.
+    Memory(String),
+    /// It was damaged: moved aside (here) and a new one made.
+    Fresh(std::path::PathBuf),
+}
+
+impl Opened {
+    fn of(report: opencode_storage::BootReport) -> Opened {
+        match (report.error, report.damaged) {
+            (Some(why), _) => Opened::Memory(why),
+            (None, Some(kept)) => Opened::Fresh(kept),
+            (None, None) => Opened::Saving,
+        }
+    }
 }
 
 /// Whether the first frame was presented when the storage was adopted.
@@ -63,7 +82,7 @@ enum Event {
     TakeBoot,
     /// The first window presented its first frame.
     Presented,
-    Joined(Storage, Option<String>),
+    Joined(Storage, Opened),
     /// The app quits: stage B is needed now.
     Quit,
     /// A read the boot packet can't answer: adopt stage B if it's done (never wait for it here).
@@ -80,6 +99,8 @@ static READY: Condvar = Condvar::new();
 pub enum Notice {
     /// The database couldn't open (why): this run keeps its changes in memory.
     Memory(String),
+    /// The saved state was damaged: it's kept at this path, and the app started a new one.
+    Damaged(String),
     /// Another process holds the file: the windows show its last checkpoint, and nothing is saved.
     Checkpoint,
     /// Another process holds the file and won't let it be read: a first-run screen; the saved
@@ -127,7 +148,7 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
         (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default() }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
-            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, report.error, Frame::Presented))),
+            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Presented))),
             None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
         },
         // Another process holds the file and the windows show its stand-in: nothing this run
@@ -135,10 +156,10 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
         (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() => (Phase::Memory(Storage::memory()), None),
         (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
-            Some((storage, report)) => (Phase::Early { storage: storage.clone(), boot }, Some(Effect::Adopt(storage, queued, report.error, Frame::Pending))),
+            Some((storage, report)) => (Phase::Early { storage: storage.clone(), boot }, Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Pending))),
             None => (Phase::Booted { boot, opening, queued }, None),
         },
-        (Phase::Joining { queued, .. }, Event::Joined(storage, error)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, error, Frame::Presented))),
+        (Phase::Joining { queued, .. }, Event::Joined(storage, opened)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, opened, Frame::Presented))),
         (Phase::Early { storage, .. }, Event::Presented) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
         (phase, _) => (phase, None),
     }
@@ -201,14 +222,15 @@ fn send(event: Event) {
         let Some(phase) = guard.take() else { return };
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
-        if let Some(Effect::Adopt(_, _, error, _)) = &mut effect {
+        if let Some(Effect::Adopt(_, _, opened, _)) = &mut effect {
             let mut t = told();
-            t.owed = match (error.take(), t.held) {
+            t.owed = match (std::mem::replace(opened, Opened::Saving), t.held) {
                 // The first frame's notice already says nothing is saved.
-                (Some(_), true) => t.owed.take(),
-                (Some(why), false) => Some(Notice::Memory(why)),
-                (None, true) => Some(Notice::Saving),
-                (None, false) => None,
+                (Opened::Memory(_), true) => t.owed.take(),
+                (Opened::Memory(why), false) => Some(Notice::Memory(why)),
+                (Opened::Fresh(kept), _) => Some(Notice::Damaged(kept.display().to_string())),
+                (Opened::Saving, true) => Some(Notice::Saving),
+                (Opened::Saving, false) => None,
             };
         }
         if let Phase::Booted { boot, .. } = &next {
@@ -243,7 +265,7 @@ fn send(event: Event) {
 
 fn joined(opening: Opening) {
     let (storage, report) = opening.storage();
-    send(Event::Joined(storage, report.error));
+    send(Event::Joined(storage, Opened::of(report)));
 }
 
 /// What the windows must be told about their state, once: the first window to take it says so.
@@ -315,11 +337,6 @@ fn config() -> Option<StorageConfig> {
 pub fn presented() {
     send(Event::TakeBoot);
     send(Event::Presented);
-    // Before the first input: the draft journal exists (a new profile's, or the first launch
-    // after an update's, is reserved beside the first frame and is almost always ready by now).
-    if opencode_storage::journal::wait_ready(Duration::from_millis(500)) {
-        rune::marks::mark("storage.journal.waited");
-    }
 }
 
 /// Window `waker` is woken once the storage is ready (at once when it is).

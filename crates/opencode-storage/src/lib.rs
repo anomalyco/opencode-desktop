@@ -24,12 +24,7 @@ mod stores;
 /// even while the database's writes wait on a busy disk. A no-op on the web.
 pub mod journal {
     #[cfg(not(target_arch = "wasm32"))]
-    pub use crate::native::journal::{is_draft_key, latest, record, wait_ready};
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn wait_ready(_limit: std::time::Duration) -> bool {
-        false
-    }
+    pub use crate::native::journal::{is_draft_key, latest, record};
 
     #[cfg(target_arch = "wasm32")]
     pub fn record(_key: &str, _text: Option<&str>) -> u64 {
@@ -130,12 +125,14 @@ pub type Loaded = Box<dyn FnOnce() + Send>;
 /// The `state` namespaces the first frame draws, carried whole in the boot record and hydrated
 /// at open: the window list and app settings (`opencode.settings`), the app-wide keys
 /// (`opencode.global.dat`), the small plugin namespaces read before the first frame
-/// (`plugin.file`, `plugin.browser`, `plugin.updater`), the developer tools' (`rune.dev`), and
+/// (`plugin.file`, `plugin.browser`, `plugin.updater`), the developer tools' (`rune.dev`), the
+/// dormant built-ins' first-use records (`rune.plugins`: what each registered, so its commands
+/// are there before it runs; ~19 KB), and
 /// every window's tabs, page and panes (`opencode.window.<id>.dat`). The rest (Luau plugin
 /// stores, terminal workspaces, the legacy archive) load on the storage thread when asked.
 /// Everything here is read before the first frame on every launch: keep it to what that frame
 /// draws, and large values out (a record past 64 KiB costs a positioned read per page).
-pub const BOOT_NAMESPACES: [&str; 6] = ["opencode.settings", "opencode.global.dat", "plugin.file", "plugin.browser", "plugin.updater", "rune.dev"];
+pub const BOOT_NAMESPACES: [&str; 7] = ["opencode.settings", "opencode.global.dat", "plugin.file", "plugin.browser", "plugin.updater", "rune.dev", "rune.plugins"];
 
 pub fn is_boot_namespace(name: &str) -> bool {
     BOOT_NAMESPACES.contains(&name) || name.starts_with("opencode.window.")
