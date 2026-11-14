@@ -589,12 +589,19 @@ fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
     let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0;
     let body = match (lead, entry.tab.icon) {
         (true, _) if entry.plugin == crate::terminal::PLUGIN => 22.0 + title.min(160.0),
-        (true, _) | (false, Some(_)) => 22.0 + title,
+        (true, _) => 22.0 + title,
+        (false, Some(glyph)) => tab_icon_size(entry, glyph) + 6.0 + title,
         (false, None) => title,
     };
     let badge = entry.tab.badge.as_ref().map_or(0.0, |b| 6.0 + rune::text::measure(b, &[], TAB_SMALL, None).0);
     let end = if entry.tab.can_close() { CLOSE_END } else { 10.0 };
     10.0 + body + badge + end
+}
+
+/// A tab icon's size: Review's and Files' labels draw theirs `size="small"`, 14 on today's
+/// artwork (`icon.tsx`); a file's badge and the browser's page icon are 16.
+fn tab_icon_size(entry: &ResolvedEntry, glyph: &Icon) -> f32 {
+    if entry.tab.file.is_none() && matches!(glyph.name, "review" | "file-tree") { 14.0 } else { 16.0 }
 }
 
 /// A tab key as an element key.
@@ -678,7 +685,7 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, act
                         .child(icon(glyph, 16.0).key("icon-mono").absolute(0.0, 0.0).icon_one_color().color(label_color).group_opacity(1.0, 0.0))
                 });
             }
-            Some(glyph) => pill = pill.child(icon(glyph, 16.0).color(if active { p.icon } else { p.icon_muted })),
+            Some(glyph) => pill = pill.child(icon(glyph, tab_icon_size(entry, glyph)).color(if active { p.icon } else { p.icon_muted })),
             None => {}
         }
         pill = pill.child(
