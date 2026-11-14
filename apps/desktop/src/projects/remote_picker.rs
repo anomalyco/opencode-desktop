@@ -559,12 +559,13 @@ pub mod view {
             .radius(6.0)
             .fill(p.layer1)
             .elevate(p.overlay)
-            .clip_rounded(6.0)
+            // The clip on a child: on the card it would clip the card's own shadow too.
+            .child(col().w_full().h_full().clip_rounded(6.0)
             .child(header)
             // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
             .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
             .child(body)
-            .child(footer);
+            .child(footer));
         let card = col().key("directory-picker").role("dialog").label(o.title.clone()).modal(true, |s: &mut App| super::close(s, &mut Tx::default())).child(card);
         crate::widgets::modal("directory-picker-modal", p, card, None)
     }

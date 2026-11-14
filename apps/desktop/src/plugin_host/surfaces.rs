@@ -387,7 +387,8 @@ pub fn dialog_view(app: &App, p: &Pal) -> Vec<El> {
         _ => 480.0,
     };
     let content = render(app, p, i, &format!("dialog:{}", open.id), &f, map([("data", open.data.clone())]));
-    let card = col().w(width).radius(6.0).fill(p.layer1).elevate(p.overlay).clip_rounded(6.0).child(content);
+    // The clip goes on a child: on the card it would clip the card's own shadow too.
+    let card = col().w(width).radius(6.0).fill(p.layer1).elevate(p.overlay).child(col().w_full().clip_rounded(6.0).child(content));
     let card = col().key(format!("plugin-dialog-{key}")).role("dialog").label(spec.title.clone().unwrap_or_default()).modal(true, |s: &mut App| super::requests::dismiss_dialog(s, &mut Tx::default())).child(card);
     crate::widgets::modal(&format!("plugin-dialog-modal-{key}"), p, card, None)
 }

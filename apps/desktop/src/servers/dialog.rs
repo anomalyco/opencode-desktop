@@ -266,11 +266,14 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     };
     let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Neutral).disabled(v.disabled).on_press_tx(|s: &mut App, tx: &mut Tx| close(s, tx)).build(k).key("dialog-server-cancel");
     let submit = crate::widgets::button(submit_label, ButtonVariant::Contrast).disabled(v.disabled).on_press_tx(|s: &mut App, tx: &mut Tx| dispatch(s, Event::Submitted, tx)).build(k).key("dialog-server-submit");
-    let card = col().w(480.0).radius(6.0).fill(p.layer1).elevate(p.overlay).clip_rounded(6.0)
+    // The clip goes on a child: on the card it would clip the card's own shadow too.
+    let card = col().w_full().clip_rounded(6.0)
         .child(row().key("dialog-server-header").w_full().padding(16.0).center_y().child(text(title).font(rune::TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04)).color(p.text)))
-        .child(el().w_full().h(0.5).fill(p.q.border_strong))
+        // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
+        .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
         .child(col().key("dialog-server-body").w_full().min_w(0.0).px(16.0).pt(16.0).pb(8.0).child(body))
         .child(row().key("dialog-server-footer").w_full().padding(16.0).gap(8.0).child(rune::spacer()).child(cancel).child(submit));
+    let card = col().w(480.0).radius(6.0).fill(p.layer1).elevate(p.overlay).child(card);
     let card = col().key("dialog-server").role("dialog").label(title).modal(true, |s: &mut App| {
         let mut tx = Tx::default();
         close(s, &mut tx);
