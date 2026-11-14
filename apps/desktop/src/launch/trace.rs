@@ -81,6 +81,24 @@ static STABLE: OnceLock<Instant> = OnceLock::new();
 const STILL: Duration = Duration::from_millis(500);
 /// How long after content went live `pixels.stable` waits for the GPU to take over the window.
 const HANDOVER_WAIT: Duration = Duration::from_secs(5);
+/// How often a traced quit looks for content live before it's there.
+const LIVE_LOOK: Duration = Duration::from_millis(250);
+/// The wakes this module has asked for and not yet had: [`arm`].
+static QUIT_WAKE: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+static SETTLE_WAKE: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+/// Asks for one wake at `at` unless one is already due no later. `poll` runs on every turn, and
+/// every `wake_after` adds a deadline that stays until it's reached: asking on each turn made
+/// each wake add another, so the timers alone woke the app 27–93 times a second.
+fn arm(slot: &std::sync::Mutex<Option<Instant>>, at: Instant, tx: &mut Tx) {
+    let now = Instant::now();
+    let mut armed = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if armed.is_some_and(|t| t > now && t <= at) {
+        return;
+    }
+    *armed = Some(at);
+    tx.wake_after(at.saturating_duration_since(now));
+}
 
 /// First thing in `main`.
 pub fn begin() {
@@ -97,7 +115,8 @@ pub fn begin() {
 /// Whether this run writes a trace or prints its milestones.
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| crate::arg("--launch-trace").is_some() || echoes())
+    // A traced quit needs `content.live` too: without it, it waits for the fallback.
+    *ON.get_or_init(|| crate::arg("--launch-trace").is_some() || echoes() || quit_after().is_some())
 }
 
 /// `--launch-marks`: each launch milestone printed as a line the moment the app sees it
@@ -234,7 +253,7 @@ fn settle(tx: &mut Tx) {
     let handed = at("gpu.window.handed");
     let waited = at("content.live").is_some_and(|live| Instant::now().checked_duration_since(live).unwrap_or_default() >= HANDOVER_WAIT);
     if handed.is_none() && !waited {
-        tx.wake_after(STILL);
+        arm(&SETTLE_WAKE, Instant::now() + STILL, tx);
         return;
     }
     let last = handed.map_or(drawn, |h| h.max(drawn));
@@ -243,7 +262,7 @@ fn settle(tx: &mut Tx) {
         let _ = STABLE.set(last);
         return;
     }
-    tx.wake_after(STILL - quiet);
+    arm(&SETTLE_WAKE, last + STILL, tx);
 }
 
 /// `poll`: a traced quit, once, when it's due.
@@ -259,14 +278,17 @@ pub fn poll(tx: &mut Tx) {
     let marks = rune::marks::marks();
     let at = |name: &str| marks.iter().find(|(n, _)| *n == name).map(|(_, t)| *t);
     let Some(first) = at("frame.first.presented") else {
-        tx.wake_after(Duration::from_millis(50));
+        arm(&QUIT_WAKE, Instant::now() + Duration::from_millis(50), tx);
         return;
     };
-    let due = at("content.live").unwrap_or(first + CONTENT_WAIT) + after;
+    let live = at("content.live");
+    let due = live.unwrap_or(first + CONTENT_WAIT) + after;
     let now = Instant::now();
     if now < due {
-        // Content may land before the fallback: look again soon.
-        tx.wake_after((due - now).min(Duration::from_millis(50)));
+        // Live: one timer, for when the quit is due, so a traced run idles as an untraced one
+        // does. Not live yet: look again a few times a second, since content may land before the
+        // fallback and its frame may be the last turn for a while.
+        arm(&QUIT_WAKE, if live.is_some() { due } else { due.min(now + LIVE_LOOK) }, tx);
         return;
     }
     if !QUIT_SENT.swap(true, Ordering::Relaxed) {
