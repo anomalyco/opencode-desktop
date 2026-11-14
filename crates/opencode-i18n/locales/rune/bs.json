@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Preveliko za prikaz ovdje ({{size}})",
   "rune.scale.save": "Sačuvaj cijeli izlaz…",
   "rune.web.check.code": "Vaš kod: {{code}}",
-  "rune.web.check.signIn": "Prijavite se iznad. Provjera se nastavlja nakon toga."
+  "rune.web.check.signIn": "Prijavite se iznad. Provjera se nastavlja nakon toga.",
+  "session.markRead": "Označi kao pročitano",
+  "session.markUnread": "Označi kao nepročitano"
 }

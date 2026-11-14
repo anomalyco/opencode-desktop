@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "මෙහි පෙන්වීමට විශාල වැඩියි ({{size}})",
   "rune.scale.save": "සම්පූර්ණ ප්‍රතිදානය සුරකින්න…",
   "rune.web.check.code": "ඔබේ කේතය: {{code}}",
-  "rune.web.check.signIn": "ඉහළින් පුරනය වන්න. ඉන්පසු පරීක්ෂාව දිගටම යයි."
+  "rune.web.check.signIn": "ඉහළින් පුරනය වන්න. ඉන්පසු පරීක්ෂාව දිගටම යයි.",
+  "session.markRead": "කියවූ ලෙස සලකුණු කරන්න",
+  "session.markUnread": "නොකියවූ ලෙස සලකුණු කරන්න"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Ov stórt at vísa her ({{size}})",
   "rune.scale.save": "Goym alt úttakið…",
   "rune.web.check.code": "Tín kota: {{code}}",
-  "rune.web.check.signIn": "Rita inn omanfyri. Kanningin heldur fram aftaná."
+  "rune.web.check.signIn": "Rita inn omanfyri. Kanningin heldur fram aftaná.",
+  "session.markRead": "Merk sum lisið",
+  "session.markUnread": "Merk sum ólisið"
 }

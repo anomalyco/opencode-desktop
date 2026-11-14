@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Siin kuvamiseks liiga suur ({{size}})",
   "rune.scale.save": "Salvesta kogu väljund…",
   "rune.web.check.code": "Sinu kood: {{code}}",
-  "rune.web.check.signIn": "Logi ülal sisse. Kontroll jätkub pärast seda."
+  "rune.web.check.signIn": "Logi ülal sisse. Kontroll jätkub pärast seda.",
+  "session.markRead": "Märgi loetuks",
+  "session.markUnread": "Märgi lugemata olekusse"
 }

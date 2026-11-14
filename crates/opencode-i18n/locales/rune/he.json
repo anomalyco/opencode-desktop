@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "גדול מדי להצגה כאן ({{size}})",
   "rune.scale.save": "שמירת הפלט המלא…",
   "rune.web.check.code": "הקוד שלכם: {{code}}",
-  "rune.web.check.signIn": "התחברו למעלה. הבדיקה תמשיך אחר כך."
+  "rune.web.check.signIn": "התחברו למעלה. הבדיקה תמשיך אחר כך.",
+  "session.markRead": "סימון כנקרא",
+  "session.markUnread": "סימון כלא נקרא"
 }

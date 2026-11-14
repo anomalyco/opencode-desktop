@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Te groot om hier weer te geven ({{size}})",
   "rune.scale.save": "Volledige uitvoer opslaan…",
   "rune.web.check.code": "Je code: {{code}}",
-  "rune.web.check.signIn": "Log hierboven in. De controle gaat daarna verder."
+  "rune.web.check.signIn": "Log hierboven in. De controle gaat daarna verder.",
+  "session.markRead": "Markeren als gelezen",
+  "session.markUnread": "Markeren als ongelezen"
 }

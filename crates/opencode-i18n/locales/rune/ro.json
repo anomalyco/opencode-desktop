@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Prea mare pentru a fi afișat aici ({{size}})",
   "rune.scale.save": "Salvează rezultatul complet…",
   "rune.web.check.code": "Codul tău: {{code}}",
-  "rune.web.check.signIn": "Conectează-te mai sus. Verificarea continuă după aceea."
+  "rune.web.check.signIn": "Conectează-te mai sus. Verificarea continuă după aceea.",
+  "session.markRead": "Marchează ca citit",
+  "session.markUnread": "Marchează ca necitit"
 }

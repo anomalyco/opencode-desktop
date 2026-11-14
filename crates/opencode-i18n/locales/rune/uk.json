@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Завеликий обсяг для показу тут ({{size}})",
   "rune.scale.save": "Зберегти повний вивід…",
   "rune.web.check.code": "Ваш код: {{code}}",
-  "rune.web.check.signIn": "Увійдіть вище. Потім перевірка продовжиться."
+  "rune.web.check.signIn": "Увійдіть вище. Потім перевірка продовжиться.",
+  "session.markRead": "Позначити як прочитане",
+  "session.markUnread": "Позначити як непрочитане"
 }

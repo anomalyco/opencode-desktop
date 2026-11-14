@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Энд харуулахад хэт том байна ({{size}})",
   "rune.scale.save": "Гаралтыг бүтнээр нь хадгалах…",
   "rune.web.check.code": "Таны код: {{code}}",
-  "rune.web.check.signIn": "Дээр нэвтэрнэ үү. Шалгалт дараа нь үргэлжилнэ."
+  "rune.web.check.signIn": "Дээр нэвтэрнэ үү. Шалгалт дараа нь үргэлжилнэ.",
+  "session.markRead": "Уншсан гэж тэмдэглэх",
+  "session.markUnread": "Уншаагүй гэж тэмдэглэх"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Per didelis rodyti čia ({{size}})",
   "rune.scale.save": "Įrašyti visą išvestį…",
   "rune.web.check.code": "Jūsų kodas: {{code}}",
-  "rune.web.check.signIn": "Prisijunkite viršuje. Patikra tęsis po to."
+  "rune.web.check.signIn": "Prisijunkite viršuje. Patikra tęsis po to.",
+  "session.markRead": "Pažymėti kaip skaitytą",
+  "session.markUnread": "Pažymėti kaip neskaitytą"
 }

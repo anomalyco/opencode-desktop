@@ -24,7 +24,9 @@ use crate::popup::{self, Menu};
 use crate::{App, Route};
 
 mod delete;
+mod export;
 mod rename;
+pub(crate) mod unread;
 
 /// Where a session's title is drawn: each has its own menu and its own blur rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +64,8 @@ impl Target {
 
 #[derive(Default)]
 pub struct Menus {
+    exports: export::Exports,
+    unread_generation: u64,
     /// The menu showing now, so its row draws marked.
     pub on: Option<Target>,
     /// The title being edited (`rename`), its field's text, and its save.
@@ -144,6 +148,13 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
     let known = here.then(|| s.session(&t.id)).flatten();
     let known_elsewhere = !here && s.checkout.known(&t.server, &t.id);
     let draft = tab.is_some_and(crate::tabs::Tab::is_draft);
+    let read_item = if s.menus.unread_generation == 0 || t.spot == Spot::Header { None } else if let Some(info) = known {
+        let root = s.root_of(&info.id);
+        let marks = s.marks(root);
+        (!marks.busy && !marks.attention && (marks.unread || info.idle.is_some())).then_some(marks.unread)
+    } else { s.checkout.read_menu(&t.server, &t.id) }.map(|read| if read {
+        item("read", opencode_i18n::t!("session.markRead"), true)
+    } else { item("unread", opencode_i18n::t!("session.markUnread"), true) });
     match t.spot {
         Spot::Tab => {
             let uid = tab.map(crate::tabs::Tab::uid).unwrap_or_default();
@@ -160,12 +171,14 @@ pub fn lines(s: &App, t: &Target) -> Vec<Line> {
                 return close.into();
             }
             std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known))
+                .chain([item("export", asks(opencode_i18n::t!("common.export")), known && !s.exporting(&t.server, &t.id))])
+                .chain(read_item).chain([Line::Sep])
                 .chain(close)
-                .chain([Line::Sep, Line::Item(Item { id: "delete", title: asks(opencode_i18n::t!("session.delete.title")), enabled: known, danger: true })])
+                .chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), known)])
                 .collect()
         }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
-        Spot::Row | Spot::Header => vec![item("rename", opencode_i18n::t!("common.rename"), true), item("export", asks(opencode_i18n::t!("common.export")), true), Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), true)],
+        Spot::Row | Spot::Header => [item("rename", opencode_i18n::t!("common.rename"), true), item("export", asks(opencode_i18n::t!("common.export")), !s.exporting(&t.server, &t.id))].into_iter().chain(read_item).chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), true)]).collect(),
     }
 }
 
@@ -224,9 +237,13 @@ pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
                 s.close_tab(&g, tx);
             }
         }
-        "export" => {
-            crate::servers::runtime::with_server(s, &t.server, |s| s.write(Write::Export(t.id.clone())));
-        }
+        "export" => s.export_session_on(&t.server, &t.id),
+        "read" | "unread" => { crate::servers::runtime::with_server(s, &t.server, |s| {
+            if id == "read" { unread::read(s, &t.id); } else {
+                let root = s.root_of(&t.id).to_owned();
+                unread::set(s, &t.server, &root, true);
+            }
+        }); }
         "delete" => s.ask_delete_on(&t.server, &t.id),
         _ => {}
     }

@@ -107,10 +107,6 @@ fn pick(s: &mut App, id: &str, unread: &[String]) {
 /// Mark all as read: every listed unread session on the server the window works against.
 pub(super) fn mark_read(s: &mut App, ids: &[String]) {
     for id in ids {
-        let Some(info) = s.sessions.iter_mut().find(|i| i.id == *id) else { continue };
-        info.viewed = info.idle.max(info.viewed);
-        let idle = info.idle.unwrap_or(*s.now_ms);
-        s.write(opencode_kit::client::Write::View { session: id.clone(), idle });
+        crate::session_menu::unread::read(s, id);
     }
 }
-

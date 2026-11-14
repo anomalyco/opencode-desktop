@@ -268,7 +268,7 @@ fn compact(s: &mut App, _: &mut Tx) {
 
 fn export(s: &mut App, _: &mut Tx) {
     let Some(id) = s.open_root() else { return };
-    s.write(Write::Export(id));
+    s.export_session_on(&crate::servers::runtime::current(), &id);
 }
 
 fn rename(s: &mut App, tx: &mut Tx) {
@@ -356,7 +356,7 @@ rune_register::register!(COMMANDS: Cmd = [
         .describe(opencode_i18n::key!("command.session.export.description"))
         .slash("export")
         .section(Section::Session)
-        .when(in_session),
+        .when(|s| s.open_root().is_some_and(|id| !s.exporting(crate::servers::runtime::active(s), &id))),
     // Desktop's `file.open` (`use-session-commands.tsx:551-558`): Ctrl+P's search, as `/open`.
     Cmd::new("file.open", opencode_i18n::key!("command.file.open"), |s, tx| s.open_file_search(tx))
         .describe(opencode_i18n::key!("palette.search.placeholder"))
@@ -419,4 +419,3 @@ rune_register::register!(COMMANDS: Cmd = [
     })
     .when(|s| s.has_composer() && s.add.shell()),
 ]);
-

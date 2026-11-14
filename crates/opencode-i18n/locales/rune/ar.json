@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "الحجم أكبر من أن يُعرض هنا ({{size}})",
   "rune.scale.save": "حفظ الناتج الكامل…",
   "rune.web.check.code": "رمزك: {{code}}",
-  "rune.web.check.signIn": "سجّل الدخول في الأعلى. يتابع الفحص بعد ذلك."
+  "rune.web.check.signIn": "سجّل الدخول في الأعلى. يتابع الفحص بعد ذلك.",
+  "session.markRead": "تحديد كمقروء",
+  "session.markUnread": "تحديد كغير مقروء"
 }

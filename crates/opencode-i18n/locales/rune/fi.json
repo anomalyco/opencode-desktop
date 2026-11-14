@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Liian suuri näytettäväksi tässä ({{size}})",
   "rune.scale.save": "Tallenna koko tuloste…",
   "rune.web.check.code": "Koodisi: {{code}}",
-  "rune.web.check.signIn": "Kirjaudu sisään yllä. Tarkistus jatkuu sen jälkeen."
+  "rune.web.check.signIn": "Kirjaudu sisään yllä. Tarkistus jatkuu sen jälkeen.",
+  "session.markRead": "Merkitse luetuksi",
+  "session.markUnread": "Merkitse lukemattomaksi"
 }

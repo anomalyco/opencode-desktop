@@ -52,6 +52,7 @@ impl App {
         // Its own draft is in the composer on the first frame.
         let _ = self.show_draft();
         let root = self.root_of(id).to_owned();
+        crate::session_menu::unread::set(self, &crate::servers::runtime::current(), &root, false);
         // As in Desktop, you can type straight away. A subagent's page waits for a click into
         // its composer, so its keys (E in the inbox, Esc) stay with the page, and a story's
         // keys stay with the storybook.

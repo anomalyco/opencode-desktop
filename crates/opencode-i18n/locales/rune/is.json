@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Of stórt til að birta hér ({{size}})",
   "rune.scale.save": "Vista allt úttakið…",
   "rune.web.check.code": "Kóðinn þinn: {{code}}",
-  "rune.web.check.signIn": "Skráðu þig inn hér fyrir ofan. Prófunin heldur svo áfram."
+  "rune.web.check.signIn": "Skráðu þig inn hér fyrir ofan. Prófunin heldur svo áfram.",
+  "session.markRead": "Merkja sem lesið",
+  "session.markUnread": "Merkja sem ólesið"
 }

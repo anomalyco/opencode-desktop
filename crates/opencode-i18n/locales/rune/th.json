@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "ใหญ่เกินกว่าจะแสดงที่นี่ ({{size}})",
   "rune.scale.save": "บันทึกผลลัพธ์ทั้งหมด…",
   "rune.web.check.code": "รหัสของคุณ: {{code}}",
-  "rune.web.check.signIn": "ลงชื่อเข้าใช้ด้านบน แล้วการตรวจจะดำเนินต่อ"
+  "rune.web.check.signIn": "ลงชื่อเข้าใช้ด้านบน แล้วการตรวจจะดำเนินต่อ",
+  "session.markRead": "ทำเครื่องหมายว่าอ่านแล้ว",
+  "session.markUnread": "ทำเครื่องหมายว่ายังไม่ได้อ่าน"
 }

@@ -30,6 +30,9 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 if crate::motion_log::wanted() { s.motion_events.note(&e.ty); }
                 // A session deleted while its tab is open: the tab says it's gone (`session_state`).
                 let gone = e.ty == "session.deleted" && e.data["sessionID"].as_str().is_some_and(|id| s.route == Route::here(id.to_owned()));
+                if e.ty == "session.deleted" && let Some(id) = e.data["sessionID"].as_str() {
+                    crate::session_menu::unread::set(s, &crate::servers::runtime::current(), id, false);
+                }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react(e) | gone
             }

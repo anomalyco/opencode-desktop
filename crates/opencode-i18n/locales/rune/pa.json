@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "ਇੱਥੇ ਦਿਖਾਉਣ ਲਈ ਬਹੁਤ ਵੱਡਾ ਹੈ ({{size}})",
   "rune.scale.save": "ਪੂਰੀ ਆਉਟਪੁੱਟ ਸੰਭਾਲੋ…",
   "rune.web.check.code": "ਤੁਹਾਡਾ ਕੋਡ: {{code}}",
-  "rune.web.check.signIn": "ਉੱਪਰ ਸਾਈਨ ਇਨ ਕਰੋ। ਉਸ ਤੋਂ ਬਾਅਦ ਜਾਂਚ ਜਾਰੀ ਰਹੇਗੀ।"
+  "rune.web.check.signIn": "ਉੱਪਰ ਸਾਈਨ ਇਨ ਕਰੋ। ਉਸ ਤੋਂ ਬਾਅਦ ਜਾਂਚ ਜਾਰੀ ਰਹੇਗੀ।",
+  "session.markRead": "ਪੜ੍ਹਿਆ ਵਜੋਂ ਨਿਸ਼ਾਨ ਲਾਓ",
+  "session.markUnread": "ਨਾ ਪੜ੍ਹਿਆ ਵਜੋਂ ਨਿਸ਼ਾਨ ਲਾਓ"
 }

@@ -178,7 +178,7 @@ pub(crate) fn customized(s: &App, p: &Pal) -> El {
     }
     let server_opts: Vec<(String, String)> = servers.iter().map(|e| (e.key().as_str().to_owned(), crate::servers::registry::label(&e.conn))).collect();
     let here = crate::servers::runtime::active(s).clone();
-    let unread: Vec<String> = listed.iter().filter_map(|&i| items[i].session.filter(|ses| items[i].server == here && ses.unread()).map(|ses| ses.id.clone())).collect();
+    let unread: Vec<String> = listed.iter().filter_map(|&i| items[i].session.filter(|ses| items[i].server == here && (ses.unread() || crate::session_menu::unread::manual(s, &here, &ses.id))).map(|ses| ses.id.clone())).collect();
 
     let header = header(p, server_opts, projects, unread);
     let viewport = col().grow(1.0).shrink().min_h(0.0);

@@ -52,7 +52,7 @@ impl App {
         Marks {
             attention,
             busy: !attention && self.family_busy(id),
-            unread: attention || self.session(id).is_some_and(SessionInfo::unread),
+            unread: attention || self.session(id).is_some_and(SessionInfo::unread) || crate::session_menu::unread::manual(self, crate::servers::runtime::active(self), id),
         }
     }
 

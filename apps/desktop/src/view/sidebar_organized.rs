@@ -303,7 +303,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     let id = ses.id.clone();
     let mark = match s.tab_status(&ses.id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
-        Some(_) if !active && ses.unread() => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
+        Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
         _ => None,
     };
     let mut r = row()

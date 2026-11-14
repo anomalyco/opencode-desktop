@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "サイズが大きいため、ここには表示できません ({{size}})",
   "rune.scale.save": "出力全体を保存…",
   "rune.web.check.code": "コード: {{code}}",
-  "rune.web.check.signIn": "上でサインインしてください。チェックはその後に続きます。"
+  "rune.web.check.signIn": "上でサインインしてください。チェックはその後に続きます。",
+  "session.markRead": "既読にする",
+  "session.markUnread": "未読にする"
 }

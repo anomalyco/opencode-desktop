@@ -320,6 +320,7 @@ pub struct Checkout {
 /// What a tab of a server the window isn't checked out on shows, as of its last checkout.
 #[derive(Clone, Debug, Default)]
 struct Snap {
+    read_menu: Option<bool>,
     status: Option<TabStatus>,
     project: Option<Project>,
     /// Its server has its session.
@@ -333,6 +334,9 @@ impl Default for Checkout {
 }
 
 impl Checkout {
+    pub(crate) fn read_menu(&self, server: &ServerKey, id: &str) -> Option<bool> {
+        self.snaps.get(&(server.clone(), id.to_owned()))?.read_menu
+    }
     /// Tab `id`'s mark on `server`, as of when the window last worked against it.
     pub fn snap(&self, server: &ServerKey, id: &str) -> Option<TabStatus> {
         self.snaps.get(&(server.clone(), id.to_owned())).and_then(|s| s.status)
@@ -491,7 +495,9 @@ fn snap(s: &mut App) {
         let dir = s.tabs.iter().find(|t| t.id == id && t.server == key).map(|t| t.directory.clone()).unwrap_or_default();
         let project = s.session(&id).and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(&dir)).cloned();
         let known = s.session(&id).is_some();
-        s.checkout.snaps.insert((key.clone(), id.clone()), Snap { status, project, known });
+        let marks = s.marks(s.root_of(&id));
+        let read_menu = (!marks.attention && !marks.busy && (marks.unread || s.session(&id).is_some_and(|i| i.idle.is_some()))).then_some(marks.unread);
+        s.checkout.snaps.insert((key.clone(), id.clone()), Snap { status, project, known, read_menu });
     }
     crate::inbox_model::snap(s);
 }

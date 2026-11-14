@@ -37,7 +37,7 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
     let id = r.session.id.clone();
     let mark = match s.tab_status(&id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
-        Some(_) if !r.active && r.session.unread() => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
+        Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !r.active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
         _ => None,
     };
     let start = 32.0 + 14.0 * r.depth as f32;

@@ -155,8 +155,6 @@ pub enum Write {
     View { session: String, idle: i64 },
     /// Replaces a session's `metadata` (`PATCH /api/session/:id`).
     Metadata { session: String, metadata: Value },
-    /// Saves a session as JSON in the downloads folder, as Desktop's Export does.
-    Export(String),
     /// Moves the session's blocking shells and subagents to the background (`POST …/background`).
     /// `quiet` drops a failure rather than reporting it, as a steer's move does.
     Background { session: String, quiet: bool },

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use rune::Waker;
 
-use super::{Incoming, Request, Server, Write, encode_component, list, save_download};
+use super::{Incoming, Request, Server, Write, encode_component, list};
 use crate::model;
 use crate::wire_error::WireError;
 
@@ -214,9 +214,6 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Unarchive(session) => server.unarchive(&session),
                         Write::View { session, idle } => server.view(&session, idle),
                         Write::Metadata { session, metadata } => server.set_metadata(&session, metadata),
-                        Write::Export(session) => server.export_session(&session).and_then(|(name, json)| save_download(&name, &json).map_err(WireError::from)).map(|path| {
-                            let _ = inbox_tx.send(Incoming::Status(format!("Saved session to {path}")));
-                        }),
                         Write::Background { session, quiet } => server.background(&session).or_else(|e| if quiet { Ok(()) } else { Err(e) }),
                         Write::Compact(session) => server.compact(&session),
                         // `command.config.reload.done` and `.failed` (`composer/commands.tsx:75-82`).

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Tepër e madhe për t’u shfaqur këtu ({{size}})",
   "rune.scale.save": "Ruaj gjithë daljen…",
   "rune.web.check.code": "Kodi juaj: {{code}}",
-  "rune.web.check.signIn": "Hyni më sipër. Kontrolli vazhdon më pas."
+  "rune.web.check.signIn": "Hyni më sipër. Kontrolli vazhdon më pas.",
+  "session.markRead": "Shëno si të lexuar",
+  "session.markUnread": "Shëno si të palexuar"
 }

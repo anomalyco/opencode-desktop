@@ -142,7 +142,7 @@ impl App {
             InboxStatus::Input
         } else if busy {
             InboxStatus::Working
-        } else if !session.unread() {
+        } else if !session.unread() && !crate::session_menu::unread::manual(self, crate::servers::runtime::active(self), root) {
             InboxStatus::Ready
         } else if session.outcome.as_deref() == Some("failed") {
             InboxStatus::Failed

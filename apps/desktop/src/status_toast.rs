@@ -292,10 +292,6 @@ pub fn succeed(s: &mut App, title: impl Into<String>, description: impl Into<Str
 /// A line from the server's worker threads (`Incoming::Status`) that isn't a failure: an export
 /// saved, the configuration reloaded, or the event stream's own line (the link said it already).
 pub fn from_server(s: &mut App, e: String) {
-    if let Some(path) = e.strip_prefix("Saved session to ") {
-        let line = opencode_i18n::t!("toast.session.export.success.description", filename = path);
-        return succeed(s, opencode_i18n::t!("toast.session.export.success.title"), line);
-    }
     if e == "Configuration reloaded" {
         *s.status = String::new();
         return succeed(s, opencode_i18n::t!("command.config.reload.done"), String::new());

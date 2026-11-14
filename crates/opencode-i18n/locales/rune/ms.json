@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Terlalu besar untuk dipaparkan di sini ({{size}})",
   "rune.scale.save": "Simpan keseluruhan output…",
   "rune.web.check.code": "Kod anda: {{code}}",
-  "rune.web.check.signIn": "Log masuk di atas. Semakan diteruskan selepas itu."
+  "rune.web.check.signIn": "Log masuk di atas. Semakan diteruskan selepas itu.",
+  "session.markRead": "Tandakan sebagai dibaca",
+  "session.markUnread": "Tandakan sebagai belum dibaca"
 }

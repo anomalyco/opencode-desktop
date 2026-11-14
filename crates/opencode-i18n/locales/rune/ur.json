@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "یہاں دکھانے کے لیے بہت بڑا ہے ({{size}})",
   "rune.scale.save": "مکمل آؤٹ پٹ محفوظ کریں…",
   "rune.web.check.code": "آپ کا کوڈ: {{code}}",
-  "rune.web.check.signIn": "اوپر سائن ان کریں۔ اس کے بعد جانچ جاری رہے گی۔"
+  "rune.web.check.signIn": "اوپر سائن ان کریں۔ اس کے بعد جانچ جاری رہے گی۔",
+  "session.markRead": "پڑھا ہوا نشان زد کریں",
+  "session.markUnread": "بغیر پڑھا نشان زد کریں"
 }

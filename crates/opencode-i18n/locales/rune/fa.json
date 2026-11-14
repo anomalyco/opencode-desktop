@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "برای نمایش در اینجا بیش از حد بزرگ است ({{size}})",
   "rune.scale.save": "ذخیرهٔ خروجی کامل…",
   "rune.web.check.code": "کد شما: {{code}}",
-  "rune.web.check.signIn": "بالا وارد شوید. بررسی پس از آن ادامه می‌یابد."
+  "rune.web.check.signIn": "بالا وارد شوید. بررسی پس از آن ادامه می‌یابد.",
+  "session.markRead": "علامت‌گذاری به‌عنوان خوانده‌شده",
+  "session.markUnread": "علامت‌گذاری به‌عنوان خوانده‌نشده"
 }

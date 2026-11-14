@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Bu ýerde görkezmek üçin örän uly ({{size}})",
   "rune.scale.save": "Doly çykyşy ýatda sakla…",
   "rune.web.check.code": "Siziň koduňyz: {{code}}",
-  "rune.web.check.signIn": "Ýokarda giriň. Barlag soňra dowam eder."
+  "rune.web.check.signIn": "Ýokarda giriň. Barlag soňra dowam eder.",
+  "session.markRead": "Okaldy diýip belle",
+  "session.markUnread": "Okalmady diýip belle"
 }

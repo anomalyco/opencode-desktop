@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "For stort til at blive vist her ({{size}})",
   "rune.scale.save": "Gem hele outputtet…",
   "rune.web.check.code": "Din kode: {{code}}",
-  "rune.web.check.signIn": "Log ind ovenfor. Tjekket fortsætter bagefter."
+  "rune.web.check.signIn": "Log ind ovenfor. Tjekket fortsætter bagefter.",
+  "session.markRead": "Markér som læst",
+  "session.markUnread": "Markér som ulæst"
 }

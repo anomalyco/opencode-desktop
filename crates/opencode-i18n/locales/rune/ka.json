@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "აქ საჩვენებლად ზედმეტად დიდია ({{size}})",
   "rune.scale.save": "სრული შედეგის შენახვა…",
   "rune.web.check.code": "თქვენი კოდი: {{code}}",
-  "rune.web.check.signIn": "შედით ზემოთ. შემოწმება ამის შემდეგ გაგრძელდება."
+  "rune.web.check.signIn": "შედით ზემოთ. შემოწმება ამის შემდეგ გაგრძელდება.",
+  "session.markRead": "წაკითხულად მონიშვნა",
+  "session.markUnread": "წაუკითხავად მონიშვნა"
 }

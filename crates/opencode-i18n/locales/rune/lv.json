@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Pārāk liels, lai parādītu šeit ({{size}})",
   "rune.scale.save": "Saglabāt visu izvadi…",
   "rune.web.check.code": "Jūsu kods: {{code}}",
-  "rune.web.check.signIn": "Piesakieties augstāk. Pārbaude turpināsies pēc tam."
+  "rune.web.check.signIn": "Piesakieties augstāk. Pārbaude turpināsies pēc tam.",
+  "session.markRead": "Atzīmēt kā lasītu",
+  "session.markUnread": "Atzīmēt kā nelasītu"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Massa gran per mostrar-ho aquí ({{size}})",
   "rune.scale.save": "Desa la sortida completa…",
   "rune.web.check.code": "El vostre codi: {{code}}",
-  "rune.web.check.signIn": "Inicieu la sessió a dalt. La comprovació continua després."
+  "rune.web.check.signIn": "Inicieu la sessió a dalt. La comprovació continua després.",
+  "session.markRead": "Marca com a llegit",
+  "session.markUnread": "Marca com a no llegit"
 }

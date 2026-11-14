@@ -7,12 +7,16 @@ use serde_json::Value;
 pub fn export_filename(info: &Value, id: &str) -> String {
     let name = ["title", "slug"].iter().filter_map(|k| info[*k].as_str()).find(|s| !s.is_empty()).unwrap_or(id);
     let mut clean = String::new();
+    let mut replacing = false;
     for c in name.to_lowercase().chars() {
         if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
             clean.push(c);
-        } else if !clean.ends_with('-') {
+            replacing = false;
+        } else if !replacing {
             clean.push('-');
+            replacing = true;
         }
+        if clean.len() == 250 { break; }
     }
     let clean = clean.trim_matches('-');
     format!("{}.json", if clean.is_empty() { id } else { clean })
@@ -20,7 +24,7 @@ pub fn export_filename(info: &Value, id: &str) -> String {
 
 static DOWNLOADS: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
 
-/// Where [`Write::Export`] saves sessions: the app's Downloads folder, set once at startup.
+/// Where ordinary file downloads go, set once at startup. Session export uses a save dialog.
 pub fn set_download_dir(dir: Option<std::path::PathBuf>) {
     let _ = DOWNLOADS.set(dir);
 }

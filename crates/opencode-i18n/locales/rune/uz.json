@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Bu yerda koʻrsatish uchun juda katta ({{size}})",
   "rune.scale.save": "Toʻliq natijani saqlash…",
   "rune.web.check.code": "Kodingiz: {{code}}",
-  "rune.web.check.signIn": "Yuqorida tizimga kiring. Tekshiruv keyin davom etadi."
+  "rune.web.check.signIn": "Yuqorida tizimga kiring. Tekshiruv keyin davom etadi.",
+  "session.markRead": "O‘qilgan deb belgilash",
+  "session.markUnread": "O‘qilmagan deb belgilash"
 }

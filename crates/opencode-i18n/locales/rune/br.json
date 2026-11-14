@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Re vras evit bezañ diskouezet amañ ({{size}})",
   "rune.scale.save": "Enrollañ an ec'hank klok…",
   "rune.web.check.code": "Ho kod: {{code}}",
-  "rune.web.check.signIn": "Kevreit a-us. Kenderc'hel a raio ar gwiriañ goude."
+  "rune.web.check.signIn": "Kevreit a-us. Kenderc'hel a raio ar gwiriañ goude.",
+  "session.markRead": "Merkañ evel lennet",
+  "session.markUnread": "Merkañ evel dilennet"
 }

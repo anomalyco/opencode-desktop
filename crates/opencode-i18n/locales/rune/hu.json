@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Túl nagy az itteni megjelenítéshez ({{size}})",
   "rune.scale.save": "Teljes kimenet mentése…",
   "rune.web.check.code": "A kódod: {{code}}",
-  "rune.web.check.signIn": "Jelentkezz be fent. Utána folytatódik az ellenőrzés."
+  "rune.web.check.signIn": "Jelentkezz be fent. Utána folytatódik az ellenőrzés.",
+  "session.markRead": "Megjelölés olvasottként",
+  "session.markUnread": "Megjelölés olvasatlanként"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "እዚህ ለማሳየት በጣም ትልቅ ነው ({{size}})",
   "rune.scale.save": "ሙሉውን ውጤት አስቀምጥ…",
   "rune.web.check.code": "ኮድዎ፦ {{code}}",
-  "rune.web.check.signIn": "ከላይ ይግቡ። ፍተሻው ከዚያ ይቀጥላል።"
+  "rune.web.check.signIn": "ከላይ ይግቡ። ፍተሻው ከዚያ ይቀጥላል።",
+  "session.markRead": "እንደተነበበ ምልክት አድርግ",
+  "session.markUnread": "እንዳልተነበበ ምልክት አድርግ"
 }

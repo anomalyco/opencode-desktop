@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Твърде голямо за показване тук ({{size}})",
   "rune.scale.save": "Запазване на пълния изход…",
   "rune.web.check.code": "Вашият код: {{code}}",
-  "rune.web.check.signIn": "Влезте по-горе. Проверката продължава след това."
+  "rune.web.check.signIn": "Влезте по-горе. Проверката продължава след това.",
+  "session.markRead": "Отбелязване като прочетено",
+  "session.markUnread": "Отбелязване като непрочетено"
 }

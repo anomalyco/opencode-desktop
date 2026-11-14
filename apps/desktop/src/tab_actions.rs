@@ -77,7 +77,7 @@ impl App {
         if marks.busy {
             return Some(TabStatus::Busy);
         }
-        if self.route == Route::here(id.to_owned()) {
+        if self.route == Route::here(id.to_owned()) && !crate::session_menu::unread::manual(self, crate::servers::runtime::active(self), id) {
             return None;
         }
         if marks.attention {

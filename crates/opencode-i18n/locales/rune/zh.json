@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "内容太大，无法在这里显示 ({{size}})",
   "rune.scale.save": "保存完整输出…",
   "rune.web.check.code": "你的代码：{{code}}",
-  "rune.web.check.signIn": "请在上方登录。之后检查会继续。"
+  "rune.web.check.signIn": "请在上方登录。之后检查会继续。",
+  "session.markRead": "标记为已读",
+  "session.markUnread": "标记为未读"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Príliš veľké na zobrazenie na tomto mieste ({{size}})",
   "rune.scale.save": "Uložiť celý výstup…",
   "rune.web.check.code": "Váš kód: {{code}}",
-  "rune.web.check.signIn": "Prihláste sa vyššie. Kontrola potom bude pokračovať."
+  "rune.web.check.signIn": "Prihláste sa vyššie. Kontrola potom bude pokračovať.",
+  "session.markRead": "Označiť ako prečítané",
+  "session.markUnread": "Označiť ako neprečítané"
 }

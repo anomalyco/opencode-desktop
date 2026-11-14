@@ -229,7 +229,7 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
 fn project_unread<'a>(s: &'a App, proj: &'a model::Project) -> impl Iterator<Item = &'a SessionInfo> + 'a {
     let dir = crate::projects::clean_dir(&proj.directory);
     s.sessions.iter().filter(move |i| {
-        i.parent.is_none() && i.archived.is_none() && i.unread() && s.transcripts.contains_key(&i.id) && crate::projects::clean_dir(&i.directory) == dir
+        i.parent.is_none() && i.archived.is_none() && (i.unread() || crate::session_menu::unread::manual(s, crate::servers::runtime::active(s), &i.id)) && crate::projects::clean_dir(&i.directory) == dir
     })
 }
 
@@ -254,10 +254,7 @@ impl App {
         let ids: Vec<String> = project_unread(self, proj).map(|i| i.id.clone()).collect();
         tx.instant();
         for id in ids {
-            let Some(info) = self.sessions.iter_mut().find(|i| i.id == id) else { continue };
-            info.viewed = info.idle.max(info.viewed);
-            let idle = info.idle.unwrap_or(*self.now_ms);
-            self.write(opencode_kit::client::Write::View { session: id, idle });
+            crate::session_menu::unread::read(self, &id);
         }
     }
 }

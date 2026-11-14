@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Troppo grande per la visualizzazione qui ({{size}})",
   "rune.scale.save": "Salva l’output completo…",
   "rune.web.check.code": "Il tuo codice: {{code}}",
-  "rune.web.check.signIn": "Accedi qui sopra. La verifica prosegue dopo."
+  "rune.web.check.signIn": "Accedi qui sopra. La verifica prosegue dopo.",
+  "session.markRead": "Segna come letto",
+  "session.markUnread": "Segna come da leggere"
 }

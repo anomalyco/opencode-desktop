@@ -274,7 +274,15 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
 
 /// A card's right-click menu: Archive (or Unarchive), then Delete…, each on the card's server.
 fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx: &mut Tx) {
+    let (server, id) = s.inbox_target(key);
+    let target = crate::session_menu::Target::on(&server, &id, crate::session_menu::Spot::Row);
+    let read = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::lines(s, &target).into_iter().find_map(|line| match line {
+        crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
+        _ => None,
+    })).flatten();
     let menu = Menu::new(t!("command.category.session"))
+        .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(&server, &id)))
+        .items(read).separator()
         .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
         .item(Item::new("delete", format!("{}…", t!("common.delete"))));
@@ -283,6 +291,7 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
+            Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
             Some("delete") => {

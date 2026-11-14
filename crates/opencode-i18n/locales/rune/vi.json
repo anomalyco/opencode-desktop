@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Quá lớn để hiển thị ở đây ({{size}})",
   "rune.scale.save": "Lưu toàn bộ đầu ra…",
   "rune.web.check.code": "Mã của bạn: {{code}}",
-  "rune.web.check.signIn": "Đăng nhập ở trên. Việc kiểm tra sẽ tiếp tục sau đó."
+  "rune.web.check.signIn": "Đăng nhập ở trên. Việc kiểm tra sẽ tiếp tục sau đó.",
+  "session.markRead": "Đánh dấu là đã đọc",
+  "session.markUnread": "Đánh dấu là chưa đọc"
 }

@@ -233,5 +233,7 @@
   "rune.scale.tooLarge": "Πολύ μεγάλο για εμφάνιση εδώ ({{size}})",
   "rune.scale.save": "Αποθήκευση πλήρους εξόδου…",
   "rune.web.check.code": "Ο κωδικός σας: {{code}}",
-  "rune.web.check.signIn": "Συνδεθείτε παραπάνω. Ο έλεγχος συνεχίζει μετά."
+  "rune.web.check.signIn": "Συνδεθείτε παραπάνω. Ο έλεγχος συνεχίζει μετά.",
+  "session.markRead": "Σήμανση ως αναγνωσμένου",
+  "session.markUnread": "Σήμανση ως μη αναγνωσμένου"
 }

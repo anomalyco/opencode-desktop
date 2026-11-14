@@ -617,7 +617,8 @@ impl Server {
     /// What Desktop's Export saves: `{ info, messages }`, the messages oldest first in pages of
     /// 200, with the file name it gives it.
     pub fn export_session(&self, session: &str) -> Result<(String, String), WireError> {
-        let v = self.get(&format!("/api/session/{session}"))?;
+        let get = |path: &str| self.get_json(path, None, Duration::from_secs(60)).map(|(v, _)| v);
+        let v = get(&format!("/api/session/{session}"))?;
         let info = v.get("data").unwrap_or(&v).clone();
         let mut messages = Vec::new();
         let mut cursor: Option<String> = None;
@@ -627,8 +628,9 @@ impl Server {
                 Some(c) => format!("/api/session/{session}/message?limit=200&cursor={}", encode_component(c)),
                 None => format!("/api/session/{session}/message?limit=200&order=asc"),
             };
-            let page = self.get(&path)?;
-            messages.extend(page["data"].as_array().cloned().unwrap_or_default());
+            let mut page = get(&path)?;
+            let Some(rows) = page["data"].as_array_mut() else { return Err(WireError::new("GET", &path, WireKind::Shape("missing message list".into()))); };
+            messages.append(rows);
             cursor = page["cursor"]["next"].as_str().map(str::to_owned);
             if cursor.is_none() {
                 break;
