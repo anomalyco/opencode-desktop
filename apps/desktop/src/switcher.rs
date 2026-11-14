@@ -634,13 +634,20 @@ impl App {
                 if let Some(open) = &mut *self.opening { open.step(crate::session_pages::OpenEvent::Expired); }
             }
             Action::RemoteSession { .. } => {}
-            Action::Command(id) => self.run_command(id, tx),
+            Action::Command(id) => {
+                let back = self.switcher.restore_composer;
+                self.run_command(id, tx);
+                // A command that moves focus itself keeps it (`Tx::return_focus` yields to it);
+                // otherwise the keyboard goes back to the prompt it came from, rather than to
+                // nothing (in a browser, focus said nothing after Toggle review).
+                if back { tx.return_focus("prompt", tx.focus_visible()); }
+            }
             // `path:line` (or `path#L12`) opens the file at that line.
             // Keyboard focus follows into the file, onto its line, so a reader lands in what
             // opened rather than on the window.
             Action::File(path) => {
                 self.open_workspace_file(&path, false, line, tx);
-                tx.focus(format!("cl{}", line.unwrap_or(1).max(1)), tx.focus_visible());
+                tx.focus_when_shown(format!("cl{}", line.unwrap_or(1).max(1)), tx.focus_visible());
             }
             Action::Setting(id) => {
                 if let Some(e) = crate::settings::search::index(self).into_iter().find(|e| e.id == id) {

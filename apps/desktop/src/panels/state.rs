@@ -533,13 +533,16 @@ impl App {
     }
 
     /// Toggles the right-hand side region on its smooth spring (`⌥⌘B`, `⇧⌘R`, or header toggle).
-    pub fn toggle_side_region(&mut self, _tx: &mut Tx) {
+    pub fn toggle_side_region(&mut self, tx: &mut Tx) {
         crate::plugin_host::dormant::wake_launchers(self);
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
         self.side.tab_menu = None;
         self.side.add_menu = None;
         let was_open = self.side_stored_open();
         if was_open {
+            // Closing gives focus back to the prompt when it was in the region (`panels.tsx`
+            // `toggle`'s `giveBackFocus`), rather than to nothing.
+            if self.side.focused { tx.return_focus("prompt", tx.focus_visible()); }
             self.session_side_mut(&sid).visibility.step(false);
             self.side.focused = false;
             crate::plugin_host::blur_fields(self);
@@ -549,6 +552,9 @@ impl App {
         self.session_side_mut(&sid).visibility.step(true);
         self.side.focused = true;
         self.side.active_pane_focus = SessionPane::Side;
+        // Opening moves focus into it (`panels.tsx` `toggle`): the prompt gives up the keyboard
+        // below, and without this nothing had it, so a reader heard nothing.
+        tx.focus_when_shown("side-panel", tx.focus_visible());
 
         // An empty strip shows a New tab at once rather than on the next frame's poll.
         if self.sync_empty_side() {

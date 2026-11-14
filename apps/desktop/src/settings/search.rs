@@ -397,6 +397,10 @@ pub fn reveal(s: &mut App, e: &Entry, tx: &mut Tx) {
     }
     clear(s);
     reveal_entry(s, e, tx);
+    // The keyboard follows to the lit row's control (its page when it names none), as a dialog
+    // takes focus as it opens; the palette's own focus is gone and nothing else asks for it.
+    let key = e.target.as_ref().map_or_else(|| "settings".to_owned(), |t| format!("setting-{t}"));
+    tx.focus_when_shown(key, tx.focus_visible());
 }
 
 fn reveal_entry(s: &mut App, e: &Entry, tx: &mut Tx) {
