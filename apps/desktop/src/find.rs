@@ -22,9 +22,6 @@ use crate::view::{INSTANT, UI};
 use crate::{App, Route};
 
 const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
-/// A match's height as Desktop centres it: its range's box, about 18 for the timeline's 14 and
-/// 16 px Inter.
-const MATCH_H: f32 = 18.0;
 
 /// Find's state: Desktop's `TimelineSearchState` (`session/timeline/search-machine.ts:30-33`).
 /// Its query is the bar's field (`input`), its matches the index [`Find`] keeps; `seeking` has no
@@ -438,7 +435,11 @@ impl App {
         tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
         if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (self.message_nav.view, self.message_nav.page) {
             let header = if self.narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
-            tx.scroll_key_to(ACTIVE_KEY, header + (page_y + page_h - top - MATCH_H) / 2.0);
+            // `scroll_key_to` places the top of Rune's highlight *line box*. Blink instead places
+            // the text range, already inset by half the leading. Centre the line, not an 18 pt
+            // glyph box with its top mistaken for the line's (3–4 device pixels low at 1.875x).
+            let line = if row_key.starts_with("u-") { session_view::style::BUBBLE } else { session_view::style::MD };
+            tx.scroll_key_to(ACTIVE_KEY, header + (page_y + page_h - top - line.line_px()) / 2.0);
         }
     }
 
