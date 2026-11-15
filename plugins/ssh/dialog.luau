@@ -199,7 +199,8 @@ function dialog.render(env: any, v: View): UiNode?
     end
     return ui.col({ key = "ssh-dialog", w = "full" }, {
         ui.row({ w = "full", pad = 16, align = "center" }, { ui.text(title, { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome" }) }),
-        ui.box({ w = "full", h = 0.5, fill = "border-strong" }),
+        -- Divider occupies a full point between DialogHeader and DialogBody.
+        ui.box({ w = "full", h = 1, opacity = 0.5, fill = "border-strong" }),
         ui.col({ w = "full", px = 16, pt = 16, pb = 8, gap = 24 }, body),
         ui.row({ w = "full", pad = 16, gap = 8 }, {
             ui.spacer(),
