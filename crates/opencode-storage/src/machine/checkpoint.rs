@@ -74,8 +74,10 @@ pub fn step(seq: &mut Seq, state: &mut WalState, event: WalEvent) -> Effects<Wal
             Effects::none()
         }
         (WalState::Derived | WalState::Dirty { .. }, WalEvent::Left) => Effects::one(WalEffect::CancelTimer),
-        (WalState::Dirty { attempt, unsynced, .. }, WalEvent::Rebuilt) => {
-            *state = WalState::Dirty { attempt, boot_stale: false, unsynced };
+        (WalState::Dirty { attempt, .. }, WalEvent::Rebuilt) => {
+            // The rebuild just committed at synchronous=OFF. A sync that covered the previous
+            // end of the WAL cannot cover this transaction, even if every earlier row was durable.
+            *state = WalState::Dirty { attempt, boot_stale: false, unsynced: true };
             Effects::none()
         }
         (WalState::Dirty { attempt, .. }, WalEvent::Opened) => Effects::one(WalEffect::ArmTimer { attempt, delay_ms: IDLE_CHECKPOINT_MS }),
