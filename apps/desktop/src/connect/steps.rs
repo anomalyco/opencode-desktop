@@ -223,7 +223,7 @@ fn browser(s: &App, p: &Pal) -> El {
         if *failed { e = e.child(text(opencode_i18n::t!("provider.connect.oauth.browserFailed")).role("alert").font(BODY).color(p.danger).wrap()); }
         if *paste != conn::Paste::Unsupported && matches!(c, Conn::Waiting(..)) {
             let (shown, locked, err) = match paste {
-                conn::Paste::Editing { open, error } => (open.unwrap_or_else(|| !s.server_is_local()), false, error.as_ref()),
+                conn::Paste::Editing { open: expanded, error } => (expanded.unwrap_or(matches!(open(s).auth_host, super::AuthHost::Remote(_))), false, error.as_ref()),
                 _ => (true, true, None),
             };
             let toggle = opencode_i18n::t!("provider.connect.oauth.paste.toggle");
@@ -728,14 +728,4 @@ fn current(s: &App) -> &Conn {
 
 fn provider_id(s: &App) -> String {
     open(s).dialog.provider.as_ref().map(|p| p.id.clone()).unwrap_or_default()
-}
-
-impl App {
-    /// Whether the server shares this machine, so a sign-in stays here.
-    pub(crate) fn server_is_local(&self) -> bool {
-        match &*self.source {
-            crate::Source::Live { server, .. } => server.is_local(),
-            crate::Source::Fixture => true,
-        }
-    }
 }

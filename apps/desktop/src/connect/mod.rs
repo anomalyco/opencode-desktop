@@ -25,6 +25,8 @@ use dialog::{Accounts, Dialog, Event};
 /// The open dialog and what its inputs hold.
 pub struct Open {
     pub dialog: Dialog,
+    /// Where the credential is stored, not whether this endpoint shares a filesystem.
+    pub(crate) auth_host: AuthHost,
     /// The folder the sign-in belongs to; none for the server's default location.
     pub dir: Option<String>,
     /// The composer whose model Continue sets; none starts a new session with it.
@@ -39,6 +41,30 @@ pub struct Open {
     /// The account whose options are open.
     pub menu: Option<String>,
     pub rename: TextEdit,
+}
+
+/// `providers/connect/remote.tsx::authServerName`. An HTTP connection on *any* loopback
+/// port counts as local here. A plugin's SSH tunnel remains remote even when it listens on
+/// loopback. Do not use this UI distinction to grant access to local files.
+pub(crate) enum AuthHost {
+    Local,
+    Remote(String),
+}
+
+impl AuthHost {
+    fn for_dialog(s: &App) -> Self {
+        use opencode_kit::servers::{ServerConn, registry::loopback_origin};
+        let key = crate::servers::runtime::active(s);
+        if key.is_sidecar() { return Self::Local; }
+        let Some(entry) = crate::servers::registry::list(s).into_iter().find(|e| &e.key() == key) else {
+            return Self::Remote(crate::servers::runtime::label(key));
+        };
+        match &entry.conn {
+            ServerConn::Sidecar { .. } => Self::Local,
+            ServerConn::Http { http, .. } if loopback_origin(&http.url).is_some() => Self::Local,
+            conn => Self::Remote(crate::servers::registry::label(conn)),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -66,6 +92,7 @@ impl App {
         let scope = (!from_settings).then(|| self.picker_scope());
         self.connect.open = Some(Open {
             dialog: Dialog::default(),
+            auth_host: AuthHost::for_dialog(self),
             dir: dir.clone(),
             scope,
             search: focused(""),

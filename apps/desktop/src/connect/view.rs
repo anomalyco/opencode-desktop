@@ -104,10 +104,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let mut surface = widgets::overlay(p, col())
         .key("connect-dialog")
         .role("dialog")
-        .label(match open.dialog.provider.as_ref() {
-            Some(provider) if frame != Frame::Models => opencode_i18n::t!("provider.connect.title", provider = s.provider_name(&provider.id)),
-            _ => title(s),
-        })
+        .label(title(s))
         .radius(12.0)
         .fill(p.bg_base)
         .clip_soft(0.0)
@@ -149,9 +146,8 @@ fn step_name(s: &App, id: &str) -> String {
 }
 
 fn remote_label(s: &App, p: &Pal, id: &str) -> Option<El> {
-    if id != dialog::CONSOLE || s.server_is_local() { return None; }
-    let key = crate::servers::runtime::active(s);
-    let name = crate::servers::registry::label_of(s, key);
+    if id != dialog::CONSOLE { return None; }
+    let super::AuthHost::Remote(name) = &s.connect.open.as_ref()?.auth_host else { return None };
     let label = opencode_i18n::t!("provider.connect.remote.label", server = name);
     Some(row().key("connect-remote").max_w(160.0).shrink().mr(12.0).center_y().gap(6.0)
         .help(opencode_i18n::t!("provider.connect.remote.description"))
