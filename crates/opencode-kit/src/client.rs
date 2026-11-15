@@ -196,7 +196,9 @@ impl Server {
     }
 
     /// Opts `connect`'s message and inbox reads into `media:` refs ([`MEDIA_CAPABILITY`]). Off by
-    /// default: only an app that fetches refs (`Server::media`) should ask for them.
+    /// default. A media-capable client can fetch refs with `Server::media`, but should not
+    /// enable this on a connection shared by background tasks: some servers initialize the
+    /// session's location to resolve its media configuration, recording project activity.
     pub fn with_media_refs(mut self) -> Server {
         self.media_refs = true;
         self

@@ -131,7 +131,10 @@ pub fn apply_app_icon() {
 /// immediately when `on_ready` won't run, such as `--live --snap` or `hot` builds).
 pub fn initial_server() -> Server {
     let explicit = crate::arg("--server");
-    let server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server)).with_media_refs();
+    // This connection is also cloned by restore, prefetch and reconnect. Negotiating media
+    // references can initialize a server location and count it as a project visit. A shared
+    // reader must therefore take ordinary message payloads, including for the initial page.
+    let server = Server::new(&explicit.clone().unwrap_or_else(opencode_kit::client::default_server));
     if explicit.is_none() && !deferred() {
         opencode_kit::local_service::discover_local_server(&server)
     } else {

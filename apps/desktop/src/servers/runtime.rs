@@ -228,7 +228,8 @@ pub fn reported(probe: &opencode_kit::servers::health::Probe) {
 /// password, its files another machine's unless it's on the app's own loopback port.
 fn server_for(conn: &ServerConn, own: &Server) -> Server {
     let Some(http) = conn.http().filter(|_| !conn.builtin()) else { return own.clone() };
-    let mut server = Server::new(&http.url).with_media_refs();
+    // Added and plugin servers have the same passive page readers as the initial server.
+    let mut server = Server::new(&http.url);
     if let Some(p) = &http.password {
         server = server.with_password(p);
     }
