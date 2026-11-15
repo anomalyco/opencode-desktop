@@ -48,8 +48,11 @@ pub(crate) enum Shown {
 /// The storage lane's answer to `query`, as it lands.
 struct Landed {
     query: String,
-    hits: Result<Vec<Stored>, String>,
+    hits: Result<(Coverage, Vec<Stored>), String>,
 }
+
+#[derive(Clone, Copy, PartialEq)]
+enum Coverage { Partial, Complete }
 
 /// A row as storage keeps it.
 struct Stored {
@@ -69,7 +72,7 @@ enum State {
     #[default]
     Idle,
     Asking { query: String, shown: Last },
-    Answered { query: String, rows: Arc<Vec<Row>> },
+    Answered { query: String, rows: Arc<Vec<Row>>, coverage: Coverage },
     Off { query: String },
 }
 
@@ -78,14 +81,14 @@ enum State {
 enum Last {
     #[default]
     Nothing,
-    Rows(Arc<Vec<Row>>),
+    Rows(Arc<Vec<Row>>, Coverage),
     Off,
 }
 
 enum Event {
     Typed(String),
     /// An answer for `query`: its rows ranked, or the reason there are none.
-    Landed { query: String, rows: Result<Vec<Row>, String> },
+    Landed { query: String, rows: Result<(Coverage, Vec<Row>), String> },
 }
 
 enum Effect {
@@ -114,14 +117,18 @@ impl State {
                 let shown = match state {
                     State::Idle => Last::Nothing,
                     State::Asking { shown, .. } => shown,
-                    State::Answered { rows, .. } => Last::Rows(rows),
+                    State::Answered { rows, coverage, .. } => Last::Rows(rows, coverage),
                     State::Off { .. } => Last::Off,
                 };
                 *self = State::Asking { query: q.clone(), shown };
                 Some(Effect::Ask(q))
             }
-            (State::Asking { query, .. }, Event::Landed { query: answered, rows: Ok(rows) }) if answered == query => {
-                *self = State::Answered { query, rows: Arc::new(rows) };
+            (State::Asking { query, .. } | State::Answered { query, coverage: Coverage::Partial, .. }, Event::Landed { query: answered, rows: Ok((coverage, rows)) }) if answered == query => {
+                *self = State::Answered { query, rows: Arc::new(rows), coverage };
+                None
+            }
+            (State::Answered { query, coverage: Coverage::Partial, .. }, Event::Landed { query: answered, rows: Err(_) }) if answered == query => {
+                *self = State::Off { query };
                 None
             }
             (State::Asking { query, shown }, Event::Landed { query: answered, rows: Err(why) }) if answered == query => {
@@ -143,7 +150,7 @@ impl State {
         match self {
             State::Idle => Shown::Nothing,
             State::Asking { shown: Last::Nothing, .. } => Shown::Nothing,
-            State::Asking { shown: Last::Rows(rows), .. } | State::Answered { rows, .. } => Shown::Rows(rows.clone()),
+            State::Asking { shown: Last::Rows(rows, _), .. } | State::Answered { rows, .. } => Shown::Rows(rows.clone()),
             State::Asking { shown: Last::Off, .. } | State::Off { .. } => Shown::Off,
         }
     }
@@ -234,6 +241,10 @@ impl App {
         self.fulltext.get(which).state.shown()
     }
 
+    pub(crate) fn indexing_history(&self, which: Surface) -> bool {
+        matches!(self.fulltext.get(which).state, State::Answered { coverage: Coverage::Partial, .. } | State::Asking { shown: Last::Rows(_, Coverage::Partial), .. })
+    }
+
     /// The query each surface searches now, empty while it searches nothing.
     fn fulltext_query(&self, which: Surface) -> String {
         let q = match which {
@@ -249,13 +260,13 @@ impl App {
     pub(crate) fn poll_fulltext(&mut self) -> bool {
         let mut changed = false;
         for which in [Surface::Palette, Surface::Home] {
-            let landed: Vec<Landed> = std::mem::take(&mut *self.fulltext.get(which).inbox.lock().unwrap_or_else(|e| e.into_inner()));
-            for Landed { query, hits } in landed {
-                let rows = hits.map(|hits| self.fulltext_rank(which, &query, hits));
+            let q = self.fulltext_query(which);
+            let landed = std::mem::take(&mut *self.fulltext.get(which).inbox.lock().unwrap_or_else(|e| e.into_inner()));
+            if let Some(Landed { query, hits }) = landed.into_iter().rev().find(|a| a.query == q) {
+                let rows = hits.map(|(coverage, hits)| (coverage, self.fulltext_rank(which, &query, hits)));
                 self.fulltext.get_mut(which).state.step(Event::Landed { query, rows });
                 changed = true;
             }
-            let q = self.fulltext_query(which);
             match self.fulltext.get_mut(which).state.step(Event::Typed(q)) {
                 Some(Effect::Ask(q)) => self.fulltext_ask(which, q),
                 Some(Effect::Cancel) => {
@@ -281,16 +292,20 @@ impl App {
         };
         crate::storage::with_storage(move |storage| {
             let asked = query.clone();
-            surface.query(storage, query, scope, move |_, result| {
+            surface.query_live(storage, query, scope, move |_, result| {
                 let hits = result
-                    .map(|hits| {
-                        hits.into_iter()
+                    .map(|(coverage, hits)| {
+                        let coverage = match coverage {
+                            opencode_storage::native::search::Coverage::Complete => Coverage::Complete,
+                            opencode_storage::native::search::Coverage::Partial => Coverage::Partial,
+                        };
+                        (coverage, hits.into_iter()
                             .map(|h| Stored { server: h.server, session: h.session, entity: h.entity, kind: h.kind, title: h.title, body: h.body, updated_ms: h.updated_ms })
-                            .collect()
+                            .collect())
                     })
                     .map_err(|e| e.to_string());
-                inbox.lock().unwrap_or_else(|e| e.into_inner()).push(Landed { query: asked, hits });
-                if let Some(w) = wake {
+                inbox.lock().unwrap_or_else(|e| e.into_inner()).push(Landed { query: asked.clone(), hits });
+                if let Some(w) = &wake {
                     w();
                 }
             });
@@ -368,7 +383,7 @@ impl App {
     /// `which`'s full text rows now (none while it shows nothing or is off).
     pub(crate) fn fulltext_rows(&self, which: Surface) -> &[Row] {
         match &self.fulltext.get(which).state {
-            State::Asking { shown: Last::Rows(rows), .. } | State::Answered { rows, .. } => rows,
+            State::Asking { shown: Last::Rows(rows, _), .. } | State::Answered { rows, .. } => rows,
             _ => &[],
         }
     }

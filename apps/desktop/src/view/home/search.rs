@@ -86,7 +86,10 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
     let show_project = selected.is_none();
     // A result: `pl-[18px] pr-6`, the avatar and `gap-1.5`, inside the panel 12 wider than the field.
     let labels_w = (width + 12.0 - 18.0 - 24.0 - 16.0 - if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 }).max(0.0);
-    let body = if s.home_search_loading() {
+    let partial = s.indexing_history(crate::fulltext::Surface::Home);
+    let body = if partial && results.is_empty() {
+        el()
+    } else if s.home_search_loading() && results.is_empty() {
         // `px-4 py-3`, a 16 pt Loader.
         row().key("home-search-loading").w_full().px(16.0).py(12.0).center().child(activity_ring_sized(p, 16.0))
     } else if results.is_empty() {
@@ -153,6 +156,8 @@ fn panel(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window
         // Presses in the panel keep the field focused, so it stays open until a result opens.
         .keeps_text_selection()
         .child(body)
+        .children(partial.then(|| row().key("home-search-indexing").role("status").px(18.0).pb(8.0)
+            .child(text(opencode_i18n::t!("rune.search.partial")).font(session_view::style::UI_SMALL).color(p.muted))))
 }
 
 /// `HomeSessionSearchResultRow`: 40 tall, `pl-[18px] pr-6`, the overlay when hovered or

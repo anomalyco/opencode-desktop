@@ -230,7 +230,14 @@ impl Writer {
                     };
                     if let Some(query) = query {
                         match &self.search {
-                            super::search::State::Ready(_) => if let super::search::query::Completion::Yield(q) = query.run(&mut self.conn, &urgent, admitted) { super::lock_queue(&queue).queries.replace(q) },
+                            super::search::State::Ready(work) => {
+                                use super::search::query::Completion;
+                                match query.run(&mut self.conn, &urgent, admitted, matches!(work, super::search::Work::Pending)) {
+                                    Completion::Done => {},
+                                    Completion::Yield(q) => super::lock_queue(&queue).queries.replace(q),
+                                    Completion::AwaitIndex(q) => super::lock_queue(&queue).queries.wait(q),
+                                }
+                            }
                             super::search::State::Unavailable(why) => query.unavailable(why.clone()),
                             super::search::State::BeforeFrame => unreachable!(),
                         }
@@ -259,6 +266,9 @@ impl Writer {
                             Ok(Step::Empty) => self.search = super::search::State::Ready(super::search::Work::Drained),
                             Err(e) => self.search = super::search::State::Unavailable(e.to_string()),
                         }
+                        // A still-open query whose answer was partial gets a final answer (or
+                        // unavailable) without a timer, another keystroke or one wake per row.
+                        if super::lock_queue(&queue).queries.indexing_finished() { continue; }
                     }
                     match self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() {
                 Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),

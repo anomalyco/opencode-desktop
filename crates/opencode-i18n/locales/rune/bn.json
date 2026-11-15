@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git রিপোজিটরি নয়",
   "rune.review.scope": "পর্যালোচনার পরিসর বদলান",
   "rune.search.draft": "খসড়া",
+  "rune.search.partial": "ইতিহাস সূচিবদ্ধ হচ্ছে; ফলাফল আংশিক",
   "rune.send.disconnected": "কোনো OpenCode সার্ভারে সংযুক্ত নয়",
   "rune.send.failed": "পাঠানো যায়নি",
   "rune.send.nothingSent": "কিছুই পাঠানো হয়নি",

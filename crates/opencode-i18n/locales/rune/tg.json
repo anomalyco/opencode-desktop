@@ -114,6 +114,7 @@
   "rune.review.noGit": "Анбори Git нест",
   "rune.review.scope": "Тағйир додани доираи баррасӣ",
   "rune.search.draft": "Сиёҳнавис",
+  "rune.search.partial": "Ҳангоми тартиб додани индекси таърих танҳо як қисми натиҷаҳо нишон дода мешавад",
   "rune.send.disconnected": "Ба сервери OpenCode пайваст нест",
   "rune.send.failed": "Фиристодан нашуд",
   "rune.send.nothingSent": "Ҳеҷ чиз фиристода нашуд",

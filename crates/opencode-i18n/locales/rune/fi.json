@@ -114,6 +114,7 @@
   "rune.review.noGit": "Ei Git-tietovarasto",
   "rune.review.scope": "Muuta tarkistuksen laajuutta",
   "rune.search.draft": "Luonnos",
+  "rune.search.partial": "Tulokset ovat osittaisia, kunnes historia on indeksoitu",
   "rune.send.disconnected": "Ei yhteyttä OpenCode-palvelimeen",
   "rune.send.failed": "Lähetys epäonnistui",
   "rune.send.nothingSent": "Mitään ei lähetetty",

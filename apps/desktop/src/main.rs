@@ -1395,9 +1395,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= background::poll(s, tx);
     changed |= find::poll(s, tx);
     changed |= s.poll_home_search(tx);
-    changed |= s.poll_switcher(tx);
-    changed |= s.poll_session_search(now, tx);
-    changed |= s.poll_fulltext();
+    // Ingest local answers before settling the list: its rows, highlight and empty state must
+    // all see the same sources. Previously a full-text landing changed the rows after this poll.
+    let local_answers = s.poll_session_search(now, tx) | s.poll_fulltext();
+    changed |= s.poll_switcher(tx, local_answers);
     changed |= s.poll_mentions(tx);
     changed |= s.poll_commands(tx);
     changed |= s.poll_suggestions(tx);

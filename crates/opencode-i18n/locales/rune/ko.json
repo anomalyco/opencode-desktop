@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git 저장소가 아닙니다",
   "rune.review.scope": "검토 범위 변경",
   "rune.search.draft": "초안",
+  "rune.search.partial": "기록을 색인하는 동안 일부 결과만 표시됩니다",
   "rune.send.disconnected": "OpenCode 서버에 연결되어 있지 않습니다",
   "rune.send.failed": "보내지 못했습니다",
   "rune.send.nothingSent": "아무것도 보내지 않았습니다",

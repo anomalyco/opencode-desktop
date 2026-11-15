@@ -114,6 +114,7 @@
   "rune.review.noGit": "ไม่ใช่ที่เก็บ Git",
   "rune.review.scope": "เปลี่ยนขอบเขตการตรวจสอบ",
   "rune.search.draft": "แบบร่าง",
+  "rune.search.partial": "แสดงผลลัพธ์บางส่วนขณะจัดทำดัชนีประวัติ",
   "rune.send.disconnected": "ไม่ได้เชื่อมต่อกับเซิร์ฟเวอร์ OpenCode",
   "rune.send.failed": "ส่งไม่สำเร็จ",
   "rune.send.nothingSent": "ไม่ได้ส่งอะไรเลย",

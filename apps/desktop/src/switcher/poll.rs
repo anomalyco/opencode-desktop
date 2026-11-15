@@ -14,10 +14,10 @@ use crate::{App, Source};
 
 impl App {
     /// Takes in the sources' answers and their timers, and gives each a changed query.
-    pub fn poll_switcher(&mut self, tx: &mut Tx) -> bool {
+    pub fn poll_switcher(&mut self, tx: &mut Tx, local_answers: bool) -> bool {
         let now = tx.clock();
         // The list scrolled past the rows built: build the ones it shows now.
-        let mut changed = self.switcher.band.moved();
+        let mut changed = local_answers | self.switcher.band.moved();
         if let Some(reply) = self.switcher.fetch.take() {
             let current = self.switcher.sessions.loading_attempt() == Some(reply.attempt);
             let event = match reply.items {
@@ -30,7 +30,7 @@ impl App {
                 Err(()) => search::Event::Failed { attempt: reply.attempt },
             };
             self.switcher_sessions_step(event, tx);
-            changed = true;
+            changed |= current;
         }
         let fixture_due = self.switcher.fixture_find.as_ref().map(|(at, _)| *at);
         let fixture = match fixture_due {
@@ -42,12 +42,13 @@ impl App {
             None => None,
         };
         if let Some(reply) = self.switcher.files_fetch.take().or(fixture) {
+            let current = self.switcher.files.loading_attempt() == Some(reply.attempt);
             let event = match reply.items {
                 Ok(items) => search::Event::Answered { attempt: reply.attempt, items },
                 Err(()) => search::Event::Failed { attempt: reply.attempt },
             };
             self.switcher_files_step(event, tx);
-            changed = true;
+            changed |= current;
         }
         if !self.switcher.open {
             return changed;
@@ -68,10 +69,13 @@ impl App {
         self.switcher_files_step(search::Event::Tick { now }, tx);
         changed |= sessions_were != self.switcher.sessions.status() || files_were != self.switcher.files.status();
         let landed = changed;
+        changed |= self.switcher_query(now, tx);
+        let mut has_rows = None;
         // Results land at once: no row fades in or slides to its place.
         if landed {
             tx.instant();
-            let entries = self.switcher_entries();
+            let entries = self.switcher_matches(self.switcher.query());
+            has_rows = Some(!entries.is_empty());
             let keys: Vec<&str> = entries.iter().map(|e| e.key.as_str()).collect();
             self.switcher.active.step(HighlightEvent::Rows(&keys));
             let active = self.switcher_active(&entries);
@@ -81,8 +85,7 @@ impl App {
                 tx.scroll_into_view_in("switcher-scroll", format!("sw-{key}"));
             }
         }
-        changed |= self.switcher_query(now, tx);
-        changed | self.step_switcher_shown(landed, tx)
+        changed | self.step_switcher_shown(has_rows, tx)
     }
 
     /// Gives the sources a query they haven't heard. Typed session searches wait for a pause,
@@ -174,13 +177,13 @@ impl App {
     }
 
     /// Steps what the list shows (`shown.rs`) when the query changed, answers landed, or it waits.
-    fn step_switcher_shown(&mut self, landed: bool, tx: &mut Tx) -> bool {
+    fn step_switcher_shown(&mut self, rows: Option<bool>, tx: &mut Tx) -> bool {
         let before = self.switcher.shown.clone();
         let now = tx.clock();
         let q = self.switcher.query().to_owned();
         let mut effects = vec![self.switcher.shown.step(Event::Tick { now })];
-        if landed || self.switcher.shown.query() != q || matches!(self.switcher.shown, Shown::Waiting { .. }) {
-            let rows = !self.switcher_matches(&q).is_empty();
+        if rows.is_some() || self.switcher.shown.query() != q || matches!(self.switcher.shown, Shown::Waiting { .. }) {
+            let rows = rows.unwrap_or_else(|| !self.switcher_matches(&q).is_empty());
             let (searching, failed) = (self.switcher_searching(), self.switcher.failed_now());
             effects.push(self.switcher.shown.step(Event::Seen { query: &q, rows, searching, failed, now }));
         }

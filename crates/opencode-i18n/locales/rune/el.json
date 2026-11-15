@@ -114,6 +114,7 @@
   "rune.review.noGit": "Δεν είναι αποθετήριο Git",
   "rune.review.scope": "Αλλαγή εύρους επισκόπησης",
   "rune.search.draft": "Πρόχειρο",
+  "rune.search.partial": "Μερικά αποτελέσματα όσο δημιουργείται το ευρετήριο ιστορικού",
   "rune.send.disconnected": "Δεν υπάρχει σύνδεση με διακομιστή OpenCode",
   "rune.send.failed": "Η αποστολή απέτυχε",
   "rune.send.nothingSent": "Δεν στάλθηκε τίποτα",

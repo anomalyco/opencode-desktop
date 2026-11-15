@@ -114,6 +114,7 @@
   "rune.review.noGit": "Inte ett Git-repo",
   "rune.review.scope": "Ändra granskningens omfång",
   "rune.search.draft": "Utkast",
+  "rune.search.partial": "Delresultat medan historiken indexeras",
   "rune.send.disconnected": "Inte ansluten till en OpenCode-server",
   "rune.send.failed": "Det gick inte att skicka",
   "rune.send.nothingSent": "Inget skickades",

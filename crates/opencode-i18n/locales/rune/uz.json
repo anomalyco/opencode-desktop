@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git ombori emas",
   "rune.review.scope": "Ko‘rib chiqish doirasini o‘zgartirish",
   "rune.search.draft": "Qoralama",
+  "rune.search.partial": "Tarix indekslanmoqda; natijalar hozircha to‘liq emas",
   "rune.send.disconnected": "OpenCode serveriga ulanmagan",
   "rune.send.failed": "Yuborib bo‘lmadi",
   "rune.send.nothingSent": "Hech narsa yuborilmadi",

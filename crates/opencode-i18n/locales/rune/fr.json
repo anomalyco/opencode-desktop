@@ -114,6 +114,7 @@
   "rune.review.noGit": "Pas un dépôt Git",
   "rune.review.scope": "Changer la portée de la revue",
   "rune.search.draft": "Brouillon",
+  "rune.search.partial": "Résultats partiels pendant l’indexation de l’historique",
   "rune.send.disconnected": "Non connecté à un serveur OpenCode",
   "rune.send.failed": "Échec de l’envoi",
   "rune.send.nothingSent": "Rien n’a été envoyé",

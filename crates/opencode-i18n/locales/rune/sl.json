@@ -114,6 +114,7 @@
   "rune.review.noGit": "Ni repozitorij Git",
   "rune.review.scope": "Spremeni obseg pregleda",
   "rune.search.draft": "Osnutek",
+  "rune.search.partial": "Delni rezultati med indeksiranjem zgodovine",
   "rune.send.disconnected": "Ni povezave s strežnikom OpenCode",
   "rune.send.failed": "Pošiljanje ni uspelo",
   "rune.send.nothingSent": "Nič ni bilo poslano",

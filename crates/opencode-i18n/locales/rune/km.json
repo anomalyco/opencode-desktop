@@ -114,6 +114,7 @@
   "rune.review.noGit": "មិនមែនជាឃ្លាំង Git ទេ",
   "rune.review.scope": "ប្តូរវិសាលភាពនៃការពិនិត្យ",
   "rune.search.draft": "សេចក្ដីព្រាង",
+  "rune.search.partial": "លទ្ធផលមួយផ្នែក ខណៈពេលកំពុងបង្កើតលិបិក្រមប្រវត្តិ",
   "rune.send.disconnected": "មិនបានតភ្ជាប់ទៅម៉ាស៊ីនមេ OpenCode ទេ",
   "rune.send.failed": "ការផ្ញើបរាជ័យ",
   "rune.send.nothingSent": "មិនបានផ្ញើអ្វីទេ",

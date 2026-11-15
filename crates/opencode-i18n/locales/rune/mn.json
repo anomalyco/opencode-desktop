@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git репозитори биш",
   "rune.review.scope": "Хяналтын хамрах хүрээг өөрчлөх",
   "rune.search.draft": "Ноорог",
+  "rune.search.partial": "Түүхийг индексжүүлэх үед үр дүнгийн зарим хэсгийг харуулна",
   "rune.send.disconnected": "OpenCode сервертэй холбогдоогүй",
   "rune.send.failed": "Илгээж чадсангүй",
   "rune.send.nothingSent": "Юу ч илгээгдсэнгүй",

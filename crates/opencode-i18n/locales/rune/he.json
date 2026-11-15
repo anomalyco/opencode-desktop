@@ -114,6 +114,7 @@
   "rune.review.noGit": "לא מאגר Git",
   "rune.review.scope": "שינוי היקף הסקירה",
   "rune.search.draft": "טיוטה",
+  "rune.search.partial": "תוצאות חלקיות בזמן יצירת האינדקס של ההיסטוריה",
   "rune.send.disconnected": "אין חיבור לשרת OpenCode",
   "rune.send.failed": "השליחה נכשלה",
   "rune.send.nothingSent": "שום דבר לא נשלח",

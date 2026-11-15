@@ -114,6 +114,7 @@
   "rune.review.noGit": "مخزن Git نیست",
   "rune.review.scope": "تغییر دامنه بازبینی",
   "rune.search.draft": "پیش‌نویس",
+  "rune.search.partial": "تا پایان نمایه‌سازی سابقه، نتایج ناقص‌اند",
   "rune.send.disconnected": "به سرور OpenCode وصل نیست",
   "rune.send.failed": "ارسال ناموفق بود",
   "rune.send.nothingSent": "چیزی ارسال نشد",

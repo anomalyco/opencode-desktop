@@ -114,6 +114,7 @@
   "rune.review.noGit": "Nejde o repozitár Git",
   "rune.review.scope": "Zmeniť rozsah kontroly",
   "rune.search.draft": "Koncept",
+  "rune.search.partial": "Čiastkové výsledky počas indexovania histórie",
   "rune.send.disconnected": "Bez pripojenia k serveru OpenCode",
   "rune.send.failed": "Odoslanie zlyhalo",
   "rune.send.nothingSent": "Nič sa neodoslalo",

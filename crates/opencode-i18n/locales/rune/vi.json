@@ -114,6 +114,7 @@
   "rune.review.noGit": "Không phải kho Git",
   "rune.review.scope": "Đổi phạm vi xem xét",
   "rune.search.draft": "Bản nháp",
+  "rune.search.partial": "Kết quả chưa đầy đủ trong khi lập chỉ mục lịch sử",
   "rune.send.disconnected": "Chưa kết nối với máy chủ OpenCode",
   "rune.send.failed": "Gửi thất bại",
   "rune.send.nothingSent": "Chưa gửi gì",

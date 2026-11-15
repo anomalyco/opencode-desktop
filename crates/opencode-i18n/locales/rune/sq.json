@@ -114,6 +114,7 @@
   "rune.review.noGit": "Nuk është depo Git",
   "rune.review.scope": "Ndrysho shtrirjen e rishikimit",
   "rune.search.draft": "Draft",
+  "rune.search.partial": "Rezultate të pjesshme gjatë indeksimit të historikut",
   "rune.send.disconnected": "Nuk je lidhur me një server OpenCode",
   "rune.send.failed": "Dërgimi dështoi",
   "rune.send.nothingSent": "Nuk u dërgua asgjë",

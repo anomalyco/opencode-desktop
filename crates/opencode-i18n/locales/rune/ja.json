@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git リポジトリではありません",
   "rune.review.scope": "レビュー範囲を変更",
   "rune.search.draft": "下書き",
+  "rune.search.partial": "履歴のインデックス作成中のため、一部の結果のみ表示しています",
   "rune.send.disconnected": "OpenCode サーバーに接続されていません",
   "rune.send.failed": "送信に失敗しました",
   "rune.send.nothingSent": "何も送信されませんでした",

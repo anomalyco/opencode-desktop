@@ -114,6 +114,7 @@
   "rune.review.noGit": "Не е Git складиште",
   "rune.review.scope": "Промени го опсегот на прегледот",
   "rune.search.draft": "Нацрт",
+  "rune.search.partial": "Делумни резултати додека се индексира историјата",
   "rune.send.disconnected": "Нема врска со OpenCode сервер",
   "rune.send.failed": "Испраќањето не успеа",
   "rune.send.nothingSent": "Ништо не е испратено",

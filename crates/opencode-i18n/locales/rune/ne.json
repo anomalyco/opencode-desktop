@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git भण्डार होइन",
   "rune.review.scope": "समीक्षाको दायरा बदल्नुहोस्",
   "rune.search.draft": "मस्यौदा",
+  "rune.search.partial": "इतिहासको अनुक्रमणिका बनाउँदै गर्दा आंशिक नतिजाहरू",
   "rune.send.disconnected": "OpenCode सर्भरमा जडान छैन",
   "rune.send.failed": "पठाउन सकिएन",
   "rune.send.nothingSent": "केही पठाइएन",

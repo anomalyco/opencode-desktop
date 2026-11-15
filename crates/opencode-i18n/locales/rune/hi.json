@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git रिपॉज़िटरी नहीं है",
   "rune.review.scope": "समीक्षा का दायरा बदलें",
   "rune.search.draft": "ड्राफ़्ट",
+  "rune.search.partial": "इतिहास की अनुक्रमणिका बन रही है; नतीजे अभी अधूरे हैं",
   "rune.send.disconnected": "किसी OpenCode सर्वर से कनेक्ट नहीं है",
   "rune.send.failed": "भेजा नहीं जा सका",
   "rune.send.nothingSent": "कुछ नहीं भेजा गया",

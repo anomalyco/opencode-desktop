@@ -74,7 +74,7 @@ pub fn init_palette(s: &mut App) {
     if s.variant == 1 {
         s.switcher.search = TextEdit::new("stream.ts:15");
         s.switcher.search.focused = true;
-        s.poll_switcher(&mut tx);
+        s.poll_switcher(&mut tx, false);
     }
 }
 

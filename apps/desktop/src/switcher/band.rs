@@ -83,8 +83,11 @@ pub(crate) struct Band(Rc<Cell<State>>);
 impl Band {
     /// The span of the list, in its own points, whose rows the view builds now.
     pub fn window(&self, fallback_height: f32) -> Range<f32> {
-        let (offset, height) = self.0.get().at();
-        let height = if height > 0.0 { height } else { fallback_height };
+        // The viewport fits its results. On a landing it can grow from one row to the full
+        // dialog in this commit; its last measured height belongs to the old answer. Build
+        // through the new viewport's limit rather than waking for a second band next frame.
+        let (offset, _) = self.0.get().at();
+        let height = fallback_height;
         (offset - MARGIN).max(0.0)..offset + height + MARGIN
     }
 

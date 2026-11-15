@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git ریپوزٹری نہیں",
   "rune.review.scope": "جائزے کا دائرہ بدلیں",
   "rune.search.draft": "مسودہ",
+  "rune.search.partial": "تاریخ کا اشاریہ بن رہا ہے؛ نتائج ابھی نامکمل ہیں",
   "rune.send.disconnected": "OpenCode سرور سے منسلک نہیں",
   "rune.send.failed": "بھیجنا ناکام رہا",
   "rune.send.nothingSent": "کچھ نہیں بھیجا گیا",

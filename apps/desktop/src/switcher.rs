@@ -28,6 +28,7 @@ use crate::view::title_of;
 use crate::{App, Route, Source};
 
 mod poll;
+mod order;
 mod search;
 mod servers;
 pub(crate) mod view;
@@ -56,7 +57,7 @@ pub enum SwitcherMode {
     Archived,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum Action {
     /// A session on the server the window works against.
     Session(String),
@@ -70,7 +71,7 @@ pub enum Action {
     Setting(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Entry {
     pub key: String,
     pub action: Action,
@@ -124,6 +125,7 @@ pub struct Switcher {
     pub(crate) loaded: Vec<SessionInfo>,
     /// Which rows the dialog builds (`band`).
     pub(crate) band: band::Band,
+    order: std::cell::RefCell<order::Order>,
     seq: Seq,
     /// The server's sessions for the query, and the folder's files (`file.searchFiles`), each a
     /// source machine (`search.rs`).
@@ -151,6 +153,7 @@ impl Default for Switcher {
             restore_composer: false,
             loaded: Vec::new(),
             band: Default::default(),
+            order: Default::default(),
             seq: Seq::default(),
             sessions: search::Source::default(),
             files: search::Source::default(),
@@ -337,10 +340,10 @@ impl App {
     pub fn switcher_entries(&self) -> Vec<Entry> {
         let q = self.switcher.query();
         let rows = self.switcher_matches(q);
-        match self.switcher.shown.held(q) {
-            Some(was) if rows.is_empty() && self.switcher_searching() => self.switcher_matches(was),
-            _ => rows,
+        if let Some(was) = self.switcher.shown.held(q).filter(|_| rows.is_empty() && self.switcher_searching()) {
+            return self.switcher_matches(was);
         }
+        self.switcher.order.borrow_mut().present(q, rows, &self.switcher.active)
     }
 
     /// What shows where the rows would be when there are none.
@@ -545,6 +548,7 @@ impl App {
         self.find.input.focused = false;
         self.switcher.open = true;
         self.switcher.mode = mode;
+        *self.switcher.order.get_mut() = Default::default();
         self.switcher.search = TextEdit::new("");
         self.switcher.search.focused = true;
         self.switcher.active.clear();

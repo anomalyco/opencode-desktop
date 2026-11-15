@@ -114,6 +114,7 @@
   "rune.review.noGit": "የGit ማከማቻ አይደለም",
   "rune.review.scope": "የግምገማውን ወሰን ቀይር",
   "rune.search.draft": "ረቂቅ",
+  "rune.search.partial": "ታሪኩ በመጠቆም ላይ እያለ ከፊል ውጤቶች",
   "rune.send.disconnected": "ከOpenCode አገልጋይ ጋር አልተገናኘም",
   "rune.send.failed": "መላክ አልተሳካም",
   "rune.send.nothingSent": "ምንም አልተላከም",

@@ -118,6 +118,7 @@
   "rune.review.readFailed": "Couldn't read the changes",
   "rune.review.scope": "Change review scope",
   "rune.search.draft": "Draft",
+  "rune.search.partial": "Partial results while history is being indexed",
   "rune.send.disconnected": "Not connected to an OpenCode server",
   "rune.send.failed": "Failed to send",
   "rune.send.nothingSent": "Nothing was sent",

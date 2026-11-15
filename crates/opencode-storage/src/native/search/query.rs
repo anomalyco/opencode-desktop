@@ -35,12 +35,22 @@ pub struct Hit {
 /// The newest rows a query answers with (SEARCH ranks them).
 pub const LIMIT: i64 = 250;
 
+/// Whether the saved history was completely indexed when the query ran. Independent of the
+/// bounded number of rows returned. A live surface gets a final answer when backfill drains.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Coverage { Partial, Complete }
+
+enum Reply {
+    Once(Box<dyn FnOnce(u64, Result<Vec<Hit>, StorageError>) + Send>),
+    Live(Box<dyn Fn(u64, Result<(Coverage, Vec<Hit>), StorageError>) + Send>),
+}
+
 pub(crate) struct Query {
     surface: SearchSurface,
     generation: u64,
     words: String,
     scope: Scope,
-    reply: Box<dyn FnOnce(u64, Result<Vec<Hit>, StorageError>) + Send>,
+    reply: Reply,
 }
 
 impl SearchSurface {
@@ -50,7 +60,13 @@ impl SearchSurface {
 
     pub fn query(&self, storage: &Storage, words: String, scope: Scope, reply: impl FnOnce(u64, Result<Vec<Hit>, StorageError>) + Send + 'static) -> u64 {
         let generation = self.0.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
-        storage.inner.backend.query(Query { surface: self.clone(), generation, words, scope, reply: Box::new(reply) });
+        storage.inner.backend.query(Query { surface: self.clone(), generation, words, scope, reply: Reply::Once(Box::new(reply)) });
+        generation
+    }
+
+    pub fn query_live(&self, storage: &Storage, words: String, scope: Scope, reply: impl Fn(u64, Result<(Coverage, Vec<Hit>), StorageError>) + Send + 'static) -> u64 {
+        let generation = self.0.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+        storage.inner.backend.query(Query { surface: self.clone(), generation, words, scope, reply: Reply::Live(Box::new(reply)) });
         generation
     }
 
@@ -58,25 +74,36 @@ impl SearchSurface {
 }
 
 #[derive(Default)]
-pub(crate) struct Lane(VecDeque<Query>);
+pub(crate) struct Lane { ready: VecDeque<Query>, waiting: Vec<Query> }
 
 impl Lane {
     pub(crate) fn replace(&mut self, q: Query) {
         if !q.surface.current(q.generation) { return }
-        self.0.retain(|old| !Arc::ptr_eq(&old.surface.0, &q.surface.0));
-        self.0.push_back(q);
+        self.ready.retain(|old| !Arc::ptr_eq(&old.surface.0, &q.surface.0));
+        self.waiting.retain(|old| old.surface.current(old.generation) && !Arc::ptr_eq(&old.surface.0, &q.surface.0));
+        self.ready.push_back(q);
     }
-    pub(crate) fn pop(&mut self) -> Option<Query> { self.0.pop_front() }
+    pub(crate) fn pop(&mut self) -> Option<Query> { self.ready.pop_front() }
+    pub(crate) fn wait(&mut self, q: Query) { if q.surface.current(q.generation) { self.waiting.push(q); } }
+    pub(crate) fn indexing_finished(&mut self) -> bool {
+        self.ready.extend(self.waiting.drain(..).filter(|q| q.surface.current(q.generation)));
+        !self.ready.is_empty()
+    }
 }
 
-pub(crate) enum Completion { Done, Yield(Query) }
+pub(crate) enum Completion { Done, Yield(Query), AwaitIndex(Query) }
 
 impl Query {
     pub(crate) fn unavailable(self, why: String) {
-        if self.surface.current(self.generation) { (self.reply)(self.generation, Err(StorageError(why))) }
+        if self.surface.current(self.generation) {
+            match self.reply {
+                Reply::Once(f) => f(self.generation, Err(StorageError(why))),
+                Reply::Live(f) => f(self.generation, Err(StorageError(why))),
+            }
+        }
     }
 
-    pub(crate) fn run(self, c: &mut Connection, writes: &Arc<AtomicU64>, admitted: u64) -> Completion {
+    pub(crate) fn run(self, c: &mut Connection, writes: &Arc<AtomicU64>, admitted: u64, indexing: bool) -> Completion {
         let epoch = writes.clone();
         let surface = self.surface.clone();
         let generation = self.generation;
@@ -88,7 +115,15 @@ impl Query {
         let removed = c.progress_handler(0, None::<fn() -> bool>);
         if self.surface.current(generation) {
             if removed.is_ok() && writes.load(Ordering::Acquire) != admitted { return Completion::Yield(self) }
-            (self.reply)(generation, removed.and(result).map_err(|e| StorageError(e.to_string())));
+            let result = removed.and(result).map_err(|e| StorageError(e.to_string()));
+            match self.reply {
+                Reply::Once(f) => f(generation, result),
+                Reply::Live(ref f) => {
+                    let partial = indexing && result.is_ok();
+                    f(generation, result.map(|rows| (if partial { Coverage::Partial } else { Coverage::Complete }, rows)));
+                    if partial { return Completion::AwaitIndex(self); }
+                }
+            }
         }
         Completion::Done
     }

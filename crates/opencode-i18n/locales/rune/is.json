@@ -114,6 +114,7 @@
   "rune.review.noGit": "Ekki Git-geymsla",
   "rune.review.scope": "Breyta umfangi yfirferðar",
   "rune.search.draft": "Drög",
+  "rune.search.partial": "Niðurstöður eru ófullkomnar meðan saga er skráð í atriðaskrá",
   "rune.send.disconnected": "Ekki tengt við OpenCode-netþjón",
   "rune.send.failed": "Ekki tókst að senda",
   "rune.send.nothingSent": "Ekkert var sent",

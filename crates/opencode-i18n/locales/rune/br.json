@@ -114,6 +114,7 @@
   "rune.review.noGit": "Não é um repositório Git",
   "rune.review.scope": "Alterar o escopo da revisão",
   "rune.search.draft": "Rascunho",
+  "rune.search.partial": "Resultados parciais enquanto o histórico é indexado",
   "rune.send.disconnected": "Sem conexão com um servidor do OpenCode",
   "rune.send.failed": "Falha ao enviar",
   "rune.send.nothingSent": "Nada foi enviado",

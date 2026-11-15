@@ -114,6 +114,7 @@
   "rune.review.noGit": "Kein Git-Repository",
   "rune.review.scope": "Überprüfungsbereich ändern",
   "rune.search.draft": "Entwurf",
+  "rune.search.partial": "Teilergebnisse, während der Verlauf indiziert wird",
   "rune.send.disconnected": "Nicht mit einem OpenCode-Server verbunden",
   "rune.send.failed": "Senden fehlgeschlagen",
   "rune.send.nothingSent": "Es wurde nichts gesendet",

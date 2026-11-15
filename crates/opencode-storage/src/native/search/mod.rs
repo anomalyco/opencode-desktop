@@ -3,7 +3,7 @@
 mod tokenizer;
 pub(crate) mod index;
 pub(crate) mod query;
-pub use query::{Hit, Scope, SearchSurface};
+pub use query::{Coverage, Hit, Scope, SearchSurface};
 
 #[derive(Default)]
 pub(crate) enum State { #[default] BeforeFrame, Ready(Work), Unavailable(String) }

@@ -114,6 +114,7 @@
   "rune.review.noGit": "Не е Git хранилище",
   "rune.review.scope": "Промяна на обхвата на прегледа",
   "rune.search.draft": "Чернова",
+  "rune.search.partial": "Частични резултати, докато историята се индексира",
   "rune.send.disconnected": "Няма връзка със сървър на OpenCode",
   "rune.send.failed": "Изпращането не успя",
   "rune.send.nothingSent": "Нищо не е изпратено",

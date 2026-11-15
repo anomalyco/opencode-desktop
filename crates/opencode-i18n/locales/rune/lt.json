@@ -114,6 +114,7 @@
   "rune.review.noGit": "Ne Git saugykla",
   "rune.review.scope": "Keisti peržiūros apimtį",
   "rune.search.draft": "Juodraštis",
+  "rune.search.partial": "Kol indeksuojama istorija, rodomi daliniai rezultatai",
   "rune.send.disconnected": "Neprisijungta prie OpenCode serverio",
   "rune.send.failed": "Nepavyko išsiųsti",
   "rune.send.nothingSent": "Nieko neišsiųsta",

@@ -162,7 +162,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                     section = section.child(gap_for(group, n, skipped));
                     skipped = (0, 0.0);
                 }
-                section = section.child(entry_row(s, p, e, lit, q, w).position_in_set(n + 1, size));
+                section = section.child(memo_row(s, p, e, lit, q, w, (n + 1, size)));
             } else {
                 skipped = (skipped.0 + 1, skipped.1 + h);
             }
@@ -171,12 +171,13 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         if skipped.0 > 0 {
             section = section.child(gap_for(group, size, skipped));
         }
-        content_h += ROW_H + entries[i..end].iter().map(|e| height(s, e, q) + GAP).sum::<f32>() + if last { 0.0 } else { GAP };
+        content_h = top - if last { GAP } else { 0.0 };
         results = results.child(section);
         i = end;
     }
     s.switcher.band.built(&window);
-    if entries.is_empty() {
+    let partial = s.indexing_history(Surface::Palette);
+    if entries.is_empty() && !partial {
         match s.switcher_empty() {
             // Still searching with nothing to show: a quiet line where the first section's
             // header goes, blank until the wait is long enough to say so.
@@ -193,6 +194,11 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         }
     } else {
         content_h += 6.0;
+    }
+    if partial {
+        results = results.child(row().key("switcher-indexing").role("status").w_full().h(ROW_H).px(6.0).center_y()
+            .child(text(t!("rune.search.partial")).font(session_view::style::UI_SMALL).color(p.muted)));
+        content_h += ROW_H;
     }
     let header = HEAD_H + entry_height(false) - ROW_H;
     let scroll_h = content_h.min(max_h - header).max(0.0);
@@ -229,6 +235,38 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
 /// `count` rows left unbuilt before row `n` of `group`, as tall as they and the gaps between them.
 fn gap_for(group: &str, n: usize, (count, h): (usize, f32)) -> El {
     el().key(format!("sw-gap-{group}-{n}")).w_full().h(h + (count - 1) as f32 * GAP).a11y_hidden()
+}
+
+/// A landing may change a few visible rows; re-use the rest, including their handlers. Use the
+/// actual age string and match spans, not a ticking clock or the generation of the whole list.
+fn memo_row(s: &App, p: &Pal, e: &Entry, lit: bool, q: &str, w: f32, place: (usize, usize)) -> El {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut v = DefaultHasher::new();
+    (e, q, w.to_bits(), lit, place, stacked(s, e), session_view::style::touch_controls()).hash(&mut v);
+    (s.switcher.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
+    let own = crate::servers::runtime::active(s);
+    let session = match &e.action {
+        Action::Session(id) => Some((own, id, None)),
+        Action::RemoteSession { server, id } => Some((server, id, s.switcher.remotes.iter().find(|r| r.server == *server))),
+        _ => None,
+    };
+    if let Some((server, id, remote)) = session {
+        let marks = s.marks(id);
+        (server, marks.busy, marks.attention, marks.unread, s.route == crate::Route::here(id.clone()), e.updated.map(|t| relative_time(*s.now_ms, t))).hash(&mut v);
+        (crate::icons::finish(s), rune::Tracked::version(&s.icons), rune::Tracked::version(&s.projects)).hash(&mut v);
+        if let Some(remote) = remote {
+            remote.session(id).map(|s| s.unread()).hash(&mut v);
+            if let Some(p) = remote.project(&e.project) { (&p.name, &p.directory, &p.icon.color, p.icon.source(&p.id)).hash(&mut v); }
+        }
+        if matches!(s.switcher.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+            crate::session_menu::preferences::hidden(server, id).hash(&mut v);
+        }
+        if let Some((rows, at)) = snippet(s, e, q) {
+            let r = &rows[at];
+            (r.kind, &r.snippet.text, &r.snippet.marks, r.snippet.cut_before, r.snippet.cut_after, r.more).hash(&mut v);
+        }
+    }
+    rune::memo(format!("palette-row-{}", e.key), v.finish(), || entry_row(s, p, e, lit, q, w).position_in_set(place.0, place.1))
 }
 
 /// A row (`PaletteRow`): 28 tall, 6 in, 6 pt corners, the hover overlay while highlighted in

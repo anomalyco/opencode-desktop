@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git რეპოზიტორია არ არის",
   "rune.review.scope": "მიმოხილვის არეალის შეცვლა",
   "rune.search.draft": "მონახაზი",
+  "rune.search.partial": "ისტორიის ინდექსირებისას ნაჩვენებია ნაწილობრივი შედეგები",
   "rune.send.disconnected": "OpenCode სერვერთან კავშირი არ არის",
   "rune.send.failed": "გაგზავნა ვერ მოხერხდა",
   "rune.send.nothingSent": "არაფერი გაიგზავნა",

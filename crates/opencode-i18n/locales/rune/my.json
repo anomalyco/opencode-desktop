@@ -114,6 +114,7 @@
   "rune.review.noGit": "Git သိုလှောင်ရာ မဟုတ်ပါ",
   "rune.review.scope": "ပြန်လည်သုံးသပ်မှု နယ်ပယ် ပြောင်းရန်",
   "rune.search.draft": "မူကြမ်း",
+  "rune.search.partial": "မှတ်တမ်းအညွှန်း ပြုစုနေစဉ် ရလဒ်အချို့သာ ပြထားသည်",
   "rune.send.disconnected": "OpenCode ဆာဗာသို့ ချိတ်ဆက်မထားပါ",
   "rune.send.failed": "ပို့၍ မရပါ",
   "rune.send.nothingSent": "ဘာမျှ မပို့ရသေးပါ",

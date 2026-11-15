@@ -114,6 +114,7 @@
   "rune.review.noGit": "Не Git-репозиторій",
   "rune.review.scope": "Змінити область огляду",
   "rune.search.draft": "Чернетка",
+  "rune.search.partial": "Поки історія індексується, показано частину результатів",
   "rune.send.disconnected": "Немає підключення до сервера OpenCode",
   "rune.send.failed": "Не вдалося надіслати",
   "rune.send.nothingSent": "Нічого не надіслано",

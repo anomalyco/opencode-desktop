@@ -114,6 +114,7 @@
   "rune.review.noGit": "Bukan repositori Git",
   "rune.review.scope": "Ubah cakupan tinjauan",
   "rune.search.draft": "Draf",
+  "rune.search.partial": "Hasil sementara selama riwayat diindeks",
   "rune.send.disconnected": "Tidak terhubung ke server OpenCode",
   "rune.send.failed": "Gagal mengirim",
   "rune.send.nothingSent": "Tidak ada yang terkirim",
