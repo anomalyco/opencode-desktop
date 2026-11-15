@@ -6,7 +6,8 @@ pub mod code_paths;
 pub mod data;
 pub(crate) mod delimited;
 mod table_view;
-mod table_find;
+mod label_find;
+mod mermaid;
 pub mod image;
 pub mod link_tip;
 mod link_tip_stories;
@@ -53,7 +54,9 @@ pub struct SessionFiles {
     pub md: HashMap<String, markdown::MdView>,
     /// Decoded CSV/TSV documents. A failed or replaced read drops the previous revision.
     pub(crate) tables: HashMap<String, std::sync::Arc<delimited::Table>>,
-    table_find: table_find::TableFind,
+    table_find: label_find::TableFind,
+    diagram_find: label_find::DiagramFind,
+    diagram: mermaid::Stage,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
     pub code_paths: HashMap<String, code_paths::CodePaths>,
     /// The paths the session's finished replies name in inline code, checked (`code_paths`).
@@ -141,6 +144,8 @@ impl Default for SessionFiles {
             md: HashMap::new(),
             tables: HashMap::new(),
             table_find: Default::default(),
+            diagram_find: Default::default(),
+            diagram: Default::default(),
             code_paths: HashMap::new(),
             reply_paths: Default::default(),
             images: HashMap::new(),
@@ -155,6 +160,7 @@ impl SessionFiles {
     /// A reread starts with no rendered document. Drop the projection at the same time as the
     /// source: two revisions with the same path, dimensions and query can have different hits.
     pub(crate) fn invalidate_document(&mut self, path: &str) {
+        self.close_preview(path);
         self.docs.remove(path);
         if let Some(previous) = self.tables.remove(path) { self.table_find.forget(&previous); }
         self.md.remove(path);
@@ -170,14 +176,29 @@ impl SessionFiles {
     /// (Active index, count) for both the visible bar and its polite announcement.
     pub(crate) fn file_matches(&self, path: &str, doc: &CodeDocState) -> (usize,usize) {
         if let Some(table) = self.shown_table(path) { self.table_find.count(table) }
+        else if let Some(drawing) = self.shown_diagram(path) { self.diagram_find.count(&drawing) }
         else if markdown::shows_rendered(self, path) { self.md.get(path).map_or((0,0), |v| (v.active,v.matches.len())) }
         else { (doc.active_match_index(),doc.match_count()) }
     }
 
     pub(crate) fn close_preview(&mut self, path: &str) {
+        if let Some(doc) = self.docs.get(path) && let Some(drawing) = self.diagram.current(doc) {
+            self.diagram_find.forget(&drawing);
+            self.diagram.clear(doc);
+        }
         if let Some(table) = self.tables.get(path) { self.table_find.forget(table); }
         self.md.remove(path);
         if let Some(doc) = self.docs.get_mut(path) { doc.set_find_open(false); }
+    }
+
+    fn shown_diagram(&self, path: &str) -> Option<std::rc::Rc<mermaid::Diagram>> {
+        if self.md.get(path).and_then(|v| v.rendered) == Some(false) { return None; }
+        self.diagram.current(self.docs.get(path)?)
+    }
+
+    fn previewable(&self, path: &str) -> bool {
+        self.docs.get(path).is_some_and(|d| d.ready() && !d.missing() && !d.binary() &&
+            (markdown::is_markdown(path) || image::is_svg(path) || self.tables.contains_key(path) || self.diagram.current(d).is_some()))
     }
 
     pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
@@ -355,7 +376,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         && let Some(doc) = ws.docs.get_mut(&path)
         && doc.find_open()
     {
-        if !ws.tables.contains_key(&path) || ws.md.get(&path).and_then(|v| v.rendered) == Some(false) { changed |= doc.sync_find_query(); }
+        if (!ws.tables.contains_key(&path) && ws.diagram.current(doc).is_none()) || ws.md.get(&path).and_then(|v| v.rendered) == Some(false) { changed |= doc.sync_find_query(); }
         changed |= s.sync_rendered_find(&sid, &path, tx);
         let ws = &s.files.sessions[&sid];
         let doc = &ws.docs[&path];

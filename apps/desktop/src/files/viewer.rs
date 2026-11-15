@@ -92,8 +92,9 @@ pub(super) fn files_main(
     };
 
     let doc = ws.docs.get(path);
+    if let Some(d) = doc { ws.diagram.prepare(session_id,path,d,p); }
     let rendered = markdown::shows_rendered(ws, path);
-    let previewable = (markdown::is_markdown(path) || super::image::is_svg(path) || ws.tables.contains_key(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
+    let previewable = ws.previewable(path);
     let picture = super::image::showing(ws, path);
     // A picture or a video shows on its stage, with no lines to find or wrap.
     let lines = picture.is_none() && !ws.videos.contains_key(path);
@@ -176,8 +177,9 @@ pub(super) fn files_main(
 /// source / preview toggle above it, as Desktop's artifact toolbar does.
 pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, path: &str, artifact: bool) -> El {
     let doc = ws.docs.get(path);
+    if let Some(d) = doc { ws.diagram.prepare(session_id,path,d,p); }
     let rendered = markdown::shows_rendered(ws, path);
-    let previewable = (markdown::is_markdown(path) || super::image::is_svg(path) || ws.tables.contains_key(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
+    let previewable = ws.previewable(path);
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
     let clip = ws.videos.get(path);
@@ -201,7 +203,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         let bar = FindBar { key: "files-find-bar", top: -4.0, edit: file_find_input, changed: |s, at, tx| {
             tx.instant();
             let (sid, path) = at.split_once('\n').unwrap_or_default();
-            if let Some(w) = s.files.sessions.get_mut(sid) && w.shown_table(path).is_none() && let Some(d) = w.docs.get_mut(path) {
+            if let Some(w) = s.files.sessions.get_mut(sid) && w.shown_table(path).is_none() && w.shown_diagram(path).is_none() && let Some(d) = w.docs.get_mut(path) {
                 d.sync_find_query();
             }
             s.sync_rendered_find(sid, path, tx);
@@ -222,8 +224,13 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         return out.child(view);
     }
     if let Some(table) = ws.shown_table(path) {
-        let painter = if doc.is_some_and(|d| d.find_open()) { &ws.table_find } else { &super::table_find::TableFind::Closed };
+        let painter = if doc.is_some_and(|d| d.find_open()) { &ws.table_find } else { &super::label_find::TableFind::Closed };
         return out.child(over(super::table_view::view(session_id, path, p, table.clone(), painter.painter(p)), bar));
+    }
+    if let Some(drawing) = ws.shown_diagram(path) {
+        let find = if doc.is_some_and(|d| d.find_open()) { &ws.diagram_find } else { &super::label_find::DiagramFind::Closed };
+        let marks = find.painter(p);
+        return out.child(over(drawing.view(session_id,path,p, |id| marks(&drawing,id)),bar));
     }
     if let Some(img) = picture {
         return out.child(super::image::stage(s, p, img));

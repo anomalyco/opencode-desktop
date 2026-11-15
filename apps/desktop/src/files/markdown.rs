@@ -100,7 +100,7 @@ impl WrapPrefs {
 pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     let Some(d) = ws.docs.get(path) else { return false };
     let svg = super::image::is_svg(path);
-    if !(is_markdown(path) || svg || ws.tables.contains_key(path)) || !d.ready() || d.missing() || d.binary() {
+    if !(is_markdown(path) || svg || ws.tables.contains_key(path) || ws.diagram.current(d).is_some()) || !d.ready() || d.missing() || d.binary() {
         return false;
     }
     ws.md.get(path).and_then(|m| m.rendered).unwrap_or(svg || d.size_bytes() <= RENDER_LIMIT)
@@ -206,6 +206,7 @@ impl App {
         let next = !shows_rendered(ws, path);
         if let Some(doc) = ws.docs.get_mut(path) { doc.set_find_open(false); }
         if let Some(table) = ws.tables.get(path) { ws.table_find.forget(table); }
+        if let Some(drawing) = ws.shown_diagram(path) { ws.diagram_find.forget(&drawing); }
         ws.md.entry(path.to_owned()).or_default().rendered = Some(next);
         if next && let Some(d) = ws.docs.get_mut(path) {
             d.set_selection(None);
@@ -238,6 +239,11 @@ impl App {
             return false;
         }
         let Some(doc) = ws.docs.get(path).filter(|d| d.find_open()) else { return false };
+        if let Some(drawing) = ws.shown_diagram(path) {
+            if !ws.diagram_find.sync(&drawing, &doc.find_input.text) { return false; }
+            ws.diagram_find.reveal(sid,path,tx);
+            return true;
+        }
         if let Some(table) = ws.tables.get(path) {
             if !ws.table_find.sync(table, &doc.find_input.text) { return false; }
             ws.table_find.reveal(sid, path, tx);
@@ -265,6 +271,11 @@ impl App {
             return;
         }
         self.sync_rendered_find(sid, path, tx);
+        if let Some(ws) = self.files.sessions.get_mut(sid) && ws.shown_diagram(path).is_some() {
+            ws.diagram_find.step(forward);
+            ws.diagram_find.reveal(sid,path,tx);
+            return;
+        }
         if let Some(ws) = self.files.sessions.get_mut(sid) && ws.shown_table(path).is_some() {
             ws.table_find.step(forward);
             ws.table_find.reveal(sid, path, tx);
