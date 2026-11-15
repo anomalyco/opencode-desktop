@@ -20,13 +20,6 @@ pub trait Platform: Send + Sync + 'static {
     /// Hands off to the staged update; once this returns `Ok` the app must quit.
     fn install(&self) -> Result<(), String>;
 
-    /// After `install`, the app starts the update itself by quitting and starting again
-    /// (`Tx::relaunch`, the app menu's Restart), rather than the hand-off starting it (Windows'
-    /// helper puts the update in place only after the app exits, then starts it).
-    fn relaunches(&self) -> bool {
-        false
-    }
-
     /// The app quits with an update staged: install it on the way out, without starting again.
     fn install_on_quit(&self) {}
 

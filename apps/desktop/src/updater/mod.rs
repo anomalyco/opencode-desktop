@@ -37,7 +37,7 @@ pub mod service;
 #[cfg(windows)]
 mod windows;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use rune::Tx;
@@ -68,7 +68,6 @@ thread_local! {
     /// The one update service of the app (its windows share the app's thread), started by the
     /// first window, and how many windows use it.
     static SHARED: RefCell<Option<Rc<RefCell<UpdaterService>>>> = const { RefCell::new(None) };
-    static WINDOWS: Cell<usize> = const { Cell::new(0) };
     /// Plugins' checks and installs still running.
     static WAITING: RefCell<Vec<Waiting>> = const { RefCell::new(Vec::new()) };
 }
@@ -85,16 +84,10 @@ impl Updater {
         self.service.as_ref().map_or(0, |s| s.borrow().revision())
     }
 
-    /// This window closes. When it's the last, the app quits, and a ready update installs on the
-    /// way out (Windows).
+    /// Detach the window; even the last window closing does not authorize a helper.
     pub fn closing(&mut self) {
-        let Some(service) = self.service.take() else { return };
-        let left = WINDOWS.get().saturating_sub(1);
-        WINDOWS.set(left);
-        if left == 0 {
-            service.borrow_mut().quitting();
-            SHARED.with(|s| s.borrow_mut().take());
-        }
+        self.service.take();
+        // The shared service is retained. Closing the last window is not a save receipt.
     }
 }
 
@@ -108,9 +101,9 @@ fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) {
     }
 }
 
-/// Whether this quit installs an update (its helper replaces the app once this process exits).
-pub fn installs_on_quit() -> bool {
-    QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+/// A confirmed save is the only call site that may hand off a replacement.
+pub fn confirmed(receipt: &crate::storage::ConfirmedQuit) {
+    if let Some(s) = SHARED.with_borrow_mut(Option::take) { s.borrow_mut().confirmed_quit(receipt); }
 }
 
 /// Waits for an install-on-quit hand-off to finish starting its helper, which must exist before
@@ -170,7 +163,6 @@ pub fn start_if_packaged(s: &mut App) {
             service
         }
     };
-    WINDOWS.set(WINDOWS.get() + 1);
     {
         let service = service.borrow();
         s.updater.version = service.snapshot().version.clone();
@@ -193,7 +185,7 @@ fn make_platform() -> Option<std::sync::Arc<dyn platform::Platform>> {
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let Some(service) = &s.updater.service else { return false };
     let service = service.clone();
-    let (quit, relaunch, revision) = {
+    let (quit, revision) = {
         let mut service = service.borrow_mut();
         service.poll();
         if service.revision() == s.updater.seen && !service.quit_pending() {
@@ -201,18 +193,15 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         }
         // The worker names the running version once it's up (the bundle's, on macOS).
         s.updater.version.clone_from(&service.snapshot().version);
-        (service.take_quit(), service.relaunches(), service.revision())
+        (service.take_quit(), service.revision())
     };
     s.updater.seen = revision;
     answer_waiting(&service);
     if let Some(err) = service.borrow_mut().take_apply_error() {
         crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), err);
     }
-    match (quit, relaunch) {
-        (true, true) => tx.relaunch(),
-        (true, false) => tx.quit(),
-        (false, _) => {}
-    }
+    // Request a save, not a relaunch: only confirmed_quit may start the install or replacement.
+    if quit { tx.quit(); }
     tx.instant();
     true
 }

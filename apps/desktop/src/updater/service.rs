@@ -173,11 +173,6 @@ impl UpdaterService {
         std::mem::take(&mut self.quit)
     }
 
-    /// Whether that quit starts the app again ([`Platform::relaunches`]).
-    pub fn relaunches(&self) -> bool {
-        self.platform.get().is_some_and(|p| p.relaunches())
-    }
-
     /// Feeds the worker's results to the machine; true when the snapshot changed. At rest: one
     /// empty channel read and two atomic loads, no allocation.
     pub fn poll(&mut self) -> bool {
@@ -216,8 +211,19 @@ impl UpdaterService {
     /// of its own (`super::finish_quit` waits for it before the process exits): checking the staged
     /// exe's signature and copying it as the helper (about 135 MB) no longer hold the UI thread
     /// while the windows close.
-    pub fn quitting(&mut self) {
-        if matches!(self.state, State::Ready { refresh: None, .. })
+    pub fn confirmed_quit(&mut self, _receipt: &crate::storage::ConfirmedQuit) {
+        if let State::Installing { plan: Plan::AwaitingSave { attempt }, .. } = self.state {
+            self.dispatch(Event::SaveConfirmed);
+            // No window poll follows terminal confirmation. The worker reports the handoff itself;
+            // an install failure never causes a second process to start from the old bundle.
+            while let Ok(msg) = self.messages.recv() {
+                match msg {
+                    Message::Event(e @ (Event::RestartSucceeded(a) | Event::RestartFailed(a, _))) if a == attempt => { self.dispatch(e); break; }
+                    _ => {}
+                }
+            }
+        }
+        else if matches!(self.state, State::Ready { refresh: None, .. })
             && let Some(platform) = self.platform.get().cloned()
         {
             super::install_on_quit(platform);
@@ -253,6 +259,7 @@ impl UpdaterService {
 
     fn run(&mut self, effect: Effect) {
         match effect {
+            Effect::RequestSave => self.quit = true,
             Effect::Check(a) => self.send(Job::Check(a)),
             Effect::Stage(a) => self.send(Job::Stage(a)),
             Effect::Restart(a) => self.send(Job::Install(a)),
@@ -265,10 +272,6 @@ impl UpdaterService {
             Effect::ResolveChecks(tickets, view) => self.answer(tickets, |_| Answer::Checked(view.clone())),
             Effect::ResolveInstalls(tickets) => {
                 self.answer(tickets, |_| Answer::Installed(Ok(())));
-                if matches!(self.state, State::Installing { plan: Plan::Quitting, .. }) {
-                    eprintln!("updater: handed off to the update; quitting");
-                    self.quit = true;
-                }
             }
             Effect::RejectInstalls(tickets, why) => {
                 eprintln!("updater: install failed: {why}");

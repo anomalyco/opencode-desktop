@@ -78,6 +78,8 @@ pub enum Refresh {
 pub enum Plan {
     Checking { attempt: Attempt, waiters: Vec<Waiter> },
     Staging { attempt: Attempt, next: String, waiters: Vec<Waiter> },
+    /// Staged and verified, but no helper, bundle swap or restart is authorized yet.
+    AwaitingSave { attempt: Attempt },
     Restarting { attempt: Attempt },
     Quitting,
     ExternalChecking { url: String, attempt: Attempt, waiters: Vec<Waiter> },
@@ -102,6 +104,8 @@ pub enum State {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
+    SaveConfirmed,
+    QuitResumed,
     /// The worker made the platform updater: the running build's version, and the release an
     /// earlier run staged (`ready`), if any, and whether it can open an external download.
     Started { current: String, persisted: Option<String>, external: bool },
@@ -126,6 +130,7 @@ pub enum Event {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
+    RequestSave,
     Check(Attempt),
     Stage(Attempt),
     Restart(Attempt),
@@ -188,6 +193,14 @@ pub fn transition(state: &State, event: Event) -> Transition {
         };
     }
     match event {
+        Event::SaveConfirmed => match state {
+            State::Installing { meta, version, plan: Plan::AwaitingSave { attempt }, installs } => (State::Installing { meta: meta.clone(), version: version.clone(), plan: Plan::Restarting { attempt: *attempt }, installs: installs.clone() }, vec![Effect::Restart(*attempt)]),
+            _ => (state.clone(), Vec::new()),
+        },
+        Event::QuitResumed => match state {
+            State::Installing { meta, version, plan: Plan::AwaitingSave { .. }, installs } => (State::Ready { meta: meta.clone(), version: version.clone(), refresh: None }, vec![Effect::RejectInstalls(installs.clone(), "Restart cancelled; the update remains staged".into())]),
+            _ => (state.clone(), Vec::new()),
+        },
         Event::CheckRequested(w) => check_requested(state, w),
         Event::InstallRequested(w) => install_requested(state, w),
         Event::WaiterCancelled(w) => waiter_cancelled(state, w),
@@ -493,8 +506,8 @@ fn restart(state: &State, version: &str, waiters: Vec<Waiter>, mut effects: Vec<
         State::Installing { installs, .. } => installs.clone(),
         _ => Vec::new(),
     };
-    effects.push(Effect::Restart(attempt));
-    with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::Restarting { attempt }, installs }, waiters, effects)
+    effects.push(Effect::RequestSave);
+    with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::AwaitingSave { attempt }, installs }, waiters, effects)
 }
 
 fn keeps_staged(meta: &Meta, staged: &str, target: Option<&Target>) -> bool {

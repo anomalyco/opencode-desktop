@@ -712,7 +712,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 
 /// Seal only after the boot queue has been delivered. The native close is the single final
 /// flush, not a second request to land the same buffers.
-pub fn close() -> opencode_storage::FlushReport {
+pub fn close() -> Option<ConfirmedQuit> {
     begin_quit();
     let mut guard = lock();
     while matches!(&*guard, Some(Phase::Joining { .. } | Phase::Delivering { .. })) {
@@ -720,10 +720,14 @@ pub fn close() -> opencode_storage::FlushReport {
     }
     let storage = match &*guard {
         Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
-        _ => return opencode_storage::FlushReport::default(),
+        _ => return None,
     };
     drop(guard);
     let report = storage.close();
     if report.unconfirmed { eprintln!("opencode-storage: quit ended without confirming that all changes reached disk"); }
-    report
+    (report.final_barrier == opencode_storage::model::FinalBarrier::Confirmed).then_some(ConfirmedQuit(()))
 }
+
+/// Proof of a completed persistent save. Only this module can construct one. An install may
+/// stage its download earlier, but cannot start a replacement process or swap the bundle.
+pub struct ConfirmedQuit(());

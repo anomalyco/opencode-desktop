@@ -298,9 +298,12 @@ impl Backend {
         journal::finish(false);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();
-            return join.join().unwrap_or(FlushReport { unconfirmed: true, ..FlushReport::default() });
+            let mut report = join.join().unwrap_or(FlushReport { unconfirmed: true, ..FlushReport::default() });
+            if !report.unconfirmed { report.final_barrier = crate::model::FinalBarrier::Confirmed; }
+            return report;
         }
-        FlushReport { clean: true, ..FlushReport::default() }
+        let final_barrier = if matches!(w, Writer::Parked(_)) { crate::model::FinalBarrier::Confirmed } else { crate::model::FinalBarrier::NoReceipt };
+        FlushReport { clean: true, final_barrier, ..FlushReport::default() }
     }
 }
 
