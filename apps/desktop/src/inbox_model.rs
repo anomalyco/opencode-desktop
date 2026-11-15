@@ -385,7 +385,7 @@ impl Branches {
     }
 
     /// Queues the folders a view shows that haven't loaded.
-    fn enqueue(&mut self, dirs: impl IntoIterator<Item = String>) {
+    pub(crate) fn enqueue(&mut self, dirs: impl IntoIterator<Item = String>) {
         for dir in dirs {
             if dir.is_empty() || self.by_dir.contains_key(&dir) {
                 continue;

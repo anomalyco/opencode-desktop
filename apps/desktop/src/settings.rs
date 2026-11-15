@@ -385,6 +385,10 @@ impl App {
         }
         if ev.key == Key::Escape {
             tx.instant();
+            if matches!(self.settings_pages.page, pages::Page::Project(..)) {
+                self.open_settings_page(pages::Page::Projects, tx);
+                return true;
+            }
             self.close_settings();
             // Desktop leaves nothing focused once Escape leaves Settings for Home (`esc-settings`),
             // where the removed rail's focus would otherwise fall to the titlebar's New session;

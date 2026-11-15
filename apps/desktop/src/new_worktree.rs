@@ -104,6 +104,12 @@ impl App {
         self.new_worktree.drafts.get(id)?.as_deref()
     }
 
+    pub(crate) fn set_draft_base(&mut self, base: Option<String>) {
+        if let Route::Draft(id) = &*self.route && let Some(selected) = self.new_worktree.drafts.get_mut(id) {
+            *selected = base;
+        }
+    }
+
     /// New worktree in the location dialog: the session will start in a new worktree of
     /// `project`, from its checkout's current branch.
     pub fn choose_new_worktree(&mut self, project: &str, directory: String) {
@@ -125,20 +131,12 @@ impl App {
         if !matches!(*self.route, Route::Draft(_)) || self.settings.open || self.project_switcher.open {
             return false;
         }
-        if Bind::BranchChoose.matches_tx(ev, tx) {
-            if !self.draft_creates() || self.sidebar_inbox.branches.get(self.draft_dir()).is_none() {
-                return false;
-            }
-            if self.new_worktree.picker.is_open() { self.close_branch_picker(tx) } else { self.open_branch_picker(tx) }
-            return true;
-        }
         let Some(project) = self.draft_project().filter(|p| project_git(&p.id)).map(|p| (p.id.clone(), p.directory.clone())) else {
             return false;
         };
-        if Bind::LocationSelect.matches_tx(ev, tx) {
-            tx.instant();
-            self.close_branch_picker(tx);
-            self.open_project_worktrees(&project.0, tx);
+        let base = Bind::BranchChoose.matches_tx(ev, tx);
+        if base || Bind::LocationSelect.matches_tx(ev, tx) {
+            self.open_git_location(base, tx);
             return true;
         }
         if Bind::LocationCycle.matches_tx(ev, tx) {

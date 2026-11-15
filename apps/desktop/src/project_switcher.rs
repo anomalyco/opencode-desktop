@@ -20,6 +20,7 @@ use crate::{App, Route};
 use opencode_i18n::t;
 
 mod location;
+mod branches;
 mod servers;
 pub(crate) use servers::poll;
 
@@ -33,7 +34,8 @@ pub enum StepMode {
     Servers,
     /// A project's worktrees, on `server` (None: the window's); `direct` when the dialog opened
     /// on them.
-    Worktrees { project: String, server: Option<opencode_kit::servers::ServerKey>, direct: bool },
+    Worktrees { project: String, server: Option<opencode_kit::servers::ServerKey>, direct: bool, base: Option<String> },
+    Branches { project: String, server: Option<opencode_kit::servers::ServerKey>, direct: bool, directory: String, list: branches::List },
 }
 
 #[derive(Default)]
@@ -43,6 +45,7 @@ pub struct ProjectSwitcher {
     pub mode: StepMode,
     /// The steps to step back through, innermost last.
     history: Vec<location::Frame>,
+    branch_requests: rune::machine::Seq,
     /// The lit row: the first until one's chosen, which holds while the step lists it
     /// (`dialog.tsx:212-217`); typing keeps it.
     active: Highlight,
@@ -60,6 +63,8 @@ pub enum RowKind {
     Worktree { project_id: String, directory: String, main: bool, server: Option<opencode_kit::servers::ServerKey> },
     /// New worktree: the session starts in a worktree made from the project's checkout.
     Create { project_id: String, directory: String, server: Option<opencode_kit::servers::ServerKey> },
+    Base { directory: String },
+    Branch,
     Other { count: usize },
     Add,
     /// A server Add project adds to (the Servers step).
@@ -114,17 +119,21 @@ impl ProjectSwitcher {
 impl App {
     pub fn project_switcher_rows(&self) -> Vec<SwitcherRow> {
         let q = self.project_switcher.query();
+        if let StepMode::Branches { list, .. } = &self.project_switcher.mode {
+            return branches::rows(list, q);
+        }
         if !self.project_switcher.servers.is_empty() {
             return match &self.project_switcher.mode {
                 StepMode::Worktrees { project, server, .. } => {
                     let server = server.clone().unwrap_or_else(|| crate::servers::runtime::active(self).clone());
-                    servers::worktree_rows(self, &server, project).into_iter().filter(|r| matches_query(q, &[&r.title, &r.subtitle])).collect()
+                    self.location_worktree_rows(servers::worktree_rows(self, &server, project), q)
                 }
                 StepMode::Servers => servers::server_rows(self, q),
                 mode => servers::project_rows(self, q, *mode == StepMode::Others),
             };
         }
         match &self.project_switcher.mode {
+            StepMode::Branches { list, .. } => branches::rows(list, q),
             StepMode::Servers => Vec::new(),
             StepMode::Worktrees { project: pid, .. } => {
                 let Some(project) = self.project(pid) else { return Vec::new() };
@@ -151,7 +160,7 @@ impl App {
                     section: "Worktrees",
                     kind: RowKind::Worktree { project_id: id.clone(), directory: dir, main: false, server: None },
                 });
-                [main, create].into_iter().chain(worktrees).filter(|r| matches_query(q, &[&r.title, &r.subtitle])).collect()
+                self.location_worktree_rows([main, create].into_iter().chain(worktrees).collect(), q)
             }
             StepMode::Others => self
                 .other_projects()
@@ -244,11 +253,12 @@ impl App {
     /// nothing typed step back to the projects with `project` lit.
     pub fn open_project_worktrees(&mut self, project: &str, tx: &mut Tx) {
         self.open_project_switcher();
-        self.list_worktrees(project);
+        self.list_worktrees_on(None, project);
         tx.instant();
+        let base = self.draft_base().map(str::to_owned);
         let ps = &mut *self.project_switcher;
         ps.history = vec![location::Frame { mode: StepMode::Projects, query: String::new(), active: Some(format!("project:{project}")) }];
-        ps.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true };
+        ps.mode = StepMode::Worktrees { project: project.to_owned(), server: None, direct: true, base };
     }
 
     pub fn close_project_switcher(&mut self, restore: bool) {
@@ -271,19 +281,20 @@ impl App {
         if !drillable(self, project_id) {
             return;
         }
-        self.list_worktrees(project_id);
+        self.list_worktrees_on(None, project_id);
         let active = Some(format!("project:{project_id}"));
         self.location_event(location::Event::Drilled { project: project_id.to_owned(), server: None, active }, tx);
     }
 
     /// Asks `server` (None: the window's own) for project `id`'s worktrees.
     fn list_worktrees_on(&mut self, server: Option<&opencode_kit::servers::ServerKey>, id: &str) {
-        match server {
-            Some(k) => {
-                crate::servers::runtime::with_server(self, k, |s| s.list_worktrees(id));
+        let key = server.cloned().unwrap_or_else(|| crate::servers::runtime::active(self).clone());
+        crate::servers::runtime::with_server(self, &key, |s| {
+            s.list_worktrees(id);
+            if let Some(dir) = s.project(id).map(|p| p.directory.clone()) {
+                s.sidebar_inbox.branches.enqueue([dir]);
             }
-            None => self.list_worktrees(id),
-        }
+        });
     }
 
     /// A row's chevron: steps into `project_id`'s worktrees on `server`; `key` is lit again on
@@ -330,6 +341,7 @@ impl App {
     pub fn project_switcher_choose(&mut self, key: &str, tx: &mut Tx) {
         let Some(row) = self.project_switcher_rows().into_iter().find(|r| r.key == key) else { return };
         let worktree = matches!(row.kind, RowKind::Worktree { main: false, .. });
+        let base = match &self.project_switcher.mode { StepMode::Worktrees { base, .. } => base.clone(), _ => None };
         // Another server's row: the new session moves there first (`selectProject`).
         let elsewhere = match &row.kind {
             RowKind::Project { server: Some(k), .. } | RowKind::Worktree { server: Some(k), .. } | RowKind::Create { server: Some(k), .. } if k != crate::servers::runtime::active(self) => Some(k.clone()),
@@ -342,18 +354,20 @@ impl App {
             servers::select(self, &server, directory.clone(), tx);
             if !matches!(row.kind, RowKind::Project { .. }) {
                 // The worktree step's own choices (New worktree, a worktree) run there now.
-                return self.project_switcher_choose_here(row.kind, worktree, tx);
+                return self.project_switcher_choose_here(row, worktree, base, tx);
             }
             if self.stage.is_none() {
                 self.composer.focused = true;
             }
             return;
         }
-        self.project_switcher_choose_here(row.kind, worktree, tx);
+        self.project_switcher_choose_here(row, worktree, base, tx);
     }
 
-    fn project_switcher_choose_here(&mut self, kind: RowKind, worktree: bool, tx: &mut Tx) {
-        match kind {
+    fn project_switcher_choose_here(&mut self, row: SwitcherRow, worktree: bool, base: Option<String>, tx: &mut Tx) {
+        match row.kind {
+            RowKind::Base { directory } => self.location_base(directory, tx),
+            RowKind::Branch => { self.location_event(location::Event::BranchChosen(row.title), tx); }
             RowKind::Other { .. } => {
                 let active = self.project_switcher_active(&self.project_switcher_rows());
                 self.location_event(location::Event::Others { active }, tx);
@@ -376,6 +390,7 @@ impl App {
                     self.open_draft_tab();
                 }
                 self.choose_new_worktree(&project_id, directory);
+                self.set_draft_base(base);
                 self.sort_projects();
                 if self.stage.is_none() {
                     self.composer.focused = true;
@@ -424,6 +439,10 @@ impl App {
         };
         if pressed != location::Pressed::Other {
             let rows = self.project_switcher_rows();
+            if pressed == location::Pressed::Forward && at_end && self.project_switcher_active(&rows).as_deref() == Some("base") {
+                self.project_switcher_choose("base", tx);
+                return true;
+            }
             let active = self.project_switcher_active(&rows).and_then(|a| rows.into_iter().find(|r| r.key == a)).map(|r| match r.kind {
                 RowKind::Project { id, drillable: d, server: Some(server), .. } => location::Lit::Project { drillable: d, key: r.key, id, server: Some(server) },
                 RowKind::Project { id, .. } => location::Lit::Project { drillable: drillable(self, &id), key: r.key, id, server: None },
@@ -519,9 +538,12 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
                 Some(k) => (servers::project(s, k, id), servers::tag(s, p, k)),
                 None => (s.project(id), None),
             };
-            let name = row().key("name").max_w(text_w * 0.55).gap(6.0).center_y().child(title.shrink().min_w(0.0)).children(tag);
+            let branch = (matches!(r.kind, RowKind::Worktree { main: true, .. }) && tag.is_none()).then(|| s.location_checkout(server.as_ref(), &r.subtitle)).flatten();
+            let name = row().key("name").max_w(text_w * 0.55).gap(6.0).center_y().child(title.shrink().min_w(0.0)).children(tag).children(branch.map(|b| row().gap(4.0).center_y().child(icon(&ic::BRANCH,12.0).color(p.icon_muted)).child(text(b.to_owned()).font(UI).color(p.muted).truncate())));
             main.child(crate::icons::badge(s, p, project, &r.title)).child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(name).child(description(&r.subtitle)))
         }
+        RowKind::Base { .. } => main.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(title).child(description(&r.subtitle)).child(crate::keymap::keycaps(p, crate::keymap::Bind::BranchChoose)),
+        RowKind::Branch => main.child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted)).child(title.dir(rune::Direction::Auto)),
         RowKind::Server { key } => main
             .child(icon(servers::glyph(servers::kind(s, key)), 16.0).color(p.icon_muted))
             .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(title.shrink().min_w(0.0)).children((!r.subtitle.is_empty()).then(|| description(&r.subtitle)))),
@@ -609,6 +631,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         StepMode::Projects => (t!("session.new.project.search"), None),
         StepMode::Others => (t!("session.new.project.search"), Some(t!("session.new.location.otherProjects"))),
         StepMode::Servers => (t!("session.new.location.servers.search"), Some(t!("session.new.location.servers"))),
+        StepMode::Branches { .. } => (t!("session.new.workspace.branch.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
         StepMode::Worktrees { .. } => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
     };
     let search = row()
@@ -630,6 +653,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .placeholder(placeholder, p.text.alpha(p.text.a * 0.5))
                 .caret(p.text, p.selection).selection_style(p.field_selection)
                 .on_edit(|s: &mut App| &mut s.project_switcher.search)
+                .on_input_change(|s: &mut App, tx: &mut Tx| s.location_branch_search(tx))
                 .on_input_key(|s: &mut App, ev, tx| s.project_switcher_key(ev, tx) || s.shortcut(ev, tx)),
         );
 
@@ -651,7 +675,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         content_h += 32.0;
     }
     if rows.is_empty() {
-        list = list.child(col().key("project-switcher-empty").w_full().h(120.0).center().child(text(t!("palette.empty")).font(UI).color(p.muted)));
+        let waiting = matches!(s.project_switcher.mode, StepMode::Branches { list: branches::List::Loading(_), .. });
+        list = list.child(col().key("project-switcher-empty").w_full().h(120.0).center().children((!waiting).then(|| text(t!("palette.empty")).font(UI).color(p.muted))));
         content_h += 120.0;
     }
     let mut shown_other_heading = false;

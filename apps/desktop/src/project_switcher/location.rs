@@ -22,6 +22,8 @@ pub(crate) enum Event {
     Servers { active: Option<String> },
     /// Other projects, chosen (`chosen` with an `other` entry).
     Others { active: Option<String> },
+    Base { directory: String },
+    BranchChosen(String),
     /// The step's title, or a key that steps back (`back`).
     Back,
     /// A key in the field (`key.down`): `forward` and `backward` are → and ← as the reading
@@ -71,7 +73,23 @@ pub(crate) fn step(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, e
             if !matches!(mode, StepMode::Projects | StepMode::Others) {
                 return (Effects::none(), false);
             }
-            (enter(mode, query, history, active, StepMode::Worktrees { project, server, direct: false }), false)
+            (enter(mode, query, history, active, StepMode::Worktrees { project, server, direct: false, base: None }), false)
+        }
+        Event::Base { directory } => {
+            let StepMode::Worktrees { project, server, .. } = &*mode else { return (Effects::none(), false) };
+            let next = StepMode::Branches { project: project.clone(), server: server.clone(), direct: false, directory, list: Default::default() };
+            (enter(mode, query, history, Some("base".to_owned()), next), true)
+        }
+        Event::BranchChosen(branch) => {
+            let StepMode::Branches { project, server, direct, .. } = &*mode else { return (Effects::none(), false) };
+            // A branch sets only the dialog's proposed base. The draft changes when Create is chosen.
+            if history.last().is_some_and(|f| matches!(f.mode, StepMode::Worktrees { .. })) {
+                let effects = back(mode, history);
+                if let StepMode::Worktrees { base, .. } = mode { *base = Some(branch); }
+                return (effects, true);
+            }
+            *mode = StepMode::Worktrees { project: project.clone(), server: server.clone(), direct: *direct, base: Some(branch) };
+            (Effects::two(Effect::Query(String::new()), Effect::Focus(None)), true)
         }
         // Picking a server again from the server step keeps its search and the way back.
         Event::Servers { active } => {
@@ -103,7 +121,7 @@ fn key(mode: &mut StepMode, query: &str, history: &mut Vec<Frame>, k: KeyDown) -
     if *mode == StepMode::Projects {
         return (Effects::none(), false);
     }
-    if k.key == Pressed::Escape && matches!(mode, StepMode::Worktrees { direct: true, .. }) {
+    if k.key == Pressed::Escape && matches!(mode, StepMode::Worktrees { direct: true, .. } | StepMode::Branches { direct: true, .. }) {
         return (Effects::one(Effect::Close), true);
     }
     if (k.key == Pressed::Backward && k.at_start) || (k.key == Pressed::Backspace && k.empty) || k.key == Pressed::Escape {

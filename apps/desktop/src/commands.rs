@@ -296,6 +296,10 @@ fn toggle_sidebar(s: &mut App, tx: &mut Tx) {
     s.toggle_sidebar(tx);
 }
 
+fn git_draft(s: &App) -> bool {
+    matches!(*s.route, Route::Draft(_)) && s.draft_project().is_some_and(|p| opencode_kit::model::project_git(&p.id))
+}
+
 /// Top tabs have no sidebar to toggle (`shell.tsx` registers the command for side tabs only).
 fn has_sidebar(s: &App) -> bool {
     s.shows_sidebar()
@@ -328,6 +332,8 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("settings", opencode_i18n::key!("command.settings.open"), |s, tx| s.toggle_settings(tx)).keys(Bind::Settings),
     Cmd::new("open-project", opencode_i18n::key!("command.project.open"), |s, tx| s.open_project_dialog(tx)).keys(Bind::OpenProject),
     Cmd::new("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
+    Cmd::new("session.location.select", opencode_i18n::key!("session.location.worktree"), |s, tx| s.open_git_location(false, tx)).keys(Bind::LocationSelect).when(git_draft),
+    Cmd::new("session.branch.choose", opencode_i18n::key!("command.session.branch.choose"), |s, tx| s.open_git_location(true, tx)).keys(Bind::BranchChoose).when(git_draft),
     Cmd::new("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
     Cmd::new(SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
     Cmd::new("reload", opencode_i18n::key!("command.config.reload"), reload)

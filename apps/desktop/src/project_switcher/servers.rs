@@ -40,6 +40,7 @@ pub struct Listed {
     pub others: Vec<Project>,
     /// Each drilled project's worktrees.
     pub worktrees: HashMap<String, Vec<String>>,
+    pub checkout_branch: Option<(String, String)>,
 }
 
 impl Listed {
@@ -56,7 +57,7 @@ pub fn read(s: &mut App) -> Vec<Listed> {
         return Vec::new();
     }
     let drilled = match &s.project_switcher.mode {
-        StepMode::Worktrees { project, .. } => Some(project.clone()),
+        StepMode::Worktrees { project, .. } | StepMode::Branches { project, .. } => Some(project.clone()),
         _ => None,
     };
     let mut out = Vec::new();
@@ -75,10 +76,11 @@ pub fn read(s: &mut App) -> Vec<Listed> {
             let used: Vec<Project> = s.used_projects().into_iter().cloned().collect();
             let others: Vec<Project> = s.other_projects().into_iter().cloned().collect();
             let worktrees = drilled.iter().filter_map(|id| s.project(id).map(|p| (id.clone(), s.project_worktrees(id, &p.directory)))).collect();
-            (used, others, worktrees)
+            let branch = drilled.as_ref().and_then(|id| s.project(id)).and_then(|p| s.sidebar_inbox.branches.get(&p.directory).map(|b| (p.directory.clone(), b.to_owned())));
+            (used, others, worktrees, branch)
         };
-        let Some((used, others, worktrees)) = crate::servers::runtime::with_server(s, &key, read) else { continue };
-        out.push(Listed { name: crate::servers::registry::label(&e.conn), hint: crate::servers::registry::hint(&e.conn), key, kind, used, others, worktrees });
+        let Some((used, others, worktrees, checkout_branch)) = crate::servers::runtime::with_server(s, &key, read) else { continue };
+        out.push(Listed { name: crate::servers::registry::label(&e.conn), hint: crate::servers::registry::hint(&e.conn), key, kind, used, others, worktrees, checkout_branch });
     }
     if out.len() <= 1 { Vec::new() } else { out }
 }
@@ -90,7 +92,7 @@ pub fn poll(s: &mut App) -> bool {
     }
     let next = read(s);
     let changed = next.len() != s.project_switcher.servers.len()
-        || next.iter().zip(&s.project_switcher.servers).any(|(a, b)| a.key != b.key || a.used.len() != b.used.len() || a.others.len() != b.others.len() || a.worktrees != b.worktrees);
+        || next.iter().zip(&s.project_switcher.servers).any(|(a, b)| a.key != b.key || a.used.len() != b.used.len() || a.others.len() != b.others.len() || a.worktrees != b.worktrees || a.checkout_branch != b.checkout_branch);
     s.project_switcher.servers = next;
     changed
 }
