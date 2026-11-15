@@ -26,7 +26,7 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         (false, true) => Some(opencode_i18n::t!("ui.tool.shell.writingCommand").to_owned()),
         (false, false) => Some(one_line(command)),
     };
-    let t = Trigger { title: opencode_i18n::t!("ui.tool.shell").into(), compact: true, subtitle, code: !writing, ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.shell").into(), compact: true, subtitle, code: !writing, tag: outcome(c), ..Default::default() };
     if let Excerpt::Ends {first, last, bytes} = Excerpt::new(out) {
         // Size and the recovery action are useful even while shut. Opening this card changes
         // only its two actual excerpts, never mounts another scrolling console or its chrome.
@@ -51,6 +51,19 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     disclosure(s, trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
         body(console(s, p, cx.session, c.id, (!command.is_empty()).then_some(command), out), false, 8.0)
     })
+}
+
+/// How a command ended, where it did not succeed (`shellOutcome`): stopped, timed out, or the
+/// exit code.
+fn outcome(c: &Call) -> Option<(String, bool)> {
+    let m = c.metadata;
+    if m["interrupted"] == true || m["status"] == "killed" || crate::activity::rules::stopped(c.status, m) {
+        return Some((opencode_i18n::t!("ui.timeline.shell.stopped").to_owned(), false));
+    }
+    if m["timeout"] == true || m["status"] == "timeout" {
+        return Some((opencode_i18n::t!("ui.timeline.shell.timedOut").to_owned(), true));
+    }
+    m["exit"].as_i64().filter(|e| *e != 0).map(|e| (opencode_i18n::t!("ui.timeline.shell.exit", code = e), true))
 }
 
 /// The shell a shell call's console reads its output from, and whether it reads it again each

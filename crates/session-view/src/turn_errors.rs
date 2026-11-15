@@ -8,7 +8,7 @@
 
 use std::cell::Cell;
 
-use opencode_kit::model::{Assistant, Message, Notice, NoticeKind, Part, Retry, StepError, capitalize};
+use opencode_kit::model::{Assistant, Notice, NoticeKind, Retry, StepError, capitalize};
 use rune::{El, Link, LinkPaint, LocalTime, Span, Tx, col, icon, row, text};
 
 use crate::TimelineHost;
@@ -263,69 +263,9 @@ pub fn poll<S: TimelineHost>(s: &S, tx: &mut Tx) -> bool {
     changed
 }
 
-/// A background shell or subagent that came back (`notice()` for `source` shell or subagent): a
-/// quiet line like the other notices, `Background shell finished · <what>` or
-/// `Explore finished · <task>` in faint, one line always, fading at the edge (`what`). A failure
-/// or cancel keeps its ink and mark, as it needs a look. Desktop draws a success in link blue and
-/// jumps to the shell's call when pressed, which read as a link to an old row; here a shell's
-/// has no pointer or hover and does nothing (its output is in its call's row above), and a
-/// subagent's opens its session (its words take the base ink on hover).
-fn finished<S: TimelineHost>(s: &S, p: &Pal, f: &opencode_kit::model::Finished) -> El {
-    use opencode_kit::model::Outcome;
-    let actor = match (&f.agent, f.subagent) {
-        (Some(agent), true) => capitalize(agent),
-        (None, true) => opencode_i18n::t!("ui.tool.agent.default").to_owned(),
-        _ => opencode_i18n::t!("rune.notice.backgroundShell").to_owned(),
-    };
-    let (label, ink, mark) = match f.outcome {
-        Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = actor), p.faint, None),
-        Outcome::Error => (opencode_i18n::t!("ui.sessionTimeline.notice.failed", actor = actor), p.danger, Some(&rune_theme_opencode::icons::WARNING)),
-        Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = actor), p.cancelled, Some(&rune_theme_opencode::icons::CIRCLE_BAN_SIGN)),
-    };
-    let child = f.child.clone().filter(|_| f.subagent && s.can_open_session());
-    // One 20 high line; the timeline sets the room around it (`timeline::rhythm`).
-    let mut line = row().key("notice").w_full().center_y().min_h(20.0);
-    if let Some(m) = mark {
-        line = line.child(icon(m, 16.0).key("mark").color(ink).mr(6.0));
-    }
-    let what = what(s, f);
-    let said = match &what {
-        Some(d) => format!("{label} {d}"),
-        None => label.clone(),
-    };
-    let label = text(label).key("label").font(UI_MED).color(ink);
-    line = line.child(if child.is_some() && mark.is_none() { label.group_color(p.text) } else { label });
-    if let Some(d) = &what {
-        let data = text(format!(" \u{b7} {d}")).key("data").font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
-        line = line.child(if child.is_some() { data.group_color(p.text) } else { data });
-    }
-    let Some(child) = child else { return line };
-    line.hover_group().role("link").label(said).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| if crate::plain_click(tx) { s.open_session(&child, tx) })
-}
-
-/// What came back, on one line: a shell's call's own description when it has one, else the
-/// first line of the command or task (a heredoc's `python3 - <<'PY'`), its spaces collapsed.
-fn what<S: TimelineHost>(s: &S, f: &opencode_kit::model::Finished) -> Option<String> {
-    let described = f.shell.as_deref().and_then(|shell| {
-        let session = s.active_session_id()?;
-        s.with_transcript(session, |t| {
-            t.messages.iter().rev().filter_map(|m| match m {
-                Message::Assistant(a) => Some(a),
-                Message::Note { step, .. } => Some(&**step),
-                _ => None,
-            }).flat_map(|a| a.parts.iter()).find_map(|part| match part {
-                Part::Tool { input, metadata, .. } if metadata["shellID"].as_str() == Some(shell) => input["description"].as_str().map(str::to_owned),
-                _ => None,
-            })
-        })?
-    });
-    let line = |d: &str| d.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "));
-    described.as_deref().and_then(line).or_else(|| f.data.as_deref().and_then(line))
-}
-
 /// Whether notice `n` draws as a divider.
 pub fn is_divider(n: &Notice) -> bool {
-    matches!(n.kind, NoticeKind::Moved { .. } | NoticeKind::Model { .. })
+    matches!(n.kind, NoticeKind::Moved { .. } | NoticeKind::Model { .. } | NoticeKind::Agent { .. })
 }
 
 /// A notice row; a divider at `run`.
@@ -334,12 +274,11 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
     let faint = |key: &'static str, words: String| text(words).key(key).font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).children(kids);
     match &n.kind {
-        NoticeKind::Agent { agent, previous } => {
-            let data = match previous {
-                Some(prev) if !prev.is_empty() => format!("{} → {}", capitalize(prev), capitalize(agent)),
-                _ => capitalize(agent),
-            };
-            line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.agentChanged").into()), faint("data", data)])
+        // Switching the agent changes who answers next, so it draws as the model's separator does
+        // (`timeline-next/row.tsx`'s `switched`).
+        NoticeKind::Agent { agent, .. } => {
+            let words = text(opencode_i18n::t!("ui.timeline.notice.agentSwitched", agent = capitalize(agent))).key("label").font(UI).color(p.faint);
+            crate::compaction::divider_of(s, p, words, run)
         }
         NoticeKind::Instructions { sources } => {
             let mut kids = vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.instructionsUpdated").into())];
@@ -349,7 +288,13 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             line(kids)
         }
         NoticeKind::Restart => line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.restart").into())]),
-        NoticeKind::Finished(f) => finished(s, p, f),
+        // Background work reporting back is an event (`noticeEvent`): "Finished 1 subagent".
+        NoticeKind::Finished(_) => {
+            let key = format!("ev-{}", n.id);
+            let open = s.expanded().contains(&key);
+            let events: Vec<_> = crate::activity::events::notice_event(n).into_iter().collect();
+            crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
+        }
         NoticeKind::Idle => col(),
         NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
@@ -379,4 +324,9 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::compaction::divider_of(s, p, words, run)
         }
     }
+}
+
+/// The session a notice row draws in: the open one.
+fn session_of<S: TimelineHost>(s: &S) -> &str {
+    s.active_session_id().unwrap_or_default()
 }

@@ -191,20 +191,32 @@ pub fn part_category(part: &Part) -> Option<Category> {
     }
 }
 
-/// Where a notice shows (`timelineNoticePlacement`, `groupMessages`' separate set): a switched
-/// model or a move keeps its own row unless notices are hidden; the rest follow Notices. A
-/// background shell or subagent that came back has a row of its own unless Notices (Subagents,
-/// for a subagent) are hidden, and one that failed always.
+/// Where a notice shows (`timeline-next/rules.ts`'s `noticePlacement`): a switched agent or
+/// model and a move always keep their own row; the rest follow Notices. Background work that
+/// came back follows the setting its launch follows, Subagents or Shell, as an event of its own,
+/// and shows wherever it failed.
 pub fn notice_placement(n: &opencode_kit::model::Notice, d: &Detail) -> Placement {
     use opencode_kit::model::NoticeKind;
     match (&n.kind, d.placement(Category::Notices)) {
         (NoticeKind::Idle, _) => Placement::Hidden,
-        (NoticeKind::Finished(f), notices) => {
-            let placement = if f.subagent { d.placement(Category::Subagents) } else { notices };
+        (NoticeKind::Finished(f), _) => {
+            let placement = d.placement(if f.subagent { Category::Subagents } else { Category::Shell });
             if placement == Placement::Hidden && !f.required { Placement::Hidden } else { Placement::Separate }
         }
-        (NoticeKind::Model { .. } | NoticeKind::Moved { .. }, Placement::Grouped) => Placement::Separate,
+        // What changed the session always stands on its own, whatever the setting
+        // (`timeline-next/rules.ts`'s `sessionEvent`).
+        (NoticeKind::Agent { .. } | NoticeKind::Model { .. } | NoticeKind::Moved { .. }, _) => Placement::Separate,
         (_, p) => p,
+    }
+}
+
+/// Whether notice `n` folds with the turn's work: one Notices groups, and background work
+/// reporting back, which joins an events row or the group that launched it (`groupNotices`).
+pub fn notice_folds(n: &opencode_kit::model::Notice, d: &Detail) -> bool {
+    match notice_placement(n, d) {
+        Placement::Grouped => true,
+        Placement::Separate => matches!(n.kind, opencode_kit::model::NoticeKind::Finished(_)),
+        Placement::Hidden => false,
     }
 }
 

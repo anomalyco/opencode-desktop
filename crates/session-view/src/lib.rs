@@ -7,6 +7,7 @@
 //! reveal, Working/Copy/Interrupted tail), linear bottom fade, two-layer live overlay scroll bar,
 //! and "Jump to latest", with no OpenCode (Rune)-only shell or side-panel assumptions inside.
 
+pub mod activity;
 pub mod agent_start;
 pub mod arrivals;
 pub mod compaction;
@@ -182,8 +183,13 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// Whether session `session` itself waits on a question or a permission, which hides its
     /// Working (`message-timeline.tsx:339`).
-    fn session_asking(&self, _session: &str) -> bool {
-        false
+    fn session_asking(&self, session: &str) -> bool {
+        self.session_waiting(session).is_some()
+    }
+    /// What session `session` waits on the user for, which its status line says
+    /// (`timeline-next/status.ts`): a permission, or an answer to a question.
+    fn session_waiting(&self, _session: &str) -> Option<working::Waiting> {
+        None
     }
     fn session_revert(&self, _session: &str) -> Option<&str> {
         None
@@ -479,7 +485,6 @@ pub(crate) fn plain_click(tx: &Tx) -> bool {
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= turn_errors::poll(s, tx);
-    changed |= turns::poll(s, tx);
     changed |= working::sync(s);
     changed |= disclosure::poll(s, now, tx);
     changed |= timeline::projection_poll(s, tx);

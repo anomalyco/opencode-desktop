@@ -675,8 +675,11 @@ impl session_view::TimelineHost for App {
     fn is_session_stopped(&self, session: &str) -> bool {
         self.stops.has(session)
     }
-    fn session_asking(&self, session: &str) -> bool {
-        self.pending.iter().any(|p| p.session() == session)
+    fn session_waiting(&self, session: &str) -> Option<session_view::working::Waiting> {
+        self.pending.iter().find(|p| p.session() == session).map(|p| match p {
+            opencode_kit::model::Pending::Permission { .. } => session_view::working::Waiting::Approval,
+            opencode_kit::model::Pending::Form { .. } => session_view::working::Waiting::Answer,
+        })
     }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())
@@ -1326,7 +1329,6 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= line_comments::poll(s, tx);
     changed |= message_nav::poll(s, tx);
     changed |= turn_errors::poll(s, tx);
-    changed |= session_view::turns::poll(s, tx);
     changed |= dropzone::poll(s, tx);
     changed |= s.poll_pages(tx);
     while let Some(why) = s.output_errors.as_ref().and_then(|(_, rx)| rx.try_recv().ok()) {

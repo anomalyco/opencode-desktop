@@ -204,9 +204,9 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     if !busy || shown != session || blocking(s, session).last() != Some(part) {
         return None;
     }
-    // Working's label, which starts the column, then the lane's gap; the lane's start while
-    // Working hides for a question or a permission.
-    let x = if session_view::TimelineHost::session_asking(s, session) { 0.0 } else { crate::working::width(s.working.label()) + 8.0 };
+    // The status line's words, which start the column, then the lane's gap (`StatusLane`); the
+    // lane's start while the thought the model is writing stands in for them.
+    let x = if session_view::working::thinking(s, session) { 0.0 } else { crate::working::width(session_view::working::status(s, session)) + 8.0 };
     let y = crate::working::LANE_PAD + (crate::working::H - HINT_H) / 2.0;
     let hint = row()
         .key("background-hint")

@@ -12,7 +12,7 @@ use opencode_kit::model::{self, InboxItem, Message, Transcript};
 use super::{RowContent, RowSpec, delivery, dividers, entries, interrupted, prompt_images, prompts_join, rhythm, turn_rows};
 use crate::TimelineHost;
 use crate::compaction::Run;
-use crate::detail::{Category, Detail, Placement, notice_placement};
+use crate::detail::{Detail, Placement, notice_placement};
 use crate::turns::Entry;
 
 /// What a projection reads from the host, read once for all its spans.
@@ -122,13 +122,11 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 if steps.is_empty() { start = mi; }
                 steps.push(Entry::Step(a));
                 // Steps after an interrupted one (the run went on after a stop) sit under an
-                // Interrupted divider (`projection.ts:554-582`, `session-timeline-row.tsx:1162-1182`),
-                // which hidden notices hide too.
+                // Interrupted divider: the user stopped the turn, so the timeline confirms it
+                // whatever the setting (`timeline-next/projection.ts`'s `turnRows`).
                 if a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) && matches!(messages.get(mi + 1), Some(Message::Assistant(_))) {
                     turn_rows(&mut out, &std::mem::take(&mut steps), start, mi + 1, false, detail);
-                    if detail.placement(Category::Notices) != Placement::Hidden {
-                        out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
-                    }
+                    out.push(RowSpec { key: format!("d-{}", a.id), content: RowContent::TurnDivider(Run::default()), streaming: false });
                 }
             }
             // A run ends: with Changed files on, the files it changed list after its work.
@@ -141,14 +139,14 @@ pub(super) fn project<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, rang
                 None if !steps.is_empty() => steps.push(Entry::Skip),
                 None => {}
             },
-            Message::Notice(n) if !steps.is_empty() || notice_placement(n, detail) == Placement::Grouped => {
+            Message::Notice(n) if !steps.is_empty() || crate::detail::notice_folds(n, detail) => {
                 match notice_placement(n, detail) {
-                    Placement::Grouped => {
+                    _ if crate::detail::notice_folds(n, detail) => {
                         if steps.is_empty() { start = mi; }
                         steps.push(Entry::Notice(n));
                     }
                     Placement::Hidden => steps.push(Entry::Skip),
-                    Placement::Separate => {
+                    _ => {
                         turn_rows(&mut out, &std::mem::take(&mut steps), start, mi, false, detail);
                         out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(mi, Run::default(), rhythm::NOTICE_PT), streaming: false });
                     }
