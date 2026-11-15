@@ -17,7 +17,6 @@ use opencode_kit::client::Request;
 use opencode_kit::model::{Pending, SessionInfo};
 use rune::Tx;
 
-use crate::inbox_model::working_since;
 use crate::layout_state::TabLayout;
 use crate::{App, Route, Source};
 
@@ -58,8 +57,13 @@ impl App {
 
     /// Whether anything in `root`'s family runs or has a prompt waiting in its inbox (`sessionBusy`).
     pub fn family_busy(&self, root: &str) -> bool {
-        self.running.iter().any(|id| self.root_of(id) == root)
+        self.has_live_family(root)
             || self.inboxes.iter().any(|(id, inbox)| (!inbox.items.is_empty() || inbox.compaction.is_some()) && self.root_of(id) == root)
+    }
+
+    /// Current server activity, excluding historical busy times and queued but inactive work.
+    pub(crate) fn has_live_family(&self, root: &str) -> bool {
+        self.running.iter().any(|id| self.root_of(id) == root)
     }
 
     /// The permission and the form waiting on a person anywhere in `root`'s family, by request
@@ -149,7 +153,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.request_reads.due.remove(id);
         s.read_requests(id);
     }
-    // The Inbox's rows: a root that works, or whose run hasn't ended, may be waiting on a person
+    // A live run may be waiting on a person. A saved busy timestamp is not a live run:
+    // asking for its permissions/forms can boot a cold location just to draw the Inbox.
     // (`inbox-model.ts:234-275` syncs their permissions and forms). Home doesn't read them, as
     // Desktop's doesn't: a working row whose requests nobody read shows its activity ring, and
     // the unread dot once the Inbox, its tab or the stream brings them. Settings, where the
@@ -159,7 +164,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         let working: Vec<String> = s
             .sessions
             .iter()
-            .filter(|i| i.parent.is_none() && !s.request_reads.read.contains(&i.id) && (working_since(i).is_some() || s.family_busy(&i.id)))
+            .filter(|i| i.parent.is_none() && !s.request_reads.read.contains(&i.id) && s.has_live_family(&i.id))
             .map(|i| i.id.clone())
             .collect();
         for id in working {

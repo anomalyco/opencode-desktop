@@ -556,7 +556,7 @@ impl SidebarInbox {
 /// The first load's settling, now rather than at the next poll.
 pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
     let live = s.live();
-    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && (working_since(i).is_some() || s.family_busy(&i.id))).map(|i| i.id.clone()).collect();
+    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && s.has_live_family(&i.id)).map(|i| i.id.clone()).collect();
     s.sidebar_inbox.settle(live, &working, *s.now_ms, tx)
 }
 
