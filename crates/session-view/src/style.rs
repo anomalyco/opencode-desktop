@@ -429,17 +429,16 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     if let Some(found) = code_links {
         md = md.code_link(p.v2.text_code_path, move |code| found.contains(code).then(|| format!("{CODE_LINK}{code}")));
     }
-    let md = match media {
-        Some(m) => crate::images::markdown_pictures::<S>(md, m),
-        None => md,
-    };
     // Each block reads the way its own words do, code always left to right; until a reply's
     // first words arrive it reads the way its prompt does.
     let md = match tentative {
         Some(d) => md.dir_tentative(d),
         None => md,
     };
-    md.build(crate::palette::kit(p)).selection_group(false)
+    match media {
+        Some(m) => crate::images::picture_body::<S>(md, m, p),
+        None => md.build(crate::palette::kit(p)),
+    }.selection_group(false)
 }
 
 /// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt

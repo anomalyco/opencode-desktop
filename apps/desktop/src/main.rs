@@ -1409,7 +1409,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_branch_picker(now, tx);
     changed |= s.poll_delete(now, tx);
     changed |= s.poll_uploads(tx);
-    changed |= s.attach.poll();
+    if s.attach.poll() {
+        rune::Tracked::touch(&s.attach);
+        changed = true;
+    }
     changed |= s.poll_panels(viewed || changed, tx);
     changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();

@@ -259,6 +259,8 @@ struct Meta {
 #[derive(Default)]
 pub struct Half {
     source: Source,
+    /// Its file reader, in-flight reads and cached pictures belong to this server.
+    media: crate::attachments::MediaStore,
     inbox: Option<Receiver<Incoming>>,
     pages: crate::session_pages::State,
     opening: Option<crate::session_pages::Opening>,
@@ -277,6 +279,10 @@ impl Half {
     fn swap(&mut self, s: &mut App) {
         use std::mem::swap;
         swap(&mut self.source, &mut s.source);
+        swap(&mut self.media, &mut s.attach.store);
+        if s.attach.waker.is_none() && let Some(wake) = s.waker.as_ref() {
+            s.attach.set_waker(wake.clone());
+        }
         swap(&mut self.inbox, &mut s.inbox);
         swap(&mut self.pages, &mut s.pages);
         swap(&mut self.opening, &mut s.opening);

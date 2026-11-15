@@ -763,7 +763,7 @@ impl App {
         self.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
                 let encoded = crate::review::data::encode_fs_path(path);
-                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory))).map_err(|e| e.to_string())
+                files.get_bytes(&format!("/api/fs/read/{encoded}?location%5Bdirectory%5D={}", crate::switcher::encode(directory))).map_err(|e| e.kind.to_string())
             }),
             std::sync::Arc::new(crate::web_fetch::get),
         );

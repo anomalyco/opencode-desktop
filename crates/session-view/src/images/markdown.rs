@@ -32,7 +32,7 @@ enum Slot {
     /// Its encoded bytes only: a window at rest with no session let go of its pixels (`rest`).
     /// The next ask decodes them again, with no fetch.
     Held(Arc<[u8]>),
-    Failed,
+    Failed(String),
 }
 
 /// Where a site's favicon stands (`site-icon.tsx`'s `loading | loaded | failed`).
@@ -117,7 +117,7 @@ impl MdStore {
     /// again, as the new server may have them.
     pub fn set_fetch(&self, files: FileFetch, web: WebFetch) {
         self.send(FetcherEvent::Fetch(Fetches { files, web }));
-        self.slots.borrow_mut().retain(|_, slot| !matches!(slot, Slot::Failed));
+        self.slots.borrow_mut().retain(|_, slot| !matches!(slot, Slot::Failed(_)));
         self.changed();
     }
 
@@ -148,11 +148,28 @@ impl MdStore {
         self.get(image_source(directory, src)?)
     }
 
+    fn failure(&self, source: &Source) -> Option<String> {
+        match self.slots.borrow().get(source)? {
+            Slot::Failed(reason) => Some(reason.clone()),
+            Slot::Decoding(image, _) => image.error().map(|e| e.to_string()),
+            _ => None,
+        }
+    }
+
+    pub(super) fn read_image(&self, directory: Option<&str>, src: &str) -> Result<Option<Image>, String> {
+        let Some(source) = image_source(directory, src) else { return Ok(None) };
+        let image = self.get(source.clone());
+        match self.failure(&source) {
+            Some(reason) => Err(reason),
+            None => Ok(image),
+        }
+    }
+
     /// Markdown image `src`'s encoded bytes, once they've landed.
     pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
         match self.slots.borrow().get(&image_source(directory, src)?)? {
             Slot::Decoding(_, bytes) | Slot::Held(bytes) => Some(bytes.clone()),
-            Slot::Fetching | Slot::Failed => None,
+            Slot::Fetching | Slot::Failed(_) => None,
         }
     }
 
@@ -171,7 +188,7 @@ impl MdStore {
     pub fn site_icon(&self, host: &str) -> SiteIcon {
         let source = Source::Web(format!("https://{host}/favicon.ico"));
         let image = self.get(source.clone());
-        if matches!(self.slots.borrow().get(&source), Some(Slot::Failed)) {
+        if matches!(self.slots.borrow().get(&source), Some(Slot::Failed(_))) {
             return SiteIcon::Failed;
         }
         match image {
@@ -188,7 +205,7 @@ impl MdStore {
         self.land();
         let held = match self.slots.borrow().get(&source) {
             Some(Slot::Decoding(image, _)) => return Some(image.clone()),
-            Some(Slot::Fetching | Slot::Failed) => return None,
+            Some(Slot::Fetching | Slot::Failed(_)) => return None,
             Some(Slot::Held(bytes)) => Some(bytes.clone()),
             None => None,
         };
@@ -198,7 +215,7 @@ impl MdStore {
             return Some(image);
         }
         let jobs = self.jobs()?;
-        let slot = if jobs.send(source.clone()).is_ok() { Slot::Fetching } else { Slot::Failed };
+        let slot = if jobs.send(source.clone()).is_ok() { Slot::Fetching } else { Slot::Failed("Image reader stopped".into()) };
         self.slots.borrow_mut().insert(source, slot);
         None
     }
@@ -218,7 +235,7 @@ impl MdStore {
         for (source, read) in fetched {
             let slot = match read {
                 Ok((image, bytes)) => Slot::Decoding(image, bytes),
-                Err(_) => Slot::Failed,
+                Err(reason) => Slot::Failed(reason),
             };
             self.slots.borrow_mut().insert(source, slot);
         }

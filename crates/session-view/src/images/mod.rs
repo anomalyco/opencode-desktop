@@ -439,9 +439,32 @@ pub fn md_media<S: TimelineHost>(s: &S) -> markdown::MdMedia {
 /// as Desktop's markdown images do (`image-preview.tsx`): a button named by its alt text that
 /// flies into the viewer and back.
 pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::MdMedia) -> rune_kit::Markdown {
+    picture_frames::<S>(md, m, |_, _| {})
+}
+
+pub(crate) fn picture_body<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::MdMedia, p: &Pal) -> El {
+    let failures = std::rc::Rc::new(RefCell::new(Vec::new()));
+    let errors = failures.clone();
+    let md = picture_frames::<S>(md, m, move |src, reason| {
+        errors.borrow_mut().push(if reason.contains(src) { reason } else { format!("{reason} ({src})") });
+    });
+    let body = md.build(crate::palette::kit(p));
+    let failures = failures.take();
+    if failures.is_empty() { return body }
+    // Rune draws each unreadable image's alt in place; keep its server's reason with the reply.
+    col().w_full().child(body).children(failures.into_iter().map(|reason| text(reason).w_full().wrap().font(SMALL).color(p.muted)))
+}
+
+fn picture_frames<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::MdMedia, failed: impl Fn(&str, String) + 'static) -> rune_kit::Markdown {
     let (images, favicons) = (m.clone(), m.store.clone());
     let seen = RefCell::new(HashMap::<String, usize>::new());
-    md.images(move |src| images.store.image(images.directory.as_deref(), src))
+    md.images(move |src| match images.store.read_image(images.directory.as_deref(), src) {
+        Ok(image) => image,
+        Err(reason) => {
+            failed(src, reason);
+            None
+        }
+    })
         .link_favicon(move |url| favicons.favicon(url))
         .image_frame(move |img, f| {
             // Keyed by its place: the reply's row, then the image's turn among the same picture
@@ -544,4 +567,3 @@ pub fn identity(f: &Attachment) -> String {
         None => format!("{:x}:{}", f.bytes.as_ptr() as usize, f.bytes.len()),
     }
 }
-
