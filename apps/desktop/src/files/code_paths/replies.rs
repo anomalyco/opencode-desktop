@@ -7,8 +7,30 @@ use super::{FOUND_FOR, MISSING_FOR, reply_path_exists};
 
 enum Check { Checking { attempt: u64, was_link: bool }, Answer { exists: bool, at: Instant } }
 
-#[derive(Default)]
-struct Paths { entries: HashMap<String, Check>, rev: u64 }
+/// Keep checks for the bounded working set. Check results are hints, not authorization to
+/// open a path: a click resolves the link again on the current server.
+const MAX_SESSIONS: usize = 32;
+const MAX_CODES: usize = 1024;
+const MAX_KEY_BYTES: usize = 256 * 1024;
+
+struct Paths {
+    base: String, directory: String, entries: HashMap<String, Check>,
+    bytes: usize, used: u64, rev: u64,
+}
+
+impl Paths {
+    fn new(base: &str, directory: &str, serial: u64) -> Self {
+        Self { base: base.into(), directory: directory.into(), entries: HashMap::new(), bytes: 0, used: serial, rev: serial }
+    }
+
+    fn expire(&mut self, now: Instant) {
+        self.entries.retain(|key, c| {
+            let expired = matches!(c, Check::Answer { exists, at } if now.duration_since(*at) >= if *exists { FOUND_FOR } else { MISSING_FOR });
+            if expired { self.bytes -= key.len(); }
+            !expired
+        });
+    }
+}
 
 struct Answer { sid: String, attempt: u64, entries: Vec<(String, bool)> }
 
@@ -33,11 +55,21 @@ impl Replies {
     pub(super) fn read(&self, sid: &str, codes: Vec<String>, server: &Server, directory: impl FnOnce() -> String, wake: Option<&Waker>) -> Option<Rc<HashSet<String>>> {
         let now = Instant::now();
         let attempt = self.attempt.get().wrapping_add(1);
+        self.attempt.set(attempt);
         let mut ask = Vec::new();
         let mut found = HashSet::new();
         let mut sessions = self.sessions.borrow_mut();
-        if !sessions.contains_key(sid) { sessions.insert(sid.to_owned(), Paths::default()); }
+        let directory = directory();
+        if sessions.get(sid).is_none_or(|p| p.base != server.base || p.directory != directory) {
+            if sessions.len() >= MAX_SESSIONS && !sessions.contains_key(sid)
+                && let Some(old) = sessions.iter().min_by_key(|(_, p)| p.used).map(|(k, _)| k.clone()) {
+                sessions.remove(&old);
+            }
+            sessions.insert(sid.to_owned(), Paths::new(&server.base, &directory, attempt));
+        }
         let paths = sessions.get_mut(sid).unwrap();
+        paths.used = attempt;
+        if paths.entries.len() >= MAX_CODES || paths.bytes >= MAX_KEY_BYTES { paths.expire(now); }
         for code in codes {
             match paths.entries.get(&code) {
                 Some(Check::Checking { .. }) => continue,
@@ -46,19 +78,28 @@ impl Replies {
                 }
                 stale => {
                     let was_link = matches!(stale, Some(Check::Answer { exists: true, .. }));
+                    if stale.is_none() {
+                        if paths.entries.len() >= MAX_CODES || code.len() > MAX_KEY_BYTES - paths.bytes { continue; }
+                        paths.bytes += code.len();
+                    }
                     paths.entries.insert(code.clone(), Check::Checking { attempt, was_link });
                     ask.push(code);
                 }
             }
         }
         if !ask.is_empty() {
-            self.attempt.set(attempt);
-            let (out, wake, server, directory, session) = (self.out.clone(), wake.cloned(), server.clone(), directory(), sid.to_owned());
+            let (out, wake, server, session) = (self.out.clone(), wake.cloned(), server.clone(), sid.to_owned());
             let started = rune::task::spawn("reply-code-links", move || {
                 let entries = ask.into_iter().map(|code| { let exists = reply_path_exists(&server, &directory, &code); (code, exists) }).collect();
                 if out.send(Answer { sid: session, attempt, entries }).is_ok() && let Some(wake) = wake { wake(); }
             });
-            if started.is_err() { paths.entries.retain(|_, c| !matches!(c, Check::Checking { attempt: a, .. } if *a == attempt)); }
+            if started.is_err() {
+                paths.entries.retain(|key, c| {
+                    let failed = matches!(c, Check::Checking { attempt: a, .. } if *a == attempt);
+                    if failed { paths.bytes -= key.len(); }
+                    !failed
+                });
+            }
         }
         (!found.is_empty()).then(|| Rc::new(found))
     }
