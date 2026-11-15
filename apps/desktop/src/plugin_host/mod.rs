@@ -921,7 +921,9 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         }
         let p = &app.plugins.list[i];
         let Some(script) = p.script() else { continue };
-        changed |= cx::with_app(app, || script.poll(now, tx));
+        let (says, before) = (redraws_when_asked(p), p.half.epoch.get());
+        let ran = cx::with_app(app, || script.poll(now, tx));
+        changed |= ran && (!says || app.plugins.list[i].half.epoch.get() != before);
     }
     requests::carry_out(app, tx);
     // What a plugin shows lives in its VM, which `Tracked` can't see: a poll that changed what
@@ -935,6 +937,16 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         crate::plugin_host::contrib::sync(app);
     }
     changed || asked
+}
+
+/// Whether a task of `p`'s that resumed on its own (a deadline, a finished host call, a deferred
+/// task) redraws only when the plugin says so: a signal it fires, `Contribution:Refresh` or a
+/// withdrawal. A built-in does: none draws what a resumption changes without one. Any other
+/// plugin redraws whenever its script ran, as the 1.0 contract promised; so does every plugin
+/// with `OPENCODE_PLUGIN_IMPLICIT_REDRAW=1`, the reference a comparison runs against.
+fn redraws_when_asked(p: &Plugin) -> bool {
+    static IMPLICIT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    matches!(p.origin, Origin::Embedded(..)) && !*IMPLICIT.get_or_init(|| std::env::var_os("OPENCODE_PLUGIN_IMPLICIT_REDRAW").is_some_and(|v| v == "1"))
 }
 
 /// Fires `signal` of plugin `i`'s running VM with `args` (a list is spread).

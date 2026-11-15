@@ -24,8 +24,22 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, hot: &Table) -> mlua::Result<Table> {
     ctx.raw_set("contract", spec::CONTRACT)?;
     let v = vmx.clone();
     ctx.raw_set("GetService", lua.create_function(move |lua, (_, name): (Value, String)| super::services::get(lua, &v, &name))?)?;
-    let signal = vmx.script_signal.clone();
-    ctx.raw_set("CreateSignal", lua.create_function(move |_, _: Value| signal.call::<Value>(()))?)?;
+    // A plugin's own signal is how it says what it draws changed: each fire redraws its
+    // surfaces, as `Contribution:Refresh` does (`super::poll`).
+    let (signal, v) = (vmx.script_signal.clone(), vmx.clone());
+    let connect: Function = lua.load("local signal, redraw = ...\nsignal:Connect(redraw)\nreturn signal").set_name("=ctx.CreateSignal").into_function()?;
+    ctx.raw_set(
+        "CreateSignal",
+        lua.create_function(move |lua, _: Value| {
+            let v = v.clone();
+            let redraw = lua.create_function(move |_, _: mlua::MultiValue| {
+                v.half.epoch.set(v.half.epoch.get() + 1);
+                crate::plugin_host::bump();
+                Ok(())
+            })?;
+            connect.call::<Value>((signal.call::<Value>(())?, redraw))
+        })?,
+    )?;
     let hot = hot.clone();
     ctx.raw_set(
         "BindHotState",
