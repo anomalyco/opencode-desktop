@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# opencode-rune-sign-macos.sh <unsigned app zip> <out dir>: signs "OpenCode (Rune).app"
+# opencode-rune-sign-macos.sh <unsigned app zip> <out dir> <arch>: signs "OpenCode (Rune).app"
 # inside-out with Anomaly's Developer ID identity (hardened runtime, secure timestamp, microphone
 # entitlement), notarizes and staples it, then writes:
-#   OpenCode-Rune-<version>-macos-arm64.zip  (root "OpenCode (Rune).app", for the auto-updater)
-#   OpenCode-Rune-<version>-macos-arm64.dmg  (signed, notarized, stapled, with /Applications link)
+#   OpenCode-Rune-<version>-macos-<arch>.zip  (root "OpenCode (Rune).app", for the auto-updater)
+#   OpenCode-Rune-<version>-macos-<arch>.dmg  (signed, notarized, stapled, with /Applications link)
 #
 # Optional overrides for side-by-side PR builds:
 #   OPENCODE_RUNE_APP_NAME    (default: "OpenCode (Rune)")
@@ -21,8 +21,9 @@ stem=${OPENCODE_RUNE_FILE_STEM:-OpenCode-Rune-$OPENCODE_RUNE_VERSION}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
-zip="$out/$stem-macos-arm64.zip"
-dmg="$out/$stem-macos-arm64.dmg"
+arch=${3:-arm64}
+zip="$out/$stem-macos-$arch.zip"
+dmg="$out/$stem-macos-$arch.dmg"
 
 /usr/bin/ditto -x -k "$input" "$work/unpacked"
 app="$work/unpacked/$app_name.app"

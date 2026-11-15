@@ -30,7 +30,7 @@ plist_value() {
 [ "$(plist_value CFBundleShortVersionString)" = "$version" ] || fail "wrong version"
 plist_value NSMicrophoneUsageDescription > /dev/null || fail "no microphone usage description"
 [ -x "$bundle/Contents/MacOS/opencode-desktop" ] || fail "packaged executable is missing"
-[ "$(lipo -archs "$bundle/Contents/MacOS/opencode-desktop")" = arm64 ] || fail "packaged executable is not arm64-only"
+[ "$(lipo -archs "$bundle/Contents/MacOS/opencode-desktop")" = "$(uname -m)" ] || fail "packaged executable does not match the native verify runner"
 [ "$("$bundle/Contents/MacOS/opencode-desktop" --version)" = "opencode-rune $version ($channel)" ] || fail "opencode-desktop --version is not $version ($channel)"
 
 codesign --verify --deep --strict --verbose=2 "$bundle"
