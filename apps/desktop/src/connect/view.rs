@@ -130,15 +130,9 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
 pub fn title(s: &App) -> String {
     let Some(open) = &s.connect.open else { return String::new() };
     let Some(p) = &open.dialog.provider else { return opencode_i18n::t!("dialog.provider.title").into() };
-    let name = s.provider_name(&p.id);
-    let connect = p.step.connect();
+    let name = step_name(s, &p.id);
     match dialog::body(&open.dialog) {
         dialog::Body::Models => opencode_i18n::t!("provider.connect.models.title", provider = name),
-        dialog::Body::Accounts => name,
-        _ if p.id == dialog::CONSOLE && matches!(connect, Some(super::machine::State::Failed(..))) => opencode_i18n::t!("provider.connect.opencode.errorTitle").into(),
-        dialog::Body::ConsoleSignIn { .. } => opencode_i18n::t!("provider.connect.console.title").into(),
-        _ if p.id == "anthropic" && connect.and_then(super::machine::method).is_some_and(|m| m.title().to_lowercase().contains("max")) => opencode_i18n::t!("provider.connect.title.anthropicProMax").into(),
-        _ if p.id == dialog::CONSOLE => opencode_i18n::t!("provider.connect.title", provider = "OpenCode Console"),
         _ => opencode_i18n::t!("provider.connect.title", provider = name),
     }
 }
@@ -150,19 +144,33 @@ fn close_button(p: &Pal) -> El {
         .child(icon(&crate::widgets::DIALOG_CLOSE, 16.0).color(p.icon_muted))
 }
 
-fn back_button(p: &Pal) -> El {
-    el().key("connect-back").role("button").label_static(opencode_i18n::t!("common.goBack")).size(20.0, 20.0).my(-2.0).ml(-2.0).radius(4.0).center()
-        .hover(p.hover).press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+fn step_name(s: &App, id: &str) -> String {
+    if id == dialog::CONSOLE { opencode_i18n::t!("provider.connect.opencode.name").into() } else { s.provider_name(id) }
+}
+
+fn remote_label(s: &App, p: &Pal, id: &str) -> Option<El> {
+    if id != dialog::CONSOLE || s.server_is_local() { return None; }
+    let key = crate::servers::runtime::active(s);
+    let name = crate::servers::registry::label_of(s, key);
+    let label = opencode_i18n::t!("provider.connect.remote.label", server = name);
+    Some(row().key("connect-remote").max_w(160.0).shrink().mr(12.0).center_y().gap(6.0)
+        .help(opencode_i18n::t!("provider.connect.remote.description"))
+        .child(icon(&ic::SERVER, 14.0).color(p.icon_muted)).child(text(label).font(TITLE).color(p.muted).truncate()))
+}
+
+fn crumb(content: El, key: &'static str, name: String, target: Option<dialog::BackTarget>) -> El {
+    let el = content.key(key);
+    match target {
+        None => el,
+        Some(target) => el.role("button").label(name).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            s.connect_event(Event::Back, tx);
-        })
-        .child(icon(&ic::ARROW_LEFT, 14.0).mirror_in_rtl().color(p.icon_muted))
+            s.connect_event(Event::Navigate(target), tx);
+        }),
+    }
 }
 
 fn header(s: &App, p: &Pal, frame: Frame) -> El {
     let open = s.connect.open.as_ref().expect("open");
-    let can_back = dialog::back_target(&open.dialog).is_some();
     match frame {
         // `.search-dialog`: 10 pt above and at the end, 14 before, 6 below.
         Frame::Picker => row().key("connect-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
@@ -170,39 +178,24 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
                 .child(text(opencode_i18n::t!("dialog.provider.title")).font(TITLE).color(p.text))
                 .child(text(opencode_i18n::t!("dialog.provider.description")).font(DESCRIPTION).color(p.muted)))
             .child(close_button(p)),
-        Frame::Accounts => {
-            let mut lead = row().role("navigation").label_static(opencode_i18n::t!("provider.connect.breadcrumb.label")).grow(1.0).shrink().min_w(0.0).gap(2.0).center_y();
-            if can_back {
-                lead = lead
-                    .child(text(opencode_i18n::t!("common.connect")).key("connect-crumb").role("button").font(TITLE).color(p.faint)
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-                            tx.instant();
-                            s.connect_event(Event::Back, tx);
-                        }))
-                    .child(icon(&ic::CHEVRON_RIGHT, 14.0).mirror_in_rtl().color(p.icon_muted));
-            }
-            row().key("connect-header").w_full().pt(10.0).pr(10.0).pb(6.0).pl(14.0)
-                .child(lead.child(text(title(s)).font(TITLE).color(p.text).truncate()))
-                .child(close_button(p))
-        }
         Frame::Models => {
             let id = open.dialog.provider.as_ref().map(|p| p.id.clone()).unwrap_or_default();
             row().key("connect-header").w_full().pt(20.0).px(20.0).pb(16.0)
                 .child(row().grow(1.0).shrink().h(16.0).gap(8.0).center_y()
                     .child(widgets::provider_mark(&id, p.icon))
                     .child(text(title(s)).font(STEP_TITLE).color(p.text)))
-                .child(close_button(p).mt(-2.0).mr(-2.0))
+                .children(remote_label(s, p, &id)).child(close_button(p).mt(-2.0).mr(-2.0))
         }
-        Frame::Provider => {
-            let id = open.dialog.provider.as_ref().map(|p| p.id.clone()).unwrap_or_default();
-            // As tall as the title: the back button reaches 2 pt past it each way.
-            let mut lead = row().role("navigation").label_static(opencode_i18n::t!("provider.connect.breadcrumb.label")).grow(1.0).shrink().min_w(0.0).h(16.0).gap(8.0).center_y();
-            if can_back {
-                lead = lead.child(back_button(p));
-            }
-            row().key("connect-header").w_full().py(16.0).px(20.0)
-                .child(lead.child(widgets::provider_mark(&id, p.icon)).child(text(title(s)).font(STEP_TITLE).color(p.text).truncate()))
-                .child(close_button(p).mt(-2.0).mr(-2.0))
+        Frame::Provider | Frame::Accounts => {
+            let provider = open.dialog.provider.as_ref().expect("provider frame");
+            let root = opencode_i18n::t!("provider.connect.breadcrumb.root");
+            let name = step_name(s, &provider.id);
+            let target = dialog::back_target(&open.dialog).filter(|t| *t != dialog::BackTarget::Picker);
+            let nav = row().role("navigation").label_static(opencode_i18n::t!("provider.connect.breadcrumb.label")).grow(1.0).shrink().min_w(0.0).gap(4.0).center_y()
+                .child(crumb(text(root).font(TITLE).color(p.faint), "connect-crumb-root", root.into(), (!open.dialog.standalone).then_some(dialog::BackTarget::Picker)))
+                .child(icon(&ic::CHEVRON_RIGHT, 14.0).mirror_in_rtl().color(p.icon_muted))
+                .child(crumb(row().shrink().min_w(0.0).gap(6.0).center_y().child(widgets::provider_mark(&provider.id, p.icon)).child(text(name.clone()).font(widgets::BODY_MED).color(p.text).truncate()), "connect-crumb-provider", name, target));
+            row().key("connect-header").w_full().padding(16.0).child(nav).children(remote_label(s, p, &provider.id)).child(close_button(p))
         }
     }
 }

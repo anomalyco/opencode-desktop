@@ -131,7 +131,7 @@ pub enum Event {
     ModelSelected(String),
     GroupCollapsed { provider: String, collapsed: bool },
     ModelConfirmed(String),
-    Back,
+    Navigate(BackTarget),
     Disposed,
 }
 
@@ -194,7 +194,11 @@ pub fn transition(d: &Dialog, event: Event) -> Transition {
     }
     let Some(p) = &d.provider else { return same(vec![]) };
     match event {
-        Event::Back => back(d, p),
+        // A breadcrumb targets a specific step. The root may skip the intermediate methods or
+        // accounts step; a stale provider crumb must not choose a different destination.
+        Event::Navigate(BackTarget::Picker) => to_picker(d, p),
+        Event::Navigate(target) if Some(target) == back_target(d) => back(d, p),
+        Event::Navigate(_) => same(vec![]),
         Event::AccountsSynced(accounts) => synced(d, p, accounts),
         Event::Input(e) => match p.step.connect() {
             Some(c) => connect_transition(d, p, &p.step, conn::transition(c, e), None),

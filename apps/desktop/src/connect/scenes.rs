@@ -75,6 +75,6 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
             created: 0,
             expires: 0,
         };
-        show(s, "poe", connect(State::Waiting(sel(method.clone()), Signin::Browser { method, auth, failed: false })));
+        show(s, "poe", connect(State::Waiting(sel(method.clone()), Signin::Browser { method, auth, failed: false, paste: super::machine::Paste::Unsupported })));
     }),
 ]);

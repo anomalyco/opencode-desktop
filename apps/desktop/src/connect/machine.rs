@@ -21,7 +21,7 @@ pub struct Catalog {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Signin {
     Key(Method),
-    Browser { method: Method, auth: Authorization, failed: bool },
+    Browser { method: Method, auth: Authorization, failed: bool, paste: Paste },
     Code { method: Method, auth: Authorization },
     Command { method: Method, attempt: String, output: String },
     External(Method),
@@ -47,6 +47,16 @@ impl Signin {
 pub enum EntryError {
     Required,
     Rejected(String),
+}
+
+/// `ProviderPaste` (providers/connect/machine.ts). The editor owns the transient URL; queued
+/// status polls need the attempt ID but must not retain a copy of the URL the user pasted.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Paste {
+    Unsupported,
+    Editing { open: Option<bool>, error: Option<EntryError> },
+    Sending,
+    Accepted,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -104,6 +114,10 @@ pub enum Event {
     Form(form::Input),
     FormBrowserOpened { attempt: u32, browser: u32, opened: bool },
     EntrySubmitted(String),
+    PasteToggle(bool),
+    PasteEdited,
+    PasteSubmit(String),
+    PasteResult { attempt: u32, result: Result<(), String> },
     OauthStarted { attempt: u32, auth: Authorization },
     CommandStarted { attempt: u32, id: String },
     ExternalSaved { attempt: u32 },
@@ -131,6 +145,7 @@ impl Event {
             | Self::ExternalSaved { attempt }
             | Self::StartFailed { attempt, .. }
             | Self::Polled { attempt, .. }
+            | Self::PasteResult { attempt, .. }
             | Self::SubmitSucceeded { attempt }
             | Self::SubmitFailed { attempt, .. }
             | Self::RefreshSucceeded { attempt }
@@ -150,6 +165,7 @@ pub enum Effect {
     PollStop,
     Cancel { command: bool, attempt_id: String },
     Submit { attempt: u32, signin: Signin, value: String, answer: Option<Answer> },
+    Paste { attempt: u32, attempt_id: String, value: String },
     Refresh { attempt: u32, method: Method },
     /// Reloads the catalogs without reporting back, for a credential saved after the dialog moved on.
     Sync,
@@ -231,18 +247,12 @@ fn selected(state: &State, event: Event, catalog: Rc<Catalog>, at: u32) -> Trans
             };
         }
         Event::BrowserOpened { attempt_id, opened } => {
-            return match state {
-                State::Waiting(s, Signin::Browser { method, auth, .. }) if auth.attempt == attempt_id => {
-                    (State::Waiting(s.clone(), Signin::Browser { method: method.clone(), auth: auth.clone(), failed: !opened }), vec![])
-                }
-                State::Refreshing(s, Signin::Browser { method, auth, .. }) if auth.attempt == attempt_id => {
-                    (State::Refreshing(s.clone(), Signin::Browser { method: method.clone(), auth: auth.clone(), failed: !opened }), vec![])
-                }
-                State::Connected(s, Signin::Browser { method, auth, .. }) if auth.attempt == attempt_id => {
-                    (State::Connected(s.clone(), Signin::Browser { method: method.clone(), auth: auth.clone(), failed: !opened }), vec![])
-                }
-                _ => same(state, vec![]),
-            };
+            let mut next = state.clone();
+            if let State::Waiting(_, si) | State::Refreshing(_, si) | State::Connected(_, si) = &mut next
+                && let Signin::Browser { auth, failed, .. } = si && auth.attempt == attempt_id {
+                *failed = !opened;
+            }
+            return (next, vec![]);
         }
         _ => {}
     }
@@ -279,7 +289,14 @@ fn selected(state: &State, event: Event, catalog: Rc<Catalog>, at: u32) -> Trans
         },
         State::Failed(s, _, retry) => match (event, retry) {
             (Event::Retry, Retry::Refresh(signin)) => refresh(s, signin.clone()),
-            (Event::Retry, Retry::Poll(signin)) => poll(&s.at(s.attempt + 1), signin.clone()),
+            (Event::Retry, Retry::Poll(signin)) => {
+                let mut next = signin.clone();
+                // A paste reply can only settle its old attempt. Unlock the field on retry.
+                if let Signin::Browser { paste: p @ (Paste::Sending | Paste::Accepted), .. } = &mut next {
+                    *p = Paste::Editing { open: Some(true), error: None };
+                }
+                poll(&s.at(s.attempt + 1), next)
+            }
             // The form was answered, so a retry goes straight back to the server.
             (Event::Retry, Retry::Start) => select(catalog, s.method, at + 1, Some(s.answer.clone().unwrap_or_default())),
             _ => same(state, vec![]),
@@ -418,7 +435,8 @@ fn started(s: &Sel, event: Event) -> Transition {
             if auth.code {
                 return (State::Entering(s.clone(), Signin::Code { method, auth }, None), vec![open]);
             }
-            let (next, effects) = poll(s, Signin::Browser { method, auth, failed: false });
+            let paste = if auth.paste { Paste::Editing { open: None, error: None } } else { Paste::Unsupported };
+            let (next, effects) = poll(s, Signin::Browser { method, auth, failed: false, paste });
             (next, [vec![open], effects].concat())
         }
         _ => (State::Starting(s.clone()), vec![]),
@@ -426,6 +444,26 @@ fn started(s: &Sel, event: Event) -> Transition {
 }
 
 fn polled(s: &Sel, signin: &Signin, event: Event) -> Transition {
+    if let Signin::Browser { .. } = signin && !matches!(event, Event::Polled { .. }) {
+        let mut next = signin.clone();
+        let Signin::Browser { auth, paste, .. } = &mut next else { unreachable!() };
+        let mut effects = vec![];
+        match (&mut *paste, event) {
+            (Paste::Editing { open, .. }, Event::PasteToggle(value)) => *open = Some(value),
+            (Paste::Editing { error, .. }, Event::PasteEdited) => *error = None,
+            (Paste::Editing { .. }, Event::PasteSubmit(value)) if !value.trim().is_empty() => {
+                *paste = Paste::Sending;
+                effects.push(Effect::Paste { attempt: s.attempt, attempt_id: auth.attempt.clone(), value: value.trim().to_owned() });
+            }
+            (Paste::Editing { .. }, Event::PasteSubmit(_)) => *paste = Paste::Editing { open: Some(true), error: Some(EntryError::Required) },
+            (Paste::Sending, Event::PasteResult { result, .. }) => *paste = match result {
+                Ok(()) => Paste::Accepted,
+                Err(message) => Paste::Editing { open: Some(true), error: Some(EntryError::Rejected(message)) },
+            },
+            _ => {}
+        }
+        return (State::Waiting(s.clone(), next), effects);
+    }
     let Event::Polled { outcome, .. } = event else { return (State::Waiting(s.clone(), signin.clone()), vec![]) };
     match outcome {
         Outcome::Complete => refresh(s, signin.clone()),

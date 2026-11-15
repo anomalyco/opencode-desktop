@@ -156,6 +156,10 @@ impl App {
                 });
             }
             SignIn::PollStop | SignIn::Complete { .. } => {}
+            SignIn::Paste { attempt, attempt_id, value } => self.write_then(
+                move |srv| srv.oauth_complete(&provider, &attempt_id, dir.as_deref(), &value),
+                move |s, tx, result| reply(Answer::PasteResult { attempt, result }, None)(s, tx),
+            ),
             SignIn::Cancel { command, attempt_id } => self.write_then(
                 move |srv| if command { srv.command_cancel(&provider, &attempt_id, dir.as_deref()) } else { srv.oauth_cancel(&provider, &attempt_id, dir.as_deref()) },
                 |_, _, _| {},

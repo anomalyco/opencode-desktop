@@ -92,11 +92,10 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
         Body::Screen(Screen::Browser) => browser(s, p),
         Body::Picker => col(),
     };
-    let notice = (console && !s.server_is_local()).then(|| col().px(12.0).mb(20.0).child(remote_notice(s, p)));
     // Every step fits its content and scrolls in it past the dialog's height
     // (`provider-connect-content`: `flex min-h-0 flex-1 flex-col overflow-y-auto`, `dialog.tsx`),
     // with a plain `overflow-y-auto` box's bar.
-    let body = col().w_full().children(notice).child(content.w_full());
+    let body = col().w_full().child(content.w_full());
     let pad = if console && frame != Frame::Accounts { 16.0 } else { 0.0 };
     let inner = session_view::scroller::scroller("connect-content").build::<App>(p, col().w_full().shrink().min_h(0.0).pb(pad), body);
     let (px, pb) = if frame == Frame::Accounts { (6.0, 6.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
@@ -106,7 +105,7 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
 fn methods(s: &App, p: &Pal) -> El {
     let c = open(s).dialog.provider.as_ref().and_then(|p| p.step.connect()).expect("connect");
     let list = conn::catalog(c).map(|c| c.methods.clone()).unwrap_or_default();
-    col().key("connect-methods").child(step_text(p, opencode_i18n::t!("provider.connect.methods.description", provider = s.provider_name(&provider_id(s)))))
+    col().key("connect-methods").child(step_text(p, opencode_i18n::t!("provider.connect.methods.description", provider = s.provider_name(&provider_id(s)))).px(12.0))
         .children(list.into_iter().enumerate().map(|(at, m)| {
         row().key(format!("connect-method-{at}")).role("button").label(m.title()).w_full().h(36.0).px(12.0).gap(8.0).center_y().radius(6.0)
             .hover(p.hover).press(p.pressed)
@@ -126,7 +125,7 @@ fn entry_error(c: &Conn, code: bool) -> Option<String> {
 
 /// A labelled secret field, its error and Continue (`ApiAuthView`, `OAuthCodeView`).
 fn entry_form(s: &App, p: &Pal, label: String, placeholder: &str, error: Option<String>, submitting: bool, console: bool) -> El {
-    let field = TextInput::new(&open(s).entry)
+    let field = TextInput::new(&open(s).entry).large().secure().spellcheck(false).disabled(submitting)
         .placeholder(placeholder)
         .label(label.clone())
         .width(None)
@@ -144,7 +143,7 @@ fn entry_form(s: &App, p: &Pal, label: String, placeholder: &str, error: Option<
     if console {
         cont = cont.px(12.0);
     }
-    form.child(row().child(cont))
+    form.child(row().w_full().center_y().gap(8.0).child(spacer()).children(matches!(conn::signin(current(s)), Some(conn::Signin::Code { .. })).then(|| open_browser(p))).child(cont))
 }
 
 fn submit_entry(s: &mut App, tx: &mut Tx) {
@@ -168,7 +167,7 @@ fn key(s: &App, p: &Pal, console: bool) -> El {
 }
 
 fn open_browser(p: &Pal) -> El {
-    button(opencode_i18n::t!("provider.connect.oauth.openBrowser"), ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT)
+    button(opencode_i18n::t!("provider.connect.oauth.openBrowser"), ButtonVariant::Ghost)
         .on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::BrowserOpen, tx)).build(kit(p)).key("connect-open-browser")
 }
 
@@ -178,7 +177,6 @@ fn code(s: &App, p: &Pal) -> El {
     let method = conn::method(c).map(|m| m.title()).unwrap_or_default();
     col().key("connect-code").px(12.0).gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.code.description", provider = name)))
-        .child(open_browser(p))
         .child(entry_form(s, p, opencode_i18n::t!("provider.connect.oauth.code.label", method = method), opencode_i18n::t!("provider.connect.oauth.code.placeholder"), entry_error(c, true), conn::submitting(c), false))
 }
 
@@ -216,15 +214,52 @@ fn browser(s: &App, p: &Pal) -> El {
     let c = current(s);
     let name = s.provider_name(&provider_id(s));
     let mut e = col().key("connect-browser").px(12.0).gap(20.0)
-        .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)))
-        .children(matches!(conn::signin(c), Some(conn::Signin::Browser { failed: true, .. })).then(||
-            text(opencode_i18n::t!("provider.connect.oauth.browserFailed")).role("alert").font(BODY).color(p.danger).wrap()))
-        .child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.status.waiting")))
-        .child(row().gap(8.0).child(open_browser(p)));
+        .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)));
     if let Some(code) = confirmation_code(c) {
-        e = e.child(copy_field(p, "connect-confirmation", Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode")), Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode.description")), code));
+        e = e.child(copy_field(p, "connect-confirmation", Some(opencode_i18n::t!("provider.connect.oauth.auto.confirmationCode")), None, code));
     }
-    e
+    let actions = row().w_full().gap(8.0).center_y().child(spacer()).child(open_browser(p));
+    if let Some(conn::Signin::Browser { failed, paste, .. }) = conn::signin(c) {
+        if *failed { e = e.child(text(opencode_i18n::t!("provider.connect.oauth.browserFailed")).role("alert").font(BODY).color(p.danger).wrap()); }
+        if *paste != conn::Paste::Unsupported && matches!(c, Conn::Waiting(..)) {
+            let (shown, locked, err) = match paste {
+                conn::Paste::Editing { open, error } => (open.unwrap_or_else(|| !s.server_is_local()), false, error.as_ref()),
+                _ => (true, true, None),
+            };
+            let toggle = opencode_i18n::t!("provider.connect.oauth.paste.toggle");
+            let mut block = col().w_full().child(row().key("connect-paste-toggle").role("button").label_static(toggle).expanded(shown).h(48.0).gap(6.0).center_y()
+                .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                    if locked { return; }
+                    input(s, Input::PasteToggle(!shown), tx);
+                    if let Some(o) = &mut s.connect.open { o.entry.focused = !shown; }
+                }).child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted)).child(text(toggle).font(BODY).color(p.text)));
+            if shown {
+                let label = opencode_i18n::t!("ui.redirectPaste.label");
+                let field = TextInput::new(&open(s).entry).large().width(None).label(label).placeholder(opencode_i18n::t!("ui.redirectPaste.placeholder")).spellcheck(false).disabled(locked).invalid(err.is_some())
+                    .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").entry)
+                    .on_change(|s: &mut App, tx: &mut Tx| input(s, Input::PasteEdited, tx)).on_submit(submit_redirect).build(kit(p));
+                block = block.child(step_text(p, opencode_i18n::t!("provider.connect.oauth.paste.description").into())).child(text(label).font(LABEL).color(p.text)).child(field.key("connect-redirect"));
+                if let Some(err) = err {
+                    let msg = match err { conn::EntryError::Required => opencode_i18n::t!("ui.redirectPaste.required"), conn::EntryError::Rejected(m) => m.as_str() };
+                    block = block.child(text(msg.to_owned()).role("alert").font(BODY).color(p.danger).wrap());
+                }
+            }
+            e = e.child(block);
+            if shown && !open(s).entry.text.trim().is_empty() && *paste != conn::Paste::Accepted {
+                return e.child(actions.child(button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(locked).on_press_tx(submit_redirect).build(kit(p)).key("connect-paste-submit")));
+            }
+        }
+    }
+    e.child(actions.child(wait_button(p, opencode_i18n::t!("provider.connect.status.waiting"))))
+}
+
+fn submit_redirect(s: &mut App, tx: &mut Tx) {
+    let value = open(s).entry.text.clone();
+    input(s, Input::PasteSubmit(value), tx);
+}
+
+fn wait_button(p: &Pal, title: &str) -> El {
+    button(title.to_owned(), ButtonVariant::Loading).disabled(true).build(kit(p)).key("connect-waiting").role("status")
 }
 
 fn command(s: &App, p: &Pal) -> El {
@@ -238,7 +273,7 @@ fn command(s: &App, p: &Pal) -> El {
         let viewport = col().w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3);
         e = e.child(session_view::scroller::scroller("connect-command-output").stick_bottom().build::<App>(p, viewport, text(output).font(MONO).color(p.text).wrap().selectable(true)));
     }
-    e.child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.command.waiting")))
+    e.child(row().w_full().child(spacer()).child(wait_button(p, opencode_i18n::t!("provider.connect.command.waiting"))))
 }
 
 /// `ErrorRow`: the ban sign, why it failed, and Try again.
@@ -297,7 +332,7 @@ fn cont(p: &Pal, enabled: bool) -> El {
 
 fn external(p: &Pal, f: &form::Form, url: &str, browser: &form::Browser) -> El {
     let opening = matches!(browser, form::Browser::Opening { .. });
-    let label = if f.can_finish() { opencode_i18n::t!("provider.connect.form.openAgain") } else { opencode_i18n::t!("provider.connect.form.open") };
+    let label = opencode_i18n::t!("provider.connect.form.open");
     let mut e = col().w_full().gap(16.0).child(row().gap(8.0)
         .child(button(label, ButtonVariant::Neutral).icon(&ic::ARROW_UP_RIGHT).disabled(opening)
             .on_press_tx(|s: &mut App, tx: &mut Tx| form_input(s, form::Input::ExternalOpen, tx)).build(kit(p)).key("connect-open-link"))
@@ -402,51 +437,34 @@ fn text_step(s: &App, p: &Pal, f: &form::Form) -> El {
     col().w_full().gap(16.0).child(field).child(row().child(cont(p, true)))
 }
 
-/// Desktop's notice for a sign-in that a remote server stores.
-fn remote_notice(s: &App, p: &Pal) -> El {
-    let name = match &*s.source {
-        crate::Source::Live { server, .. } => server.base.split("://").nth(1).unwrap_or(&server.base).to_owned(),
-        crate::Source::Fixture => String::new(),
-    };
-    col().role("note").w_full().padding(12.0).radius(6.0).fill(p.layer2).border(1.0, p.border).border_layout()
-        .child(text(opencode_i18n::t!("provider.connect.remote.title", server = name)).font(BODY_MED).color(p.text))
-        .child(text(opencode_i18n::t!("provider.connect.remote.description")).font(BODY).color(p.muted).wrap())
-}
-
 /// The Console's device sign-in (`console.tsx`).
 fn console_sign_in(s: &App, p: &Pal, copied: Option<bool>) -> El {
     let c = current(s);
     let failed = matches!(c, Conn::Waiting(_, conn::Signin::Browser { failed: true, .. }));
     let code = confirmation_code(c);
     let mut device = col().gap(8.0).child(text(opencode_i18n::t!("provider.connect.console.deviceCode")).font(BODY_MED).color(p.text));
-    match &code {
-        None => device = device.child(row().h(48.0).center_y().child(text(opencode_i18n::t!("provider.connect.console.openingBrowser")).font(BODY).color(p.muted))),
-        Some(code) => {
-            let mut digits = row().gap(4.0);
+    if let Some(code) = &code {
+            let mut digits = row().dir(rune::Direction::Ltr).role("group").w_full().gap(6.0);
             for ch in code.chars() {
                 digits = digits.child(if ch == '-' {
-                    row().h(48.0).mx(4.0).center_y().child(text("-").font(CODE_DIGIT).color(p.muted))
+                    row().h(64.0).mx(4.0).center_y().child(text("-").font(CODE_DIGIT).color(p.muted))
                 } else {
-                    row().h(48.0).w(32.0).center().radius(6.0).border(1.0, p.border).fill(p.layer2).child(text(ch.to_string()).font(CODE_DIGIT).color(p.text))
+                    row().h(64.0).grow(1.0).shrink().min_w(0.0).center().radius(6.0).border(1.0, p.border).fill(p.layer2).child(text(ch.to_string()).font(CODE_DIGIT).color(p.text))
                 });
             }
-            device = device.child(digits.label(opencode_i18n::t!("provider.connect.console.deviceCode.label", code = code)))
-                .child(text(opencode_i18n::t!("provider.connect.console.waiting")).role("status").font(BODY).color(p.muted));
-        }
+            device = device.child(digits.label(opencode_i18n::t!("provider.connect.console.deviceCode.label", code = code)));
     }
     let label = if copied == Some(true) { opencode_i18n::t!("provider.connect.console.linkCopied") } else { opencode_i18n::t!("provider.connect.console.copyLink") };
-    let mut fallback = row().key("console-browser-fallback").min_h(28.0).gap(12.0).center_y()
-        .child(text(opencode_i18n::t!("provider.connect.console.browserHint")).font(BODY).color(p.faint))
-        .child(button(label, ButtonVariant::GhostMuted).disabled(code.is_none()).on_press_tx(copy_link).build(kit(p)));
-    if failed || copied == Some(false) {
-        fallback = fallback.child(button(opencode_i18n::t!("provider.connect.console.openAgain"), ButtonVariant::Ghost).on_press_tx(|s: &mut App, tx: &mut Tx| input(s, Input::BrowserOpen, tx)).build(kit(p)));
-    }
+    let waiting = if code.is_some() { opencode_i18n::t!("provider.connect.console.waiting") } else { opencode_i18n::t!("provider.connect.console.openingBrowser") };
+    let actions = row().key("console-actions").w_full().gap(8.0).center_y().child(spacer())
+        .child(button(label, ButtonVariant::Ghost).disabled(code.is_none()).on_press_tx(copy_link).build(kit(p)))
+        .child(wait_button(p, waiting));
     let lead = if failed { opencode_i18n::t!("provider.connect.console.browserFailed") } else { opencode_i18n::t!("provider.connect.console.instructions") };
-    let mut e = col().key("console-authorization").gap(20.0).child(step_text(p, lead.into())).child(device).child(fallback);
+    let mut e = col().key("console-authorization").gap(20.0).child(step_text(p, lead.into())).children(code.is_some().then_some(device));
     if copied == Some(false) {
         e = e.child(text(opencode_i18n::t!("provider.connect.console.copyFailed")).role("alert").font(BODY).color(p.muted));
     }
-    e
+    e.child(actions)
 }
 
 fn copy_link(s: &mut App, tx: &mut Tx) {
