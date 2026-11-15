@@ -107,7 +107,9 @@ impl State {
                 *self = state;
                 None
             }
-            (_, Event::Typed(q)) if q.chars().count() < MIN_CHARS => Some(Effect::Cancel),
+            // Too short to ask: a question out is cancelled once, and an idle surface stays idle
+            // (no effect, so the poll asks for no frame).
+            (state, Event::Typed(q)) if q.chars().count() < MIN_CHARS => (!matches!(state, State::Idle)).then_some(Effect::Cancel),
             (state, Event::Typed(q)) => {
                 let shown = match state {
                     State::Idle => Last::Nothing,
@@ -122,8 +124,11 @@ impl State {
                 *self = State::Answered { query, rows: Arc::new(rows) };
                 None
             }
-            (State::Asking { query, .. }, Event::Landed { query: answered, rows: Err(why) }) if answered == query => {
-                eprintln!("opencode-rune: message text isn't searched: {why}");
+            (State::Asking { query, shown }, Event::Landed { query: answered, rows: Err(why) }) if answered == query => {
+                // Said once, when it turns off, not on every question.
+                if !matches!(shown, Last::Off) {
+                    eprintln!("opencode-rune: message text isn't searched: {why}");
+                }
                 *self = State::Off { query };
                 None
             }

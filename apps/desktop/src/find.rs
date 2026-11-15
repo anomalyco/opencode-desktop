@@ -362,6 +362,13 @@ impl App {
         }
     }
 
+    /// Find's target is a message the open session hasn't loaded, and older pages remain.
+    fn find_target_waits(&self) -> bool {
+        let (Target::Message(message), Route::Session { id, .. }) = (&self.find.target, &*self.route) else { return false };
+        let loaded = self.transcripts.get(id).is_some_and(|t| t.messages.iter().any(|m| m.id() == message));
+        !loaded && (!self.pages.first_read_done(id) || self.pages.more_above(id))
+    }
+
     /// Closes Find, clearing the query and highlights; nothing keeps the focus.
     pub fn close_find(&mut self, tx: &mut Tx) {
         if !self.find.is_open() {
@@ -509,7 +516,8 @@ impl App {
                 (Answer::Complete { results, .. }, Target::Message(id)) => results.first_in_message(id).or(Some(0)),
                 _ => Some(0),
             };
-            if matches!(self.find.answer, Answer::Complete { .. }) {
+            // The message isn't loaded yet: older pages are read (`poll`) and the target waits.
+            if matches!(self.find.answer, Answer::Complete { .. }) && !self.find_target_waits() {
                 self.find.target = Target::First;
             }
             let _ = step(&mut self.find.state, Event::MatchesSynced { kept: first });
@@ -650,9 +658,11 @@ impl App {
         }
         let reveal = matches!(self.find.answer, Answer::Partial { reveal: true, .. });
         let lit = self.find.lit().map(|(h, local)| (h.key.clone(), local));
-        let target = std::mem::take(&mut self.find.target);
-        let reveal = reveal || target != Target::First;
         retire(std::mem::replace(&mut self.find.answer, Answer::Complete { query, shape, results }));
+        // A target whose message is still to load keeps waiting, lighting the first match meanwhile.
+        let waits = self.find_target_waits();
+        let target = if waits { Target::First } else { std::mem::take(&mut self.find.target) };
+        let reveal = (reveal || target != Target::First) && !waits;
         let kept = match target {
             Target::Message(id) => self.find.results().and_then(|r| r.first_in_message(&id)).or(Some(0)),
             Target::First if reveal => Some(0),
@@ -687,6 +697,13 @@ pub fn typed(s: &mut App, tx: &mut Tx) {
 
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let landed = s.land_find(tx);
+    // Find opened on a message that isn't loaded: the page before the oldest loaded one is read,
+    // as the reader's scroll to the top would, until the message is in or nothing is left.
+    if s.find_target_waits()
+        && let Route::Session { id, .. } = (*s.route).clone()
+    {
+        s.read_older(&id, tx);
+    }
     if !s.find.is_open() {
         return landed;
     }

@@ -330,29 +330,10 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("select-project", opencode_i18n::key!("session.new.project.search"), |s, tx| s.toggle_project_switcher(tx)).keys(Bind::SelectProject),
     Cmd::new("sessions", opencode_i18n::key!("command.session.search"), |s, tx| s.open_session_search(tx)).keys(Bind::SessionSearch),
     Cmd::new(SEARCH, opencode_i18n::key!("command.commands.search"), |s, tx| s.open_command_search(tx)).keys(Bind::CommandSearch),
-    Cmd::new("model", opencode_i18n::key!("command.model.choose"), |s, _| s.open_picker(Kind::Model))
-        .describe(opencode_i18n::key!("command.model.choose.description"))
-        .slash("model")
-        .keys(Bind::Model)
-        .when(App::has_composer),
-    // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
-    Cmd::new("agent", opencode_i18n::key!("command.agent.cycle"), |s, tx| s.cycle_picker(Kind::Agent, false, tx))
-        .describe(opencode_i18n::key!("command.agent.cycle.description"))
-        .slash("agent")
-        .keys(Bind::Agent)
-        .when(agent_shown),
-    Cmd::new("agent-back", opencode_i18n::key!("command.agent.cycle.reverse"), |s, tx| s.cycle_picker(Kind::Agent, true, tx))
-        .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
-        .keys(Bind::AgentBack)
-        .when(agent_shown),
     Cmd::new("reload", opencode_i18n::key!("command.config.reload"), reload)
         .describe(opencode_i18n::key!("command.config.reload.description"))
         .slash("reload")
         .when(is_live),
-    Cmd::new("variant", opencode_i18n::key!("command.model.variant.cycle"), |s, tx| s.cycle_picker(Kind::Effort, false, tx))
-        .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
-        .keys(Bind::Variant)
-        .when(|s| s.has_composer() && s.has_effort()),
     Cmd::new("compact", opencode_i18n::key!("command.session.compact"), compact)
         .describe(opencode_i18n::key!("command.session.compact.description"))
         .slash("compact")
@@ -422,6 +403,27 @@ rune_register::register!(COMMANDS: Cmd = [
         .describe(opencode_i18n::key!("command.message.next.description"))
         .keys(Bind::MessageNext)
         .when(|s| s.open_session().is_some()),
+    // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
+    // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
+    Cmd::new("model", opencode_i18n::key!("command.model.choose"), |s, _| s.open_picker(Kind::Model))
+        .describe(opencode_i18n::key!("command.model.choose.description"))
+        .slash("model")
+        .keys(Bind::Model)
+        .when(App::has_composer),
+    Cmd::new("variant", opencode_i18n::key!("command.model.variant.cycle"), |s, tx| s.cycle_picker(Kind::Effort, false, tx))
+        .describe(opencode_i18n::key!("command.model.variant.cycle.description"))
+        .keys(Bind::Variant)
+        .when(|s| s.has_composer() && s.has_effort()),
+    // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
+    Cmd::new("agent", opencode_i18n::key!("command.agent.cycle"), |s, tx| s.cycle_picker(Kind::Agent, false, tx))
+        .describe(opencode_i18n::key!("command.agent.cycle.description"))
+        .slash("agent")
+        .keys(Bind::Agent)
+        .when(agent_shown),
+    Cmd::new("agent-back", opencode_i18n::key!("command.agent.cycle.reverse"), |s, tx| s.cycle_picker(Kind::Agent, true, tx))
+        .describe(opencode_i18n::key!("command.agent.cycle.reverse.description"))
+        .keys(Bind::AgentBack)
+        .when(agent_shown),
     Cmd::new("find", opencode_i18n::key!("rune.command.session.find"), |s, tx| s.open_find(tx)).keys(Bind::Find).when(|s| s.open_session().is_some()),
     Cmd::new("focus", opencode_i18n::key!("command.input.focus"), |s, tx| {
         s.focus_composer(tx);

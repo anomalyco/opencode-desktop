@@ -688,6 +688,13 @@ impl super::App {
     /// Reads the page before the open session's oldest message once its timeline nears the
     /// top. It lands above what's on screen without moving it: the virtual list holds its
     /// first visible row (Rune `VirtualList::anchor_delta`).
+    /// Reads the page before `id`'s oldest loaded message, as the reader's scroll to the top
+    /// would (Find opened on a message not loaded yet). Nothing while one is on its way.
+    pub(crate) fn read_older(&mut self, id: &str, tx: &mut rune::Tx) -> bool {
+        if self.pages.pool.is_none() { return false; }
+        self.step_history(id, HistoryEvent::NearTop { now: Instant::now() }, tx)
+    }
+
     fn load_older(&mut self, tx: &mut rune::Tx) -> bool {
         let super::Route::Session { id, .. } = &*self.route else { return false };
         if *self.pages.near_top.borrow() != *id || self.pages.pool.is_none() { return false; }
