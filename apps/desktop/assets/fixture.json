@@ -4368,5 +4368,30 @@
   "Makefile": "test:\n\tcargo test\n",
   "docs/proposal.md": "# Live session titles\n\nRenaming a session should update every place that shows its title within a frame, without a restart. Today the sidebar copies titles once, when the list loads, and never hears about a rename.\n\nSee [first principles](first-principles.md) for why the store, not each view, should own the title.\n\n## Plan\n\n1. Listen for `session.renamed` in the sidebar store.\n2. Update the one entry in place, keeping its position and selection.\n3. Drop the copied title from the tab strip, so it reads from the store too.\n\n- Keep the list's sort stable while a rename lands.\n- Leave the server event as it is.\n\n## Where titles show\n\n| Place | Reads from | After |\n| --- | --- | --- |\n| Sidebar row | Copied at load | Store |\n| Tab strip | Copied at open | Store |\n| Window title | Store | Store |\n\n## The handler\n\n```ts\nevents.on(\"session.renamed\", ({ sessionID, title }) => {\n  store.update(sessionID, (s) => ({ ...s, title }))\n})\n```\n\n## Notes\n\nA long line, to show wrapping: the store already batches updates per frame, so a burst of renames from another client (a script renaming fifty sessions, say) still costs one layout pass, and the sidebar never flickers between the old and the new title while the batch is applied.\n",
   "docs/first-principles.md": "# First principles\n\n## Why titles go stale\n\nA view that copies a value owns a second copy of it, and the second copy only changes when that view remembers to listen. The sidebar copied each title when its list loaded, so a rename that arrived later had nowhere to go.\n\n## The rule\n\nOne store owns each session's title. Views read it; none of them copy it.\n"
+ },
+ "slack": {
+  "https://acme.slack.com/archives/C07GOOEY001/p1792659100412659?thread_ts=1792659090.379729&cid=C07GOOEY001": {
+   "status": "found",
+   "message": {
+    "permalink": "https://acme.slack.com/archives/C07GOOEY001/p1792659100412659?thread_ts=1792659090.379729&cid=C07GOOEY001",
+    "channel": {
+     "id": "C07GOOEY001",
+     "name": "gooey",
+     "kind": "public"
+    },
+    "author": {
+     "name": "dax",
+     "avatarUrl": null
+    },
+    "text": "i still don’t like this footer hover thing here. it ends up looking weird in so many cases",
+    "ts": "1792659100.412659",
+    "threadTs": "1792659090.379729",
+    "replyCount": 3
+   }
+  },
+  "https://acme.slack.com/archives/C07PRIVATE01/p1792659160118833": {
+   "status": "unavailable",
+   "reason": "no_access"
+  }
  }
 }

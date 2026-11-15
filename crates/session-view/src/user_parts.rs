@@ -189,11 +189,15 @@ pub fn session_of_link(link: &str) -> Option<&str> {
 /// Message `id`'s bubble text and its mention badges: pills styled by kind, a session's with
 /// its icon, and a link per session badge (opening it when the host can). A badge keeps its own
 /// order in the line around it: a file's or folder's reads left to right as a path does, any
-/// other's the way its own name does.
+/// other's the way its own name does. A Slack permalink reads as its chip (`slack::chips`),
+/// which opens it.
 pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (String, Vec<(Range<usize>, PillStyle)>, Vec<rune::Link>, Vec<Range<usize>>) {
     let title = |sid: &str| s.session_ref(sid).map(|r| r.title).filter(|t| !t.trim().is_empty()).or_else(|| s.session_title(sid));
     let (text, marks) = bubble_marks(body, &mention::user_mentions(id), title);
-    let links = marks
+    let taken: Vec<Range<usize>> = marks.iter().map(|m| m.range.clone()).collect();
+    let crate::slack::Chips { text, chips: slack, taken } = crate::slack::chips(&text, &taken, |url| s.slack_link(url));
+    let marks: Vec<BubbleMark> = marks.into_iter().zip(taken).map(|(m, range)| BubbleMark { range, ..m }).collect();
+    let mut links: Vec<rune::Link> = marks
         .iter()
         .filter(|_| s.can_open_session())
         .filter_map(|m| {
@@ -203,13 +207,17 @@ pub fn bubble_badges<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> (
         })
         .collect();
     let paths = marks.iter().filter(|m| matches!(m.kind, MentionKind::File | MentionKind::Directory)).map(|m| m.range.clone()).collect();
-    let pills = marks
+    let mut pills: Vec<(Range<usize>, PillStyle)> = marks
         .into_iter()
         .map(|m| {
             let style = mention_style(p, m.kind);
             (m.range, if m.session.is_some() { style.icon(&SESSION) } else { style })
         })
         .collect();
+    for (range, url) in slack {
+        links.push(rune::Link::new(range.clone(), crate::slack::link(&url)).help(url));
+        pills.push((range, crate::slack::chip_style(p)));
+    }
     (text, pills, links, paths)
 }
 

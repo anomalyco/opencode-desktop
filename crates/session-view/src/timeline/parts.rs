@@ -155,6 +155,10 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         }
         words = words
             .on_link(|s: &mut S, link: &str, tx: &mut Tx| {
+                // A Slack chip opens its message, as its card does.
+                if let Some(url) = crate::slack::url_of_link(link) {
+                    return s.open_link(url, tx);
+                }
                 // A chip, not an address: a middle click on it does nothing.
                 if tx.button() == rune::PointerButton::Middle {
                     return;
@@ -192,7 +196,13 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
     // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
-    let mut face = crate::images::menu::on_message::<S>(face, session, id);
+    let face = crate::images::menu::on_message::<S>(face, session, id);
+    // A prompt naming Slack messages has their cards 6 under its bubble, and the meta line under
+    // them, shown while either is hovered (`user-message-slack-card`).
+    let mut face = match crate::slack::cards(s, p, body) {
+        Some(cards) => col().items_end().gap(6.0).shrink().hover_group().hover_motion(INSTANT, INSTANT).child(face).children(cards),
+        None => face,
+    };
     let status = s.user_status(p, id);
     // The meta line, right under the bubble: the model, then Pending on a steer, which stays
     // in view while the model shows only under the pointer (`message-part.css:271-458`).

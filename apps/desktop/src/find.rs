@@ -118,8 +118,9 @@ enum Answer {
 }
 
 /// What a copy of the transcript is checked against: its session, version (with whether it
-/// streams and whether outlines read as words) and how many messages show.
-type CopyKey = (String, u64, usize);
+/// streams and whether outlines read as words), how many messages show, and the Slack chips'
+/// words its prompts show (`slack`).
+type CopyKey = (String, u64, usize, u64);
 
 /// Rows copied a frame (`find_shape`): ~4 ms at 100,000 messages.
 const COPY_BUDGET: usize = 16_384;
@@ -556,7 +557,7 @@ impl App {
         // Outlines read as their words only while a plugin draws them (Rune UI).
         let outlines = crate::plugin_host::surfaces::code_block_lang(self, "ui");
         let live = t.busy() && !self.stops.has(current) && revert.is_none();
-        let key = (current.to_owned(), rune::Tracked::version(&self.transcripts) << 2 | u64::from(live) << 1 | u64::from(outlines), shown);
+        let key = (current.to_owned(), rune::Tracked::version(&self.transcripts) << 2 | u64::from(live) << 1 | u64::from(outlines), shown, self.slack_links.version());
         if let Some((k, shape)) = &self.find.checked
             && *k == key
         {
