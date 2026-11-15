@@ -42,7 +42,7 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     app.plugins.dark.set(p.dark);
     let reads = half.reads.borrow().get(surface).cloned().unwrap_or_default();
     let mut h = std::hash::DefaultHasher::new();
-    (script.version(), half.epoch.get(), super::epoch(), p.theme, p.generation, p.dark, cx::stamp(app, &reads)).hash(&mut h);
+    (half.surface_version(Some(script)), super::epoch(), p.theme, p.generation, p.dark, cx::stamp(app, &reads)).hash(&mut h);
     format!("{props:?}").hash(&mut h);
     let version = h.finish();
     let before = script.metrics().renders;

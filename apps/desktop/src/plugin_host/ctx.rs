@@ -26,20 +26,18 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, hot: &Table) -> mlua::Result<Table> {
     ctx.raw_set("GetService", lua.create_function(move |lua, (_, name): (Value, String)| super::services::get(lua, &v, &name))?)?;
     // A plugin's own signal is how it says what it draws changed: each fire redraws its
     // surfaces, as `Contribution:Refresh` does (`super::poll`).
-    let (signal, v) = (vmx.script_signal.clone(), vmx.clone());
-    let connect: Function = lua.load("local signal, redraw = ...\nsignal:Connect(redraw)\nreturn signal").set_name("=ctx.CreateSignal").into_function()?;
-    ctx.raw_set(
-        "CreateSignal",
-        lua.create_function(move |lua, _: Value| {
-            let v = v.clone();
-            let redraw = lua.create_function(move |_, _: mlua::MultiValue| {
-                v.half.epoch.set(v.half.epoch.get() + 1);
-                crate::plugin_host::bump();
-                Ok(())
-            })?;
-            connect.call::<Value>((signal.call::<Value>(())?, redraw))
-        })?,
-    )?;
+    let signal = vmx.script_signal.clone();
+    if half.owns_redraw {
+        let owner = Rc::downgrade(half);
+        let redraw = lua.create_function(move |_, _: mlua::MultiValue| {
+            if let Some(half) = owner.upgrade() { half.epoch.set(half.epoch.get().wrapping_add(1)); }
+            Ok(())
+        })?;
+        let new: Function = lua.load("local new, redraw = ...; return function() local s = new(); s:Connect(redraw); return s end").set_name("=ctx.CreateSignal").call((signal, redraw))?;
+        ctx.raw_set("CreateSignal", new)?;
+    } else {
+        ctx.raw_set("CreateSignal", lua.create_function(move |_, _: Value| signal.call::<Value>(()))?)?;
+    }
     let hot = hot.clone();
     ctx.raw_set(
         "BindHotState",

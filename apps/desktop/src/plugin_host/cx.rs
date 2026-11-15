@@ -184,7 +184,7 @@ thread_local! {
 /// A reactive function's last answer: the script's version it was asked at, what the call read
 /// and how that read then.
 struct Answer {
-    asked: u64,
+    asked: (Option<u64>, u64, u64),
     reads: Vec<Dep>,
     read: u64,
     value: rune_luau::Data,
@@ -194,8 +194,7 @@ struct Answer {
 /// panel's `enabled`), from `ask`, which calls into `script`. It is answered from the last call
 /// under `key` while the script hasn't run since and nothing that call read changed, so a list
 /// built every frame enters no VM.
-pub fn answer(app: &App, script: &rune_luau::Script, key: String, ask: impl FnOnce() -> rune_luau::Data) -> rune_luau::Data {
-    let asked = script.version();
+pub fn answer(app: &App, asked: (Option<u64>, u64, u64), key: String, ask: impl FnOnce() -> rune_luau::Data) -> rune_luau::Data {
     let hit = ANSWERS.with_borrow(|c| c.get(&key).filter(|a| a.asked == asked && stamp(app, &a.reads) == a.read).map(|a| a.value.clone()));
     if let Some(value) = hit {
         return value;

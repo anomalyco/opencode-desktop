@@ -67,7 +67,7 @@ pub fn all(app: &App) -> Vec<Cmd> {
 /// else its value, else `default`.
 fn flag(app: &App, i: usize, key: &str, name: &str, f: Option<&Function>, value: Option<bool>, default: bool) -> bool {
     let (Some(f), Some(script)) = (f, app.plugins.list[i].script()) else { return value.unwrap_or(default) };
-    let answer = cx::answer(app, script, format!("command:{key}:{name}"), || script.eval_fn::<bool>(f, ()).map_or(Data::Nil, Data::Bool));
+    let answer = cx::answer(app, app.plugins.list[i].half.surface_version(Some(script)), format!("command:{key}:{name}"), || script.eval_fn::<bool>(f, ()).map_or(Data::Nil, Data::Bool));
     match answer {
         Data::Bool(b) => b,
         _ => default,

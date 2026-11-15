@@ -50,6 +50,7 @@ mod plugin;
 pub(crate) mod process;
 pub mod project_request;
 pub mod requests;
+mod redraw;
 mod reveal;
 pub mod server_sources;
 pub mod servers;
@@ -110,7 +111,7 @@ pub fn surfaces_version(app: &App) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     epoch().hash(&mut h);
     for p in app.plugins.list.iter() {
-        (p.script().map(|s| s.version()), p.half.epoch.get()).hash(&mut h);
+        p.half.surface_version(p.script()).hash(&mut h);
     }
     h.finish()
 }
@@ -523,7 +524,7 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
         let files = first.origin.files();
         let (manifest, catalogs) = (first.manifest.clone(), first.origin.catalogs(&files));
         let sources = first.origin.scripts(&files, &manifest.id, &entry);
-        app_half::ensure(app, &manifest, &files, catalogs, sources);
+        app_half::ensure(app, first.tier, &manifest, &files, catalogs, sources);
         app.later(Box::new(start_one_later));
         tx.instant();
         return;
@@ -586,7 +587,7 @@ fn adopt_one(app: &mut App, found: sources::Found, record: Option<dormant::Recor
     } else {
         LifeEvent::Load
     };
-    let plugin = Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half: Half::new(&id, plugin::Kind::Window) };
+    let plugin = Plugin { manifest: found.manifest, origin: found.origin, tier: found.tier, life: Life::Discovered, trust, hot: Hot::Idle, half: Half::new(&id, plugin::Kind::Window, found.tier) };
     let i = match replaces {
         Some(i) => {
             drive(app, i, LifeEvent::Disable);
@@ -672,7 +673,7 @@ pub(super) fn start_app_half(app: &mut App, id: &str) -> bool {
     let catalogs = p.origin.catalogs(&files);
     let manifest = p.manifest.clone();
     let sources = p.origin.scripts(&files, &manifest.id, &entry);
-    app_half::ensure(app, &manifest, &files, catalogs, sources);
+    app_half::ensure(app, p.tier, &manifest, &files, catalogs, sources);
     true
 }
 
@@ -690,7 +691,7 @@ fn start_loaded(app: &mut App, i: usize) {
     *p.half.catalogs.borrow_mut() = catalogs.clone();
     sources::intern_icons(&id, &files);
     if let Some(entry) = &manifest.app {
-        app_half::ensure(app, &manifest, &files, catalogs, p.origin.scripts(&files, &manifest.id, entry));
+        app_half::ensure(app, p.tier, &manifest, &files, catalogs, p.origin.scripts(&files, &manifest.id, entry));
     }
     let folder = p.origin.dir().and_then(|d| d.file_name()).map_or_else(|| id.clone(), |n| n.to_string_lossy().into_owned());
     let sources = p.origin.scripts(&files, &folder, &manifest.entry);
@@ -855,6 +856,7 @@ pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
 /// `fresh`: the app's state may have moved since the last poll (`App::poll_panels`); only then
 /// are the plugins' watched signals compared again.
 pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
+    let entry_epoch = epoch();
     servers::poll_actions(app, tx);
     let now = *app.clock;
     mark(&app.plugins, now);
@@ -900,12 +902,15 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         }
     }
     let events = std::mem::take(&mut *app.plugins.events.borrow_mut());
+    let mut delivered = false;
     for i in 0..app.plugins.list.len() {
         let p = &app.plugins.list[i];
         let Some(vm) = p.script().and_then(Script::vm_id) else { continue };
         let half = p.half.clone();
+        let before = half.epoch.get();
+        let mut ran = false;
         for (signal, args) in services::process::drain(&half, vm) {
-            changed |= fire_value(app, i, signal, args);
+            ran |= fire_value(app, i, signal, args);
         }
         // Taken only when there is some: a write to the host rebuilds every region showing it.
         let caught = if app.plugins.dormant.catch_up.contains_key(&*half.id) { app.plugins.dormant.catch_up.remove(&*half.id).unwrap_or_default() } else { Vec::new() };
@@ -913,19 +918,20 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
             let listeners: Vec<mlua::Value> = half.events.borrow().iter().filter(|(v, prefix, _)| *v == vm && ty.starts_with(prefix.as_str())).map(|(_, _, s)| s.clone()).collect();
             for signal in listeners {
                 let event = services::map([("type", Data::String(ty.clone())), ("data", services::json_to_data(data)), ("serverId", Data::String(app.server_key().unwrap_or_else(|| "local".into())))]);
-                changed |= fire_value(app, i, signal, Data::List(vec![event]));
+                ran |= fire_value(app, i, signal, Data::List(vec![event]));
             }
         }
-        if fresh || changed {
-            changed |= services::fire_watched(app, i, vm);
+        if fresh || changed || delivered || ran {
+            ran |= services::fire_watched(app, i, vm);
         }
         let p = &app.plugins.list[i];
         let Some(script) = p.script() else { continue };
-        let (says, before) = (redraws_when_asked(p), p.half.epoch.get());
-        let ran = cx::with_app(app, || script.poll(now, tx));
-        changed |= ran && (!says || app.plugins.list[i].half.epoch.get() != before);
+        ran |= cx::with_app(app, || script.poll(now, tx));
+        delivered |= ran;
+        changed |= half.epoch.get() != before || (!half.owns_redraw && ran);
     }
     requests::carry_out(app, tx);
+    changed |= entry_epoch != epoch();
     // What a plugin shows lives in its VM, which `Tracked` can't see: a poll that changed what
     // plugins draw marks the host written, so the regions that show plugin surfaces build again.
     if changed {
@@ -937,16 +943,6 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         crate::plugin_host::contrib::sync(app);
     }
     changed || asked
-}
-
-/// Whether a task of `p`'s that resumed on its own (a deadline, a finished host call, a deferred
-/// task) redraws only when the plugin says so: a signal it fires, `Contribution:Refresh` or a
-/// withdrawal. A built-in does: none draws what a resumption changes without one. Any other
-/// plugin redraws whenever its script ran, as the 1.0 contract promised; so does every plugin
-/// with `OPENCODE_PLUGIN_IMPLICIT_REDRAW=1`, the reference a comparison runs against.
-fn redraws_when_asked(p: &Plugin) -> bool {
-    static IMPLICIT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    matches!(p.origin, Origin::Embedded(..)) && !*IMPLICIT.get_or_init(|| std::env::var_os("OPENCODE_PLUGIN_IMPLICIT_REDRAW").is_some_and(|v| v == "1"))
 }
 
 /// Fires `signal` of plugin `i`'s running VM with `args` (a list is spread).

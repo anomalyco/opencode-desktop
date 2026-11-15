@@ -26,11 +26,11 @@ thread_local! {
 }
 
 /// Starts plugin `manifest`'s app half from `entry`, unless it runs already.
-pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], catalogs: super::Catalogs, sources: rune_luau::Sources) {
+pub fn ensure(app: &App, tier: super::Tier, manifest: &Manifest, files: &[(String, String)], catalogs: super::Catalogs, sources: rune_luau::Sources) {
     if HALVES.with_borrow(|h| h.iter().any(|a| *a.half.id == *manifest.id)) {
         return;
     }
-    let half = Half::new(&manifest.id, Kind::App);
+    let half = Half::new(&manifest.id, Kind::App, tier);
     *half.catalogs.borrow_mut() = catalogs;
     super::sources::intern_icons(&manifest.id, files);
     let script = cx::with_app(app, || Script::with_options(&format!("{}@app", manifest.id), sources, vm::options(half.clone())));
@@ -66,6 +66,7 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
     POLLED.set(now);
     HALVES.with_borrow(|halves| {
         halves.iter().fold(false, |changed, a| {
+            let before = a.half.epoch.get();
             let vm = a.script.vm_id().unwrap_or(0);
             let prompts = super::services::askpass::drain(&a.half, vm).into_iter().filter_map(|(name, args)| Some((a.half.signals.borrow().get(&(vm, name))?.clone(), args)));
             let fired: Vec<_> = super::services::process::drain(&a.half, vm).into_iter().chain(prompts).collect();
@@ -90,7 +91,8 @@ pub fn poll(app: &App, now: f64, tx: &mut Tx) -> bool {
                     });
                 }
             }
-            changed | cx::with_app(app, || a.script.poll(now, tx))
+            let ran = cx::with_app(app, || a.script.poll(now, tx));
+            changed || before != a.half.epoch.get() || (!a.half.owns_redraw && ran)
         })
     })
 }

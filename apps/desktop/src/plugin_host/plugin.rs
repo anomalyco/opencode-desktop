@@ -98,6 +98,8 @@ pub struct Resource {
 pub struct Half {
     pub id: Rc<str>,
     pub kind: Kind,
+    /// A migrated bundled half explicitly invalidates its surfaces; other 1.0 plugins keep the implicit redraw.
+    pub owns_redraw: bool,
     /// The VM whose setup filled `made`, waiting for the host to adopt it.
     pub made: RefCell<Option<(u64, Contribs)>>,
     /// What the running VM contributed.
@@ -134,10 +136,11 @@ pub struct Half {
 }
 
 impl Half {
-    pub fn new(id: &str, kind: Kind) -> Rc<Half> {
+    pub fn new(id: &str, kind: Kind, tier: super::Tier) -> Rc<Half> {
         Rc::new(Half {
             id: id.into(),
             kind,
+            owns_redraw: super::redraw::explicit(tier, id),
             made: RefCell::default(),
             contribs: RefCell::default(),
             signals: RefCell::default(),

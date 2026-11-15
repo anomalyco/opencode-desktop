@@ -47,7 +47,7 @@ pub(super) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
     let script = p.script()?;
     let base = |deps: &[cx::Dep]| {
         let mut h = std::hash::DefaultHasher::new();
-        (script.version(), p.half.epoch.get(), super::epoch(), cx::stamp(app, deps)).hash(&mut h);
+        (p.half.surface_version(Some(script)), super::epoch(), cx::stamp(app, deps)).hash(&mut h);
         h.finish()
     };
     let key = format!("{}:{key}", p.half.id);
@@ -154,8 +154,7 @@ pub fn list(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelTabDesc> {
         if open.is_empty() {
             continue;
         }
-        let script = app.plugins.list[i].script();
-        let tabs = listed(app, script, list, ctx.plugin, &p.spec.id, ctx.session_id, &open);
+        let tabs = listed(app, &app.plugins.list[i], list, ctx.plugin, &p.spec.id, ctx.session_id, &open);
         let group = intern(&p.spec.id);
         out.extend(tabs.into_iter().filter(|t| open.contains(&t.instance)).map(|t| instance_tab(&p.spec, group, t)));
     }
@@ -180,10 +179,10 @@ struct Listed {
 /// `list(session, open)` of an instance panel, asked again only when the script ran, the open
 /// tabs changed, or something the last call read did: the strip is built every frame, and an
 /// unchanged frame enters no VM.
-fn listed(app: &App, script: Option<&rune_luau::Script>, list: &Function, plugin: &str, panel: &str, session: &str, open: &[String]) -> Vec<PanelTab> {
-    let Some(script) = script else { return Vec::new() };
+fn listed(app: &App, owner: &super::Plugin, list: &Function, plugin: &str, panel: &str, session: &str, open: &[String]) -> Vec<PanelTab> {
+    let Some(script) = owner.script() else { return Vec::new() };
     let mut h = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(&(script.version(), open), &mut h);
+    std::hash::Hash::hash(&(owner.half.surface_version(Some(script)), open), &mut h);
     let asked = std::hash::Hasher::finish(&h);
     let key = (plugin.to_owned(), panel.to_owned(), session.to_owned());
     let hit = LISTED.with_borrow(|c| c.get(&key).filter(|l| l.asked == asked && cx::stamp(app, &l.reads) == l.read).map(|l| l.tabs.clone()));
