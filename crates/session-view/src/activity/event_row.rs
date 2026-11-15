@@ -3,7 +3,6 @@
 //! shell", opening to each command; and a subagent's event, a row of its own: what happened as
 //! a chip, its agent, and its task, which opens its session.
 
-use opencode_kit::model::Message;
 use rune::{Color, El, Icon, Tx, col, el, icon, row, text};
 
 use super::events::{self, Event, Verb};
@@ -70,11 +69,11 @@ fn item<S: TimelineHost>(_s: &S, p: &Pal, _session: &str, k: usize, e: &Event) -
         .children(e.failed.then(|| tag(p, opencode_i18n::t!("ui.toolErrorCard.failed"), true)))
 }
 
-/// What a subagent row's status chip shows.
+/// What a subagent row's status chip shows. The timeline is a set of events, so a Started chip
+/// never spins while its agent runs, unlike official's (#64102).
 #[derive(Clone, Copy, PartialEq)]
 enum Chip {
-    /// Its agent started; `live` while its session still runs.
-    Started { live: bool },
+    Started,
     Updated,
     Completed,
     Failed,
@@ -82,10 +81,10 @@ enum Chip {
 }
 
 impl Chip {
-    fn of(e: &Event, live: bool) -> Self {
+    fn of(e: &Event) -> Self {
         match e.verb {
             _ if e.failed => Chip::Failed,
-            Verb::Started => Chip::Started { live },
+            Verb::Started => Chip::Started,
             Verb::Updated => Chip::Updated,
             Verb::Stopped => Chip::Stopped,
             Verb::Ran | Verb::Finished => Chip::Completed,
@@ -95,8 +94,7 @@ impl Chip {
 
 /// The status chip leading a subagent row (`timeline-event-item-status` in `timeline-next.css`,
 /// e3ed63c7de): 18 pt tall, 6 pt in, 12/530, radius 4, a 1 pt border, a 12 pt glyph 4 before
-/// its word, styled by state. Started a faint outline with a ring (the busy spinner while
-/// it runs), Updated a quiet blue dashed outline with ↻, Completed a soft green fill with ✓,
+/// its word, styled by state. Started a faint outline with a ring, Updated a quiet blue dashed outline with ↻, Completed a soft green fill with ✓,
 /// Failed the danger tag with ✕, Stopped a gray outline with ■.
 fn status_chip(p: &Pal, chip: Chip, word: &str) -> El {
     // `color-mix(in srgb, c n%, transparent)`, as it should paint over the timeline here.
@@ -109,8 +107,7 @@ fn status_chip(p: &Pal, chip: Chip, word: &str) -> El {
         Chip::Stopped => (None, Some(tint(p.muted, 0.55)), p.muted),
     };
     let glyph = match chip {
-        Chip::Started { live: true } => rune_kit::Spinner::new().size(GLYPH).color(ink).build(crate::palette::kit(p)).key("glyph"),
-        Chip::Started { live: false } => icon(&RING, GLYPH).key("glyph").color(ink),
+        Chip::Started => icon(&RING, GLYPH).key("glyph").color(ink),
         Chip::Updated => icon(&AGAIN, GLYPH).key("glyph").color(ink),
         Chip::Completed => icon(&CHECK, GLYPH).key("glyph").color(ink),
         Chip::Failed => icon(&CROSS, GLYPH).key("glyph").color(ink),
@@ -133,17 +130,6 @@ fn mix_srgb(a: Color, b: Color, n: f32) -> Color {
     use rune::color::{srgb_decode, srgb_encode};
     let m = |a: f32, b: f32| srgb_decode(srgb_encode(a) * n + srgb_encode(b) * (1.0 - n));
     Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: a.a * n + b.a * (1.0 - n) }
-}
-
-/// Whether the subagent a Started row launched is still working (official `row.tsx`'s
-/// `running`, anomalyco/opencode e3ed63c7de, #64102): it names its session, no finish or stop
-/// notice for that session is in `parent`'s timeline yet, and the session is busy or retrying.
-fn running<S: TimelineHost>(s: &S, parent: &str, e: &Event) -> bool {
-    let Some(id) = e.session.as_deref().filter(|_| e.verb == Verb::Started && !e.failed) else { return false };
-    let reported = s.with_transcript(parent, |t| {
-        t.messages.iter().any(|m| matches!(m, Message::Notice(n) if events::notice_event(n).is_some_and(|r| r.session.as_deref() == Some(id))))
-    });
-    !reported.unwrap_or(false) && s.session_working(id)
 }
 
 const GLYPH: f32 = 12.0;
@@ -186,7 +172,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     };
     let status = events::subagent_status(e);
     let title = e.title.clone().unwrap_or_default();
-    let chip = Chip::of(e, running(s, session, e));
+    let chip = Chip::of(e);
     let child = s.resolve_subagent(session, e.session.as_deref(), &title).map(str::to_owned).filter(|_| s.can_open_subagent());
     let words = |underline: bool| {
         let t = text(title.clone()).key("title").font(UI).color(p.text).truncate_fade();

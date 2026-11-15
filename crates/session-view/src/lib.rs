@@ -324,11 +324,6 @@ pub trait TimelineHost: Sized + 'static {
     fn resolve_subagent<'a>(&'a self, _parent: &str, session: Option<&'a str>, _title: &str) -> Option<&'a str> {
         session
     }
-    /// Whether session `id`'s status is busy or retrying (Desktop's `session_status`), not idle
-    /// or unknown; a subagent's Started row spins while it is.
-    fn session_working(&self, _id: &str) -> bool {
-        false
-    }
     fn subagent_run(&self, _parent: &str, _call: &str, _child: Option<&str>, status: &ToolStatus) -> subagent_card::Run {
         subagent_card::Run::from_status(status)
     }

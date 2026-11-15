@@ -783,7 +783,6 @@ impl session_view::TimelineHost for App {
     fn subagent_run(&self, parent: &str, call: &str, child: Option<&str>, status: &opencode_kit::model::ToolStatus) -> agent_rows::Run {
         self.agent_run(parent, call, child, status)
     }
-    fn session_working(&self, id: &str) -> bool { self.running.contains(id) }
     fn prefetch_subagent(&self, child: &str) {
         self.prefetch_session(child);
     }
