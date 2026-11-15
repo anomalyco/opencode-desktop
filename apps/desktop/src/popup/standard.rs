@@ -92,8 +92,10 @@ fn surface(p: &Pal, key: &str, menu: &Menu) -> El {
         .label(menu.label.clone())
         .padding(PAD + hair)
         .radius(RADIUS)
-        .fill(p.standard.surface)
         .border(hair, p.border_muted)
+        // Desktop clips its background to the padding box. The translucent stroke sees
+        // the surface under the menu, not another layer of the menu's own opaque fill.
+        .child(el().pin(Some(hair), Some(hair), Some(hair), Some(hair)).radius(RADIUS - hair).fill(p.standard.surface))
         // `shadow-md`.
         .box_shadow(shadow(6.0, 12.0, -2.0, 0.075, 0.1))
         .box_shadow(shadow(4.0, 8.0, -2.0, 0.075, 0.15))
