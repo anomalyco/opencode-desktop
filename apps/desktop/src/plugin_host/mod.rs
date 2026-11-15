@@ -475,6 +475,8 @@ pub fn doze_owed(app: &mut App) {
         return;
     }
     rune::marks::mark("plugins.doze");
+    let _ = app.plugins.dormant.record("", "");
+    rune::marks::mark("plugins.doze.parsed");
     settle_later(app);
     rune::marks::mark("plugins.dozed");
 }
