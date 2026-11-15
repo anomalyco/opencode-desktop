@@ -89,8 +89,9 @@ pub(crate) fn find_bar(p: &Pal, input: &TextEdit, count: usize, index: usize, sp
                 // The editor receives Escape before a pane shortcut. Unless an IME is using
                 // it, dismiss the owning bar instead of merely blurring its inner field.
                 .on_input_key(move |s: &mut App, ev, tx| {
-                    if ev.key != rune::Key::Escape || edit(s, &t_key).is_composing() { return false; }
-                    close(s, &t_key, tx);
+                    if !matches!(ev.key, rune::Key::Enter | rune::Key::Escape) || edit(s, &t_key).is_composing() { return false; }
+                    if ev.key == rune::Key::Escape { close(s, &t_key, tx); }
+                    else { step(s, &t_key, !ev.mods.shift, tx); }
                     true
                 })
                 .on_submit(move |s: &mut App, tx: &mut Tx| step(s, &t_submit, true, tx)),
