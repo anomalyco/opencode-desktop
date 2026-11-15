@@ -7,10 +7,7 @@ use serde_json::Value;
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, INSTANT, UI, UI_MED, arrow, readable};
-
-/// A search's results scroll past 240 px, as a console's do.
-const MAX_H: f32 = super::console::MAX_H;
+use crate::style::{HOVER_FADE, INSTANT, UI, arrow, readable};
 
 /// Web Search lists this many links, then "+N more".
 const LINKS: usize = 10;
@@ -65,8 +62,8 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
     let long = rune::text::measure(&list, &[], UI, None).0 > column(cx.session) - 24.0 - 24.0 - title_w - 8.0;
     let k = super::key(first.id);
     let open = long && s.expanded().contains(&k);
-    let title = if pending { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.read"), UI, 0.0).key("title") } else { text(opencode_i18n::t!("ui.tool.read")).key("title").font(UI).color(p.text) };
-    let words = text(list).key("subtitle").font(if open { UI.lh(20.0) } else { UI }).color(p.faint).spans(args);
+    let title = if pending { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.read"), UI, 0.0).key("title") } else { text(opencode_i18n::t!("ui.tool.read")).key("title").font(UI).color(p.muted) };
+    let words = text(list).key("subtitle").font(if open { UI.lh(20.0) } else { UI }).color(p.text).spans(args);
     let words = if open { words.wrap() } else { words.truncate_fade() };
     let mut r = row()
         .key(format!("tool-{}", first.id))
@@ -98,8 +95,9 @@ fn read_args(input: &Value) -> Vec<String> {
 /// found. Desktop's grouped row is a trigger alone; this one opens to what the search returned,
 /// as Desktop's separate-mode renderer does, an intentional Rune design.
 pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
-    let out = output(c).trim_end();
-    let d = Display::of(s, cx, c, !out.is_empty() && !busy(c.status, cx.live));
+    // A search shows what was searched and how many matches it found, never the raw list it
+    // returned, so it has nothing to open (`timeline-next/tools/explore.tsx`, `SearchItem`).
+    let d = Display::of(s, cx, c, false);
     let (title, count) = match c.name {
         "list" => (opencode_i18n::t!("ui.tool.list"), None),
         "glob" => (opencode_i18n::t!("ui.tool.glob"), c.metadata["count"].as_u64()),
@@ -112,22 +110,17 @@ pub fn search<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     if c.name == "grep" {
         args.extend(field(c.input, "include").map(|x| format!("include={x}")));
     }
-    let matches = count.filter(|n| *n > 0).map(|n| opencode_i18n::plural!("ui.messagePart.context.match", n));
+    let tag = count.filter(|n| *n > 0).map(|n| (opencode_i18n::plural!("ui.messagePart.context.matchCount", n), false));
     let searched = path(c.input).or_else(|| s.session_directory(cx.session)).unwrap_or("/");
-    let t = Trigger { title: title.into(), subtitle: directory(s, cx.session, searched), args, matches, ..Default::default() };
-    let press = if out.is_empty() { Press::None } else { Press::Toggle(super::key(c.id)) };
-    disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
-        // `tool-output`: the result as written (`white-space: pre`), 240 px and scrolling.
-        let words = super::console::output_view::<S>(p, cx.session, c.id, out, false);
-        body(crate::scroller::scroller("output").hidden(col().w_full().max_h(MAX_H), words), true, 4.0)
-    })
+    let t = Trigger { title: title.into(), subtitle: directory(s, cx.session, searched), args, tag, ..Default::default() };
+    still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
 /// A web fetch: "Webfetch" and its URL, a link that opens in the browser. It has nothing to open.
 pub fn webfetch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let d = Display::of(s, cx, c, false);
     let url = field(c.input, "url").filter(|_| d.phase != super::Phase::Pending);
-    let t = Trigger { title: opencode_i18n::t!("ui.tool.webfetch").into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.fetch").into(), link: url.map(|u| link::<S>(p, u).key("subtitle")), ..Default::default() };
     still(trigger(s, p, cx, c, d, t, Press::None, None))
 }
 
@@ -159,16 +152,6 @@ fn link<S: TimelineHost>(p: &Pal, url: &str) -> El {
         .child(icon(&rune_theme_opencode::icons::OUTLINE_SQUARE_ARROW, 16.0).key("out").color(p.accent).group_opacity(0.0, 1.0))
 }
 
-/// "{Provider} Web Search", or "Web Search" (`webSearchProviderLabel`).
-pub fn web_search_title(metadata: &Value) -> String {
-    match field(metadata, "provider") {
-        Some("opencode") => opencode_i18n::t!("ui.tool.websearch.provider", provider = "OpenCode"),
-        Some("tinyfish") => opencode_i18n::t!("ui.tool.websearch.provider", provider = "TinyFish"),
-        Some(other) => opencode_i18n::t!("ui.tool.websearch.provider", provider = opencode_kit::model::capitalize(other)),
-        None => opencode_i18n::t!("ui.tool.websearch").to_owned(),
-    }
-}
-
 /// A web search: "{Provider} Web Search" and its query; open, the links it found. It opens once
 /// it has finished.
 pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
@@ -178,7 +161,8 @@ pub fn websearch<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let large = out.len() > 8192;
     let opens = !busy(c.status, cx.live) && (large || !super::plain::urls(out).is_empty());
     let d = Display::of(s, cx, c, opens);
-    let t = Trigger { title: web_search_title(c.metadata).into(), subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
+    // Named by what it did rather than the provider (`WebSearchTool`).
+    let t = Trigger { title: opencode_i18n::t!("ui.tool.searchWeb").into(), subtitle: field(c.input, "query").map(str::to_owned), ..Default::default() };
     let press = if opens { Press::Toggle(super::key(c.id)) } else { Press::None };
     disclosure(s, trigger(s, p, cx, c, d, t, press, None), d, || {
         if large {
@@ -220,7 +204,7 @@ pub fn skill_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> 
     let names: Vec<(String, bool)> = calls.iter().filter_map(|c| skill_name(c).map(|n| (n.to_owned(), busy(c.status, cx.live)))).collect();
     if names.is_empty() {
         let d = Display::of(s, cx, first, false);
-        let title = if d.busy() { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.skill"), UI_MED, 0.0) } else { text(opencode_i18n::t!("ui.tool.skill")).font(UI_MED).color(p.text) };
+        let title = if d.busy() { crate::working::shimmer(s, p, opencode_i18n::t!("ui.tool.skill"), UI, 0.0) } else { text(opencode_i18n::t!("ui.tool.skill")).font(UI).color(p.muted) };
         return row().key(format!("tool-{}", first.id)).w_full().h(28.0).center_y().child(title.key("title"));
     }
     // `ui.tool.loadedSkills` around its name: "Loaded" before it and "skill" or "skills" after.
@@ -257,7 +241,7 @@ fn loaded_item<S: TimelineHost>(s: &S, p: &Pal, label: &str, values: &[(String, 
         .min_h(28.0)
         .gap(6.0)
         .center_y()
-        .child(text(label.to_owned()).font(UI_MED).color(p.text))
+        .child(text(label.to_owned()).font(UI).color(p.muted))
         .child(value)
         .children(kind.map(|k| text(k.to_owned()).font(UI).color(p.muted).ml(-2.0)))
 }

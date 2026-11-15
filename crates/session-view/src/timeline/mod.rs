@@ -190,17 +190,14 @@ impl RowSpec {
                     if self.key.starts_with("c-") && !s.expanded().contains(&self.key) && !crate::disclosure::is_shutting(s, &self.key) =>
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
-                    // A live Thinking group's time ticks: the row rebuilds once a second, and not
-                    // at all once the turn ends.
-                    let tick = if *live { thinking_tick(s, t, *start, *end, *block) } else { None };
                     let detail = s.timeline_detail();
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, tick, crate::style::content_w().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end]), *block, *live, pt.to_bits(), p.dark, self.streaming, (fold, crate::style::content_w().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
-                        let busy = *live && *block + 1 == blocks.len();
                         let el = match blocks.get(*block) {
-                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, busy, *live, fade).pt(*pt),
+                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
+                            Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
                             _ => col(),
                         };
                         self.wrap(s, el)
@@ -302,9 +299,8 @@ impl RowSpec {
             RowContent::Turn { start, end, block, live, pt } => {
                 let detail = s.timeline_detail();
                 let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
-                let busy = *live && *block + 1 == blocks.len();
                 match blocks.get(*block) {
-                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, busy, *live, fade).pt(*pt),
+                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
                     Some(Block::Text { key, body, live, msg, part }) => {
                         // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
@@ -314,10 +310,11 @@ impl RowSpec {
                         }
                         text
                     }
-                    Some(Block::Agent { .. }) => crate::subagent_card::row_for(s, p, &t.session, &blocks, *block).pt(*pt),
+                    Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
+                    Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { step, .. }) => turns::thought(s, p, step, *live, fade).pt(*pt),
+                    Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
                     Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
                     None => col(),
                 }
@@ -327,23 +324,13 @@ impl RowSpec {
     }
 }
 
-/// The seconds a live turn's group `block` has been thinking, when it reads Thinking.
-fn thinking_tick<S: TimelineHost>(s: &S, t: &Transcript, start: usize, end: usize, block: usize) -> Option<i64> {
-    let detail = s.timeline_detail();
-    let blocks = turns::fold_with(&entries(&t.messages[start..end], &detail), true, &detail);
-    match blocks.get(block)? {
-        Block::Group { steps, .. } => turns::thinking_since(steps, block + 1 == blocks.len()).map(|at| turns::thinking_secs(at, s.now_ms())),
-        _ => None,
-    }
-}
-
 /// A turn's messages as its entries, one for each: its steps, the notices that fold with its
 /// work, and what it passes over.
 pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> Vec<Entry<'a>> {
     messages.iter().map(|m| match m {
         Message::Assistant(a) => Entry::Step(a),
         Message::Note { step, .. } => Entry::Step(step),
-        Message::Notice(n) if crate::detail::notice_placement(n, detail) == crate::detail::Placement::Grouped => Entry::Notice(n),
+        Message::Notice(n) if crate::detail::notice_folds(n, detail) => Entry::Notice(n),
         _ => Entry::Skip,
     }).collect()
 }
@@ -658,7 +645,7 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
                 let content = if end - start == steps.len() { RowContent::TurnText { message: start + msg, part, live, pt } } else { content };
                 out.push(RowSpec { content, key, streaming: live });
             }
-            Block::Agent { id, .. } => out.push(RowSpec { key: format!("a-{id}"), content, streaming: false }),
+            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false }),
             Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
             Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false }),
         }

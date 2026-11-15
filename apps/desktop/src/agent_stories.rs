@@ -1,8 +1,11 @@
 //! The storybook's Subagent rows story (Timeline › Subagent rows): agents start one after
 //! another and work through their steps; the first finishes, the newest fails, and the rest
-//! finish later. S starts another, F finishes the oldest, E fails the newest, R replays.
+//! finish later, each reporting back to the open session as the server does. Under Reports the
+//! open session sends the first a follow-up, then one finishes, one fails and one is stopped.
+//! S starts another, F finishes the oldest, E fails the newest, X stops the oldest, U sends the
+//! oldest running a follow-up, R replays.
 
-use opencode_kit::model::{Assistant, Message, Part, SessionInfo, ToolStatus, Transcript};
+use opencode_kit::model::{Assistant, Finished, Message, Notice, NoticeKind, Outcome, Part, SessionInfo, ToolStatus, Transcript};
 use rune::{Play, Tx};
 use serde_json::json;
 
@@ -11,14 +14,16 @@ use crate::stories::{Trigger, emit, replay, sid};
 
 /// How many agents the story starts, three first. Under Working, one agent runs in a turn that
 /// is still working, so Working sits under its card.
-pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2), ("Under Working", 3)];
-const COUNTS: [usize; 4] = [1, 3, 6, 1];
+pub const VARIANTS: &[(&str, usize)] = &[("3 agents", 1), ("1 agent", 0), ("6 agents", 2), ("Under Working", 3), ("Reports", 4)];
+const COUNTS: [usize; 5] = [1, 3, 6, 1, 3];
 
 pub const KEYS: &[Trigger] = &[
     replay(open),
     Trigger { key: 's', label: "Start another", run: |s, tx| spawn(s, tx) },
     Trigger { key: 'f', label: "Finish the oldest", run: |s, tx| finish_oldest(s, tx) },
     Trigger { key: 'e', label: "Fail the newest", run: |s, tx| fail_newest(s, tx) },
+    Trigger { key: 'x', label: "Stop the oldest", run: |s, tx| stop_oldest(s, tx) },
+    Trigger { key: 'u', label: "Follow up with the oldest", run: |s, tx| follow_up(s, tx) },
 ];
 
 /// Seconds between one agent's steps.
@@ -58,7 +63,7 @@ fn started(s: &App) -> Vec<String> {
 /// fails, so one of each shows from 5.4 s until the rest finish at 9 s.
 fn open(s: &mut App, tx: &mut Play<App>) {
     s.finish_stream();
-    let n = COUNTS[s.variant.min(3)];
+    let n = COUNTS[s.variant.min(4)];
     let working = s.variant == 3;
     if working {
         let id = sid(s);
@@ -76,6 +81,13 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         t += STEP;
     }
     if working {
+        return;
+    }
+    if s.variant == 4 {
+        tx.after(2.0, |s, tx| follow_up(s, tx));
+        tx.after(3.5, |s, tx| finish_oldest(s, tx));
+        tx.after(4.0, |s, tx| fail_newest(s, tx));
+        tx.after(4.5, |s, tx| stop_oldest(s, tx));
         return;
     }
     tx.after(4.5, |s, tx| finish_oldest(s, tx));
@@ -188,13 +200,59 @@ pub fn finish_oldest(s: &mut App, tx: &mut Tx) {
         };
         s.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: Vec::new() }).messages.push(Message::Assistant(answer));
         emit(s, "session.execution.succeeded", json!({ "sessionID": id }), tx);
+        report(s, k, Outcome::Completed);
     }
 }
 
 /// The newest running agent stops on an error.
 pub fn fail_newest(s: &mut App, tx: &mut Tx) {
-    if let Some(id) = started(s).into_iter().rev().find(|c| s.running.contains(c)) {
+    let all = started(s);
+    if let Some(k) = all.iter().rposition(|c| s.running.contains(c)) {
+        let id = all[k].clone();
         emit(s, "session.execution.failed", json!({ "sessionID": id, "error": { "message": "The provider is rate limiting this key" } }), tx);
+        report(s, k, Outcome::Error);
+    }
+}
+
+/// The oldest running agent is stopped.
+pub fn stop_oldest(s: &mut App, tx: &mut Tx) {
+    let all = started(s);
+    if let Some(k) = all.iter().position(|c| s.running.contains(c)) {
+        let id = all[k].clone();
+        emit(s, "session.execution.failed", json!({ "sessionID": id, "error": { "message": "Aborted" } }), tx);
+        report(s, k, Outcome::Cancelled);
+    }
+}
+
+/// The open session sends agent `k` a follow-up: a subagent call naming its session.
+pub fn follow_up(s: &mut App, tx: &mut Tx) {
+    let parent = sid(s);
+    let all = started(s);
+    let Some(k) = all.iter().position(|c| s.running.contains(c)) else { return };
+    let (agent, _, _) = AGENTS[k % AGENTS.len()];
+    let call = Part::Tool {
+        id: format!("call_story_agent_{k:02}_follow_up"),
+        name: "subagent".into(),
+        status: ToolStatus::Completed,
+        title: "Also cover the jitter cap".into(),
+        input: json!({ "agent": agent, "description": "Also cover the jitter cap", "sessionID": all[k] }),
+        files: Vec::new(),
+        metadata: json!({ "sessionID": all[k], "status": "running" }),
+    };
+    if let Some(a) = last_answer(s, &parent) {
+        a.parts.push(call);
+    }
+    tx.wake_after(std::time::Duration::ZERO);
+}
+
+/// Agent `k` reports back to the open session, as the server's synthetic message does.
+fn report(s: &mut App, k: usize, outcome: Outcome) {
+    let parent = sid(s);
+    let (agent, title, _) = AGENTS[k % AGENTS.len()];
+    let finished = Finished { agent: Some(agent.into()), subagent: true, outcome, data: Some(title.into()), required: outcome == Outcome::Error, shell: None, child: Some(child(k)) };
+    let notice = Notice { id: format!("msg_story_report_{k:02}"), kind: NoticeKind::Finished(finished) };
+    if let Some(t) = s.transcripts.get_mut(&parent) {
+        t.messages.push(Message::Notice(notice));
     }
 }
 

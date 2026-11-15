@@ -41,9 +41,45 @@ pub enum Relabel {
     Finishing { old: &'static str, at: f64 },
 }
 
+/// What a working session waits on the user for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
+    Approval,
+    Answer,
+}
+
+/// The status line's words under a working turn (`timeline-next/status.ts`'s `timelineStatus`):
+/// Working, unless the turn waits on the user or on a shell command.
+pub fn status<S: TimelineHost>(s: &S, session: &str) -> &'static str {
+    if let Some(label) = s.working_label_for(session).or(s.working_state().label) {
+        return label;
+    }
+    match s.session_waiting(session) {
+        Some(Waiting::Approval) => return opencode_i18n::t!("session.timeline.status.waitingApproval"),
+        Some(Waiting::Answer) => return opencode_i18n::t!("session.timeline.status.waitingAnswer"),
+        None => {}
+    }
+    let shell = s.with_transcript(session, |t| {
+        let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.iter().rev().find(|m| matches!(m, opencode_kit::model::Message::Assistant(_))) else { return false };
+        matches!(a.parts.last(), Some(opencode_kit::model::Part::Tool { name, status: opencode_kit::model::ToolStatus::Running | opencode_kit::model::ToolStatus::Pending, .. }) if crate::activity::rules::current_name(name) == "shell")
+    });
+    if shell == Some(true) { opencode_i18n::t!("session.timeline.status.waitingShell") } else { opencode_i18n::t!("session.timeline.status.working") }
+}
+
+/// Whether the turn ends in the thought the model is writing, which stands in for the status
+/// line's Working (`timelineThinking`, `liveThought`).
+pub fn thinking<S: TimelineHost>(s: &S, session: &str) -> bool {
+    if s.timeline_detail().placement(crate::detail::Category::Thinking) == crate::detail::Placement::Hidden {
+        return false;
+    }
+    s.with_transcript(session, |t| {
+        matches!(t.messages.last(), Some(opencode_kit::model::Message::Assistant(a)) if a.completed.is_none() && matches!(a.parts.last(), Some(opencode_kit::model::Part::Reasoning { completed: None, .. })))
+    }) == Some(true)
+}
+
 impl Working {
     pub fn label(&self) -> &'static str {
-        self.label.unwrap_or(opencode_i18n::t!("session.timeline.working"))
+        self.label.unwrap_or(opencode_i18n::t!("session.timeline.status.working"))
     }
     /// When `session`'s run started, while the host counts it live; the sweep keeps its rhythm
     /// from then.
@@ -128,7 +164,7 @@ pub fn width(label: &str) -> f32 {
 }
 
 fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
-    let words = s.working_label_for(session).unwrap_or_else(|| s.working_state().label());
+    let words = status(s, session);
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
     if !on {

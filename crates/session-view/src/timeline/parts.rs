@@ -13,7 +13,7 @@ pub struct Place {
     pub tight: bool,
     pub above: bool,
     pub below: bool,
-    /// A reply's work sits right above it: the room it stands under it (`rhythm::TURN`, less a
+    /// A reply's work sits right above it: the room it stands under it (`rhythm::L`, less a
     /// footer's room), else 0.
     pub reply: f32,
     pub fold: Fold,
@@ -360,10 +360,11 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
     items
 }
 
-/// The turn's tail: Working while it runs (unless it waits on a question or permission, `asking`,
-/// as Desktop's `showWorking`), then the reply's Copy footer, with room of its own over the
-/// timeline's tail when it ends the timeline (`last`).
-pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
+/// The turn's tail: the status line while it runs (`StatusLane`: Working, or what it waits on,
+/// `working::status`; the thought the model is writing stands in for it), then the reply's Copy
+/// footer, with room of its own over the timeline's tail when it ends the timeline (`last`).
+/// `asking`, the session waits on a question or permission, only builds the row again.
+pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
     let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
@@ -437,7 +438,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, asking: bool, l
     } else {
         COPY_AT.1 + COPY
     };
-    let working = busy && !asking;
+    let working = busy && !crate::working::thinking(s, session);
     let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_motion(INSTANT, INSTANT)

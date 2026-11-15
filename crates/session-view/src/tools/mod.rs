@@ -33,7 +33,7 @@ use serde_json::Value;
 
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, TOOL_CODE, UI, UI_MED, arrow, readable};
+use crate::style::{HOVER_FADE, TOOL_CODE, UI, arrow, readable};
 
 pub use console::{console_open, follow as shell_follow};
 pub use details::overlay as details_overlay;
@@ -161,7 +161,10 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     // shimmers while the command runs (`SessionShellMessage` passes its own status).
     let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
     let build = || {
-        if *c.status == ToolStatus::Error && c.name != "execute" {
+        // A command the user stopped shows as one that ran, its row saying it was stopped
+        // (`ToolDisplay`'s `stopped`).
+        let stopped_shell = matches!(c.name, "shell" | "bash") && crate::activity::rules::stopped(c.status, c.metadata);
+        if *c.status == ToolStatus::Error && c.name != "execute" && !stopped_shell {
             return error::card(s, p, cx.session, c);
         }
         match c.name {
@@ -275,6 +278,9 @@ pub struct Trigger {
     pub code: bool,
     /// A link in the subtitle's place (a fetch's URL).
     pub link: Option<El>,
+    /// A tag at the end of the line, and whether it reads as a failure: how a command ended when
+    /// it did not succeed (`timeline-next/tools/shell.tsx`'s `shellOutcome`).
+    pub tag: Option<(String, bool)>,
 }
 
 /// What a trigger does when pressed.
@@ -293,23 +299,28 @@ pub enum Press {
 pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t: Trigger, press: Press, action: Option<El>) -> El {
     let id = format!("tool-{}", c.id);
     let gap = if t.compact { 6.0 } else { 8.0 };
-    let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, if t.compact { UI_MED } else { UI }, d));
+    // A row reads like a group's label (`timeline-next.css`, rows in an opened group): the tool
+    // muted, what it worked on bright, counts muted, all at one weight.
+    let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, UI, d));
     if let Some(sub) = t.subtitle.filter(|x| !x.is_empty()) {
         let font = if t.code { TOOL_CODE.lh(16.0) } else { UI };
         // A command reads left to right in any window; a path, a pattern or a task's words read
         // their own way, and fade at their own end.
         let dir = if t.code { rune::Direction::Ltr } else { rune::Direction::Auto };
-        words = words.child(readable(p, text(sub).key("subtitle").dir(dir).font(font).color(p.faint).truncate_fade()).shrink().min_w(0.0));
+        words = words.child(readable(p, text(sub).key("subtitle").dir(dir).font(font).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     for (k, a) in t.args.into_iter().enumerate() {
-        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI).color(p.muted).truncate_fade()).shrink().min_w(0.0));
+        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     if let Some(l) = t.link {
         words = words.child(l);
     }
     if let Some(m) = t.matches {
         let dot = el().key("dot").size(6.0, 6.0).center().child(el().size(2.25, 2.25).radius(1.125).fill(p.icon_muted));
-        words = words.child(dot).child(text(m).key("matches").font(UI).color(p.faint));
+        words = words.child(dot).child(text(m).key("matches").font(UI).color(p.muted));
+    }
+    if let Some((label, danger)) = t.tag {
+        words = words.child(crate::activity::tag(p, &label, danger));
     }
     let mut button = row().key(id.clone()).h(28.0).gap(if t.compact { 6.0 } else { 0.0 }).center_y().shrink().min_w(0.0).child(words);
     if let Press::Toggle(k) = press {
@@ -341,7 +352,7 @@ fn title<S: TimelineHost>(s: &S, p: &Pal, t: &str, font: rune::TextStyle, d: Dis
     if d.busy() {
         return crate::working::shimmer(s, p, t, font, 0.0).key("title");
     }
-    text(t.to_owned()).key("title").font(font).color(p.text)
+    text(t.to_owned()).key("title").font(font).color(p.muted)
 }
 
 /// A tool with nothing to open: its trigger line, the hover group its buttons follow.

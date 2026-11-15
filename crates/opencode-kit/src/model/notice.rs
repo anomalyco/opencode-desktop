@@ -101,8 +101,9 @@ pub enum Outcome {
     Cancelled,
 }
 
-/// A shell or subagent's synthetic message as a notice, or `None` when Desktop shows none: one
-/// with no description that didn't fail (`isNotice`, `timelineNoticeRequired`).
+/// A shell or subagent's synthetic message as a notice, or `None` when Desktop shows none: a
+/// shell's with no description that didn't fail (`isNotice`, `timelineNoticeRequired`). A
+/// subagent's report is always one, its own row in the timeline (anomalyco/opencode#64017).
 fn finished(m: &Value, description: Option<&str>) -> Option<NoticeKind> {
     let meta = &m["metadata"];
     let subagent = meta["source"] == "subagent";
@@ -110,7 +111,7 @@ fn finished(m: &Value, description: Option<&str>) -> Option<NoticeKind> {
     // Shell completion reports the process outcome in metadata, not its state (`shellResultFailed`).
     let shell_failed = meta["timeout"] == true || meta["exit"].as_i64().is_some_and(|e| e != 0);
     let required = state == Some("error") || (!subagent && state == Some("completed") && shell_failed);
-    if description.is_none() && !required {
+    if !subagent && description.is_none() && !required {
         return None;
     }
     let outcome = match state {
