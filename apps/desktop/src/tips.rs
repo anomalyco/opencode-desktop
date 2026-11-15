@@ -47,7 +47,7 @@ fn run(s: &mut App, event: Event, tx: &mut Tx) -> bool {
             Effect::CheckHex => {
                 let wake = (*s.waker).clone();
                 if rune::task::spawn("tip-hex", move || {
-                    HEX_INSTALLED.get_or_init(|| crate::dirs::hex_support().is_some_and(|dir| hex_client::installed(&dir)));
+                    HEX_INSTALLED.get_or_init(hex_client::installed);
                     if let Some(wake) = wake { wake(); }
                 }).is_err() {
                     let _ = HEX_INSTALLED.set(false);
@@ -90,7 +90,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         now,
         history,
         browse_installed: s.mcp_servers("").map(|list| list.iter().any(|m| m.name == "browse")),
-        hex_installed: HEX_INSTALLED.get().copied(),
+        hex_installed: if cfg!(target_arch = "wasm32") { Some(false) } else { HEX_INSTALLED.get().copied() },
         online: !crate::reconnect::down(s),
         open: !s.plugins.window_blurred.get() && s.toast.stack.page() == rune_kit::ToastPage::Shown,
     };

@@ -1,46 +1,82 @@
-//! Local installation signals for callers offering to install Hex. Dictation uses `presence`
-//! separately: finding a desktop entry doesn't mean Hex can take a recording.
+//! Install-tip signals from `anomalyco/opencode@141be750b2`,
+//! `packages/desktop/src/main/files/hex.ts` (`hexPaths` and `detectHex`).
 
-use std::path::Path;
+#[cfg(any(target_os = "linux", windows))]
+use std::path::PathBuf;
+#[cfg(any(unix, windows))]
+use std::{env, path::Path};
 
-pub fn installed(support: &Path) -> bool {
-    super::presence(&super::discovery(support), support) != super::Presence::Missing || packaged()
+#[cfg(any(target_os = "linux", windows))]
+fn directory(key: &str, default: PathBuf) -> PathBuf {
+    env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default)
+}
+
+#[cfg(unix)]
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(unix)]
+fn on_path() -> bool {
+    env::var_os("PATH").is_some_and(|dirs| {
+        env::split_paths(&dirs).any(|p| p.is_absolute() && executable(&p.join("hex")))
+    })
 }
 
 #[cfg(target_os = "macos")]
-fn packaged() -> bool {
-    Path::new("/Applications/Hex.app").is_dir() || std::env::home_dir().is_some_and(|h| h.join("Applications/Hex.app").is_dir())
+pub fn installed() -> bool {
+    const BINARY: &str = "Applications/Hex.app/Contents/MacOS/hex";
+    executable(&Path::new("/").join(BINARY))
+        || env::home_dir().is_some_and(|home| executable(&home.join(BINARY)))
+        || on_path()
 }
 
 #[cfg(windows)]
-fn packaged() -> bool {
-    // Inno's per-user Apps & Features key (anomalyco/hex: packaging/windows/hex.iss).
-    const KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{6ED48C92-5177-41F4-B8D6-37B7B02CFDF4}_is1";
-    windows_registry::CURRENT_USER.open(KEY).is_ok()
+pub fn installed() -> bool {
+    let roaming = directory(
+        "APPDATA",
+        env::home_dir().unwrap_or_default().join("AppData/Roaming"),
+    );
+    roaming.join("hex/current-version").is_file()
+        || roaming.join("voice-control/current-version").is_file()
+        || env::var("PATH")
+            .unwrap_or_default()
+            .split(';')
+            .map(Path::new)
+            .filter(|dir| dir.has_root())
+            .any(|dir| dir.join("hex.com").is_file() || dir.join("hex.exe").is_file())
 }
 
 #[cfg(target_os = "linux")]
-fn packaged() -> bool {
-    use std::{env, os::unix::fs::PermissionsExt, path::PathBuf};
-
-    fn desktop(dir: &Path) -> bool {
-        ["applications/anomaly.hex.desktop", "applications/hex.desktop"].iter().any(|entry| dir.join(entry).is_file())
-    }
-    fn binary(dir: &Path) -> bool {
-        dir.join("hex").metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    }
-
-    // .github/release/install-linux.sh (including the old launcher name) and packaging/linux/nfpm.yaml.
-    let home = env::home_dir();
-    let data = env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).or_else(|| Some(home.as_ref()?.join(".local/share")));
-    let dirs = env::var_os("XDG_DATA_DIRS").filter(|p| !p.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
-    data.as_deref().is_some_and(desktop)
-        || env::split_paths(&dirs).any(|p| p.is_absolute() && desktop(&p))
-        || home.is_some_and(|h| binary(&h.join(".local/bin")))
-        || env::var_os("PATH").is_some_and(|paths| env::split_paths(&paths).any(|p| p.is_absolute() && binary(&p)))
+pub fn installed() -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    let home = env::home_dir().unwrap_or_default();
+    let data = directory("XDG_DATA_HOME", home.join(".local/share"));
+    let support = directory("HEX_APPLICATION_SUPPORT_DIR", data.join("hex"));
+    let bin = directory("HEX_INSTALL_DIR", home.join(".local/bin"));
+    executable(Path::new("/usr/bin/hex"))
+        || Path::new("/usr/share/applications/anomaly.hex.desktop").is_file()
+        || data.join("applications/anomaly.hex.desktop").is_file()
+        || executable(&bin.join("hex"))
+        || executable(&support.join("current/hex"))
+        || support
+            .join("service.sock")
+            .metadata()
+            .is_ok_and(|m| m.file_type().is_socket())
+        || on_path()
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn packaged() -> bool {
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+pub fn installed() -> bool {
+    on_path()
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn installed() -> bool {
     false
 }
