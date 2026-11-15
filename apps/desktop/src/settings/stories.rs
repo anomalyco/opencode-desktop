@@ -38,6 +38,26 @@ rune_register::register!(crate::stories::STORY_LIST: crate::stories::Story = [
     crate::stories::Story { path: "Settings/Layout switch", scene: |_| {}, knobs: &[], keys: LAYOUT_KEYS, variants: &[] },
 ]);
 
+fn providers_with_accounts(s: &mut App) {
+    use crate::connect::catalog::ProviderInfo;
+    use opencode_kit::integration::{Connection, Integration};
+    let account = |id: &str, label: &str| Connection { credential: true, id: id.into(), label: label.into(), method: "oauth".into(), status: None };
+    let integration = |id: &str, name: &str, connections| Integration { id: id.into(), name: name.into(), connections, ..Default::default() };
+    let provider = |id: &str, name: &str, via: Option<&str>| ProviderInfo { id: id.into(), name: name.into(), integration: via.map(str::to_owned) };
+    s.seed_catalogs(
+        vec![
+            integration("opencode", "OpenCode", vec![account("cred-console", "Anomaly")]),
+            integration("anthropic", "Anthropic", vec![account("cred-claude-work", "Work"), account("cred-claude-home", "Personal")]),
+        ],
+        vec![
+            provider("opencode", "OpenCode Zen", None),
+            provider("opencode-go", "OpenCode Go", Some("opencode")),
+            provider("console-anomaly", "Anomaly", Some("opencode")),
+            provider("anthropic", "Anthropic", None),
+        ],
+    );
+}
+
 /// The open session behind Settings, on `page`.
 fn on(s: &mut App, page: Page) {
     crate::open_scene(s);
@@ -55,6 +75,12 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
         s.open_settings();
     }),
     ("settings-providers", |s| on(s, Page::Providers)),
+    // Providers with the Console signed in (Zen, Go and a workspace share its account) and
+    // Anthropic on two accounts: each row has its own account menu.
+    ("settings-providers-accounts", |s| {
+        on(s, Page::Providers);
+        providers_with_accounts(s);
+    }),
     ("settings-models", |s| on(s, Page::Models)),
     ("settings-extensions", |s| on(s, Page::Extensions)),
     ("settings-projects", |s| on(s, Page::Projects)),

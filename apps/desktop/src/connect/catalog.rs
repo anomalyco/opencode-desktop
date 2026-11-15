@@ -61,6 +61,12 @@ impl App {
         self.catalogs.providers.get(&slot(dir)).map(Vec::as_slice)
     }
 
+    /// Puts a scene's integrations and providers in the server's default slot, as a sync would.
+    pub(crate) fn seed_catalogs(&mut self, integrations: Vec<Integration>, providers: Vec<ProviderInfo>) {
+        self.catalogs.integrations.insert(String::new(), integrations);
+        self.catalogs.providers.insert(String::new(), providers);
+    }
+
     /// Reads `dir`'s integrations and providers and the model list again, then calls `then`
     /// with whether every read answered.
     pub(crate) fn sync_catalogs(&mut self, dir: Option<String>, then: impl FnOnce(&mut App, &mut Tx, bool) + Send + 'static) {

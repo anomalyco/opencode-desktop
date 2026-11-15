@@ -168,11 +168,8 @@ pub struct State {
     /// The server's plugins and skills, once read.
     pub plugins: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
-    /// A provider's account menu or options open on Providers: (provider, which).
-    pub menu: Option<(String, providers::Menu)>,
-    /// The account being renamed, and its field.
-    pub renaming: Option<String>,
-    pub rename: TextEdit,
+    /// The Connected row whose account menu, options or rename field is open on Providers.
+    pub accounts: providers::Accounts,
     /// Settings search in the rail (`settings/search.rs`).
     pub find: super::search::Find,
     /// Appearance's three font fields, as typed.
@@ -195,7 +192,7 @@ impl State {
     /// Takes focus out of every field on the pages.
     pub fn blur_fields(&mut self) {
         self.search.focused = false;
-        self.rename.focused = false;
+        self.accounts.blur();
         self.find.query.focused = false;
         self.fonts.blur();
         self.shortcuts.filter.focused = false;
@@ -220,7 +217,7 @@ impl App {
     /// Shows `page` (Desktop's `surface.select`): the screen scrolls back to its top, and a page
     /// that reads the server starts reading.
     pub fn show_settings_page(&mut self, page: Page) {
-        self.settings_pages.menu = None;
+        let _ = self.settings_pages.accounts.step(providers::Event::Close);
         self.settings_pages.shortcuts.capture = None;
         self.settings_pages.blur_fields();
         // A per-server page reads and writes Settings' own server: the window works with it
