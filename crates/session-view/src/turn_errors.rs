@@ -288,7 +288,12 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             line(kids)
         }
         NoticeKind::Restart => line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.restart").into())]),
-        // Background work reporting back is an event (`noticeEvent`): "Finished 1 subagent".
+        // Background work reporting back is an event (`noticeEvent`): a subagent's a row of its
+        // own, a shell's counted ("Finished 1 shell").
+        NoticeKind::Finished(f) if f.subagent => match crate::activity::events::notice_event(n) {
+            Some(e) => crate::activity::event_row::subagent(s, p, session_of(s), &e),
+            None => col(),
+        },
         NoticeKind::Finished(_) => {
             let key = format!("ev-{}", n.id);
             let open = s.expanded().contains(&key);

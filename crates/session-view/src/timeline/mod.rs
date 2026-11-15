@@ -311,6 +311,7 @@ impl RowSpec {
                         text
                     }
                     Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
+                    Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
                     Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
@@ -644,7 +645,7 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
                 let content = if end - start == steps.len() { RowContent::TurnText { message: start + msg, part, live, pt } } else { content };
                 out.push(RowSpec { content, key, streaming: live });
             }
-            Block::Events { key, .. } => out.push(RowSpec { key, content, streaming: false }),
+            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false }),
             Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false }),
             Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false }),
         }

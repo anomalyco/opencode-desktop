@@ -1,6 +1,7 @@
 //! A group's label, named by what the agent did (`context-group.tsx`'s `activityLabel` and
 //! `workEvents`): its main mode, then what its other calls did. "Edited 2 files · 3 reads,
-//! 1 command", "Explored 4 files, 2 searches", "Started 2 subagents · finished 1 shell".
+//! 1 command", "Explored 4 files, 2 searches", "Started 1 shell · finished 1 shell". Subagents
+//! never count: each is a row of its own (anomalyco/opencode#64017).
 
 use std::collections::{HashMap, HashSet};
 
@@ -35,8 +36,8 @@ pub fn step_event(st: &Step) -> Option<Event> {
     }
 }
 
-/// What each subagent or background shell in a group did (`workEvents`): work that reports back
-/// in the group that started it counts once, as how it ended.
+/// What each background shell in a group did (`workEvents`): one that reports back in the group
+/// that started it counts once, as how it ended.
 pub fn work_events(steps: &[Step]) -> Vec<Event> {
     let launch = |st: &Step| match st {
         Step::Tool { .. } => step_event(st),
@@ -70,14 +71,14 @@ pub fn activity(steps: &[Step]) -> Option<Activity> {
         Step::Tool { name, input, metadata, .. } => Some((*name, *input, *metadata, rules::rule(name, input))),
         _ => None,
     }).filter(|(.., r)| r.layout != Layout::Event).collect();
-    let (buckets, _) = events::summarize(&work_events(steps));
-    let launched: Vec<String> = buckets.iter().flat_map(|b| b.kinds.iter().map(|(k, n)| events::launch_count(b.verb, *k, *n))).collect();
+    let (buckets, _) = events::summarize_shells(&work_events(steps));
+    let launched: Vec<String> = buckets.iter().map(|b| events::launch_count(b.verb, b.count)).collect();
     let Some(mode) = PRIORITY.into_iter().find(|m| tools.iter().any(|t| t.3.mode == *m)) else {
         let first = buckets.first()?;
         return Some(Activity {
             verb: events::verb_word(first.verb).to_owned(),
-            main: first.kinds.iter().map(|(k, n)| events::kind_count(*k, *n)).collect::<Vec<_>>().join(", "),
-            others: launched[first.kinds.len()..].to_vec(),
+            main: opencode_i18n::plural!("ui.timeline.event.shells", first.count),
+            others: launched[1..].to_vec(),
         });
     };
     let of = |m: Mode| tools.iter().filter(move |t| t.3.mode == m);

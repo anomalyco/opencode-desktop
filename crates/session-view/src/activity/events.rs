@@ -1,6 +1,7 @@
-//! Subagents and background shells read as events rather than tool rows: started, ran,
-//! finished and stopped, counted by kind (`timeline-next/events.ts`). Titles and commands stay
-//! in the background panel above the composer; an events row lists them once opened.
+//! Subagents and background shells read as events rather than tool rows
+//! (`timeline-next/events.ts`, as of anomalyco/opencode 0cfe2c2610, #64017). Each subagent event
+//! is a row of its own; background shells are counted by verb in one events row, which lists
+//! their commands once opened.
 
 use opencode_kit::model::{Notice, NoticeKind, Outcome, ToolStatus};
 use serde_json::Value;
@@ -17,6 +18,8 @@ pub enum Verb {
     Ran,
     Finished,
     Stopped,
+    /// The parent sent a follow-up to a subagent it had started: a call naming its session.
+    Updated,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,6 +47,7 @@ pub fn tool_event(name: &str, title: &str, status: &ToolStatus, input: &Value, m
         return None;
     }
     let subagent = kind == Kind::Subagent;
+    let follow_up = subagent && text(&input["sessionID"]).is_some();
     let item = |verb, failed| Event {
         verb,
         kind,
@@ -54,7 +58,7 @@ pub fn tool_event(name: &str, title: &str, status: &ToolStatus, input: &Value, m
         shell: if subagent { None } else { text(&metadata["shellID"]) },
     };
     if *status == ToolStatus::Running {
-        return Some(item(Verb::Started, false));
+        return Some(item(if follow_up { Verb::Updated } else { Verb::Started }, false));
     }
     let background = if subagent { metadata["status"] != "completed" } else { metadata["status"] == "running" || input["background"] == true };
     let verb = if background { Verb::Started } else { Verb::Ran };
@@ -63,6 +67,9 @@ pub fn tool_event(name: &str, title: &str, status: &ToolStatus, input: &Value, m
             return Some(item(Verb::Stopped, false));
         }
         return Some(item(verb, true));
+    }
+    if follow_up {
+        return Some(item(Verb::Updated, false));
     }
     Some(item(verb, false))
 }
@@ -95,30 +102,24 @@ pub fn work_key(e: &Event) -> Option<(Kind, &str)> {
     .map(|id| (e.kind, id))
 }
 
-/// One verb of a run of events, with how many of each kind.
+/// One verb of a run of shells, with how many.
 pub struct Bucket {
     pub verb: Verb,
-    pub kinds: Vec<(Kind, usize)>,
+    pub count: usize,
 }
 
-/// A run of events as one label (`summarizeEvents`): each verb once, in the order it first
-/// happened, with how many of each kind, and how many failed overall.
-pub fn summarize(events: &[Event]) -> (Vec<Bucket>, usize) {
+/// Background shells counted by verb in the order they happened, and how many failed
+/// (`summarizeShells`). Subagents have rows of their own, so they never count.
+pub fn summarize_shells(events: &[Event]) -> (Vec<Bucket>, usize) {
     let mut out: Vec<Bucket> = Vec::new();
-    for e in events {
-        let k = match out.iter().position(|b| b.verb == e.verb) {
-            Some(k) => k,
-            None => {
-                out.push(Bucket { verb: e.verb, kinds: Vec::new() });
-                out.len() - 1
-            }
-        };
-        match out[k].kinds.iter_mut().find(|(kind, _)| *kind == e.kind) {
-            Some((_, n)) => *n += 1,
-            None => out[k].kinds.push((e.kind, 1)),
+    let shells = || events.iter().filter(|e| e.kind == Kind::Shell);
+    for e in shells().filter(|e| e.verb != Verb::Updated) {
+        match out.iter_mut().find(|b| b.verb == e.verb) {
+            Some(b) => b.count += 1,
+            None => out.push(Bucket { verb: e.verb, count: 1 }),
         }
     }
-    (out, events.iter().filter(|e| e.failed).count())
+    (out, shells().filter(|e| e.failed).count())
 }
 
 /// "Started", "Ran", "Finished", "Stopped" (`verbKeys`).
@@ -129,29 +130,29 @@ pub fn verb_word(v: Verb) -> &'static str {
         Verb::Ran => t!("ui.timeline.activity.ran"),
         Verb::Finished => t!("ui.timeline.event.finished"),
         Verb::Stopped => t!("ui.timeline.event.stopped"),
+        Verb::Updated => t!("ui.timeline.subagent.updated"),
     }
 }
 
-/// "2 subagents", "1 shell" (`kindKeys`).
-pub fn kind_count(kind: Kind, n: usize) -> String {
-    match kind {
-        Kind::Subagent => opencode_i18n::plural!("ui.timeline.event.subagents", n),
-        Kind::Shell => opencode_i18n::plural!("ui.timeline.event.shells", n),
+/// What a subagent row says happened, after its task (`TimelineEventItem`'s `status`): Failed,
+/// Updated, Completed, Started or Stopped.
+pub fn subagent_status(e: &Event) -> &'static str {
+    use opencode_i18n::t;
+    match e.verb {
+        _ if e.failed => t!("ui.toolErrorCard.failed"),
+        Verb::Ran | Verb::Finished => t!("ui.timeline.subagent.completed"),
+        v => verb_word(v),
     }
 }
 
-/// How a group's label counts work that runs on beside its other calls: "started 1 shell"
+/// How a group's label counts background shells beside its other calls: "started 1 shell"
 /// (`launchKeys`).
-pub fn launch_count(verb: Verb, kind: Kind, n: usize) -> String {
+pub fn launch_count(verb: Verb, n: usize) -> String {
     use opencode_i18n::plural;
-    match (verb, kind) {
-        (Verb::Started, Kind::Shell) => plural!("ui.timeline.activity.startedShells", n),
-        (Verb::Started, Kind::Subagent) => plural!("ui.timeline.activity.startedSubagents", n),
-        (Verb::Ran, Kind::Shell) => plural!("ui.timeline.activity.commands", n),
-        (Verb::Ran, Kind::Subagent) => plural!("ui.timeline.activity.subagents", n),
-        (Verb::Finished, Kind::Shell) => plural!("ui.timeline.activity.finishedShells", n),
-        (Verb::Finished, Kind::Subagent) => plural!("ui.timeline.activity.finishedSubagents", n),
-        (Verb::Stopped, Kind::Shell) => plural!("ui.timeline.activity.stoppedShells", n),
-        (Verb::Stopped, Kind::Subagent) => plural!("ui.timeline.activity.stoppedSubagents", n),
+    match verb {
+        Verb::Started | Verb::Updated => plural!("ui.timeline.activity.startedShells", n),
+        Verb::Ran => plural!("ui.timeline.activity.commands", n),
+        Verb::Finished => plural!("ui.timeline.activity.finishedShells", n),
+        Verb::Stopped => plural!("ui.timeline.activity.stoppedShells", n),
     }
 }

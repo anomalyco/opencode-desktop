@@ -5,17 +5,17 @@
 //! Each kind of activity stands on its own row, folds into the turn's activity group, or doesn't
 //! show, a failure included. What folds gathers across a turn's steps, up to the next row of its
 //! own: thoughts, tool calls, notices and, where commentary folds, the text a later tool call
-//! follows. Subagents and background shells are events: where their setting groups them their
-//! launch joins the group, else launches one after another share one events row ("Started 2
-//! subagents"), as background work reporting back one after another does ("Finished 2
-//! subagents"); a report right after the group that launched it finishes there. Every preset
-//! places subagents on their own (`rules.ts:125-140`). The thought the model is writing stands at
+//! follows. Each subagent event, a launch, a follow-up or a report, is a row of its own in
+//! timeline order, never counted (anomalyco/opencode#64017). Background shells are events: where
+//! their setting groups them their launch joins the group, else launches one after another share
+//! one events row ("Started 2 shells"), as reports one after another do; a report right after the
+//! group that launched it finishes there. The thought the model is writing stands at
 //! the turn's end as Thinking; finished, it settles where thoughts go. A group names what the
 //! agent did (`activity::label`); one of thoughts alone is those thoughts, without a group.
 
 mod view;
 
-pub use view::{calls, events as events_row, group, thought};
+pub use view::{calls, events as events_row, group, subagent as subagent_row, thought};
 
 use opencode_kit::model::{Assistant, Attachment, Notice, Part, ToolStatus};
 
@@ -102,9 +102,12 @@ pub enum Block<'a> {
     /// Folded thoughts, tool calls, notices and commentary; `at`: each step's [`Loc`].
     Group { key: String, steps: Vec<Step<'a>>, at: Vec<Loc> },
     Text { key: String, body: &'a str, msg: usize, part: usize, live: bool },
-    /// Subagents and background shells started together, or reporting back one after another,
-    /// as one events row (`groupContent`'s `events`, `groupNotices`): "Started 2 subagents".
+    /// Background shells started together, or reporting back one after another, as one events
+    /// row (`groupContent`'s `events`, `groupNotices`): "Started 2 shells".
     Events { key: String, steps: Vec<Step<'a>> },
+    /// One subagent event, a call or a report, on a row of its own (`groupContent`'s
+    /// `subagent`, anomalyco/opencode#64017).
+    Subagent { key: String, step: Step<'a> },
     /// A question call, once answered, dismissed or failed (`question_row`).
     Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
     /// A thought on its own row: Thinking separately, or (`live`) the thought the model is writing,
@@ -169,10 +172,14 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
     for (mi, e) in entries.iter().enumerate() {
         let a = match e {
             Entry::Notice(n) => {
-                // Background work reporting back: right after the group that started it, it
-                // finishes there; else it is an event of its own (`groupNotices`).
+                // Background work reporting back (`groupNotices`): a subagent's report is a row of
+                // its own; a shell's, right after the group that started it, finishes there, else
+                // it is an event of its own.
                 if let Some(ev) = events::notice_event(n) {
-                    if !ev.failed && launched(&group, &ev) {
+                    if ev.kind == events::Kind::Subagent {
+                        flush(&mut out, &mut group, &mut at, &mut key);
+                        out.push(Block::Subagent { key: format!("a-{}", n.id), step: Step::Notice(n) });
+                    } else if !ev.failed && launched(&group, &ev) {
                         group.push(Step::Notice(n));
                         at.push(Loc { entry: mi as u32, part: Loc::NOTICE, n: 0 });
                     } else {
@@ -274,6 +281,15 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                         continue;
                     }
                     let placement = detail.placement(rule.category);
+                    // Every subagent event is its own row, wherever its setting places it, unless
+                    // hidden: they are never counted (`contentGroup`'s `subagent`).
+                    if rule.category == Category::Subagents {
+                        if placement != Placement::Hidden {
+                            flush(&mut out, &mut group, &mut at, &mut key);
+                            out.push(Block::Subagent { key: format!("a-{id}"), step });
+                        }
+                        continue;
+                    }
                     match placement {
                         // A failure shows only where its category does (`contentShows`).
                         Placement::Hidden => {}

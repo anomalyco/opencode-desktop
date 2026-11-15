@@ -18,10 +18,10 @@ const GROUP_GAP: f32 = ROW_GAP;
 /// The folded row (`ContextGroup`): its label, and when open, every step in order, 14 in from a
 /// line 2 in from its edge (`timeline-next.css`, nested content). Plain reads in a row share a
 /// line, edits, writes and patches in a row share one card of files, named skills in a row share
-/// one "Loaded" line, and subagents and work reporting back in a row share one nested events row.
+/// one "Loaded" line, and shells reporting back in a row share one nested events row.
 /// The label only records what happened: what is live is the status line's (`StatusLane`), so
 /// it never shimmers. A group of thoughts alone is those thoughts, without a group around them;
-/// one of subagents and their reports alone is the events row it is. The row springs open and
+/// one of shell reports alone is the events row it is. The row springs open and
 /// shut on the timeline's growth, the timeline holding as Desktop's does
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
 /// the group scrolls past. `live`: the turn is still running, so a step still under way
@@ -33,7 +33,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         return col().w_full().gap(ROW_GAP).children(steps.iter().map(|st| thought(s, p, st, live, fade)));
     }
     let work = activity::work_events(steps);
-    let work_only = !work.is_empty() && steps.iter().all(|st| matches!(st, Step::Notice(_)) || matches!(st, Step::Tool { name, .. } if crate::activity::rules::current_name(name) == "subagent"));
+    let work_only = !work.is_empty() && steps.iter().all(is_work);
     if work_only {
         return event_row::view(s, p, session, &work, open, crate::disclosure::toggle_group::<S>(key.to_owned()));
     }
@@ -146,10 +146,10 @@ fn used_words(p: &Pal, l: &Label) -> El {
         .children(words("after", &l.after))
 }
 
-/// A step that is work running on, in an opened group: a subagent's call, or a report coming
-/// back (`ContextGroup`'s `WorkRun`).
-fn work(st: &Step) -> bool {
-    matches!(st, Step::Notice(n) if events::notice_event(n).is_some()) || matches!(st, Step::Tool { name, .. } if crate::activity::rules::current_name(name) == "subagent")
+/// A step that is work running on, in an opened group: a background shell reporting back
+/// (`ContextGroup`'s `WorkRun`). Subagents never join a group.
+fn is_work(st: &Step) -> bool {
+    matches!(st, Step::Notice(n) if events::notice_event(n).is_some())
 }
 
 /// An open group's rows: each the step at its first index and how many steps it draws (plain
@@ -160,7 +160,7 @@ fn plan(steps: &[Step]) -> Vec<(usize, usize)> {
     while i < steps.len() {
         let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
         let n = match &steps[i] {
-            st if work(st) => run(work),
+            st if is_work(st) => run(is_work),
             st @ Step::Tool { .. } if grouped_read(st) => run(grouped_read),
             st @ Step::Tool { .. } if file_tool(st) => run(file_tool),
             st @ Step::Tool { .. } if named_skill(st) => run(named_skill),
@@ -175,7 +175,7 @@ fn plan(steps: &[Step]) -> Vec<(usize, usize)> {
 /// The key of the group row whose first step is `steps[i]`, as [`step_item`] keys it.
 fn item_key(steps: &[Step], i: usize) -> String {
     match &steps[i] {
-        st if work(st) => format!("work-{i}"),
+        st if is_work(st) => format!("work-{i}"),
         Step::Thought { msg, index, .. } => format!("r-{msg}-{index}"),
         Step::Notice(n) => format!("notice-{}", n.id),
         Step::Text { .. } => format!("text-{i}"),
@@ -186,30 +186,16 @@ fn item_key(steps: &[Step], i: usize) -> String {
     }
 }
 
-/// Events in a run of work (`ContextGroup`'s `items`): work reporting back right after its
-/// launch finishes the launch's row.
+/// Events in a run of work (`ContextGroup`'s `items`): shells reporting back, in order.
 fn run_events(steps: &[Step]) -> Vec<events::Event> {
-    let mut out: Vec<events::Event> = Vec::new();
-    for st in steps {
-        let Some(e) = activity::step_event(st) else { continue };
-        let key = matches!(st, Step::Notice(_)).then(|| events::work_key(&e)).flatten();
-        let launch = key.and_then(|k| out.iter().position(|l| l.verb == events::Verb::Started && events::work_key(l) == Some(k)));
-        match launch {
-            Some(k) => {
-                out[k].verb = e.verb;
-                out[k].failed = e.failed;
-            }
-            None => out.push(e),
-        }
-    }
-    out
+    steps.iter().filter_map(activity::step_event).collect()
 }
 
 /// One open group's row, `steps` those it draws ([`plan`]).
 fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str, steps: &[Step], live: bool, fade: f32) -> El {
     let Some(first) = steps.first() else { return col() };
     match first {
-        st if work(st) => {
+        st if is_work(st) => {
             let key = format!("{group}:events:{}", item_key(steps, 0));
             let open = s.expanded().contains(&key);
             col().key(format!("work-{key}")).w_full().child(event_row::view(s, p, cx.session, &run_events(steps), open, crate::disclosure::set::<S>(key.clone(), open, String::new())))
@@ -276,4 +262,10 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
                 .children(crate::images::gallery(s, p, &format!("step-images-{}", first.id), files, false, None).map(|g| g.pl(22.0)))
         }
     }
+}
+
+/// A subagent's event on its row (`timeline-subagent`): nothing while its call is still being
+/// written.
+pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, step: &Step) -> El {
+    activity::step_event(step).map_or_else(col, |e| event_row::subagent(s, p, session, &e))
 }

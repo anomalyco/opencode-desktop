@@ -106,6 +106,9 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
                 Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
                 // Work reporting back starts a block of its own, which the reply continues.
                 Some(Block::Events { steps, .. }) => Edges { reports: steps.iter().all(|s| matches!(s, turns::Step::Notice(_))), ..edges(Who::Agent, Item::Line, LINE_INSET) },
+                // A subagent's rows, its reports too, continue the reply (`spacing.ts`'s `reportsBack`
+                // counts only events rows).
+                Some(Block::Subagent { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
                 Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
                 Some(Block::Question { .. }) => edges(Who::Agent, Item::Line, 0.0),
                 None => return None,
