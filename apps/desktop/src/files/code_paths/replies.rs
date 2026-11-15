@@ -25,7 +25,9 @@ impl Paths {
 
     fn expire(&mut self, now: Instant) {
         self.entries.retain(|key, c| {
-            let expired = matches!(c, Check::Answer { exists, at } if now.duration_since(*at) >= if *exists { FOUND_FOR } else { MISSING_FOR });
+            // A retained row may still be drawing a link. Keep its last positive answer
+            // until revalidation says the link is gone, including when this cache is full.
+            let expired = matches!(c, Check::Answer { exists: false, at } if now.duration_since(*at) >= MISSING_FOR);
             if expired { self.bytes -= key.len(); }
             !expired
         });
@@ -72,12 +74,15 @@ impl Replies {
         if paths.entries.len() >= MAX_CODES || paths.bytes >= MAX_KEY_BYTES { paths.expire(now); }
         for code in codes {
             match paths.entries.get(&code) {
-                Some(Check::Checking { .. }) => continue,
+                Some(Check::Checking { was_link, .. }) => {
+                    if *was_link { found.insert(code); }
+                }
                 Some(Check::Answer { exists, at }) if now.duration_since(*at) < if *exists { FOUND_FOR } else { MISSING_FOR } => {
                     if *exists { found.insert(code); }
                 }
                 stale => {
                     let was_link = matches!(stale, Some(Check::Answer { exists: true, .. }));
+                    if was_link { found.insert(code.clone()); }
                     if stale.is_none() {
                         if paths.entries.len() >= MAX_CODES || code.len() > MAX_KEY_BYTES - paths.bytes { continue; }
                         paths.bytes += code.len();
@@ -96,6 +101,10 @@ impl Replies {
             if started.is_err() {
                 paths.entries.retain(|key, c| {
                     let failed = matches!(c, Check::Checking { attempt: a, .. } if *a == attempt);
+                    if failed && matches!(c, Check::Checking { was_link: true, .. }) {
+                        *c = Check::Answer { exists: true, at: now };
+                        return true;
+                    }
                     if failed { paths.bytes -= key.len(); }
                     !failed
                 });
@@ -115,9 +124,9 @@ impl Replies {
                 let Some(state) = paths.entries.get_mut(&code) else { continue };
                 let Check::Checking { attempt, was_link } = state else { continue };
                 if *attempt != answer.attempt { continue; }
-                // Another retained row may still draw the previous positive answer. A negative
-                // revalidation must remove that link even if this particular row drew plain code.
-                links |= exists || *was_link;
+                // A recheck never clears the old link while the answer is on its way. Only
+                // a different answer changes what a row draws.
+                links |= exists != *was_link;
                 *state = Check::Answer { exists, at: now };
             }
             if links { paths.rev = paths.rev.wrapping_add(1); changed |= shown == Some(&answer.sid); }
