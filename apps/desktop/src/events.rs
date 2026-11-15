@@ -62,6 +62,8 @@ pub struct Done {
     pub revert: bool,
     /// The session's agent or model, archive or metadata.
     pub info: bool,
+    /// Selection confirmed by this event, before later events in the batch change it.
+    pub selected: Option<Box<pickers::Selection>>,
     /// The session's transcript.
     pub transcript: bool,
     pub renamed: bool,
@@ -100,7 +102,8 @@ impl App {
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             done.revert = self.apply_revert(ty, data, &sid);
         }
-        done.info = self.apply_selected(ty, data, &sid) | self.apply_archive(ty, data, &sid);
+        done.selected = self.apply_selected(ty, data, &sid);
+        done.info = done.selected.is_some() | self.apply_archive(ty, data, &sid);
         if ty == "session.usage.updated" {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
@@ -252,8 +255,8 @@ impl App {
         if ty.starts_with("session.revert.") && !sid.is_empty() {
             changed |= done.revert | self.revert_landed(ty, data, &sid);
         }
-        if matches!(ty, "session.agent.selected" | "session.model.selected") {
-            self.selected_landed(&sid);
+        if let Some(selected) = &done.selected {
+            self.selected_landed(&sid, selected);
         }
         changed |= done.info;
         if matches!(ty, "session.archived" | "session.unarchived") { self.session_search.invalidate(); }
