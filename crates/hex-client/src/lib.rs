@@ -21,11 +21,13 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 mod install;
+mod installed;
 #[cfg(windows)]
 mod mic;
 mod session;
 mod stream;
 pub use install::*;
+pub use installed::installed;
 pub use session::*;
 pub use stream::*;
 
