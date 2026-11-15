@@ -135,9 +135,20 @@ pub(super) fn menu(s: &mut App, id: &str, press: PointerPress, tx: &mut Tx) {
     let id = id.to_owned();
     popup::open(s, menu, press, tx, move |s, pick, tx| match pick {
         Some("rename") => start(s, &id, Source::Menu, tx),
-        Some("close") => s.close_side_tab(&panel_key(super::side_ops::PLUGIN, &id), tx),
+        Some("close") => close(s, &id, tx),
         _ => {}
     });
+}
+
+/// The label menu's Close (`terminal().close(id)`, `terminal/model.ts:551-553`): ends the shell on
+/// the server and the tab leaves as an exited terminal's does, so the panel stays open on a New
+/// tab when it was the last, where closing the panel's tab would shut the panel.
+fn close(s: &mut App, id: &str, tx: &mut Tx) {
+    let ws = s.terminal.workspaces.iter().find(|(_, w)| w.tabs.iter().any(|t| t.id == id)).map(|(k, _)| k.clone());
+    match ws {
+        Some(ws) => s.close_terminal_tab(&ws, id, tx),
+        None => s.close_side_tab(&panel_key(super::side_ops::PLUGIN, id), tx),
+    }
 }
 
 /// What the rename field draws from, for a view that redraws only when it changes: the tab and

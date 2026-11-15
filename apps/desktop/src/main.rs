@@ -1239,7 +1239,7 @@ impl App {
         let dir = if self.settings.open || self.route == Route::Home {
             let project = self
                 .home_selected()
-                .or_else(|| self.used_projects().into_iter().next())
+                .or_else(|| self.last_used_project())
                 .or_else(|| self.projects.first());
             let Some(project) = project else { return };
             Some(project.directory.clone())

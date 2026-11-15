@@ -140,8 +140,9 @@ pub(super) fn new_tab_view(s: &App, p: &Pal, reg: &ResolvedRegion, pane: Session
 /// The side panel's tab and `+` menus, drawn on every platform with the one popover every menu
 /// is built from (`popover::MENU`), at the right-click.
 pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
-    // Desktop's strip menu (`side-region.tsx`): Close tab and Close other tabs, each disabled
-    // when there's nothing it closes; tabs move between panes by dragging.
+    // Desktop's strip menu (`side-region.tsx:375-401`): Close tab, Close other tabs and Close tabs
+    // to the right, each disabled when there's nothing it closes; tabs move between panes by
+    // dragging.
     if let Some((ref target_key, x, y)) = s.side.tab_menu {
         let tk = target_key.clone();
         let reg = s.resolve_side_region();
@@ -159,6 +160,13 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
             })
             .unwrap_or_default();
         let has_others = !others.is_empty();
+        // Close tabs to the right (left, right to left) of the target, in its pane (`after`).
+        let after: Vec<String> = reg
+            .as_ref()
+            .map(|r| r.pane_entries(pane).into_iter().skip_while(|e| e.key != *target_key).skip(1).filter(|e| e.tab.can_close()).map(|e| e.key.clone()).collect())
+            .unwrap_or_default();
+        let has_after = !after.is_empty();
+        let after_label = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { opencode_i18n::t!("common.closeTabsToLeft") } else { opencode_i18n::t!("common.closeTabsToRight") };
 
         let mut rows = col().key("side-tab-menu-rows").w_full().padding(MENU.inset);
         // A browser tab's page: open it in the default browser, or copy its address.
@@ -188,10 +196,17 @@ pub fn context_menus(s: &App, p: &Pal) -> Option<El> {
                 s.side.tab_menu = None;
                 s.close_side_tab(&tk, tx);
             }))
-            .child(menu_row(p, "side-tab-menu-close-others", None, opencode_i18n::t!("common.closeOtherTabs"), "", has_others, move |s: &mut App, tx: &mut Tx| {
+            .child(menu_row(p, "side-tab-menu-close-others", None, opencode_i18n::t!("session.tab.closeOthers"), "", has_others, move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.side.tab_menu = None;
                 for k in &others {
+                    s.close_side_tab(k, tx);
+                }
+            }))
+            .child(menu_row(p, "side-tab-menu-close-after", None, after_label, "", has_after, move |s: &mut App, tx: &mut Tx| {
+                tx.instant();
+                s.side.tab_menu = None;
+                for k in &after {
                     s.close_side_tab(k, tx);
                 }
             }));

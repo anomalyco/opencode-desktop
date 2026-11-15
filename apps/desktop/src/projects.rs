@@ -157,6 +157,12 @@ impl App {
             .collect()
     }
 
+    /// The project this client used last (`projects.last()`, the `lastProjectID` each touch sets),
+    /// whatever the server's activity order says since.
+    pub fn last_used_project(&self) -> Option<&Project> {
+        self.project_state.used.iter().find_map(|id| self.projects.iter().find(|p| &p.id == id))
+    }
+
     /// The organized sidebar's projects (`sidebar-organized.tsx`'s `projects`): those in its order
     /// first, then the other used projects, most recently active first.
     pub fn organized_projects(&self) -> Vec<&Project> {
