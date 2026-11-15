@@ -210,12 +210,14 @@ pub struct Menu {
     /// The location card's rows (`session-location-card`): 2 apart, 8 in on both sides, and the
     /// card 4 to the start of its trigger (`shift={-4}`).
     card: bool,
+    /// Home's row uses a 1 pt dropdown trigger at the pointer, not ContextMenu's virtual point.
+    pointer_trigger: bool,
 }
 
 impl Menu {
     /// `label` names the menu for assistive technology ("Session", "Theme").
     pub fn new(label: impl Into<String>) -> Menu {
-        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None, item_inset: None, card: false }
+        Menu { label: label.into(), entries: Vec::new(), selected: None, align: Align::Start, min_w: MIN_W, width: None, max_h: MAX_H, look: Look::Menu, side: Side::Bottom, remembers_focus: false, search: None, gap: None, item_inset: None, card: false, pointer_trigger: false }
     }
 
     /// A search field over the rows, focused as the menu opens (drawn menus): `rows` builds the
@@ -278,6 +280,7 @@ impl Menu {
     pub fn item_inset(mut self, pad: f32) -> Menu { self.item_inset = Some(pad); self }
     /// The location card's look ([`Menu::card`]'s field).
     pub fn card(mut self) -> Menu { self.card = true; self }
+    pub fn pointer_trigger(mut self) -> Menu { self.pointer_trigger = true; self }
     /// Drawn in menu-v2's standard look, at least `min_w` wide, as Desktop's app menu is.
     pub fn standard(mut self, min_w: f32) -> Menu {
         self.look = Look::Standard;
@@ -601,6 +604,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
+        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(1.0, 1.0)), Align::Start, Side::Bottom),
         // Kobalte's context menu opens `right-start` of the pointer, 2 off it and shifted 2 down
         // (`gutter: 2, shift: 2`, `context-menu-root.tsx`).
         &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).size(0.0, 0.0)), Align::Start, Side::Right),
@@ -739,8 +743,9 @@ fn build(s: Option<&App>, p: &Pal, menu: &Menu, active: Option<usize>, open: Opt
                 // In the location card the rows' own 2 pt gaps are that room (rows 33 apart across
                 // it), and the line is `border-base` scaled to a hairline in its 1 pt box.
                 let line = if menu.card {
-                    col().key(format!("popup-sep-{n}")).h(1.0).mx(-MENU.inset).center_y()
-                        .child(el().key("line").h(0.5).w_full().fill(p.border))
+                    // The transformed CSS rule covers half of its snapped row. Drawing a
+                    // half-height fill snaps it back to a whole, full-strength device row.
+                    el().key(format!("popup-sep-{n}")).h(1.0).mx(-MENU.inset).fill(p.border.alpha(p.border.a * 0.5))
                 } else {
                     col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset)
                         .child(el().key("line").h(1.0).w_full().fill(p.border_muted))

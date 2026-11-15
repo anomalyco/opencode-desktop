@@ -273,7 +273,7 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
 
 /// The folder row's room for its path in the 320 card: less the card's inset, the row's
 /// padding, the glyph, the chevron and their gaps.
-const PATH_W: f32 = 320.0 - 4.0 - 12.0 - 6.0 - 16.0 - 8.0 - 8.0 - 16.0;
+const PATH_W: f32 = 320.0 - 4.0 - 8.0 - 8.0 - 16.0 - 8.0 - 8.0 - 16.0;
 
 /// `path` cut in the middle to fit `max` (the folder row's `bdi`): the parent folders shrink
 /// behind an ellipsis, the last folder stays whole.

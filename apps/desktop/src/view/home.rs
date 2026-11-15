@@ -369,7 +369,9 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         .on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav, index, ev))
         .child(parts.avatar);
     if marked {
-        r = r.fill(p.hover);
+        // Keep the single hover wash while the drawn menu covers its trigger. The pointer
+        // can still be over the row; do not composite the translucent ink a second time.
+        r = r.fill(p.hover).hover(rune::Color::TRANSPARENT);
     }
     // Home's rename field is 13 on 24 (home/sessions/view.tsx's InlineInput in its 24 pt row).
     let labels = match crate::session_menu_view::field(s, p, &target, UI_MED.lh(24.0)) {

@@ -218,7 +218,10 @@ fn open_with(s: &mut App, t: Target, at: impl Into<PopupAnchor>, dialog: bool, t
     let at = at.into();
     // The header's "…" opens 6 under it (`message-timeline.tsx`: `gutter={6}`).
     let dots = t.spot == Spot::Header && matches!(at, PopupAnchor::Key(_));
-    let menu = if dots { menu(&lines).gap(6.0) } else { menu(&lines) };
+    let menu = if dots { menu(&lines).gap(6.0) } else if t.spot == Spot::Row && !dialog {
+        // home/sessions/view.tsx: Menu.Trigger is a size-px span placed at the press.
+        menu(&lines).pointer_trigger()
+    } else { menu(&lines) };
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         s.menus.on = None;
         tx.instant();
