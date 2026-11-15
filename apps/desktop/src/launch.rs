@@ -486,6 +486,8 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 #[cfg_attr(feature = "hot", allow(dead_code))]
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() { s.launch.network_change = (*s.waker).clone().and_then(network::subscribe); }
+    // The dormant built-ins' app menu rows and keys, before the menu bar lists them.
+    crate::plugin_host::doze_owed(s);
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
