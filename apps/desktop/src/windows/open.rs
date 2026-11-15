@@ -202,10 +202,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
                 s.taskbar_focused();
             }
         })
-        // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
-        // closing the last window does; the second call of the two does nothing.
+        // Preparing a quit is not permission to dispose the updater or start its helper.
         .on_quit(|s, _| {
-            s.updater.closing();
             s.save_on_quit();
         })
         .on_close(|s, _| {

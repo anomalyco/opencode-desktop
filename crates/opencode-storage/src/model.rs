@@ -112,7 +112,13 @@ pub struct FlushReport {
     pub timed_out: bool,
     /// The final drain or a required disk barrier failed. Never report this as a saved quit.
     pub unconfirmed: bool,
+    /// Only acquisition and completion of a final persistent-writer barrier sets this. Memory
+    /// mode, a timeout and an ordinary flush can never authorize a destructive exit handoff.
+    pub final_barrier: FinalBarrier,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FinalBarrier { #[default] NoReceipt, Confirmed }
 
 /// The legacy files, in the groups the app's packages cut over one at a time. A group's files
 /// are imported, verified and retired only once the running build names the group

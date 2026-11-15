@@ -134,12 +134,12 @@ impl Platform for Mac {
     }
 
     fn install(&self) -> Result<(), String> {
-        self.apply()
-    }
-
-    /// The swapped bundle sits where this one ran, so the app's own relaunch opens it.
-    fn relaunches(&self) -> bool {
-        true
+        self.apply()?;
+        // This is reached only after the save receipt. Launch the newly swapped bundle; as
+        // with Rune's relauncher, its main waits for this process before proceeding.
+        let status = Command::new("/usr/bin/open").arg("-n").arg(&self.bundle.path)
+            .arg("--env").arg(format!("RUNE_RELAUNCH_AFTER={}", std::process::id())).status().map_err(|e| e.to_string())?;
+        if status.success() { Ok(()) } else { Err(format!("could not launch the installed update: {status}")) }
     }
 
     fn auto_install(&self) -> bool {
