@@ -3,7 +3,7 @@ id = "updater"
 name = "Updater"
 version = "1.0.0"
 contract = "1.0"
-description = "Keeps OpenCode current: Settings > Updates, the update pill, Check for Updates…, and What's new after an update"
+description = "Keeps OpenCode current: Settings > Updates, the update toast, Check for Updates…, and What's new after an update"
 app = "app.luau"
 
 # Whether What's New shows after an update.
@@ -13,6 +13,10 @@ name = "releaseNotes"
 # The version whose What's New was last shown or skipped, and its commit.
 [[stores]]
 name = "seen"
+
+# The update version last announced in a toast, which never toasts again.
+[[stores]]
+name = "updateNotice"
 
 [[settings_search]]
 id = "settings-release-notes"
