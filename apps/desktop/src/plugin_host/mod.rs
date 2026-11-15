@@ -513,6 +513,21 @@ fn start_one_later(app: &mut App, tx: &mut Tx) {
         app.later(Box::new(start_one_later));
         return;
     }
+    // In pieces, one a turn: its app half first, then the rest, so the input that comes meanwhile
+    // waits for one piece.
+    let first = &app.plugins.later[0];
+    if let Some(entry) = first.manifest.app.clone()
+        && !app_half::runs(&first.manifest.id)
+        && stores::answers_for(&first.manifest.id)
+    {
+        let files = first.origin.files();
+        let (manifest, catalogs) = (first.manifest.clone(), first.origin.catalogs(&files));
+        let sources = first.origin.scripts(&files, &manifest.id, &entry);
+        app_half::ensure(app, &manifest, &files, catalogs, sources);
+        app.later(Box::new(start_one_later));
+        tx.instant();
+        return;
+    }
     let found = app.plugins.later.remove(0);
     adopt(app, vec![found]);
     if !app.plugins.later.is_empty() {
@@ -642,6 +657,23 @@ fn start(app: &mut App, i: usize) {
         return;
     }
     start_loaded(app, i);
+}
+
+/// The first piece of a dormant built-in's start in idle time (`dormant::poll`): its app half,
+/// when it has one that doesn't run yet and its values are in memory. True when it started it.
+pub(super) fn start_app_half(app: &mut App, id: &str) -> bool {
+    let Some(i) = app.plugins.find(id) else { return false };
+    let p = &app.plugins.list[i];
+    let Some(entry) = p.manifest.app.clone() else { return false };
+    if app_half::runs(id) || !stores::answers_for(id) {
+        return false;
+    }
+    let files = p.origin.files();
+    let catalogs = p.origin.catalogs(&files);
+    let manifest = p.manifest.clone();
+    let sources = p.origin.scripts(&files, &manifest.id, &entry);
+    app_half::ensure(app, &manifest, &files, catalogs, sources);
+    true
 }
 
 /// [`start`] once plugin `i`'s values are in memory.

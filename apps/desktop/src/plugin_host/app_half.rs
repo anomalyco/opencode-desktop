@@ -44,6 +44,11 @@ pub fn ensure(app: &App, manifest: &Manifest, files: &[(String, String)], catalo
     HALVES.with_borrow_mut(|h| h.push(AppHalf { script, half }));
 }
 
+/// Whether plugin `id`'s app half runs.
+pub fn runs(id: &str) -> bool {
+    HALVES.with_borrow(|h| h.iter().any(|a| &*a.half.id == id))
+}
+
 /// Stops plugin `id`'s app half (it turned off).
 pub fn stop(id: &str) {
     let gone = HALVES.with_borrow_mut(|h| h.iter().position(|a| &*a.half.id == id).map(|i| h.remove(i)));
