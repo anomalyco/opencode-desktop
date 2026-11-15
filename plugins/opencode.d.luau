@@ -187,7 +187,7 @@ export type ToastActionVariant = "primary" | "secondary"
 export type OfficeSignature = "zip" | "compound" | "other" | "unreadable"
 
 --- Where the app updater stands.
-export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "installing" | "error"
+export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "download-required" | "installing" | "error"
 
 --- What a `UiEvent` reports.
 export type UiEventKind = "press" | "middle-press" | "hover" | "submit" | "change" | "select" | "visible-rows"
@@ -5106,9 +5106,9 @@ export type OfficeService = {
 export type UpdaterService = {
     --- Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves.
     State: (self: UpdaterService) -> UpdaterState?,
-    --- Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way. Yields: call it from a handler, a task or a signal callback.
+    --- Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `download-required`, `error`, or the work under way. Yields: call it from a handler, a task or a signal callback.
     CheckAsync: (self: UpdaterService) -> UpdaterState,
-    --- Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not. Yields: call it from a handler, a task or a signal callback.
+    --- Restarts into the ready version, or opens a required download's page: resumes with nil once it handed off (a restart then quits the app on its own), else why it could not. Yields: call it from a handler, a task or a signal callback.
     InstallAsync: (self: UpdaterService) -> string?,
     --- Fires with each new state.
     StateChanged: Signal<UpdaterState?>,

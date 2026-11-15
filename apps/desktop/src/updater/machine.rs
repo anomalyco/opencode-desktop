@@ -3,8 +3,10 @@
 //! listed by waiter id in the phase that will answer them; `issued` and each phase's `attempt`
 //! fence platform results, so a stale result never moves the machine.
 //!
-//! Desktop's external-download mode (Beta moving to Stable) has no counterpart here: every
-//! update installs on restart.
+//! Updates come in Desktop's two modes (`UpdateTarget`): `Restart`, which downloads and stages
+//! the release then restarts into it (macOS, Windows), and `External`, a release this install
+//! can't put in place by itself, whose download the user opens (`download-required`; Linux, where
+//! the AppImage, `.deb` and `.rpm` update by hand).
 //!
 //! The machine starts in `Starting` while the worker thread finds out whether this build updates
 //! at all (Desktop knows that at build time; here it reads the install and its signature, which
@@ -12,6 +14,15 @@
 
 pub type Waiter = u64;
 pub type Attempt = u64;
+
+/// What a check found newer than the running build (`machine.ts` `UpdateTarget`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// Download and stage it, then restart into it.
+    Restart(String),
+    /// Offer its download, at `url`.
+    External { version: String, url: String },
+}
 
 /// What windows see (`UpdaterState`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +37,8 @@ pub enum View {
     Downloading(String),
     UpToDate,
     Ready(String),
+    /// A newer release to download by hand.
+    DownloadRequired(String),
     Installing(String),
     Error(String),
 }
@@ -35,6 +48,15 @@ pub struct Meta {
     pub current: String,
     /// The last attempt id issued; a result for any other attempt is stale.
     pub issued: Attempt,
+    /// The platform can open an external download (`canExternalInstall`).
+    pub external: bool,
+}
+
+/// A silent check while an external download stays offered (`ExternalRefresh`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalRefresh {
+    pub attempt: Attempt,
+    pub waiters: Vec<Waiter>,
 }
 
 /// A silent check, then maybe a download of a newer release, while a staged update stays
@@ -45,14 +67,18 @@ pub enum Refresh {
     Staging { attempt: Attempt, next: String, waiters: Vec<Waiter> },
 }
 
-/// The step an installation is at: a last check for a newer release, maybe its download, then
-/// the restart handoff; `Quitting` holds once the app quits into the update.
+/// The step an installation is at (`InstallingPlan`). A restart: a last check for a newer
+/// release, maybe its download, then the restart handoff; `Quitting` holds once the app quits
+/// into the update. An external install: a last check that its download is still current
+/// (`ExternalChecking`), then opening it (`Opening`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Plan {
     Checking { attempt: Attempt, waiters: Vec<Waiter> },
     Staging { attempt: Attempt, next: String, waiters: Vec<Waiter> },
     Restarting { attempt: Attempt },
     Quitting,
+    ExternalChecking { url: String, attempt: Attempt, waiters: Vec<Waiter> },
+    Opening { url: String, attempt: Attempt },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +90,7 @@ pub enum State {
     Downloading { meta: Meta, attempt: Attempt, version: String, waiters: Vec<Waiter> },
     UpToDate(Meta),
     Ready { meta: Meta, version: String, refresh: Option<Refresh> },
+    DownloadRequired { meta: Meta, version: String, url: String, refresh: Option<ExternalRefresh> },
     Installing { meta: Meta, version: String, plan: Plan, installs: Vec<Waiter> },
     Error { meta: Meta, message: String },
     Disposed(View),
@@ -72,20 +99,22 @@ pub enum State {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// The worker made the platform updater: the running build's version, and the release an
-    /// earlier run staged (`ready`), if any.
-    Started { current: String, persisted: Option<String> },
+    /// earlier run staged (`ready`), if any, and whether it can open an external download.
+    Started { current: String, persisted: Option<String>, external: bool },
     /// This build has no updater.
     Unavailable,
     CheckRequested(Waiter),
     InstallRequested(Waiter),
     WaiterCancelled(Waiter),
     /// The feed's current release when it differs from the running one, `None` when up to date.
-    CheckSucceeded(Attempt, Option<String>),
+    CheckSucceeded(Attempt, Option<Target>),
     CheckFailed(Attempt, String),
     StageSucceeded(Attempt),
     StageFailed(Attempt, String),
     RestartSucceeded(Attempt),
     RestartFailed(Attempt, String),
+    ExternalSucceeded(Attempt),
+    ExternalFailed(Attempt, String),
     Disposed,
 }
 
@@ -94,6 +123,8 @@ pub enum Effect {
     Check(Attempt),
     Stage(Attempt),
     Restart(Attempt),
+    /// Open the external download at the URL.
+    External(Attempt, String),
     Cancel(Attempt),
     PersistSet(String),
     PersistClear,
@@ -119,6 +150,7 @@ pub fn view(state: &State) -> View {
         State::Downloading { version, .. } => View::Downloading(version.clone()),
         State::UpToDate(_) => View::UpToDate,
         State::Ready { version, .. } => View::Ready(version.clone()),
+        State::DownloadRequired { version, .. } => View::DownloadRequired(version.clone()),
         State::Installing { version, .. } => View::Installing(version.clone()),
         State::Error { message, .. } => View::Error(message.clone()),
         State::Disposed(last) => last.clone(),
@@ -157,14 +189,15 @@ pub fn transition(state: &State, event: Event) -> Transition {
 
 const NOT_READY: &str = "Update is not ready to install";
 const STOPPED: &str = "Updater stopped";
+const EXTERNAL_UNAVAILABLE: &str = "External installer is unavailable";
 
 // A persisted release the running build is was installed, so it's forgotten. Checks asked while
 // starting run now.
 fn starting(waiters: &[Waiter], event: Event) -> Transition {
     match event {
-        Event::Started { current, persisted } => {
+        Event::Started { current, persisted, external } => {
             let mut effects = if persisted.as_deref() == Some(current.as_str()) { vec![Effect::PersistClear] } else { Vec::new() };
-            let idle = State::Idle(Meta { current, issued: 0 });
+            let idle = State::Idle(Meta { current, issued: 0, external });
             if waiters.is_empty() {
                 return (idle, effects);
             }
@@ -209,8 +242,13 @@ fn dispose(state: &State) -> Transition {
 fn meta(state: &State) -> Meta {
     match state {
         State::Idle(m) | State::UpToDate(m) => m.clone(),
-        State::Checking { meta, .. } | State::Downloading { meta, .. } | State::Ready { meta, .. } | State::Installing { meta, .. } | State::Error { meta, .. } => meta.clone(),
-        State::Starting { .. } | State::Disabled | State::Disposed(_) => Meta { current: String::new(), issued: 0 },
+        State::Checking { meta, .. }
+        | State::Downloading { meta, .. }
+        | State::Ready { meta, .. }
+        | State::DownloadRequired { meta, .. }
+        | State::Installing { meta, .. }
+        | State::Error { meta, .. } => meta.clone(),
+        State::Starting { .. } | State::Disabled | State::Disposed(_) => Meta { current: String::new(), issued: 0, external: false },
     }
 }
 
@@ -243,6 +281,16 @@ fn check_requested(state: &State, w: Waiter) -> Transition {
             let (meta, attempt) = issue(state);
             (State::Ready { meta, version: version.clone(), refresh: Some(Refresh::Checking { attempt, waiters: vec![w] }) }, vec![Effect::Check(attempt)])
         }
+        // An offered download stays on screen too.
+        State::DownloadRequired { meta, version, url, refresh: Some(r) } => {
+            let refresh = ExternalRefresh { attempt: r.attempt, waiters: plus(&r.waiters, w) };
+            (State::DownloadRequired { meta: meta.clone(), version: version.clone(), url: url.clone(), refresh: Some(refresh) }, Vec::new())
+        }
+        State::DownloadRequired { version, url, refresh: None, .. } => {
+            let (meta, attempt) = issue(state);
+            let refresh = ExternalRefresh { attempt, waiters: vec![w] };
+            (State::DownloadRequired { meta, version: version.clone(), url: url.clone(), refresh: Some(refresh) }, vec![Effect::Check(attempt)])
+        }
         // An installation is underway: report it without checking again.
         _ => with_checks(state.clone(), vec![w], Vec::new()),
     }
@@ -266,6 +314,17 @@ fn install_requested(state: &State, w: Waiter) -> Transition {
             let (meta, attempt) = issue(state);
             (State::Installing { meta, version: version.clone(), plan: Plan::Checking { attempt, waiters: Vec::new() }, installs: vec![w] }, vec![Effect::Check(attempt)])
         }
+        State::DownloadRequired { meta, .. } if !meta.external => (state.clone(), vec![Effect::RejectInstalls(vec![w], EXTERNAL_UNAVAILABLE.into())]),
+        // A silent check already running becomes the install's last check.
+        State::DownloadRequired { meta, version, url, refresh: Some(r) } => {
+            let plan = Plan::ExternalChecking { url: url.clone(), attempt: r.attempt, waiters: r.waiters.clone() };
+            (State::Installing { meta: meta.clone(), version: version.clone(), plan, installs: vec![w] }, Vec::new())
+        }
+        State::DownloadRequired { version, url, refresh: None, .. } => {
+            let (meta, attempt) = issue(state);
+            let plan = Plan::ExternalChecking { url: url.clone(), attempt, waiters: Vec::new() };
+            (State::Installing { meta, version: version.clone(), plan, installs: vec![w] }, vec![Effect::Check(attempt)])
+        }
         _ => (state.clone(), vec![Effect::RejectInstalls(vec![w], NOT_READY.into())]),
     }
 }
@@ -276,9 +335,10 @@ fn waiter_cancelled(state: &State, w: Waiter) -> Transition {
     match &mut next {
         State::Checking { waiters, .. } | State::Downloading { waiters, .. } => waiters.retain(|x| *x != w),
         State::Ready { refresh: Some(Refresh::Checking { waiters, .. } | Refresh::Staging { waiters, .. }), .. } => waiters.retain(|x| *x != w),
+        State::DownloadRequired { refresh: Some(r), .. } => r.waiters.retain(|x| *x != w),
         State::Installing { plan, installs, .. } => {
             installs.retain(|x| *x != w);
-            if let Plan::Checking { waiters, .. } | Plan::Staging { waiters, .. } = plan {
+            if let Plan::Checking { waiters, .. } | Plan::Staging { waiters, .. } | Plan::ExternalChecking { waiters, .. } = plan {
                 waiters.retain(|x| *x != w);
             }
         }
@@ -300,6 +360,15 @@ fn settle(state: &State, event: Event) -> Transition {
             _ => (state.clone(), Vec::new()),
         },
         State::Ready { meta, version, refresh: Some(refresh) } => refresh_settled(meta, version, refresh, state, event),
+        State::DownloadRequired { meta, version, url, refresh: Some(r) } => match event {
+            Event::CheckSucceeded(_, target) => discovered(state, target, r.waiters.clone()),
+            Event::CheckFailed(_, message) => {
+                let offered = State::DownloadRequired { meta: meta.clone(), version: version.clone(), url: url.clone(), refresh: None };
+                with_checks(offered, r.waiters.clone(), vec![external_refresh_failed(&message)])
+            }
+            _ => (state.clone(), Vec::new()),
+        },
+        State::Installing { meta, version, plan: plan @ (Plan::ExternalChecking { .. } | Plan::Opening { .. }), installs } => external_settled(meta, version, plan, installs, state, event),
         State::Installing { meta, version, plan, installs } => restart_settled(meta, version, plan, installs, state, event),
         _ => (state.clone(), Vec::new()),
     }
@@ -309,10 +378,10 @@ fn refresh_settled(meta: &Meta, version: &str, refresh: &Refresh, state: &State,
     let ready = State::Ready { meta: meta.clone(), version: version.to_owned(), refresh: None };
     match (refresh, event) {
         (Refresh::Checking { waiters, .. }, Event::CheckSucceeded(_, target)) => {
-            if keeps_staged(meta, version, target.as_deref()) {
+            if keeps_staged(meta, version, target.as_ref()) {
                 return with_checks(ready, waiters.clone(), Vec::new());
             }
-            let next = target.unwrap_or_default();
+            let Some(Target::Restart(next)) = target else { return discovered(state, target, waiters.clone()) };
             let (meta, attempt) = issue(state);
             (State::Ready { meta, version: version.to_owned(), refresh: Some(Refresh::Staging { attempt, next, waiters: waiters.clone() }) }, vec![Effect::Stage(attempt)])
         }
@@ -330,10 +399,19 @@ fn refresh_settled(meta: &Meta, version: &str, refresh: &Refresh, state: &State,
 fn restart_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter], state: &State, event: Event) -> Transition {
     match (plan, event) {
         (Plan::Checking { waiters, .. }, Event::CheckSucceeded(_, target)) => {
-            if keeps_staged(meta, version, target.as_deref()) {
+            if keeps_staged(meta, version, target.as_ref()) {
                 return restart(state, version, waiters.clone(), Vec::new());
             }
-            let next = target.unwrap_or_else(|| version.to_owned());
+            // A check that finds an external download instead cancels the restart, so the app
+            // never quits into a superseded staged update.
+            let next = match target {
+                Some(Target::Restart(next)) => next,
+                external => {
+                    let (next, mut effects) = discovered(state, external, waiters.clone());
+                    effects.push(Effect::ResolveInstalls(installs.to_vec()));
+                    return (next, effects);
+                }
+            };
             let (meta, attempt) = issue(state);
             let plan = Plan::Staging { attempt, next, waiters: waiters.clone() };
             (State::Installing { meta, version: version.to_owned(), plan, installs: installs.to_vec() }, vec![Effect::Stage(attempt)])
@@ -354,16 +432,45 @@ fn restart_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter],
     }
 }
 
+// The external installer opens the current download only. Once it opened, or failed to, the
+// download stays offered: the app keeps running, so the user can open it again.
+fn external_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter], state: &State, event: Event) -> Transition {
+    let offered = |version: &str, url: &str| State::DownloadRequired { meta: meta.clone(), version: version.to_owned(), url: url.to_owned(), refresh: None };
+    match (plan, event) {
+        (Plan::ExternalChecking { waiters, .. }, Event::CheckSucceeded(_, Some(Target::External { version, url }))) => open(state, &version, &url, waiters.clone(), Vec::new()),
+        (Plan::ExternalChecking { waiters, .. }, Event::CheckSucceeded(_, target)) => {
+            let (next, mut effects) = discovered(state, target, waiters.clone());
+            effects.push(Effect::RejectInstalls(installs.to_vec(), EXTERNAL_UNAVAILABLE.into()));
+            (next, effects)
+        }
+        (Plan::ExternalChecking { url, waiters, .. }, Event::CheckFailed(_, message)) => open(state, version, url, waiters.clone(), vec![external_refresh_failed(&message)]),
+        (Plan::Opening { url, .. }, Event::ExternalSucceeded(_)) => (offered(version, url), vec![Effect::ResolveInstalls(installs.to_vec())]),
+        (Plan::Opening { url, .. }, Event::ExternalFailed(_, message)) => (offered(version, url), vec![Effect::RejectInstalls(installs.to_vec(), message)]),
+        _ => (state.clone(), Vec::new()),
+    }
+}
+
 // What a fresh check found when no staged update is kept.
-fn discovered(state: &State, target: Option<String>, waiters: Vec<Waiter>) -> Transition {
+fn discovered(state: &State, target: Option<Target>, waiters: Vec<Waiter>) -> Transition {
     let m = meta(state);
     match target {
-        Some(version) if version != m.current => {
+        Some(Target::Restart(version)) if version != m.current => {
             let (meta, attempt) = issue(state);
             (State::Downloading { meta, attempt, version, waiters }, vec![Effect::Stage(attempt)])
         }
+        Some(Target::External { version, url }) => with_checks(State::DownloadRequired { meta: m, version, url, refresh: None }, waiters, vec![Effect::PersistClear]),
         _ => with_checks(State::UpToDate(m), waiters, vec![Effect::PersistClear]),
     }
+}
+
+fn open(state: &State, version: &str, url: &str, waiters: Vec<Waiter>, mut effects: Vec<Effect>) -> Transition {
+    let (meta, attempt) = issue(state);
+    let installs = match state {
+        State::Installing { installs, .. } => installs.clone(),
+        _ => Vec::new(),
+    };
+    effects.push(Effect::External(attempt, url.to_owned()));
+    with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::Opening { url: url.to_owned(), attempt }, installs }, waiters, effects)
 }
 
 fn restart(state: &State, version: &str, waiters: Vec<Waiter>, mut effects: Vec<Effect>) -> Transition {
@@ -376,13 +483,24 @@ fn restart(state: &State, version: &str, waiters: Vec<Waiter>, mut effects: Vec<
     with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::Restarting { attempt }, installs }, waiters, effects)
 }
 
-fn keeps_staged(meta: &Meta, staged: &str, target: Option<&str>) -> bool {
-    target.is_none_or(|t| t == staged || t == meta.current)
+fn keeps_staged(meta: &Meta, staged: &str, target: Option<&Target>) -> bool {
+    match target {
+        None => true,
+        Some(Target::Restart(t)) => t == staged || *t == meta.current,
+        Some(Target::External { .. }) => false,
+    }
 }
 
 fn attempt_of(event: &Event) -> Option<Attempt> {
     match event {
-        Event::CheckSucceeded(a, _) | Event::CheckFailed(a, _) | Event::StageSucceeded(a) | Event::StageFailed(a, _) | Event::RestartSucceeded(a) | Event::RestartFailed(a, _) => Some(*a),
+        Event::CheckSucceeded(a, _)
+        | Event::CheckFailed(a, _)
+        | Event::StageSucceeded(a)
+        | Event::StageFailed(a, _)
+        | Event::RestartSucceeded(a)
+        | Event::RestartFailed(a, _)
+        | Event::ExternalSucceeded(a)
+        | Event::ExternalFailed(a, _) => Some(*a),
         _ => None,
     }
 }
@@ -391,7 +509,11 @@ fn active_attempt(state: &State) -> Option<Attempt> {
     match state {
         State::Checking { attempt, .. } | State::Downloading { attempt, .. } => Some(*attempt),
         State::Ready { refresh: Some(Refresh::Checking { attempt, .. } | Refresh::Staging { attempt, .. }), .. } => Some(*attempt),
-        State::Installing { plan: Plan::Checking { attempt, .. } | Plan::Staging { attempt, .. } | Plan::Restarting { attempt }, .. } => Some(*attempt),
+        State::DownloadRequired { refresh: Some(r), .. } => Some(r.attempt),
+        State::Installing {
+            plan: Plan::Checking { attempt, .. } | Plan::Staging { attempt, .. } | Plan::Restarting { attempt } | Plan::ExternalChecking { attempt, .. } | Plan::Opening { attempt, .. },
+            ..
+        } => Some(*attempt),
         _ => None,
     }
 }
@@ -400,13 +522,18 @@ fn check_waiters(state: &State) -> Vec<Waiter> {
     match state {
         State::Starting { waiters } | State::Checking { waiters, .. } | State::Downloading { waiters, .. } => waiters.clone(),
         State::Ready { refresh: Some(Refresh::Checking { waiters, .. } | Refresh::Staging { waiters, .. }), .. } => waiters.clone(),
-        State::Installing { plan: Plan::Checking { waiters, .. } | Plan::Staging { waiters, .. }, .. } => waiters.clone(),
+        State::DownloadRequired { refresh: Some(r), .. } => r.waiters.clone(),
+        State::Installing { plan: Plan::Checking { waiters, .. } | Plan::Staging { waiters, .. } | Plan::ExternalChecking { waiters, .. }, .. } => waiters.clone(),
         _ => Vec::new(),
     }
 }
 
 fn staged_refresh_failed(staged: &str, message: &str) -> Effect {
     Effect::Log(true, format!("updater refresh failed, keeping staged update {staged}: {message}"))
+}
+
+fn external_refresh_failed(message: &str) -> Effect {
+    Effect::Log(true, format!("external updater refresh failed, keeping download available: {message}"))
 }
 
 fn plus(waiters: &[Waiter], w: Waiter) -> Vec<Waiter> {

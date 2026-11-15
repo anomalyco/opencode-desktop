@@ -2,7 +2,7 @@
 -- Desktop's built-in Updater plugin (`packages/gui-plugins/src/updater`, `renderer.tsx`): the
 -- update pill in the titlebar or the sidebar's footer while an update is ready or installing,
 -- Preferences > Updates (Release notes, Check for updates), the hidden Check for Updates…
--- command, the checking, up-to-date, Update Ready and Request failed toasts, Settings > What's
+-- command, the checking, up-to-date, Update Ready, Update Available and Request failed toasts, Settings > What's
 -- new in builds that carry their notes, and What's New after an update. The host's updater does
 -- the work (`Updater`); this window's own requests follow `machine.luau` (`window-machine.ts`).
 
@@ -72,6 +72,20 @@ return plugin.defineWindow(function(ctx)
                     { label = I18n:T("dialog.later"), variant = "secondary" },
                 },
             })
+        elseif state.phase == "download-required" then
+            -- A release this install can't put in place by itself (Linux): Download opens it.
+            -- Desktop confirms its one such download (Beta moving to Stable) in a dialog.
+            Toast:Show({
+                title = I18n:T("dialog.available.title"),
+                description = I18n:T("dialog.available.message", { version = state.version or "" }),
+                persistent = true,
+                actions = {
+                    { label = I18n:T("action.download"), variant = "primary", run = function()
+                        task.spawn(install)
+                    end },
+                    { label = I18n:T("dialog.later"), variant = "secondary" },
+                },
+            })
         elseif state.phase == "error" then
             requestFailed(state.error)
         end
@@ -112,7 +126,7 @@ return plugin.defineWindow(function(ctx)
         show = function()
             local state = Updater:State()
             local phase = state and state.phase
-            if phase ~= "ready" and phase ~= "installing" then
+            if phase ~= "ready" and phase ~= "download-required" and phase ~= "installing" then
                 return nil
             end
             return {

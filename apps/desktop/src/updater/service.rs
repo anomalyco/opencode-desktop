@@ -3,7 +3,7 @@
 //! updater UI).
 //!
 //! - **State** ([`Snapshot`]): the machine's view (`UpdaterState`: disabled, idle, checking,
-//!   downloading, up to date, ready, installing, error), the download's [`Progress`], and the
+//!   downloading, up to date, ready, download required, installing, error), the download's [`Progress`], and the
 //!   running version and feed channel. [`UpdaterService::revision`] grows whenever any of it
 //!   changes.
 //! - **Actions**: [`UpdaterService::check`] and [`UpdaterService::install`] each return a
@@ -72,6 +72,7 @@ enum Job {
     Check(Attempt),
     Stage(Attempt),
     Install(Attempt),
+    External(Attempt, String),
 }
 
 enum Message {
@@ -246,6 +247,7 @@ impl UpdaterService {
             Effect::Check(a) => self.send(Job::Check(a)),
             Effect::Stage(a) => self.send(Job::Stage(a)),
             Effect::Restart(a) => self.send(Job::Install(a)),
+            Effect::External(a, url) => self.send(Job::External(a, url)),
             // A blocking platform call can't be stopped; its stale result is fenced by its attempt.
             Effect::Cancel(_) => {}
             // The staged version (`ready`), in the app's state: memory now, the storage behind.
@@ -300,7 +302,7 @@ impl Worker {
         };
         let persisted = crate::storage::json(super::engine::NAMESPACE, "ready").and_then(|v| v.as_str().map(str::to_owned)).filter(|v| !v.is_empty());
         eprintln!("updater: up in {} µs, off the UI thread", started.elapsed().as_micros());
-        self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted }));
+        self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted, external: platform.external() }));
         let mut next_check = Instant::now() + feed::initial_delay();
         loop {
             match jobs.recv_timeout(next_check.saturating_duration_since(Instant::now())) {
@@ -327,6 +329,13 @@ impl Worker {
                     let event = match platform.install() {
                         Ok(()) => Event::RestartSucceeded(a),
                         Err(e) => Event::RestartFailed(a, e),
+                    };
+                    self.send(Message::Event(event));
+                }
+                Ok(Job::External(a, url)) => {
+                    let event = match platform.external_install(&url) {
+                        Ok(()) => Event::ExternalSucceeded(a),
+                        Err(e) => Event::ExternalFailed(a, e),
                     };
                     self.send(Message::Event(event));
                 }

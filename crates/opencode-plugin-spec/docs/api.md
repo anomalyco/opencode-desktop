@@ -448,8 +448,8 @@ The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and 
 | Member | Type | Description |
 |---|---|---|
 | `:State` | `() -> UpdaterState?` | Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves. |
-| `:CheckAsync` | `() -> UpdaterState` | Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way. Yields. |
-| `:InstallAsync` | `() -> string?` | Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not. Yields. |
+| `:CheckAsync` | `() -> UpdaterState` | Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `download-required`, `error`, or the work under way. Yields. |
+| `:InstallAsync` | `() -> string?` | Restarts into the ready version, or opens a required download's page: resumes with nil once it handed off (a restart then quits the app on its own), else why it could not. Yields. |
 | `.StateChanged` | `Signal<UpdaterState?>` | Fires with each new state. |
 
 ### Diagnostics
@@ -1130,6 +1130,7 @@ Where the app updater stands.
 | `"up-to-date"` | This is the newest version. |
 | `"downloading"` | Downloading the update. `progress` says how far. |
 | `"ready"` | Downloaded. `Install` restarts into it. |
+| `"download-required"` | A newer version this install can't update to by itself (Linux). `Install` opens its download. |
 | `"installing"` | Installing. |
 | `"error"` | Failed. `error` says why. |
 

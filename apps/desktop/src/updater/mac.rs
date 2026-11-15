@@ -88,8 +88,8 @@ impl Platform for Mac {
         &self.bundle.version
     }
 
-    fn check(&self) -> Result<Option<String>, String> {
-        self.engine.check()
+    fn check(&self) -> Result<Option<super::machine::Target>, String> {
+        Ok(self.engine.check()?.map(super::machine::Target::Restart))
     }
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
