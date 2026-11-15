@@ -233,15 +233,23 @@ pub fn settle_held(tx: &mut Tx, held: Option<&(String, String, f32)>) {
 }
 
 /// Records whether session `id`'s timeline stands far enough up to show the button.
-fn far<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) + 'static {
+fn far<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) -> bool + 'static {
     let id = id.to_owned();
-    move |s: &mut S, far| if s.ends().moves(&id, Event::Far(far)) { s.ends_mut().set_far(&id, far) }
+    move |s: &mut S, far| {
+        let moved = s.ends().moves(&id, Event::Far(far));
+        if moved { s.ends_mut().set_far(&id, far); }
+        moved
+    }
 }
 
 /// Records whether session `id`'s timeline shows its end.
-fn at_end<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) + 'static {
+fn at_end<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) -> bool + 'static {
     let id = id.to_owned();
-    move |s: &mut S, at| if s.ends().moves(&id, Event::AtEnd(at)) { s.ends_mut().set_at_end(&id, at) }
+    move |s: &mut S, at| {
+        let moved = s.ends().moves(&id, Event::AtEnd(at));
+        if moved { s.ends_mut().set_at_end(&id, at); }
+        moved
+    }
 }
 
 /// The button as it stands: frosted glass, the timeline blurred at 2 pt under bg-base at 92%
@@ -320,10 +328,8 @@ pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El
         // Rune's scroll bar, under the jump button and pills, which keep their presses where
         // they overlap it.
         .child(col().key("timeline-fade").grow(1.0).shrink().w_full().clip_fade_linear(0.0, 0.0, 0.0, edge)
-            .child(match s.timeline_frame() {
-                Some(frame) => scroll.on_far_from_bottom_under(THRESHOLD, frame, far::<S>(id)),
-                None => scroll.on_far_from_bottom(THRESHOLD, far::<S>(id)),
-            }.on_at_bottom(at_end::<S>(id))
+            .child(scroll.on_far_from_bottom_if(THRESHOLD, s.timeline_frame(), far::<S>(id))
+                .on_at_bottom_if(at_end::<S>(id))
                 .scroll_bar_styled(crate::palette::scroll_bar(p).hover_target())))
         .child(row().key("jump-lane").pin(Some(0.0), None, Some(0.0), Some(GAP)).px(DOCK_SIDE).center().child(lane))
         .children(centred)
