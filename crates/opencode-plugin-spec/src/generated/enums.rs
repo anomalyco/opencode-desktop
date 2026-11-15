@@ -608,6 +608,8 @@ string_enum! {
         Downloading = "downloading",
         /// Downloaded. `Install` restarts into it.
         Ready = "ready",
+        /// A newer version this install can't update to by itself (Linux). `Install` opens its download.
+        DownloadRequired = "download-required",
         /// Installing.
         Installing = "installing",
         /// Failed. `error` says why.

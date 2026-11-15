@@ -324,6 +324,7 @@
       { "value": "up-to-date", "doc": "This is the newest version." },
       { "value": "downloading", "doc": "Downloading the update. `progress` says how far." },
       { "value": "ready", "doc": "Downloaded. `Install` restarts into it." },
+      { "value": "download-required", "doc": "A newer version this install can't update to by itself (Linux). `Install` opens its download." },
       { "value": "installing", "doc": "Installing." },
       { "value": "error", "doc": "Failed. `error` says why." }
     ] },
@@ -1792,8 +1793,8 @@
     ] },
     { "name": "Updater", "halves": ["window", "app"], "doc": "The app's own updates (Desktop's `Updater` IPC). The host checks, downloads and verifies on its own schedule; a plugin draws where it stands and asks for a check or the install.", "members": [
       { "name": "State", "kind": "method", "sig": "() -> UpdaterState?", "doc": "Where it stands; nil when no updater runs in this build. Read in a render, it redraws as it moves." },
-      { "name": "CheckAsync", "kind": "method", "sig": "() -> UpdaterState", "yields": true, "doc": "Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `error`, or the work under way." },
-      { "name": "InstallAsync", "kind": "method", "sig": "() -> string?", "yields": true, "doc": "Restarts into the ready version: resumes with nil once it handed off (the app then quits on its own), else why it could not." },
+      { "name": "CheckAsync", "kind": "method", "sig": "() -> UpdaterState", "yields": true, "doc": "Checks for a newer version now, joining a check already running, and resumes with the state the check settled on: `up-to-date`, `ready`, `download-required`, `error`, or the work under way." },
+      { "name": "InstallAsync", "kind": "method", "sig": "() -> string?", "yields": true, "doc": "Restarts into the ready version, or opens a required download's page: resumes with nil once it handed off (a restart then quits the app on its own), else why it could not." },
       { "name": "StateChanged", "kind": "signal", "payload": "UpdaterState?", "doc": "Fires with each new state." }
     ] },
     { "name": "Diagnostics", "halves": ["window", "app"], "doc": "Developer diagnostics. Local and beta builds only, except `Get` of an experiment and `HeapSnapshotAsync`; elsewhere the rest return nil.", "members": [

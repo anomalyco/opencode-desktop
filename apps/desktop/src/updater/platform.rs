@@ -4,12 +4,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use super::machine::Target;
+
 pub trait Platform: Send + Sync + 'static {
     /// The running build's version, as the feed names releases.
     fn version(&self) -> &str;
 
     /// The release to install, `None` when the running build is current.
-    fn check(&self) -> Result<Option<String>, String>;
+    fn check(&self) -> Result<Option<Target>, String>;
 
     /// Downloads, verifies and stages the release the last check found; `progress` hears the
     /// download's bytes so far and its total.
@@ -32,10 +34,20 @@ pub trait Platform: Send + Sync + 'static {
     fn auto_install(&self) -> bool {
         false
     }
+
+    /// Whether [`Platform::external_install`] can open a release's download (`externalInstall`).
+    fn external(&self) -> bool {
+        false
+    }
+
+    /// Opens a [`Target::External`] release's download for the user to install.
+    fn external_install(&self, _url: &str) -> Result<(), String> {
+        Err("External installer is unavailable".into())
+    }
 }
 
 /// This build's updater, or `None` where none runs (a development build, a build without a
-/// release feed, a bare `cargo` binary on macOS).
+/// release feed, a bare `cargo` binary on macOS). Linux only checks: it offers the download.
 pub fn make(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Arc<dyn Platform>> {
     #[cfg(target_os = "macos")]
     {
@@ -46,7 +58,11 @@ pub fn make(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) ->
     {
         super::windows::platform(exe, version, build_channel, updates).map(|p| Arc::new(p) as Arc<dyn Platform>)
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(target_os = "linux")]
+    {
+        super::linux::platform(exe, version, build_channel, updates).map(|p| Arc::new(p) as Arc<dyn Platform>)
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
     {
         let _ = (exe, version, build_channel, updates);
         None

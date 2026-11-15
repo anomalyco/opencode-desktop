@@ -11,7 +11,11 @@
 //!   Authenticode), stages it beside the install folder, and swaps the folders once the app exits
 //!   (`apply.rs`, the app's own executable as the helper), on Restart to update or on quit.
 //!
-//! Both check ten seconds after launch and every ten minutes. The Updater plugin
+//! - **Linux** (`linux.rs`): checks only. The AppImage, `.deb` and `.rpm` don't replace
+//!   themselves, so a newer release is offered as a download (`download-required`, Desktop's
+//!   external mode) for the package this build was installed from.
+//!
+//! All check ten seconds after launch and every ten minutes. The Updater plugin
 //! (`plugins/updater`) draws it, as Desktop's updater plugin does: Settings > Updates, the update
 //! pill, the toasts and What's new. It reaches the service through the `Updater` Luau service,
 //! whose state, checks and installs this module answers ([`state_data`], [`check_async`],
@@ -21,6 +25,8 @@
 pub mod apply;
 mod engine;
 mod feed;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 pub mod mac;
 mod machine;
@@ -249,6 +255,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
         View::Downloading(v) => ("downloading", Some(v), None),
         View::UpToDate => ("up-to-date", None, None),
         View::Ready(v) => ("ready", Some(v), None),
+        View::DownloadRequired(v) => ("download-required", Some(v), None),
         View::Installing(v) => ("installing", Some(v), None),
         View::Error(e) => ("error", None, Some(e.as_str())),
     };
@@ -272,7 +279,8 @@ pub fn check_async(s: &App, done: Completer) {
     answer_waiting(service);
 }
 
-/// `Updater:InstallAsync()`: restarts into the ready version; answers nil once it handed off.
+/// `Updater:InstallAsync()`: restarts into the ready version, or opens a required download;
+/// answers nil once it handed off.
 pub fn install_async(s: &App, done: Completer) {
     let Some(service) = s.updater.service.as_ref().filter(|s| s.borrow().snapshot().state != View::Disabled) else {
         done.complete(Data::String(NO_UPDATER.into()));

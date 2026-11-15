@@ -26,6 +26,8 @@
   "dialog.ready.title": "Update Ready",
   "dialog.restart": "Restart",
   "dialog.later": "Later",
+  "dialog.available.title": "Update Available",
+  "dialog.available.message": "OpenCode {{version}} is available to download.",
   "web.ready.title": "Update ready",
   "web.ready.message": "A new version of OpenCode is ready. Reload to use it in every open window.",
   "web.reload": "Reload",

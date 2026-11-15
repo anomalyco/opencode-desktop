@@ -18,6 +18,8 @@ local function main(state: UpdaterState?): Action
         return { label = "action.downloading" }
     elseif phase == "ready" then
         return { label = "action.installRestart", run = "install" }
+    elseif phase == "download-required" then
+        return { label = "action.download", run = "install" }
     elseif phase == "installing" then
         return { label = "action.installing" }
     elseif phase == "disabled" then

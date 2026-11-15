@@ -4,7 +4,8 @@
 //! | Variable | Builds | What it does |
 //! | --- | --- | --- |
 //! | `OPENCODE_RUNE_UPDATE_FEED` | debug (Windows) | The feed's base URL, such as a local feed served by `bun`; turns the updater on in a development build, and lets an unsigned update from a loopback feed (`http://127.0.0.1:`, `localhost`, `[::1]`) install. Any other URL gets the release's publisher check. |
-//! | `OPENCODE_RUNE_RELEASE_URL` | all (macOS) | The feed's base URL. |
+//! | `OPENCODE_RUNE_UPDATE_FEED` | all (Linux) | The feed's base URL; turns the check on in a development build. |
+//! | `OPENCODE_RUNE_RELEASE_URL` | all (macOS, Linux) | The feed's base URL. |
 //! | `OPENCODE_RUNE_UPDATE_CHANNEL` | all | The feed channel (`dev`, `stable`). |
 //! | `OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS` | all | How long after launch the first check waits (10 s). |
 //! | `OPENCODE_RUNE_AUTO_INSTALL_ON_READY` | all (macOS) | `1`: install as soon as an update is ready. |

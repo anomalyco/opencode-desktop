@@ -58,6 +58,11 @@ impl Engine {
     /// The release to install, or `None` when the running build is current (or the channel has
     /// nothing for this platform, or a rollout hasn't reached this install yet).
     pub fn check(&self) -> Result<Option<String>, String> {
+        Ok(self.check_target(feed::target_name())?.map(|f| f.version))
+    }
+
+    /// [`Engine::check`] for release target `target_name`.
+    pub fn check_target(&self, target_name: &str) -> Result<Option<Found>, String> {
         let url = protocol::manifest_url(&self.facts.service, &self.facts.channel);
         let mut resp = Self::agent(MANIFEST_TIMEOUT)
             .get(&url)
@@ -73,18 +78,17 @@ impl Engine {
             return Err(format!("Update server returned HTTP {status}"));
         }
         let text = resp.body_mut().read_to_string().map_err(|e| format!("Could not read manifest: {e}"))?;
-        let manifest = protocol::parse_manifest(&text, &url, feed::target_name())?;
+        let manifest = protocol::parse_manifest(&text, &url, target_name)?;
         let installed = read_installed_sha(&self.facts.version);
         let decision = protocol::decide(&manifest, &self.facts.channel, &self.facts.version, installed.as_deref(), self.rollout_bucket)?;
         let found = match decision {
             Decision::Install { version, target } => Some(Found { version, target }),
             Decision::UpToDate | Decision::NoTarget | Decision::RolloutDeferred { .. } => None,
         };
-        let version = found.as_ref().map(|f| f.version.clone());
         if let Ok(mut slot) = self.found.lock() {
-            *slot = found;
+            slot.clone_from(&found);
         }
-        Ok(version)
+        Ok(found)
     }
 
     pub fn found(&self) -> Option<Found> {
