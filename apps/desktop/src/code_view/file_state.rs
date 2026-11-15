@@ -531,13 +531,13 @@ impl CodeDocState {
 /// Find in a file: Pierre's `createFileFind` (`session-ui/src/pierre/file-find.ts`), closed or
 /// open on the query its matches are for and the lit match.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(super) enum DocFind {
+pub(crate) enum DocFind {
     #[default]
     Closed,
     Open { query: String, active: usize },
 }
 
-pub(super) enum DocFindEvent<'a> {
+pub(crate) enum DocFindEvent<'a> {
     Open,
     Close,
     /// The field holds `0`: a new query lights its first match.
@@ -548,7 +548,7 @@ pub(super) enum DocFindEvent<'a> {
 
 impl DocFind {
     /// True when the matches must be found again (or, for a step, lit again).
-    pub(super) fn step(&mut self, event: DocFindEvent) -> bool {
+    pub(crate) fn step(&mut self, event: DocFindEvent) -> bool {
         match (&mut *self, event) {
             (DocFind::Closed, DocFindEvent::Open) => {
                 *self = DocFind::Open { query: String::new(), active: 0 };
@@ -578,7 +578,7 @@ impl DocFind {
         }
     }
 
-    pub(super) fn active(&self) -> usize {
+    pub(crate) fn active(&self) -> usize {
         match self {
             DocFind::Open { active, .. } => *active,
             DocFind::Closed => 0,

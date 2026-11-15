@@ -865,6 +865,8 @@ impl App {
         };
 
         if let Some(e) = &entry {
+            if let Some(path) = key.strip_prefix("file:").and_then(crate::files::data::file_tab_path)
+                && let Some(ws) = self.files.sessions.get_mut(&sid) { ws.close_preview(&path); }
             e.provider.close(self, &sid, &e.tab.id, tx);
         }
 

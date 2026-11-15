@@ -100,7 +100,7 @@ impl WrapPrefs {
 pub fn shows_rendered(ws: &SessionFiles, path: &str) -> bool {
     let Some(d) = ws.docs.get(path) else { return false };
     let svg = super::image::is_svg(path);
-    if !(is_markdown(path) || svg) || !d.ready() || d.missing() || d.binary() {
+    if !(is_markdown(path) || svg || ws.tables.contains_key(path)) || !d.ready() || d.missing() || d.binary() {
         return false;
     }
     ws.md.get(path).and_then(|m| m.rendered).unwrap_or(svg || d.size_bytes() <= RENDER_LIMIT)
@@ -204,11 +204,12 @@ impl App {
         tx.instant();
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
         let next = !shows_rendered(ws, path);
+        if let Some(doc) = ws.docs.get_mut(path) { doc.set_find_open(false); }
+        if let Some(table) = ws.tables.get(path) { ws.table_find.forget(table); }
         ws.md.entry(path.to_owned()).or_default().rendered = Some(next);
         if next && let Some(d) = ws.docs.get_mut(path) {
             d.set_selection(None);
         }
-        self.sync_rendered_find(sid, path);
     }
 
     /// Turns wrap on or off for `path`, and for every file of its kind from now on.
@@ -231,12 +232,17 @@ impl App {
     }
 
     /// Finds the find bar's query in the rendered text of `path` when it changed; whether it did.
-    pub fn sync_rendered_find(&mut self, sid: &str, path: &str) -> bool {
+    pub fn sync_rendered_find(&mut self, sid: &str, path: &str, tx: &mut Tx) -> bool {
         let Some(ws) = self.files.sessions.get_mut(sid) else { return false };
         if !shows_rendered(ws, path) {
             return false;
         }
         let Some(doc) = ws.docs.get(path).filter(|d| d.find_open()) else { return false };
+        if let Some(table) = ws.tables.get(path) {
+            if !ws.table_find.sync(table, &doc.find_input.text) { return false; }
+            ws.table_find.reveal(sid, path, tx);
+            return true;
+        }
         let q = doc.find_input.text.clone();
         let v = ws.md.entry(path.to_owned()).or_default();
         if v.applied == q {
@@ -251,16 +257,19 @@ impl App {
     /// The find bar's next (or previous) match in `path`, in whichever view shows.
     pub fn file_find_step(&mut self, sid: &str, path: &str, forward: bool, tx: &mut Tx) {
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
-        if let Some(d) = ws.docs.get_mut(path) {
-            d.sync_find_query();
-        }
         if !shows_rendered(ws, path) {
             if let Some(d) = ws.docs.get_mut(path) {
+                d.sync_find_query();
                 d.step_match(&format!("file-code-{sid}-{path}-scroll"), forward, tx);
             }
             return;
         }
-        self.sync_rendered_find(sid, path);
+        self.sync_rendered_find(sid, path, tx);
+        if let Some(ws) = self.files.sessions.get_mut(sid) && ws.shown_table(path).is_some() {
+            ws.table_find.step(forward);
+            ws.table_find.reveal(sid, path, tx);
+            return;
+        }
         let Some(v) = self.files.sessions.get_mut(sid).and_then(|w| w.md.get_mut(path)) else { return };
         let n = v.matches.len();
         if n == 0 {

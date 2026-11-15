@@ -12,7 +12,6 @@ const COLUMN_LIMIT: usize = 128;
 
 /// Sparse rows in document order. Empty trailing cells in shorter rows need no storage.
 /// All offsets refer to the decoded UTF-8 buffer, never to the original CSV markup.
-#[derive(Debug)]
 pub(crate) struct Table {
     text: String,
     cells: Vec<Range<usize>>,
@@ -20,8 +19,16 @@ pub(crate) struct Table {
     /// Intrinsic column widths in character units, capped at the upstream 40ch. Calculated
     /// when the read lands, not when scrolling or when a search result changes.
     widths: Vec<u8>,
+    /// One SEARCH slab row per displayed cell, including embedded newlines in that cell.
+    slab: opencode_search::SlabFind,
     pub(crate) columns: usize,
     pub(crate) total_rows: usize,
+}
+
+impl std::fmt::Debug for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Table").field("rows", &self.total_rows).field("columns", &self.columns).finish()
+    }
 }
 
 impl Table {
@@ -29,7 +36,7 @@ impl Table {
         let ext = std::path::Path::new(path).extension()?.to_str()?;
         let delimiter = if ext.eq_ignore_ascii_case("csv") { ',' } else if ext.eq_ignore_ascii_case("tsv") { '\t' } else { return None };
         if src.len() > super::markdown::RENDER_LIMIT { return None; }
-        let mut table = Self { text: String::new(), cells: Vec::new(), rows: Vec::new(), widths: Vec::new(), columns: 0, total_rows: 0 };
+        let mut table = Self { text: String::new(), cells: Vec::new(), rows: Vec::new(), widths: Vec::new(), slab: Default::default(), columns: 0, total_rows: 0 };
         let mut chars = src.chars().peekable();
         let mut quoted = false;
         let mut field_has_text = false;
@@ -67,10 +74,13 @@ impl Table {
         }
         if separated || field_has_text { table.end_row(row_start, cell_start); }
         let mut widths = vec![1; table.columns];
+        let mut slab = opencode_search::SlabFind::default();
         for ((_, col), value) in table.labels() {
+            slab.push(value);
             widths[col] = widths[col].max(value.lines().map(|line| line.chars().take(40).count() as u8).max().unwrap_or(0));
         }
         table.widths = widths;
+        table.slab = slab;
         Some(table)
     }
 
@@ -87,6 +97,23 @@ impl Table {
     pub(crate) fn shown(&self) -> usize { self.rows.len() }
 
     pub(super) fn widths(&self) -> &[u8] { &self.widths }
+
+    pub(super) fn matches(&self, query: &str) -> Vec<opencode_search::SlabMatch> {
+        let mut hits = Vec::new();
+        self.slab.find(query, |hit| hits.push(hit));
+        hits
+    }
+
+    pub(super) fn coordinates(&self, cell: usize) -> Option<(usize, usize)> {
+        let r = self.rows.partition_point(|range| range.end <= cell);
+        Some((r, cell.checked_sub(self.rows.get(r)?.start)?))
+    }
+
+    pub(super) fn cell_id(&self, row: usize, column: usize) -> Option<usize> {
+        let cells = self.rows.get(row)?;
+        let at = cells.start.checked_add(column)?;
+        (at < cells.end).then_some(at)
+    }
 
     /// Drawing, tooltips and copying use the full cell value rather than the ellipsized text.
     pub(crate) fn cell(&self, row: usize, column: usize) -> Option<&str> {

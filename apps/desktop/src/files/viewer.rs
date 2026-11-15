@@ -93,7 +93,7 @@ pub(super) fn files_main(
 
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
-    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
+    let previewable = (markdown::is_markdown(path) || super::image::is_svg(path) || ws.tables.contains_key(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
     let picture = super::image::showing(ws, path);
     // A picture or a video shows on its stage, with no lines to find or wrap.
     let lines = picture.is_none() && !ws.videos.contains_key(path);
@@ -138,7 +138,7 @@ pub(super) fn files_main(
         .hover_motion(INSTANT, INSTANT)
         .child(crumb)
         .children(picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| picture_meta(p, img.meta())))
-        .children(markdown_doc.then(|| {
+        .children(previewable.then(|| {
             let (glyph, label) = if rendered { (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource")) } else { (&READ_ICON, opencode_i18n::t!("plugin.file.view.viewPreview")) };
             tool(p, "files-render-btn", glyph, false, label, label, at(|s, sid, path, tx| s.toggle_rendered(sid, path, tx)))
         }))
@@ -177,7 +177,7 @@ pub(super) fn files_main(
 pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, path: &str, artifact: bool) -> El {
     let doc = ws.docs.get(path);
     let rendered = markdown::shows_rendered(ws, path);
-    let markdown_doc = (markdown::is_markdown(path) || super::image::is_svg(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
+    let previewable = (markdown::is_markdown(path) || super::image::is_svg(path) || ws.tables.contains_key(path)) && doc.is_some_and(|d| d.ready() && !d.missing() && !d.binary());
     // A picture shows on its stage, which has no lines to find or wrap.
     let picture = super::image::showing(ws, path);
     let clip = ws.videos.get(path);
@@ -187,28 +187,24 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
     // `SessionFileView`: a text file's code starts 12 below the strip (`mt-3`), under no toolbar;
     // an artifact (Markdown, SVG, a picture, another binary file, a kind a plugin views) has its
     // `ArtifactToolbar`.
-    let toolbar = artifact && (markdown_doc || picture.is_some() || clip.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
+    let toolbar = artifact && (previewable || picture.is_some() || clip.is_some() || plugin_view.is_some() || doc.is_some_and(|d| d.binary()));
     if artifact && !toolbar {
         out = out.pt(12.0);
     }
     if toolbar {
-        let text = doc.filter(|_| markdown_doc).map(|d| d.text().to_owned());
+        let text = doc.filter(|_| previewable).map(|d| d.text().to_owned());
         out = out.child(artifact_toolbar(s, p, session_id, path, rendered, text, picture.filter(|_| s.files.stage_size.get()[0] > META_MIN_W).map(|img| img.meta())));
     }
     // Pierre's bar floats over the view it searches, rendered or source.
     let bar = doc.filter(|d| d.find_open()).map(|d| {
-        let (total, active) = match ws.md.get(path).filter(|_| rendered) {
-            Some(v) => (v.matches.len(), v.active),
-            None if rendered => (0, 0),
-            None => (d.match_count(), d.active_match_index()),
-        };
+        let (active, total) = ws.file_matches(path,d);
         let bar = FindBar { key: "files-find-bar", top: -4.0, edit: file_find_input, changed: |s, at, tx| {
             tx.instant();
             let (sid, path) = at.split_once('\n').unwrap_or_default();
-            if let Some(d) = s.files.sessions.get_mut(sid).and_then(|w| w.docs.get_mut(path)) {
+            if let Some(w) = s.files.sessions.get_mut(sid) && w.shown_table(path).is_none() && let Some(d) = w.docs.get_mut(path) {
                 d.sync_find_query();
             }
-            s.sync_rendered_find(sid, path);
+            s.sync_rendered_find(sid, path, tx);
         }, step: |s, at, forward, tx| {
             let (sid, path) = at.split_once('\n').unwrap_or_default();
             s.file_find_step(sid, path, forward, tx);
@@ -224,6 +220,10 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
 
     if let Some(view) = plugin_view {
         return out.child(view);
+    }
+    if let Some(table) = ws.shown_table(path) {
+        let painter = if doc.is_some_and(|d| d.find_open()) { &ws.table_find } else { &super::table_find::TableFind::Closed };
+        return out.child(over(super::table_view::view(session_id, path, p, table.clone(), painter.painter(p)), bar));
     }
     if let Some(img) = picture {
         return out.child(super::image::stage(s, p, img));

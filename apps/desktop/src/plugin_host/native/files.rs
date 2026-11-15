@@ -123,6 +123,7 @@ pub fn version(app: &App, session: &str) -> u64 {
         for (path, d) in docs {
             (path, d.ready(), d.missing(), d.binary(), d.size_bytes(), d.wrap(), d.line_count(), d.find_open(), d.match_count(), d.active_match_index(), d.text().len()).hash(&mut h);
             (&d.find_input.text, d.find_input.focused).hash(&mut h);
+            if d.find_open() { w.file_matches(path,d).hash(&mut h); }
             if let Some(r) = rune::memo::layout(&format!("file-code-{session}-{path}-scroll")) {
                 format!("{r:?}").hash(&mut h);
             }

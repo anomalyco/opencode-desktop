@@ -6,6 +6,7 @@ pub mod code_paths;
 pub mod data;
 pub(crate) mod delimited;
 mod table_view;
+mod table_find;
 pub mod image;
 pub mod link_tip;
 mod link_tip_stories;
@@ -52,6 +53,7 @@ pub struct SessionFiles {
     pub md: HashMap<String, markdown::MdView>,
     /// Decoded CSV/TSV documents. A failed or replaced read drops the previous revision.
     pub(crate) tables: HashMap<String, std::sync::Arc<delimited::Table>>,
+    table_find: table_find::TableFind,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
     pub code_paths: HashMap<String, code_paths::CodePaths>,
     /// The paths the session's finished replies name in inline code, checked (`code_paths`).
@@ -138,6 +140,7 @@ impl Default for SessionFiles {
             link_opens: HashMap::new(),
             md: HashMap::new(),
             tables: HashMap::new(),
+            table_find: Default::default(),
             code_paths: HashMap::new(),
             reply_paths: Default::default(),
             images: HashMap::new(),
@@ -153,8 +156,28 @@ impl SessionFiles {
     /// source: two revisions with the same path, dimensions and query can have different hits.
     pub(crate) fn invalidate_document(&mut self, path: &str) {
         self.docs.remove(path);
-        self.tables.remove(path);
+        if let Some(previous) = self.tables.remove(path) { self.table_find.forget(&previous); }
         self.md.remove(path);
+    }
+
+    /// Only a loaded, shown table is a Find target. A table in the source view keeps CodeViewer's
+    /// ordinary selection, scroll and match ranges.
+    pub(super) fn shown_table(&self, path: &str) -> Option<&std::sync::Arc<delimited::Table>> {
+        if self.md.get(path).and_then(|v| v.rendered) == Some(false) { return None; }
+        self.tables.get(path).filter(|_| self.docs.get(path).is_some_and(|d| d.ready() && d.failure().is_none() && !d.binary() && !d.missing()))
+    }
+
+    /// (Active index, count) for both the visible bar and its polite announcement.
+    pub(crate) fn file_matches(&self, path: &str, doc: &CodeDocState) -> (usize,usize) {
+        if let Some(table) = self.shown_table(path) { self.table_find.count(table) }
+        else if markdown::shows_rendered(self, path) { self.md.get(path).map_or((0,0), |v| (v.active,v.matches.len())) }
+        else { (doc.active_match_index(),doc.match_count()) }
+    }
+
+    pub(crate) fn close_preview(&mut self, path: &str) {
+        if let Some(table) = self.tables.get(path) { self.table_find.forget(table); }
+        self.md.remove(path);
+        if let Some(doc) = self.docs.get_mut(path) { doc.set_find_open(false); }
     }
 
     pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
@@ -277,7 +300,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             None => { ws.images.remove(&path); }
         }
         ws.md.remove(&path);
-        ws.tables.remove(&path);
+        if let Some(previous) = ws.tables.remove(&path) { ws.table_find.forget(&previous); }
         let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
         match payload {
             FilePayload::Text(text) => doc.set_text(&text),
@@ -332,14 +355,12 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         && let Some(doc) = ws.docs.get_mut(&path)
         && doc.find_open()
     {
-        changed |= doc.sync_find_query();
-        changed |= s.sync_rendered_find(&sid, &path);
+        if !ws.tables.contains_key(&path) || ws.md.get(&path).and_then(|v| v.rendered) == Some(false) { changed |= doc.sync_find_query(); }
+        changed |= s.sync_rendered_find(&sid, &path, tx);
         let ws = &s.files.sessions[&sid];
         let doc = &ws.docs[&path];
         if tx.assistive_technology() && !doc.find_input.text.is_empty() {
-            let (at, count) = if markdown::shows_rendered(ws, &path) {
-                ws.md.get(&path).map_or((0, 0), |v| (v.active, v.matches.len()))
-            } else { (doc.active_match_index(), doc.match_count()) };
+            let (at, count) = ws.file_matches(&path, doc);
             let result = (sid, path, at, count);
             if s.files.spoken_match.as_ref() != Some(&result) {
                 let words = if count == 0 { opencode_i18n::t!("session.search.noResults").to_owned() }
