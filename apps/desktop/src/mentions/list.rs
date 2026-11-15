@@ -11,6 +11,10 @@ use crate::App;
 use crate::palette::{Elevate as _, Pal};
 use crate::view::UI;
 
+/// `composer-suggestions` inherits the page's 13/24 regular face with normal letter spacing.
+/// The compact menu label (13/16 with negative tracking) pulls long descriptions to the left.
+const WORDS: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
+
 /// Desktop's composer suggestions (`composer/editor/editor.tsx:72-82`): 28 pt rows in 6 pt of
 /// padding, at most 320 pt tall less some of the timeline kept in view.
 const ROW_H: f32 = 28.0;
@@ -120,11 +124,11 @@ pub fn popup(
         let (id, id_hover, id_press) = (r.id.clone(), r.id.clone(), r.id.clone());
         let (hover, press) = (hover.clone(), pick.clone());
         let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(r.lead);
-        words = words.child(text(r.label.clone()).key("label").font(UI).color(p.text));
+        words = words.child(text(r.label.clone()).key("label").font(WORDS).color(p.text));
         if !r.description.is_empty() {
-            words = words.child(text(r.description).key("description").font(UI).color(p.muted).truncate());
+            words = words.child(text(r.description).key("description").font(WORDS).color(p.muted).truncate());
         }
-        let trail = r.trail.map(|keys| text(keys).key("keys").font(UI).color(p.muted));
+        let trail = r.trail.map(|keys| text(keys).key("keys").font(WORDS).color(p.muted));
         list = list.child(
             row()
                 .key(r.key)
