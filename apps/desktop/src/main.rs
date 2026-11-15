@@ -1258,6 +1258,7 @@ impl App {
         self.close_project_switcher(false);
         self.project_state.home_menu_open = false;
         if let Some(dir) = dir.filter(|d| !d.is_empty()) {
+            self.sidebar_inbox.branches.enqueue([dir.clone()]);
             *self.default_dir = dir;
         }
         *self.opening = None;

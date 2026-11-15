@@ -360,6 +360,8 @@ const BRANCH_RETRY_LIMIT: u32 = 2;
 /// One folder's git branch load (`InboxBranchEntry`).
 #[derive(Clone, Debug, PartialEq)]
 enum Branch {
+    /// A row displays this folder, but nobody has selected it. Listen for server events only.
+    Observed,
     Queued { failures: u32 },
     Loading { failures: u32 },
     Retrying { failures: u32, due: f64 },
@@ -384,10 +386,15 @@ impl Branches {
         }
     }
 
-    /// Queues the folders a view shows that haven't loaded.
+    /// Merely showing a row must not boot its server location: booting advances project recency.
+    fn observe(&mut self, dirs: impl IntoIterator<Item = String>) {
+        for dir in dirs { if !dir.is_empty() { self.by_dir.entry(dir).or_insert(Branch::Observed); } }
+    }
+
+    /// A deliberate operation (choosing a draft folder or entering its picker) needs its branch.
     pub(crate) fn enqueue(&mut self, dirs: impl IntoIterator<Item = String>) {
         for dir in dirs {
-            if dir.is_empty() || self.by_dir.contains_key(&dir) {
+            if dir.is_empty() || !matches!(self.by_dir.get(&dir), None | Some(Branch::Observed | Branch::Failed)) {
                 continue;
             }
             self.by_dir.insert(dir.clone(), Branch::Queued { failures: 0 });
@@ -402,12 +409,11 @@ impl Branches {
         }
     }
 
-    /// A reconnect: failed folders try again.
+    /// A reconnect isn't a visit. Do not re-open locations for failed decoration reads.
     pub fn reconnected(&mut self) {
-        for (dir, b) in &mut self.by_dir {
+        for b in self.by_dir.values_mut() {
             if *b == Branch::Failed {
-                *b = Branch::Queued { failures: 0 };
-                self.queue.push(dir.clone());
+                *b = Branch::Observed;
             }
         }
     }
@@ -577,7 +583,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         if draft.is_none() && revealed.is_empty() {
             return false;
         }
-        s.sidebar_inbox.branches.enqueue(draft.into_iter().chain(revealed));
+        s.sidebar_inbox.branches.observe(draft.into_iter().chain(revealed));
         let waker = (*s.waker).clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
@@ -611,7 +617,7 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.enqueue(dirs.into_iter().chain(draft).chain(revealed));
+    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(draft).chain(revealed));
     let waker = (*s.waker).clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
@@ -659,7 +665,7 @@ pub fn snap(s: &mut App) {
             Row { session, status, since, project, worktree: in_worktree(s, i), branch: None }
         })
         .collect();
-    s.sidebar_inbox.branches.enqueue(rows.iter().map(|r| r.session.directory.clone()));
+    s.sidebar_inbox.branches.observe(rows.iter().map(|r| r.session.directory.clone()));
     for r in &mut rows {
         r.branch = s.sidebar_inbox.branches.get(&r.session.directory).map(str::to_owned);
     }

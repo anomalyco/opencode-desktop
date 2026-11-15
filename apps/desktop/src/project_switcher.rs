@@ -398,6 +398,7 @@ impl App {
             }
             RowKind::Project { id, directory, .. } | RowKind::Worktree { project_id: id, directory, .. } => {
                 tx.instant();
+                self.sidebar_inbox.branches.enqueue([directory.clone()]);
                 if worktree {
                     self.note_existing_worktree(&id, directory.clone());
                 }
