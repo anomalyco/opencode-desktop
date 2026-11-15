@@ -12,8 +12,6 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Duration;
 
-use rune::time::Instant;
-
 use opencode_kit::client::Server;
 use rune::Tx;
 
@@ -47,16 +45,8 @@ impl CodePaths {
 const FOUND_FOR: Duration = Duration::from_secs(60);
 const MISSING_FOR: Duration = Duration::from_secs(5);
 
-/// A session's finished replies' paths, by the code's text, each checking or answered at a time.
-#[derive(Debug, Default)]
-pub struct ReplyPaths {
-    checks: HashMap<String, Option<(bool, Instant)>>,
-    /// Set after the session's first frame: that frame draws its replies' code as code, and checks
-    /// start after it, so opening a session does no more than before.
-    warm: bool,
-    /// Moves when an answer lands, so rows with code build again.
-    pub rev: u64,
-}
+mod replies;
+pub(super) use replies::Replies;
 
 /// Inline code that reads as a path (`inlineCodeKind` `path`): no spaces, URL scheme, code or
 /// glob characters, nor a network share; a folder separator or a dot beside a letter, or a common
@@ -300,63 +290,15 @@ impl App {
         }
     }
 
-    /// The inline code in finished reply `body` (the open session's) that names a file found
-    /// there: answers in hand, while the rest are asked for after this frame. A streaming reply
-    /// asks nothing (`markInlineCode` skips a live block), and a session's first frame neither.
+    /// Paths known to exist now. Reading new candidates starts their checks, not a second view;
+    /// neither a streaming block nor a window without a server has anything to check.
     pub fn reply_code_links(&self, body: &str, live: bool) -> Option<Rc<HashSet<String>>> {
-        if live || !body.contains('`') {
-            return None;
-        }
-        let sid = self.active_session_id()?.to_owned();
-        let Some(paths) = self.files.sessions.get(&sid).map(|w| &w.reply_paths).filter(|p| p.warm) else {
-            self.later(Box::new(move |s: &mut App, _: &mut Tx| {
-                let paths = &mut s.files.sessions.entry(sid).or_default().reply_paths;
-                if !paths.warm {
-                    paths.warm = true;
-                    paths.rev += 1;
-                }
-            }));
-            return None;
-        };
-        let now = Instant::now();
-        let mut found = HashSet::new();
-        let mut ask = Vec::new();
-        for code in candidates(body) {
-            match paths.checks.get(&code) {
-                Some(None) => {}
-                Some(Some((true, at))) if now.duration_since(*at) < FOUND_FOR => {
-                    found.insert(code);
-                }
-                Some(Some((false, at))) if now.duration_since(*at) < MISSING_FOR => {}
-                _ => ask.push(code),
-            }
-        }
-        if !ask.is_empty() {
-            self.later(Box::new(move |s: &mut App, _: &mut Tx| s.check_reply_paths(&sid, ask)));
-        }
-        (!found.is_empty()).then(|| Rc::new(found))
-    }
-
-    /// Asks whether each of `codes` (inline code in session `sid`'s replies) names a file there.
-    fn check_reply_paths(&mut self, sid: &str, codes: Vec<String>) {
-        let dir = self.link_directory(sid);
-        let paths = &mut self.files.sessions.entry(sid.to_owned()).or_default().reply_paths;
-        let codes: Vec<String> = codes.into_iter().filter(|c| paths.checks.get(c) != Some(&None)).collect();
-        for code in &codes {
-            paths.checks.insert(code.clone(), None);
-        }
-        for code in codes {
-            let (sid, dir) = (sid.to_owned(), dir.clone());
-            self.job(move |srv| {
-                let exists = reply_path_exists(srv, &dir, &code);
-                Box::new(move |s: &mut App, tx: &mut Tx| {
-                    let Some(paths) = s.files.sessions.get_mut(&sid).map(|w| &mut w.reply_paths) else { return };
-                    paths.checks.insert(code, Some((exists, Instant::now())));
-                    paths.rev += 1;
-                    tx.instant();
-                }) as crate::jobs::Apply
-            });
-        }
+        if live || !body.contains('`') { return None; }
+        let crate::Source::Live { server, .. } = &*self.source else { return None };
+        let sid = self.active_session_id()?;
+        let codes = candidates(body);
+        if codes.is_empty() { return None; }
+        self.files.replies.read(sid, codes, server, || self.link_directory(sid), self.waker.as_ref())
     }
 
     /// A click on reply code naming a file (`code`): a plugin's link handler takes it first, as

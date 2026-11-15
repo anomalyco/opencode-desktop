@@ -744,7 +744,7 @@ impl session_view::TimelineHost for App {
         self.reply_code_links(body, live)
     }
     fn code_links_version(&self) -> u64 {
-        self.active_session_id().and_then(|sid| self.files.sessions.get(sid)).map_or(0, |w| w.reply_paths.rev)
+        self.active_session_id().map_or(0, |sid| self.files.reply_version(sid))
     }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")
@@ -1174,6 +1174,7 @@ impl App {
         let review_gone: Vec<String> = s.review.sessions.keys().filter(|id| !kept(id)).cloned().collect();
         let files_gone: Vec<String> = s.files.sessions.keys().filter(|id| !kept(id)).cloned().collect();
         s.pages.rest(&kept);
+        s.files.retain_reply_links(&kept);
         if !gone.is_empty() {
             let transcripts = &mut *s.transcripts;
             for id in &gone { transcripts.remove(id); }
@@ -1342,6 +1343,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.tick_outbox(tx);
     changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
+    changed |= files::poll_reply_links(s, tx);
     let asked = s.dock_face();
     changed |= incoming::poll(s, tx);
     if s.playback.front().is_some_and(|e| e.0 <= now + 1e-9) {

@@ -59,8 +59,6 @@ pub struct SessionFiles {
     diagram: mermaid::Stage,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
     pub code_paths: HashMap<String, code_paths::CodePaths>,
-    /// The paths the session's finished replies name in inline code, checked (`code_paths`).
-    pub reply_paths: code_paths::ReplyPaths,
     /// Picture files (and SVGs) as decoded images, with their zoom.
     pub images: HashMap<String, image::FileImage>,
     /// Video files, each with its player and controls.
@@ -147,7 +145,6 @@ impl Default for SessionFiles {
             diagram_find: Default::default(),
             diagram: Default::default(),
             code_paths: HashMap::new(),
-            reply_paths: Default::default(),
             images: HashMap::new(),
             videos: HashMap::new(),
             ready: false,
@@ -226,6 +223,7 @@ impl SessionFiles {
 }
 
 pub struct FilesPane {
+    replies: code_paths::Replies,
     /// Last count read for the active find bar; don't repeat it for every typed character.
     spoken_match: Option<(String, String, usize, usize)>,
     pub sessions: HashMap<String, SessionFiles>,
@@ -249,6 +247,7 @@ impl Default for FilesPane {
     fn default() -> Self {
         Self {
             sessions: HashMap::new(),
+            replies: Default::default(),
             spoken_match: None,
             empty_doc: CodeDocState::default(),
             filter: TextEdit::new(""),
@@ -266,6 +265,10 @@ impl Default for FilesPane {
 }
 
 impl FilesPane {
+    pub fn reply_version(&self, sid: &str) -> u64 { self.replies.version(sid) }
+
+    pub fn retain_reply_links(&self, keep: impl Fn(&str) -> bool) { self.replies.retain(keep); }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.dir_fetch.set_waker(waker.clone());
         self.content_fetch.set_waker(waker.clone());
@@ -278,6 +281,14 @@ impl FilesPane {
         let waker = self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
         image::FileImage::new(self.images.get_or_insert_with(|| rune::ImageCache::new(waker)), bytes, svg)
     }
+}
+
+/// Landing a positive path check changes a visible reply's plain code to a link.
+pub(crate) fn poll_reply_links(s: &App, tx: &mut Tx) -> bool {
+    if !s.files.replies.land(s.active_session_id()) { return false; }
+    rune::Tracked::touch(&s.files);
+    tx.instant();
+    true
 }
 
 /// Lands the folder listings, file loads and finds the panel asked for.

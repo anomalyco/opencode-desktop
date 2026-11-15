@@ -31,7 +31,7 @@ pub struct Narrow {
     crossed: RefCell<Vec<ModeEffect>>,
     pub view: View,
     /// The routed session the view machine last heard of.
-    routed: Option<String>,
+    routed: RefCell<Option<String>>,
     pub tabs: TabsDrawer,
     /// The tabs drawer's close timers so far, naming the latest.
     tab_attempts: u32,
@@ -164,7 +164,28 @@ pub fn settle(s: &mut App, tx: &mut Tx) -> bool {
     !crossed.is_empty()
 }
 
-/// Runs the machines' clocks and hears route changes, at the start of every frame.
+/// Deliver a route change with the navigation that caused it. Remembering the route is
+/// bookkeeping, not a change to what the shell draws.
+pub(crate) fn follow_route(s: &mut App, tx: &mut Tx) -> bool {
+    let routed = match &*s.route {
+        Route::Session { id, .. } => Some(id.as_str()),
+        _ => None,
+    };
+    if routed == s.layout.narrow.routed.borrow().as_deref() { return false; }
+    s.layout.narrow.routed.replace(routed.map(str::to_owned));
+    let view = !matches!(s.layout.narrow.view, View::Conversation);
+    let tabs = s.layout.narrow.tabs != TabsDrawer::Closed;
+    let more = s.layout.narrow.more.is_open();
+    if view {
+        let routed = routed.map(str::to_owned);
+        s.layout.narrow.view = std::mem::take(&mut s.layout.narrow.view).step(ViewEvent::RouteChanged { routed }).0;
+    }
+    if tabs { s.tabs_drawer(TabsEvent::RouteChanged, tx); }
+    if more { s.more_drawer(MoreEvent::Close, tx); }
+    s.narrow() && (view || tabs || more)
+}
+
+/// Runs the machines' clocks and catches routes set outside session navigation.
 pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = settle(s, tx);
     let wrap = s.settings.mobile_diff_wrap;
@@ -173,25 +194,12 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             sr.narrow.set_wrap(wrap);
         }
     }
-    let routed = match &*s.route {
-        Route::Session { id, .. } => Some(id.as_str()),
-        _ => None,
-    };
-    // Every poll comes here: the route is compared in place, and copied only when it moved.
-    if routed != s.layout.narrow.routed.as_deref() {
-        let routed = routed.map(str::to_owned);
-        s.layout.narrow.routed = routed.clone();
-        s.layout.narrow.view = std::mem::take(&mut s.layout.narrow.view).step(ViewEvent::RouteChanged { routed }).0;
-        s.tabs_drawer(TabsEvent::RouteChanged, tx);
-        s.more_drawer(MoreEvent::Close, tx);
-        changed = true;
-    }
+    changed |= follow_route(s, tx);
     // The clock moves only a pending view and a drawer sliding out: polls borrow the shell to
     // write only then, so regions that read it stay reused.
-    if matches!(s.layout.narrow.view, View::Pending { .. }) {
+    if matches!(s.layout.narrow.view, View::Pending { due_at, .. } if now + 1e-9 >= due_at) {
         let view = std::mem::take(&mut s.layout.narrow.view);
         let (view, _) = view.step(ViewEvent::Tick { now });
-        changed |= view != s.layout.narrow.view;
         s.layout.narrow.view = view;
     }
     if let TabsDrawer::ClosingToSettings { attempt, due_at } = s.layout.narrow.tabs

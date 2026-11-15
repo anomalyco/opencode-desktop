@@ -49,6 +49,7 @@ impl App {
             self.ends.reopen(id);
         }
         *self.route = Route::here(id.to_owned());
+        crate::narrow::follow_route(self, tx);
         crate::session_state::opened(self, id, tx);
         // Its own draft is in the composer on the first frame.
         let _ = self.show_draft();
