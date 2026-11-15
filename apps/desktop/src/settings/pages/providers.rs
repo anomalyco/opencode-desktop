@@ -3,7 +3,8 @@
 //! then the popular providers to connect and Show more providers, which opens the connect list.
 
 use opencode_kit::integration::Integration;
-use rune::{Color, El, Tx, col, el, icon, row, spacer, text};
+use rune::machine::Effects;
+use rune::{Color, El, TextEdit, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 
@@ -22,6 +23,80 @@ const POPULAR: [&str; 8] = ["opencode-go", "opencode", "anthropic", "github-copi
 pub enum Menu {
     Accounts,
     Options,
+}
+
+/// The Connected rows' account controls. Desktop gives each row its own `DropdownMenu`
+/// (`providers.tsx`'s `AccountMenuTrigger`), so at most one row's menu or rename field is open,
+/// named by its provider: the Console's providers share one integration and one account, so the
+/// integration can't name the row.
+#[derive(Default)]
+pub enum Accounts {
+    #[default]
+    Idle,
+    Menu { provider: String, menu: Menu },
+    Renaming { provider: String, credential: String, field: TextEdit },
+}
+
+pub enum Event {
+    /// A row's account trigger or options button: opens its menu, or closes it when already open.
+    Toggle { provider: String, menu: Menu },
+    /// An item was picked, or the page changed: the open menu closes.
+    Close,
+    /// Rename in the open row's options: its active account becomes a field.
+    Rename { credential: String, label: String },
+    Cancel,
+    Submit,
+}
+
+pub enum Effect {
+    Rename { credential: String, label: String },
+}
+
+impl Accounts {
+    pub fn step(&mut self, event: Event) -> Effects<Effect> {
+        match (std::mem::take(self), event) {
+            (Accounts::Menu { provider, menu }, Event::Toggle { provider: p, menu: m }) if provider == p && menu == m => Effects::none(),
+            (_, Event::Toggle { provider, menu }) => {
+                *self = Accounts::Menu { provider, menu };
+                Effects::none()
+            }
+            (Accounts::Menu { provider, .. }, Event::Rename { credential, label }) => {
+                let mut field = TextEdit::new(&label);
+                field.focused = true;
+                *self = Accounts::Renaming { provider, credential, field };
+                Effects::none()
+            }
+            (Accounts::Menu { .. }, Event::Close) | (Accounts::Renaming { .. }, Event::Cancel) => Effects::none(),
+            (Accounts::Renaming { credential, field, .. }, Event::Submit) => {
+                let label = field.text.trim().to_owned();
+                if label.is_empty() { Effects::none() } else { Effects::one(Effect::Rename { credential, label }) }
+            }
+            (state, _) => {
+                *self = state;
+                Effects::none()
+            }
+        }
+    }
+
+    pub fn blur(&mut self) {
+        if let Accounts::Renaming { field, .. } = self {
+            field.focused = false;
+        }
+    }
+
+    fn open(&self, row: &str) -> Option<Menu> {
+        match self {
+            Accounts::Menu { provider, menu } if provider == row => Some(*menu),
+            _ => None,
+        }
+    }
+
+    fn field_mut(&mut self) -> Option<&mut TextEdit> {
+        match self {
+            Accounts::Renaming { field, .. } => Some(field),
+            _ => None,
+        }
+    }
 }
 
 fn note(id: &str) -> Option<&'static str> {
@@ -105,7 +180,7 @@ fn connected_row(s: &App, p: &Pal, pi: &ProviderInfo, integration: Option<&Integ
                 .label_with(move |font, _| text(t!("dialog.provider.needsSignIn")).font(font).color(warning))
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_connect(Some(&again), true, tx)).build(kit(p)).key("settings-provider-sign-in"));
         }
-        e.child(account_menu(s, p, &id, &pi.name, integration))
+        e.child(account_menu(s, p, &pi.id, &id, &pi.name, integration))
     } else if can_disconnect {
         let (id, name) = (id.clone(), pi.name.clone());
         button(t!("common.disconnect"), ButtonVariant::GhostMuted).on_press_tx(move |s: &mut App, tx: &mut Tx| s.disconnect_provider(&id, &name, tx)).build(kit(p))
@@ -133,40 +208,39 @@ fn popular_row(p: &Pal, id: &str, name: &str) -> El {
 }
 
 /// The active account's menu (switch account, Add account) and its options (Rename, Remove).
-fn account_menu(s: &App, p: &Pal, id: &str, name: &str, integration: Option<&Integration>) -> El {
+fn account_menu(s: &App, p: &Pal, provider: &str, id: &str, name: &str, integration: Option<&Integration>) -> El {
     let accounts = integration.map(Integration::accounts).unwrap_or_default();
     let active = accounts.first().map(|a| (a.id.clone(), a.label.clone()));
-    let open = s.settings_pages.menu.as_ref().filter(|(p, _)| p == id).map(|(_, m)| *m);
-    if let (Some(renaming), Some((active_id, _))) = (&s.settings_pages.renaming, &active)
-        && renaming == active_id
+    let open = s.settings_pages.accounts.open(provider);
+    if let (Accounts::Renaming { provider: row, credential, field }, Some((active_id, _))) = (&s.settings_pages.accounts, &active)
+        && row == provider
+        && credential == active_id
     {
-        let credential = active_id.clone();
         // `account-name.tsx`'s InlineInput is `dir="auto"`.
-        return rune_kit::TextInput::new(&s.settings_pages.rename).label(t!("settings.providers.account.name")).width(Some(240.0)).spellcheck(s.settings.spellcheck).dir(rune::Direction::Auto)
-            .on_edit(|s: &mut App| &mut s.settings_pages.rename)
-            .on_submit(move |s: &mut App, tx: &mut Tx| s.rename_account(&credential, tx))
+        return rune_kit::TextInput::new(field).label(t!("settings.providers.account.name")).width(Some(240.0)).spellcheck(s.settings.spellcheck).dir(rune::Direction::Auto)
+            .on_edit(|s: &mut App| s.settings_pages.accounts.field_mut().expect("renaming"))
+            .on_submit(|s: &mut App, tx: &mut Tx| s.step_accounts(Event::Submit, tx))
             // Escape drops the edit and keeps the name (`rename.ts`'s `cancelled`).
             .on_key(|s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
                 if ev.key != rune::Key::Escape || ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.shift {
                     return false;
                 }
-                tx.instant();
-                s.settings_pages.renaming = None;
+                s.step_accounts(Event::Cancel, tx);
                 true
             })
             .build(kit(p));
     }
-    let (menu_id, options_id) = (id.to_owned(), id.to_owned());
+    let (menu_id, options_id) = (provider.to_owned(), provider.to_owned());
     let label = active.as_ref().map(|a| a.1.clone()).unwrap_or_default();
     let options = t!("dialog.provider.accounts.options", account = label);
     let trigger = button(label.clone(), ButtonVariant::GhostMuted)
         .label_with(move |font, ink| row().gap(6.0).center_y().child(text(label.clone()).font(font).color(ink).truncate()).child(icon(&ic::CHEVRON_DOWN, 14.0).color(ink)))
         .expanded(open == Some(Menu::Accounts))
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_provider_menu(&menu_id, Menu::Accounts, tx))
-        .build(kit(p));
-    let dots = el().key("settings-provider-options").role("button").label(options).size(32.0, 32.0).radius(6.0).center()
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.step_accounts(Event::Toggle { provider: menu_id.clone(), menu: Menu::Accounts }, tx))
+        .build(kit(p)).key(format!("settings-provider-accounts-{provider}"));
+    let dots = el().key(format!("settings-provider-options-{provider}")).role("button").label(options).size(32.0, 32.0).radius(6.0).center()
         .fill(if open == Some(Menu::Options) { p.pressed } else { Color::TRANSPARENT }).hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_provider_menu(&options_id, Menu::Options, tx))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.step_accounts(Event::Toggle { provider: options_id.clone(), menu: Menu::Options }, tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     let mut e = row().key("settings-provider-account-actions").gap(0.0).center_y().child(trigger).child(dots);
     if let Some(which) = open {
@@ -190,7 +264,10 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
             let open = id.to_owned();
             list = list.child(el().w_full().h(0.5).my(4.0).fill(p.border))
                 .child(item("settings-account-add".into(), t!("settings.providers.account.add").into())
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_connect(Some(&open), true, tx)));
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                        s.step_accounts(Event::Close, tx);
+                        s.open_connect(Some(&open), true, tx);
+                    }));
         }
         Menu::Options => {
             let active = accounts.first().map(|a| (a.id.clone(), a.label.clone())).unwrap_or_default();
@@ -198,11 +275,7 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
             let (remove, provider, last) = (active.0.clone(), name.to_owned(), accounts.len() == 1);
             list = list
                 .child(item("settings-account-rename".into(), t!("common.rename").into()).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    tx.instant();
-                    s.settings_pages.menu = None;
-                    s.settings_pages.renaming = Some(rename.0.clone());
-                    s.settings_pages.rename = rune::TextEdit::new(&label);
-                    s.settings_pages.rename.focused = true;
+                    s.step_accounts(Event::Rename { credential: rename.0.clone(), label: label.clone() }, tx);
                 }))
                 .child(item("settings-account-remove".into(), t!("dialog.provider.accounts.remove").into())
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| s.remove_account(&remove, &provider, last, tx)));
@@ -212,10 +285,13 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
 }
 
 impl App {
-    fn toggle_provider_menu(&mut self, id: &str, which: Menu, tx: &mut Tx) {
+    fn step_accounts(&mut self, event: Event, tx: &mut Tx) {
         tx.instant();
-        let same = self.settings_pages.menu.as_ref().is_some_and(|(p, m)| p == id && *m == which);
-        self.settings_pages.menu = (!same).then(|| (id.to_owned(), which));
+        for effect in self.settings_pages.accounts.step(event) {
+            match effect {
+                Effect::Rename { credential, label } => self.account_write(move |srv| srv.credential_rename(&credential, &label), String::new(), String::new()),
+            }
+        }
     }
 
     /// Removes every credential the integration holds (`disconnect.run`).
@@ -244,28 +320,17 @@ impl App {
 
     fn activate_account(&mut self, credential: &str, provider: &str, label: &str, tx: &mut Tx) {
         tx.instant();
-        self.settings_pages.menu = None;
+        let _ = self.settings_pages.accounts.step(Event::Close);
         let (credential, provider, label) = (credential.to_owned(), provider.to_owned(), label.to_owned());
         self.account_write(move |srv| srv.credential_activate(&credential), t!("settings.providers.account.switched.title", provider = provider), t!("settings.providers.account.switched.description", account = label));
     }
 
     fn remove_account(&mut self, credential: &str, provider: &str, _last: bool, tx: &mut Tx) {
         tx.instant();
-        self.settings_pages.menu = None;
+        let _ = self.settings_pages.accounts.step(Event::Close);
         let (credential, provider) = (credential.to_owned(), provider.to_owned());
         let label = self.integrations(None).unwrap_or_default().iter().flat_map(|i| i.connections.iter()).find(|c| c.id == credential).map(|c| c.label.clone()).unwrap_or_default();
         self.account_write(move |srv| srv.credential_remove(&credential), t!("settings.providers.account.removed.title", account = label), t!("settings.providers.account.removed.description", provider = provider));
-    }
-
-    fn rename_account(&mut self, credential: &str, tx: &mut Tx) {
-        tx.instant();
-        let label = self.settings_pages.rename.text.trim().to_owned();
-        self.settings_pages.renaming = None;
-        if label.is_empty() {
-            return;
-        }
-        let credential = credential.to_owned();
-        self.account_write(move |srv| srv.credential_rename(&credential, &label), String::new(), String::new());
     }
 
     fn account_write(&mut self, work: impl FnOnce(&opencode_kit::client::Server) -> Result<(), String> + Send + 'static, title: String, description: String) {
