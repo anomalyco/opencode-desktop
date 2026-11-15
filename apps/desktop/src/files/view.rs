@@ -56,7 +56,12 @@ pub(super) fn files_sidebar(
         },
         // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
         false,
-        |_: &mut App, _: &rune::KeyEvent, _: &mut Tx| false,
+        // The panel's tab keys from its filter (`file.tab.prev`/`next` act while the side region
+        // has focus), not the field's Tab traversal.
+        |s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            use crate::keymap::Bind;
+            [Bind::TabPrev, Bind::TabNext, Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) && s.panels_key(ev, tx)
+        },
     );
 
     let list_area = if !ws.ready {
@@ -209,13 +214,15 @@ pub(crate) fn filtered_files_view(
 ) -> El {
     let filtered = s.filtered_files(session_id, query);
     if filtered.is_empty() {
+        // `file/browser.tsx:313-315`: "No results found" as a status, inside the list's padding.
         return col()
             .key("files-filter-empty")
+            .role("status")
             .w_full()
             .grow(1.0)
-            .px(10.0)
-            .pt(8.0)
-            .child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
+            .px(16.0)
+            .pt(18.0)
+            .child(text(opencode_i18n::t!("palette.empty")).font(UI_SMALL).color(p.muted));
     }
     let count = filtered.len();
     let keys_vec = filtered.clone();

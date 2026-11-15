@@ -10,7 +10,7 @@ use crate::App;
 use opencode_i18n::t;
 
 /// `dialog-title`: 15 on 20 at 530, -0.13 tracking.
-const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
+pub(crate) const TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
 
 /// Room past a hugging title field's text for Rune's 1.5 pt caret, with rounding slack.
 const CARET_ROOM: f32 = 2.0;

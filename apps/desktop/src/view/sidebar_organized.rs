@@ -349,10 +349,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
             s.project_state.organize_selected = Some(crate::tabs::session_uid(crate::servers::runtime::active(s), &id));
             s.open(&id, tx);
         })
-        .child(match crate::session_menu_view::field(s, p, &target, UI_MED) {
-            Some(field) => super::sidebar::rows::row_field(field),
-            None => text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto),
-        })
+        .child(text(ses.title.clone()).key("title").font(UI_MED).color(if active { p.text } else { p.faint }).grow(1.0).shrink().truncate().dir(rune::Direction::Auto))
         .child(el().key("status").size(16.0, 16.0).center().children(mark));
     if open_tab {
         r = r.child(el().key("open-tab").label_static(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
@@ -360,8 +357,9 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     if active {
         r = r.fill(p.pressed);
     }
-    // A right-click opens the row's menu (`ProjectSessionRow`'s `Menu.Context`).
-    crate::session_menu::on(r, target)
+    // A right-click opens the row's menu (`ProjectSessionRow`'s `Menu.Context`); its Rename opens
+    // the Rename dialog.
+    crate::session_menu::on_dialog(r, target)
 }
 
 /// A small ghost-muted Button, 23 in from the list's start (`ms-[23px] self-start`).

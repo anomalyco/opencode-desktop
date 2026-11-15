@@ -421,7 +421,9 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
         crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
         _ => None,
     })).flatten();
+    // `inbox.tsx:185-209`: Rename, Export…, the read mark, then Archive and Delete….
     let menu = Menu::new(t!("command.category.session"))
+        .item(Item::new("rename", t!("common.rename")))
         .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(&server, &id)))
         .items(read).separator()
         .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
@@ -432,6 +434,7 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
+            Some("rename") => s.open_rename_dialog(&target),
             Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),

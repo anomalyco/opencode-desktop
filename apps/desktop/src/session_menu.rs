@@ -8,7 +8,7 @@
 //! | Sidebar tab | Rename, Close tab, Close other tabs, Close tabs to the right, —, Delete session… |
 //! | Home row, session header | Rename, Export…, Make project, —, Delete… |
 //! | Recent row | Pin (or Unpin, Move up, Move down), Mute or Unmute, Hide, —, Rename, Archive, —, Delete… |
-//! | Inbox task / project line | Close (archive) / Stop being a project, —, Delete… |
+//! | Inbox card, project sidebar row | Rename (a dialog: `rename_dialog`), Export…, Mark as read or unread, Archive (the inbox), —, Delete… |
 //!
 //! Rename edits the title where it stands: ⏎ saves, Esc cancels, a click elsewhere saves (the
 //! Home row cancels, as Desktop's does). Double-clicking a tab and clicking a root session's
@@ -28,6 +28,7 @@ mod delete;
 mod export;
 pub(crate) mod preferences;
 mod rename;
+pub(crate) mod rename_dialog;
 pub(crate) mod unread;
 
 /// Where a session's title is drawn: each has its own menu and its own blur rule.
@@ -79,6 +80,9 @@ pub struct Menus {
     /// failure says nothing more.
     gave_up: Option<(String, String)>,
     seq: Seq,
+    /// The inbox's and the project sidebar's Rename dialog, and its field.
+    dialog: rename_dialog::State,
+    pub dialog_edit: TextEdit,
     /// Delete's confirmation.
     delete: delete::Delete,
     /// Deletes sent (their undo toast went), until the server answers.
@@ -196,6 +200,11 @@ pub fn menu(lines: &[Line]) -> Menu {
 /// Opens `t`'s menu at `at`, marking its row until it closes. A Home row being renamed keeps
 /// the plain field, as Desktop keeps the native menu there.
 pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
+    open_with(s, t, at, false, tx);
+}
+
+/// [open], its Rename opening the Rename dialog (`RenameDialog`) where Desktop's does.
+fn open_with(s: &mut App, t: Target, at: impl Into<PopupAnchor>, dialog: bool, tx: &mut Tx) {
     if s.menus.renaming().is_some_and(|r| r.spot == Spot::Row) {
         return;
     }
@@ -213,8 +222,10 @@ pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
     popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
         s.menus.on = None;
         tx.instant();
-        if let Some(id) = picked {
-            run(s, &t, id, tx);
+        match picked {
+            Some("rename") if dialog => s.open_rename_dialog(&t),
+            Some(id) => run(s, &t, id, tx),
+            None => {}
         }
     });
 }
@@ -222,6 +233,12 @@ pub fn open(s: &mut App, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
 /// A right-click on `e` opens `t`'s menu.
 pub fn on(e: rune::El, t: Target) -> rune::El {
     e.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open(s, t.clone(), press, tx))
+}
+
+/// [on] for a project sidebar's session row (`project-session-row.tsx:185-197`): Rename opens
+/// the dialog.
+pub fn on_dialog(e: rune::El, t: Target) -> rune::El {
+    e.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_with(s, t.clone(), press, true, tx))
 }
 
 /// Runs the menu item `id` on `t`.
@@ -364,7 +381,8 @@ impl App {
                 tx.wake_at(due);
             }
         }
-        before != self.menus.renaming()
+        let dialog = self.poll_rename_dialog(now, tx);
+        before != self.menus.renaming() || dialog
     }
 
     /// The server answered a rename, a delete or a restore this window sent (`client.session.write`).
@@ -390,6 +408,8 @@ impl App {
                     }
                 }
                 self.rename_event(rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() }, why);
+                let draft = self.menus.dialog_edit.text.clone();
+                self.rename_dialog_event(rename_dialog::Event::Replied { session: &session, server: &server, title: &title, ok, draft: &draft }, why);
             }
             Some("delete") => {
                 let server = crate::servers::runtime::active(self).clone();

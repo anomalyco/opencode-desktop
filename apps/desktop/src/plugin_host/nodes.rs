@@ -368,7 +368,7 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
 }
 
 /// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears
-/// it, then gives up the keyboard; Enter submits.
+/// it and keeps the keyboard; Enter submits.
 fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
     let placeholder = a.string("placeholder").unwrap_or(opencode_i18n::t!("ui.sessionReviewV2.filterFiles")).to_owned();
@@ -393,14 +393,19 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
         false,
         move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            // The panel's tab keys from its filter (`file.tab.prev`/`next` act while the side
+            // region has focus), not the field's Tab traversal.
+            use crate::keymap::Bind;
+            if [Bind::TabPrev, Bind::TabNext, Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) {
+                return app.panels_key(ev, tx);
+            }
             if ev.key != rune::Key::Escape {
                 return false;
             }
+            // A `type="search"` input: Escape clears it, and on an empty one keeps the keyboard.
             tx.instant();
             let edit = super::editors::get_mut(app, &on_key, index);
-            if edit.text.is_empty() {
-                edit.focused = false;
-            } else {
+            if !edit.text.is_empty() {
                 edit.replace_text("");
             }
             super::bump();
