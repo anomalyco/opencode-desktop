@@ -4,6 +4,7 @@
   "rune.a11y.diff.removed": "Removed, line {{line}}: {{code}}",
   "rune.a11y.done": "Reply finished",
   "rune.a11y.failed": "Run failed: {{error}}",
+  "rune.a11y.find.match": "Match {{at}} of {{count}}",
   "rune.a11y.replied": "Reply finished: {{reply}}",
   "rune.a11y.sidebar": "Sessions",
   "rune.a11y.stopped": "Stopped",

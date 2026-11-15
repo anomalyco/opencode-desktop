@@ -125,6 +125,10 @@ impl App {
         open.dialog = next;
         if moved {
             self.fresh_inputs();
+            // Like the dialog's focus host. A freshly focused entry or the picker search wins.
+            if self.connect.open.as_ref().is_some_and(|o| o.dialog.provider.is_some()) {
+                tx.focus("connect-focus-host", false);
+            }
         }
         for effect in effects {
             self.run_connect(effect, tx);

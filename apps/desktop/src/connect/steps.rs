@@ -106,7 +106,8 @@ pub fn body(s: &App, p: &Pal, frame: Frame) -> El {
 fn methods(s: &App, p: &Pal) -> El {
     let c = open(s).dialog.provider.as_ref().and_then(|p| p.step.connect()).expect("connect");
     let list = conn::catalog(c).map(|c| c.methods.clone()).unwrap_or_default();
-    col().key("connect-methods").children(list.into_iter().enumerate().map(|(at, m)| {
+    col().key("connect-methods").child(step_text(p, opencode_i18n::t!("provider.connect.methods.description", provider = s.provider_name(&provider_id(s)))))
+        .children(list.into_iter().enumerate().map(|(at, m)| {
         row().key(format!("connect-method-{at}")).role("button").label(m.title()).w_full().h(36.0).px(12.0).gap(8.0).center_y().radius(6.0)
             .hover(p.hover).press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| input(s, Input::MethodSelected(at), tx))
@@ -131,15 +132,15 @@ fn entry_form(s: &App, p: &Pal, label: String, placeholder: &str, error: Option<
         .width(None)
         .invalid(error.is_some())
         .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").entry)
-        .on_submit(submit_entry)
-        .build(kit(p))
-        .key("connect-entry");
+        .on_submit(submit_entry);
+    let field = if let Some(message) = &error { field.description(message) } else { field };
+    let field = field.build(kit(p)).key("connect-entry");
     let mut form = col().key("connect-entry-form").w_full().gap(20.0)
         .child(col().w_full().gap(8.0).child(text(label).font(LABEL).color(p.text)).child(field));
     if let Some(e) = error {
         form = form.child(text(e).key("connect-entry-error").role("alert").font(BODY).color(p.danger).mt(-16.0));
     }
-    let mut cont = button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(submitting).on_press_tx(submit_entry).build(kit(p)).key("connect-submit");
+    let mut cont = button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(submitting).on_press_tx(submit_entry).build(kit(p)).key("connect-submit").busy(submitting);
     if console {
         cont = cont.px(12.0);
     }
@@ -216,6 +217,8 @@ fn browser(s: &App, p: &Pal) -> El {
     let name = s.provider_name(&provider_id(s));
     let mut e = col().key("connect-browser").px(12.0).gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)))
+        .children(matches!(conn::signin(c), Some(conn::Signin::Browser { failed: true, .. })).then(||
+            text(opencode_i18n::t!("provider.connect.oauth.browserFailed")).role("alert").font(BODY).color(p.danger).wrap()))
         .child(widgets::status_row(p, "connect-waiting", opencode_i18n::t!("provider.connect.status.waiting")))
         .child(row().gap(8.0).child(open_browser(p)));
     if let Some(code) = confirmation_code(c) {
@@ -713,4 +716,3 @@ impl App {
         }
     }
 }
-

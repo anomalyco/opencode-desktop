@@ -380,8 +380,10 @@ pub fn layer(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
                 })
                 .on_submit(submit);
         }
+        if let Some(message) = &error { field = field.description(message); }
+        let field = field.build(kit(p)).key("mcp-sign-in-field");
         let mut paste = col().key("mcp-sign-in-form").w_full().gap(20.0)
-            .child(col().w_full().gap(8.0).child(text(label).font(LABEL).color(p.text)).child(field.build(kit(p)).key("mcp-sign-in-field")));
+            .child(col().w_full().gap(8.0).child(text(label).font(LABEL).color(p.text)).child(field));
         if let Some(e) = error {
             paste = paste.child(text(e).key("mcp-sign-in-error").role("alert").font(rune::TextStyle::new(12.0, 440.0).lh(16.0)).color(p.danger).wrap().w_full().mt(-16.0));
         }

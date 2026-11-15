@@ -52,6 +52,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 return;
             }
             tx.instant();
+            tx.focus(format!("plugin-popover-{plugin}.{id}"), tx.focus_visible());
             app.plugins.overlay = Overlay::Popover { plugin: plugin.clone(), id, anchor, side, align, gap, data, flyout: super::Flyout::default() };
             crate::popover::motion::opening(&app.knobs, tx);
         }

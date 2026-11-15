@@ -201,6 +201,7 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
                 let on = selected.as_deref() == Some(tr.id);
                 let sr = &s.review.sessions[&sid_rows];
                 let row = chrome::tree_row(&pal, node.name.as_str(), tr.depth, dir.then(|| sr.tree.is_expanded(tr.id)), glyph, on)
+                    .position_in_set(i + 1, count)
                     .children((!dir).then(|| kinds.get(tr.id).and_then(|k| letter(&pal, k))).flatten())
                     .children(sr.folder_label(tr.id).map(|label| text(label).font(MONO_COUNT).color(pal.faint)));
                 let row = if dir {

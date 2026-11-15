@@ -36,7 +36,7 @@ pub fn badge(p: &Pal, label: impl Into<String>) -> El {
 
 /// Desktop's `Loader` beside muted words: a sign-in or a check under way.
 pub fn status_row(p: &Pal, key: &str, label: &str) -> El {
-    row().key(key.to_owned()).gap(8.0).center_y()
+    row().key(key.to_owned()).role("status").label(label.to_owned()).gap(8.0).center_y()
         .child(Loader::new().size(16.0).build(kit(p)))
         .child(text(label.to_owned()).font(BODY).color(p.muted))
 }

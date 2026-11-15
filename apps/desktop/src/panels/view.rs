@@ -121,7 +121,8 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
     if let Some(reg) = reg.as_ref() {
         // Mount the card's frame with the column: its border follows the same track even on the
         // first open. At zero opacity no body, plugin output or row layout is needed.
-        let mut card = card_frame(p, w).key("side-panel").grow(1.0).min_h(0.0);
+        let mut card = card_frame(p, w).key("side-panel").role("region").label_static(opencode_i18n::t!("session.panel.reviewAndFiles"))
+            .focusable(col_open).tab_index(-1).grow(1.0).min_h(0.0);
         if s.side_mounted() {
             let env_scale = cx.env().scale;
             let col_h = cx.layout_with("side-column", |r| r[3]).unwrap_or(720.0 / *s.zoom);

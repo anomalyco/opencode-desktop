@@ -156,6 +156,7 @@ pub(crate) fn workspace_tree_view(
                 let glyph = (!is_dir).then(|| tree_icons::file(&node.name));
                 let expanded = if is_dir { Some(tr.expanded.unwrap_or(false)) } else { None };
                 let mut r = chrome::tree_row_in(&pal, &node.name, tr.depth, expanded, glyph, active, chrome::PIERRE)
+                    .position_in_set(i + 1, count)
                     .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                         tx.instant();
                         if is_dir {

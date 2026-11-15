@@ -476,6 +476,7 @@ impl CodeDocState {
         if crate::keymap::Bind::Find.matches_tx(ev, tx) {
             tx.instant();
             self.set_find_open(true);
+            self.find_input.set_selection(0, self.find_input.text.len());
             return true;
         }
         // Enter and Escape commit or cancel an input method's text first (IME).

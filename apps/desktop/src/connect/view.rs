@@ -104,7 +104,10 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     let mut surface = widgets::overlay(p, col())
         .key("connect-dialog")
         .role("dialog")
-        .label(title(s))
+        .label(match open.dialog.provider.as_ref() {
+            Some(provider) if frame != Frame::Models => opencode_i18n::t!("provider.connect.title", provider = s.provider_name(&provider.id)),
+            _ => title(s),
+        })
         .radius(12.0)
         .fill(p.bg_base)
         .clip_soft(0.0)
@@ -115,7 +118,8 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     surface = surface.child(header(s, p, frame));
     surface = match frame {
         Frame::Picker => surface.child(picker(s, p)),
-        _ => surface.child(super::steps::body(s, p, frame)),
+        _ => surface.child(col().key("connect-focus-host").focusable(true).tab_index(-1).role("group").label(title(s)).w_full().shrink().min_h(0.0)
+            .child(super::steps::body(s, p, frame))),
     };
     // `<Dialog size="normal" fit anchored>` (`providers/connect/dialog.tsx`): every step fits its
     // content within the normal height, and the top edge stays put, so a step only moves the bottom.
@@ -167,10 +171,10 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
                 .child(text(opencode_i18n::t!("dialog.provider.description")).font(DESCRIPTION).color(p.muted)))
             .child(close_button(p)),
         Frame::Accounts => {
-            let mut lead = row().grow(1.0).shrink().min_w(0.0).gap(2.0).center_y();
+            let mut lead = row().role("navigation").label_static(opencode_i18n::t!("provider.connect.breadcrumb.label")).grow(1.0).shrink().min_w(0.0).gap(2.0).center_y();
             if can_back {
                 lead = lead
-                    .child(text(opencode_i18n::t!("dialog.provider.title")).key("connect-crumb").role("button").font(TITLE).color(p.faint)
+                    .child(text(opencode_i18n::t!("common.connect")).key("connect-crumb").role("button").font(TITLE).color(p.faint)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             tx.instant();
                             s.connect_event(Event::Back, tx);
@@ -192,7 +196,7 @@ fn header(s: &App, p: &Pal, frame: Frame) -> El {
         Frame::Provider => {
             let id = open.dialog.provider.as_ref().map(|p| p.id.clone()).unwrap_or_default();
             // As tall as the title: the back button reaches 2 pt past it each way.
-            let mut lead = row().grow(1.0).shrink().min_w(0.0).h(16.0).gap(8.0).center_y();
+            let mut lead = row().role("navigation").label_static(opencode_i18n::t!("provider.connect.breadcrumb.label")).grow(1.0).shrink().min_w(0.0).h(16.0).gap(8.0).center_y();
             if can_back {
                 lead = lead.child(back_button(p));
             }

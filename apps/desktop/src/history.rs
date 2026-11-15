@@ -154,6 +154,7 @@ impl App {
     pub fn navigate(&mut self, forward: bool, tx: &mut Tx) -> bool {
         self.sync_history();
         let Some(to) = self.nav.step(forward) else { return false };
+        let keep_home = tx.focused() == Some("home");
         tx.instant();
         self.cancel_open(tx);
         self.close_picker(false);
@@ -173,6 +174,11 @@ impl App {
             (None, false) => {}
         }
         session_view::jump::settle(self, tx);
+        // The persistent titlebar trigger didn't leave when the route changed.
+        if keep_home {
+            self.composer.focused = false;
+            tx.focus("home", tx.focus_visible());
+        }
         true
     }
 

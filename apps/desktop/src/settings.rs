@@ -405,7 +405,12 @@ impl App {
 
     pub fn toggle_settings(&mut self, tx: &mut Tx) {
         tx.instant();
-        if self.settings.open { self.close_settings() } else { self.open_settings() }
+        if self.settings.open {
+            self.close_settings();
+        } else {
+            self.open_settings();
+            if matches!(*self.route, crate::Route::Session { .. }) { tx.focus("settings", tx.focus_visible()); }
+        }
     }
 
     pub fn zoom_by(&mut self, dir: i32, tx: &mut Tx) {

@@ -169,6 +169,8 @@ impl SessionFiles {
 }
 
 pub struct FilesPane {
+    /// Last count read for the active find bar; don't repeat it for every typed character.
+    spoken_match: Option<(String, String, usize, usize)>,
     pub sessions: HashMap<String, SessionFiles>,
     pub empty_doc: CodeDocState,
     pub filter: TextEdit,
@@ -190,6 +192,7 @@ impl Default for FilesPane {
     fn default() -> Self {
         Self {
             sessions: HashMap::new(),
+            spoken_match: None,
             empty_doc: CodeDocState::default(),
             filter: TextEdit::new(""),
             dirty: false,
@@ -312,6 +315,22 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
     {
         changed |= doc.sync_find_query();
         changed |= s.sync_rendered_find(&sid, &path);
+        let ws = &s.files.sessions[&sid];
+        let doc = &ws.docs[&path];
+        if tx.assistive_technology() && !doc.find_input.text.is_empty() {
+            let (at, count) = if markdown::shows_rendered(ws, &path) {
+                ws.md.get(&path).map_or((0, 0), |v| (v.active, v.matches.len()))
+            } else { (doc.active_match_index(), doc.match_count()) };
+            let result = (sid, path, at, count);
+            if s.files.spoken_match.as_ref() != Some(&result) {
+                let words = if count == 0 { opencode_i18n::t!("session.search.noResults").to_owned() }
+                    else { opencode_i18n::t!("rune.a11y.find.match", at = at + 1, count = count) };
+                tx.announce(words, rune::LiveRegion::Polite);
+                s.files.spoken_match = Some(result);
+            }
+        } else { s.files.spoken_match = None; }
+    } else {
+        s.files.spoken_match = None;
     }
     changed
 }
