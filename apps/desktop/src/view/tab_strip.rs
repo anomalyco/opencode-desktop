@@ -3,7 +3,7 @@
 //! over one tab store, so a tab is the same element in either place and flies between them
 //! when the layout changes (`El::matched`, `shell-tab-{id}`).
 
-use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabStrip, TearOutSpec};
+use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabSlot, TabStrip, TearOutSpec};
 
 use super::*;
 use crate::session_menu::{Spot, Target};
@@ -45,11 +45,22 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
     let tabs: Vec<&crate::tabs::Tab> = indices.iter().filter_map(|&i| s.tabs.get(i)).collect();
     let uids: Vec<String> = tabs.iter().map(|t| t.uid()).collect();
     let nav_ids: std::rc::Rc<Vec<String>> = std::rc::Rc::new(uids.clone());
-    let items = tabs.iter().zip(&uids).enumerate().map(|(index, (t, uid))| item(s, p, t, uid, index, nav_ids.clone(), hide_avatars));
+    // Each tab is read and built only when the strip shows it (`TabStrip::lazy_tabs`); its menu
+    // or rename keeps it built wherever the strip scrolled.
+    let slots = tabs
+        .iter()
+        .zip(&uids)
+        .map(|(t, uid)| {
+            let target = target(s, t);
+            let keep = s.menus.on.as_ref() == Some(&target) || s.menus.renames(&target);
+            TabSlot { id: uid.as_str().into(), pinned: false, two_line: false, keep }
+        })
+        .collect();
+    let (built_tabs, built_uids) = (tabs.clone(), uids.clone());
     let order: Vec<usize> = indices.to_vec();
     let mut strip = TabStrip::new(key, orientation)
         .words(tab_words())
-        .tabs(items)
+        .lazy_tabs(slots, move |index| item(s, p, built_tabs[index], built_uids[index].clone(), index, nav_ids.clone(), hide_avatars))
         .active(current.as_deref())
         .viewport_width(viewport)
         .fill(p.bg_deep)
@@ -101,13 +112,14 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
     strip.build(crate::palette::kit(p))
 }
 
-fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: usize, nav_ids: std::rc::Rc<Vec<String>>, hide_avatar: bool) -> TabItem<'a, App> {
+fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: usize, nav_ids: std::rc::Rc<Vec<String>>, hide_avatar: bool) -> TabItem<'a, App> {
     let draft = t.is_draft();
     let face = face(s, t);
     let target = target(s, t);
     let marked = s.menus.on.as_ref() == Some(&target);
     // No server badge or dot on the tab itself: only its preview names the server
     // (`tab-nav.tsx:158-164`).
+    let id = uid.clone();
     let mut item = TabItem::new(uid, face.title).status(status(s, t)).marked(marked);
     item = match (draft, hide_avatar) {
         (true, _) => item.icon(&DRAFT_PENCIL),
@@ -123,7 +135,6 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: &'a str, index: u
     let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
     let active = !draft && matches!(&*s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
-    let id = uid.to_owned();
     item.decorate(move |slot, _| {
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
