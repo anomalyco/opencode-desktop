@@ -69,13 +69,15 @@ fn tabs(p: &Pal, on: ExtensionsTab) -> El {
     let mut list = row().key("settings-extensions-tabs").w(280.0).gap(6.0).pb(8.0);
     for (tab, id, label) in [(ExtensionsTab::Mcps, "mcps", t!("settings.extensions.tab.mcps")), (ExtensionsTab::Plugins, "plugins", t!("settings.extensions.tab.plugins")), (ExtensionsTab::Skills, "skills", t!("settings.extensions.tab.skills"))] {
         let picked = tab == on;
-        let mut pill = row().key(format!("settings-extensions-tab-{id}")).role("tab").label(label).h(24.0).px(9.0).center().radius(6.0)
+        let edge = if picked { p.border_muted } else { rune::Color::TRANSPARENT };
+        let mut pill = row().key(format!("settings-extensions-tab-{id}")).role("tab").label(label).h(24.0).center().radius(6.0)
+            .border(0.5, edge).border_layout()
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.settings_pages.tab = tab;
             })
-            .child(text(label).font(TAB).color(if picked { p.text } else { p.muted }));
-        pill = if picked { pill.fill(p.layer3).box_shadow(Pal::ring_in(p.border_muted)) } else { pill.hover(p.hover) };
+            .child(row().px(8.0).border(0.5, rune::Color::TRANSPARENT).border_layout().center().child(text(label).font(TAB).color(if picked { p.text } else { p.muted })));
+        pill = if picked { pill.fill(p.layer3) } else { pill.hover(p.layer3) };
         list = list.child(pill);
     }
     list
@@ -129,4 +131,3 @@ fn named_rows(p: &Pal, key: &str, glyph: &'static rune::Icon, names: &[String]) 
     }).collect();
     (!rows.is_empty()).then(|| catalog_with(p, key, rows, false))
 }
-
