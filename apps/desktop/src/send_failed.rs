@@ -397,8 +397,10 @@ impl App {
 
     /// Positive evidence is usable even without a preceding reconnect, and from older pages.
     /// Absence on a limited latest page is NOT evidence that an older prompt never arrived.
-    pub fn judge_sends_by_page(&mut self, _session: &str, messages: &[Message]) {
-        for message in messages { self.accept_send(message.id()); }
+    pub fn judge_sends_by_page(&mut self, _session: &str, messages: &[Message]) -> bool {
+        let mut changed = false;
+        for message in messages { changed |= self.accept_send(message.id()); }
+        changed
     }
 
     pub fn judge_sends_by_inbox(&mut self, _session: &str, ids: &[String]) -> bool {
@@ -477,4 +479,3 @@ fn read_receipts(fetch: &dyn Fn(&str) -> Result<serde_json::Value, opencode_kit:
     }
     results
 }
-

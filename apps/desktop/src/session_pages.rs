@@ -636,9 +636,10 @@ impl super::App {
         let mut changed = false;
         for result in results {
             if let Ok(page) = &result {
-                self.judge_sends_by_page(&page.key.id, &page.messages);
+                // A prefetched page for a highlighted result warms the page cache, not the
+                // current view. Redraw only for a receipt it settled, or a page shown below.
+                changed |= self.judge_sends_by_page(&page.key.id, &page.messages);
                 self.check_sends();
-                changed = true;
             }
             match result {
                 Ok(page) if self.route == super::Route::here(page.key.id.clone()) || self.opening.as_ref().is_some_and(|o| o.id == page.key.id) || (page.history && self.transcripts.contains_key(&page.key.id)) => { self.show_page(&page, tx); changed = true; }
