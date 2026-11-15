@@ -235,18 +235,23 @@ fn browser(s: &App, p: &Pal) -> El {
                 }).child(icon(if shown { &ic::CHEVRON_DOWN } else { &ic::CHEVRON_RIGHT }, 14.0).mirror_in_rtl().color(p.icon_muted)).child(text(toggle).font(BODY).color(p.text)));
             if shown {
                 let label = opencode_i18n::t!("ui.redirectPaste.label");
+                let message = err.map(|e| match e {
+                    conn::EntryError::Required => opencode_i18n::t!("ui.redirectPaste.required"),
+                    conn::EntryError::Rejected(m) => m.as_str(),
+                });
                 let field = TextInput::new(&open(s).entry).large().width(None).label(label).placeholder(opencode_i18n::t!("ui.redirectPaste.placeholder")).spellcheck(false).disabled(locked).invalid(err.is_some())
                     .on_edit(|s: &mut App| &mut s.connect.open.as_mut().expect("open").entry)
-                    .on_change(|s: &mut App, tx: &mut Tx| input(s, Input::PasteEdited, tx)).on_submit(submit_redirect).build(kit(p));
+                    .on_change(|s: &mut App, tx: &mut Tx| input(s, Input::PasteEdited, tx)).on_submit(submit_redirect);
+                let field = if let Some(msg) = message { field.description(msg) } else { field };
+                let field = field.build(kit(p));
                 block = block.child(step_text(p, opencode_i18n::t!("provider.connect.oauth.paste.description").into())).child(text(label).font(LABEL).color(p.text)).child(field.key("connect-redirect"));
-                if let Some(err) = err {
-                    let msg = match err { conn::EntryError::Required => opencode_i18n::t!("ui.redirectPaste.required"), conn::EntryError::Rejected(m) => m.as_str() };
+                if let Some(msg) = message {
                     block = block.child(text(msg.to_owned()).role("alert").font(BODY).color(p.danger).wrap());
                 }
             }
             e = e.child(block);
             if shown && !open(s).entry.text.trim().is_empty() && *paste != conn::Paste::Accepted {
-                return e.child(actions.child(button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(locked).on_press_tx(submit_redirect).build(kit(p)).key("connect-paste-submit")));
+                return e.child(actions.child(button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast).disabled(locked).on_press_tx(submit_redirect).build(kit(p)).key("connect-paste-submit").busy(locked)));
             }
         }
     }
@@ -259,7 +264,7 @@ fn submit_redirect(s: &mut App, tx: &mut Tx) {
 }
 
 fn wait_button(p: &Pal, title: &str) -> El {
-    button(title.to_owned(), ButtonVariant::Loading).disabled(true).build(kit(p)).key("connect-waiting").role("status")
+    button(title.to_owned(), ButtonVariant::Loading).disabled(true).build(kit(p)).key("connect-waiting").role("status").busy(true)
 }
 
 fn command(s: &App, p: &Pal) -> El {
