@@ -9,6 +9,20 @@ use super::view::pane_box;
 use crate::palette::{Elevate as _, Pal};
 use crate::{App, Route};
 
+impl App {
+    /// Pinned tabs always live at the side (`resolve_side_region_now`). A bottom tab must
+    /// therefore be stored in that pane, or be a New tab in it. Only ask providers then;
+    /// an empty dock doesn't need the Review file count or a terminal's title.
+    pub(crate) fn bottom_has_candidate(&self) -> bool {
+        let Route::Session { id, .. } = &*self.route else { return false };
+        self.side.adding.iter().any(|n| n.session_id == *id && n.pane == SessionPane::Bottom)
+            || self.side.sessions.get(id).is_some_and(|s| {
+                let tabs = &s.tab_state.tabs;
+                tabs.all.iter().any(|k| super::tabs::session_tab_pane(tabs, k) == SessionPane::Bottom)
+            })
+    }
+}
+
 /// Extra bottom inset reserved inside `window` when the bottom pane is open, so `panel` and
 /// `side-column` sit cleanly above it without changing `window/panel`'s element path. `reg` is the
 /// routed session's side region, resolved once per view for this and `bottom_dock`.

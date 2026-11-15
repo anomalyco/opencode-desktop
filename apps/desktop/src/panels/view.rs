@@ -90,7 +90,6 @@ pub fn side_region(s: &App, p: &Pal, zoomed_w: f32, bottom_reserve: f32, main: [
 
 fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut Cx<App>) -> El {
     let on_session = matches!(*s.route, Route::Session { .. }) && !s.settings.open;
-    let reg = if on_session { s.resolve_side_region() } else { None };
     let w = s.side_width(laid_w);
 
     let col_open = on_session && s.side_open();
@@ -118,15 +117,15 @@ fn side_region_in(s: &App, p: &Pal, laid_w: f32, bottom_reserve: f32, cx: &mut C
     let col_bottom = if col_open { 8.0 + bottom_reserve } else { 8.0 };
     let mut column = col().key("side-column").pin(Some(bleed), Some(crate::view::chrome().top()), None, Some(col_bottom)).w(w)
         .opacity(if col_open { 1.0 } else { 0.0 }).opacity_motion(if col_open { OPEN_FADE } else { CLOSE_FADE });
-    if let Some(reg) = reg.as_ref() {
+    if on_session {
         // Mount the card's frame with the column: its border follows the same track even on the
         // first open. At zero opacity no body, plugin output or row layout is needed.
         let mut card = card_frame(p, w).key("side-panel").role("region").label_static(opencode_i18n::t!("session.panel.reviewAndFiles"))
             .focusable(col_open).tab_index(-1).grow(1.0).min_h(0.0);
-        if s.side_mounted() {
+        if s.side_mounted() && let Some(reg) = s.resolve_side_region() {
             let env_scale = cx.env().scale;
             let col_h = cx.layout_with("side-column", |r| r[3]).unwrap_or(720.0 / *s.zoom);
-            card = card.child(region_body(s, p, reg, w, col_h, env_scale));
+            card = card.child(region_body(s, p, &reg, w, col_h, env_scale));
         }
         if !col_open {
             card = card.inert();

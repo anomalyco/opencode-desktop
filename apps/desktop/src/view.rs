@@ -242,7 +242,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let settings_sz = if s.settings.open { cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
     // The bottom pane's reserve and the pane itself read the side region's tabs, which ask every
     // panel's plugin: once per view.
-    let side_reg = (matches!(*s.route, Route::Session { .. }) && !s.settings.open).then(|| s.resolve_side_region()).flatten();
+    let side_reg = (!s.settings.open && s.bottom_has_candidate()).then(|| s.resolve_side_region()).flatten();
     let bottom_reserve = crate::panels::view::bottom_reserve_height(s, side_reg.as_deref(), cx);
     let dock = crate::panels::view::bottom_dock(s, side_reg.as_deref(), p, cx);
     // On a phone the shell's surfaces run under the side and bottom insets to the screen's edge
