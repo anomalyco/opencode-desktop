@@ -110,6 +110,8 @@ pub struct FlushReport {
     pub checkpointed: bool,
     /// The deadline passed before the writer answered.
     pub timed_out: bool,
+    /// The final drain or a required disk barrier failed. Never report this as a saved quit.
+    pub unconfirmed: bool,
 }
 
 /// The legacy files, in the groups the app's packages cut over one at a time. A group's files

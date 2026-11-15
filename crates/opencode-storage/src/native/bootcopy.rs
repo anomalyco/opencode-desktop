@@ -12,7 +12,7 @@
 //!   copy was written, and it's ignored. Nothing else reads it: an older build never looks.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use super::walstamp::Stamp;
@@ -31,7 +31,7 @@ fn sum(b: &[u8]) -> u64 {
 }
 
 /// The copy of `record` with the WAL at `stamp`, over whatever copy was there.
-pub(crate) fn write(db: &Path, record: &[u8], stamp: &Stamp) -> std::io::Result<()> {
+pub(super) fn write(mut file: &File, record: &[u8], stamp: &Stamp) -> std::io::Result<()> {
     let mut h = [0u8; HEAD];
     h[0..4].copy_from_slice(&MAGIC.to_le_bytes());
     h[4..8].copy_from_slice(&1u32.to_le_bytes());
@@ -43,8 +43,9 @@ pub(crate) fn write(db: &Path, record: &[u8], stamp: &Stamp) -> std::io::Result<
     let mut bytes = Vec::with_capacity(HEAD + record.len());
     bytes.extend_from_slice(&h);
     bytes.extend_from_slice(record);
-    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(path(db))?;
-    f.write_all(&bytes)
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&bytes)?;
+    file.set_len(bytes.len() as u64)
 }
 
 /// The copy beside `db`, when it's there and whole: its WAL stamp and its bytes.

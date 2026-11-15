@@ -24,6 +24,15 @@ pub(super) fn is_quit(reason: FlushReason) -> bool {
 }
 
 impl Writer {
+    /// The queue and its admission state were sampled under the same lock. A stale wake or a
+    /// late FirstFrame message cannot restart maintenance after the producers have begun draining.
+    pub(super) fn admission(&mut self, state: crate::machine::admission::State) {
+        if state != crate::machine::admission::State::Open && self.quit == Quit::Running {
+            self.quit = Quit::Quitting;
+            self.search.quitting();
+            self.timers.clear();
+        }
+    }
     /// The quit's end, after its rows landed. On Windows and macOS (where the journal is proved):
     /// the boot record made current, the WAL synced (all a power cut needs: every commit is in
     /// it), and the record's copy written beside the file with where the WAL ends (`bootcopy`), so
@@ -33,6 +42,12 @@ impl Writer {
     /// checkpoint as before.
     pub(super) fn quit_finish(&mut self) {
         let t = Instant::now();
+        // First-frame work is not guaranteed to have run, and a failed barrier is still owed.
+        // This also applies to an empty WAL: the early reservation is in the main file.
+        if !self.sync_reservation() {
+            self.quit = Quit::Quitting;
+            return;
+        }
         if self.wal == WalState::Clean && self.wal_bytes() == 0 {
             self.quit = Quit::Left;
             return;
@@ -92,7 +107,8 @@ impl Writer {
         }
         let record = boot_record::from_sqlite(&self.conn).ok().flatten().ok_or("no boot record")?;
         let path = self.conn.path().map(std::path::PathBuf::from).ok_or("no path")?;
-        crate::native::bootcopy::write(&path, &record, &stamp).map_err(|_| "the record's copy couldn't be written")?;
+        let crate::native::lease::Owner::Exclusive(copy) = &self.owner else { return Err("no journal lease") };
+        crate::native::bootcopy::write(copy, &record, &stamp).map_err(|_| "the record's copy couldn't be written")?;
         let file = crate::native::dbfile::get(&path).map_err(|_| "the file can't be read")?;
         match boot_record::read_file(&path, &file) {
             boot_record::FastBoot::Pending(copy, at) if copy == record && at == stamp => Ok(()),
@@ -103,6 +119,9 @@ impl Writer {
 
     /// Whether this quit rewrites the file with 16 KiB pages (`repage`): that needs the WAL empty.
     pub(super) fn repages(&self) -> bool {
+        // Never relocate the journal after the UI claim goes. A previous build does not know
+        // our lease protocol and could already be looking at its mapped overflow pages.
+        if crate::native::journal::SUPPORTED && crate::native::journal::placement().is_none() { return false; }
         let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
         let (page, pages) = (get("page_size"), get("page_count"));
         page > REPAGE_TO && page * pages <= REPAGE_MAX
@@ -114,6 +133,8 @@ impl Writer {
     /// pages. Rewritten with `VACUUM` under the rollback journal, so a kill midway leaves the old
     /// file; the boot record's raw read is kept only if its table's root is still page 2.
     pub(super) fn repage(&mut self) {
+        let _placement = crate::native::journal::placement();
+        if crate::native::journal::SUPPORTED && _placement.is_none() { return; }
         let get = |pragma: &str| self.conn.query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0)).unwrap_or(0);
         let (page, pages) = (get("page_size"), get("page_count"));
         if page <= REPAGE_TO || page * pages > REPAGE_MAX {

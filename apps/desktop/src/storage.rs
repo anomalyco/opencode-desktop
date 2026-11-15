@@ -29,7 +29,10 @@ enum Phase {
     /// The first frames are built from `boot`; stage B still runs on the open's thread.
     Booted { boot: Arc<BootPacket>, opening: Opening, queued: Queued },
     /// The first window presented: a helper thread waits for stage B.
-    Joining { boot: Arc<BootPacket>, queued: Queued },
+    Joining { boot: Arc<BootPacket>, queued: Queued, frame: Frame },
+    /// Stage B has taken the queue. Its final callbacks run outside the phase lock; do not
+    /// seal the writer until those producers have actually submitted their commands.
+    Delivering { storage: Storage, boot: Arc<BootPacket>, frame: Frame },
     /// Stage B was done when a read the boot packet couldn't answer needed it, before the first
     /// frame: everything reads from it, and what waits for the first frame (the import's file
     /// moves, the seed) still waits. The boot packet stays until then for what the first frame
@@ -42,12 +45,10 @@ enum Phase {
 enum Effect {
     /// Wait for stage B on a thread of its own, then [`Event::Joined`].
     Join(Opening),
-    /// Wait for stage B here (the app quits before it was joined).
-    JoinNow(Opening),
     /// Hand the writes made while booting to the storage; with why the database didn't open, when
     /// it didn't. Once the first frame is up ([`Frame::Presented`]), tell the storage and wake every
     /// window.
-    Adopt(Storage, Queued, Opened, Frame),
+    Adopt(Storage, Queued, Opened),
     /// The first frame is up after an early adoption: tell the storage, wake every window.
     Presented(Storage),
 }
@@ -76,6 +77,8 @@ impl Opened {
 enum Frame {
     Presented,
     Pending,
+    /// Joining to finish the quit, not because a frame was presented.
+    Ending,
 }
 
 enum Event {
@@ -84,6 +87,7 @@ enum Event {
     /// The first window presented its first frame.
     Presented,
     Joined(Storage, Opened),
+    Delivered,
     /// The app quits: stage B is needed now.
     Quit,
     /// A read the boot packet can't answer: adopt stage B if it's done (never wait for it here).
@@ -149,21 +153,27 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
             }
             (Phase::Booted { boot, opening, queued: Queued::default() }, None)
         }
-        (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default() }, Some(Effect::JoinNow(opening))),
+        (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default(), frame: Frame::Ending }, Some(Effect::Join(opening))),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
-            Some((storage, report)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Presented))),
-            None => (Phase::Joining { boot, queued }, Some(Effect::Join(opening))),
+            Some((storage, report)) => (Phase::Delivering { storage: storage.clone(), boot, frame: Frame::Presented }, Some(Effect::Adopt(storage, queued, Opened::of(report)))),
+            None => (Phase::Joining { boot, queued, frame: Frame::Presented }, Some(Effect::Join(opening))),
         },
         // Another process holds the file and the windows show its stand-in: nothing this run
         // changed is saved, so the quit doesn't wait for the open (it may wait out the lock).
         (Phase::Booted { boot, .. } | Phase::Joining { boot, .. }, Event::Quit) if boot.source.held() => (Phase::Memory(Storage::memory()), None),
-        (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued }, Some(Effect::JoinNow(opening))),
+        (Phase::Booted { boot, opening, queued }, Event::Quit) => (Phase::Joining { boot, queued, frame: Frame::Ending }, Some(Effect::Join(opening))),
+        (Phase::Joining { boot, queued, .. }, Event::Quit) => (Phase::Joining { boot, queued, frame: Frame::Ending }, None),
+        (Phase::Delivering { boot, storage, .. }, Event::Quit) => (Phase::Delivering { storage, boot, frame: Frame::Ending }, None),
         (Phase::Booted { boot, mut opening, queued }, Event::Need) => match opening.try_storage() {
-            Some((storage, report)) => (Phase::Early { storage: storage.clone(), boot }, Some(Effect::Adopt(storage, queued, Opened::of(report), Frame::Pending))),
+            Some((storage, report)) => (Phase::Delivering { storage: storage.clone(), boot, frame: Frame::Pending }, Some(Effect::Adopt(storage, queued, Opened::of(report)))),
             None => (Phase::Booted { boot, opening, queued }, None),
         },
-        (Phase::Joining { queued, .. }, Event::Joined(storage, opened)) => (Phase::Ready(storage.clone()), Some(Effect::Adopt(storage, queued, opened, Frame::Presented))),
+        (Phase::Joining { queued, boot, frame }, Event::Joined(storage, opened)) => (Phase::Delivering { storage: storage.clone(), boot, frame }, Some(Effect::Adopt(storage, queued, opened))),
+        (Phase::Delivering { storage, boot, frame: Frame::Pending }, Event::Presented) => (Phase::Delivering { storage, boot, frame: Frame::Presented }, None),
+        (Phase::Delivering { storage, frame: Frame::Presented, .. }, Event::Delivered) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
+        (Phase::Delivering { storage, boot, frame: Frame::Pending }, Event::Delivered) => (Phase::Early { storage, boot }, None),
+        (Phase::Delivering { storage, frame: Frame::Ending, .. }, Event::Delivered) => (Phase::Ready(storage), None),
         (Phase::Early { storage, .. }, Event::Presented) => (Phase::Ready(storage.clone()), Some(Effect::Presented(storage))),
         (phase, _) => (phase, None),
     }
@@ -190,27 +200,24 @@ impl Queued {
         self.docs.iter().rev().find(|(k, ..)| k == key).map(|(_, v, _)| v.clone())
     }
 
-    fn apply(self, s: &Storage) {
-        for (name, key, value) in self.state {
+    fn apply_rows(&mut self, s: &Storage) {
+        for (name, key, value) in self.state.drain(..) {
             match value {
                 Some(v) => s.state().set(&name, &key, v),
                 None => s.state().delete(&name, &key),
             };
         }
-        for (key, value, rev) in self.docs {
+        for (key, value, rev) in self.docs.drain(..) {
             s.documents().set_rev(&key, value, rev);
         }
-        for (id, frame) in self.frames {
+        for (id, frame) in self.frames.drain(..) {
             s.windows().set_frame(&id, frame);
         }
-        for id in self.forgotten {
+        for id in self.forgotten.drain(..) {
             s.windows().forget(&id);
         }
-        for (server, session, value) in self.previews {
+        for (server, session, value) in self.previews.drain(..) {
             s.previews().set(&server, &session, value);
-        }
-        for f in self.later {
-            f(s);
         }
     }
 }
@@ -226,7 +233,11 @@ fn send(event: Event) {
         let Some(phase) = guard.take() else { return };
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
-        if let Some(Effect::Adopt(_, _, opened, _)) = &mut effect {
+        if let Some(Effect::Adopt(s, queued, opened)) = &mut effect {
+            if matches!(&next, Phase::Delivering { frame: Frame::Ending, .. }) { s.begin_quit(); }
+            // Publish these memory-cache writes and enqueue their commands before newer writes
+            // can see the ready store. User callbacks are NOT executed with this lock held.
+            queued.apply_rows(s);
             let mut t = told();
             t.owed = match (std::mem::replace(opened, Opened::Saving), t.held) {
                 // The first frame's notice already says nothing is saved.
@@ -250,14 +261,10 @@ fn send(event: Event) {
                 eprintln!("opencode-storage: couldn't start the join thread: {e}");
             }
         }
-        Some(Effect::JoinNow(opening)) => joined(opening),
-        Some(Effect::Adopt(storage, queued, _, frame)) => {
-            queued.apply(&storage);
+        Some(Effect::Adopt(storage, queued, _)) => {
+            for f in queued.later { f(&storage); }
+            send(Event::Delivered);
             READY.notify_all();
-            if matches!(frame, Frame::Presented) {
-                storage.first_frame_presented(Some(Box::new(wake_all)));
-                wake_all();
-            }
         }
         Some(Effect::Presented(storage)) => {
             storage.first_frame_presented(Some(Box::new(wake_all)));
@@ -371,12 +378,12 @@ fn with<R>(ready: impl FnOnce(&Storage) -> R, booting: impl FnOnce(&BootPacket, 
         guard = lock();
     }
     match &mut *guard {
-        Some(Phase::Ready(s) | Phase::Early { storage: s, .. } | Phase::Memory(s)) => {
+        Some(Phase::Ready(s) | Phase::Delivering { storage: s, .. } | Phase::Early { storage: s, .. } | Phase::Memory(s)) => {
             let s = s.clone();
             drop(guard);
             ready(&s)
         }
-        Some(Phase::Booted { boot, queued, .. } | Phase::Joining { boot, queued }) => {
+        Some(Phase::Booted { boot, queued, .. } | Phase::Joining { boot, queued, .. }) => {
             let boot = boot.clone();
             booting(&boot, queued)
         }
@@ -675,13 +682,23 @@ pub fn set_preview(server: &str, session: &str, value: Option<(i64, Arc<[u8]>)>)
     with(|s| s.previews().set(server, session, value.clone()), |_, queued| queued.previews.push((server.to_owned(), session.to_owned(), value.clone())));
 }
 
+/// The last window queued its rows. No synchronous join and no second flush from this hook.
+pub fn begin_quit() {
+    send(Event::Quit);
+    let s = match &*lock() {
+        Some(Phase::Ready(s) | Phase::Early { storage: s, .. } | Phase::Delivering { storage: s, .. }) => Some(s.clone()),
+        _ => None,
+    };
+    if let Some(s) = s { s.begin_quit(); }
+}
+
 /// Lands every queued write. `wait`: block until it's durable (close, quit, session end), else
 /// ask the writer and go on (a window hidden).
 pub fn flush(reason: FlushReason, wait: bool) {
     if matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart) {
         send(Event::Quit);
         let mut guard = lock();
-        while matches!(&*guard, Some(Phase::Joining { .. })) {
+        while wait && matches!(&*guard, Some(Phase::Joining { .. } | Phase::Delivering { .. })) {
             guard = READY.wait_timeout(guard, Duration::from_secs(5)).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
         }
     }
@@ -693,16 +710,20 @@ pub fn flush(reason: FlushReason, wait: bool) {
     storage.flush(reason, deadline);
 }
 
-/// The app is ending: every queued row lands, the WAL is checkpointed when it holds writes, and
-/// the database closes, so its exclusive lock goes now rather than when the process is gone (an
-/// update's helper, the next launch). Later reads and writes stay in memory.
-pub fn close() {
-    // The quit's phase (a stage B still to join is joined); the storage's close then waits for
-    // the rows and the WAL's sync, once.
-    flush(FlushReason::Quit, false);
-    let storage = match &*lock() {
+/// Seal only after the boot queue has been delivered. The native close is the single final
+/// flush, not a second request to land the same buffers.
+pub fn close() -> opencode_storage::FlushReport {
+    begin_quit();
+    let mut guard = lock();
+    while matches!(&*guard, Some(Phase::Joining { .. } | Phase::Delivering { .. })) {
+        guard = READY.wait(guard).unwrap_or_else(|e| e.into_inner());
+    }
+    let storage = match &*guard {
         Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
-        _ => return,
+        _ => return opencode_storage::FlushReport::default(),
     };
-    storage.close();
+    drop(guard);
+    let report = storage.close();
+    if report.unconfirmed { eprintln!("opencode-storage: quit ended without confirming that all changes reached disk"); }
+    report
 }

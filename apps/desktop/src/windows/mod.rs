@@ -153,7 +153,7 @@ pub fn quit_saved(id: &str) {
     // The rows go to the writer now; the close (`storage::close`, after the windows) waits for
     // them, once. Waiting here too held every quit for up to 2 s behind a busy writer.
     if effect == QuitEffect::Flush {
-        crate::storage::flush(opencode_storage::FlushReason::Quit, false);
+        crate::storage::begin_quit();
     }
 }
 

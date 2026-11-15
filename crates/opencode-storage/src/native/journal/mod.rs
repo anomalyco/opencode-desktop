@@ -113,6 +113,23 @@ unsafe impl Send for Journal {}
 
 static JOURNAL: OnceLock<Journal> = OnceLock::new();
 
+/// Structural work is rare (open only); recording a key never takes this lock. At handoff,
+/// wait out a setup already in progress and then exclude a late reservation or attach. This
+/// also protects a successor built before the file lease existed.
+pub(super) enum Placement { Open, Frozen }
+static PLACEMENT: std::sync::RwLock<Placement> = std::sync::RwLock::new(Placement::Open);
+
+pub(super) fn placement() -> Option<std::sync::RwLockReadGuard<'static, Placement>> {
+    let g = PLACEMENT.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    matches!(*g, Placement::Open).then_some(g)
+}
+
+pub fn freeze_for_handoff() {
+    let mut placement = PLACEMENT.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *placement = Placement::Frozen;
+    finish(false);
+}
+
 /// Whether `key` is a window's draft document (`opencode.window.<id>.dat:draft:<tab>`).
 pub fn is_draft_key(key: &str) -> bool {
     key.starts_with("opencode.window.") && key.contains(".dat:draft:")
@@ -136,6 +153,11 @@ pub fn record(key: &str, text: Option<&str>) -> u64 {
     let seq = j.seq.fetch_add(1, Ordering::AcqRel) + 1;
     if j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         return seq;
+    }
+    // `finish` may have frozen the mapping between the initial check and taking `busy`.
+    if !j.open.load(Ordering::Acquire) {
+        j.busy.store(false, Ordering::Release);
+        return 0;
     }
     // SAFETY: `busy` is ours.
     #[allow(unsafe_code)]
@@ -194,6 +216,12 @@ pub(crate) fn finish(saved: bool) {
     }
     while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         std::hint::spin_loop();
+    }
+    if !saved {
+        // Handoff only needs the last map writer to leave. Do not scan the index or touch the
+        // mapped header after this point; the next run may already own the profile.
+        j.busy.store(false, Ordering::Release);
+        return;
     }
     #[allow(unsafe_code)]
     let inner = unsafe { &mut *j.inner.get() };
