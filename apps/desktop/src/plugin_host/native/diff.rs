@@ -21,6 +21,29 @@ use crate::code_view::find_bar::{FindBar, find_bar, over};
 use crate::code_view::{DiffViewer, ExpandMode};
 use crate::review::{ChangeMode, SessionReview};
 
+/// A routed session with the built-in Review already on screen needs its saved source in
+/// the navigation update, before its label asks for the count. Don't start an inactive VM
+/// or apply the bundled plugin's store schema to a third-party panel.
+pub(crate) fn prepare_route(app: &mut App, sid: &str) {
+    if !app.review_shown() { return; }
+    if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
+        // Other providers keep their own choice of source and their existing refresh timing.
+        if app.side_open() { app.review.dirty = true; }
+        return;
+    }
+    let mode = if let Some(sr) = app.review.sessions.get(sid) {
+        sr.mode
+    } else {
+        use crate::plugin_host::{services::store, stores};
+        let ns = opencode_storage::plugin_namespace("review");
+        let key = stores::key("session", &store::scope_session(app, sid));
+        store::session_text("review", &ns, "session", sid, &key)
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?)).unwrap_or_default()
+    };
+    app.set_session_change_mode(sid, mode);
+}
+
 /// `Diff:Open(spec)`: session `sessionId`'s changes, read from `source`.
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let v = vmx.clone();
@@ -29,8 +52,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let app = app_now("Diff:Open")?;
         let mode = ChangeMode::parse(s.source.as_str()).unwrap_or_default();
         let sid = s.session_id;
-        let engine = app.review.sessions.get(&sid);
-        if engine.is_none_or(|sr| sr.mode != mode || sr.load.loaded_revision() != Some((mode, app.review.revision))) {
+        if !app.review.has_read(&sid, mode) {
             let id = sid.clone();
             app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
         }

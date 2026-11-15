@@ -237,6 +237,13 @@ impl Default for ReviewPane {
 }
 
 impl ReviewPane {
+    /// The data or the pending live request already covers this document. Merely asking
+    /// for the same thing again while rendering must not enqueue a follow-up commit.
+    pub(crate) fn has_read(&self, sid: &str, mode: ChangeMode) -> bool {
+        self.sessions.get(sid).is_some_and(|sr| sr.mode == mode && sr.load.loaded_revision() == Some((mode, self.revision)))
+            || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.diff_fetch.set_waker(waker.clone());
         self.file_fetch.set_waker(waker);

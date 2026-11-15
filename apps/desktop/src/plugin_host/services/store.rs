@@ -132,7 +132,7 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
                 return data.clone().into_lua(lua);
             }
             // A value saved before values were kept per server is under the bare session id.
-            let text = stores::text(&plugin, &ns, &key).or_else(|| (per_session && *key != *stores::key(&name, session)).then(|| stores::text(&plugin, &ns, &stores::key(&name, session))).flatten());
+            let text = if per_session { session_text(&plugin, &ns, &name, session, &key) } else { stores::text(&plugin, &ns, &key) };
             if per_session && text.is_some() {
                 stores::touch(&plugin, &ns, &name, &key);
             }
@@ -175,7 +175,7 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
 /// Where session `session`'s values live (`SessionStateKey`): its server's scope (`local` for
 /// the app's own), then its folder in base64 and its id; the session of a tab on another server
 /// takes that tab's server. A global value (no session) stays as it is.
-fn scope_session(app: &crate::App, session: &str) -> String {
+pub(crate) fn scope_session(app: &crate::App, session: &str) -> String {
     use opencode_kit::servers::key::{base64_url_encode, session_route_key, session_state_key};
     if session.is_empty() {
         return String::new();
@@ -184,6 +184,15 @@ fn scope_session(app: &crate::App, session: &str) -> String {
     let server = tab.map_or_else(|| crate::servers::runtime::active(app).clone(), |t| t.server.clone());
     let directory = app.session(session).filter(|_| server == *crate::servers::runtime::active(app)).map(|s| s.directory.clone()).or_else(|| tab.map(|t| t.directory.clone())).unwrap_or_default();
     session_state_key(&server.scope(), &session_route_key(Some(&base64_url_encode(directory.as_bytes())), Some(session)))
+}
+
+/// A session value under its scoped key or, for an older save, its bare session id.
+pub(crate) fn session_text(plugin: &str, ns: &str, name: &str, session: &str, key: &str) -> Option<std::sync::Arc<str>> {
+    use crate::plugin_host::stores;
+    stores::text(plugin, ns, key).or_else(|| {
+        let legacy = stores::key(name, session);
+        (key != legacy).then(|| stores::text(plugin, ns, &legacy)).flatten()
+    })
 }
 
 /// The generation of contract `id` (0 when nothing provides it).
@@ -333,4 +342,3 @@ fn set_path(lua: &Lua, root: &Value, path: &[String], v: Value) -> mlua::Result<
     }
     Ok(())
 }
-
