@@ -4,6 +4,8 @@
 //! composer until the turn ends, where it can be steered (Send once the turn has stopped),
 //! taken back into the composer, or removed.
 
+use std::rc::Rc;
+
 use rune::{El, Icon, Key, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -354,23 +356,26 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let n = rows.len();
     let ops = s.queue_ops.get(session);
     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
-    let mut list = col().key("queue-list").w_full();
-    for (k, r) in rows.iter().enumerate() {
-        // While the turn is stopped the queue is parked: the first prompt shows its actions,
-        // labelled Send, which is how the queue resumes.
-        let st = RowState {
-            busy,
-            parked: !busy && k == 0,
-            editing: ops.and_then(|q| q.editing()) == Some(r.id.as_str()),
-            changing: ops.is_some_and(machine::Queue::busy),
-            lifted: s.queue_drag.lifted(session, &r.id),
-            dragging: s.queue_drag.active(session),
-            offset: s.queue_drag.offset(session, k),
-            key: format!("queued-{}", ops.map_or_else(|| r.id.clone(), |q| q.origin(&r.id))),
-            index: k,
-        };
-        list = list.child(queue_row(p, session, r, &ids, st));
-    }
+    let list = if n > VIRTUAL_PAST {
+        // A long queue builds the rows in sight of its scroll (a virtual list). Each list row is a
+        // box around the queue's row, which keeps its key and the 1 pt under it (a list row's own
+        // margin isn't part of its height), so a drag and a send find it as before.
+        let keys: Rc<Vec<String>> = Rc::new(rows.iter().map(|r| format!("{}-row", row_key(ops, r))).collect());
+        let (rows, ids, session_id, pal) = (Rc::new(rows), Rc::new(ids), session.to_owned(), *p);
+        let version = keys.clone();
+        col()
+            .key("queue-list")
+            .w_full()
+            .growth(rune::GrowthSpec::default())
+            .virtual_rows(n, ROW_H, move |_: &App, k| keys[k].clone().into(), move |s: &App, k| el().w_full().child(queue_row(&pal, &session_id, &rows[k], &ids, row_state(s, &session_id, &rows[k], k, busy))))
+            .virtual_rows_version(version)
+    } else {
+        let mut list = col().key("queue-list").w_full();
+        for (k, r) in rows.iter().enumerate() {
+            list = list.child(queue_row(p, session, r, &ids, row_state(s, session, r, k, busy)));
+        }
+        list
+    };
     let list_h = (n as f32 * ROW_H).min(MAX_LIST_H);
     let mut tray = col()
         .key("queue-tray")
@@ -391,6 +396,31 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     };
     shell.role("list").label_static(opencode_i18n::t!("rune.queue.label")).mb(-TUCK).child(tray.child(list))
 }
+/// Past this many rows the queue builds only those in sight of its scroll.
+const VIRTUAL_PAST: usize = 12;
+
+/// A row's key: its prompt's, as it was first queued while a change moves it.
+fn row_key(ops: Option<&machine::Queue>, r: &QueueRow) -> String {
+    format!("queued-{}", ops.map_or_else(|| r.id.clone(), |q| q.origin(&r.id)))
+}
+
+/// Row `k`'s state as it stands. While the turn is stopped the queue is parked: the first prompt
+/// shows its actions, labelled Send, which is how the queue resumes.
+fn row_state(s: &App, session: &str, r: &QueueRow, k: usize, busy: bool) -> RowState {
+    let ops = s.queue_ops.get(session);
+    RowState {
+        busy,
+        parked: !busy && k == 0,
+        editing: ops.and_then(|q| q.editing()) == Some(r.id.as_str()),
+        changing: ops.is_some_and(machine::Queue::busy),
+        lifted: s.queue_drag.lifted(session, &r.id),
+        dragging: s.queue_drag.active(session),
+        offset: s.queue_drag.offset(session, k),
+        key: row_key(ops, r),
+        index: k,
+    }
+}
+
 /// The queue's rows (`queue-machine.ts` `selectQueueRows`); none while a dock covers the composer.
 fn shown_rows(s: &App, session: &str) -> Vec<QueueRow> {
     if s.dock_shown() {
