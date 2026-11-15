@@ -36,13 +36,23 @@ impl Recall {
     /// Row `key` and where its top stood below the viewport's top (negative when above it):
     /// the first row showing on `session`'s last drawn frame.
     pub fn place(&self, session: &str) -> Option<(String, f32)> {
+        self.drawn_place(session).map(|(key, row_y, view_y)| (key, row_y - view_y))
+    }
+
+    /// The same reading place in window coordinates. When the viewport itself moves, a new
+    /// viewport can put the row back at that y, not merely the same distance below its new top.
+    pub fn screen_place(&self, session: &str) -> Option<(String, f32)> {
+        self.drawn_place(session).map(|(key, row_y, _)| (key, row_y))
+    }
+
+    fn drawn_place(&self, session: &str) -> Option<(String, f32, f32)> {
         let marks = self.marks.borrow().get(session)?.clone();
         let [_, top, _, h] = marks.view.get();
         if h <= 0.0 { return None; }
         let rows = marks.rows.borrow();
         marks.visible.borrow().iter().find_map(|key| {
             let [_, y, _, h] = rows.get(key)?.get();
-            (h > 0.0 && y + h > top + 0.5).then(|| (key.clone(), y - top))
+            (h > 0.0 && y + h > top + 0.5).then(|| (key.clone(), y, top))
         })
     }
 

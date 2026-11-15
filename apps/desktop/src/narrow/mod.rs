@@ -29,6 +29,9 @@ pub struct Narrow {
     width: Cell<f32>,
     /// Crossings the view stepped, for the next poll or layout to hand the drawers.
     crossed: RefCell<Vec<ModeEffect>>,
+    /// A real wide-to-narrow crossing replaces the conversation's scroll viewport. Its first
+    /// layout consumes the row and its old window y. Never persisted as a session restore.
+    pub(crate) reading: RefCell<Option<(String, String, f32)>>,
     pub view: View,
     /// The routed session the view machine last heard of.
     routed: RefCell<Option<String>>,

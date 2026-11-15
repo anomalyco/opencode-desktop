@@ -71,7 +71,14 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     s.browser.host.set_color_scheme(s.dark(cx));
     // Desktop's `(max-width: 767px)`: the shell's width, read once it crosses or while narrow.
     let width = cx.layout_with("zoom", move |r| r[2].min(crate::narrow::machine::BREAKPOINT));
+    let was_narrow = s.layout.narrow.is_narrow();
     let narrow = width.is_some_and(|w| s.layout.narrow.measure(w)) && s.stage.is_none();
+    if was_narrow != narrow {
+        let reading = narrow.then(|| s.active_session_id()).flatten()
+            .filter(|id| !s.ends.due(id) && s.displayed_session(id) == Some(*id) && !s.settings.open)
+            .and_then(|id| s.ends.recall.screen_place(id).map(|(key, y)| (id.to_owned(), key, y)));
+        *s.layout.narrow.reading.borrow_mut() = reading;
+    }
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
     session_view::scroller::set_device_scale(cx.env().scale);

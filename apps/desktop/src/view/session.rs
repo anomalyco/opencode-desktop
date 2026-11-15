@@ -55,6 +55,12 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 // Previous and Next message read the prompt in view from where it lies (`message_nav`).
                 session_view::timeline_area(s, p, shown, t, pills, head).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
                     s.message_nav.view = Some(r);
+                    if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
+                        && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.ends.due(&id)
+                    {
+                        tx.scroll_key_to(row, y - r[1]);
+                        return;
+                    }
                     tx.live_only();
                 })
             })
