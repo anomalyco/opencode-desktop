@@ -62,11 +62,11 @@ impl Tip {
         }
     }
 
-    /// `when`: the browse tip only while the server has no `browse` MCP server.
-    fn applies(self, browse_installed: bool) -> bool {
+    /// Only offer an install while the corresponding tool is missing.
+    fn applies(self, installed: &Installed) -> bool {
         match self {
-            Tip::Browse => !browse_installed,
-            Tip::Hex => true,
+            Tip::Browse => !installed.browse,
+            Tip::Hex => !installed.hex,
         }
     }
 }
@@ -99,8 +99,8 @@ impl History {
 
 /// `selectTip`: the tip shown last while it still applies, else the first that does once its
 /// time has come.
-pub fn select(history: &History, now: i64, browse_installed: bool) -> Option<Tip> {
-    let eligible = |tip: &Tip| !history.dismissed.iter().any(|d| d == tip.id()) && tip.applies(browse_installed);
+pub fn select(history: &History, now: i64, installed: &Installed) -> Option<Tip> {
+    let eligible = |tip: &Tip| !history.dismissed.iter().any(|d| d == tip.id()) && tip.applies(installed);
     if let Some(current) = TIPS.iter().find(|t| t.id() == history.current && eligible(t)) {
         return Some(*current);
     }
@@ -179,9 +179,16 @@ pub struct Poll {
     pub history: History,
     /// Whether the server's MCP list has a `browse` server; `None` until it's listed.
     pub browse_installed: Option<bool>,
+    /// The launch's local Hex check; unknown until the worker finishes.
+    pub hex_installed: Option<bool>,
     pub online: bool,
     /// The window is focused and shown (`document.hasFocus() && !document.hidden`).
     pub open: bool,
+}
+
+pub struct Installed {
+    pub browse: bool,
+    pub hex: bool,
 }
 
 pub enum Event {
@@ -198,6 +205,7 @@ pub enum Event {
 pub enum Effect {
     WakeAt(f64),
     SyncMcp,
+    CheckHex,
     /// Shows `tip` if no other window holds the [`Claim`], then writes `history` when given.
     Show { tip: Tip, history: Option<History> },
     Hide(u64),
@@ -232,8 +240,13 @@ pub fn step(state: &mut State, event: Event) -> Vec<Effect> {
 fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
     match state {
         State::Unstarted => {
-            *state = State::Starting { until: poll.clock + STARTUP_DELAY };
-            polled(state, poll)
+            let until = poll.clock + STARTUP_DELAY;
+            *state = State::Starting { until };
+            let mut effects = vec![Effect::WakeAt(until)];
+            if poll.hex_installed.is_none() {
+                effects.push(Effect::CheckHex);
+            }
+            effects
         }
         State::Starting { until } if poll.clock + 1e-3 < *until => vec![Effect::WakeAt(*until)],
         State::Starting { .. } => {
@@ -250,12 +263,12 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
                 (Sync::Asked, false) => *sync = Sync::Offline,
                 _ => {}
             }
-            let Some(installed) = poll.browse_installed else { return effects };
+            let (Some(browse), Some(hex)) = (poll.browse_installed, poll.hex_installed) else { return effects };
             if let Some(due) = next_due(&poll.history, poll.now) {
                 let ms = (due - poll.now).min(i64::from(i32::MAX));
                 effects.push(Effect::WakeAt(poll.clock + ms as f64 / 1000.0));
             }
-            let selected = select(&poll.history, poll.now, installed);
+            let selected = select(&poll.history, poll.now, &Installed { browse, hex });
             if let Phase::Showing { tip, toast, .. } = phase {
                 if selected == Some(*tip) {
                     return effects;

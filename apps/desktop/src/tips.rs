@@ -15,6 +15,9 @@ use queue::{Effect, Event, History, Poll, Tip};
 const GLOBAL: &str = "opencode.global.dat";
 const KEY: &str = "tips.queue";
 
+/// Shared by every window for this launch. Only workers initialize it; polls only read it.
+static HEX_INSTALLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 #[derive(Default)]
 pub struct Tips {
     state: queue::State,
@@ -41,6 +44,15 @@ fn run(s: &mut App, event: Event, tx: &mut Tx) -> bool {
         match effect {
             Effect::WakeAt(due) => tx.wake_at(due),
             Effect::SyncMcp => s.sync_mcp(""),
+            Effect::CheckHex => {
+                let wake = (*s.waker).clone();
+                if rune::task::spawn("tip-hex", move || {
+                    HEX_INSTALLED.get_or_init(|| crate::dirs::hex_support().is_some_and(|dir| hex_client::installed(&dir)));
+                    if let Some(wake) = wake { wake(); }
+                }).is_err() {
+                    let _ = HEX_INSTALLED.set(false);
+                }
+            }
             Effect::Show { tip, history } => {
                 let Some(claim) = queue::Claim::take() else { continue };
                 if let Some(history) = history.filter(|_| s.persists()) {
@@ -78,6 +90,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
         now,
         history,
         browse_installed: s.mcp_servers("").map(|list| list.iter().any(|m| m.name == "browse")),
+        hex_installed: HEX_INSTALLED.get().copied(),
         online: !crate::reconnect::down(s),
         open: !s.plugins.window_blurred.get() && s.toast.stack.page() == rune_kit::ToastPage::Shown,
     };
