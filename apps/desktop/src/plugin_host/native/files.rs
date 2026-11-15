@@ -91,7 +91,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
             app_now("CodeDocument:Reload")?.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 if let Some(w) = s.files.sessions.get_mut(&sid) {
-                    w.docs.remove(&path);
+                    w.invalidate_document(&path);
                 }
                 s.ensure_file_loaded(&sid, &path);
             }));

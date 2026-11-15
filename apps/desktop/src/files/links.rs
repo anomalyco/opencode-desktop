@@ -292,7 +292,7 @@ impl App {
         let ws = self.files.sessions.entry(sid.to_owned()).or_default();
         // Ask again for a file that wasn't there, or whose answer was lost.
         if ws.docs.get(path).is_some_and(|d| d.missing() || !d.ready()) {
-            ws.docs.remove(path);
+            ws.invalidate_document(path);
         }
         self.ensure_file_loaded(sid, path);
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
@@ -310,7 +310,7 @@ impl App {
         let waker = self.files.waker.clone();
         let Some(ws) = self.files.sessions.get_mut(sid) else { return };
         if ws.docs.get(path).is_none_or(|d| d.missing()) {
-            ws.docs.remove(path);
+            ws.invalidate_document(path);
             if ws.known_files.remove(path) { ws.reindex(waker.as_ref()); }
             ws.rebuild_tree();
             let title = if is_bare_word(path) { opencode_i18n::t!("rune.files.link.nowhere") } else { opencode_i18n::t!("rune.files.link.notFound") };

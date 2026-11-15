@@ -4,6 +4,8 @@
 
 pub mod code_paths;
 pub mod data;
+pub(crate) mod delimited;
+mod table_view;
 pub mod image;
 pub mod link_tip;
 mod link_tip_stories;
@@ -48,6 +50,8 @@ pub struct SessionFiles {
     /// Files a link asked for, opened once they load.
     pub link_opens: HashMap<String, LinkOpen>,
     pub md: HashMap<String, markdown::MdView>,
+    /// Decoded CSV/TSV documents. A failed or replaced read drops the previous revision.
+    pub(crate) tables: HashMap<String, std::sync::Arc<delimited::Table>>,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
     pub code_paths: HashMap<String, code_paths::CodePaths>,
     /// The paths the session's finished replies name in inline code, checked (`code_paths`).
@@ -133,6 +137,7 @@ impl Default for SessionFiles {
             pending_jump: HashMap::new(),
             link_opens: HashMap::new(),
             md: HashMap::new(),
+            tables: HashMap::new(),
             code_paths: HashMap::new(),
             reply_paths: Default::default(),
             images: HashMap::new(),
@@ -144,6 +149,14 @@ impl Default for SessionFiles {
 }
 
 impl SessionFiles {
+    /// A reread starts with no rendered document. Drop the projection at the same time as the
+    /// source: two revisions with the same path, dimensions and query can have different hits.
+    pub(crate) fn invalidate_document(&mut self, path: &str) {
+        self.docs.remove(path);
+        self.tables.remove(path);
+        self.md.remove(path);
+    }
+
     pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
         self.paths.query(q, limit)
     }
@@ -263,9 +276,15 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             Some(p) => { ws.images.insert(path.clone(), p); }
             None => { ws.images.remove(&path); }
         }
+        ws.md.remove(&path);
+        ws.tables.remove(&path);
         let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
         match payload {
             FilePayload::Text(text) => doc.set_text(&text),
+            FilePayload::Table { source, document } => {
+                doc.set_text(&source);
+                ws.tables.insert(path.clone(), document);
+            }
             FilePayload::Binary(sz) => doc.set_binary(sz),
             FilePayload::Image(bytes) => doc.set_binary(bytes.len()),
             FilePayload::Missing => doc.set_missing(),
@@ -528,8 +547,10 @@ impl App {
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
                 if ws.known_files.insert(path.to_owned()) { ws.reindex(waker.as_ref()); }
                 let mut doc = wrap.doc(path, "");
+                ws.invalidate_document(path);
                 if let Some(txt) = contents.get(path) {
                     doc.set_text(txt);
+                    if let Some(table) = delimited::Table::parse(path, txt) { ws.tables.insert(path.to_owned(), table.into()); }
                 } else {
                     doc.set_missing();
                 }
