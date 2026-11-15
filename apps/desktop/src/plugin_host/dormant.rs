@@ -469,6 +469,12 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         tx.wake_after(crate::idle::AFTER - quiet);
         return false;
     }
+    // In pieces, one a turn: its app half first, then the rest (`wake`), so a key that comes
+    // meanwhile waits for one piece, not the whole start.
+    if super::start_app_half(app, &id) {
+        tx.wake_after(Duration::ZERO);
+        return true;
+    }
     wake(app, &id, Why::Idle);
     if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
         tx.wake_after(Duration::ZERO);
