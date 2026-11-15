@@ -1,7 +1,8 @@
 //! The storybook's Subagent rows story (Timeline › Subagent rows): agents start one after
 //! another and work through their steps; the first finishes, the newest fails, and the rest
 //! finish later, each reporting back to the open session as the server does. Under Reports the
-//! open session sends the first a follow-up, then one finishes, one fails and one is stopped.
+//! open session sends the first a follow-up, then one finishes, one fails and one is stopped,
+//! and an agent with no task named starts.
 //! S starts another, F finishes the oldest, E fails the newest, X stops the oldest, U sends the
 //! oldest running a follow-up, R replays.
 
@@ -88,6 +89,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         tx.after(3.5, |s, tx| finish_oldest(s, tx));
         tx.after(4.0, |s, tx| fail_newest(s, tx));
         tx.after(4.5, |s, tx| stop_oldest(s, tx));
+        tx.after(5.0, |s, tx| spawn_as(s, tx, false));
         return;
     }
     tx.after(4.5, |s, tx| finish_oldest(s, tx));
@@ -137,9 +139,15 @@ pub fn delegating(s: &mut App) -> bool {
 /// The open session calls another agent in the background: its card joins the timeline (or the
 /// call [`delegate`] started is written), and its session starts running.
 pub fn spawn(s: &mut App, tx: &mut Tx) {
+    spawn_as(s, tx, true);
+}
+
+/// [`spawn`], with the agent's task named in its call or (`titled` false) not.
+fn spawn_as(s: &mut App, tx: &mut Tx, titled: bool) {
     let parent = sid(s);
     let k = started(s).len();
     let (agent, title, _) = AGENTS[k % AGENTS.len()];
+    let title = if titled { title } else { "" };
     let id = child(k);
     let call_id = format!("call_story_agent_{k:02}");
     let from = s.session(&parent).cloned().unwrap_or_default();

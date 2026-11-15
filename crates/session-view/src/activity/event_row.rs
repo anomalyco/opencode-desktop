@@ -1,11 +1,12 @@
 //! Work that runs on (`timeline-next/event-row.tsx`, as of anomalyco/opencode 0cfe2c2610,
 //! #64017): a run of background shells read like a group's label, "Started 2 shells · Finished 1
-//! shell", opening to each command; and a subagent's event, a row of its own: its agent's chip,
-//! its task, and what happened, which opens its session.
+//! shell", opening to each command; and a subagent's event, a row of its own: what happened as
+//! a chip, its agent, and its task, which opens its session.
 
-use rune::{El, Tx, col, el, row, text};
+use opencode_kit::model::Message;
+use rune::{Color, El, Icon, Tx, col, el, icon, row, text};
 
-use super::events::{self, Event};
+use super::events::{self, Event, Verb};
 use super::tag;
 use crate::TimelineHost;
 use crate::palette::Pal;
@@ -69,11 +70,115 @@ fn item<S: TimelineHost>(_s: &S, p: &Pal, _session: &str, k: usize, e: &Event) -
         .children(e.failed.then(|| tag(p, opencode_i18n::t!("ui.toolErrorCard.failed"), true)))
 }
 
-/// A subagent's event, a row of its own (`timeline-subagent`, `TimelineEventItem`): a neutral
-/// chip naming its agent ("Explore Agent"), its task, and what happened right after it, muted
-/// (Started, Updated, Completed, Stopped) or Failed in the danger colour. 28 tall around its
-/// 16 pt line like the timeline's other rows; under the pointer it takes a faint fill 6 past
-/// its words each side, its task underlines, and a press opens its session.
+/// What a subagent row's status chip shows.
+#[derive(Clone, Copy, PartialEq)]
+enum Chip {
+    /// Its agent started; `live` while its session still runs.
+    Started { live: bool },
+    Updated,
+    Completed,
+    Failed,
+    Stopped,
+}
+
+impl Chip {
+    fn of(e: &Event, live: bool) -> Self {
+        match e.verb {
+            _ if e.failed => Chip::Failed,
+            Verb::Started => Chip::Started { live },
+            Verb::Updated => Chip::Updated,
+            Verb::Stopped => Chip::Stopped,
+            Verb::Ran | Verb::Finished => Chip::Completed,
+        }
+    }
+}
+
+/// The status chip leading a subagent row (`timeline-event-item-status` in `timeline-next.css`,
+/// e3ed63c7de): 18 pt tall, 6 pt in, 12/530, radius 4, a 1 pt border, a 12 pt glyph 4 before
+/// its word, styled by state. Started a faint outline with a ring (the busy spinner while
+/// it runs), Updated a quiet blue dashed outline with ↻, Completed a soft green fill with ✓,
+/// Failed the danger tag with ✕, Stopped a gray outline with ■.
+fn status_chip(p: &Pal, chip: Chip, word: &str) -> El {
+    // `color-mix(in srgb, c n%, transparent)`, as it should paint over the timeline here.
+    let tint = |c: Color, n: f32| rune::theme::for_blend(c.alpha(c.a * n), p.bg_base);
+    let (fill, border, ink) = match chip {
+        Chip::Started { .. } => (None, Some(tint(p.muted, 0.35)), p.faint),
+        Chip::Updated => (None, Some(tint(p.info, 0.5)), mix_srgb(p.info, p.muted, 0.7)),
+        Chip::Completed => (Some(tint(p.success, 0.16)), None, p.success),
+        Chip::Failed => (Some(p.danger_bg), None, p.danger),
+        Chip::Stopped => (None, Some(tint(p.muted, 0.55)), p.muted),
+    };
+    let glyph = match chip {
+        Chip::Started { live: true } => rune_kit::Spinner::new().size(GLYPH).color(ink).build(crate::palette::kit(p)).key("glyph"),
+        Chip::Started { live: false } => icon(&RING, GLYPH).key("glyph").color(ink),
+        Chip::Updated => icon(&AGAIN, GLYPH).key("glyph").color(ink),
+        Chip::Completed => icon(&CHECK, GLYPH).key("glyph").color(ink),
+        Chip::Failed => icon(&CROSS, GLYPH).key("glyph").color(ink),
+        Chip::Stopped => icon(&SQUARE, GLYPH).key("glyph").color(ink),
+    };
+    let mut c = row().key("status").h(18.0).px(6.0).gap(4.0).center().radius(4.0)
+        .child(el().ml(-1.0).size(GLYPH, GLYPH).child(glyph))
+        .child(text(word.to_owned()).font(super::TAG).color(ink));
+    if let Some(f) = fill {
+        c = c.fill(f);
+    }
+    if let Some(b) = border {
+        c = c.border(1.0, b);
+    }
+    if chip == Chip::Updated { c.border_dash(3.0, 3.0) } else { c }
+}
+
+/// `color-mix(in srgb, a n%, b)` for opaque `a` and `b`.
+fn mix_srgb(a: Color, b: Color, n: f32) -> Color {
+    use rune::color::{srgb_decode, srgb_encode};
+    let m = |a: f32, b: f32| srgb_decode(srgb_encode(a) * n + srgb_encode(b) * (1.0 - n));
+    Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: a.a * n + b.a * (1.0 - n) }
+}
+
+/// Whether the subagent a Started row launched is still working (official `row.tsx`'s
+/// `running`, anomalyco/opencode e3ed63c7de, #64102): it names its session, no finish or stop
+/// notice for that session is in `parent`'s timeline yet, and the session is busy or retrying.
+fn running<S: TimelineHost>(s: &S, parent: &str, e: &Event) -> bool {
+    let Some(id) = e.session.as_deref().filter(|_| e.verb == Verb::Started && !e.failed) else { return false };
+    let reported = s.with_transcript(parent, |t| {
+        t.messages.iter().any(|m| matches!(m, Message::Notice(n) if events::notice_event(n).is_some_and(|r| r.session.as_deref() == Some(id))))
+    });
+    !reported.unwrap_or(false) && s.session_working(id)
+}
+
+const GLYPH: f32 = 12.0;
+
+static RING: Icon = Icon {
+    name: "subagent-started",
+    view: 16.0,
+    body: r#"<circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/>"#,
+};
+static AGAIN: Icon = Icon {
+    name: "subagent-updated",
+    view: 16.0,
+    body: r#"<path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.25M12.5 3v2.5H10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+static CHECK: Icon = Icon {
+    name: "subagent-completed",
+    view: 16.0,
+    body: r#"<path d="M3.8 8.3l2.7 2.7 5.7-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+static CROSS: Icon = Icon {
+    name: "subagent-failed",
+    view: 16.0,
+    body: r#"<path d="M5 5l6 6M11 5l-6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>"#,
+};
+static SQUARE: Icon = Icon {
+    name: "subagent-stopped",
+    view: 16.0,
+    body: r#"<rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.2" fill="currentColor"/>"#,
+};
+
+/// A subagent's event, a row of its own (`TimelineEventItem`, anomalyco/opencode e3ed63c7de,
+/// #64102): a status chip saying what happened (see [`status_chip`]), its agent's name in muted
+/// ("Explore Agent"), and its task when it names one. 28 tall
+/// around its 16 pt line like the timeline's other rows; under the pointer it takes a faint fill
+/// 6 past its words each side, its task underlines, and a press opens its session.
 pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El {
     let name = match e.agent.as_deref().filter(|a| !a.is_empty()) {
         Some(agent) => opencode_i18n::t!("ui.timeline.subagent.name", name = opencode_kit::model::capitalize(agent)),
@@ -81,6 +186,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     };
     let status = events::subagent_status(e);
     let title = e.title.clone().unwrap_or_default();
+    let chip = Chip::of(e, running(s, session, e));
     let child = s.resolve_subagent(session, e.session.as_deref(), &title).map(str::to_owned).filter(|_| s.can_open_subagent());
     let words = |underline: bool| {
         let t = text(title.clone()).key("title").font(UI).color(p.text).truncate_fade();
@@ -88,12 +194,12 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
         if underline { t.child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.text.alpha(0.4)).group_opacity(0.0, 1.0)) } else { t }
     };
     let line = row().key("subagent").h(28.0).ml(-6.0).px(6.0).gap(8.0).center_y().radius(4.0).shrink().min_w(0.0)
-        .child(tag(p, &name, false).key("agent"))
-        .children((!title.is_empty()).then(|| words(child.is_some())))
-        .child(text(status).key("status").font(UI).color(if e.failed { p.danger } else { p.muted }));
+        .child(status_chip(p, chip, status))
+        .child(text(name.clone()).key("agent").font(UI).color(p.muted))
+        .children((!title.is_empty()).then(|| words(child.is_some())));
     let Some(child) = child else { return row().w_full().child(line) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let said = [name.as_str(), title.as_str(), status].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
+    let said = [status, name.as_str(), title.as_str()].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
     let line = line.role("link").label(said).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
         .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
