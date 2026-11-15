@@ -24,7 +24,7 @@ mod styles;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::mpsc::{Sender, channel};
+use rune::task::Queue;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -99,7 +99,7 @@ pub struct Icons {
 struct Inner {
     cache: Arc<ImageCache>,
     /// The worker that finds and decodes projects' icons, started by the first job (`Inner::jobs`).
-    jobs: std::cell::OnceCell<Sender<Job>>,
+    jobs: std::cell::OnceCell<Queue<Job>>,
     found: Arc<Mutex<HashMap<String, Found>>>,
     /// The worker changed what a tile shows since the app last asked (`Icons::take_found`).
     changed: Arc<AtomicBool>,
@@ -110,11 +110,10 @@ impl Inner {
     /// The icon worker's queue: its thread starts with the first job, so a window that draws only
     /// letter tiles (repository icons off, no server images) starts none, and the first frame
     /// that draws a tile doesn't start a thread.
-    fn jobs(&self) -> &Sender<Job> {
+    fn jobs(&self) -> &Queue<Job> {
         self.jobs.get_or_init(|| {
-            let (jobs, rx) = channel::<Job>();
             let (c, fd, changed, wake) = (self.cache.clone(), self.found.clone(), self.changed.clone(), self.wake.clone());
-            rune::task::serve("project-icons", rx, move |job| {
+            rune::task::queue("project-icons", move |job: Job| {
                     // Once the tile's entry says what it shows, and only if that moved: the app's
                     // poll then redraws what reads the icons (the image cache's own wake can come
                     // before the entry is settled).
@@ -124,8 +123,6 @@ impl Inner {
                     }
                     std::ops::ControlFlow::Continue(())
                 })
-                .expect("project icon worker");
-            jobs
         })
     }
 }
@@ -509,4 +506,3 @@ fn finish(cache: &ImageCache, buf: Buf, trim: bool) -> Shown {
     let image = cache.rgba(PX, PX, buf.resize(PX, PX).to_rgba8());
     if mark { Shown::Mark(image) } else { Shown::Tile(image) }
 }
-

@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use rune::task::Queue;
 use std::sync::{Arc, Mutex};
 
 use rune::{Image, ImageCache, Pixels, Waker};
@@ -56,7 +56,7 @@ struct Fetches {
 enum Fetcher {
     Unset { waker: Option<Waker>, fetch: Option<Fetches> },
     Ready { waker: Waker, fetch: Fetches },
-    Running { waker: Waker, fetch: Fetches, jobs: Sender<Source> },
+    Running { waker: Waker, fetch: Fetches, jobs: Queue<Source> },
 }
 
 impl Default for Fetcher {
@@ -69,32 +69,22 @@ enum FetcherEvent {
     Waker(Waker),
     Fetch(Fetches),
     /// An image asked for a fetch.
-    Start,
+    Start(Queue<Source>),
 }
 
-/// Start the worker on this queue.
-struct Spawn {
-    receive: Receiver<Source>,
-    fetch: Fetches,
-    waker: Waker,
-}
-
-fn step(state: Fetcher, event: FetcherEvent) -> (Fetcher, Option<Spawn>) {
+fn step(state: Fetcher, event: FetcherEvent) -> Fetcher {
     use Fetcher::{Ready, Running, Unset};
     let ready = |waker: Option<Waker>, fetch: Option<Fetches>| match (waker, fetch) {
         (Some(waker), Some(fetch)) => Ready { waker, fetch },
         (waker, fetch) => Unset { waker, fetch },
     };
     match (state, event) {
-        (Unset { fetch, .. }, FetcherEvent::Waker(waker)) => (ready(Some(waker), fetch), None),
-        (Ready { fetch, .. } | Running { fetch, .. }, FetcherEvent::Waker(waker)) => (Ready { waker, fetch }, None),
-        (Unset { waker, .. }, FetcherEvent::Fetch(fetch)) => (ready(waker, Some(fetch)), None),
-        (Ready { waker, .. } | Running { waker, .. }, FetcherEvent::Fetch(fetch)) => (Ready { waker, fetch }, None),
-        (Ready { waker, fetch }, FetcherEvent::Start) => {
-            let (jobs, receive) = channel();
-            (Running { waker: waker.clone(), fetch: fetch.clone(), jobs }, Some(Spawn { receive, fetch, waker }))
-        }
-        (state @ (Unset { .. } | Running { .. }), FetcherEvent::Start) => (state, None),
+        (Unset { fetch, .. }, FetcherEvent::Waker(waker)) => ready(Some(waker), fetch),
+        (Ready { fetch, .. } | Running { fetch, .. }, FetcherEvent::Waker(waker)) => Ready { waker, fetch },
+        (Unset { waker, .. }, FetcherEvent::Fetch(fetch)) => ready(waker, Some(fetch)),
+        (Ready { waker, .. } | Running { waker, .. }, FetcherEvent::Fetch(fetch)) => Ready { waker, fetch },
+        (Ready { waker, fetch }, FetcherEvent::Start(jobs)) => Running { waker, fetch, jobs },
+        (state, FetcherEvent::Start(_)) => state,
     }
 }
 
@@ -137,11 +127,9 @@ impl MdStore {
         self.landed.store(true, Ordering::Release);
     }
 
-    fn send(&self, event: FetcherEvent) -> Option<Spawn> {
+    fn send(&self, event: FetcherEvent) {
         let mut fetcher = self.fetcher.borrow_mut();
-        let (next, spawn) = step(std::mem::take(&mut *fetcher), event);
-        *fetcher = next;
-        spawn
+        *fetcher = step(std::mem::take(&mut *fetcher), event);
     }
 
     /// Changes whenever a picture lands or decodes: a memoized row that draws pictures keys on it.
@@ -253,39 +241,39 @@ impl MdStore {
     }
 
     /// The worker's queue, started on first use; `None` until the host gives a waker and fetches.
-    fn jobs(&self) -> Option<Sender<Source>> {
-        if let Some(spawn) = self.send(FetcherEvent::Start)
-            && let Some(cache) = self.cache()
-        {
-            let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
-            // Each source reads on a task of its own, side by side as a browser fetches a page's
-            // pictures, and hands what it read to the image cache at once, so it decodes without
-            // waiting for a frame. A dispatcher that can't start drops its queue, so what's sent
-            // to it fails.
-            let _ = rune::task::serve("markdown-media", spawn.receive, move |source| {
-                let (fetch, waker, cache) = (spawn.fetch.clone(), spawn.waker.clone(), cache.clone());
-                let (fetched, landed, version) = (fetched.clone(), landed.clone(), version.clone());
-                let _ = rune::task::spawn("markdown-media-read", move || {
-                    let bytes = match &source {
-                        Source::File { directory, path } => (fetch.files)(directory, path),
-                        Source::Web(url) => (fetch.web)(url),
-                    };
-                    let read = bytes.map(|bytes| {
-                        let bytes: Arc<[u8]> = bytes.into();
-                        (cache.load(bytes.clone()), bytes)
-                    });
-                    fetched.lock().unwrap_or_else(|e| e.into_inner()).push((source, read));
-                    version.fetch_add(1, Ordering::AcqRel);
-                    landed.store(true, Ordering::Release);
-                    waker();
+    fn jobs(&self) -> Option<Queue<Source>> {
+        let (fetch, waker) = match &*self.fetcher.borrow() {
+            Fetcher::Running { jobs, .. } => return Some(jobs.clone()),
+            Fetcher::Ready { waker, fetch } => (fetch.clone(), waker.clone()),
+            Fetcher::Unset { .. } => return None,
+        };
+        let cache = self.cache()?;
+        let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
+        // Each source reads on a task of its own, side by side as a browser fetches a page's
+        // pictures, and hands what it read to the image cache at once, so it decodes without
+        // waiting for a frame. A dispatcher that can't start drops its queue, so what's sent
+        // to it fails.
+        let jobs = rune::task::queue("markdown-media", move |source| {
+            let (fetch, waker, cache) = (fetch.clone(), waker.clone(), cache.clone());
+            let (fetched, landed, version) = (fetched.clone(), landed.clone(), version.clone());
+            let _ = rune::task::spawn("markdown-media-read", move || {
+                let bytes = match &source {
+                    Source::File { directory, path } => (fetch.files)(directory, path),
+                    Source::Web(url) => (fetch.web)(url),
+                };
+                let read = bytes.map(|bytes| {
+                    let bytes: Arc<[u8]> = bytes.into();
+                    (cache.load(bytes.clone()), bytes)
                 });
-                std::ops::ControlFlow::Continue(())
+                fetched.lock().unwrap_or_else(|e| e.into_inner()).push((source, read));
+                version.fetch_add(1, Ordering::AcqRel);
+                landed.store(true, Ordering::Release);
+                waker();
             });
-        }
-        match &*self.fetcher.borrow() {
-            Fetcher::Running { jobs, .. } => Some(jobs.clone()),
-            Fetcher::Unset { .. } | Fetcher::Ready { .. } => None,
-        }
+            std::ops::ControlFlow::Continue(())
+        });
+        self.send(FetcherEvent::Start(jobs.clone()));
+        Some(jobs)
     }
 }
 

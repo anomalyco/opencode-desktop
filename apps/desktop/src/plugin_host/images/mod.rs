@@ -6,7 +6,7 @@
 pub mod load;
 
 use std::collections::HashMap;
-use std::sync::mpsc::{Sender, channel};
+use rune::task::Queue;
 use std::sync::{Arc, Mutex};
 
 use rune::{Image, ImageCache};
@@ -23,7 +23,7 @@ pub struct Images {
     by_source: HashMap<(String, String), u32>,
     next: u32,
     /// The readers' queue, started with the first load.
-    jobs: Option<Sender<(u32, Source)>>,
+    jobs: Option<Queue<(u32, Source)>>,
     /// What the readers read, already decoding, waiting for the poll.
     fetched: Arc<Mutex<Vec<Fetched>>>,
     /// The videos plugins show (`ui.video`), by plugin and URL: one player each.
@@ -94,15 +94,13 @@ impl Images {
     /// The readers of sources, started on first use; `None` before the window's waker. Each source
     /// reads on a task of its own, side by side as a browser fetches a page's pictures, and hands
     /// what it read to the image cache at once, so it decodes without waiting for a frame.
-    fn jobs(&mut self) -> Option<Sender<(u32, Source)>> {
+    fn jobs(&mut self) -> Option<Queue<(u32, Source)>> {
         if let Some(jobs) = &self.jobs {
             return Some(jobs.clone());
         }
         let (waker, cache) = (self.waker.clone()?, self.cache.clone()?);
-        let (jobs, receive) = channel::<(u32, Source)>();
         let fetched = self.fetched.clone();
-        // A dispatcher that can't start drops its queue, so what's sent to it fails.
-        let _ = rune::task::serve("plugin-images", receive, move |(id, source): (u32, Source)| {
+        let jobs = rune::task::queue("plugin-images", move |(id, source): (u32, Source)| {
             let (fetched, waker, cache) = (fetched.clone(), waker.clone(), cache.clone());
             let _ = rune::task::spawn("plugin-images-read", move || {
                 let read = source.read().map(|bytes| {
