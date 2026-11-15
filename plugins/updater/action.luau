@@ -1,5 +1,5 @@
 --!strict
--- The one update action the settings row and the titlebar pill offer for a state (`action.ts`).
+-- The one update action the settings row offers for a state (`action.ts`).
 -- The window's own check or install shows as running at once, before the host reports it, so a
 -- second click has nothing to start.
 
