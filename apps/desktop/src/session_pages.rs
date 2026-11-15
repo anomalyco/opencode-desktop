@@ -39,6 +39,10 @@ pub struct State {
     /// The calm "still trying" toast (`machines::Stall`).
     stall: Stall,
     stall_after: Option<Duration>,
+    /// Sessions whose boot preview was an island above the latest page (its place's turn, not
+    /// the way to the end; `restore::preview`), by the island's last message: history fills
+    /// the gap under it before it reads above it.
+    gaps: std::collections::HashMap<String, String>,
 }
 
 /// How long the server may stay silent before the app says so.
@@ -84,6 +88,11 @@ impl State {
                 if let Some(wake) = &wake { wake(); }
             } else if !is && *n == id { n.clear(); }
         }
+    }
+
+    /// Whether `id`'s transcript has a gap under its boot preview still to read.
+    pub fn gap(&self, id: &str) -> bool {
+        self.gaps.contains_key(id)
     }
 
     /// Whether `id`'s first read is done: its latest page and the history behind it landed.
@@ -535,10 +544,37 @@ impl super::App {
         if page.history || stale { messages.retain(|m| !t.messages.iter().any(|old| old.id() == m.id())); }
         super::attachments::reconcile(&mut self.attach.echoes, t, &messages);
         let delivered: Vec<_> = messages.iter().map(|m| m.id().to_owned()).collect();
+        // The latest page landing on a boot preview it doesn't reach: the preview was the
+        // place's turn (`restore::preview`), and the messages between it and the page are still
+        // to read. They come first, newest page first, each under the preview.
+        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
+        if cold && !page.history && added == page.messages.len()
+            && let (Some(last), Some(next)) = (t.messages.last(), page.messages.first())
+            && next.id() > last.id()
+        {
+            self.pages.gaps.insert(id.clone(), last.id().to_owned());
+        }
         if page.history {
-            // Cursor order, not ID order: a steered prompt can have an older ID than history.
-            messages.append(&mut t.messages);
-            t.messages = messages;
+            match self.pages.gaps.get(id.as_str()).cloned() {
+                Some(island) => {
+                    // Under the island what's newer than its last message, in the page's order;
+                    // above it, as below, what's older. A page reaching the island closes the gap.
+                    let under = t.messages.iter().position(|m| m.id() == island).map_or(0, |i| i + 1);
+                    let closed = page.cursor.is_none() || page.messages.iter().any(|m| m.id() <= island.as_str());
+                    let (newer, mut older): (Vec<_>, Vec<_>) = messages.into_iter().partition(|m| m.id() > island.as_str());
+                    t.messages.splice(under..under, newer);
+                    older.append(&mut t.messages);
+                    t.messages = older;
+                    if closed {
+                        self.pages.gaps.remove(id.as_str());
+                    }
+                }
+                None => {
+                    // Cursor order, not ID order: a steered prompt can have an older ID than history.
+                    messages.append(&mut t.messages);
+                    t.messages = messages;
+                }
+            }
         } else {
             match self.stream_gaps.get_mut(id.as_str()) {
                 Some(gapped) => t.merge_caught(messages, gapped),
@@ -546,7 +582,6 @@ impl super::App {
             }
         }
         self.settle_inbox(id, &delivered);
-        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
         if cold { self.launch.cold_transcript = None; }
         // A timeline read up from its end (a place kept from the last run) isn't carried to it.
         if first || cold { session_view::jump::settle(self, tx); }

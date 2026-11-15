@@ -2,8 +2,10 @@
 //! from the boot packet before any server answers (`opencode_kit::model::preview`, a compact
 //! binary form decoded without parsing JSON). It's the session's last two turns (what a window
 //! opened at the bottom shows, and one scroll step up), at most [`BYTES`]; read up from its end,
-//! it runs from the turn of the place the window keeps (`places`) when that fits, so the next
-//! launch draws the place in its first frame.
+//! it's the turn of the place the window keeps (`places`) and what follows it, up to
+//! [`PLACE_BYTES`], so the next launch draws the place in its first frame. When that stops short
+//! of the end, the latest page lands under it with a gap between, which history fills first
+//! (`session_pages`: `State::gap`).
 //!
 //! It's written when it would change what a launch shows: when the shown session settles (its
 //! reply finished, a message came or went), when the window's place moves to another turn and
@@ -20,6 +22,8 @@ use crate::{App, Route};
 
 /// A preview stays inside the boot record's first read (64 KiB pages).
 const BYTES: usize = 48 * 1024;
+/// A place's preview: its turn and a few screens under it, not the whole way to the end.
+const PLACE_BYTES: usize = 12 * 1024;
 
 /// What each session's preview was last written (or read) from: its messages' stamp, and the
 /// turn the place it starts from stood in.
@@ -47,12 +51,26 @@ fn turn_of(messages: &[Message], at: usize) -> usize {
 }
 
 /// The preview's bytes: from the start of the turn before the last, trimmed from the front to fit.
-/// From `turn`, the place's, instead when that's further up and fits.
+/// From `turn`, the place's, instead when that's further up: its turn and the messages after it
+/// up to [`PLACE_BYTES`] (the place's turn whole if it alone is more, up to [`BYTES`]).
 fn encode(messages: &[Message], turn: Option<usize>) -> Vec<u8> {
     let users: Vec<usize> = messages.iter().enumerate().filter(|(_, m)| matches!(m, Message::User { .. })).map(|(i, _)| i).collect();
     let mut start = users.len().checked_sub(2).map_or(0, |i| users[i]);
-    if let Some(turn) = turn.filter(|&t| t < start) {
-        let bytes = preview::encode(&messages[turn..]);
+    if let Some(place) = turn.filter(|&t| t < start) {
+        // From the turn before the place's, so the place isn't the transcript's first row, which
+        // the history's loading look above it would move. The place's turn ends at the next
+        // prompt.
+        let turn = users.iter().copied().rev().find(|&u| u < place).unwrap_or(place);
+        let own = users.iter().copied().find(|&u| u > place).unwrap_or(messages.len());
+        let mut end = own;
+        let mut bytes = preview::encode(&messages[turn..end]);
+        while end < messages.len() {
+            let more = preview::encode(&messages[turn..end + 1]);
+            if more.len() > PLACE_BYTES {
+                break;
+            }
+            (bytes, end) = (more, end + 1);
+        }
         if bytes.len() <= BYTES {
             return bytes;
         }
@@ -107,7 +125,8 @@ impl App {
         let Route::Session { server, id } = &*self.route else { return };
         let Some(t) = self.transcripts.get(id) else { return };
         let streaming = matches!(t.messages.last(), Some(Message::Assistant(a)) if a.completed.is_none());
-        if streaming || t.messages.is_empty() || self.launch.cold_transcript.as_deref() == Some(id.as_str()) {
+        // Nor while history fills the gap under a place's preview: the transcript has a hole.
+        if streaming || t.messages.is_empty() || self.launch.cold_transcript.as_deref() == Some(id.as_str()) || self.pages.gap(id) {
             return;
         }
         let stamp = stamp(&t.messages);
@@ -122,7 +141,8 @@ impl App {
         let Route::Session { server, id } = &*self.route else { return };
         let Some(t) = self.transcripts.get(id) else { return };
         let streaming = matches!(t.messages.last(), Some(Message::Assistant(a)) if a.completed.is_none());
-        if (streaming && !now) || t.messages.is_empty() {
+        // A transcript with a gap under a place's preview keeps the preview and copy it came from.
+        if (streaming && !now) || t.messages.is_empty() || self.pages.gap(id) {
             return;
         }
         let stamp = stamp(&t.messages);
