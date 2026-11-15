@@ -37,6 +37,7 @@ pub mod returning;
 pub mod scroller;
 pub mod session_chips;
 pub mod sheet;
+pub mod slack;
 pub mod sources_chip;
 pub mod story;
 pub mod style;
@@ -349,6 +350,17 @@ pub trait TimelineHost: Sized + 'static {
     }
     /// A right-click on the chip of session `id` (`session_chips`): its menu at `press`.
     fn session_chip_menu(&mut self, _id: &str, _press: rune::PointerPress, _tx: &mut Tx) {}
+    /// What Slack permalink `url` in a prompt stands for (`slack`). A host that reads them gives
+    /// [`slack::Links::shown`], which asks the first time, as this runs on every build of the
+    /// bubble; one that doesn't stays `Idle`, its chips saying "Slack message" with no card.
+    fn slack_link(&self, _url: &str) -> slack::State {
+        slack::State::Idle
+    }
+    /// Changes whenever a [`TimelineHost::slack_link`] answer lands, so the bubbles naming one
+    /// build again.
+    fn slack_links_version(&self) -> u64 {
+        0
+    }
 
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None

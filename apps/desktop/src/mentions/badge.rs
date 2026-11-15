@@ -62,12 +62,19 @@ impl App {
         self.open(id, tx);
     }
 
-    /// Message `id`'s rendered bubble text, borrowing `body` when it holds no `@` mentions.
+    /// Message `id`'s rendered bubble text, borrowing `body` when it holds no `@` mentions or
+    /// Slack permalinks (which read as their chips' words, as far as they're known).
     pub fn bubble_text<'a>(&self, id: &str, body: &'a str) -> std::borrow::Cow<'a, str> {
-        if !body.contains('@') {
+        let slack = session_view::slack::any(body);
+        if !body.contains('@') && !slack {
             return std::borrow::Cow::Borrowed(body);
         }
-        std::borrow::Cow::Owned(bubble(body, &opencode_kit::mention::user_mentions(id), |sid| self.mention_title(sid)).0)
+        let (text, marks) = bubble(body, &opencode_kit::mention::user_mentions(id), |sid| self.mention_title(sid));
+        if !slack {
+            return std::borrow::Cow::Owned(text);
+        }
+        let taken: Vec<_> = marks.into_iter().map(|(r, _)| r).collect();
+        std::borrow::Cow::Owned(session_view::slack::chips(&text, &taken, |url| self.slack_links.peek(url)).text)
     }
 }
 

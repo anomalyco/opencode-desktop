@@ -225,6 +225,7 @@ mod session_status;
 mod settings;
 mod shortcuts;
 mod side_stories;
+mod slack;
 mod slash;
 mod sounds;
 mod speech;
@@ -418,6 +419,8 @@ pub struct App {
     pub mentions: rune::Tracked<mentions::Mentions>,
     /// Session ids named in replies, looked up once (`mentions::refs`).
     pub session_refs: rune::Tracked<mentions::refs::Lookups>,
+    /// Slack permalinks named in prompts, each read once (`slack`).
+    pub slack_links: rune::Tracked<session_view::slack::Links>,
     /// Live look-and-feel sliders (⌘⇧K).
     pub knobs: rune::Tracked<rune_knobs::Knobs>,
     /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
@@ -807,6 +810,12 @@ impl session_view::TimelineHost for App {
     }
     fn session_chip_menu(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) {
         self.open_session_chip_menu(id, press, tx);
+    }
+    fn slack_link(&self, url: &str) -> session_view::slack::State {
+        self.slack_links.shown(url)
+    }
+    fn slack_links_version(&self) -> u64 {
+        self.slack_links.version()
     }
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
@@ -1416,6 +1425,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_panels(viewed || changed, tx);
     changed |= rune_mcp::poll(s, tx);
     changed |= s.poll_turn_diffs();
+    changed |= s.poll_slack_links();
     changed |= settings::pages::project::poll(s, tx);
     changed |= settings::pages::about::poll(s, now, tx);
     changed |= settings::pages::projects::poll(s);
@@ -1479,6 +1489,7 @@ fn setup(s: &mut App, waker: Waker) {
     s.files.set_waker(waker.clone());
     s.open_in.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
+    s.slack_links.set_waker(waker.clone());
     s.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     rune::marks::mark("browser.setup");
