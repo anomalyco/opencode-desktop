@@ -2,6 +2,8 @@ use super::*;
 use crate::keymap::Bind;
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    // A key before the after-frame turn still finds the dormant built-ins' shortcuts.
+    crate::plugin_host::doze_owed(s);
     crate::status_toast::hotkey(s, ev, tx);
     // A key from inside the side region (something there has the keyboard) wakes its tab's label.
     if s.side.quiet && s.side.focused && tx.focused().is_some() && !s.composer.focused {
