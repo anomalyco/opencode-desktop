@@ -56,6 +56,7 @@ pub(crate) fn find_bar(p: &Pal, input: &TextEdit, count: usize, index: usize, sp
         if up { i.rotate(std::f32::consts::PI) } else { i }
     };
     let (t_edit, t_prev, t_next, t_close, t_submit, t_changed) = (target.clone(), target.clone(), target.clone(), target.clone(), target.clone(), target);
+    let t_key = t_close.clone();
     let shown = if count > 0 { format!("{}/{count}", index + 1) } else { "0/0".to_owned() };
     row()
         .key(key)
@@ -85,6 +86,13 @@ pub(crate) fn find_bar(p: &Pal, input: &TextEdit, count: usize, index: usize, sp
                 .label(opencode_i18n::t!("ui.fileSearch.placeholder"))
                 .on_edit(move |s: &mut App| edit(s, &t_edit))
                 .on_input_change(move |s: &mut App, tx: &mut Tx| changed(s, &t_changed, tx))
+                // The editor receives Escape before a pane shortcut. Unless an IME is using
+                // it, dismiss the owning bar instead of merely blurring its inner field.
+                .on_input_key(move |s: &mut App, ev, tx| {
+                    if ev.key != rune::Key::Escape || edit(s, &t_key).is_composing() { return false; }
+                    close(s, &t_key, tx);
+                    true
+                })
                 .on_submit(move |s: &mut App, tx: &mut Tx| step(s, &t_submit, true, tx)),
         )
         // `width: 10ch`, right-aligned.
