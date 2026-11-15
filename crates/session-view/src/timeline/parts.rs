@@ -315,7 +315,8 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
 
 /// The footer's items after Copy (`text-part-meta`): the model's name (and a variant other
 /// than default, with no separator), then how long the turn took, from its prompt to its last
-/// finished step (`SessionTurn.duration`), as "1s" or "1m 5s".
+/// finished step (`SessionTurn.duration`), as "1s" or "1m 5s", then its tokens per second
+/// once every step has streamed (`SessionTurn.tokensPerSecond`), as "42.0 tok/s".
 fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(String, bool)> {
     let mut items = Vec::new();
     let model = t.messages[..=message].iter().rev().find_map(|m| match m {
@@ -356,6 +357,13 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
             },
             false,
         ));
+    }
+    // The turn's tokens per second through its last step (`session-timeline-row.tsx:550-564`), to
+    // one decimal ("42.0 tok/s", `message-content.tsx:1204-1213`; the TUI's `toFixed(1)`,
+    // `routes/session/index.tsx:2065-2067`).
+    let last = t.messages[message..end].iter().rposition(|m| matches!(m, Message::Assistant(_))).map_or(message, |n| message + n);
+    if let Some(tps) = model::turn::tokens_per_second(&t.messages, last) {
+        items.push((opencode_i18n::t!("ui.message.tokensPerSecond", value = opencode_i18n::fraction_digits(tps, 1, 1)), false));
     }
     items
 }

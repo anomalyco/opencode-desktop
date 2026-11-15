@@ -18,7 +18,7 @@ use crate::prompt::PathAttachment;
 use crate::quote::PromptComment;
 
 /// Bumped with every change to the layout.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 /// An inline file larger than this keeps its name and kind but not its bytes (the server's
 /// copy fills it in once it answers): a preview stays a few pages of the database.
 const INLINE_MAX: usize = 32 * 1024;
@@ -375,6 +375,8 @@ fn assistant(w: &mut W, a: &Assistant) {
         w.s(&t.message);
     }
     w.i(a.created);
+    w.oi(a.first_token);
+    w.oi(a.streamed);
     model(w, a.model.as_ref());
     w.os(a.agent.as_deref());
     w.n(a.changed.len());
@@ -396,7 +398,7 @@ fn read_assistant(r: &mut R<'_>) -> Option<Assistant> {
         None
     };
     let retry = if r.b()? { Some(Retry { attempt: u32::try_from(r.n()?).ok()?, at: r.i()?, message: r.s()? }) } else { None };
-    Some(Assistant { id, completed, parts, cost, tokens, error, failure, retry, created: r.i()?, model: read_model(r)?, agent: r.os()?, changed: (0..r.n()?).map(|_| r.s()).collect::<Option<Vec<_>>>()? })
+    Some(Assistant { id, completed, parts, cost, tokens, error, failure, retry, created: r.i()?, first_token: r.oi()?, streamed: r.oi()?, model: read_model(r)?, agent: r.os()?, changed: (0..r.n()?).map(|_| r.s()).collect::<Option<Vec<_>>>()? })
 }
 
 fn part(w: &mut W, p: &Part) {

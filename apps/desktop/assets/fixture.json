@@ -862,6 +862,7 @@
     ],
     "time": {
      "created": 1792658322000,
+     "firstToken": 1792658323500,
      "streamed": 1792658331800,
      "completed": 1792658332000
     },
@@ -947,6 +948,7 @@
     ],
     "time": {
      "created": 1792658334000,
+     "firstToken": 1792658335200,
      "streamed": 1792658357800,
      "completed": 1792658358000
     },
@@ -997,6 +999,7 @@
     ],
     "time": {
      "created": 1792658360000,
+     "firstToken": 1792658362000,
      "streamed": 1792658449800,
      "completed": 1792658450000
     },
@@ -1029,6 +1032,7 @@
     ],
     "time": {
      "created": 1792658451000,
+     "firstToken": 1792658451800,
      "streamed": 1792658457800,
      "completed": 1792658458000
     },
@@ -2519,6 +2523,14 @@
    },
    {
     "t": 0.6,
+    "type": "session.step.first-token",
+    "data": {
+     "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+     "assistantMessageID": "msg_001a162cb6dbc013fixture00"
+    }
+   },
+   {
+    "t": 0.6,
     "type": "session.reasoning.started",
     "data": {
      "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
@@ -3877,6 +3889,14 @@
       ]
      },
      "executed": true
+    }
+   },
+   {
+    "t": 8.281,
+    "type": "session.step.streamed",
+    "data": {
+     "sessionID": "ses_fx0001aaaaaaaaaaaaaaaaaa",
+     "assistantMessageID": "msg_001a162cb6dbc013fixture00"
     }
    },
    {

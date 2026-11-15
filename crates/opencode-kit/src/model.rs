@@ -14,6 +14,7 @@ mod notice;
 mod pending;
 pub mod preview;
 mod tool;
+pub mod turn;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
 pub(crate) use attachment::extras_changed;
@@ -284,6 +285,11 @@ pub struct Assistant {
     pub retry: Option<Retry>,
     /// When it started, or 0 when unknown.
     pub created: i64,
+    /// When the provider streamed its first output token (`time.firstToken`); none before then,
+    /// or for steps recorded before the server kept it.
+    pub first_token: Option<i64>,
+    /// When the provider's response body ended (`time.streamed`), before its tools ran.
+    pub streamed: Option<i64>,
     /// The model that ran it (`model` in `/api` and `session.step.started`), as Desktop's reply
     /// footer names it; `None` until known.
     pub model: Option<ModelRef>,
@@ -428,6 +434,8 @@ pub fn parse_message(m: &Value) -> Option<Message> {
             failure: StepError::parse(&m["error"]),
             retry: Retry::parse(&m["retry"]),
             created: i(&m["time"]["created"]),
+            first_token: m["time"]["firstToken"].as_i64(),
+            streamed: m["time"]["streamed"].as_i64(),
             model: model_of(&m["model"]),
             agent: m["agent"].as_str().filter(|a| !a.is_empty()).map(str::to_owned),
             changed: strings(&m["snapshot"]["files"]),
@@ -637,11 +645,21 @@ impl Transcript {
                         a.retry = None;
                         a.error = None;
                         a.failure = None;
+                        a.first_token = None;
+                        a.streamed = None;
                         a.model = model.or(a.model.take());
                         a.agent = agent.or(a.agent.take());
                     }
                     None => self.messages.push(Message::Assistant(Assistant { id: mid, created: now, model, agent, ..Default::default() })),
                 }
+            }
+            "session.step.first-token" => {
+                let Some(a) = self.assistant(&mid) else { return false };
+                a.first_token = Some(now);
+            }
+            "session.step.streamed" => {
+                let Some(a) = self.assistant(&mid) else { return false };
+                a.streamed = Some(now);
             }
             "session.retry.scheduled" => {
                 let Some(a) = self.assistant(&mid) else { return false };
