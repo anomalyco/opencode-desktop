@@ -225,6 +225,9 @@ pub struct PluginHost {
     folders: Folders,
     /// Built-ins this launch's first screen doesn't show, started after its first frame.
     later: Vec<sources::Found>,
+    /// The boot record knows the built-ins' records, and those of `later` that have one haven't
+    /// gone to sleep yet (`doze_owed`).
+    doze_owed: bool,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
     pub overlay: Overlay,
@@ -323,13 +326,9 @@ pub fn setup(app: &mut App, waker: Waker) {
     let (now, later): (Vec<_>, Vec<_>) = sources::builtins().into_iter().partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
     let start_now = known && stores::answers();
     app.plugins.later = later;
-    // The ones with a record of this build sleep from the first frame: what they contribute is
-    // listed from it (the boot record's), so their commands and keys are there in it.
-    if known && first.is_some() {
-        rune::marks::mark("plugins.doze");
-        settle_later(app);
-        rune::marks::mark("plugins.dozed");
-    }
+    // The ones with a record of this build go to sleep with it just after the first frame
+    // (`doze_owed`): nothing they contribute draws in it (`first_screen`).
+    app.plugins.doze_owed = known && first.is_some();
     if start_now {
         adopt(app, now);
     } else {
@@ -468,10 +467,23 @@ enum Folders {
     Read,
 }
 
+/// The built-ins the first screen doesn't draw that have a record of this build go to sleep with
+/// it, so their commands, keys and menus are listed: once, after the first frame is presented,
+/// at its after-frame turn (`launch::ready`) or at the first key if that comes first.
+pub fn doze_owed(app: &mut App) {
+    if !std::mem::take(&mut app.plugins.doze_owed) {
+        return;
+    }
+    rune::marks::mark("plugins.doze");
+    settle_later(app);
+    rune::marks::mark("plugins.dozed");
+}
+
 /// The window's first frame is up: the built-ins it didn't show start one per turn from the next
 /// one, so the first key isn't held behind all of them, and its plugin folders are read now, off
 /// the app's thread. True when some start (the window redraws for them).
 pub fn first_frame(app: &mut App) -> bool {
+    doze_owed(app);
     let later = !app.plugins.later.is_empty();
     if app.plugins.started {
         start_later(app);
