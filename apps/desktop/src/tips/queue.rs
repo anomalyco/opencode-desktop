@@ -66,7 +66,7 @@ impl Tip {
     fn applies(self, installed: &Installed) -> bool {
         match self {
             Tip::Browse => !installed.browse,
-            Tip::Hex => !installed.hex,
+            Tip::Hex => installed.hex == Some(false),
         }
     }
 }
@@ -188,7 +188,7 @@ pub struct Poll {
 
 pub struct Installed {
     pub browse: bool,
-    pub hex: bool,
+    pub hex: Option<bool>,
 }
 
 pub enum Event {
@@ -242,16 +242,17 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
         State::Unstarted => {
             let until = poll.clock + STARTUP_DELAY;
             *state = State::Starting { until };
-            let mut effects = vec![Effect::WakeAt(until)];
-            if poll.hex_installed.is_none() {
-                effects.push(Effect::CheckHex);
-            }
-            effects
+            vec![Effect::WakeAt(until)]
         }
         State::Starting { until } if poll.clock + 1e-3 < *until => vec![Effect::WakeAt(*until)],
         State::Starting { .. } => {
+            // `tips/model.ts`: start the check when the startup timer fires. Browse can
+            // already show; Hex's `when` waits for an explicit false.
+            let check_hex = poll.hex_installed.is_none();
             *state = State::Awake { sync: Sync::Offline, phase: Phase::Idle };
-            polled(state, poll)
+            let mut effects = polled(state, poll);
+            if check_hex { effects.push(Effect::CheckHex); }
+            effects
         }
         State::Awake { sync, phase } => {
             let mut effects = Vec::new();
@@ -263,12 +264,12 @@ fn polled(state: &mut State, poll: Poll) -> Vec<Effect> {
                 (Sync::Asked, false) => *sync = Sync::Offline,
                 _ => {}
             }
-            let (Some(browse), Some(hex)) = (poll.browse_installed, poll.hex_installed) else { return effects };
+            let Some(browse) = poll.browse_installed else { return effects };
             if let Some(due) = next_due(&poll.history, poll.now) {
                 let ms = (due - poll.now).min(i64::from(i32::MAX));
                 effects.push(Effect::WakeAt(poll.clock + ms as f64 / 1000.0));
             }
-            let selected = select(&poll.history, poll.now, &Installed { browse, hex });
+            let selected = select(&poll.history, poll.now, &Installed { browse, hex: poll.hex_installed });
             if let Phase::Showing { tip, toast, .. } = phase {
                 if selected == Some(*tip) {
                     return effects;

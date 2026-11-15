@@ -1960,7 +1960,6 @@ dependencies = [
  "ureq-web",
  "web-time",
  "windows",
- "windows-registry",
 ]
 
 [[package]]
