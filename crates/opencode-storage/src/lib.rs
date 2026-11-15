@@ -24,7 +24,7 @@ mod stores;
 /// even while the database's writes wait on a busy disk. A no-op on the web.
 pub mod journal {
     #[cfg(not(target_arch = "wasm32"))]
-    pub use crate::native::journal::{is_draft_key, latest, record};
+    pub use crate::native::journal::{freeze_for_handoff, is_draft_key, latest, record};
 
     #[cfg(target_arch = "wasm32")]
     pub fn record(_key: &str, _text: Option<&str>) -> u64 {
@@ -274,6 +274,12 @@ impl Storage {
     /// app quit, session end and update restart. Nothing queued: returns at once, touching nothing.
     pub fn flush(&self, reason: FlushReason, deadline: std::time::Duration) -> FlushReport {
         self.inner.backend.flush(reason, deadline)
+    }
+
+    /// The last window has queued its rows. Stop derived work without flushing or joining here.
+    pub fn begin_quit(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.inner.backend.begin_quit();
     }
 
     /// The kill-safe tier: the state, document and window rows set so far are committed to the

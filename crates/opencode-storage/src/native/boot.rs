@@ -211,6 +211,33 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     // record, or a first-run screen when the file can't even be read.
     let mut held: Option<BootPacket> = None;
     let mut owe = Owe { want_journal: true, ..Owe::default() };
+    // Do not carry a pre-claim snapshot across a quit. An instance claim admits the window;
+    // the file lease alone admits reading the boot record as current and attaching for writes.
+    if !gate.wait() {
+        journal::decided();
+        return (Storage::memory(), report);
+    }
+    let owner = match super::lease::acquire(&config.path) {
+        Ok(owner) => owner,
+        Err(e) => {
+            let raw = boot_record::read_raw(&config.path);
+            let p = match raw {
+                FastBoot::Record(b) | FastBoot::Pending(b, _) | FastBoot::Checkpointed(b, _) => BootPacket::parse(b),
+                _ => None,
+            }.map(|mut p| { p.source = BootSource::Checkpoint; p }).unwrap_or_else(BootPacket::held_empty);
+            let mut cache = Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
+            p.fill_cache(&mut cache);
+            report.boot_source = p.source;
+            report.boot_bytes = p.len();
+            report.raw_miss = Some("no exclusive lease on the profile");
+            report.error = Some(e.to_string());
+            report.stage_a_ns = ns(t0);
+            report.total_ns = report.stage_a_ns;
+            journal::decided();
+            send(p);
+            return (Storage::from_parts(super::shared(cache), Backend::memory()), report);
+        }
+    };
     let raw = boot_record::read_raw(&config.path);
     // The WAL holds frames the record on file may be behind, and there's no copy of the record
     // for them: an instance may still be quitting (`await_quit`).
@@ -245,15 +272,6 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
-    // SQLite takes the file's lock, and the journal is written: not before this process is the
-    // app's one instance.
-    if !gate.wait() {
-        if let Some(p) = owe.packet.take() {
-            send(p);
-        }
-        journal::decided();
-        return (Storage::memory(), report);
-    }
     let mut opened = None;
     if wal_waits {
         match await_quit(&config, &mut report, t0, send, &mut owe, &mut early) {
@@ -281,6 +299,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     if let Some(mut p) = owe.packet.take() {
         if journal::SUPPORTED
             && p.source == BootSource::Raw
+            && let Some(_placement) = journal::placement()
             && let Some(loc) = owe.hint.take()
             && attach_journal(&config, &mut report, &mut owe, &loc, false)
         {
@@ -357,10 +376,12 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
             // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw || report.wal_pending, !report.wal_pending, owe.journal, report.created);
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw || report.wal_pending, !report.wal_pending, owe.journal, report.created, owner);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {
+            // Dropping `owner` must not leave a writable map in a process running from memory.
+            journal::finish(false);
             report.error = Some(e.to_string());
             let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
             match &packet {
@@ -527,7 +548,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
     // The draft journal exists before the windows get their packet (so before any key), and in a
     // new file before any other table, so its first page is inside the boot read's first 128 KiB;
     // a file with data and no place for it gets one after the first frame.
-    if owe.want_journal && journal::SUPPORTED && !journal::attached() {
+    if owe.want_journal && journal::SUPPORTED && !journal::attached() && let Some(_placement) = journal::placement() {
         owe.journal = OpenJournal::Settled;
         // The WAL holds frames here: the file alone may be behind, so SQLite confirms the row.
         let hinted = owe.hint.take().is_some_and(|loc| journal::row_ok(&conn, &loc) && attach_journal(config, report, owe, &loc, false));

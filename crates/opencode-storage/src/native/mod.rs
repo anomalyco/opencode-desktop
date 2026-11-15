@@ -6,6 +6,7 @@
 mod boot;
 mod bootcopy;
 mod dbfile;
+mod lease;
 mod walstamp;
 pub mod boot_record;
 pub mod import;
@@ -132,7 +133,7 @@ impl Storage {
 pub(crate) enum Writer {
     /// Opened and read; no write yet, so no thread.
     Parked(Box<writer::Writer>),
-    Running { tx: Sender<writer::Msg>, join: std::thread::JoinHandle<()> },
+    Running { tx: Sender<writer::Msg>, join: std::thread::JoinHandle<FlushReport> },
     /// In memory only, or closed.
     Off,
 }
@@ -143,6 +144,7 @@ pub(crate) enum Writer {
 /// wake-up of its own; anything else, or a write to a buffer with no timer armed, wakes it at once.
 #[derive(Default)]
 pub(crate) struct Queue {
+    admission: crate::machine::admission::State,
     queries: search::query::Lane,
     pub(crate) cmds: Vec<Cmd>,
     /// The buffers (crate::BUFFER_*) whose timer is armed.
@@ -179,7 +181,11 @@ impl Backend {
     /// The running writer's sender, starting the thread on first use.
     fn sender(&self) -> Option<Sender<writer::Msg>> {
         let mut w = self.lock();
-        match std::mem::replace(&mut *w, Writer::Off) {
+        self.sender_locked(&mut w)
+    }
+
+    fn sender_locked(&self, w: &mut Writer) -> Option<Sender<writer::Msg>> {
+        match std::mem::replace(w, Writer::Off) {
             Writer::Parked(parked) => {
                 let (tx, rx) = mpsc::channel();
                 let queue = self.queue.clone();
@@ -206,21 +212,17 @@ impl Backend {
     }
 
     pub(crate) fn send(&self, cmd: Cmd) {
-        {
-            let w = self.lock();
-            if let Writer::Running { tx, .. } = &*w {
-                if self.enqueue(cmd) {
-                    tx.send(writer::Msg::Wake).ok();
-                }
+        let mut w = self.lock();
+        let tx = match &*w {
+            Writer::Running { tx, .. } => tx,
+            _ => {
+                let Some(tx) = self.sender_locked(&mut w) else { drop(w); return answer_offline(cmd) };
+                if self.enqueue(cmd) { tx.send(writer::Msg::Wake).ok(); }
                 return;
             }
-        }
-        match self.sender() {
-            Some(tx) => {
-                self.enqueue(cmd);
+        };
+        if self.enqueue(cmd) {
                 tx.send(writer::Msg::Wake).ok();
-            }
-            None => answer_offline(cmd),
         }
     }
 
@@ -274,19 +276,31 @@ impl Backend {
         }
     }
 
+    pub(crate) fn begin_quit(&self) {
+        use crate::machine::admission::{self, Effect, Event};
+        let w = self.lock();
+        if matches!(admission::step(&mut lock_queue(&self.queue).admission, Event::Hook), Effect::WakeWriter) {
+            self.urgent.fetch_add(1, Ordering::Release);
+            if let Writer::Running { tx, .. } = &*w { tx.send(writer::Msg::Wake).ok(); }
+        }
+    }
+
     pub(crate) fn close(&self) -> FlushReport {
-        let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
-        // No more records, and none of this process's writes to the journal after its windows went:
-        // the single-instance claim went with them, so the next launch may have mapped it already
-        // (and keeps writing it). It isn't marked clean: the next launch reads its records, all in
-        // the database by now, as after a kill. Before the writer stops (its repage may move pages).
+        use crate::machine::admission::{self, Event};
+        let mut slot = self.lock();
+        admission::step(&mut lock_queue(&self.queue).admission, Event::Close);
+        self.urgent.fetch_add(1, Ordering::Release);
+        if matches!(&*slot, Writer::Parked(w) if w.wal_dirty()) && self.sender_locked(&mut slot).is_none() {
+            return FlushReport { unconfirmed: true, ..FlushReport::default() };
+        }
+        let w = std::mem::replace(&mut *slot, Writer::Off);
+        drop(slot);
         journal::finish(false);
-        let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();
-            join.join().ok();
+            return join.join().unwrap_or(FlushReport { unconfirmed: true, ..FlushReport::default() });
         }
-        report
+        FlushReport { clean: true, ..FlushReport::default() }
     }
 }
 

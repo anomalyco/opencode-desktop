@@ -20,6 +20,7 @@ use super::import::{self, Deferred};
 use super::{boot_record, sql};
 use crate::cache::{Cache, Doc, OutboxCache};
 use crate::machine::checkpoint::{WalEvent, WalState};
+use crate::machine::reservation::{self, State as Reservation};
 use crate::machine::draft_gc::{self, DraftGcEffect, DraftGcEvent, DraftGcState, STARTUP_COLLECT_DELAY_MS};
 use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEvent, WriteBehindState};
 use crate::outbox;
@@ -31,7 +32,7 @@ mod rows;
 mod wal;
 pub(crate) use reserve::OpenJournal;
 use quit::{Quit, is_quit};
-use reserve::{Reservation, ReserveStep};
+use reserve::{ReserveStep, Reserving};
 use rows::{apply, cmd_name, note, settled, slow};
 
 pub(crate) enum Msg {
@@ -139,6 +140,10 @@ pub(crate) struct Writer {
     reservation: Reservation,
     origin: super::search::Origin,
     quit: Quit,
+    /// The draft journal's own reservation when the open left it owed (`reserve`).
+    reserving: Reserving,
+    // Dropped after the SQLite connection; journal::finish freezes the mapping before Stop.
+    pub(super) owner: super::lease::Owner,
 }
 
 /// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
@@ -166,20 +171,18 @@ impl Writer {
     /// after a kill; not after a quit that left them synced); `boot_stale`: the boot record is behind
     /// the tables (the open reserved the draft journal, whose place the record names); `created`:
     /// this open made the file, so schema 2 is its own (`search::Origin`).
-    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, wal_unsynced: bool, journal: OpenJournal, created: bool) -> Writer {
+    pub(super) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, wal_unsynced: bool, journal: OpenJournal, created: bool, owner: super::lease::Owner) -> Writer {
         let mut seq = Seq::default();
         let boot_stale = journal == OpenJournal::Reserved;
         let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale, unsynced: wal_unsynced } } else { WalState::Clean };
         Writer {
             conn,
             cache,
-            reservation: match journal {
-                OpenJournal::Settled => Reservation::Durable,
-                OpenJournal::Reserved => Reservation::Unsynced,
-                OpenJournal::Owed => Reservation::Owed(ReserveStep::AfterFrame),
-            },
+            reservation: if created || boot_stale { Reservation::Owed } else { Reservation::Durable },
+            reserving: if journal == OpenJournal::Owed { Reserving::Owed(ReserveStep::AfterFrame) } else { Reserving::Done },
             origin: if created { super::search::Origin::Made } else { super::search::Origin::Found },
             quit: Quit::Running,
+            owner,
             search: super::search::State::BeforeFrame,
             clock,
             seq,
@@ -202,10 +205,10 @@ impl Writer {
 
     /// The WAL holds frames to checkpoint (quit has work even with nothing queued).
     pub(crate) fn wal_dirty(&self) -> bool {
-        self.wal != WalState::Clean
+        self.wal != WalState::Clean || self.reservation != Reservation::Durable
     }
 
-    pub(crate) fn run(mut self, rx: Receiver<Msg>, queue: super::SharedQueue, urgent: Arc<std::sync::atomic::AtomicU64>) {
+    pub(crate) fn run(mut self, rx: Receiver<Msg>, queue: super::SharedQueue, urgent: Arc<std::sync::atomic::AtomicU64>) -> FlushReport {
         let (gc, effects) = draft_gc::initial(&mut self.seq, (self.clock)(), STARTUP_COLLECT_DELAY_MS);
         self.gc = gc;
         self.gc_effects(effects);
@@ -216,6 +219,7 @@ impl Writer {
                 let armed = self.buffer_armed();
                 let cmds = {
                     let mut q = super::lock_queue(&queue);
+                    self.admission(q.admission);
                     q.armed = armed;
                     q.commit_queued = false;
                     std::mem::take(&mut q.cmds)
@@ -240,7 +244,7 @@ impl Writer {
                     let query = {
                         let mut q = super::lock_queue(&queue);
                         if !q.cmds.is_empty() { continue }
-                        if matches!(self.search, super::search::State::BeforeFrame) { None } else { q.queries.pop() }
+                        if self.quit != Quit::Running || matches!(self.search, super::search::State::BeforeFrame) { None } else { q.queries.pop() }
                     };
                     if let Some(query) = query {
                         match &self.search {
@@ -287,7 +291,8 @@ impl Writer {
                         // unavailable) without a timer, another keystroke or one wake per row.
                         if super::lock_queue(&queue).queries.indexing_finished() { continue; }
                     }
-                    match self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() {
+                    let next = if self.quit == Quit::Running { self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() } else { None };
+                    match next {
                 Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
                     }
@@ -296,6 +301,7 @@ impl Writer {
             // Commands made before the message (a flush, the first frame, a stop) come first.
             let cmds = {
                 let mut q = super::lock_queue(&queue);
+                self.admission(q.admission);
                 q.commit_queued = false;
                 std::mem::take(&mut q.cmds)
             };
@@ -316,15 +322,17 @@ impl Writer {
                             self.quit = Quit::Quitting;
                         }
                     }
-                    let report = self.flush(reason, started);
+                    let mut report = self.flush(reason, started);
                     rune::marks::mark("writer.flushed");
-                    if quit && (report.rows > 0 || self.quit != Quit::Left) {
+                    if quit && !report.unconfirmed {
                         self.quit_finish();
+                        report.unconfirmed = self.quit != Quit::Left;
                     }
                     rune::marks::mark("writer.checkpointed");
                     reply.send(report).ok();
                 }
                 Ok(Msg::FirstFrame { done }) => {
+                    if self.quit != Quit::Running { ran(done); continue }
                     let t = Instant::now();
                     self.first_frame(done);
                     slow("the work that waited for the first frame", t);
@@ -336,14 +344,15 @@ impl Writer {
                     if self.quit == Quit::Running {
                         self.quit = Quit::Quitting;
                     }
-                    let report = self.flush(FlushReason::Quit, Instant::now());
-                    if report.rows > 0 || self.quit != Quit::Left {
+                    let mut report = self.flush(FlushReason::Quit, Instant::now());
+                    if !report.unconfirmed {
+                        self.close_machines();
                         self.quit_finish();
+                        report.unconfirmed = self.quit != Quit::Left;
                     }
-                    self.repage();
-                    self.close_machines();
+                    if !report.unconfirmed { self.repage(); }
                     rune::marks::mark("writer.stopped");
-                    return;
+                    return report;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
             }
@@ -360,6 +369,7 @@ impl Writer {
     }
 
     fn fire_due(&mut self) {
+        if self.quit != Quit::Running { return; }
         let now = Instant::now();
         let due: Vec<(&'static str, Attempt)> = self.timers.iter().filter_map(|(n, t)| t.filter(|(_, d)| *d <= now).map(|(a, _)| (*n, a))).collect();
         for (name, attempt) in due {
@@ -647,16 +657,14 @@ impl Writer {
         batches.extend(step_buffer(&mut self.seq, &mut self.previews, WriteBehindEvent::FlushRequested, PREVIEWS_MS, "previews", &mut self.timers).into_iter().map(|(a, m)| Batch::Previews(a, m)));
         batches.extend(step_buffer(&mut self.seq, &mut self.caches, WriteBehindEvent::FlushRequested, CACHES_MS, "caches", &mut self.timers).into_iter().map(|(a, m)| Batch::Caches(a, m)));
         self.commit(batches);
-        // At quit the WAL goes back into the file (`quit_checkpoint`) after the caller has its
-        // answer: the rows are committed now, and the synced checkpoint overlaps the windows
-        // closing; closing the storage waits for it.
-        let checkpointed = quit && self.wal != WalState::Clean;
-        FlushReport { clean: false, rows: self.written, micros: super::micros(started), checkpointed, timed_out: false }
+        let pending = wb::has_pending(&self.state) || wb::has_pending(&self.docs) || wb::has_pending(&self.windows) || wb::has_pending(&self.previews) || wb::has_pending(&self.caches);
+        FlushReport { clean: false, rows: self.written, micros: super::micros(started), unconfirmed: pending, ..FlushReport::default() }
     }
 
     /// The kill-safe tier (`Storage::commit_soon`): once the queue is drained, the state,
     /// document and window rows waiting in their buffers go to the WAL in one commit (no sync).
     fn commit_if_due(&mut self) {
+        if self.quit != Quit::Running { return; }
         if !std::mem::take(&mut self.commit_due) {
             return;
         }
@@ -683,23 +691,30 @@ impl Writer {
     /// The reservation's pages reached the file through an unsynced checkpoint that also emptied
     /// the WAL: until the file is synced, a power cut could keep the WAL's truncation and lose the
     /// pages. One sync of the file closes that (a kill never could: the OS has the writes).
-    fn sync_reservation(&mut self) {
+    fn sync_reservation(&mut self) -> bool {
+        if !matches!(reservation::step(&mut self.reservation, reservation::Event::RequireDurable), reservation::Effect::SyncMainFile) {
+            return self.reservation == Reservation::Durable;
+        }
         let t = Instant::now();
         // Through the storage's kept descriptor (`dbfile`): one opened and closed here would drop the
         // connection's locks on POSIX.
         let synced = self.conn.path().map(std::path::PathBuf::from).ok_or(std::io::ErrorKind::NotFound.into()).and_then(|p| super::dbfile::get(&p)).and_then(|f| f.sync_all());
-        rune::marks::mark("storage.reservation.synced");
         match synced {
-            Ok(()) => self.reservation = Reservation::Durable,
-            Err(e) => eprintln!("opencode-storage: couldn't sync the draft journal's reservation ({e}); the next synced checkpoint does"),
+            Ok(()) => {
+                reservation::step(&mut self.reservation, reservation::Event::SyncSucceeded);
+                rune::marks::mark("storage.reservation.synced");
+            }
+            Err(e) => {
+                reservation::step(&mut self.reservation, reservation::Event::SyncFailed);
+                eprintln!("opencode-storage: couldn't sync the draft journal's reservation ({e}); durability is still owed");
+            }
         }
         slow("syncing the draft journal's reservation", t);
+        self.reservation == Reservation::Durable
     }
 
     fn first_frame(&mut self, done: Option<Loaded>) {
-        if self.reservation == Reservation::Unsynced {
-            self.sync_reservation();
-        }
+        self.sync_reservation();
         self.reserve_after_frame();
         // A WAL the last run left (its quit's, or a kill's): checkpointed once writes are quiet.
         self.wal_event(WalEvent::Opened);

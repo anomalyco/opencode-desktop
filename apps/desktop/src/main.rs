@@ -1618,6 +1618,7 @@ fn quit_last() {
     // file (`opencode_storage` waits for this process's last write, bounded), never for this
     // process to end. An update that installs on quit keeps the claim for its helper.
     if !updater::installs_on_quit() {
+        opencode_storage::journal::freeze_for_handoff();
         rune::release_instance();
     }
     // Landed and closed: the file's lock goes before the update helper takes over.

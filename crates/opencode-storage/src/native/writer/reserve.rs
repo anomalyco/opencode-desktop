@@ -11,6 +11,7 @@ use rusqlite::{Transaction, TransactionBehavior};
 use super::super::{boot_record, journal};
 use super::Writer;
 use crate::machine::checkpoint::WalEvent;
+use crate::machine::reservation;
 
 /// The draft journal as the open leaves it to the writer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -25,18 +26,15 @@ pub(crate) enum OpenJournal {
     Owed,
 }
 
-/// The draft journal's reservation. What the open wrote before the first frame without a sync (a
-/// new file's journal and first tables) is synced once, by the first frame's work, off the UI
-/// thread; one the open left owed is made after the frame (`reserve`).
+/// The draft journal's own reservation, when the open left it owed.
 #[derive(Clone, PartialEq, Eq)]
-pub(super) enum Reservation {
-    Durable,
-    Unsynced,
+pub(super) enum Reserving {
+    /// Nothing to do: the open had a place for it, or made one before the frame.
+    Done,
     Owed(ReserveStep),
     /// No journal this run: it couldn't be reserved.
     Unavailable,
 }
-
 /// Where an owed reservation is: each step is one writer turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ReserveStep {
@@ -57,23 +55,23 @@ const BETWEEN: Duration = Duration::from_millis(1);
 impl Writer {
     /// The first frame is up: an owed reservation starts.
     pub(super) fn reserve_after_frame(&mut self) {
-        if self.reservation == Reservation::Owed(ReserveStep::AfterFrame) {
+        if self.reserving == Reserving::Owed(ReserveStep::AfterFrame) {
             self.next_step(ReserveStep::Insert);
         }
     }
 
     fn next_step(&mut self, step: ReserveStep) {
-        self.reservation = Reservation::Owed(step);
+        self.reserving = Reserving::Owed(step);
         let attempt = self.seq.next();
         self.timers.insert("reserve", Some((attempt, Instant::now() + BETWEEN)));
     }
 
     /// The `reserve` timer: the owed reservation's next step.
     pub(super) fn reserve_step(&mut self) {
-        let Reservation::Owed(step) = std::mem::replace(&mut self.reservation, Reservation::Unavailable) else { return };
+        let Reserving::Owed(step) = std::mem::replace(&mut self.reserving, Reserving::Unavailable) else { return };
         let Some(db) = self.conn.path().map(std::path::PathBuf::from) else { return self.no_journal("the database has no path".into()) };
         match step {
-            ReserveStep::AfterFrame => self.reservation = Reservation::Owed(ReserveStep::AfterFrame),
+            ReserveStep::AfterFrame => self.reserving = Reserving::Owed(ReserveStep::AfterFrame),
             ReserveStep::Insert => match journal::reserve(&self.conn) {
                 Ok(()) => {
                     self.wal_event(WalEvent::Committed { boot: false });
@@ -98,7 +96,9 @@ impl Writer {
                         rune::marks::mark("journal.attached");
                         // The next checkpoint's record names it, kept by this run.
                         self.wal_event(WalEvent::Committed { boot: true });
-                        self.reservation = Reservation::Unsynced;
+                        self.reserving = Reserving::Done;
+                        // Its pages reached the file through an unsynced checkpoint: one sync makes them durable.
+                        reservation::step(&mut self.reservation, reservation::Event::Reserved);
                         self.sync_reservation();
                     }
                     Err(e) => self.no_journal(e),
@@ -117,15 +117,15 @@ impl Writer {
     /// it again (a place this run left half made is made again).
     fn no_journal(&mut self, why: String) {
         eprintln!("opencode-storage: couldn't reserve the draft journal after the first frame ({why}); this run keeps drafts without it, and the next launch tries again");
-        self.reservation = Reservation::Unavailable;
+        self.reserving = Reserving::Unavailable;
         journal::decided();
     }
 
     /// The writer stops with the reservation still owed: nothing more is held for it.
     pub(super) fn reserve_stopped(&mut self) {
-        if matches!(self.reservation, Reservation::Owed(_)) {
+        if matches!(self.reserving, Reserving::Owed(_)) {
             self.timers.insert("reserve", None);
-            self.reservation = Reservation::Unavailable;
+            self.reserving = Reserving::Unavailable;
             journal::decided();
         }
     }
