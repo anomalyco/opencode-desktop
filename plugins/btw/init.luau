@@ -22,6 +22,10 @@ return plugin.defineWindow(function(ctx)
     local Store = ctx:GetService("Store")
     local chats = Store:SessionValue("chats", { chats = {} }) :: SessionStoreValue<{ chats: { machine.Saved } }>
     local state = machine.new()
+    local handle: Contribution? = nil
+    local function refresh()
+        if handle then handle:Refresh() end
+    end
     -- Ids handed out by this window, so two asks in one millisecond differ.
     local counter = 0
 
@@ -92,7 +96,10 @@ return plugin.defineWindow(function(ctx)
     end
 
     dispatch = function(session, event)
-        for _, effect in machine.step(state, event) do
+        local before = state.sessions[session] and state.sessions[session][event.id]
+        local effects = machine.step(state, event)
+        if before ~= (state.sessions[session] and state.sessions[session][event.id]) then refresh() end
+        for _, effect in effects do
             if effect.type == "persist-question" then
                 local info = effect.info
                 update(session, function(list)
@@ -158,6 +165,7 @@ return plugin.defineWindow(function(ctx)
         state = state,
         saved = saved,
         copied = {},
+        refresh = refresh,
         retry = function(session, id)
             local _, agent, model = routed()
             dispatch(
@@ -215,7 +223,7 @@ return plugin.defineWindow(function(ctx)
     })
 
     -- One tab per question, titled by it.
-    ctx:AddPanel({
+    handle = ctx:AddPanel({
         id = "main",
         title = I18n:T("tab.title"),
         icon = "comment",

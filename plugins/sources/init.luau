@@ -15,6 +15,7 @@ return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
     local Diagnostics = ctx:GetService("Diagnostics")
     local Layout = ctx:GetService("Layout")
+    local handle: Contribution? = nil
     local env: panel.Env = {
         Sessions = ctx:GetService("Sessions"),
         Server = ctx:GetService("Server"),
@@ -24,6 +25,7 @@ return plugin.defineWindow(function(ctx)
         Images = ctx:GetService("Images"),
         Diagnostics = Diagnostics,
         state = { expand = {}, parsed = {} },
+        refresh = function() if handle then handle:Refresh() end end,
     }
 
     local function enabled(): boolean
@@ -41,7 +43,7 @@ return plugin.defineWindow(function(ctx)
     })
 
     -- One tab per turn while the experiment is on, titled "Sources · N" (`tab.count`).
-    ctx:AddPanel({
+    handle = ctx:AddPanel({
         id = "turn",
         title = I18n:T("title"),
         icon = "globe",

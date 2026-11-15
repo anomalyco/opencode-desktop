@@ -23,6 +23,7 @@ export type Env = {
     -- What each chat's Copy buttons copied: the text, so a changed text clears the mark.
     copied: { [string]: { question: string?, answer: string? } },
     retry: (session: string, id: string) -> (),
+    refresh: () -> (),
 }
 
 local function capitalize(s: string?): string
@@ -219,6 +220,7 @@ local function prompt(
                         local m: { question: string?, answer: string? } = env.copied[id] or {}
                         m.question = question
                         env.copied[id] = m
+                        env.refresh()
                     end)
                 ),
             }
@@ -267,6 +269,7 @@ local function answered(
                     local m: { question: string?, answer: string? } = env.copied[id] or {}
                     m.answer = answer
                     env.copied[id] = m
+                    env.refresh()
                 end)
             ),
         }),

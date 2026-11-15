@@ -91,9 +91,24 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
+    -- Only the routed session can have a visible pill. Starting a fetch or a retry is not
+    -- a visual change. A new objective, status or set of enabled menu actions is.
+    local function shown(): (string?, machine.Goal?, boolean)
+        local target = state.target
+        if target == nil then return nil, nil, false end
+        local goal = machine.goal(state, target.key)
+        if goal == nil then return nil, nil, false end
+        return target.key, goal, machine.busy(state, target.key)
+    end
+
     dispatch = function(event)
-        run(machine.step(state, event))
-        changed:Fire()
+        local previous, oldGoal, oldBusy = shown()
+        local effects = machine.step(state, event)
+        local key, goal, busy = shown()
+        if key ~= previous or oldBusy ~= busy or (goal and oldGoal and (goal.status ~= oldGoal.status or goal.objective ~= oldGoal.objective)) then
+            changed:Fire()
+        end
+        run(effects)
     end
 
     -- The goal attaches to the routed session and its folder, again when either changes. The

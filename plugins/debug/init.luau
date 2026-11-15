@@ -43,6 +43,7 @@ return plugin.defineWindow(function(ctx)
     local devTools = App.Channel == "local"
     local heap = machine.idle
     local focus = machine.focusIdle
+    local changed = ctx:CreateSignal()
     local state: console.State = { target = nil }
     local editor = ctx:CreateEditor()
     local consoleEnv: console.Env = {
@@ -53,6 +54,7 @@ return plugin.defineWindow(function(ctx)
         editor = editor,
         state = state,
         own = ctx.id,
+        refresh = function() changed:Fire() end,
     }
     editor.Submitted:Connect(function(text)
         console.submit(consoleEnv, text)
@@ -85,7 +87,9 @@ return plugin.defineWindow(function(ctx)
 
     local function runHeap(event: machine.HeapEvent)
         local nextState, effects = machine.heap(heap, event)
+        local moved = (heap.status == "idle") ~= (nextState.status == "idle")
         heap = nextState
+        if moved then changed:Fire() end
         for _, effect in effects do
             if effect.type == "toast-loading" then
                 Toast:Show({ variant = "loading", title = I18n:T("heap.loading"), persistent = true })
@@ -113,7 +117,9 @@ return plugin.defineWindow(function(ctx)
     -- FOCUS: every control draws its focus ring (Desktop forces `:focus-visible` over CDP).
     local function runFocus(event: machine.FocusEvent)
         local nextState, effects = machine.focus(focus, event)
+        local moved = machine.focusActive(focus) ~= machine.focusActive(nextState)
         focus = nextState
+        if moved then changed:Fire() end
         for _, effect in effects do
             if effect.type == "set" then
                 Diagnostics:Set("forceFocus", effect.enabled)

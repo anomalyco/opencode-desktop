@@ -10,6 +10,7 @@ local tab = require("@self/tab")
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
+    local handle: Contribution? = nil
     local state: tab.State = { open = {}, toggles = 0, export = { kind = "idle" }, parsed = {}, pages = {} }
     local env = {
         Sessions = ctx:GetService("Sessions"),
@@ -22,6 +23,7 @@ return plugin.defineWindow(function(ctx)
         Layout = ctx:GetService("Layout"),
         Popover = ctx:GetService("Popover"),
         state = state,
+        refresh = function() if handle then handle:Refresh() end end,
     }
 
     -- The raw messages shown open survive a reload.
@@ -51,7 +53,7 @@ return plugin.defineWindow(function(ctx)
     })
 
     -- Opened from its header button, so it has no New tab card (Desktop gives it no menu item).
-    ctx:AddPanel({
+    handle = ctx:AddPanel({
         id = "main",
         title = I18n:T("tab.title"),
         description = I18n:T("mobile.title"),

@@ -20,6 +20,7 @@ export type Env = {
     I18n: I18nService,
     editor: Editor,
     state: State,
+    refresh: () -> (),
     -- This plugin's id: an error in another plugin's VM lands in the console on its own.
     own: string,
 }
@@ -197,6 +198,7 @@ function console.render(env: Env, view: View, props: PanelProps): ui.Node?
                 onPress = view:Handler(function()
                     local i = table.find(plugins, current) or 0
                     env.state.target = plugins[i % #plugins + 1]
+                    env.refresh()
                 end),
             }, {
                 ui.text(current, {

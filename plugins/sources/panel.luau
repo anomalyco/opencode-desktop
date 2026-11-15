@@ -26,6 +26,7 @@ export type Env = {
     Theme: ThemeService,
     Images: ImagesService,
     Diagnostics: DiagnosticsService,
+    refresh: () -> (),
     state: State,
 }
 
@@ -290,6 +291,7 @@ local function search(env: Env, view: View, s: any, mode: IconMode): ui.Node
         extra.label = `{I18n:T("searched")} {s.query}`
         extra.onPress = view:Handler(function()
             env.state.expand[id] = if env.state.expand[id] == "open" then "closed" else "open"
+            env.refresh()
         end)
     end
     local step: { ui.Node } = { stepRow(`sources-step-{s.id}`, "magnifying-glass", text, count, expandable, extra) }

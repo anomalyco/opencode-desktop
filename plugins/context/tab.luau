@@ -35,6 +35,7 @@ export type Env = {
     Theme: ThemeService,
     Toast: ToastService,
     Workspace: WorkspaceService,
+    refresh: () -> (),
     state: State,
 }
 
@@ -294,10 +295,12 @@ end
 
 local function startExport(env: Env, sid: string)
     env.state.export = { kind = "exporting", sessionId = sid }
+    env.refresh()
     task.spawn(function()
         local I18n = env.I18n
         local function failed(err: string?)
             env.state.export = { kind = "idle" }
+            env.refresh()
             env.Toast:Error(
                 I18n:T("export.failed.title"),
                 if err and err ~= "" then err else I18n:T("export.failed.description")
@@ -331,6 +334,7 @@ local function startExport(env: Env, sid: string)
         local name = filename(if type(res.json) == "table" then res.json.data or res.json else nil, sid)
         local saved = env.Workspace:SaveDownloadAsync(name, json.pretty(raw))
         env.state.export = { kind = "idle" }
+        env.refresh()
         if saved.error then
             env.Toast:Error(I18n:T("export.failed.title"), saved.error)
         else
@@ -385,6 +389,7 @@ local function rawMessages(
             onPress = view:Handler(function()
                 open[id] = (if open[id] then nil else true) :: any
                 env.state.toggles += 1
+                env.refresh()
             end),
         }, {
             ui.text("{1} ", RAW_KIND, kind),
