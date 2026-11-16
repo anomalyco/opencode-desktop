@@ -252,10 +252,15 @@ impl Job {
         }
         let done = result.and_then(|()| {
             let dest = root.join(release.version.to_string());
+            // The same version installed under a rule this build doesn't accept (an older build's
+            // loopback stand-in) makes way for this one.
+            if dest.exists() && !source::accepts_install(&dest) {
+                installer::discard(root, release.version);
+            }
             match std::fs::rename(&staging, &dest) {
                 Ok(()) => Ok(()),
                 // Another app installed the same version meanwhile.
-                Err(_) if installer::bin_in(&dest).is_file() => Ok(()),
+                Err(_) if installer::bin_in(&dest).is_file() && source::accepts_install(&dest) => Ok(()),
                 Err(e) => Err(Cut::Failed(err_write(&e))),
             }
         });
@@ -341,6 +346,8 @@ impl Job {
         if !installer::bin_in(staging).is_file() {
             return Err(Cut::Rejected(Fault::Corrupt));
         }
+        // Which rule accepted it: a later build starts it only if it accepts that rule too.
+        std::fs::write(staging.join(installer::TRUST_MARKER), source::marker(&release.trust, &release.sha256)).map_err(|e| Cut::Failed(err_write(&e)))?;
         #[cfg(target_os = "linux")]
         {
             use std::os::unix::fs::PermissionsExt;

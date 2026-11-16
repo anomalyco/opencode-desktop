@@ -37,6 +37,10 @@ pub const ENGINE_DOWNLOAD_MB: u64 = 131;
 #[cfg(windows)]
 pub const ENGINE_DOWNLOAD_MB: u64 = 142;
 
+/// The file in a version's folder naming the trust rule that installed it (`source::marker`).
+#[cfg(feature = "engine")]
+pub(crate) const TRUST_MARKER: &str = "trust";
+
 /// The OS named no folder for the app's data (`Fault::Dirs`).
 #[cfg(feature = "engine")]
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
@@ -349,9 +353,11 @@ pub fn installed() -> Option<Installed> {
         return Some(Installed { version: None, bin });
     }
     let root = try_engines_root()?;
+    // Only a version installed under a rule this build accepts: a release build never starts an
+    // engine an older build took from the loopback stand-in, or one it can't tell the origin of.
     installed_versions(&root)
         .into_iter()
-        .filter(|v| v.accepted())
+        .filter(|v| v.accepted() && crate::source::accepts_install(&root.join(v.to_string())))
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
         .filter(|i| i.bin.is_file())

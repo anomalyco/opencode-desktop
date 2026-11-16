@@ -141,6 +141,32 @@ pub(crate) fn latest() -> Result<Release, Fault> {
     Ok(Release { version, url: resolve(source, url), size, sha256, trust })
 }
 
+/// What an install records of the rule that accepted it (`installer::TRUST_MARKER`): the
+/// archive's hash, the publisher, or `local`.
+pub(crate) fn marker(trust: &Trust, sha256: &str) -> String {
+    match trust {
+        Trust::Local => "local".to_owned(),
+        Trust::Sha256(_) => format!("sha256:{sha256}"),
+        Trust::Publisher(name) => format!("publisher:{name}"),
+    }
+}
+
+/// Whether this build starts the engine installed in `version_dir`: one its own rule would have
+/// installed. A development build (rule `local`) starts what it finds. An install without a
+/// record came from a build before records: on macOS every such build pinned the published
+/// archive's hash, elsewhere it was the loopback stand-in, which a release build never trusts.
+pub(crate) fn accepts_install(version_dir: &std::path::Path) -> bool {
+    let Some(trust) = parse_trust(&inputs().1) else { return false };
+    let marker = std::fs::read_to_string(version_dir.join(crate::installer::TRUST_MARKER)).ok();
+    match (marker.as_deref().map(str::trim), &trust) {
+        (_, Trust::Local) => true,
+        (None, Trust::Sha256(_)) => cfg!(target_os = "macos"),
+        (None, Trust::Publisher(_)) => false,
+        (Some(m), Trust::Sha256(allowed)) => m.strip_prefix("sha256:").is_some_and(|h| allowed.iter().any(|a| a == h)),
+        (Some(m), Trust::Publisher(name)) => m.strip_prefix("publisher:") == Some(name.as_str()),
+    }
+}
+
 fn parse_trust(rule: &str) -> Option<Trust> {
     let rule = rule.trim();
     if rule == "local" {
