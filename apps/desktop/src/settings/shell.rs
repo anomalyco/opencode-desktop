@@ -4,7 +4,7 @@
 //! with 24 pt gutters; below that the rail gives way to a bar with Back and the page menu. The
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
-use rune::{Color, El, Tx, col, icon, row, text};
+use rune::{Color, Drag, El, Phase, PointerButton, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::pages::{self, Page};
@@ -120,16 +120,26 @@ fn nav(s: &App, p: &Pal, width: f32, height: f32) -> El {
 }
 
 /// A page's trigger: 28 pt, 6 in, 4 pt corners, muted; the open one on `layer-03` in the base ink.
+/// The rail is Kobalte `Tabs` (`settings/navigation.tsx`): a mouse's primary button opens the page
+/// as it goes down (`createSelectableItem`'s `onPointerDown`), so a press that then drags or leaves
+/// the row has already opened it; a key or a finger's tap opens it on the release, as the click.
+/// The open page's trigger changes nothing (Kobalte doesn't report an unchanged value).
 fn nav_item(s: &App, p: &Pal, page: &Page) -> El {
     let on = &s.settings_pages.page == page;
     let ink = if on { p.text } else { p.muted };
     let label = label(s, page);
     let to = page.clone();
+    let pressed = page.clone();
+    let opens = |s: &App, to: &Page| &s.settings_pages.page != to || search::active(s);
     row().key(format!("settings-nav-{}", page.id())).role("tab").label(label.clone()).focusable(true).focus_selected(on)
         .w_full().h(28.0).px(6.0).gap(8.0).center_y().radius(4.0)
         .fill(if on { p.layer3 } else { Color::TRANSPARENT })
         .hover(if on { p.layer3 } else { p.hover })
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open_settings_page(to.clone(), tx))
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| if opens(s, &to) { s.open_settings_page(to.clone(), tx) } else { tx.live_only() })
+        .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
+            let mouse = tx.button() == PointerButton::Primary && !session_view::style::touch_controls();
+            if d.phase == Phase::Down && mouse && opens(s, &pressed) { s.open_settings_page(pressed.clone(), tx) } else { tx.live_only() }
+        })
         .child(icon(glyph(s, page), 16.0).color(ink))
         .child(text(label).font(TAB).color(ink).truncate())
 }
