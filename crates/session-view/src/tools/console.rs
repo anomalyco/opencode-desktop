@@ -223,9 +223,10 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part,
     if part.name == "result" {
         sec = sec.shrink().min_h(0.0);
     }
-    // `border-block-start: 0.5px`, drawn after the copy button's backdrop, which stops below it.
+    // `border-block-start: 0.5px solid border-base` (`message-part.css:908`): one whole device
+    // pixel, drawn after the copy button's backdrop, which stops below it.
     if part.rule {
-        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(RING).fill(p.ring));
+        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(crate::scroller::border_width(RING)).fill(p.border));
     }
     sec
 }
