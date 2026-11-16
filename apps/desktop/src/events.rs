@@ -92,6 +92,26 @@ impl App {
         self.react(&e)
     }
 
+    /// Only live deliveries opt in, never a history page, replay on open, or reconnect read.
+    pub(crate) fn live_event(&mut self, ty: &str, data: &Value, tx: &mut rune::Tx) -> bool {
+        let Heard::Event(e) = self.apply_shared(Incoming::Event { ty: ty.to_owned(), data: data.clone() }) else { return false };
+        self.react_live(&e, tx)
+    }
+
+    pub(crate) fn react_live(&mut self, e: &StreamEvent, tx: &mut rune::Tx) -> bool {
+        let ty = e.ty.as_str();
+        if (e.done.transcript || e.done.inbox)
+            && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
+                || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered"))
+            && let Some(id) = e.data["sessionID"].as_str()
+            && matches!(&*self.route, Route::Session { id: open, .. } if open == id)
+            && self.ends.at_end(id) && !self.ends.due(id) && !self.stream_gaps.contains_key(id)
+        {
+            tx.grow_visible_tail(format!("scroll-{id}/timeline"));
+        }
+        self.react(e)
+    }
+
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
         let sid = data["sessionID"].as_str().unwrap_or("").to_owned();
         let now = *self.now_ms;

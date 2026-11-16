@@ -1367,7 +1367,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 changed = true;
                 continue;
             }
-            s.apply_event(&ty, &data);
+            s.live_event(&ty, &data, tx);
             if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::here(sid.to_string())) {
                 s.refresh_fixture_page(sid);
             }
