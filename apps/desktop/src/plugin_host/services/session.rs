@@ -59,18 +59,41 @@ fn sessions(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     lazy_signals(lua, vmx, t, "Sessions", &["Changed", "RoutedChanged"])
 }
 
+/// A tracked version belongs to one cell, not to all servers or windows at that version.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Stamp(pub u32, pub u64);
+
+impl Stamp {
+    pub(super) fn of<T>(cell: &rune::Tracked<T>) -> Self {
+        Self(rune::Tracked::id(cell), rune::Tracked::version(cell))
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct UsageInputs {
+    server: opencode_kit::servers::ServerKey,
+    transcripts: Stamp,
+    window: Stamp,
+    revert: Option<String>,
+}
+
 thread_local! {
     /// Each session's step with usage, by its place, and what it was read from: the transcripts'
     /// and the context windows' versions and the staged revert. Every poll asks; a long session
     /// without usage would be read through each time.
-    static LAST_USAGE: std::cell::RefCell<std::collections::HashMap<String, ((u64, u64, Option<String>), Option<usize>)>> = Default::default();
+    static LAST_USAGE: std::cell::RefCell<std::collections::HashMap<String, (UsageInputs, Option<usize>)>> = Default::default();
 }
 
 /// Session `id`'s step whose tokens fill the context window (`session_view::usage`).
 fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::Assistant, &'a opencode_kit::model::Tokens)> {
     let info = app.session(id)?;
     let t = app.transcripts.get(&info.id)?;
-    let key = (rune::Tracked::version(&app.transcripts), rune::Tracked::version(&app.context_windows), info.revert.clone());
+    let key = UsageInputs {
+        server: crate::servers::runtime::active(app).clone(),
+        transcripts: Stamp::of(&app.transcripts),
+        window: Stamp::of(&app.context_windows),
+        revert: info.revert.clone(),
+    };
     let at = LAST_USAGE.with_borrow_mut(|kept| match kept.get(id) {
         Some((k, at)) if *k == key => *at,
         _ => {
@@ -84,6 +107,7 @@ fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::As
 
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
+/// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
 pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
     let t = app.transcripts.get(&info.id);

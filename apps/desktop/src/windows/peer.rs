@@ -44,6 +44,7 @@ pub struct ServerData {
     projects: Tracked<Vec<Project>>,
     sessions: Tracked<Vec<SessionInfo>>,
     transcripts: Tracked<HashMap<String, Transcript>>,
+    transcript_edits: crate::events::TranscriptEdits,
     running: Tracked<HashSet<String>>,
     stops: Tracked<crate::stop::Stops>,
     requests: Tracked<HashSet<(String, String)>>,
@@ -63,6 +64,7 @@ impl ServerData {
         std::mem::swap(&mut self.projects, &mut s.projects);
         std::mem::swap(&mut self.sessions, &mut s.sessions);
         std::mem::swap(&mut self.transcripts, &mut s.transcripts);
+        std::mem::swap(&mut self.transcript_edits, &mut s.transcript_edits);
         std::mem::swap(&mut self.running, &mut s.running);
         std::mem::swap(&mut self.stops, &mut s.stops);
         std::mem::swap(&mut self.requests, &mut s.requests);
