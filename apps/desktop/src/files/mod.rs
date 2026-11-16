@@ -7,6 +7,7 @@ pub mod data;
 pub(crate) mod delimited;
 mod table_view;
 mod label_find;
+mod html;
 mod mermaid;
 pub mod image;
 pub mod link_tip;
@@ -55,6 +56,8 @@ pub struct SessionFiles {
     /// Decoded CSV/TSV documents. A failed or replaced read drops the previous revision.
     pub(crate) tables: HashMap<String, std::sync::Arc<delimited::Table>>,
     table_find: label_find::TableFind,
+    html: HashMap<String, std::sync::Arc<html::Page>>,
+    html_find: label_find::LabelFind<std::sync::Arc<html::Page>>,
     diagram_find: label_find::DiagramFind,
     diagram: mermaid::Stage,
     /// Each Markdown file's inline code paths, checked (`code_paths`).
@@ -142,6 +145,8 @@ impl Default for SessionFiles {
             md: HashMap::new(),
             tables: HashMap::new(),
             table_find: Default::default(),
+            html: HashMap::new(),
+            html_find: Default::default(),
             diagram_find: Default::default(),
             diagram: Default::default(),
             code_paths: HashMap::new(),
@@ -160,6 +165,7 @@ impl SessionFiles {
         self.close_preview(path);
         self.docs.remove(path);
         if let Some(previous) = self.tables.remove(path) { self.table_find.forget(&previous); }
+        if let Some(previous) = self.html.remove(path) { self.html_find.forget(&previous); }
         self.md.remove(path);
     }
 
@@ -172,7 +178,8 @@ impl SessionFiles {
 
     /// (Active index, count) for both the visible bar and its polite announcement.
     pub(crate) fn file_matches(&self, path: &str, doc: &CodeDocState) -> (usize,usize) {
-        if let Some(table) = self.shown_table(path) { self.table_find.count(table) }
+        if let Some(page) = self.shown_html(path) { self.html_find.count(page) }
+        else if let Some(table) = self.shown_table(path) { self.table_find.count(table) }
         else if let Some(drawing) = self.shown_diagram(path) { self.diagram_find.count(&drawing) }
         else if markdown::shows_rendered(self, path) { self.md.get(path).map_or((0,0), |v| (v.active,v.matches.len())) }
         else { (doc.active_match_index(),doc.match_count()) }
@@ -184,6 +191,7 @@ impl SessionFiles {
             self.diagram.clear(doc);
         }
         if let Some(table) = self.tables.get(path) { self.table_find.forget(table); }
+        if let Some(page) = self.html.get(path) { self.html_find.forget(page); }
         self.md.remove(path);
         if let Some(doc) = self.docs.get_mut(path) { doc.set_find_open(false); }
     }
@@ -193,9 +201,14 @@ impl SessionFiles {
         self.diagram.current(self.docs.get(path)?)
     }
 
+    fn shown_html(&self, path: &str) -> Option<&std::sync::Arc<html::Page>> {
+        if !markdown::shows_rendered(self, path) { return None; }
+        self.html.get(path)
+    }
+
     fn previewable(&self, path: &str) -> bool {
         self.docs.get(path).is_some_and(|d| d.ready() && !d.missing() && !d.binary() &&
-            (markdown::is_markdown(path) || image::is_svg(path) || self.tables.contains_key(path) || self.diagram.current(d).is_some()))
+            (markdown::is_markdown(path) || image::is_svg(path) || self.html.contains_key(path) || self.tables.contains_key(path) || self.diagram.current(d).is_some()))
     }
 
     pub(crate) fn local_files(&self, q: &str, limit: usize) -> Vec<String> {
@@ -333,9 +346,14 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         }
         ws.md.remove(&path);
         if let Some(previous) = ws.tables.remove(&path) { ws.table_find.forget(&previous); }
+        if let Some(previous) = ws.html.remove(&path) { ws.html_find.forget(&previous); }
         let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
         match payload {
             FilePayload::Text(text) => doc.set_text(&text),
+            FilePayload::Html { source, document } => {
+                doc.set_text(&source);
+                ws.html.insert(path.clone(), document);
+            }
             FilePayload::Table { source, document } => {
                 doc.set_text(&source);
                 ws.tables.insert(path.clone(), document);
@@ -387,7 +405,7 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         && let Some(doc) = ws.docs.get_mut(&path)
         && doc.find_open()
     {
-        if (!ws.tables.contains_key(&path) && ws.diagram.current(doc).is_none()) || ws.md.get(&path).and_then(|v| v.rendered) == Some(false) { changed |= doc.sync_find_query(); }
+        if (!ws.html.contains_key(&path) && !ws.tables.contains_key(&path) && ws.diagram.current(doc).is_none()) || ws.md.get(&path).and_then(|v| v.rendered) == Some(false) { changed |= doc.sync_find_query(); }
         changed |= s.sync_rendered_find(&sid, &path, tx);
         let ws = &s.files.sessions[&sid];
         let doc = &ws.docs[&path];
@@ -604,6 +622,7 @@ impl App {
                 if let Some(txt) = contents.get(path) {
                     doc.set_text(txt);
                     if let Some(table) = delimited::Table::parse(path, txt) { ws.tables.insert(path.to_owned(), table.into()); }
+                    if let Some(page) = html::Page::parse(path, txt) { ws.html.insert(path.to_owned(), page); }
                 } else {
                     doc.set_missing();
                 }

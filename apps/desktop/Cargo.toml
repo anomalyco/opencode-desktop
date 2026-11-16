@@ -26,6 +26,8 @@ knobs = ["rune-knobs/panel"]
 
 [dependencies]
 memchr = "2"
+# HTML5 tree construction and entity decoding for the inert document preview.
+scraper = { version = "0.24", default-features = false }
 base64 = "0.22"
 bytemuck = { version = "1", features = ["derive"] }
 # The new-session Easter egg's pipelines (`egg/gpu.rs`): Rune's own wgpu, named for its types.

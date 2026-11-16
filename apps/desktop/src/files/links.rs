@@ -318,7 +318,7 @@ impl App {
             return;
         }
         // A line is in the source: a rendered file shows it there.
-        if link.lines.is_some() && (super::markdown::is_markdown(path) || ws.tables.contains_key(path)) {
+        if link.lines.is_some() && (super::markdown::is_markdown(path) || ws.html.contains_key(path) || ws.tables.contains_key(path)) {
             ws.close_preview(path);
             ws.md.entry(path.to_owned()).or_default().rendered = Some(false);
         }

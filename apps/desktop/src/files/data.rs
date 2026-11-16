@@ -47,6 +47,7 @@ pub fn parse_path_and_line(raw: &str) -> (String, Option<u32>) {
 #[derive(Clone, Debug)]
 pub enum FilePayload {
     Text(String),
+    Html { source: String, document: std::sync::Arc<super::html::Page> },
     Table { source: String, document: std::sync::Arc<super::delimited::Table> },
     Binary(usize),
     /// A picture file's bytes (`image::is_image`).
@@ -73,7 +74,10 @@ pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> 
                 match String::from_utf8(bytes) {
                     Ok(s) => match super::delimited::Table::parse(path, &s) {
                         Some(document) => FilePayload::Table { source: s, document: document.into() },
-                        None => FilePayload::Text(s),
+                        None => match super::html::Page::parse(path, &s) {
+                            Some(document) => FilePayload::Html { source: s, document },
+                            None => FilePayload::Text(s),
+                        },
                     },
                     Err(e) => FilePayload::Binary(e.into_bytes().len()),
                 }

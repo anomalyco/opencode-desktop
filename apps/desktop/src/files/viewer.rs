@@ -203,7 +203,7 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
         let bar = FindBar { key: "files-find-bar", top: -4.0, edit: file_find_input, changed: |s, at, tx| {
             tx.instant();
             let (sid, path) = at.split_once('\n').unwrap_or_default();
-            if let Some(w) = s.files.sessions.get_mut(sid) && w.shown_table(path).is_none() && w.shown_diagram(path).is_none() && let Some(d) = w.docs.get_mut(path) {
+            if let Some(w) = s.files.sessions.get_mut(sid) && w.shown_html(path).is_none() && w.shown_table(path).is_none() && w.shown_diagram(path).is_none() && let Some(d) = w.docs.get_mut(path) {
                 d.sync_find_query();
             }
             s.sync_rendered_find(sid, path, tx);
@@ -222,6 +222,10 @@ pub(crate) fn code_area(s: &App, p: &Pal, session_id: &str, ws: &SessionFiles, p
 
     if let Some(view) = plugin_view {
         return out.child(view);
+    }
+    if let Some(page) = ws.shown_html(path) {
+        let find = if doc.is_some_and(|d| d.find_open()) { &ws.html_find } else { &super::label_find::LabelFind::Closed };
+        return out.child(over(super::html::view(session_id, path, page, find.painter(p)), bar));
     }
     if let Some(table) = ws.shown_table(path) {
         let painter = if doc.is_some_and(|d| d.find_open()) { &ws.table_find } else { &super::label_find::TableFind::Closed };
