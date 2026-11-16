@@ -334,6 +334,7 @@ pub struct App {
     /// Where ⌘[ and ⌘] go (`history.rs`).
     pub nav: rune::Tracked<history::History>,
     pub transcripts: rune::Tracked<HashMap<String, Transcript>>,
+    transcript_edits: events::TranscriptEdits,
     /// The disclosures the reader toggled, tool groups springing shut among them (`disclosure`).
     pub expanded: rune::Tracked<disclosure::Disclosures>,
     /// Grow, then show's streaming words, held a line-grow behind (`line_reveal`).

@@ -8,6 +8,37 @@ use std::cell::Cell;
 
 use super::*;
 
+/// The latest uninterrupted run of stream writes to one transcript. Bulk loads, clears,
+/// other transcript writers and server swaps need no bookkeeping: the cell and both ends of
+/// the version interval must match before a reader can narrow its comparison to this id.
+#[derive(Default)]
+pub(crate) struct TranscriptEdits {
+    cell: u32,
+    from: u64,
+    to: u64,
+    session: String,
+}
+
+impl TranscriptEdits {
+    fn get_mut<'a>(&mut self, map: &'a mut rune::Tracked<HashMap<String, Transcript>>, id: &str) -> Option<&'a mut Transcript> {
+        let cell = rune::Tracked::id(map);
+        let before = rune::Tracked::version(map);
+        let rows = &mut **map;
+        if self.cell != cell || self.to != before || self.session != id {
+            self.cell = cell;
+            self.from = before;
+            self.session.clear();
+            self.session.push_str(id);
+        }
+        self.to = before + 1;
+        rows.get_mut(id)
+    }
+
+    pub(crate) fn only(&self, cell: u32, from: u64, to: u64) -> Option<&str> {
+        (cell == self.cell && self.from <= from && from < to && to == self.to).then_some(&self.session)
+    }
+}
+
 /// A stream message after `apply_shared`, for each window's `react`.
 pub enum Heard {
     Event(StreamEvent),
@@ -155,7 +186,7 @@ impl App {
         if ty == "session.usage.updated" {
             done.info |= self.usage_updated(&sid, data["cost"].as_f64());
         }
-        if let Some(t) = self.transcripts.get_mut(&sid) {
+        if let Some(t) = self.transcript_edits.get_mut(&mut self.transcripts, &sid) {
             done.transcript = match self.stream_gaps.get_mut(&sid) {
                 Some(gapped) => {
                     let (changed, reread) = t.apply_caught(ty, data, now, gapped);
@@ -387,6 +418,9 @@ impl App {
 impl App {
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {
+            return false;
+        }
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
             "session.archived" => i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms)),

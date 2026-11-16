@@ -115,7 +115,7 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
     surface = surface.child(header(s, p, frame));
     surface = match frame {
         Frame::Picker => surface.child(picker(s, p)),
-        _ => surface.child(col().key("connect-focus-host").focusable(true).tab_index(-1).role("group").label(title(s)).w_full().shrink().min_h(0.0)
+        _ => surface.child(col().key("connect-focus-host").focusable(true).tab_index(-1).no_focus_ring().role("group").label(title(s)).w_full().shrink().min_h(0.0)
             .child(super::steps::body(s, p, frame))),
     };
     // `<Dialog size="normal" fit anchored>` (`providers/connect/dialog.tsx`): every step fits its
