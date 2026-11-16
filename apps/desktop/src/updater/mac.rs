@@ -6,10 +6,13 @@
 //! binaries never update.
 
 use std::io;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use serde::{Deserialize, Serialize};
 
 use super::engine::{self, Engine, Facts};
 use super::feed;
@@ -44,6 +47,7 @@ struct Staged {
 pub struct Mac {
     engine: Engine,
     bundle: BundleInfo,
+    exe_rel: PathBuf,
     check_team: Option<String>,
     check_gatekeeper: bool,
     staged: Mutex<Option<Staged>>,
@@ -51,7 +55,9 @@ pub struct Mac {
 
 /// The updater for the running bundle, when it's a team build; `None` keeps it off.
 pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac> {
-    let app = bundle_root_from_exe(&exe.canonicalize().ok()?)?;
+    let exe = exe.canonicalize().ok()?;
+    let app = bundle_root_from_exe(&exe)?;
+    let exe_rel = exe.strip_prefix(&app).ok()?.to_path_buf();
     let bundle = bundle_info(&app).ok()?;
     if !is_updatable_bundle_id(&bundle.id) {
         return None;
@@ -60,16 +66,19 @@ pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac
     let local_loopback_test = feed::loopback(&service) && bundle.team.is_none() && feed::env("OPENCODE_RUNE_SKIP_GATEKEEPER").as_deref() == Some("1");
     let (check_team, check_gatekeeper) = if local_loopback_test { (None, false) } else { (bundle.team.clone().or_else(|| Some(EXPECTED_SIGNING_TEAM.to_owned())), true) };
     sweep_old_stages(&updates);
+    sync_installed_receipt(&updates, &exe, &app.join(&exe_rel));
     let facts = Facts { version: bundle.version.clone(), channel: feed::feed_channel(build_channel), service, updates };
-    Some(Mac::new(facts, bundle, check_team, check_gatekeeper))
+    Some(Mac::new(facts, bundle, exe_rel, check_team, check_gatekeeper))
 }
 
 impl Mac {
-    pub fn new(facts: Facts, bundle: BundleInfo, check_team: Option<String>, check_gatekeeper: bool) -> Self {
-        Mac { engine: Engine::new(facts), bundle, check_team, check_gatekeeper, staged: Mutex::new(None) }
+    pub fn new(facts: Facts, bundle: BundleInfo, exe_rel: PathBuf, check_team: Option<String>, check_gatekeeper: bool) -> Self {
+        Mac { engine: Engine::new(facts), bundle, exe_rel, check_team, check_gatekeeper, staged: Mutex::new(None) }
     }
 
-    /// Swaps the staged bundle in, without opening it (`install` opens it).
+    /// Swaps the staged bundle in, without opening it (`install` opens it). Writes a receipt
+    /// keyed by the placed executable's `(dev, ino)` into `Updates/` after `swap` succeeds so the
+    /// record survives even when `apply` runs after `storage::close()`.
     pub fn apply(&self) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|mut s| s.take()).ok_or_else(|| "No staged update ready to install.".to_owned())?;
         if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
@@ -77,6 +86,7 @@ impl Mac {
             return Err(e);
         }
         swap(&staged.app, &self.bundle.path)?;
+        write_installed_receipt(&self.engine.facts.updates, &self.bundle.path.join(&self.exe_rel), &staged.version, &staged.sha256);
         engine::record_installed(&staged.version, &staged.sha256);
         std::fs::remove_dir_all(&staged.dir).ok();
         Ok(())
@@ -89,6 +99,12 @@ impl Platform for Mac {
     }
 
     fn check(&self) -> Result<Option<super::machine::Target>, String> {
+        if let Some(r) = read_installed_receipt(&self.engine.facts.updates)
+            && file_id(&self.bundle.path.join(&self.exe_rel)) == Some((r.dev, r.ino))
+            && r.version != self.bundle.version
+        {
+            return Ok(Some(super::machine::Target::Installed(r.version)));
+        }
         Ok(self.engine.check()?.map(super::machine::Target::Restart))
     }
 
@@ -279,5 +295,56 @@ fn sweep_old_stages(root: &Path) {
         if entry.file_name().to_string_lossy().starts_with("stage-") {
             std::fs::remove_dir_all(entry.path()).ok();
         }
+    }
+}
+
+const INSTALLED_RECEIPT: &str = "installed-bundle.json";
+
+#[derive(Deserialize, Serialize)]
+struct InstalledBundle {
+    version: String,
+    sha256: String,
+    dev: u64,
+    ino: u64,
+}
+
+fn file_id(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.dev(), meta.ino()))
+}
+
+fn read_installed_receipt(updates: &Path) -> Option<InstalledBundle> {
+    let text = std::fs::read_to_string(updates.join(INSTALLED_RECEIPT)).ok()?;
+    let r: InstalledBundle = serde_json::from_str(&text).ok()?;
+    (r.sha256.len() == 64).then_some(r)
+}
+
+/// Promotes `Updates/installed-bundle.json` into `rune.installedRelease` when the running
+/// executable's `(dev, ino)` matches the receipt written by a post-close `apply`. If neither the
+/// running executable nor the current bundle at the install path matches (for example, the user
+/// replaced the `.app` from a DMG), removes the stale receipt.
+fn sync_installed_receipt(updates: &Path, running_exe: &Path, installed_exe: &Path) {
+    let Some(r) = read_installed_receipt(updates) else { return };
+    if file_id(running_exe) == Some((r.dev, r.ino)) {
+        engine::record_installed(&r.version, &r.sha256);
+    } else if file_id(installed_exe) != Some((r.dev, r.ino)) {
+        std::fs::remove_file(updates.join(INSTALLED_RECEIPT)).ok();
+        if engine::read_installed_sha(&r.version).as_deref() == Some(r.sha256.as_str()) {
+            crate::storage::set_json(engine::NAMESPACE, "rune.installedRelease", &serde_json::Value::Null);
+        }
+    }
+}
+
+fn write_installed_receipt(updates: &Path, placed_exe: &Path, version: &str, sha256: &str) {
+    let Some((dev, ino)) = file_id(placed_exe) else { return };
+    if std::fs::create_dir_all(updates).is_err() {
+        return;
+    }
+    let tmp = updates.join(format!("installed-bundle.tmp-{}", std::process::id()));
+    let Ok(json) = serde_json::to_vec(&InstalledBundle { version: version.to_owned(), sha256: sha256.to_owned(), dev, ino }) else { return };
+    if std::fs::write(&tmp, json).is_ok() {
+        let _ = std::fs::rename(&tmp, updates.join(INSTALLED_RECEIPT));
+    } else {
+        std::fs::remove_file(&tmp).ok();
     }
 }
