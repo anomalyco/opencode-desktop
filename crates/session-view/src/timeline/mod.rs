@@ -408,11 +408,13 @@ pub fn timeline_row_builds() -> usize {
     ROW_BUILDS.get()
 }
 
-/// Desktop's `tailSize`, the room under the timeline's last row (`virtualizer.tsx:152`, its
-/// `paddingEnd`): the Working lane at its top, then the gap over the composer. The turn's
-/// actions row (`parts::turn_actions`) holds that lane, so the padding is the rest, and stays
-/// put: steers waiting under the actions row end the timeline with the gap alone.
-const TAIL: f32 = 92.0;
+/// Clearance beyond the last row. The actions row already reserves Working and the footer;
+/// a separate row reserves the composer pills. Only the fade needs clearance beyond those.
+/// Keep the larger touch target and its existing 104 pt tail on devices without hover.
+fn end_clearance<S: TimelineHost>(s: &S) -> f32 {
+    let minimum = if crate::style::hover_none() { 104.0 - crate::working::LANE } else { 16.0 };
+    minimum.max(crate::jump::fade(s, 0.0))
+}
 
 /// The timeline's rows: the projection's, then the pills' lane under them while it shows.
 #[derive(Clone)]
@@ -458,7 +460,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .center()
         .px(crate::style::sides() / 2.0)
         .pt(crate::style::timeline_top())
-        .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
+        .pb(end_clearance(s))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, and Cmd+A takes every message on screen.
         .selection_group(true)

@@ -6,6 +6,7 @@
 //!
 //! | above, below                                                    | gap     |
 //! |-----------------------------------------------------------------|---------|
+//! | a reply followed by a new prompt                                 | 40      |
 //! | a different block, or either is the user's, or work reporting back | `L` 32 |
 //! | the agent's words beside its activity, in a block               | `M` 20  |
 //! | two of the same kind (words, or lines of activity), in a block  | `S` 16  |
@@ -82,7 +83,11 @@ type Folded<'a> = Option<((usize, usize, bool), Vec<Block<'a>>)>;
 
 fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowContent, folded: &mut Folded<'a>) -> Option<Edges> {
     Some(match row {
-        RowContent::User { .. } | RowContent::Pending { .. } => edges(Who::User, Item::Line, 0.0),
+        // Measure from the bubble, not the invisible bottom of its model line. Keep that line
+        // in layout so showing the model on hover never moves the reply. Pending is visible
+        // content rather than hover room; it keeps its own clearance.
+        RowContent::User { below, .. } => Edges { bottom: if *below { 0.0 } else { super::parts::PROMPT_META_ROOM }, ..edges(Who::User, Item::Line, 0.0) },
+        RowContent::Pending { .. } => edges(Who::User, Item::Line, 0.0),
         RowContent::Notice(i, ..) => match &t.messages[*i] {
             Message::Notice(n) if crate::turn_errors::is_divider(n) => return None,
             Message::Notice(n) if matches!(n.kind, opencode_kit::model::NoticeKind::Finished(_)) => Edges { reports: true, ..edges(Who::Agent, Item::Line, LINE_INSET) },
@@ -120,7 +125,10 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
 
 /// The gap between two rows (`spacing.ts`'s `gap`).
 fn gap(above: Edges, below: Edges) -> f32 {
-    if below.reports || above.who != below.who || below.who == Who::User {
+    if above.who == Who::Agent && below.who == Who::User {
+        // A fresh turn, not the answer to the bubble above it.
+        40.0
+    } else if below.reports || above.who != below.who || below.who == Who::User {
         L
     } else if above.item == below.item {
         S
@@ -151,7 +159,7 @@ pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut
             let room = (gap(prev, h) - prev.bottom - prev.footer - h.top).max(0.0);
             match &mut row.content {
                 // Consecutive prompts hold together as a run (`TurnGap`), which spaces them.
-                RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.who != Who::User { (L - prev.bottom - prev.footer).max(0.0) } else { 0.0 },
+                RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.who != Who::User { room } else { 0.0 },
                 RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) => *pt = room,
                 RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } => *pt = room,
                 _ => {}
