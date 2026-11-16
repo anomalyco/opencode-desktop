@@ -602,25 +602,42 @@ fn row_key(id: &str) -> String { format!("popup-item-{id}") }
 /// button and let go here, as Kobalte's items select on a release from any press origin).
 /// False when no item is there.
 fn pick_at(s: &mut App, at: [f32; 2], tx: &mut Tx) -> bool {
-    let Some(shown) = &s.popup.shown else { return false };
-    let levels = 1 + shown.subs.len();
-    let hit = (0..levels).rev().find_map(|level| {
-        let menu = shown.menu_at(level)?;
-        menu.entries.iter().find_map(|e| match e {
-            Entry::Item(i) if i.enabled => rune::memo::layout(&row_key(&i.id))
-                .filter(|r| at[0] >= r[0] && at[0] <= r[0] + r[2] && at[1] >= r[1] && at[1] <= r[1] + r[3])
-                .map(|_| i.id.clone()),
-            _ => None,
-        })
-    });
+    if s.popup.shown.is_none() {
+        return false;
+    }
+    let inside = |r: &[f32; 4]| at[0] >= r[0] && at[0] <= r[0] + r[2] && at[1] >= r[1] && at[1] <= r[1] + r[3];
+    let hit = ROWS.with_borrow(|rows| rows.iter().rev().find(|(_, r)| inside(r)).map(|(id, _)| id.clone()));
     let Some(id) = hit else { return false };
     close(s, Some(&id), restore::Reason::Picked, tx);
     true
 }
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
+// The offered rows of the menu drawn last, deepest level last, with their window rects: a layout
+// read only works while the view builds, and pick_at runs from an input handler.
+thread_local! {
+    static ROWS: std::cell::RefCell<Vec<(String, [f32; 4])>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 pub fn view(s: &App, p: &Pal) -> Vec<El> {
-    let Some(shown) = &s.popup.shown else { return vec![] };
+    let Some(shown) = &s.popup.shown else {
+        ROWS.with_borrow_mut(Vec::clear);
+        return vec![];
+    };
+    ROWS.with_borrow_mut(|rows| {
+        rows.clear();
+        for level in 0..=shown.subs.len() {
+            let Some(menu) = shown.menu_at(level) else { continue };
+            for e in &menu.entries {
+                if let Entry::Item(i) = e
+                    && i.enabled
+                    && let Some(r) = rune::memo::layout(&row_key(&i.id))
+                {
+                    rows.push((i.id.clone(), r));
+                }
+            }
+        }
+    });
     // A press outside focuses the scroll region it lands on ("scrollable content"), as one
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
