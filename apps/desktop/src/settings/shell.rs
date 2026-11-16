@@ -56,7 +56,9 @@ pub fn view(s: &App, p: &Pal, (width, height): (f32, f32)) -> El {
     // The whole screen scrolls with no bar, as Desktop hides it (`.settings-screen > .settings`:
     // `scrollbar-width: none`, `settings.css:913-919`; the narrow `.settings-panel`, `:593-607`).
     let screen = |inner: El| {
-        session_view::scroller::scroller("settings").hidden(col().role("region").label_static(t!("command.category.settings")).focusable(true).tab_index(-1).w_full().grow(1.0).shrink().min_h(0.0), inner)
+        // A focus host with no ring, as `.settings-screen` (`tabIndex={-1}`, `settings/shell.tsx:144`;
+        // `outline: none`, `settings.css:21`).
+        session_view::scroller::scroller("settings").hidden(col().role("region").label_static(t!("command.category.settings")).focusable(true).tab_index(-1).no_focus_ring().w_full().grow(1.0).shrink().min_h(0.0), inner)
     };
 
     if narrow {
