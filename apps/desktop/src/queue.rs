@@ -17,6 +17,7 @@ pub mod drag;
 mod edit;
 pub mod machine;
 pub mod run;
+mod story;
 use machine::{Effect, Event, Operation, Row as QueueRow, Stage};
 
 use crate::odometer::odometer;
@@ -467,8 +468,9 @@ fn sort_motion() -> rune::Anim {
 
 /// A row (`queue-panel.tsx:194-300`): the drag handle, the words (a click opens them in the
 /// composer), the attachment count, and the actions, which show on hover, always on the parked
-/// first row and while the row is open in the composer. A row whose change is on its way shows
-/// its words faint and a loader in place of its actions.
+/// first row and while the row is open in the composer. While the actions hide, the words run on
+/// to the row's end, where Desktop stops them at the hidden actions. A row whose change is on its
+/// way shows its words faint and a loader in place of its actions.
 fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState) -> El {
     let busy = st.busy;
     let label = if r.text.is_empty() { attachments_label(r.files) } else { r.text.clone() };
@@ -477,12 +479,18 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
     let (sr, ir) = (session.to_owned(), r.id.clone());
     let (se, ie) = (session.to_owned(), r.id.clone());
     // A lifted row takes no hover: dnd-kit turns off the pointer for what it drags.
-    let reveal = |e: El| match (st.parked || st.editing, st.lifted) {
-        (true, _) => e,
-        (false, true) => e.opacity(0.0),
-        (false, false) if session_view::style::hover_none() => e,
-        (false, false) => e.group_opacity(0.0, 1.0),
+    let shown = match (r.pending || st.parked || st.editing, st.lifted) {
+        (true, _) => Shown::Always,
+        (false, true) => Shown::Never,
+        (false, false) if session_view::style::hover_none() => Shown::Always,
+        (false, false) => Shown::OnHover,
     };
+    let reveal = |e: El| match shown {
+        Shown::Always => e,
+        Shown::Never => e.opacity(0.0),
+        Shown::OnHover => e.group_opacity(0.0, 1.0),
+    };
+    let color = if st.editing || r.pending { p.faint } else { p.text };
     let steer = row()
         .key("steer")
         .role("button")
@@ -514,14 +522,20 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
             tx.instant();
             s.edit_queued(&se, &ie);
         })
-        .child(text(label).key("label").font(UI).color(if st.editing || r.pending { p.faint } else { p.text }).truncate_fade())
+        .child(text(label.clone()).key("label").font(UI).color(color).truncate_fade())
         .child(marker(format!("edit-{}", st.index)));
     let words = if st.editing || r.pending { words } else { words.hover(p.hover).cursor(rune::Cursor::Text) };
-    let mut inner = row().shrink().min_w(0.0).gap(16.0).center_y().child(words);
-    if r.files > 0 && !r.text.is_empty() {
-        inner = inner.child(text(attachments_label(r.files)).font(UI).color(p.muted));
-    }
-    let left = row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(handle(p, session, &r.id, ids, st.index, st.changing || r.pending)).child(inner);
+    // While the actions hide they keep their room, so the words beside them would end short of
+    // the row. A copy of the words draws in their place, running to the row's right padding; it
+    // takes no input and says nothing to a screen reader, and gives way to the real words (bound
+    // by the actions) on the same hover track that shows the actions.
+    let full = (shown != Shown::Always).then(|| {
+        let words = row().self_start().shrink().min_w(0.0).child(text(label).font(UI).color(color).truncate_fade());
+        let full = row().key("full").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).pl(2.0).pr(4.0).gap(8.0).center_y().inert().a11y_hidden().child(el().w(HANDLE_W)).child(line(p, r, words));
+        if shown == Shown::OnHover { full.group_opacity(1.0, 0.0) } else { full }
+    });
+    let words = reveal(line(p, r, words));
+    let left = row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().child(handle(p, session, &r.id, ids, st.index, st.changing || r.pending)).child(words);
     let actions = if r.pending {
         row().key("actions").gap(4.0).center_y().child(session_view::style::activity_ring_sized(p, 14.0))
     } else {
@@ -549,6 +563,7 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
         .fill(if st.editing { p.hover } else { rune::Color::TRANSPARENT })
         // It leaves at once, and the queue closes up on its height spring.
         .transition(rune::Transition::opacity().springs(rune::SpringPair::NONE))
+        .children(full)
         .child(left)
         .child(actions);
     // The lifted row follows the pointer at 60% over the others, which step aside for it.
@@ -559,11 +574,29 @@ fn queue_row(p: &Pal, session: &str, r: &QueueRow, ids: &[String], st: RowState)
     }
 }
 
+/// When a row's actions show: always (parked, open in the composer, pending, or a pointer that
+/// can't hover), with the row hovered or focused, or never (lifted by a drag).
+#[derive(Clone, Copy, PartialEq)]
+enum Shown {
+    Always,
+    OnHover,
+    Never,
+}
+
+/// A row's words and, after them, its attachment count when it has words too.
+fn line(p: &Pal, r: &QueueRow, words: El) -> El {
+    let line = row().shrink().min_w(0.0).gap(16.0).center_y().child(words);
+    if r.files > 0 && !r.text.is_empty() { line.child(text(attachments_label(r.files)).font(UI).color(p.muted)) } else { line }
+}
+
 /// An empty box over its parent, keyed by the row's place in the strip so scripts can find the
 /// row; its parent keeps a key of its own, so a row that moves up keeps its elements.
 fn marker(key: String) -> El {
     el().key(key).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
 }
+
+/// The handle's width: its padding either side of two dot columns 2 apart.
+const HANDLE_W: f32 = 4.0 + 2.0 + 2.0 + 2.0 + 4.0;
 
 /// The drag handle (`queue-panel.tsx:206-215`): six 2 pt squares in two columns, 2 apart and
 /// 2.25 down, inside 4 of padding, in `bg-layer-04`. The pointer drags it; the keys lift it from
