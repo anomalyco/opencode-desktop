@@ -196,16 +196,16 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     let status = s.user_status(p, id);
     // The meta line, right under the bubble: the model, then Pending on a steer, which stays
     // in view while the model shows only under the pointer (`message-part.css:271-458`).
-    if status.is_none() && !below && (pending || !meta.is_empty()) {
+    // The absolute anchor keeps its place even when the first model arrives a commit
+    // after delivery. An empty anchor carries only the offset, no label or layout space.
+    if status.is_none() && !below {
         let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-28.0)).h(20.0).gap(4.0).center_y().a11y_hidden();
-        let mut model = row().key("meta-model").gap(4.0).center_y();
         for (k, (label, variant)) in meta.iter().enumerate() {
             if k > 0 && !variant {
-                model = model.child(text("\u{00b7}").key(format!("sep{k}")).font(PROMPT_META).color(p.faint));
+                line = line.child(text("\u{00b7}").key(format!("sep{k}")).font(PROMPT_META).color(p.faint));
             }
-            model = model.child(text(label.clone()).key(format!("item{k}")).font(PROMPT_META).color(p.faint));
+            line = line.child(text(label.clone()).key(format!("item{k}")).font(PROMPT_META).color(p.faint));
         }
-        line = line.child(model);
         // Offset the model, not the line's layout. It can return to the trailing edge
         // without landing on the outgoing Pending glyphs under a stationary pointer.
         if pending {
