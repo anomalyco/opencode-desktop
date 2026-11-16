@@ -168,6 +168,7 @@ mod notifications;
 mod odometer_stories;
 mod title_change;
 mod open_in;
+mod prepare;
 mod open_story;
 mod page_sign_in;
 pub mod panels;
@@ -351,6 +352,8 @@ pub struct App {
     pub tab_drag: rune::Tracked<rune_kit::shell::TabDragState>,
     /// The card a resting pointer shows over a tab (`view::tab_preview`).
     pub tab_preview: rune::Tracked<view::tab_preview::Preview>,
+    /// A session's first screen prepared before its tab is pressed (prepare). The view reads none of it.
+    pub prepare: prepare::State,
     /// Closed session tabs, newest last, with the index they had (⌘⇧T reopens; `ui.json` keeps them).
     pub closed: rune::Tracked<tabs::Closed>,
     /// When a titlebar tab last closed (ms), for ⇧⌘T (`reopensSideTab`).
@@ -868,7 +871,8 @@ impl App {
     /// for sessions no tab, route or run shows goes: their transcripts, their pages in the
     /// reader's cache, and the images only those held. A session opened again is read again,
     /// as one opened for the first time is. Nothing on screen changes.
-    pub(crate) fn rest(s: &mut App, _: &mut rune::Tx) -> bool {
+    pub(crate) fn rest(s: &mut App, tx: &mut rune::Tx) -> bool {
+        s.rest_prepare(tx);
         let shown: HashSet<&str> = s.tabs.iter().map(|t| t.id.as_str()).chain(match &*s.route { Route::Session { id, .. } => Some(id.as_str()), _ => None }).chain(s.running.iter().map(String::as_str)).collect();
         let kept = |id: &str| s.ancestors(id).any(|a| shown.contains(a));
         let gone: Vec<String> = s.transcripts.keys().filter(|id| !kept(id)).cloned().collect();
@@ -1061,6 +1065,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.tick_outbox(tx);
     changed |= s.poll_open_in();
     changed |= s.poll_jobs(tx);
+    s.poll_prepare(now, tx);
     changed |= files::poll_reply_links(s, tx);
     let asked = s.dock_face();
     changed |= incoming::poll(s, tx);

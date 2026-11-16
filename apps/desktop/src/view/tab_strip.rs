@@ -89,6 +89,8 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
             if inside {
                 s.prefetch_session(id);
             }
+            // Its first screen, ready if the pointer rests (`prepare`).
+            s.prepare_hover(id, inside, tx);
             // The hover preview (`tab_preview`).
             s.preview_hover(id, inside, tx);
         })

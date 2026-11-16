@@ -186,6 +186,8 @@ const KEPT: usize = 4;
 
 thread_local! {
     static SESSIONS: RefCell<HashMap<String, Session>> = RefCell::new(HashMap::new());
+    /// The kept sessions, least recently projected first.
+    static RECENT: RefCell<std::collections::VecDeque<String>> = RefCell::new(std::collections::VecDeque::new());
     /// Each projection's number; 0 is the empty one.
     static GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Moves when a partial projection was filled in, so the timeline's region builds again.
@@ -226,12 +228,30 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Rc<Projection> {
     };
     let rows = session.rows.clone();
     SESSIONS.with_borrow_mut(|m| {
-        if m.len() >= KEPT {
-            m.clear();
-        }
         m.insert(t.session.clone(), session);
+        // The least recently projected go first: a session prepared ahead of its tab's press
+        // never pushes out the one on screen.
+        RECENT.with_borrow_mut(|r| {
+            r.retain(|id| id != &t.session);
+            r.push_back(t.session.clone());
+            while m.len() > KEPT {
+                let Some(old) = r.pop_front() else { break };
+                m.remove(&old);
+            }
+        });
     });
     rows
+}
+
+/// Drops session `id`'s kept projection (one prepared ahead that wasn't shown).
+pub fn forget(id: &str) {
+    SESSIONS.with_borrow_mut(|m| m.remove(id));
+    RECENT.with_borrow_mut(|r| r.retain(|x| x != id));
+}
+
+/// Whether session `id`'s projection is kept.
+pub fn kept(id: &str) -> bool {
+    SESSIONS.with_borrow(|m| m.contains_key(id))
 }
 
 fn tail_of<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs) -> Tail {

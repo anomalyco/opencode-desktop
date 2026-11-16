@@ -108,10 +108,12 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
         .busy_indicator(|k| session_view::style::tab_busy_glyph(k, 14.0))
         .label(t!("sidebar.recent.section.recent"))
         .on_select(|s: &mut App, id, tx| s.open(id, tx))
-        .on_hover(|s: &mut App, id, inside, _| {
+        .on_hover(|s: &mut App, id, inside, tx| {
             if inside {
                 s.prefetch_session(id);
             }
+            s.prepare_hover(id, inside, tx);
+            tx.live_only();
         })
         // A row opens as the mouse button goes down (`TabNavItem`'s `onMouseDown`), which takes
         // the strip's press tracking; only the pins reorder.

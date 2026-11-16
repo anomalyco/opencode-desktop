@@ -21,7 +21,7 @@ mod span;
 
 pub use dividers::divider_runs;
 pub use parts::*;
-pub use projection::{Projection, poll as projection_poll, rows, wanted as projection_wanted};
+pub use projection::{Projection, forget as projection_forget, kept as projection_kept, poll as projection_poll, rows, wanted as projection_wanted};
 
 /// One timeline row's content, before it becomes a growth-stack child.
 #[derive(Clone, PartialEq)]

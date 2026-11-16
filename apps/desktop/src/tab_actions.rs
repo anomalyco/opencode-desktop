@@ -184,6 +184,8 @@ impl App {
         let Some(tab) = self.tab(key).cloned() else { return self.open(key, tx) };
         // The window works against the tab's server from here on (`servers::runtime`).
         crate::servers::runtime::switch(self, &tab.server);
+        // The tab beside it is prepared after this switch's frame (`prepare`).
+        self.prepare_beside(key, tx);
         if !tab.is_draft() {
             return self.open(&tab.id, tx);
         }
