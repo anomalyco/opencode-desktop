@@ -643,7 +643,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
     let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, restore::Reason::Outside, tx))
         .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
-            if d.phase == rune::Phase::Down && tx.button() == rune::PointerButton::Primary && !session_view::style::touch_controls() {
+            if d.phase == rune::Phase::Down && trigger::opens_on_press(tx) {
                 close(s, None, restore::Reason::Outside, tx);
             } else {
                 tx.live_only();

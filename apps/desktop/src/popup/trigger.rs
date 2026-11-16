@@ -23,6 +23,9 @@ pub enum Event<'a> {
     Down { anchor: &'a str, open: bool },
     /// The button came up; `on_trigger`: over the trigger, so its click follows.
     Up { on_trigger: bool },
+    /// The press was cancelled (the window lost the pointer, a system dialog took capture): it
+    /// chooses nothing and the menu stays as it is.
+    Cancel,
     /// The trigger's click: a mouse release over it, or a tap.
     Click { anchor: &'a str },
     /// Return or Space on the trigger: always the keyboard's own open.
@@ -45,6 +48,10 @@ pub fn step(state: &mut Press, event: Event<'_>) -> Effect {
             if open { Effect::Close } else { Effect::Open }
         }
         Event::Up { on_trigger: true } => Effect::Nothing,
+        Event::Cancel => {
+            *state = Press::Idle;
+            Effect::Nothing
+        }
         Event::Up { on_trigger: false } => match std::mem::take(state) {
             Press::Down { .. } => Effect::PickUnder,
             Press::Idle => Effect::Nothing,
@@ -61,6 +68,13 @@ pub fn step(state: &mut Press, event: Event<'_>) -> Effect {
     }
 }
 
+/// Whether this press opens on the button going down: a primary mouse button where the menu is
+/// drawn in the window (Windows, Linux, the web). macOS pops native menus (`popup::NATIVE`), whose
+/// tracking loop inside a press handler is not yet driven there, so they open on the click as before.
+pub(super) fn opens_on_press(tx: &Tx) -> bool {
+    !super::NATIVE && tx.button() == PointerButton::Primary && !session_view::style::touch_controls()
+}
+
 /// `el` as the menu button anchoring menus at `anchor` (its key): `open` builds and opens the
 /// menu (`popup::open`), as its `on_press` did.
 pub fn menu_button(el: El, anchor: impl Into<String>, open: impl Fn(&mut App, &mut Tx) + 'static) -> El {
@@ -69,8 +83,9 @@ pub fn menu_button(el: El, anchor: impl Into<String>, open: impl Fn(&mut App, &m
     let (pressed, clicked, open_on_press) = (anchor.clone(), anchor, open.clone());
     el.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
         let event = match d.phase {
-            Phase::Down if tx.button() == PointerButton::Primary && !session_view::style::touch_controls() => Event::Down { anchor: &pressed, open: s.popup.open_at(&pressed) },
-            Phase::Up => Event::Up { on_trigger: !d.cancelled() && (0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y) },
+            Phase::Down if opens_on_press(tx) => Event::Down { anchor: &pressed, open: s.popup.open_at(&pressed) },
+            Phase::Up if d.cancelled() => Event::Cancel,
+            Phase::Up => Event::Up { on_trigger: (0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y) },
             _ => return tx.live_only(),
         };
         let at = d.window_point();
