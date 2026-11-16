@@ -339,6 +339,9 @@ impl App {
 impl App {
     /// Archives and metadata changed from other clients.
     fn apply_archive(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+        if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {
+            return false;
+        }
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
             "session.archived" => i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms)),
