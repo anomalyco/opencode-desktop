@@ -18,6 +18,8 @@ pub type Attempt = u64;
 /// What a check found newer than the running build (`machine.ts` `UpdateTarget`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
+    /// Already published at the install path; this process still runs the previous image.
+    Installed(String),
     /// Download and stage it, then restart into it.
     Restart(String),
     /// Offer its download, at `url`.
@@ -36,6 +38,7 @@ pub enum View {
     Checking,
     Downloading(String),
     UpToDate,
+    Installed(String),
     Ready(String),
     /// A newer release to download by hand.
     DownloadRequired(String),
@@ -89,6 +92,7 @@ pub enum State {
     Checking { meta: Meta, attempt: Attempt, waiters: Vec<Waiter> },
     Downloading { meta: Meta, attempt: Attempt, version: String, waiters: Vec<Waiter> },
     UpToDate(Meta),
+    Installed { meta: Meta, version: String },
     Ready { meta: Meta, version: String, refresh: Option<Refresh> },
     DownloadRequired { meta: Meta, version: String, url: String, refresh: Option<ExternalRefresh> },
     Installing { meta: Meta, version: String, plan: Plan, installs: Vec<Waiter> },
@@ -115,6 +119,8 @@ pub enum Event {
     RestartFailed(Attempt, String),
     ExternalSucceeded(Attempt),
     ExternalFailed(Attempt, String),
+    /// An out-of-process update helper failed to put the staged bundle in place.
+    ApplyFailed(String),
     Disposed,
 }
 
@@ -149,6 +155,7 @@ pub fn view(state: &State) -> View {
         State::Checking { .. } => View::Checking,
         State::Downloading { version, .. } => View::Downloading(version.clone()),
         State::UpToDate(_) => View::UpToDate,
+        State::Installed { version, .. } => View::Installed(version.clone()),
         State::Ready { version, .. } => View::Ready(version.clone()),
         State::DownloadRequired { version, .. } => View::DownloadRequired(version.clone()),
         State::Installing { version, .. } => View::Installing(version.clone()),
@@ -163,6 +170,12 @@ pub fn transition(state: &State, event: Event) -> Transition {
     }
     if event == Event::Disposed {
         return dispose(state);
+    }
+    if let Event::ApplyFailed(message) = event {
+        return match state {
+            State::Idle(meta) => (State::Error { meta: meta.clone(), message }, Vec::new()),
+            _ => (state.clone(), Vec::new()),
+        };
     }
     if let State::Starting { waiters } = state {
         return starting(waiters, event);
@@ -242,7 +255,7 @@ fn dispose(state: &State) -> Transition {
 fn meta(state: &State) -> Meta {
     match state {
         State::Idle(m) | State::UpToDate(m) => m.clone(),
-        State::Checking { meta, .. }
+        State::Installed { meta, .. } | State::Checking { meta, .. }
         | State::Downloading { meta, .. }
         | State::Ready { meta, .. }
         | State::DownloadRequired { meta, .. }
@@ -261,7 +274,7 @@ fn issue(state: &State) -> (Meta, Attempt) {
 
 fn check_requested(state: &State, w: Waiter) -> Transition {
     match state {
-        State::Idle(_) | State::UpToDate(_) | State::Error { .. } => {
+        State::Idle(_) | State::UpToDate(_) | State::Installed { .. } | State::Error { .. } => {
             let (meta, attempt) = issue(state);
             (State::Checking { meta, attempt, waiters: vec![w] }, vec![Effect::Check(attempt)])
         }
@@ -454,6 +467,7 @@ fn external_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter]
 fn discovered(state: &State, target: Option<Target>, waiters: Vec<Waiter>) -> Transition {
     let m = meta(state);
     match target {
+        Some(Target::Installed(version)) => with_checks(State::Installed { meta: m, version }, waiters, vec![Effect::PersistClear]),
         Some(Target::Restart(version)) if version != m.current => {
             let (meta, attempt) = issue(state);
             (State::Downloading { meta, attempt, version, waiters }, vec![Effect::Stage(attempt)])
@@ -487,7 +501,7 @@ fn keeps_staged(meta: &Meta, staged: &str, target: Option<&Target>) -> bool {
     match target {
         None => true,
         Some(Target::Restart(t)) => t == staged || *t == meta.current,
-        Some(Target::External { .. }) => false,
+        Some(Target::External { .. } | Target::Installed(_)) => false,
     }
 }
 

@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Đăng nhập ở trên. Việc kiểm tra sẽ tiếp tục sau đó.",
   "session.markRead": "Đánh dấu là đã đọc",
   "session.markUnread": "Đánh dấu là chưa đọc",
-  "command.tab.closeSession": "Đóng tab phiên"
+  "command.tab.closeSession": "Đóng tab phiên",
+  "rune.updater.checkFailed": "Không thể kiểm tra bản cập nhật. Hãy thử lại sau.",
+  "rune.updater.applyFailed": "Không thể cài đặt bản cập nhật {{version}} ({{why}})."
 }

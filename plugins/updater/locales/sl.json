@@ -6,6 +6,7 @@
   "action.installRestart": "Namestite in znova zaženite",
   "action.download": "Prenesi OpenCode",
   "action.installing": "Namestitev …",
+  "toast.installed.description": "Različica {{version}} je nameščena. Zagnala se bo, ko naslednjič odprete OpenCode.",
   "toast.latest.title": "Ste na tekočem",
   "toast.latest.description": "Uporabljate najnovejšo različico OpenCode.",
   "migration.title": "Prehod z Beta na Stable",

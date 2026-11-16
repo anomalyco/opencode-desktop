@@ -87,6 +87,7 @@ pub struct UpdaterService {
     state: State,
     snapshot: Snapshot,
     revision: u64,
+    apply_error: Option<String>,
     /// Set once, by `Message::Started`: the machine is past `Starting` and this build updates.
     platform: OnceCell<Arc<dyn Platform>>,
     jobs: Sender<Job>,
@@ -113,7 +114,7 @@ impl UpdaterService {
         let worker = Worker { messages: msg_tx, wakers: wakers.clone(), progress: progress.clone(), last_wake: Mutex::new(Instant::now()) };
         std::thread::Builder::new().name("opencode-updater".into()).spawn(move || worker.run(make, job_rx)).ok();
         let snapshot = Snapshot { state: machine::view(&state), progress: None, version: version.to_owned(), channel };
-        UpdaterService { state, snapshot, revision: 0, platform: OnceCell::new(), jobs, messages, progress, wakers, next: 0, own: HashSet::new(), answers: HashMap::new(), quit: false }
+        UpdaterService { state, snapshot, revision: 0, apply_error: None, platform: OnceCell::new(), jobs, messages, progress, wakers, next: 0, own: HashSet::new(), answers: HashMap::new(), quit: false }
     }
 
     /// Wakes waker's event loop whenever the worker has news (each window's).
@@ -130,6 +131,11 @@ impl UpdaterService {
     /// Grows whenever the snapshot changes or an answer lands.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// An out-of-process helper failure recorded since the last run, taken once for a toast.
+    pub fn take_apply_error(&mut self) -> Option<String> {
+        self.apply_error.take()
     }
 
     /// Checks the feed now; a ready update stays ready while the check runs.
@@ -225,6 +231,9 @@ impl UpdaterService {
     }
 
     fn dispatch(&mut self, event: Event) {
+        if let Event::ApplyFailed(ref why) = event {
+            self.apply_error = Some(why.clone());
+        }
         let (next, effects) = machine::transition(&self.state, event);
         self.state = next;
         let view = machine::view(&self.state);
@@ -301,8 +310,12 @@ impl Worker {
             return;
         };
         let persisted = crate::storage::json(super::engine::NAMESPACE, "ready").and_then(|v| v.as_str().map(str::to_owned)).filter(|v| !v.is_empty());
+        let last_error = platform.take_last_error();
         eprintln!("updater: up in {} µs, off the UI thread", started.elapsed().as_micros());
         self.send(Message::Started(platform.clone(), Event::Started { current: platform.version().to_owned(), persisted, external: platform.external() }));
+        if let Some(err) = last_error {
+            self.send(Message::Event(Event::ApplyFailed(err)));
+        }
         let mut next_check = Instant::now() + feed::initial_delay();
         loop {
             match jobs.recv_timeout(next_check.saturating_duration_since(Instant::now())) {

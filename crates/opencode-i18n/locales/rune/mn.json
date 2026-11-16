@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Дээр нэвтэрнэ үү. Шалгалт дараа нь үргэлжилнэ.",
   "session.markRead": "Уншсан гэж тэмдэглэх",
   "session.markUnread": "Уншаагүй гэж тэмдэглэх",
-  "command.tab.closeSession": "Сешний табыг хаах"
+  "command.tab.closeSession": "Сешний табыг хаах",
+  "rune.updater.checkFailed": "Шинэчлэлтийг шалгаж чадсангүй. Дараа дахин оролдоно уу.",
+  "rune.updater.applyFailed": "{{version}} шинэчлэлтийг суулгаж чадсангүй ({{why}})."
 }

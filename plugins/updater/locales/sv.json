@@ -6,6 +6,7 @@
   "action.installRestart": "Installera och starta om",
   "action.download": "Hämta OpenCode",
   "action.installing": "Installerar…",
+  "toast.installed.description": "Version {{version}} är installerad. Den startar nästa gång du öppnar OpenCode.",
   "toast.latest.title": "Du är uppdaterad",
   "toast.latest.description": "Du kör den senaste versionen av OpenCode.",
   "migration.title": "Byt från Beta till Stabil",

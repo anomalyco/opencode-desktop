@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "اوپر سائن ان کریں۔ اس کے بعد جانچ جاری رہے گی۔",
   "session.markRead": "پڑھا ہوا نشان زد کریں",
   "session.markUnread": "بغیر پڑھا نشان زد کریں",
-  "command.tab.closeSession": "سیشن ٹیب بند کریں"
+  "command.tab.closeSession": "سیشن ٹیب بند کریں",
+  "rune.updater.checkFailed": "اپ ڈیٹس کی جانچ نہیں ہو سکی۔ بعد میں دوبارہ کوشش کریں۔",
+  "rune.updater.applyFailed": "اپ ڈیٹ ⁨{{version}}⁩ انسٹال نہیں ہو سکی (⁨{{why}}⁩)۔"
 }

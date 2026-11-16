@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Masuk di atas. Pemeriksaan berlanjut setelahnya.",
   "session.markRead": "Tandai telah dibaca",
   "session.markUnread": "Tandai belum dibaca",
-  "command.tab.closeSession": "Tutup tab sesi"
+  "command.tab.closeSession": "Tutup tab sesi",
+  "rune.updater.checkFailed": "Tidak dapat memeriksa pembaruan. Coba lagi nanti.",
+  "rune.updater.applyFailed": "Tidak dapat memasang pembaruan {{version}} ({{why}})."
 }

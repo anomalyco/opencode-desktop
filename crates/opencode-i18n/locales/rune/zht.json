@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "請在上方登入。之後檢查會繼續。",
   "session.markRead": "標示為已讀",
   "session.markUnread": "標示為未讀",
-  "command.tab.closeSession": "關閉工作階段分頁"
+  "command.tab.closeSession": "關閉工作階段分頁",
+  "rune.updater.checkFailed": "無法檢查更新。請稍後再試。",
+  "rune.updater.applyFailed": "無法安裝更新 {{version}}（{{why}}）。"
 }

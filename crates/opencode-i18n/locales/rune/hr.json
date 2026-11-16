@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Prijavite se gore. Provjera se nastavlja nakon toga.",
   "session.markRead": "Označi kao pročitano",
   "session.markUnread": "Označi kao nepročitano",
-  "command.tab.closeSession": "Zatvori karticu sesije"
+  "command.tab.closeSession": "Zatvori karticu sesije",
+  "rune.updater.checkFailed": "Provjera ažuriranja nije uspjela. Pokušajte ponovno kasnije.",
+  "rune.updater.applyFailed": "Nije moguće instalirati ažuriranje {{version}} ({{why}})."
 }

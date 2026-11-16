@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Συνδεθείτε παραπάνω. Ο έλεγχος συνεχίζει μετά.",
   "session.markRead": "Σήμανση ως αναγνωσμένου",
   "session.markUnread": "Σήμανση ως μη αναγνωσμένου",
-  "command.tab.closeSession": "Κλείσιμο καρτέλας συνεδρίας"
+  "command.tab.closeSession": "Κλείσιμο καρτέλας συνεδρίας",
+  "rune.updater.checkFailed": "Δεν ήταν δυνατός ο έλεγχος για ενημερώσεις. Δοκιμάστε ξανά αργότερα.",
+  "rune.updater.applyFailed": "Δεν ήταν δυνατή η εγκατάσταση της ενημέρωσης {{version}} ({{why}})."
 }

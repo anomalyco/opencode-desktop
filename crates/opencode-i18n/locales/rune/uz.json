@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Yuqorida tizimga kiring. Tekshiruv keyin davom etadi.",
   "session.markRead": "O‘qilgan deb belgilash",
   "session.markUnread": "O‘qilmagan deb belgilash",
-  "command.tab.closeSession": "Seans yorligʻini yopish"
+  "command.tab.closeSession": "Seans yorligʻini yopish",
+  "rune.updater.checkFailed": "Yangilanishlarni tekshirib bo‘lmadi. Keyinroq qayta urinib ko‘ring.",
+  "rune.updater.applyFailed": "{{version}} yangilanishini o‘rnatib bo‘lmadi ({{why}})."
 }

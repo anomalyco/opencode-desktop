@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Skráðu þig inn hér fyrir ofan. Prófunin heldur svo áfram.",
   "session.markRead": "Merkja sem lesið",
   "session.markUnread": "Merkja sem ólesið",
-  "command.tab.closeSession": "Loka lotuflipa"
+  "command.tab.closeSession": "Loka lotuflipa",
+  "rune.updater.checkFailed": "Ekki tókst að leita að uppfærslum. Reyndu aftur síðar.",
+  "rune.updater.applyFailed": "Ekki tókst að setja upp uppfærslu {{version}} ({{why}})."
 }

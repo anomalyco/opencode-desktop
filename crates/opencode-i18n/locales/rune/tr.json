@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Yukarıda oturum açın. Denetim ardından sürer.",
   "session.markRead": "Okundu olarak işaretle",
   "session.markUnread": "Okunmadı olarak işaretle",
-  "command.tab.closeSession": "Oturum sekmesini kapat"
+  "command.tab.closeSession": "Oturum sekmesini kapat",
+  "rune.updater.checkFailed": "Güncellemeler denetlenemedi. Daha sonra tekrar deneyin.",
+  "rune.updater.applyFailed": "{{version}} güncellemesi yüklenemedi ({{why}})."
 }

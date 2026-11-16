@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Войдите выше. Затем проверка продолжится.",
   "session.markRead": "Отметить как прочитанное",
   "session.markUnread": "Отметить как непрочитанное",
-  "command.tab.closeSession": "Закрыть вкладку сеанса"
+  "command.tab.closeSession": "Закрыть вкладку сеанса",
+  "rune.updater.checkFailed": "Не удалось проверить наличие обновлений. Повторите попытку позже.",
+  "rune.updater.applyFailed": "Не удалось установить обновление {{version}} ({{why}})."
 }

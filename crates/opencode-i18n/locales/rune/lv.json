@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Piesakieties augstāk. Pārbaude turpināsies pēc tam.",
   "session.markRead": "Atzīmēt kā lasītu",
   "session.markUnread": "Atzīmēt kā nelasītu",
-  "command.tab.closeSession": "Aizvērt sesijas cilni"
+  "command.tab.closeSession": "Aizvērt sesijas cilni",
+  "rune.updater.checkFailed": "Neizdevās pārbaudīt atjauninājumus. Mēģiniet vēlāk vēlreiz.",
+  "rune.updater.applyFailed": "Neizdevās instalēt atjauninājumu {{version}} ({{why}})."
 }

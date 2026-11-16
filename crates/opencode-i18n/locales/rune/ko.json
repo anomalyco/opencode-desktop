@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "위에서 로그인하세요. 점검은 그 후에 이어집니다.",
   "session.markRead": "읽음으로 표시",
   "session.markUnread": "읽지 않음으로 표시",
-  "command.tab.closeSession": "세션 탭 닫기"
+  "command.tab.closeSession": "세션 탭 닫기",
+  "rune.updater.checkFailed": "업데이트를 확인하지 못했습니다. 나중에 다시 시도하세요.",
+  "rune.updater.applyFailed": "업데이트 {{version}}을(를) 설치하지 못했습니다({{why}})."
 }

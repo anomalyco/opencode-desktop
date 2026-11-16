@@ -286,5 +286,7 @@
   "rune.web.check.signIn": "Sign in above. The check goes on after.",
   "session.markRead": "Mark as read",
   "session.markUnread": "Mark as unread",
-  "command.tab.closeSession": "Close session tab"
+  "command.tab.closeSession": "Close session tab",
+  "rune.updater.checkFailed": "Couldn't check for updates. Try again later.",
+  "rune.updater.applyFailed": "Couldn't install update {{version}} ({{why}})."
 }

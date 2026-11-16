@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Kirjaudu sisään yllä. Tarkistus jatkuu sen jälkeen.",
   "session.markRead": "Merkitse luetuksi",
   "session.markUnread": "Merkitse lukemattomaksi",
-  "command.tab.closeSession": "Sulje istunnon välilehti"
+  "command.tab.closeSession": "Sulje istunnon välilehti",
+  "rune.updater.checkFailed": "Päivitysten tarkistaminen epäonnistui. Yritä myöhemmin uudelleen.",
+  "rune.updater.applyFailed": "Päivitystä {{version}} ei voitu asentaa ({{why}})."
 }

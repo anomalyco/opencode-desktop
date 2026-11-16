@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Увійдіть вище. Потім перевірка продовжиться.",
   "session.markRead": "Позначити як прочитане",
   "session.markUnread": "Позначити як непрочитане",
-  "command.tab.closeSession": "Закрити вкладку сеансу"
+  "command.tab.closeSession": "Закрити вкладку сеансу",
+  "rune.updater.checkFailed": "Не вдалося перевірити наявність оновлень. Спробуйте пізніше.",
+  "rune.updater.applyFailed": "Не вдалося встановити оновлення {{version}} ({{why}})."
 }

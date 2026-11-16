@@ -41,6 +41,16 @@ pub struct Engine {
 const MANIFEST_TIMEOUT: Duration = Duration::from_secs(60);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3600);
 
+fn manifest_timeout() -> Duration {
+    #[cfg(debug_assertions)]
+    if super::build_channel() == "local"
+        && let Some(ms) = feed::env("OPENCODE_RUNE_MANIFEST_TIMEOUT_MS").and_then(|s| s.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms.max(50));
+    }
+    MANIFEST_TIMEOUT
+}
+
 impl Engine {
     pub fn new(facts: Facts) -> Self {
         let rollout_bucket = load_or_create_rollout_bucket();
@@ -55,8 +65,9 @@ impl Engine {
         ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into()
     }
 
-    /// The release to install, or `None` when the running build is current (or the channel has
-    /// nothing for this platform, or a rollout hasn't reached this install yet).
+    /// The release to install, or `None` when a valid manifest for this platform names no newer
+    /// build to install. Any missing, unreachable or malformed manifest, or one without an entry
+    /// for `target_name`, fails the check instead of claiming the install is up to date.
     pub fn check(&self) -> Result<Option<String>, String> {
         Ok(self.check_target(feed::target_name())?.map(|f| f.version))
     }
@@ -64,26 +75,28 @@ impl Engine {
     /// [`Engine::check`] for release target `target_name`.
     pub fn check_target(&self, target_name: &str) -> Result<Option<Found>, String> {
         let url = protocol::manifest_url(&self.facts.service, &self.facts.channel);
-        let mut resp = Self::agent(MANIFEST_TIMEOUT)
+        let fail = |why: &str| -> String {
+            eprintln!("updater: check failed ({url}): {why}");
+            opencode_i18n::t!("rune.updater.checkFailed").into()
+        };
+        let mut resp = Self::agent(manifest_timeout())
             .get(&url)
             .header("User-Agent", &self.user_agent())
             .header("Accept", "application/json")
             .call()
-            .map_err(|e| format!("Could not reach update server: {e}"))?;
+            .map_err(|e| fail(&e.to_string()))?;
         let status = resp.status().as_u16();
-        if status == 404 {
-            return Ok(None);
-        }
         if !(200..300).contains(&status) {
-            return Err(format!("Update server returned HTTP {status}"));
+            return Err(fail(&format!("HTTP {status}")));
         }
-        let text = resp.body_mut().read_to_string().map_err(|e| format!("Could not read manifest: {e}"))?;
-        let manifest = protocol::parse_manifest(&text, &url, target_name)?;
+        let text = resp.body_mut().read_to_string().map_err(|e| fail(&format!("could not read manifest: {e}")))?;
+        let manifest = protocol::parse_manifest(&text, &url, target_name).map_err(|e| fail(&e))?;
         let installed = read_installed_sha(&self.facts.version);
-        let decision = protocol::decide(&manifest, &self.facts.channel, &self.facts.version, installed.as_deref(), self.rollout_bucket)?;
+        let decision = protocol::decide(&manifest, &self.facts.channel, &self.facts.version, installed.as_deref(), self.rollout_bucket).map_err(|e| fail(&e))?;
         let found = match decision {
             Decision::Install { version, target } => Some(Found { version, target }),
-            Decision::UpToDate | Decision::NoTarget | Decision::RolloutDeferred { .. } => None,
+            Decision::NoTarget => return Err(fail(&format!("manifest for {} has no target {target_name}", manifest.release.version))),
+            Decision::UpToDate | Decision::RolloutDeferred { .. } => None,
         };
         if let Ok(mut slot) = self.found.lock() {
             slot.clone_from(&found);
@@ -171,7 +184,7 @@ pub fn read_installed_sha(running_version: &str) -> Option<String> {
     (ver == running_version && sha.len() == 64).then(|| sha.to_owned())
 }
 
-/// Records the staged release: once it's installed, the next run is that version and reads it.
-pub fn record_staged(version: &str, sha256: &str) {
+/// Records the verified archive only after its bundle has reached the install path.
+pub fn record_installed(version: &str, sha256: &str) {
     crate::storage::set_json(NAMESPACE, "rune.installedRelease", &serde_json::json!(format!("{version} {sha256}")));
 }

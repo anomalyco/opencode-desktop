@@ -6,6 +6,7 @@
   "action.installRestart": "Telepítse és indítsa újra",
   "action.download": "OpenCode letöltése",
   "action.installing": "Telepítés…",
+  "toast.installed.description": "A(z) {{version}} verzió telepítve van. Az OpenCode következő megnyitásakor ez a verzió indul el.",
   "toast.latest.title": "Ön naprakész",
   "toast.latest.description": "Ön a OpenCode legújabb verzióját futtatja.",
   "migration.title": "Váltás a Bétáról a Stabil verzióra",

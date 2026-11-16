@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ਉੱਪਰ ਸਾਈਨ ਇਨ ਕਰੋ। ਉਸ ਤੋਂ ਬਾਅਦ ਜਾਂਚ ਜਾਰੀ ਰਹੇਗੀ।",
   "session.markRead": "ਪੜ੍ਹਿਆ ਵਜੋਂ ਨਿਸ਼ਾਨ ਲਾਓ",
   "session.markUnread": "ਨਾ ਪੜ੍ਹਿਆ ਵਜੋਂ ਨਿਸ਼ਾਨ ਲਾਓ",
-  "command.tab.closeSession": "ਸੈਸ਼ਨ ਟੈਬ ਬੰਦ ਕਰੋ"
+  "command.tab.closeSession": "ਸੈਸ਼ਨ ਟੈਬ ਬੰਦ ਕਰੋ",
+  "rune.updater.checkFailed": "اپڈیٹاں دی جانچ نئیں ہو سکی۔ بعد وچ فیر کوشش کرو۔",
+  "rune.updater.applyFailed": "اپڈیٹ ⁨{{version}}⁩ انسٹال نئیں ہو سکی (⁨{{why}}⁩)۔"
 }

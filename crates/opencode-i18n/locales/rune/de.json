@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Melden Sie sich oben an. Danach geht der Check weiter.",
   "session.markRead": "Als gelesen markieren",
   "session.markUnread": "Als ungelesen markieren",
-  "command.tab.closeSession": "Sitzungs-Tab schließen"
+  "command.tab.closeSession": "Sitzungs-Tab schließen",
+  "rune.updater.checkFailed": "Es konnte nicht nach Updates gesucht werden. Versuchen Sie es später erneut.",
+  "rune.updater.applyFailed": "Update {{version}} konnte nicht installiert werden ({{why}})."
 }

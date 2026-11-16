@@ -205,6 +205,9 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     };
     s.updater.seen = revision;
     answer_waiting(&service);
+    if let Some(err) = service.borrow_mut().take_apply_error() {
+        crate::status_toast::fail(s, opencode_i18n::t!("common.requestFailed"), err);
+    }
     match (quit, relaunch) {
         (true, true) => tx.relaunch(),
         (true, false) => tx.quit(),
@@ -255,6 +258,7 @@ fn view_data(view: &View, snapshot: &Snapshot) -> Data {
         View::Checking => ("checking", None, None),
         View::Downloading(v) => ("downloading", Some(v), None),
         View::UpToDate => ("up-to-date", None, None),
+        View::Installed(v) => ("installed", Some(v), None),
         View::Ready(v) => ("ready", Some(v), None),
         View::DownloadRequired(v) => ("download-required", Some(v), None),
         View::Installing(v) => ("installing", Some(v), None),
@@ -291,4 +295,3 @@ pub fn install_async(s: &App, done: Completer) {
     WAITING.with_borrow_mut(|w| w.push(Waiting::Install(ticket, done)));
     answer_waiting(service);
 }
-

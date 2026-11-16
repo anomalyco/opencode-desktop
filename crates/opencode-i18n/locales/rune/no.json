@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Logg inn ovenfor. Sjekken fortsetter etterpå.",
   "session.markRead": "Merk som lest",
   "session.markUnread": "Merk som ulest",
-  "command.tab.closeSession": "Lukk øktfanen"
+  "command.tab.closeSession": "Lukk øktfanen",
+  "rune.updater.checkFailed": "Kunne ikke se etter oppdateringer. Prøv igjen senere.",
+  "rune.updater.applyFailed": "Kunne ikke installere oppdatering {{version}} ({{why}})."
 }

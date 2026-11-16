@@ -6,6 +6,7 @@
   "action.installRestart": "ထည့်သွင်းပြီး ပြန်လည်စတင်ပါ။",
   "action.download": "OpenCode ကို ဒေါင်းလုဒ်လုပ်ပါ",
   "action.installing": "ထည့်သွင်းနေသည်…",
+  "toast.installed.description": "ဗားရှင်း {{version}} ကို ထည့်သွင်းပြီးပါပြီ။ နောက်တစ်ကြိမ် OpenCode ကို ဖွင့်သောအခါ ဤဗားရှင်းကို အသုံးပြုမည်။",
   "toast.latest.title": "သင်သည် ခေတ်မီနေပါသည်။",
   "toast.latest.description": "သင်သည် OpenCode ၏ နောက်ဆုံးဗားရှင်းကို အသုံးပြုနေပါသည်။",
   "migration.title": "Beta မှ Stable သို့ ပြောင်းရွှေ့ပါ",

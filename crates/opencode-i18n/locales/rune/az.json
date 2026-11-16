@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Yuxarıda daxil olun. Yoxlama sonra davam edəcək.",
   "session.markRead": "Oxunmuş kimi işarələ",
   "session.markUnread": "Oxunmamış kimi işarələ",
-  "command.tab.closeSession": "Sessiya tabını bağla"
+  "command.tab.closeSession": "Sessiya tabını bağla",
+  "rune.updater.checkFailed": "Yeniləmələri yoxlamaq alınmadı. Daha sonra yenidən cəhd edin.",
+  "rune.updater.applyFailed": "{{version}} yeniləməsini quraşdırmaq alınmadı ({{why}})."
 }

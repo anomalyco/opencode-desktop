@@ -44,6 +44,11 @@ pub trait Platform: Send + Sync + 'static {
     fn external_install(&self, _url: &str) -> Result<(), String> {
         Err("External installer is unavailable".into())
     }
+
+    /// An install error an out-of-process helper recorded since the last run, taken once.
+    fn take_last_error(&self) -> Option<String> {
+        None
+    }
 }
 
 /// This build's updater, or `None` where none runs (a development build, a build without a

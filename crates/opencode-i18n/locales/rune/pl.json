@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Zaloguj się powyżej. Sprawdzanie będzie kontynuowane potem.",
   "session.markRead": "Oznacz jako przeczytane",
   "session.markUnread": "Oznacz jako nieprzeczytane",
-  "command.tab.closeSession": "Zamknij kartę sesji"
+  "command.tab.closeSession": "Zamknij kartę sesji",
+  "rune.updater.checkFailed": "Nie udało się sprawdzić dostępności aktualizacji. Spróbuj ponownie później.",
+  "rune.updater.applyFailed": "Nie udało się zainstalować aktualizacji {{version}} ({{why}})."
 }

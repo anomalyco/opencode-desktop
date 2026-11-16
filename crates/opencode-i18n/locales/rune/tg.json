@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Дар боло ворид шавед. Санҷиш баъд аз он идома меёбад.",
   "session.markRead": "Ҳамчун хондашуда қайд кардан",
   "session.markUnread": "Ҳамчун хонданашуда қайд кардан",
-  "command.tab.closeSession": "Пӯшидани варақаи сеанс"
+  "command.tab.closeSession": "Пӯшидани варақаи сеанс",
+  "rune.updater.checkFailed": "Санҷиши навсозиҳо муяссар нашуд. Дертар дубора кӯшиш кунед.",
+  "rune.updater.applyFailed": "Навсозии {{version}}-ро насб кардан муяссар нашуд ({{why}})."
 }

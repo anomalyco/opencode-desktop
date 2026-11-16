@@ -92,36 +92,45 @@ fn run() -> i32 {
     log(&format!("installing {} from {} into {}", a.version, a.staged.display(), a.root.display()));
     if a.wait != 0 && !wait_for_exit(a.wait) {
         log(&format!("process {} didn't exit; nothing changed", a.wait));
+        super::windows::receipt::record_apply_failure(&a.updates, &a.version, "the previous process did not exit");
         return 1;
     }
     log(&format!("process {} exited", a.wait));
     let old = beside(&a.root, &format!("old-{}", std::process::id()));
-    if let Err(e) = rename(&a.root, &old) {
-        log(&format!("couldn't move {} aside: {e}; starting it again", a.root.display()));
-        start(&a, &log);
-        return 1;
-    }
-    if let Err(e) = rename(&a.staged, &a.root) {
-        log(&format!("couldn't move {} into place: {e}; putting the previous version back", a.staged.display()));
-        if let Err(e) = rename(&old, &a.root) {
-            log(&format!("couldn't put the previous version back: {e}; it is in {}", old.display()));
+    let expected = match super::windows::bundle::identify(&a.staged) {
+        Ok(expected) => expected,
+        Err(e) => {
+            log(&format!("staged bundle is unavailable ({e}); nothing changed"));
+            super::windows::receipt::record_apply_failure(&a.updates, &a.version, &e.to_string());
+            start(&a, &log);
             return 1;
         }
-        start(&a, &log);
+    };
+    let mode = match publish(&a.root, &a.staged, &old) {
+        Ok(mode) => mode,
+        Err(e) => {
+            log(&format!("couldn't publish {}: {e}; previous install and stage unchanged", a.version));
+            super::windows::receipt::record_apply_failure(&a.updates, &a.version, &e.to_string());
+            start(&a, &log);
+            return 1;
+        }
+    };
+    if !super::windows::bundle::matches_id(&a.root, &expected) {
+        log("could not confirm the staged bundle at the install path");
+        super::windows::receipt::record_apply_failure(&a.updates, &a.version, "staged bundle was not confirmed at the install path");
         return 1;
     }
-    log(&format!("{} is in place", a.version));
+    super::windows::receipt::clear_apply_failure(&a.updates);
+    log(&format!("{} is in place ({})", a.version, mode.label()));
     // This is the new version's executable: its version goes in Apps & features.
     match win_install::refresh(&crate::launch::product(), &a.root) {
         Ok(changed) => changed.iter().for_each(|line| log(line)),
         Err(e) => log(&format!("couldn't update the uninstall entry: {e}")),
     }
     start(&a, &log);
-    for _ in 0..20 {
-        if std::fs::remove_dir_all(&old).is_ok() || !old.exists() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(250));
+    match super::windows::bundle::retire(&old) {
+        Ok(m) => log(&format!("retired previous bundle ({})", m.label())),
+        Err(e) => log(&format!("previous bundle kept intact for a later launch: {e}")),
     }
     0
 }
@@ -142,7 +151,7 @@ fn wait_for_exit(pid: u32) -> bool {
     // SAFETY: a plain handle request; a process that's already gone answers null.
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
-        return true;
+        return std::io::Error::last_os_error().raw_os_error() == Some(87); // PID no longer exists
     }
     // SAFETY: `handle` is the open process handle, closed once.
     unsafe {
@@ -152,12 +161,17 @@ fn wait_for_exit(pid: u32) -> bool {
     }
 }
 
-fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+fn publish(root: &Path, staged: &Path, old: &Path) -> std::io::Result<super::windows::bundle::Mode> {
     let mut last = None;
     for _ in 0..RENAME_TRIES {
-        match std::fs::rename(from, to) {
-            Ok(()) => return Ok(()),
-            Err(e) => last = Some(e),
+        match super::windows::bundle::publish(root, staged, old) {
+            Ok(mode) => return Ok(mode),
+            Err(e) => {
+                last = Some(e);
+                if !root.exists() {
+                    break;
+                }
+            }
         }
         std::thread::sleep(Duration::from_millis(250));
     }

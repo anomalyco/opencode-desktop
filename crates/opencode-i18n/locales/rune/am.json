@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ከላይ ይግቡ። ፍተሻው ከዚያ ይቀጥላል።",
   "session.markRead": "እንደተነበበ ምልክት አድርግ",
   "session.markUnread": "እንዳልተነበበ ምልክት አድርግ",
-  "command.tab.closeSession": "የክፍለ ጊዜ ትር ዝጋ"
+  "command.tab.closeSession": "የክፍለ ጊዜ ትር ዝጋ",
+  "rune.updater.checkFailed": "ዝማኔዎችን መፈተሽ አልተቻለም። በኋላ እንደገና ይሞክሩ።",
+  "rune.updater.applyFailed": "ዝማኔ {{version}}ን መጫን አልተቻለም ({{why}})።"
 }

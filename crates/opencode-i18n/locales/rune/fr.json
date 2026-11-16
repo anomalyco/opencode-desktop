@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Connectez-vous ci-dessus. La vérification reprend ensuite.",
   "session.markRead": "Marquer comme lu",
   "session.markUnread": "Marquer comme non lu",
-  "command.tab.closeSession": "Fermer l’onglet de session"
+  "command.tab.closeSession": "Fermer l’onglet de session",
+  "rune.updater.checkFailed": "Impossible de vérifier les mises à jour. Réessayez plus tard.",
+  "rune.updater.applyFailed": "Impossible d’installer la mise à jour {{version}} ({{why}})."
 }

@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "上でサインインしてください。チェックはその後に続きます。",
   "session.markRead": "既読にする",
   "session.markUnread": "未読にする",
-  "command.tab.closeSession": "セッションタブを閉じる"
+  "command.tab.closeSession": "セッションタブを閉じる",
+  "rune.updater.checkFailed": "アップデートを確認できませんでした。しばらくしてからもう一度お試しください。",
+  "rune.updater.applyFailed": "アップデート {{version}} をインストールできませんでした（{{why}}）。"
 }

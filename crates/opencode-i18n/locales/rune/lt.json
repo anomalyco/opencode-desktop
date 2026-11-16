@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Prisijunkite viršuje. Patikra tęsis po to.",
   "session.markRead": "Pažymėti kaip skaitytą",
   "session.markUnread": "Pažymėti kaip neskaitytą",
-  "command.tab.closeSession": "Uždaryti seanso skirtuką"
+  "command.tab.closeSession": "Uždaryti seanso skirtuką",
+  "rune.updater.checkFailed": "Nepavyko patikrinti, ar yra atnaujinimų. Bandykite vėliau.",
+  "rune.updater.applyFailed": "Nepavyko įdiegti atnaujinimo {{version}} ({{why}})."
 }

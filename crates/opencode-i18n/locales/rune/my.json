@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "အပေါ်တွင် ဝင်ရောက်ပါ။ ထို့နောက် စစ်ဆေးမှု ဆက်လုပ်ပါမည်။",
   "session.markRead": "ဖတ်ပြီးဟု မှတ်သားရန်",
   "session.markUnread": "မဖတ်ရသေးဟု မှတ်သားရန်",
-  "command.tab.closeSession": "ဆက်ရှင်တဘ်ကို ပိတ်ရန်"
+  "command.tab.closeSession": "ဆက်ရှင်တဘ်ကို ပိတ်ရန်",
+  "rune.updater.checkFailed": "အပ်ဒိတ်များကို စစ်ဆေး၍မရပါ။ နောက်မှ ထပ်စမ်းကြည့်ပါ။",
+  "rune.updater.applyFailed": "အပ်ဒိတ် {{version}} ကို ထည့်သွင်း၍မရပါ ({{why}})။"
 }

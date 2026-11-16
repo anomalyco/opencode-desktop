@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Inicieu la sessió a dalt. La comprovació continua després.",
   "session.markRead": "Marca com a llegit",
   "session.markUnread": "Marca com a no llegit",
-  "command.tab.closeSession": "Tanca la pestanya de la sessió"
+  "command.tab.closeSession": "Tanca la pestanya de la sessió",
+  "rune.updater.checkFailed": "No s'han pogut comprovar les actualitzacions. Torneu-ho a provar més tard.",
+  "rune.updater.applyFailed": "No s'ha pogut instal·lar l'actualització {{version}} ({{why}})."
 }

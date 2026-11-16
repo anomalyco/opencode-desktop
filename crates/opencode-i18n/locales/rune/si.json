@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ඉහළින් පුරනය වන්න. ඉන්පසු පරීක්ෂාව දිගටම යයි.",
   "session.markRead": "කියවූ ලෙස සලකුණු කරන්න",
   "session.markUnread": "නොකියවූ ලෙස සලකුණු කරන්න",
-  "command.tab.closeSession": "සැසි ටැබය වසන්න"
+  "command.tab.closeSession": "සැසි ටැබය වසන්න",
+  "rune.updater.checkFailed": "යාවත්කාලීන පරීක්ෂා කිරීමට නොහැකි විය. පසුව නැවත උත්සාහ කරන්න.",
+  "rune.updater.applyFailed": "{{version}} යාවත්කාලීනය ස්ථාපනය කිරීමට නොහැකි විය ({{why}})."
 }

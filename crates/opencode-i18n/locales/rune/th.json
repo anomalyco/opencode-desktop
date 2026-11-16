@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ลงชื่อเข้าใช้ด้านบน แล้วการตรวจจะดำเนินต่อ",
   "session.markRead": "ทำเครื่องหมายว่าอ่านแล้ว",
   "session.markUnread": "ทำเครื่องหมายว่ายังไม่ได้อ่าน",
-  "command.tab.closeSession": "ปิดแท็บเซสชัน"
+  "command.tab.closeSession": "ปิดแท็บเซสชัน",
+  "rune.updater.checkFailed": "ไม่สามารถตรวจสอบการอัปเดตได้ โปรดลองอีกครั้งในภายหลัง",
+  "rune.updater.applyFailed": "ไม่สามารถติดตั้งการอัปเดต {{version}} ได้ ({{why}})"
 }

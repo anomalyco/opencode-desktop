@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Přihlaste se výše. Kontrola pak bude pokračovat.",
   "session.markRead": "Označit jako přečtené",
   "session.markUnread": "Označit jako nepřečtené",
-  "command.tab.closeSession": "Zavřít kartu relace"
+  "command.tab.closeSession": "Zavřít kartu relace",
+  "rune.updater.checkFailed": "Nepodařilo se zkontrolovat aktualizace. Zkuste to znovu později.",
+  "rune.updater.applyFailed": "Aktualizaci {{version}} se nepodařilo nainstalovat ({{why}})."
 }

@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Влезте по-горе. Проверката продължава след това.",
   "session.markRead": "Отбелязване като прочетено",
   "session.markUnread": "Отбелязване като непрочетено",
-  "command.tab.closeSession": "Затваряне на раздела на сесията"
+  "command.tab.closeSession": "Затваряне на раздела на сесията",
+  "rune.updater.checkFailed": "Проверката за актуализации не бе успешна. Опитайте отново по-късно.",
+  "rune.updater.applyFailed": "Актуализацията {{version}} не можа да се инсталира ({{why}})."
 }

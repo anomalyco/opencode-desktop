@@ -187,7 +187,7 @@ export type ToastActionVariant = "primary" | "secondary"
 export type OfficeSignature = "zip" | "compound" | "other" | "unreadable"
 
 --- Where the app updater stands.
-export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "download-required" | "installing" | "error"
+export type UpdaterPhase = "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "download-required" | "installed" | "installing" | "error"
 
 --- What a `UiEvent` reports.
 export type UiEventKind = "press" | "middle-press" | "hover" | "submit" | "change" | "select" | "visible-rows"

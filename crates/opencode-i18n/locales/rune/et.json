@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Logi ülal sisse. Kontroll jätkub pärast seda.",
   "session.markRead": "Märgi loetuks",
   "session.markUnread": "Märgi lugemata olekusse",
-  "command.tab.closeSession": "Sulge seansi vahekaart"
+  "command.tab.closeSession": "Sulge seansi vahekaart",
+  "rune.updater.checkFailed": "Uuenduste kontrollimine ebaõnnestus. Proovi hiljem uuesti.",
+  "rune.updater.applyFailed": "Uuendust {{version}} ei saanud installida ({{why}})."
 }

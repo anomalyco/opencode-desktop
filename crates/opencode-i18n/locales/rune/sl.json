@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Prijavite se zgoraj. Preverjanje se nato nadaljuje.",
   "session.markRead": "Označi kot prebrano",
   "session.markUnread": "Označi kot neprebrano",
-  "command.tab.closeSession": "Zapri zavihek seje"
+  "command.tab.closeSession": "Zapri zavihek seje",
+  "rune.updater.checkFailed": "Posodobitev ni bilo mogoče preveriti. Poskusite znova pozneje.",
+  "rune.updater.applyFailed": "Posodobitve {{version}} ni bilo mogoče namestiti ({{why}})."
 }

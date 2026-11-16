@@ -6,6 +6,7 @@
   "action.installRestart": "Settu upp og endurræstu",
   "action.download": "Sækja OpenCode",
   "action.installing": "Setur upp…",
+  "toast.installed.description": "Útgáfa {{version}} er uppsett. Hún keyrir næst þegar þú opnar OpenCode.",
   "toast.latest.title": "Þú ert uppfærður",
   "toast.latest.description": "Þú ert að keyra nýjustu útgáfuna af OpenCode.",
   "migration.title": "Fara úr Beta í Stöðuga útgáfu",

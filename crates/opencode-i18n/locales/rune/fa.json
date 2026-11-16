@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "بالا وارد شوید. بررسی پس از آن ادامه می‌یابد.",
   "session.markRead": "علامت‌گذاری به‌عنوان خوانده‌شده",
   "session.markUnread": "علامت‌گذاری به‌عنوان خوانده‌نشده",
-  "command.tab.closeSession": "بستن زبانه جلسه"
+  "command.tab.closeSession": "بستن زبانه جلسه",
+  "rune.updater.checkFailed": "بررسی به‌روزرسانی‌ها انجام نشد. بعداً دوباره تلاش کنید.",
+  "rune.updater.applyFailed": "نصب به‌روزرسانی ⁨{{version}}⁩ انجام نشد (⁨{{why}}⁩)."
 }

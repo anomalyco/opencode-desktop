@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Logga in ovan. Kontrollen fortsätter sedan.",
   "session.markRead": "Markera som läst",
   "session.markUnread": "Markera som oläst",
-  "command.tab.closeSession": "Stäng sessionsfliken"
+  "command.tab.closeSession": "Stäng sessionsfliken",
+  "rune.updater.checkFailed": "Kunde inte söka efter uppdateringar. Försök igen senare.",
+  "rune.updater.applyFailed": "Kunde inte installera uppdateringen {{version}} ({{why}})."
 }

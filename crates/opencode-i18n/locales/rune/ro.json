@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Conectează-te mai sus. Verificarea continuă după aceea.",
   "session.markRead": "Marchează ca citit",
   "session.markUnread": "Marchează ca necitit",
-  "command.tab.closeSession": "Închide fila sesiunii"
+  "command.tab.closeSession": "Închide fila sesiunii",
+  "rune.updater.checkFailed": "Nu s-au putut verifica actualizările. Încearcă din nou mai târziu.",
+  "rune.updater.applyFailed": "Nu s-a putut instala actualizarea {{version}} ({{why}})."
 }

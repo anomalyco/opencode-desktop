@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Kevreit a-us. Kenderc'hel a raio ar gwiriañ goude.",
   "session.markRead": "Merkañ evel lennet",
   "session.markUnread": "Merkañ evel dilennet",
-  "command.tab.closeSession": "Serriñ ivinell an estez"
+  "command.tab.closeSession": "Serriñ ivinell an estez",
+  "rune.updater.checkFailed": "Não foi possível verificar se há atualizações. Tente novamente mais tarde.",
+  "rune.updater.applyFailed": "Não foi possível instalar a atualização {{version}} ({{why}})."
 }

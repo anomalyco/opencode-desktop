@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Jelentkezz be fent. Utána folytatódik az ellenőrzés.",
   "session.markRead": "Megjelölés olvasottként",
   "session.markUnread": "Megjelölés olvasatlanként",
-  "command.tab.closeSession": "Munkamenet lap bezárása"
+  "command.tab.closeSession": "Munkamenet lap bezárása",
+  "rune.updater.checkFailed": "Nem sikerült ellenőrizni a frissítéseket. Próbálja újra később.",
+  "rune.updater.applyFailed": "A(z) {{version}} frissítést nem sikerült telepíteni ({{why}})."
 }

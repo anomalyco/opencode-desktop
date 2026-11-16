@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ເຂົ້າສູ່ລະບົບຂ້າງເທິງ. ການກວດຈະດຳເນີນຕໍ່ຫຼັງຈາກນັ້ນ.",
   "session.markRead": "ໝາຍວ່າອ່ານແລ້ວ",
   "session.markUnread": "ໝາຍວ່າຍັງບໍ່ໄດ້ອ່ານ",
-  "command.tab.closeSession": "ປິດແຖບເຊດຊັນ"
+  "command.tab.closeSession": "ປິດແຖບເຊດຊັນ",
+  "rune.updater.checkFailed": "ບໍ່ສາມາດກວດສອບການອັບເດດໄດ້. ກະລຸນາລອງໃໝ່ໃນພາຍຫຼັງ.",
+  "rune.updater.applyFailed": "ບໍ່ສາມາດຕິດຕັ້ງການອັບເດດ {{version}} ໄດ້ ({{why}})."
 }

@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Inicia sesión arriba. La comprobación sigue después.",
   "session.markRead": "Marcar como leído",
   "session.markUnread": "Marcar como no leído",
-  "command.tab.closeSession": "Cerrar pestaña de sesión"
+  "command.tab.closeSession": "Cerrar pestaña de sesión",
+  "rune.updater.checkFailed": "No se pudieron buscar actualizaciones. Inténtalo de nuevo más tarde.",
+  "rune.updater.applyFailed": "No se pudo instalar la actualización {{version}} ({{why}})."
 }

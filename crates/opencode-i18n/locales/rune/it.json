@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Accedi qui sopra. La verifica prosegue dopo.",
   "session.markRead": "Segna come letto",
   "session.markUnread": "Segna come da leggere",
-  "command.tab.closeSession": "Chiudi scheda della sessione"
+  "command.tab.closeSession": "Chiudi scheda della sessione",
+  "rune.updater.checkFailed": "Impossibile verificare la presenza di aggiornamenti. Riprova più tardi.",
+  "rune.updater.applyFailed": "Impossibile installare l’aggiornamento {{version}} ({{why}})."
 }

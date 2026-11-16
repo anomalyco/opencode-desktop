@@ -6,6 +6,7 @@
   "action.installRestart": "Set upp og endurbyrja",
   "action.download": "Tak OpenCode niður",
   "action.installing": "Seta upp…",
+  "toast.installed.description": "Útgáva {{version}} er løgd inn. Hon koyrir næstu ferð, tú letur OpenCode upp.",
   "toast.latest.title": "Tú ert dagførdur",
   "toast.latest.description": "Tú koyrir nýggjastu útgávuna av OpenCode.",
   "migration.title": "Far úr Beta í Støðugt",

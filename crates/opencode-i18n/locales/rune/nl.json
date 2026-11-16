@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Log hierboven in. De controle gaat daarna verder.",
   "session.markRead": "Markeren als gelezen",
   "session.markUnread": "Markeren als ongelezen",
-  "command.tab.closeSession": "Sessietabblad sluiten"
+  "command.tab.closeSession": "Sessietabblad sluiten",
+  "rune.updater.checkFailed": "Kon niet controleren op updates. Probeer het later opnieuw.",
+  "rune.updater.applyFailed": "Kon update {{version}} niet installeren ({{why}})."
 }

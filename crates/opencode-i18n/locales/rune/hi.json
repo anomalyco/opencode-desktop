@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "ऊपर साइन इन करें। उसके बाद जाँच जारी रहेगी।",
   "session.markRead": "पढ़ा हुआ चिह्नित करें",
   "session.markUnread": "अपठित चिह्नित करें",
-  "command.tab.closeSession": "सत्र टैब बंद करें"
+  "command.tab.closeSession": "सत्र टैब बंद करें",
+  "rune.updater.checkFailed": "अपडेट की जाँच नहीं हो सकी। बाद में फिर कोशिश करें।",
+  "rune.updater.applyFailed": "अपडेट {{version}} इंस्टॉल नहीं हो सका ({{why}})।"
 }

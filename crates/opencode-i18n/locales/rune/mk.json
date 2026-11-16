@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "Најавете се погоре. Проверката продолжува потоа.",
   "session.markRead": "Означи како прочитано",
   "session.markUnread": "Означи како непрочитано",
-  "command.tab.closeSession": "Затвори го јазичето на сесијата"
+  "command.tab.closeSession": "Затвори го јазичето на сесијата",
+  "rune.updater.checkFailed": "Не можеше да се проверат ажурирања. Обидете се повторно подоцна.",
+  "rune.updater.applyFailed": "Не можеше да се инсталира ажурирањето {{version}} ({{why}})."
 }

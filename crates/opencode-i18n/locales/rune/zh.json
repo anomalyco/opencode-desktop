@@ -266,5 +266,7 @@
   "rune.web.check.signIn": "请在上方登录。之后检查会继续。",
   "session.markRead": "标记为已读",
   "session.markUnread": "标记为未读",
-  "command.tab.closeSession": "关闭会话标签页"
+  "command.tab.closeSession": "关闭会话标签页",
+  "rune.updater.checkFailed": "无法检查更新。请稍后再试。",
+  "rune.updater.applyFailed": "无法安装更新 {{version}}（{{why}}）。"
 }
