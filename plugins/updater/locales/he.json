@@ -6,6 +6,7 @@
   "action.installRestart": "התקן והפעל מחדש",
   "action.download": "הורדת OpenCode",
   "action.installing": "מתקין…",
+  "toast.installed.description": "גרסה ⁨{{version}}⁩ הותקנה. היא תופעל בפתיחה הבאה של OpenCode.",
   "toast.latest.title": "אתה מעודכן",
   "toast.latest.description": "אתה מפעיל את הגרסה האחרונה של OpenCode.",
   "migration.title": "מעבר מבטא לגרסה יציבה",

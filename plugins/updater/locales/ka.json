@@ -6,6 +6,7 @@
   "action.installRestart": "ინსტალაცია და გადატვირთვა",
   "action.download": "OpenCode-ის ჩამოტვირთვა",
   "action.installing": "ინსტალაცია…",
+  "toast.installed.description": "ვერსია {{version}} დაყენებულია. OpenCode-ის შემდეგ გახსნაზე ეს ვერსია გაეშვება.",
   "toast.latest.title": "თქვენ განახლებული ხართ",
   "toast.latest.description": "თქვენ იყენებთ OpenCode-ის უახლეს ვერსიას.",
   "migration.title": "Beta-დან Stable-ზე გადასვლა",

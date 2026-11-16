@@ -6,6 +6,7 @@
   "action.installRestart": "نصب و راه اندازی مجدد",
   "action.download": "دانلود OpenCode",
   "action.installing": "در حال نصب…",
+  "toast.installed.description": "نسخهٔ ⁨{{version}}⁩ نصب شده است. دفعهٔ بعد که OpenCode را باز کنید، این نسخه اجرا می‌شود.",
   "toast.latest.title": "شما به روز هستید",
   "toast.latest.description": "شما آخرین نسخه OpenCode را اجرا می کنید.",
   "migration.title": "انتقال از بتا به پایدار",

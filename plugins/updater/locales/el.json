@@ -6,6 +6,7 @@
   "action.installRestart": "Εγκατάσταση και επανεκκίνηση",
   "action.download": "Λήψη του OpenCode",
   "action.installing": "Εγκατάσταση…",
+  "toast.installed.description": "Η έκδοση {{version}} εγκαταστάθηκε. Θα εκτελεστεί την επόμενη φορά που θα ανοίξετε το OpenCode.",
   "toast.latest.title": "Είστε ενημερωμένοι",
   "toast.latest.description": "Εκτελείτε την πιο πρόσφατη έκδοση του OpenCode.",
   "migration.title": "Μετάβαση από Beta σε Σταθερή",

@@ -8,6 +8,7 @@
   "action.installing": "Installing…",
   "action.reload": "Reload to update",
   "action.reloading": "Reloading…",
+  "toast.installed.description": "Version {{version}} is installed. It will run the next time you open OpenCode.",
   "toast.latest.title": "You're up to date",
   "toast.latest.description": "You're running the latest version of OpenCode.",
   "migration.title": "Move from Beta to Stable",

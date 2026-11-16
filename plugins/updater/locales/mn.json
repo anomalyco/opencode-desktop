@@ -6,6 +6,7 @@
   "action.installRestart": "Суулгаад дахин эхлүүлнэ үү",
   "action.download": "OpenCode татах",
   "action.installing": "Суулгаж байна…",
+  "toast.installed.description": "{{version}} хувилбар суулаа. Дараагийн удаа OpenCode-г нээхэд энэ хувилбар ажиллана.",
   "toast.latest.title": "Та шинэчлэгдсэн байна",
   "toast.latest.description": "Та OpenCode-н хамгийн сүүлийн хувилбарыг ажиллуулж байна.",
   "migration.title": "Beta хувилбараас Stable хувилбар руу шилжих",

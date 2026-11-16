@@ -6,6 +6,7 @@
   "action.installRestart": "Yükle ve yeniden başlat",
   "action.download": "OpenCode’u indir",
   "action.installing": "Kuruluyor…",
+  "toast.installed.description": "{{version}} sürümü yüklendi. OpenCode’u bir sonraki açışınızda bu sürüm çalışacak.",
   "toast.latest.title": "Güncelsiniz",
   "toast.latest.description": "OpenCode'un en son sürümünü kullanıyorsunuz.",
   "migration.title": "Beta’dan Kararlı’ya geç",

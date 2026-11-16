@@ -77,7 +77,7 @@ impl Mac {
             return Err(e);
         }
         swap(&staged.app, &self.bundle.path)?;
-        engine::record_staged(&staged.version, &staged.sha256);
+        engine::record_installed(&staged.version, &staged.sha256);
         std::fs::remove_dir_all(&staged.dir).ok();
         Ok(())
     }

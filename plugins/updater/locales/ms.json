@@ -6,6 +6,7 @@
   "action.installRestart": "Pasang dan mulakan semula",
   "action.download": "Muat turun OpenCode",
   "action.installing": "Sedang memasang…",
+  "toast.installed.description": "Versi {{version}} telah dipasang. Versi ini akan dijalankan apabila anda membuka OpenCode kali seterusnya.",
   "toast.latest.title": "Anda sudah terkini",
   "toast.latest.description": "Anda sedang menggunakan versi terkini OpenCode.",
   "migration.title": "Beralih daripada Beta kepada Stabil",

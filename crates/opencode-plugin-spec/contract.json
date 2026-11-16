@@ -325,6 +325,7 @@
       { "value": "downloading", "doc": "Downloading the update. `progress` says how far." },
       { "value": "ready", "doc": "Downloaded. `Install` restarts into it." },
       { "value": "download-required", "doc": "A newer version this install can't update to by itself (Linux). `Install` opens its download." },
+      { "value": "installed", "doc": "The release is installed. This process still runs the previous version until the next launch." },
       { "value": "installing", "doc": "Installing." },
       { "value": "error", "doc": "Failed. `error` says why." }
     ] },

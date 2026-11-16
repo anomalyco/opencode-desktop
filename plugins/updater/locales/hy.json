@@ -6,6 +6,7 @@
   "action.installRestart": "Տեղադրել և վերագործարկել",
   "action.download": "Ներբեռնել OpenCode-ը",
   "action.installing": "Տեղադրվում է…",
+  "toast.installed.description": "{{version}} տարբերակը տեղադրված է։ Երբ հաջորդ անգամ բացեք OpenCode-ը, կգործարկվի այս տարբերակը։",
   "toast.latest.title": "Դուք արդի եք",
   "toast.latest.description": "Դուք օգտագործում եք OpenCode-ի վերջին տարբերակը։",
   "migration.title": "Beta-ից անցնել Stable-ի",

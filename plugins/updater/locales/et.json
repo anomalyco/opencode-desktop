@@ -6,6 +6,7 @@
   "action.installRestart": "Installige ja taaskäivitage",
   "action.download": "Laadi OpenCode alla",
   "action.installing": "Installimine…",
+  "toast.installed.description": "Versioon {{version}} on installitud. See käivitub järgmisel korral, kui avad OpenCode’i.",
   "toast.latest.title": "Oled kursis",
   "toast.latest.description": "Kasutate rakenduse OpenCode uusimat versiooni.",
   "migration.title": "Liigu beetaversioonilt stabiilsele versioonile",

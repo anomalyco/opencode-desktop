@@ -6,6 +6,7 @@
   "action.installRestart": "Nainštalovať a reštartovať",
   "action.download": "Stiahnuť OpenCode",
   "action.installing": "Inštalujem…",
+  "toast.installed.description": "Verzia {{version}} je nainštalovaná. Spustí sa pri ďalšom otvorení OpenCode.",
   "toast.latest.title": "Všetko je aktuálne",
   "toast.latest.description": "Používate najnovšiu verziu OpenCode.",
   "migration.title": "Prejsť z Beta na Stable",

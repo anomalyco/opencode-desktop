@@ -6,6 +6,7 @@
   "action.installRestart": "ইনস্টল করুন এবং পুনরায় চালু করুন",
   "action.download": "OpenCode ডাউনলোড করুন",
   "action.installing": "ইনস্টল করা হচ্ছে…",
+  "toast.installed.description": "সংস্করণ {{version}} ইনস্টল করা হয়েছে। পরের বার OpenCode খুললে এই সংস্করণটি চালু হবে।",
   "toast.latest.title": "আপনি আপ টু ডেট",
   "toast.latest.description": "আপনি OpenCode এর সর্বশেষ সংস্করণ চালাচ্ছেন।",
   "migration.title": "বেটা থেকে স্থিতিশীল সংস্করণে যান",

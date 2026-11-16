@@ -26,6 +26,9 @@
 //! (`--apply-update`, see `apply.rs`), which waits for this process to exit, swaps the folders
 //! and, for a restart, starts the new version with the same arguments.
 
+pub(super) mod bundle;
+mod receipt;
+
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -88,6 +91,7 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     };
     let root = exe.parent()?.to_path_buf();
     sweep(&root, &updates);
+    let _ = receipt::at(&root);
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
     #[allow(clippy::disallowed_methods)]
     let args = std::env::args().skip(1).collect();
@@ -117,12 +121,24 @@ impl Platform for Windows {
     }
 
     fn check(&self) -> Result<Option<super::machine::Target>, String> {
+        // A racing launch can own the workspace on the old image. That process must never
+        // replace the newer tree it is no longer running from, even on an offline check.
+        if let Some(installed) = receipt::at(&self.root)
+            && installed.version != self.version
+        {
+            return Ok(Some(super::machine::Target::Installed(installed.version)));
+        }
         Ok(self.engine.check()?.map(super::machine::Target::Restart))
     }
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
         let found = self.engine.found().ok_or_else(|| "No update to download".to_owned())?;
-        let staged_dir = beside(&self.root, "staged");
+        let staged_dir = beside(&self.root, &format!("ready-{}", found.target.sha256));
+        if receipt::staged_matches(&staged_dir, &found.version, &found.target.sha256) {
+            self.verify_quick(&staged_dir)?;
+            *self.staged.lock().unwrap_or_else(|e| e.into_inner()) = Some(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir });
+            return Ok(());
+        }
         if let Ok(staged) = self.staged.lock()
             && let Some(st) = staged.as_ref()
             && st.sha256 == found.target.sha256
@@ -145,9 +161,8 @@ impl Platform for Windows {
             unpack_zip(&zip, &unpack)?;
             let app = locate(&unpack)?;
             self.verify(&app)?;
-            std::fs::remove_dir_all(&staged_dir).ok();
             std::fs::rename(&app, &staged_dir).map_err(|e| format!("could not stage the update: {e}"))?;
-            super::engine::record_staged(&found.version, &found.target.sha256);
+            receipt::stage(&staged_dir, &found.version, &found.target.sha256)?;
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir.clone() })
         })();
         std::fs::remove_dir_all(&download).ok();
@@ -199,6 +214,7 @@ impl Windows {
     fn hand_off(&self, relaunch: bool) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone(), s.dir.clone()))).ok_or_else(|| "No staged update ready to install.".to_owned())?;
         let (version, sha256, dir) = staged;
+        if receipt::at(&self.root).is_some_and(|r| r.version == version && r.sha256 == sha256) { return Ok(()); }
         self.verify_quick(&dir)?;
         let updates = &self.engine.facts.updates;
         let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
@@ -317,8 +333,13 @@ fn sweep(root: &Path, updates: &Path) {
     {
         for e in entries.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
-            let ours = n.strip_prefix(&format!(".{name}.")).is_some_and(|rest| rest.starts_with("old-") || rest.starts_with("staging-") || rest == "staged");
-            if ours {
+            if n.strip_prefix(&format!(".{name}.old-")).and_then(|pid| pid.parse::<u32>().ok()).is_some() {
+                // A locked image does not protect the assets beside it. Never remove even one
+                // entry on a refusal; another launch tries again. Stages belong to their helper.
+                let _ = bundle::retire(&e.path());
+            } else if let Some(pid) = n.strip_prefix(&format!(".{name}.staging-")).and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
+                && bundle::process_gone(pid)
+            {
                 std::fs::remove_dir_all(e.path()).ok();
             }
         }
@@ -326,7 +347,9 @@ fn sweep(root: &Path, updates: &Path) {
     if let Ok(entries) = std::fs::read_dir(updates) {
         for e in entries.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
-            if n.starts_with("download-") {
+            if let Some(pid) = n.strip_prefix("download-").and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
+                && bundle::process_gone(pid)
+            {
                 std::fs::remove_dir_all(e.path()).ok();
             } else if n.starts_with("opencode-update-helper-") {
                 std::fs::remove_file(e.path()).ok();
