@@ -13,12 +13,12 @@ A built-in moves to its own redraws (`redraw.rs`, `LIVE`) when the states it dra
 | review | live | diff style | count change on a new diff, file selection |
 | rune-ui | live | streaming code block | invalid input and restore |
 | terminal | live | title (OSC 2), bell flash, output | rename, find bar |
-| browser | legacy | address field focus and edit | a real page's loading and title, new tab, site popover |
-| btw | legacy | none | ask, answer, retry |
+| browser | legacy | address field focus and edit; site popover (loading, then failed without an engine) | a real page's loading and title, a new tab |
+| btw | legacy | ask (tab opens, running, failed without a model); Retry (running, failed) | an answer landing, which needs a model the fixture doesn't have |
 | microsoft-office | legacy | none | document read, sheet switch, failure |
 | sources | legacy | none | a turn's searches, expand, favicon |
 | ssh | legacy | none | connect, authentication prompt, failure |
-| updater | legacy | none | checking, up to date, downloading, ready, download required, error |
+| updater | legacy | release-notes switch | checking, up to date, downloading, ready, download required, error: the headless run starts no updater service, so these need a live window against a local feed |
 | wsl | legacy | none | runtime probe, distro list, install and add server |
 
 The "live" rows were driven on Windows (a debug build, headless) and on macOS (the same cases, headless on Metal). Both gave byte-identical frames and trees between the legacy redraw and the plugin's own, changing on the same frame on both platforms. Nothing has run on Linux. The redraw logic is shared code, so what could differ there is when the platform delivers the events a plugin redraws on.
