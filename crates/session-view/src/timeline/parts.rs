@@ -67,6 +67,9 @@ pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
 /// (`message-part.css:329-338`).
 const PROMPT_META: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
 
+/// The model/status line under the last bubble in a run: 8 pt of air and a 20 pt line.
+pub(super) const PROMPT_META_ROOM: f32 = 8.0 + 20.0;
+
 /// The chevron's inset from the bubble's top and trailing edges: 8 plus half of what a 21 pt
 /// line has over the 20 pt button (`message-part.css:507-511`).
 const MENU_INSET: f32 = 8.0 + (21.0 - 20.0) / 2.0;
@@ -197,7 +200,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // The meta line, right under the bubble: the model, then Pending on a steer, which stays
     // in view while the model shows only under the pointer (`message-part.css:271-458`).
     if status.is_none() && !below && (!meta.is_empty() || pending) {
-        let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-28.0)).h(20.0).gap(4.0).center_y().a11y_hidden();
+        let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-PROMPT_META_ROOM)).h(20.0).gap(4.0).center_y().a11y_hidden();
         let mut model = row().key("meta-model").gap(4.0).center_y();
         for (k, (label, variant)) in meta.iter().enumerate() {
             if k > 0 && !variant {
@@ -229,7 +232,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         // The meta line's room (`user-message-copy-wrapper`: 8 above, 20 tall), folded away in
         // a run's earlier prompts.
         None => {
-            let mut room = el().key("meta-room").w_full().h(if below { 0.0 } else { 28.0 });
+            let mut room = el().key("meta-room").w_full().h(if below { 0.0 } else { PROMPT_META_ROOM });
             if pending && !below {
                 // A label, so it shows and goes at once, as Desktop's delivery swaps it
                 // (message-part.css:401-410).
