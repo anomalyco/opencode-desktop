@@ -272,7 +272,13 @@ pub fn is_divider(n: &Notice) -> bool {
 pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compaction::Run) -> El {
     let faint_med = |key: &'static str, words: String| text(words).key(key).font(UI_MED).color(p.faint).truncate_fade().shrink().min_w(0.0);
     let faint = |key: &'static str, words: String| text(words).key(key).font(UI).color(p.faint).truncate_fade().shrink().min_w(0.0);
-    let line = |kids: Vec<El>| row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).children(kids);
+    // A notice that only tells leads with a faint bare mark, as the timeline's events do (t1582);
+    // its words stay its name.
+    let line = |m: crate::activity::event_row::Mark, words: &str, kids: Vec<El>| {
+        row().key("notice").w_full().gap(8.0).center_y().min_h(20.0).role("status").label(words.to_owned())
+            .child(crate::activity::event_row::mark(p, m, words)).children(kids)
+    };
+    use crate::activity::event_row::Mark;
     match &n.kind {
         // Switching the agent changes who answers next, so it draws as the model's separator does
         // (`timeline-next/row.tsx`'s `switched`).
@@ -281,13 +287,17 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::compaction::divider_of(s, p, words, run)
         }
         NoticeKind::Instructions { sources } => {
-            let mut kids = vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.instructionsUpdated").into())];
+            let label = opencode_i18n::t!("ui.sessionTimeline.notice.instructionsUpdated");
+            let mut kids = vec![faint_med("label", label.into())];
             if !sources.is_empty() {
                 kids.push(faint("sources", sources.join(", ")));
             }
-            line(kids)
+            line(Mark::Updated, label, kids)
         }
-        NoticeKind::Restart => line(vec![faint_med("label", opencode_i18n::t!("ui.sessionTimeline.notice.restart").into())]),
+        NoticeKind::Restart => {
+            let label = opencode_i18n::t!("ui.sessionTimeline.notice.restart");
+            line(Mark::Info, label, vec![faint_med("label", label.into())])
+        }
         // Background work reporting back is an event (`noticeEvent`): a subagent's a row of its
         // own, a shell's counted ("Finished 1 shell").
         NoticeKind::Finished(f) if f.subagent => match crate::activity::events::notice_event(n) {
@@ -301,7 +311,7 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
         }
         NoticeKind::Idle => col(),
-        NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(vec![faint_med("label", t.clone())]),
+        NoticeKind::Text(t) | NoticeKind::Job { description: t, .. } => line(Mark::Info, t, vec![faint_med("label", t.clone())]),
         NoticeKind::Moved { directory } => {
             let words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0)
                 .child(text(opencode_i18n::t!("ui.sessionTimeline.notice.movedTo")).key("label").font(UI).color(p.faint))
