@@ -87,16 +87,22 @@ impl Updater {
 /// The install-on-quit hand-off, started by the last window's quit (`UpdaterService::quitting`).
 static QUIT_INSTALL: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
 
-fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) {
+fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) -> bool {
     let handle = std::thread::Builder::new().name("opencode-update-handoff".into()).spawn(move || platform.install_on_quit());
     if let Ok(handle) = handle {
         *QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+        return true;
     }
+    false
 }
 
 /// A confirmed save is the only call site that may hand off a replacement.
-pub fn confirmed(receipt: &crate::storage::ConfirmedQuit) {
-    if let Some(s) = SHARED.with_borrow_mut(Option::take) { s.borrow_mut().confirmed_quit(receipt); }
+pub fn confirmed(receipt: &crate::storage::ConfirmedQuit) -> bool {
+    SHARED.with_borrow_mut(Option::take).is_some_and(|s| s.borrow_mut().confirmed_quit(receipt))
+}
+
+pub fn resumed_quit() {
+    if let Some(s) = SHARED.with_borrow(Clone::clone) { s.borrow_mut().resume_quit(); }
 }
 
 /// Waits for an install-on-quit hand-off to finish starting its helper, which must exist before

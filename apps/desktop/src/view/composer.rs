@@ -22,14 +22,16 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
     };
     // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
     let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
-    col()
+    let dock=col()
         .key("dock")
         .w_full()
         .center()
         .px(crate::view::DOCK_SIDE)
         .pb(pb)
-        .children(queue)
-        .child(composer(s, p))
+        .children(queue);
+    #[cfg(windows)]
+    let dock=dock.children(s.recovered_notice(p));
+    dock.child(composer(s, p))
         .children(status)
 }
 

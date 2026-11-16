@@ -16,6 +16,10 @@ use crate::machine::checkpoint::{WalEvent, WalState};
 pub(super) enum Quit {
     Running,
     Quitting,
+    /// A reversible barrier: the connection, journal and producers are not closed. Keep
+    /// maintenance deadlines so a resume can run overdue work without creating a polling loop.
+    Saving(u64),
+    Saved(u64),
     Left,
 }
 
@@ -24,13 +28,57 @@ pub(super) fn is_quit(reason: FlushReason) -> bool {
 }
 
 impl Writer {
+    /// A command can be admitted while an earlier WAL sync is in the kernel. The save
+    /// attempt covers that command too. Catch up *here*, still reversible and with the
+    /// overdue deadline live, not in the later irreversible Stop handler. If the window
+    /// has resumed, leave the new epoch's queue entirely to the ordinary writer loop.
+    pub(super) fn save_through_queue(&mut self, queue: &super::super::SharedQueue, epoch: u64) -> Option<u64> {
+        use crate::machine::admission::State;
+        loop {
+            let batch = {
+                let mut q = super::super::lock_queue(queue);
+                if q.admission != State::Saving(epoch) { return None; }
+                q.commit_queued = false;
+                std::mem::take(&mut q.cmds)
+            };
+            self.quit = Quit::Saving(epoch);
+            for cmd in batch { self.handle(cmd); }
+            if self.flush(FlushReason::Quit, Instant::now()).unconfirmed { return None; }
+            self.quit_finish();
+            if self.quit != Quit::Left { self.quit = Quit::Saving(epoch); return None; }
+            let q = super::super::lock_queue(queue);
+            if q.admission != State::Saving(epoch) {
+                // Reapply ordinary maintenance admission on the next turn.
+                self.quit = Quit::Saving(epoch);
+                return None;
+            }
+            if q.cmds.is_empty() {
+                self.quit = Quit::Saved(epoch);
+                return Some(q.revision);
+            }
+        }
+    }
+
     /// The queue and its admission state were sampled under the same lock. A stale wake or a
     /// late FirstFrame message cannot restart maintenance after the producers have begun draining.
     pub(super) fn admission(&mut self, state: crate::machine::admission::State) {
-        if state != crate::machine::admission::State::Open && self.quit == Quit::Running {
-            self.quit = Quit::Quitting;
-            self.search.quitting();
-            self.timers.clear();
+        use crate::machine::admission::State;
+        match (state, self.quit) {
+            (State::Saving(k), Quit::Saved(old) | Quit::Saving(old)) if k == old => {}
+            (State::Saving(k), _) => self.quit = Quit::Saving(k),
+            (State::Open | State::Reopened(_), Quit::Saving(_) | Quit::Saved(_)) => {
+                self.quit = Quit::Running;
+                self.wal_event(WalEvent::Opened);
+            }
+            // A successful barrier already produced the durable copy. Preserve that receipt at
+            // close unless another command is actually drained (handle invalidates it).
+            (State::Draining | State::Sealed, Quit::Saved(_)) => self.search.quitting(),
+            (State::Draining | State::Sealed, Quit::Running | Quit::Saving(_)) => {
+                self.quit = Quit::Quitting;
+                self.search.quitting();
+                self.timers.clear();
+            }
+            _ => {}
         }
     }
     /// The quit's end, after its rows landed. On Windows and macOS (where the journal is proved):

@@ -161,6 +161,7 @@ impl App {
     /// The shown draft's tab closed but the draft stays (it can be reopened): it's parked as a
     /// tab switch parks it, its field's undo history with it, and the composer holds no draft.
     pub(crate) fn park_shown_draft(&mut self) {
+        self.park_undo();
         let Some(key) = self.restore.shown.take() else { return };
         self.add.swap_draft(Some(key.as_str()), None);
         let edit = (*self.composer).clone();

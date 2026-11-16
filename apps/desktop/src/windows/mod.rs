@@ -208,6 +208,10 @@ pub fn handle(id: &str) -> Option<WindowHandle> {
     OPEN.with(|o| o.borrow().iter().find(|w| w.id == id).map(|w| w.handle.clone()))
 }
 
+pub(crate) fn producers() -> Vec<(String, AppHandle<App>)> {
+    OPEN.with_borrow(|open| open.iter().map(|w| (w.id.clone(), w.app.clone())).collect())
+}
+
 /// A window's own reads and writes on `server`. The event stream is its server's, which every
 /// window on it shares (`peer`).
 pub fn connect(server: &opencode_kit::client::Server, wake: rune::Waker) -> (Sender<Request>, Sender<Write>, Receiver<Incoming>) {

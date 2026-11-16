@@ -93,6 +93,8 @@ pub(super) fn slow(what: &str, since: Instant) {
 
 pub(super) fn cmd_name(cmd: &Cmd) -> &'static str {
     match cmd {
+        #[cfg(windows)]
+        Cmd::RecoveryPick{..}=>"a recovered draft choice",
         Cmd::State { .. } => "a state row",
         Cmd::ClearState { .. } => "clearing a namespace",
         Cmd::Doc { .. } => "a document",

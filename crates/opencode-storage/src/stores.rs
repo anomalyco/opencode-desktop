@@ -46,6 +46,7 @@ impl StateStore<'_> {
     }
 
     fn put(&self, name: &str, key: &str, value: Option<Arc<str>>) -> u64 {
+        let Some(_permit) = self.storage.write_permit() else { return self.revision(name) };
         let revision = {
             let mut cache = self.storage.cache();
             if matches!(cache.get(name, key), Lookup::Ready(ref v) if *v == value) {
@@ -64,6 +65,7 @@ impl StateStore<'_> {
 
     /// Removes every row of `name` (a window closed for good).
     pub fn clear(&self, name: &str) -> u64 {
+        let Some(_permit) = self.storage.write_permit() else { return self.revision(name) };
         let revision = self.storage.cache().clear(name);
         self.storage.send(Cmd::ClearState { name: name.to_owned() });
         revision
@@ -127,6 +129,7 @@ impl DocumentStore<'_> {
     /// [`DocumentStore::set`] for a draft the journal recorded at revision `rev`
     /// ([`crate::journal::record`]): the database keeps the revision with it.
     pub fn set_rev(&self, key: &str, value: Option<String>, rev: u64) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         {
             let cache = self.storage.cache();
             let same = match (cache.docs.get(key), &value) {
@@ -194,6 +197,7 @@ impl WindowStore<'_> {
 
     /// Records the frame (coalesced for 250 ms). Call it when a move or resize settles and on close.
     pub fn set_frame(&self, id: &str, frame: WindowFrame) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         if self.storage.cache().windows.insert(id.to_owned(), frame) == Some(frame) {
             return;
         }
@@ -212,6 +216,7 @@ impl WindowStore<'_> {
     /// Window `id` closed for good while others stay: its frame, state and drafts go
     /// (Desktop's `registry.closed`).
     pub fn forget(&self, id: &str) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         let name = crate::window_namespace(id);
         let drafts = self.storage.documents().keys(&format!("{name}:"));
         #[cfg(not(target_arch = "wasm32"))]
@@ -236,6 +241,7 @@ impl PreviewStore<'_> {
     /// Sets (`Some((updated_at, bytes))`) or removes a session's preview (500 ms; an unchanged
     /// one writes nothing).
     pub fn set(&self, server: &str, session: &str, value: Option<(i64, Arc<[u8]>)>) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         let key = (server.to_owned(), session.to_owned());
         let sum = value.as_ref().map(|(at, data)| (*at, twox_hash::XxHash3_64::oneshot(data)));
         {
@@ -266,6 +272,7 @@ pub struct CacheStore<'a> {
 
 impl CacheStore<'_> {
     pub fn put(&self, key: &str, version: i64, data: Arc<[u8]>) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         let sum = (version, twox_hash::XxHash3_64::oneshot(&data));
         {
             let mut cache = self.storage.cache();
@@ -278,6 +285,7 @@ impl CacheStore<'_> {
     }
 
     pub fn discard(&self, key: &str) {
+        let Some(_permit) = self.storage.write_permit() else { return };
         self.storage.cache().cache_sums.remove(key);
         self.storage.send(Cmd::Cache { key: key.to_owned(), value: None });
     }

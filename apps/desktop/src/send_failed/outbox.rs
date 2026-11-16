@@ -199,10 +199,7 @@ impl App {
         sent.seq = store::next_seq();
         // Words that leave the composer leave its saved draft in the same transaction as their row.
         if self.route == Route::here(sent.session.clone()) && !self.composer.text.is_empty() && Entry::of(&self.composer) == sent.draft && self.unsent.store != Store::Memory {
-            sent.left_draft = crate::restore::draft_key(&self.route).and_then(|k| self.draft_document_of(&k));
-            if let Some(key) = &sent.left_draft {
-                sent.left_rev = crate::storage::hand_off_doc(key);
-            }
+            sent.left_draft = crate::restore::draft_key(&self.route).and_then(|k| self.hand_off_draft(&k));
         }
         let offline = crate::reconnect::down(self) || matches!(*self.source, Source::Live { writes: None, .. });
         sent.phase = if preparing { Phase::Preparing } else { Phase::Waiting { why: if offline { "waiting for connection".into() } else { String::new() } } };
