@@ -111,6 +111,7 @@ pub fn fault_text(fault: &Fault) -> String {
         Fault::Untrusted(Distrust::Rule) => t!("rune.browser.engine.fault.untrusted").to_owned(),
         Fault::NoSpace { need, free } => t!("rune.browser.engine.fault.noSpace", need = mb(need), free = mb(free)),
         Fault::DiskFull => t!("rune.browser.engine.fault.diskFull").to_owned(),
+        Fault::NoMemory => t!("rune.browser.engine.fault.noMemory").to_owned(),
         Fault::Write(error) => t!("rune.browser.engine.fault.write", error = error),
         Fault::Dirs(error) => t!("rune.browser.engine.fault.dirs", error = error),
         Fault::Busy => t!("rune.browser.engine.fault.busy").to_owned(),
@@ -120,6 +121,7 @@ pub fn fault_text(fault: &Fault) -> String {
         Fault::Exited(Some(code)) => t!("rune.browser.engine.fault.exited", code = format!("{code:#x}")),
         Fault::Exited(None) | Fault::Stopped => t!("rune.browser.engine.fault.stopped").to_owned(),
         Fault::Hung => t!("rune.browser.engine.fault.hung").to_owned(),
+        Fault::OutOfMemory => t!("rune.browser.engine.fault.outOfMemory").to_owned(),
     }
 }
 

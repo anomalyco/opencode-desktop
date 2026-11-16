@@ -32,13 +32,15 @@ zstd = { version = "0.13", default-features = false, optional = true }
 libc = { version = "0.2", optional = true }
 
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
-# thread priority and its pause checks (power line, connection cost).
+# thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended.
 [target.'cfg(windows)'.dependencies]
 authenticode = { path = "../authenticode", optional = true }
 uds_windows = { version = "1.1", optional = true }
 windows = { version = "0.62", optional = true, features = [
     "Networking_Connectivity",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_SystemInformation",
     "Win32_Storage_FileSystem",
     "Win32_System_Power",
     "Win32_System_Threading",

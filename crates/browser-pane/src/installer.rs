@@ -68,6 +68,9 @@ pub enum Fault {
     NoSpace { need: u64, free: u64 },
     /// A write found the disk full.
     DiskFull,
+    /// Installing couldn't get the memory it needs (a computer out of commit): the bytes so far
+    /// stay, and Retry goes on from there.
+    NoMemory,
     /// Writing the engine's files failed for another reason, in the OS's words.
     Write(String),
     /// The engine's folders couldn't be found or made (`what` says which, in English).
@@ -86,6 +89,8 @@ pub enum Fault {
     Exited(Option<u32>),
     /// The engine stopped after it ran (it crashed or was ended).
     Stopped,
+    /// The engine ended because the computer had no memory left to give it.
+    OutOfMemory,
     /// The engine runs but doesn't answer (Retry ends it and starts a new one).
     Hung,
 }
@@ -145,6 +150,7 @@ impl std::fmt::Display for Fault {
             Self::Untrusted(Distrust::Rule) => write!(f, "the archive isn't one this build trusts"),
             Self::NoSpace { need, free } => write!(f, "needs {} MB, {} MB free", mb(need), mb(free)),
             Self::DiskFull => write!(f, "the disk is full"),
+            Self::NoMemory => write!(f, "not enough memory to install the engine"),
             Self::Write(why) => write!(f, "couldn't write the engine's files: {why}"),
             Self::Dirs(what) => write!(f, "{what}"),
             Self::Busy => write!(f, "another app is downloading the engine"),
@@ -154,6 +160,7 @@ impl std::fmt::Display for Fault {
             Self::Exited(Some(code)) => write!(f, "the engine ended while starting (exit code {code:#010x})"),
             Self::Exited(None) => write!(f, "the engine ended while starting"),
             Self::Stopped => write!(f, "the engine stopped unexpectedly"),
+            Self::OutOfMemory => write!(f, "the engine ran out of memory"),
             Self::Hung => write!(f, "the engine isn't responding"),
         }
     }

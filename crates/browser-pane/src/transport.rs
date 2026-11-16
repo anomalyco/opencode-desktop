@@ -147,9 +147,9 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     *link.engine.lock().unwrap() = Some(child.id());
     let link = link.clone();
     let _ = std::thread::Builder::new().name("opencode-browser-watch".into()).spawn(move || {
-        wait_for_end(&mut child);
+        let code = wait_for_end(&mut child);
         *link.engine.lock().unwrap() = None;
-        lost(&link);
+        lost(&link, code);
     });
 }
 
@@ -189,7 +189,11 @@ fn exit_fault(child: &mut Child) -> Fault {
     if code.is_none() {
         let _ = child.kill();
     }
+    if let Some(code) = code {
+        eprintln!("browser engine: ended while starting with exit code {code:#010x}");
+    }
     match code {
+        Some(c) if out_of_memory(c) => Fault::OutOfMemory,
         // STATUS_INVALID_IMAGE_FORMAT, STATUS_DLL_NOT_FOUND, STATUS_ENTRYPOINT_NOT_FOUND.
         Some(c @ (0xC000_007B | 0xC000_0135 | 0xC000_0139)) if cfg!(windows) => Fault::Damaged(c),
         // STATUS_INVALID_IMAGE_HASH: code integrity refused one of its files.
@@ -212,12 +216,12 @@ fn discard(engine: &Installed) {
 /// with one of its threads still held in the kernel), and the engine's work all runs on its main
 /// thread, whose end is the process's. Like the process, the thread is a handle to wait on: no
 /// timer, no wake until it ends.
-fn wait_for_end(child: &mut Child) {
+fn wait_for_end(child: &mut Child) -> Option<u32> {
     #[cfg(windows)]
     if let Some(thread) = proc::main_thread(child.id()) {
         return proc::wait(thread);
     }
-    let _ = child.wait();
+    child.wait().ok()?.code().map(|c| c as u32)
 }
 
 /// Ends the engine this app started, at once (Retry, when it stopped answering). The watcher
@@ -270,12 +274,36 @@ mod proc {
     }
 
     #[cfg(windows)]
-    pub(super) fn wait(thread: HANDLE) {
-        use windows::Win32::System::Threading::{INFINITE, WaitForSingleObject};
-        // SAFETY: `thread` is ours until it's closed here.
+    /// Waits for the thread's end and returns its exit code (the process's, for its main thread).
+    pub(super) fn wait(thread: HANDLE) -> Option<u32> {
+        use windows::Win32::System::Threading::{GetExitCodeThread, INFINITE, WaitForSingleObject};
+        // SAFETY: `thread` is ours until it's closed here; `code` is ours to fill.
         unsafe {
             WaitForSingleObject(thread, INFINITE);
+            let mut code = 0u32;
+            let got = GetExitCodeThread(thread, &mut code).is_ok();
             let _ = CloseHandle(thread);
+            got.then_some(code)
+        }
+    }
+
+    /// Whether commit memory is short now: under 512 MB left on the computer, or this process's
+    /// job has reached its commit limit.
+    #[cfg(windows)]
+    pub(super) fn commit_short() -> bool {
+        use windows::Win32::System::JobObjects::{JOB_OBJECT_LIMIT_JOB_MEMORY, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, QueryInformationJobObject};
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        // SAFETY: both structures are ours to fill, with their sizes given.
+        unsafe {
+            let mut status = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+            if GlobalMemoryStatusEx(&mut status).is_ok() && status.ullAvailPageFile < 512 << 20 {
+                return true;
+            }
+            let mut job = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+            QueryInformationJobObject(None, JobObjectExtendedLimitInformation, (&raw mut job).cast(), size, None).is_ok()
+                && job.BasicLimitInformation.LimitFlags.0 & JOB_OBJECT_LIMIT_JOB_MEMORY.0 != 0
+                && job.PeakJobMemoryUsed.saturating_add(64 << 20) >= job.JobMemoryLimit
         }
     }
 
@@ -300,12 +328,35 @@ mod proc {
     }
 }
 /// The engine went away on its own (the app's `shutdown_sidecar` empties the outbox first): the
-/// pane says so, and Retry starts it again.
-fn lost(link: &Link) {
+/// pane says so, and Retry starts it again. The socket's end usually comes first, without the
+/// process's exit code; the process's end then names the cause when it was a lack of memory.
+fn lost(link: &Link, code: Option<u32>) {
+    if let Some(code) = code {
+        eprintln!("browser engine: ended with exit code {code:#010x}");
+    }
+    let fault = if code.is_some_and(out_of_memory) { Fault::OutOfMemory } else { Fault::Stopped };
     if link.outbox.lock().unwrap().take().is_some() {
         rune::marks::mark("browser.engine.lost");
         let _ = std::fs::remove_file(&link.sock);
-        link.set(EngineStatus::Failed(Fault::Stopped.into()));
+        return link.set(EngineStatus::Failed(fault.into()));
+    }
+    let stopped = matches!(&*link.status.lock().unwrap(), EngineStatus::Failed(f) if f.fault == Fault::Stopped);
+    if fault == Fault::OutOfMemory && stopped {
+        link.set(EngineStatus::Failed(fault.into()));
+    }
+}
+
+/// Whether a process that ended with `code` couldn't get memory: STATUS_NO_MEMORY,
+/// STATUS_COMMITMENT_LIMIT and Chromium's out-of-memory exception say so; a stack overflow (a stack
+/// that couldn't grow) and a fail-fast (Rust's abort on a failed allocation) say so only while
+/// commit is short.
+fn out_of_memory(code: u32) -> bool {
+    #[cfg(windows)]
+    return matches!(code, 0xC000_0017 | 0xC000_012D | 0xE000_0008) || (matches!(code, 0xC000_00FD | 0xC000_0409) && proc::commit_short());
+    #[cfg(not(windows))]
+    {
+        let _ = code;
+        false
     }
 }
 
@@ -478,7 +529,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 link.wake();
             }
             answers.end();
-            lost(&link);
+            lost(&link, None);
         })
         .ok();
 }

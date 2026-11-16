@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 use std::fs::{DirBuilder, OpenOptions};
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -23,19 +23,27 @@ pub(crate) enum UnpackError {
     Format,
     /// Writing a file failed.
     Write(Fault),
+    /// The decoder or its buffer couldn't get memory (a computer out of commit): the bytes so far
+    /// stay, and a retry goes on.
+    Memory,
 }
 
 /// Unpacks `archive` into `dest` (a fresh staging directory owned by the caller), calling `unpacked` with each file's path once
 /// it's whole and closed. Returns once the archive's end marker is read.
 pub(crate) fn tar_zst(archive: &mut dyn Read, dest: &Path, unpacked: &mut dyn FnMut(&Path)) -> Result<(), UnpackError> {
     // The decoder reads its input in large pieces (a download's reads are syscalls).
-    let mut zstd = zstd::stream::read::Decoder::new(archive).map_err(|_| UnpackError::Format)?;
+    // Making the decoder reads nothing: it fails only when its context can't be allocated.
+    let mut zstd = zstd::stream::read::Decoder::new(archive).map_err(|_| UnpackError::Memory)?;
     zstd.window_log_max(MAX_WINDOW_LOG).map_err(|_| UnpackError::Format)?;
     if !std::fs::symlink_metadata(dest).map_err(|e| UnpackError::Write(err_write(&e)))?.is_dir() {
         return Err(UnpackError::Format);
     }
     let mut made = HashSet::from([dest.to_owned()]);
-    let mut buf = vec![0u8; 1 << 20];
+    let mut buf = Vec::new();
+    #[cfg(feature = "faults")]
+    fault::memory()?;
+    buf.try_reserve_exact(1 << 20).map_err(|_| UnpackError::Memory)?;
+    buf.resize(1 << 20, 0);
     let mut header = [0u8; 512];
     loop {
         read_exact(&mut zstd, &mut header)?;
@@ -55,7 +63,8 @@ pub(crate) fn tar_zst(archive: &mut dyn Read, dest: &Path, unpacked: &mut dyn Fn
                 options.mode(0o644 | (mode & 0o111));
                 #[cfg(not(unix))]
                 let _ = mode;
-                let mut out = BufWriter::with_capacity(1 << 20, options.open(&path).map_err(create_error)?);
+                // Unbuffered: each write is a whole piece of up to 1 MB already.
+                let mut out = options.open(&path).map_err(create_error)?;
                 let mut left = entry.size;
                 while left > 0 {
                     let n = left.min(buf.len() as u64) as usize;
@@ -111,6 +120,14 @@ mod fault {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static WRITES: AtomicU64 = AtomicU64::new(0);
+    static MEMORY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// `OPENCODE_BROWSER_FAULT_NO_MEMORY=1`: the process's first unpack finds no memory for its
+    /// buffer, as on a computer out of commit.
+    pub(super) fn memory() -> Result<(), super::UnpackError> {
+        let on = std::env::var_os("OPENCODE_BROWSER_FAULT_NO_MEMORY").is_some_and(|v| v == "1");
+        if on && !MEMORY.swap(true, Ordering::Relaxed) { Err(super::UnpackError::Memory) } else { Ok(()) }
+    }
 
     pub(super) fn write() -> std::io::Result<()> {
         let fail_at = std::env::var_os("OPENCODE_BROWSER_FAULT_DISK_FULL").and_then(|n| n.to_str()?.parse::<u64>().ok());
@@ -131,6 +148,8 @@ fn read_exact(r: &mut dyn Read, buf: &mut [u8]) -> Result<(), UnpackError> {
             Ok(0) => return Err(UnpackError::Format),
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            // zstd's ZSTD_error_memory_allocation, which isn't the archive's fault.
+            Err(e) if e.to_string().contains("Allocation") => return Err(UnpackError::Memory),
             Err(_) => return Err(UnpackError::Format),
         }
     }
@@ -205,6 +224,7 @@ impl UnpackError {
         match self {
             UnpackError::Format => Cut::Rejected(Fault::Corrupt),
             UnpackError::Write(msg) => Cut::Failed(msg),
+            UnpackError::Memory => Cut::Failed(Fault::NoMemory),
         }
     }
 }
