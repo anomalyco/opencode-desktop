@@ -30,15 +30,18 @@ enum State {
     Empty(Save, Storage,u64),
     Durable(Save, Storage, u64),
     Committed,
+    /// A confirmed user quit that starts this app again (Tx::relaunch): never an install.
+    Relaunching,
     LostWindow(Save),
     Failed(Save, Option<Storage>),
 }
-enum Event { Install, Begin(Save, HashSet<String>), Window(Save, String), Lost(Save,String), Store(Save, Storage), Finished(Save, Option<u64>), MemoryResult(Save,volatile::Outcome), Discard(Ticket,Arc<volatile::Risk>), Outdated(Ticket, u64), Confirmed(Ticket), Resume(Ticket), NoStore(Save), Retry(Save) }
+enum Event { Install, Begin(Save, HashSet<String>), Window(Save, String), Lost(Save,String), Store(Save, Storage), Finished(Save, Option<u64>), MemoryResult(Save,volatile::Outcome), Discard(Ticket,Arc<volatile::Risk>), Outdated(Ticket, u64), Confirmed(Ticket, dq::Then), Resume(Ticket), NoStore(Save), Retry(Save) }
 enum Effect { None, Drain(Save), Barrier(Save, Storage), Check(Save,Storage), Release(Save, Storage), Receipt(Ticket, u64), Empty(Ticket,u64), Error(Ticket), Explain(Ticket), Force(Ticket) }
 fn step(state: &mut State, event: Event) -> Effect {
     match (&*state, event) {
         (State::Legacy, Event::Install) => { *state=State::Running; Effect::None }
-        (State::Durable(s,_,_), Event::Confirmed(k)) if s.ticket==k => { *state=State::Committed; Effect::None }
+        (State::Durable(s,_,_), Event::Confirmed(k,dq::Then::Exit)) if s.ticket==k => { *state=State::Committed; Effect::None }
+        (State::Durable(s,_,_), Event::Confirmed(k,dq::Then::Relaunch)) if s.ticket==k => { *state=State::Relaunching; Effect::None }
         (State::Fallback, Event::Begin(s, _)) => Effect::Empty(s.ticket,0),
         (State::Running, Event::Begin(s, ids)) if ids.is_empty() => { *state=State::Producers(s); Effect::Drain(s) }
         (State::Running, Event::Begin(s, ids)) => { *state=State::Windows(s,ids); Effect::None }
@@ -174,7 +177,7 @@ fn finish_window(a:&mut crate::App,host:rune::AppHandle<crate::App>,s:Save,id:St
     if a.quit_files_delivered(again.clone()) && a.quit_undo_delivered(again) { guard.0.lock().unwrap_or_else(|e|e.into_inner()).take(); send(Event::Window(s,id)); }
 }
 fn resumed(k:Ticket) { send(Event::Resume(k)); status::dismiss(); crate::updater::resumed_quit(); rune::marks::mark("save.resumed"); }
-fn confirmed(k:Ticket) { send(Event::Confirmed(k)); status::dismiss(); rune::marks::mark("save.confirmed"); }
+fn confirmed(k:Ticket,then:dq::Then) { send(Event::Confirmed(k,then)); status::dismiss(); rune::marks::mark("save.confirmed"); }
 /// A disk receipt alone cannot authorize an updater. On Windows, the OS may impose session
 /// end, even after cancelling a query. Only Rune's confirmed user-quit callback commits the
 /// install intent. Builds without this registration retain their ordinary receipt policy.
