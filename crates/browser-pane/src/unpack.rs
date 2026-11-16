@@ -11,7 +11,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::download::Cut;
-use crate::installer::{ENGINE_BUNDLE_NAME, ERR_VERIFY, err_write};
+use crate::installer::{ENGINE_BUNDLE_NAME, Fault, err_write};
 
 /// The largest zstd window this unpacks, as a power of two (package-windows.ps1 compresses at
 /// level 19: 8 MB).
@@ -21,8 +21,8 @@ pub(crate) enum UnpackError {
     /// It isn't an archive this unpacks, or the stream under it failed (the download's reader
     /// then knows why).
     Format,
-    /// Writing a file failed: the message to show.
-    Write(String),
+    /// Writing a file failed.
+    Write(Fault),
 }
 
 /// Unpacks `archive` into `dest` (a fresh staging directory owned by the caller), calling `unpacked` with each file's path once
@@ -203,7 +203,7 @@ impl UnpackError {
     /// never resumed, a failed write is.
     pub(crate) fn cut(self) -> Cut {
         match self {
-            UnpackError::Format => Cut::Rejected(ERR_VERIFY.into()),
+            UnpackError::Format => Cut::Rejected(Fault::Corrupt),
             UnpackError::Write(msg) => Cut::Failed(msg),
         }
     }

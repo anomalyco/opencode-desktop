@@ -37,31 +37,126 @@ pub const ENGINE_DOWNLOAD_MB: u64 = 131;
 #[cfg(windows)]
 pub const ENGINE_DOWNLOAD_MB: u64 = 142;
 
-pub const ERR_DOWNLOAD: &str = "Couldn't download the browser. Check your connection and try again.";
-pub(crate) const ERR_VERIFY: &str = "The browser download was damaged, so it wasn't installed. Try again.";
-pub(crate) const ERR_INSTALL: &str = "Couldn't install the browser. Check available disk space and try again.";
+/// The OS named no folder for the app's data (`Fault::Dirs`).
 #[cfg(feature = "engine")]
-pub(crate) const ERR_DIRS: &str = "Couldn't locate the browser's application directories.";
-pub(crate) const ERR_DISK_FULL: &str = "There isn't enough disk space to install the browser. Free some space and try again.";
-pub(crate) const ERR_NO_SOURCE: &str = "Browser isn't available for this platform yet.";
-pub const ERR_STOPPED: &str = "The browser stopped unexpectedly.";
-/// The engine runs but hasn't answered a request in time (Retry ends it and starts a new one).
-pub const ERR_HUNG: &str = "The browser isn't responding.";
+pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
 
-/// Not enough room for the download and what it unpacks to, said before it starts.
-pub(crate) fn err_disk_space(need: u64, free: u64) -> String {
-    let mb = |b: u64| b.div_ceil(1_000_000);
-    format!("The browser needs {} MB of disk space and {} MB are free. Free some space and try again.", mb(need), mb(free))
+/// What went wrong getting the engine or keeping it running: each one names its cause and what
+/// the user can do, and the app words it from its catalog (`Display` is the English the logs and
+/// the agent tools read).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Fault {
+    /// This build has no engine download for its platform, or its source lists none.
+    NotPublished,
+    /// The download's server couldn't be reached.
+    Unreachable { host: String, why: Net },
+    /// The server, a proxy or a filter refused the download (HTTP 401, 403, 407, 451).
+    Blocked { host: String, status: u16 },
+    /// The server answered with another error (404: the address is dead; 5xx: it's failing).
+    Server { host: String, status: u16 },
+    /// Something answered in the source's place with a page that isn't its index (a network's
+    /// sign-in page, a filter).
+    Unexpected { host: String },
+    /// The connection ended part-way: `have` of `total` bytes are kept, and Retry goes on from there.
+    Interrupted { have: u64, total: u64 },
+    /// The bytes aren't the archive the index names (its size or SHA-256 differ, or it doesn't
+    /// unpack): they're deleted, and Retry downloads it again.
+    Corrupt,
+    /// The archive isn't one this build trusts.
+    Untrusted(Distrust),
+    /// Before the download: the rest of it and what it unpacks to don't fit.
+    NoSpace { need: u64, free: u64 },
+    /// A write found the disk full.
+    DiskFull,
+    /// Writing the engine's files failed for another reason, in the OS's words.
+    Write(String),
+    /// The engine's folders couldn't be found or made (`what` says which, in English).
+    Dirs(&'static str),
+    /// Another app on this computer downloads the engine into the same folder right now.
+    Busy,
+    /// The OS refused to start the engine, in its words.
+    Launch(String),
+    /// Windows or security software stopped the engine from starting (an antivirus quarantine,
+    /// Smart App Control, a policy), in the OS's words.
+    Prevented(String),
+    /// The installed engine's files are missing or damaged (the loader's exit code): the version
+    /// is removed, and Retry downloads it again.
+    Damaged(u32),
+    /// The engine ended before it was ready, with this exit code.
+    Exited(Option<u32>),
+    /// The engine stopped after it ran (it crashed or was ended).
+    Stopped,
+    /// The engine runs but doesn't answer (Retry ends it and starts a new one).
+    Hung,
 }
 
-/// The download's server or the network in between refused it, with its HTTP status.
-pub(crate) fn err_blocked(status: u16) -> String {
-    format!("The browser download was blocked (HTTP {status}). Your network or administrator may not allow it.")
+/// Why a server couldn't be reached.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Net {
+    /// Its name didn't resolve (offline, or DNS).
+    NotFound,
+    /// Nothing answered on its address.
+    Refused,
+    TimedOut,
+    /// The secure connection failed (a proxy or security software that inspects TLS, a clock).
+    Secure,
+    /// The proxy failed.
+    Proxy,
+    Other,
 }
 
-/// The archive isn't one this build trusts: `why` names the rule it failed.
-pub(crate) fn err_untrusted(why: &str) -> String {
-    format!("The browser download couldn't be verified ({why}), so it wasn't installed.")
+/// Why an archive isn't trusted.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Distrust {
+    /// A program in it is signed by someone else.
+    Signer { file: String, signer: String },
+    /// A program in it has no valid signature.
+    Unsigned { file: String },
+    /// Where it came from or its hash isn't what this build accepts.
+    Rule,
+}
+
+impl Fault {
+    /// Whether Retry can help: a build with nothing published can't.
+    pub fn retryable(&self) -> bool {
+        !matches!(self, Self::NotPublished)
+    }
+
+    /// `url`'s host, as a fault names it.
+    #[cfg(feature = "engine")]
+    pub(crate) fn host(url: &str) -> String {
+        let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+        rest.split(['/', '?', '#']).next().unwrap_or_default().to_owned()
+    }
+}
+
+impl std::fmt::Display for Fault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mb = |b: &u64| b.div_ceil(1_000_000);
+        match self {
+            Self::NotPublished => write!(f, "this build has no browser engine download for its platform"),
+            Self::Unreachable { host, why } => write!(f, "couldn't reach {host} ({why:?})"),
+            Self::Blocked { host, status } | Self::Server { host, status } => write!(f, "{host} answered HTTP {status}"),
+            Self::Unexpected { host } => write!(f, "{host} answered with a page that isn't the engine's index"),
+            Self::Interrupted { have, total } => write!(f, "the download stopped at {} of {} MB", mb(have), mb(total)),
+            Self::Corrupt => write!(f, "the download didn't match its size and SHA-256"),
+            Self::Untrusted(Distrust::Signer { file, signer }) => write!(f, "{file} is signed by {signer}"),
+            Self::Untrusted(Distrust::Unsigned { file }) => write!(f, "{file} has no valid signature"),
+            Self::Untrusted(Distrust::Rule) => write!(f, "the archive isn't one this build trusts"),
+            Self::NoSpace { need, free } => write!(f, "needs {} MB, {} MB free", mb(need), mb(free)),
+            Self::DiskFull => write!(f, "the disk is full"),
+            Self::Write(why) => write!(f, "couldn't write the engine's files: {why}"),
+            Self::Dirs(what) => write!(f, "{what}"),
+            Self::Busy => write!(f, "another app is downloading the engine"),
+            Self::Launch(why) => write!(f, "couldn't start the engine: {why}"),
+            Self::Prevented(why) => write!(f, "the engine was prevented from starting: {why}"),
+            Self::Damaged(code) => write!(f, "the installed engine is damaged (exit code {code:#010x})"),
+            Self::Exited(Some(code)) => write!(f, "the engine ended while starting (exit code {code:#010x})"),
+            Self::Exited(None) => write!(f, "the engine ended while starting"),
+            Self::Stopped => write!(f, "the engine stopped unexpectedly"),
+            Self::Hung => write!(f, "the engine isn't responding"),
+        }
+    }
 }
 
 /// The engine's availability, one state machine that the pane and Settings read:
@@ -105,38 +200,32 @@ pub enum EngineStatus {
 /// waits for Retry).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Failure {
-    pub message: String,
+    pub fault: Fault,
     pub retry_at: Option<Instant>,
 }
 
 impl EngineStatus {
     /// The engine runs but didn't answer a request in time.
     pub fn is_hung(&self) -> bool {
-        matches!(self, Self::Failed(f) if f.message == ERR_HUNG)
+        matches!(self, Self::Failed(f) if f.fault == Fault::Hung)
     }
 }
 
 impl Failure {
-    pub fn retrying(message: impl Into<String>, at: Instant) -> Self {
-        Self { message: message.into(), retry_at: Some(at) }
+    pub fn retrying(fault: Fault, at: Instant) -> Self {
+        Self { fault, retry_at: Some(at) }
     }
 }
 
-impl From<String> for Failure {
-    fn from(message: String) -> Self {
-        Self { message, retry_at: None }
-    }
-}
-
-impl From<&str> for Failure {
-    fn from(message: &str) -> Self {
-        message.to_owned().into()
+impl From<Fault> for Failure {
+    fn from(fault: Fault) -> Self {
+        Self { fault, retry_at: None }
     }
 }
 
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        self.fault.fmt(f)
     }
 }
 
@@ -349,7 +438,7 @@ pub fn try_socket_path() -> Result<PathBuf, &'static str> {
     if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
         return custom_socket(Path::new(&custom));
     }
-    let dirs = engine_dirs().ok_or(ERR_DIRS)?;
+    let dirs = engine_dirs().ok_or(NO_DIRS)?;
     let name = socket_name();
     #[cfg(target_os = "linux")]
     {
@@ -436,13 +525,24 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A failed write's message: no space left, or another install failure.
+/// A failed write's fault: no space left, or the OS's words for what else went wrong (access
+/// denied, a path too long, a file held open).
 #[cfg(feature = "engine")]
-pub(crate) fn err_write(err: &std::io::Error) -> String {
+pub(crate) fn err_write(err: &std::io::Error) -> Fault {
     // ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL on Windows; ENOSPC, EDQUOT elsewhere.
     #[cfg(windows)]
     let full = matches!(err.raw_os_error(), Some(39 | 112));
     #[cfg(unix)]
     let full = matches!(err.raw_os_error(), Some(libc::ENOSPC | libc::EDQUOT));
-    if full || err.kind() == std::io::ErrorKind::StorageFull { ERR_DISK_FULL.into() } else { ERR_INSTALL.into() }
+    if full || err.kind() == std::io::ErrorKind::StorageFull { Fault::DiskFull } else { Fault::Write(err.to_string()) }
+}
+
+/// Removes an installed version whose files are damaged, so the next start downloads it again.
+/// A folder an engine still runs from stays (Windows refuses the move while its files are open).
+#[cfg(feature = "engine")]
+pub(crate) fn discard(root: &Path, version: Version) {
+    let trash = root.join(format!(".{version}.old-{}", std::process::id()));
+    if std::fs::rename(root.join(version.to_string()), &trash).is_ok() {
+        let _ = std::fs::remove_dir_all(&trash);
+    }
 }

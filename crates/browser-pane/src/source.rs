@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::installer::{ERR_DOWNLOAD, ERR_NO_SOURCE, Version, err_blocked, err_untrusted};
+use crate::installer::{Distrust, Fault, Version};
 
 // TODO(IMPORTANT before release): the engine's delivery and trust root are decided when the app
 // moves into the opencode repo: set OPENCODE_BROWSER_ENGINE_SOURCE (the index's URL) and
@@ -35,11 +35,18 @@ pub const TRUST: &str = match option_env!("OPENCODE_BROWSER_ENGINE_TRUST") {
     None => DEV_TRUST,
 };
 
-/// Windows: `bun apps/browser-engine/scripts/serve.ts` serves a local package here.
-#[cfg(windows)]
+/// Windows, a debug build: `bun apps/browser-engine/scripts/serve.ts` serves a local package here.
+/// A release build never reads it: on a user's computer nothing serves it (every download failed
+/// as "check your connection"), and the `local` rule would install whatever another program on
+/// that computer served there. Without a source a release build says none is published.
+#[cfg(all(windows, debug_assertions))]
 const DEV_SOURCE: &str = "http://127.0.0.1:47963/index.json";
-#[cfg(windows)]
+#[cfg(all(windows, debug_assertions))]
 const DEV_TRUST: &str = "local";
+#[cfg(all(windows, not(debug_assertions)))]
+const DEV_SOURCE: &str = "";
+#[cfg(all(windows, not(debug_assertions)))]
+const DEV_TRUST: &str = "";
 /// macOS: the one engine published so far, pinned by its hash.
 #[cfg(target_os = "macos")]
 const DEV_SOURCE: &str = "https://anoma.ly/release/opencode-rune/browser-engine/stable.json";
@@ -99,35 +106,37 @@ pub(crate) fn configured() -> bool {
 
 /// Reads the index and picks this platform's release: one the build accepts (its engine
 /// revision) from a source its trust rule allows.
-pub(crate) fn latest() -> Result<Release, String> {
+pub(crate) fn latest() -> Result<Release, Fault> {
     let (source, trust) = inputs();
     let source = source.trim();
     if source.is_empty() {
-        return Err(ERR_NO_SOURCE.into());
+        return Err(Fault::NotPublished);
     }
-    let trust = parse_trust(&trust).ok_or_else(|| err_untrusted("this build has no trust rule"))?;
+    let trust = parse_trust(&trust).ok_or(Fault::Untrusted(Distrust::Rule))?;
     if trust == Trust::Local && !is_local(source) {
-        return Err(err_untrusted("a remote source needs a publisher or hashes to trust"));
+        return Err(Fault::Untrusted(Distrust::Rule));
     }
-    let index: Value = serde_json::from_slice(&fetch_small(source)?).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+    // Not JSON: something between here and the source answered in its place (a network's
+    // sign-in page, a filter).
+    let index: Value = serde_json::from_slice(&fetch_small(source)?).map_err(|_| Fault::Unexpected { host: Fault::host(source) })?;
     let release = &index["release"];
-    let version = release["version"].as_str().and_then(Version::parse).ok_or_else(|| ERR_NO_SOURCE.to_owned())?;
+    let version = release["version"].as_str().and_then(Version::parse).ok_or(Fault::NotPublished)?;
     let target = &release["targets"][TARGET];
     let (Some(url), Some(size), Some(sha256)) = (target["url"].as_str(), target["size"].as_u64(), target["sha256"].as_str()) else {
-        return Err(ERR_NO_SOURCE.into());
+        return Err(Fault::NotPublished);
     };
     if !version.accepted() {
-        return Err(ERR_NO_SOURCE.into());
+        return Err(Fault::NotPublished);
     }
     let sha256 = sha256.to_ascii_lowercase();
     // Also used in the on-disk partial filename. Validate before treating it as a path component.
     if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(err_untrusted("the index has an invalid archive hash"));
+        return Err(Fault::Untrusted(Distrust::Rule));
     }
     if let Trust::Sha256(allowed) = &trust
         && !allowed.contains(&sha256)
     {
-        return Err(err_untrusted("its hash isn't one this build accepts"));
+        return Err(Fault::Untrusted(Distrust::Rule));
     }
     Ok(Release { version, url: resolve(source, url), size, sha256, trust })
 }
@@ -198,19 +207,14 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// The index, whole (it's a few hundred bytes; at most 1 MB is read).
-fn fetch_small(url: &str) -> Result<Vec<u8>, String> {
+fn fetch_small(url: &str) -> Result<Vec<u8>, Fault> {
     let mut body = Vec::new();
     if let Some(path) = file_path(url) {
-        std::fs::File::open(path).and_then(|f| f.take(1 << 20).read_to_end(&mut body)).map_err(|_| ERR_NO_SOURCE.to_owned())?;
+        std::fs::File::open(path).and_then(|f| f.take(1 << 20).read_to_end(&mut body)).map_err(|_| Fault::NotPublished)?;
         return Ok(body);
     }
     let agent = crate::download::agent(Duration::from_secs(15));
-    let mut resp = match agent.get(url).call() {
-        Ok(resp) => resp,
-        Err(ureq::Error::StatusCode(404)) => return Err(ERR_NO_SOURCE.into()),
-        Err(ureq::Error::StatusCode(code)) if crate::download::blocked(code) => return Err(err_blocked(code)),
-        Err(_) => return Err(ERR_DOWNLOAD.into()),
-    };
-    resp.body_mut().as_reader().take(1 << 20).read_to_end(&mut body).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+    let mut resp = agent.get(url).call().map_err(|e| crate::download::request_fault(url, e))?;
+    resp.body_mut().as_reader().take(1 << 20).read_to_end(&mut body).map_err(|e| crate::download::io_fault(url, &e))?;
     Ok(body)
 }

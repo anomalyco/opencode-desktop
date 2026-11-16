@@ -237,11 +237,11 @@ pub fn init_install(s: &mut App) {
             downloaded_bytes: 58_400_000,
             total_bytes: Some(128_352_035),
         },
-        2 => EngineStatus::Failed(browser_pane::ERR_DOWNLOAD.into()),
+        2 => EngineStatus::Failed(browser_pane::Fault::Unreachable { host: "anoma.ly".to_owned(), why: browser_pane::Net::NotFound }.into()),
         4 => EngineStatus::Verifying,
         5 => EngineStatus::Paused(browser_pane::PauseReason::OnBattery),
         // The engine went away with a page open.
-        _ => EngineStatus::Failed(browser_pane::ERR_STOPPED.into()),
+        _ => EngineStatus::Failed(browser_pane::Fault::Stopped.into()),
     };
     let id = s
         .browser

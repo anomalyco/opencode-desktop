@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread::JoinHandle;
 
-use crate::installer::err_untrusted;
+use crate::installer::{Distrust, Fault};
 use crate::source::Trust;
 
 pub(crate) struct Verifier {
     trust: Trust,
     queue: Option<Sender<PathBuf>>,
-    worker: Option<JoinHandle<Result<(), String>>>,
+    worker: Option<JoinHandle<Result<(), Fault>>>,
 }
 
 impl Verifier {
@@ -43,36 +43,36 @@ impl Verifier {
     }
 
     /// Every file is in `bundle`: the rule's answer.
-    pub(crate) fn finish(mut self, bundle: &Path) -> Result<(), String> {
+    pub(crate) fn finish(mut self, bundle: &Path) -> Result<(), Fault> {
         drop(self.queue.take());
         if let Some(worker) = self.worker.take() {
-            return worker.join().unwrap_or_else(|_| Err(err_untrusted("the check stopped")));
+            return worker.join().unwrap_or(Err(Fault::Untrusted(Distrust::Rule)));
         }
         match &self.trust {
             Trust::Publisher(team) if cfg!(target_os = "macos") => developer_id(bundle, team),
-            Trust::Publisher(_) => Err(err_untrusted("this platform can't check its publisher")),
+            Trust::Publisher(_) => Err(Fault::Untrusted(Distrust::Rule)),
             Trust::Local | Trust::Sha256(_) => Ok(()),
         }
     }
 }
 
 #[cfg(windows)]
-fn signed_by(file: &Path, name: &str) -> Result<(), String> {
+fn signed_by(file: &Path, name: &str) -> Result<(), Fault> {
     let shown = file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned());
     match authenticode::signer(file) {
         Ok(signer) if signer == name => Ok(()),
-        Ok(signer) => Err(err_untrusted(&format!("{shown} is signed by {signer}, not {name}"))),
-        Err(why) => Err(err_untrusted(&format!("{shown}: {why}"))),
+        Ok(signer) => Err(Fault::Untrusted(Distrust::Signer { file: shown, signer })),
+        Err(_) => Err(Fault::Untrusted(Distrust::Unsigned { file: shown })),
     }
 }
 
 #[cfg(not(windows))]
-fn signed_by(_file: &Path, _name: &str) -> Result<(), String> {
-    Err(err_untrusted("this platform can't check its publisher"))
+fn signed_by(_file: &Path, _name: &str) -> Result<(), Fault> {
+    Err(Fault::Untrusted(Distrust::Rule))
 }
 
 /// macOS: the bundle and everything in it is signed by Developer ID team `team`, unaltered.
-fn developer_id(bundle: &Path, team: &str) -> Result<(), String> {
+fn developer_id(bundle: &Path, team: &str) -> Result<(), Fault> {
     let requirement = format!("=anchor apple generic and certificate leaf[subject.OU] = \"{team}\"");
     let ok = std::process::Command::new("/usr/bin/codesign")
         .args(["--verify", "--deep", "--strict", "-R"])
@@ -80,5 +80,5 @@ fn developer_id(bundle: &Path, team: &str) -> Result<(), String> {
         .arg(bundle)
         .status()
         .is_ok_and(|s| s.success());
-    if ok { Ok(()) } else { Err(err_untrusted(&format!("it isn't signed by {team}"))) }
+    if ok { Ok(()) } else { Err(Fault::Untrusted(Distrust::Unsigned { file: crate::installer::ENGINE_BUNDLE_NAME.to_owned() })) }
 }

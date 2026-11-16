@@ -13,7 +13,7 @@ use rune::time::Instant;
 use rune::Waker;
 
 use crate::frame::{self, TabSurface};
-use crate::installer::{ERR_HUNG, ERR_STOPPED, EngineStatus};
+use crate::installer::{self, EngineStatus, Fault, Installed};
 use crate::profile;
 use crate::protocol::{EngineMsg, HostMsg};
 
@@ -99,16 +99,22 @@ fn chromium_locale(id: &str) -> &str {
 
 /// Starts the engine and connects to it as soon as it listens (it says so on its output), on
 /// the calling thread.
-pub(crate) fn spawn_and_attach(bin: &Path, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
+pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, mach_service: Option<String>, link: &Link) {
     let _ = std::fs::remove_file(sock);
     // This app has no engine running (its socket didn't answer), so a held profile is an
     // engine on its way out, most likely the shared one from before per-app engines.
     profile::wait_until_free(profile, profile::UNLOCK_WAIT);
-    let mut child = match engine_command(bin, sock, profile).spawn() {
+    let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
-        Err(e) => return link.set(EngineStatus::Failed(format!("Couldn't start the browser: {e}").into())),
+        Err(e) => {
+            let fault = spawn_fault(&e);
+            if matches!(fault, Fault::Damaged(_)) {
+                discard(engine);
+            }
+            return link.set(EngineStatus::Failed(fault.into()));
+        }
     };
-    let Some(stdout) = child.stdout.take() else { return link.set(EngineStatus::Failed(ERR_STOPPED.into())) };
+    let Some(stdout) = child.stdout.take() else { return link.set(EngineStatus::Failed(Fault::Exited(None).into())) };
     let (said, heard) = mpsc::channel();
     let _ = std::thread::Builder::new().name("opencode-browser-listen".into()).spawn(move || {
         let mut line = String::new();
@@ -116,16 +122,27 @@ pub(crate) fn spawn_and_attach(bin: &Path, sock: &Path, profile: &Path, mach_ser
     });
     match heard.recv_timeout(LISTEN_TIMEOUT) {
         Ok(true) => {}
-        // It exited (or hung) before it listened.
-        _ => {
+        // It ended before it listened: its exit code says whether its files are damaged.
+        Ok(false) => {
+            let fault = exit_fault(&mut child);
+            if matches!(fault, Fault::Damaged(_)) {
+                discard(engine);
+            }
+            return link.set(EngineStatus::Failed(fault.into()));
+        }
+        // It didn't listen in time: Retry ends it and starts a new one.
+        Err(_) => {
             let _ = child.kill();
-            return link.set(EngineStatus::Failed(ERR_STOPPED.into()));
+            return link.set(EngineStatus::Failed(Fault::Hung.into()));
         }
     }
     rune::marks::mark("browser.engine.listening");
     match UnixStream::connect(sock) {
         Ok(stream) => wire_stream(stream, mach_service, link),
-        Err(_) => return link.set(EngineStatus::Failed(ERR_STOPPED.into())),
+        Err(_) => {
+            let _ = child.kill();
+            return link.set(EngineStatus::Failed(Fault::Stopped.into()));
+        }
     }
     *link.engine.lock().unwrap() = Some(child.id());
     let link = link.clone();
@@ -134,6 +151,59 @@ pub(crate) fn spawn_and_attach(bin: &Path, sock: &Path, profile: &Path, mach_ser
         *link.engine.lock().unwrap() = None;
         lost(&link);
     });
+}
+
+/// Why the OS refused to start the engine: its files are damaged (the program is gone or isn't
+/// one), security software or a policy stopped it, or something else, in the OS's words.
+fn spawn_fault(err: &std::io::Error) -> Fault {
+    #[cfg(windows)]
+    match err.raw_os_error() {
+        // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_BAD_EXE_FORMAT, ERROR_EXE_MACHINE_TYPE_MISMATCH.
+        Some(code @ (2 | 3 | 193 | 216)) => return Fault::Damaged(code as u32),
+        // ERROR_ACCESS_DENIED, ERROR_VIRUS_INFECTED, ERROR_VIRUS_DELETED, ERROR_ACCESS_DISABLED_NO_SAFER_UI_BY_POLICY,
+        // ERROR_ACCESS_DISABLED_BY_POLICY, ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (Smart App Control, App Control).
+        Some(5 | 225 | 226 | 786 | 1260 | 4551) => return Fault::Prevented(err.to_string()),
+        _ => {}
+    }
+    #[cfg(unix)]
+    if matches!(err.kind(), std::io::ErrorKind::NotFound) {
+        return Fault::Damaged(err.raw_os_error().unwrap_or_default() as u32);
+    }
+    Fault::Launch(err.to_string())
+}
+
+/// The engine closed its output before it listened: it's ending (Windows can take a moment to
+/// report it). The Windows loader's exit codes mean files of the install are missing or damaged.
+fn exit_fault(child: &mut Child) -> Fault {
+    let code = (0..40)
+        .find_map(|_| match child.try_wait() {
+            Ok(Some(status)) => Some(status.code()),
+            Ok(None) => {
+                std::thread::sleep(Duration::from_millis(50));
+                None
+            }
+            Err(_) => Some(None),
+        })
+        .flatten()
+        .map(|c| c as u32);
+    if code.is_none() {
+        let _ = child.kill();
+    }
+    match code {
+        // STATUS_INVALID_IMAGE_FORMAT, STATUS_DLL_NOT_FOUND, STATUS_ENTRYPOINT_NOT_FOUND.
+        Some(c @ (0xC000_007B | 0xC000_0135 | 0xC000_0139)) if cfg!(windows) => Fault::Damaged(c),
+        // STATUS_INVALID_IMAGE_HASH: code integrity refused one of its files.
+        Some(0xC000_0428) if cfg!(windows) => Fault::Prevented(format!("exit code {:#010x}", 0xC000_0428u32)),
+        code => Fault::Exited(code),
+    }
+}
+
+/// Removes a downloaded engine whose files are damaged, so Retry downloads it again (an engine
+/// named by the environment is left alone).
+fn discard(engine: &Installed) {
+    if let (Some(version), Some(root)) = (engine.version, installer::try_engines_root()) {
+        installer::discard(&root, version);
+    }
 }
 
 /// Blocks until the engine has stopped running. On Windows that's its main thread's end: a
@@ -235,7 +305,7 @@ fn lost(link: &Link) {
     if link.outbox.lock().unwrap().take().is_some() {
         rune::marks::mark("browser.engine.lost");
         let _ = std::fs::remove_file(&link.sock);
-        link.set(EngineStatus::Failed(ERR_STOPPED.into()));
+        link.set(EngineStatus::Failed(Fault::Stopped.into()));
     }
 }
 
@@ -311,7 +381,7 @@ impl Answers {
             }
             rune::marks::mark("browser.engine.hung");
             let mut status = link.status.lock().unwrap();
-            a.hung = Some(std::mem::replace(&mut *status, EngineStatus::Failed(ERR_HUNG.into())));
+            a.hung = Some(std::mem::replace(&mut *status, EngineStatus::Failed(Fault::Hung.into())));
             drop(status);
             link.wake();
         }

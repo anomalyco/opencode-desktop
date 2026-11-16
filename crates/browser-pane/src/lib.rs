@@ -46,7 +46,7 @@ pub use address::{bare_url, host_of, resolve_address};
 pub use client::BrowserHost;
 pub use client::BrowserTab;
 pub use frame::TabSurface;
-pub use installer::{ENGINE_DOWNLOAD_MB, ENGINE_REVISION, ERR_DOWNLOAD, ERR_STOPPED, EngineStatus, Failure, PauseReason, Version};
+pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;

@@ -12,7 +12,7 @@ use rune::time::Instant;
 
 use sha2::{Digest, Sha256};
 
-use crate::installer::{ERR_DOWNLOAD, ERR_VERIFY, err_blocked, err_write};
+use crate::installer::{Fault, Net, err_write};
 use crate::source;
 
 /// How fast the next bytes may come, asked before each read from the source.
@@ -30,11 +30,11 @@ pub(crate) enum Pace {
 pub(crate) enum Cut {
     /// `pace` said stop; the partial file keeps what came.
     Stopped,
-    /// The network or the disk failed: the message the pane shows. The bytes so far stay.
-    Failed(String),
-    /// The bytes don't check out (size, hash, archive, trust rule): the message the pane shows.
-    /// The partial file goes, so the next try starts over.
-    Rejected(String),
+    /// The network or the disk failed. The bytes so far stay.
+    Failed(Fault),
+    /// The bytes don't check out (size, hash, archive, trust rule). The partial file goes, so
+    /// the next try starts over.
+    Rejected(Fault),
 }
 
 /// HTTP statuses that mean someone refused the download (a proxy, a filter, the server), not
@@ -83,13 +83,13 @@ impl<'a> Body<'a> {
         total: u64,
         progress: &'a mut dyn FnMut(u64, u64),
         pace: &'a mut dyn FnMut() -> Pace,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Fault> {
         if let Some(dir) = partial.parent() {
             std::fs::create_dir_all(dir).map_err(|e| err_write(&e))?;
         }
         let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(partial).map_err(|e| err_write(&e))?;
         // Locked while open, so two apps sharing the engine folder never write it at once.
-        file.try_lock().map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        file.try_lock().map_err(|_| Fault::Busy)?;
         let mut have = file.metadata().map_or(0, |m| m.len());
         if have > total {
             file.set_len(0).map_err(|e| err_write(&e))?;
@@ -143,15 +143,20 @@ impl<'a> Body<'a> {
             match self.read(&mut rest) {
                 Ok(0) => break,
                 Ok(_) => {}
-                Err(_) => return Err(self.cut.take().unwrap_or_else(|| Cut::Failed(ERR_DOWNLOAD.into()))),
+                Err(_) => return Err(self.cut.take().unwrap_or_else(|| Cut::Failed(self.interrupted()))),
             }
         }
         let _ = self.partial.flush();
         if self.have != self.total {
-            return Err(Cut::Rejected(ERR_VERIFY.into()));
+            return Err(Cut::Rejected(Fault::Corrupt));
         }
         (self.progress)(self.have, self.total);
         Ok(format!("{:x}", self.hasher.finalize()))
+    }
+
+    /// The connection ended part-way: what the partial file keeps for the next try.
+    fn interrupted(&self) -> Fault {
+        Fault::Interrupted { have: self.have.max(self.resumed_at), total: self.total }
     }
 
     fn fail(&mut self, cut: Cut) -> std::io::Error {
@@ -182,7 +187,10 @@ impl<'a> Body<'a> {
         let Some(source) = self.source.as_mut() else { return Ok(0) };
         let n = match source.read(&mut buf[..chunk]) {
             Ok(n) => n,
-            Err(_) => return Err(self.fail(Cut::Failed(ERR_DOWNLOAD.into()))),
+            Err(_) => {
+                let cut = Cut::Failed(self.interrupted());
+                return Err(self.fail(cut));
+            }
         };
         if n == 0 {
             return Ok(0);
@@ -204,7 +212,8 @@ impl Read for Body<'_> {
         let n = if self.replay > 0 {
             let want = buf.len().min(self.replay.min(usize::MAX as u64) as usize);
             match self.partial.read(&mut buf[..want]) {
-                Ok(0) | Err(_) => return Err(self.fail(Cut::Failed(ERR_DOWNLOAD.into()))),
+                Ok(0) => return Err(self.fail(Cut::Rejected(Fault::Corrupt))),
+                Err(e) => return Err(self.fail(Cut::Failed(err_write(&e)))),
                 Ok(n) => {
                     self.replay -= n as u64;
                     n
@@ -214,7 +223,7 @@ impl Read for Body<'_> {
             self.read_source(buf)?
         };
         if self.have + n as u64 > self.total {
-            return Err(self.fail(Cut::Rejected(ERR_VERIFY.into())));
+            return Err(self.fail(Cut::Rejected(Fault::Corrupt)));
         }
         self.hasher.update(&buf[..n]);
         self.have += n as u64;
@@ -233,10 +242,10 @@ enum Opened {
     Whole(Box<dyn Read + Send>),
 }
 
-fn open_source(url: &str, from: u64) -> Result<Opened, String> {
+fn open_source(url: &str, from: u64) -> Result<Opened, Fault> {
     if let Some(path) = source::file_path(url) {
-        let mut file = File::open(path).map_err(|_| ERR_DOWNLOAD.to_owned())?;
-        file.seek(SeekFrom::Start(from)).map_err(|_| ERR_DOWNLOAD.to_owned())?;
+        let mut file = File::open(path).map_err(|_| Fault::NotPublished)?;
+        file.seek(SeekFrom::Start(from)).map_err(|e| err_write(&e))?;
         return Ok(Opened::From(Box::new(file)));
     }
     let agent = agent(Duration::from_secs(30));
@@ -250,7 +259,7 @@ fn open_source(url: &str, from: u64) -> Result<Opened, String> {
             // `bytes <start>-<end>/<total>`: the rest must start where the partial file ends.
             let start = resp.headers().get("content-range").and_then(|v| v.to_str().ok()).and_then(|r| r.strip_prefix("bytes ")?.split('-').next()?.parse::<u64>().ok());
             if resumed && start != Some(from) {
-                return Err(ERR_DOWNLOAD.into());
+                return Err(Fault::Unexpected { host: Fault::host(url) });
             }
             let reader: Box<dyn Read + Send> = Box::new(resp.into_body().into_reader());
             Ok(if resumed || from == 0 { Opened::From(reader) } else { Opened::Whole(reader) })
@@ -259,7 +268,41 @@ fn open_source(url: &str, from: u64) -> Result<Opened, String> {
         Err(ureq::Error::StatusCode(416)) if from > 0 => open_source(url, 0).map(|o| match o {
             Opened::From(r) | Opened::Whole(r) => Opened::Whole(r),
         }),
-        Err(ureq::Error::StatusCode(code)) if blocked(code) => Err(err_blocked(code)),
-        Err(_) => Err(ERR_DOWNLOAD.into()),
+        Err(e) => Err(request_fault(url, e)),
     }
+}
+
+/// A request's failure: refused (`blocked`), an error status, or why the server was out of reach.
+pub(crate) fn request_fault(url: &str, err: ureq::Error) -> Fault {
+    // The transport's own words, for the log a user can send.
+    eprintln!("browser engine: {url}: {err}");
+    let host = Fault::host(url);
+    let why = match err {
+        ureq::Error::StatusCode(status) if blocked(status) => return Fault::Blocked { host, status },
+        ureq::Error::StatusCode(status) => return Fault::Server { host, status },
+        ureq::Error::Io(e) => return io_fault(url, &e),
+        ureq::Error::HostNotFound => Net::NotFound,
+        ureq::Error::ConnectionFailed => Net::Refused,
+        ureq::Error::Timeout(_) => Net::TimedOut,
+        ureq::Error::Tls(_) | ureq::Error::Pem(_) | ureq::Error::Rustls(_) => Net::Secure,
+        ureq::Error::ConnectProxyFailed(_) | ureq::Error::InvalidProxyUrl => Net::Proxy,
+        _ => Net::Other,
+    };
+    Fault::Unreachable { host, why }
+}
+
+/// A socket's failure before any of the archive came.
+pub(crate) fn io_fault(url: &str, err: &std::io::Error) -> Fault {
+    use std::io::ErrorKind;
+    // WSAHOST_NOT_FOUND, WSATRY_AGAIN, WSANO_DATA: the name didn't resolve.
+    if cfg!(windows) && matches!(err.raw_os_error(), Some(11001 | 11002 | 11004)) {
+        return Fault::Unreachable { host: Fault::host(url), why: Net::NotFound };
+    }
+    let why = match err.kind() {
+        ErrorKind::ConnectionRefused => Net::Refused,
+        ErrorKind::TimedOut => Net::TimedOut,
+        ErrorKind::HostUnreachable | ErrorKind::NetworkUnreachable | ErrorKind::NetworkDown => Net::NotFound,
+        _ => Net::Other,
+    };
+    Fault::Unreachable { host: Fault::host(url), why }
 }

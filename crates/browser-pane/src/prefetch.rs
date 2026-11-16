@@ -16,7 +16,7 @@ use rune::Waker;
 
 use crate::background;
 use crate::download::{Body, Cut, Pace};
-use crate::installer::{self, ENGINE_BUNDLE_NAME, ERR_INSTALL, ERR_VERIFY, EngineStatus, Failure, err_write};
+use crate::installer::{self, ENGINE_BUNDLE_NAME, EngineStatus, Failure, Fault, err_write};
 use crate::source::{self, Release};
 use crate::trust::Verifier;
 use crate::unpack;
@@ -93,13 +93,13 @@ impl Prefetch {
     pub(crate) fn start(self: &Arc<Self>, mode: Mode, status: Arc<Mutex<EngineStatus>>, waker: Option<Waker>) {
         if !source::configured() {
             if mode == Mode::Urgent {
-                set(&status, waker.as_ref(), EngineStatus::Failed(installer::ERR_NO_SOURCE.into()));
+                set(&status, waker.as_ref(), EngineStatus::Failed(Fault::NotPublished.into()));
             }
             return;
         }
         let Some(root) = installer::try_engines_root() else {
             if mode == Mode::Urgent {
-                set(&status, waker.as_ref(), EngineStatus::Failed(installer::ERR_DIRS.into()));
+                set(&status, waker.as_ref(), EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
             }
             return;
         };
@@ -216,7 +216,7 @@ impl Job {
 
     /// A try failed: true when the job gives up (a page waits, or it has tried enough), else it
     /// waits out its backoff.
-    fn failed(&self, err: String, attempts: &mut u32) -> bool {
+    fn failed(&self, err: Fault, attempts: &mut u32) -> bool {
         log(&format!("browser engine: {err}"));
         *attempts += 1;
         if self.urgent() || *attempts >= MAX_ATTEMPTS {
@@ -240,7 +240,7 @@ impl Job {
         let have = std::fs::metadata(&partial).map_or(0, |m| m.len()).min(release.size);
         let need = (release.size - have).saturating_add(release.size.saturating_mul(3));
         if let Some(free) = background::free_space(root).filter(|&free| free < need) {
-            return Err(Cut::Failed(installer::err_disk_space(need, free)));
+            return Err(Cut::Failed(Fault::NoSpace { need, free }));
         }
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
         let _ = std::fs::remove_dir_all(&staging);
@@ -304,7 +304,7 @@ impl Job {
         let tar_zst = release.url.split('?').next().is_some_and(|u| u.ends_with(".tar.zst"));
         #[cfg(not(target_os = "macos"))]
         if !tar_zst {
-            return Err(Cut::Rejected(ERR_VERIFY.into()));
+            return Err(Cut::Rejected(Fault::Corrupt));
         }
         let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
         // A first try unpacks as the bytes arrive. A resumed one downloads the rest first and
@@ -314,7 +314,7 @@ impl Job {
         let streamed = if stream_unpack {
             unpack::tar_zst(&mut body, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)
         } else {
-            std::io::copy(&mut body, &mut std::io::sink()).map(|_| ()).map_err(|_| Cut::Failed(installer::ERR_DOWNLOAD.into()))
+            std::io::copy(&mut body, &mut std::io::sink()).map(|_| ()).map_err(|_| Cut::Failed(Fault::Interrupted { have: 0, total: release.size }))
         };
         if let Err(cut) = streamed {
             return Err(body.cut().cloned().unwrap_or(cut));
@@ -326,7 +326,7 @@ impl Job {
             self.report(EngineStatus::Verifying);
         }
         if sha256 != release.sha256 {
-            return Err(Cut::Rejected(ERR_VERIFY.into()));
+            return Err(Cut::Rejected(Fault::Corrupt));
         }
         if tar_zst && !stream_unpack {
             let mut archive = std::io::BufReader::new(std::fs::File::open(partial).map_err(|e| Cut::Failed(err_write(&e)))?);
@@ -339,7 +339,7 @@ impl Job {
         verifier.finish(&staging.join(ENGINE_BUNDLE_NAME)).map_err(Cut::Rejected)?;
         rune::marks::mark("browser.engine.verified");
         if !installer::bin_in(staging).is_file() {
-            return Err(Cut::Failed(ERR_INSTALL.into()));
+            return Err(Cut::Rejected(Fault::Corrupt));
         }
         #[cfg(target_os = "linux")]
         {
@@ -348,7 +348,7 @@ impl Job {
             for program in [bin.with_file_name("opencode-browser-engine-helper"), bin] {
                 let executable = program.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o100 != 0);
                 if !executable {
-                    return Err(Cut::Rejected(ERR_VERIFY.into()));
+                    return Err(Cut::Rejected(Fault::Corrupt));
                 }
             }
         }
@@ -377,7 +377,7 @@ impl Job {
 #[cfg(target_os = "macos")]
 fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
     let ok = std::process::Command::new("/usr/bin/ditto").args(["-x", "-k"]).arg(archive).arg(staging).status().is_ok_and(|s| s.success());
-    if ok { Ok(()) } else { Err(Cut::Failed(ERR_INSTALL.into())) }
+    if ok { Ok(()) } else { Err(Cut::Rejected(Fault::Corrupt)) }
 }
 
 fn set(status: &Mutex<EngineStatus>, waker: Option<&Waker>, next: EngineStatus) {

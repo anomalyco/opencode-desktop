@@ -6,7 +6,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::client::BrowserHost;
-use crate::installer::{self, EngineStatus};
+use crate::installer::{self, EngineStatus, Fault};
 #[cfg(target_os = "macos")]
 use crate::mach_pipe::MachReceiver;
 use crate::prefetch::Mode;
@@ -123,7 +123,7 @@ impl BrowserHost {
         let sock = match self.engine_socket() {
             Ok(path) => path,
             Err(err) => {
-                *self.status.lock().unwrap() = EngineStatus::Failed(err.into());
+                *self.status.lock().unwrap() = EngineStatus::Failed(Fault::Dirs(err).into());
                 return;
             }
         };
@@ -145,7 +145,7 @@ impl BrowserHost {
                 return wire_stream(stream, mach_service, &link);
             }
             let Some(profile) = profile else {
-                return link.set(EngineStatus::Failed(installer::ERR_DIRS.into()));
+                return link.set(EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
             };
             let Some(engine) = installer::installed() else {
                 *link.status.lock().unwrap() = EngineStatus::NotInstalled;
@@ -155,7 +155,7 @@ impl BrowserHost {
                 return prefetch.start(Mode::Urgent, link.status.clone(), link.waker.clone());
             };
             rune::marks::mark("browser.engine.spawn");
-            spawn_and_attach(&engine.bin, &sock, &profile, mach_service, &link);
+            spawn_and_attach(&engine, &sock, &profile, mach_service, &link);
             // Earlier versions this one replaces, now nothing starts them (for a page only: an
             // engine started ahead of one leaves the folder alone).
             if start == Start::ForPage
@@ -166,7 +166,7 @@ impl BrowserHost {
             }
         });
         if spawned.is_err() {
-            *self.status.lock().unwrap() = EngineStatus::Failed(installer::ERR_STOPPED.into());
+            *self.status.lock().unwrap() = EngineStatus::Failed(Fault::Launch("no thread to start it on".to_owned()).into());
         }
     }
 }

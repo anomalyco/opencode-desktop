@@ -2,7 +2,7 @@
 //! state in their place (its first-use download, the download's progress, why it failed, or
 //! that this build has none).
 
-use browser_pane::{ENGINE_DOWNLOAD_MB, EngineStatus};
+use browser_pane::{Distrust, ENGINE_DOWNLOAD_MB, EngineStatus, Fault, Net};
 use rune::{Anim, Cursor, El, Spring, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -49,7 +49,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .on_press(|s: &mut App| s.start_browser_install())
                     .child(text(opencode_i18n::t!("plugin.file.view.download")).font(UI_MED).color(p.q.submit_text)),
             ),
-        EngineStatus::Failed(msg) => col()
+        EngineStatus::Failed(failure) => col()
             .key("browser-download-failed")
             .grow(1.0)
             .w_full()
@@ -57,8 +57,8 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             .padding(28.0)
             .gap(14.0)
             .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
-            .child(text(msg.message).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
-            .child(
+            .child(text(fault_text(&failure.fault)).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+            .children(failure.fault.retryable().then(|| {
                 el().key("browser-retry-btn")
                     .role("button")
                     .label_static(opencode_i18n::t!("rune.browser.engine.retryDownload"))
@@ -72,8 +72,8 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .hover(p.hover)
                     .hover_motion(INSTANT, INSTANT)
                     .on_press(|s: &mut App| s.start_browser_install())
-                    .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text)),
-            ),
+                    .child(text(opencode_i18n::t!("rune.home.noServer.retryShort")).font(UI_MED).color(p.text))
+            })),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
             let tab = s.browser.host.tab(tab_id)?;
             // `embeds.View`: the page on the pane's base background, 10 pt corners where it meets
@@ -89,6 +89,38 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .child(s.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.browser.host, App::focus_browser_page))
         }
     })
+}
+
+/// What failed, why, and what to do, in the app's language.
+pub fn fault_text(fault: &Fault) -> String {
+    use opencode_i18n::t;
+    let mb = |b: &u64| b.div_ceil(1_000_000);
+    match fault {
+        Fault::NotPublished => t!("rune.browser.engine.fault.notPublished").to_owned(),
+        Fault::Unreachable { host, why: Net::NotFound } => t!("rune.browser.engine.fault.offline", host = host),
+        Fault::Unreachable { host, why: Net::Secure } => t!("rune.browser.engine.fault.secure", host = host),
+        Fault::Unreachable { host, why: Net::Proxy } => t!("rune.browser.engine.fault.proxy", host = host),
+        Fault::Unreachable { host, why: Net::Refused | Net::TimedOut | Net::Other } => t!("rune.browser.engine.fault.connect", host = host),
+        Fault::Blocked { host, status } => t!("rune.browser.engine.fault.blocked", host = host, status = status),
+        Fault::Server { host, status } => t!("rune.browser.engine.fault.server", host = host, status = status),
+        Fault::Unexpected { host } => t!("rune.browser.engine.fault.unexpected", host = host),
+        Fault::Interrupted { have, total } => t!("rune.browser.engine.fault.interrupted", have = mb(have), total = mb(total)),
+        Fault::Corrupt => t!("rune.browser.engine.fault.corrupt").to_owned(),
+        Fault::Untrusted(Distrust::Signer { file, signer }) => t!("rune.browser.engine.fault.signer", file = file, signer = signer),
+        Fault::Untrusted(Distrust::Unsigned { file }) => t!("rune.browser.engine.fault.unsigned", file = file),
+        Fault::Untrusted(Distrust::Rule) => t!("rune.browser.engine.fault.untrusted").to_owned(),
+        Fault::NoSpace { need, free } => t!("rune.browser.engine.fault.noSpace", need = mb(need), free = mb(free)),
+        Fault::DiskFull => t!("rune.browser.engine.fault.diskFull").to_owned(),
+        Fault::Write(error) => t!("rune.browser.engine.fault.write", error = error),
+        Fault::Dirs(error) => t!("rune.browser.engine.fault.dirs", error = error),
+        Fault::Busy => t!("rune.browser.engine.fault.busy").to_owned(),
+        Fault::Launch(error) => t!("rune.browser.engine.fault.launch", error = error),
+        Fault::Prevented(error) => t!("rune.browser.engine.fault.prevented", error = error),
+        Fault::Damaged(code) => t!("rune.browser.engine.fault.damaged", code = format!("{code:#x}")),
+        Fault::Exited(Some(code)) => t!("rune.browser.engine.fault.exited", code = format!("{code:#x}")),
+        Fault::Exited(None) | Fault::Stopped => t!("rune.browser.engine.fault.stopped").to_owned(),
+        Fault::Hung => t!("rune.browser.engine.fault.hung").to_owned(),
+    }
 }
 
 /// The engine download's progress: a label, the megabytes so far (rolling) when known, and a bar
