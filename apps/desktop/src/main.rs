@@ -234,6 +234,8 @@ mod stop;
 mod stop_stories;
 mod stories;
 mod storage;
+#[cfg(all(windows, not(feature = "hot")))]
+mod quit_save;
 #[path = "stream/pace.rs"]
 mod stream_pace;
 #[path = "stream/line_grow_story.rs"]
@@ -1291,6 +1293,8 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= session_menu::preferences::poll(s);
     changed |= s.poll_places(now, tx);
     s.poll_undo(now, tx);
+    #[cfg(windows)]
+    { changed |= s.poll_recovered(); }
     reconnect::audit(s);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
@@ -1619,19 +1623,28 @@ fn quit_last() {
     opencode_storage::journal::freeze_for_handoff();
     // Landed and closed: the file's lock goes before the update helper takes over.
     let receipt = storage::close();
+    let mut replacing = false;
     if let Some(receipt) = receipt {
         rune::marks::mark("storage.flushed");
-        updater::confirmed(&receipt);
-        updater::finish_quit();
+        #[cfg(windows)]
+        let may_install = quit_save::permits_update();
+        #[cfg(not(windows))]
+        let may_install = true;
+        if may_install {
+            replacing = updater::confirmed(&receipt);
+            updater::finish_quit();
+            rune::marks::mark("quit.update_handed_off");
+        }
     }
-    rune::release_instance();
+    // The helper waits for this PID, not for a storage receipt or the end of
+    // diagnostics. Do not admit a second writable app ahead of that boundary.
+    if !replacing { rune::release_instance(); }
     // Nothing of the app's is left to lose: whatever the rest waits on, the process ends within
     // 2 s, saying what it waited for. A training build (`scripts/pgo.ps1`) writes ~50 MB of counts
     // last; on a loaded machine that outlasted 2 s and left truncated, unmergeable files.
     rune::exit_deadline(std::time::Duration::from_secs(if cfg!(pgo_generate) { 120 } else { 2 }));
     QUIT_DIAGNOSTICS.with(|d| if let Some(d) = d.borrow_mut().take() { d.shutdown() });
     rune::marks::mark("diagnostics.stopped");
-    rune::marks::mark("quit.update_handed_off");
     launch::trace::finish(windows::opened());
     launch::write_profile();
 }
@@ -1667,9 +1680,25 @@ fn main() {
     }
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
-    storage::start();
-    if !headless() && !rune::single_instance(&launch::instance_id()) {
-        return launch::trace::finish(0);
+    #[cfg(all(windows, not(feature = "hot")))]
+    {
+        if !headless() {
+            quit_save::install();
+            rune::marks::mark("instance.claim");
+            loop {match rune::deferred_quit::claim(&launch::instance_id()) {
+                rune::deferred_quit::Claim::Primary=>break,
+                rune::deferred_quit::Claim::Delivered|rune::deferred_quit::Claim::LegacyDelivery=>return launch::trace::finish(0),
+                rune::deferred_quit::Claim::StillClosing=>if !quit_save::retry_closing(){return launch::trace::finish(0)},
+                rune::deferred_quit::Claim::Unresponsive=>return quit_save::unavailable(),
+            }}
+        }
+        storage::start();
+    }
+    #[cfg(any(not(windows), feature = "hot"))]
+    {
+        // Keep the legacy launch and quit protocol on every unqualified window backend.
+        storage::start();
+        if !headless() && !rune::single_instance(&launch::instance_id()) { return launch::trace::finish(0); }
     }
     storage::claimed();
     notifications::take_activation(rune::extra_args());

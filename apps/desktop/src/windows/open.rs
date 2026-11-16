@@ -197,6 +197,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_focus(|s, focused, _| {
             s.window.hidden &= !focused;
             if focused {
+                #[cfg(all(windows,not(feature="hot")))]
+                crate::quit_save::workspace_activity();
                 super::focused(&s.window.id);
                 s.reload_recent_on_focus();
                 s.taskbar_focused();
@@ -211,6 +213,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             s.save_on_close();
         })
         .on_rest(crate::App::rest);
+    #[cfg(all(windows,not(feature="hot")))]
+    let app=app.on_quit_committed(crate::App::finish_confirmed_quit);
     let mut spec = WindowSpec::from_app(format!("window-{id}"), app);
     // A harness's launch on the visible desktop: a process the user didn't start can't come to
     // the front, so its window would open behind theirs, covered, and stop drawing. Above every

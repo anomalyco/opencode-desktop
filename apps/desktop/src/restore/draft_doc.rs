@@ -29,7 +29,7 @@ pub struct Blobs {
     /// Bytes sent to be stored and hashed, not yet answered.
     asked: HashSet<usize>,
     /// Answers from the storage thread, for the next poll.
-    arrived: Arc<Mutex<Vec<Arrival>>>,
+    arrived: Arc<Mutex<Inbox>>,
     /// Restored files whose bytes are still on their way, by draft key: their entries as stored.
     pending: HashMap<String, Vec<Value>>,
     /// Grows when what the drafts' documents name changes (an id known, a file in).
@@ -41,11 +41,31 @@ enum Arrival {
     Read { draft: String, entry: Value, file: Option<Attachment> },
 }
 
+#[derive(Default)]
+struct Inbox {
+    items: Vec<Arrival>,
+    #[cfg(windows)]
+    after_id: Option<Box<dyn FnOnce()+Send>>,
+}
+
+impl Inbox {
+    fn stored(inbox:&Mutex<Self>, item:Arrival){
+        let mut batch=inbox.lock().unwrap_or_else(|e|e.into_inner());
+        batch.items.push(item);
+        #[cfg(windows)] {
+            let notify=batch.after_id.take();drop(batch);
+            if let Some(notify)=notify{notify();}
+        }
+    }
+}
+
 fn address(bytes: &Arc<[u8]>) -> usize {
     Arc::as_ptr(bytes).cast::<u8>() as usize
 }
 
 impl Blobs {
+    #[cfg(windows)]
+    pub(super) fn knows(&self, bytes:&Arc<[u8]>) -> bool { self.id(bytes).is_some() }
     fn id(&self, bytes: &Arc<[u8]>) -> Option<&str> {
         let (weak, id) = self.ids.get(&address(bytes))?;
         weak.upgrade().is_some_and(|b| Arc::ptr_eq(&b, bytes)).then_some(id.as_str())
@@ -177,6 +197,11 @@ pub(super) fn decode(d: &Value) -> Decoded {
 }
 
 impl App {
+    #[cfg(windows)]
+    pub(super) fn replace_draft_files(&mut self,key:&str,stored:Vec<Value>){
+        self.restore.blobs.pending.remove(key);
+        self.read_draft_files(key,stored);
+    }
     /// Draft `key`'s restored files whose bytes are in `blob`: read on the storage thread, they
     /// join the draft at a later poll.
     pub(super) fn read_draft_files(&mut self, key: &str, stored: Vec<Value>) {
@@ -192,7 +217,7 @@ impl App {
                 let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
                 s.documents().get_blob(&id, Box::new(move |bytes| {
                     let file = bytes.and_then(|b| Some(Attachment { mime: entry["mime"].as_str()?.to_owned(), name: entry["name"].as_str()?.to_owned(), bytes: Arc::from(b), media: None }));
-                    arrived.lock().unwrap_or_else(|e| e.into_inner()).push(Arrival::Read { draft, entry, file });
+                    arrived.lock().unwrap_or_else(|e| e.into_inner()).items.push(Arrival::Read { draft, entry, file });
                     if let Some(w) = wake {
                         w();
                     }
@@ -209,23 +234,32 @@ impl App {
             .files
             .iter()
             .chain(self.restore.parked.values().flat_map(|p| &p.files))
-            .filter(|f| f.media.is_none() && !f.bytes.is_empty())
+            .filter(|f| f.media.is_none())
             .map(|f| f.bytes.clone())
             .filter(|b| self.restore.blobs.id(b).is_none() && !self.restore.blobs.asked.contains(&address(b)))
             .collect();
         for bytes in fresh {
             self.restore.blobs.asked.insert(address(&bytes));
             let (arrived, wake) = (self.restore.blobs.arrived.clone(), (*self.waker).clone());
-            crate::storage::with_storage(move |s| {
+            let store=move ||crate::storage::with_storage(move |s| {
                 let (at, weak) = (address(&bytes), Arc::downgrade(&bytes));
                 let id = s.documents().put_blob(bytes);
-                arrived.lock().unwrap_or_else(|e| e.into_inner()).push(Arrival::Stored { at, bytes: weak, id });
+                Inbox::stored(&arrived,Arrival::Stored { at, bytes: weak, id });
                 if let Some(w) = wake {
                     w();
                 }
             });
+            #[cfg(not(target_arch="wasm32"))] crate::plugin_host::tasks::run(move ||{
+                store();
+                // A quit before the first visible frame can park the host before
+                // its Presented event. Start adoption off-frame in that case:
+                // the hash closure is in `queued.later`; waiting for the final
+                // producer before starting adoption would wait for itself.
+                #[cfg(windows)] if !crate::storage::is_ready(){let _=crate::storage::barrier_store();}
+            });
+            #[cfg(target_arch="wasm32")] store();
         }
-        let arrived = std::mem::take(&mut *self.restore.blobs.arrived.lock().unwrap_or_else(|e| e.into_inner()));
+        let arrived = std::mem::take(&mut self.restore.blobs.arrived.lock().unwrap_or_else(|e| e.into_inner()).items);
         let mut shown = false;
         for a in arrived {
             self.restore.blobs.revision += 1;
@@ -235,13 +269,16 @@ impl App {
                     self.restore.blobs.ids.insert(at, (bytes, id));
                 }
                 Arrival::Read { draft, entry, file } => {
+                    // A held or temporarily unreadable store can't return the image bytes.
+                    // Keep its persisted reference until we actually have the attachment.
+                    let Some(file) = file else { continue };
                     if let Some(list) = self.restore.blobs.pending.get_mut(&draft) {
-                        list.retain(|e| *e != entry);
+                        let Some(pos)=list.iter().position(|e| *e==entry) else{continue};
+                        list.remove(pos);
                         if list.is_empty() {
                             self.restore.blobs.pending.remove(&draft);
                         }
-                    }
-                    let Some(file) = file else { continue };
+                    } else { continue; }
                     let id = entry["blob"]["id"].as_str().unwrap_or_default().to_owned();
                     self.restore.blobs.ids.insert(address(&file.bytes), (Arc::downgrade(&file.bytes), id));
                     if self.composer_holds(&draft) {
@@ -254,6 +291,21 @@ impl App {
             }
         }
         shown
+    }
+
+    /// The save producer isn't finished when it submitted a hash job. It is
+    /// finished when the document naming those bytes has entered storage.
+    /// Register under the same lock as delivery so no completion can slip
+    /// between inspecting the inbox and arming the next UI turn.
+    #[cfg(windows)]
+    pub(crate) fn quit_files_delivered(&mut self,notify:impl FnOnce()+Send+'static)->bool{
+        if self.restore.blobs.asked.is_empty(){return true}
+        self.poll_restore();
+        if self.restore.blobs.asked.is_empty(){return true}
+        let mut inbox=self.restore.blobs.arrived.lock().unwrap_or_else(|e|e.into_inner());
+        if inbox.items.iter().any(|i|matches!(i,Arrival::Stored{..})){drop(inbox);notify();}
+        else {inbox.after_id=Some(Box::new(notify));}
+        false
     }
 
     /// Draft `key`'s files still on their way from the database, as stored.

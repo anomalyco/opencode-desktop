@@ -18,7 +18,7 @@ mod layout;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use layout::{Found, Header, Pos, Region, Seg};
@@ -96,7 +96,7 @@ struct Inner {
 pub(crate) struct Journal {
     /// The UI thread's one writer at a time: a write that finds it taken is skipped, never waited.
     busy: AtomicBool,
-    open: AtomicBool,
+    life: AtomicU8,
     seq: AtomicU64,
     inner: UnsafeCell<Inner>,
     /// What the writer has committed: key → the newest seq in the database.
@@ -115,6 +115,11 @@ unsafe impl Send for Journal {}
 
 static JOURNAL: OnceLock<Journal> = OnceLock::new();
 
+/// Frozen stops new records but still permits the exclusive file owner to certify the
+/// settled header. Closed is final, including abandonment of a damaged database.
+#[repr(u8)]
+enum Life { Recording, Frozen, Closed }
+
 /// Structural work is rare (open only); recording a key never takes this lock. At handoff,
 /// wait out a setup already in progress and then exclude a late reservation or attach. This
 /// also protects a successor built before the file lease existed.
@@ -129,7 +134,15 @@ pub(super) fn placement() -> Option<std::sync::RwLockReadGuard<'static, Placemen
 pub fn freeze_for_handoff() {
     let mut placement = PLACEMENT.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     *placement = Placement::Frozen;
-    finish(false);
+    freeze();
+}
+
+pub(super) fn freeze() {
+    let Some(j) = JOURNAL.get() else { return };
+    if j.life.compare_exchange(Life::Recording as u8, Life::Frozen as u8, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        // Any writer still between admission and publication rechecks life under busy.
+        while j.busy.load(Ordering::Acquire) { std::hint::spin_loop(); }
+    }
 }
 
 /// Whether `key` is a window's draft document (`opencode.window.<id>.dat:draft:<tab>`).
@@ -151,13 +164,13 @@ pub fn record(key: &str, text: Option<&str>) -> u64 {
     if JOURNAL.get().is_none() && !(HOLDING.load(Ordering::Acquire) && hold(key, text)) {
         return 0;
     }
-    let Some(j) = JOURNAL.get().filter(|j| j.open.load(Ordering::Acquire)) else { return 0 };
+    let Some(j) = JOURNAL.get().filter(|j| j.life.load(Ordering::Acquire) == Life::Recording as u8) else { return 0 };
     let seq = j.seq.fetch_add(1, Ordering::AcqRel) + 1;
     if j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
         return seq;
     }
     // `finish` may have frozen the mapping between the initial check and taking `busy`.
-    if !j.open.load(Ordering::Acquire) {
+    if j.life.load(Ordering::Acquire) != Life::Recording as u8 {
         j.busy.store(false, Ordering::Release);
         return 0;
     }
@@ -213,7 +226,7 @@ pub(crate) fn forget_window(namespace: &str) {
 pub(crate) fn finish(saved: bool) {
     let Some(j) = JOURNAL.get() else { return };
     // Closed already: abandoned with a damaged file, which is left as it was found.
-    if !j.open.swap(false, Ordering::AcqRel) {
+    if j.life.swap(Life::Closed as u8, Ordering::AcqRel) == Life::Closed as u8 {
         return;
     }
     while j.busy.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
@@ -230,7 +243,7 @@ pub(crate) fn finish(saved: bool) {
     let settled = j.settled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let all = inner.index.iter().all(|(k, e)| e.at.is_none() || settled.get(k).is_some_and(|s| *s >= e.seq));
     drop(settled);
-    if saved && all {
+    if all && !inner.header.clean {
         inner.reset(j.seq.load(Ordering::Acquire));
     }
     j.busy.store(false, Ordering::Release);
@@ -362,10 +375,11 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
         Some(h) if !fresh && h.instance == loc.instance => {
             let mut found = Vec::new();
             if !h.clean {
+                rune::marks::mark("journal.scan");
                 for half in 0..2 {
                     region.scan(half, h.gens[half], &mut found);
                 }
-            }
+            } else { rune::marks::mark("journal.clean"); }
             (h, found)
         }
         _ if fresh => {
@@ -388,9 +402,10 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
     for f in newest.into_values() {
         inner.index.insert(f.key, Entry { seq: f.seq, at: Some((f.half, f.at, f.len)) });
     }
-    let j = Journal { busy: AtomicBool::new(false), open: AtomicBool::new(true), seq: AtomicU64::new(top), inner: UnsafeCell::new(inner), settled: Mutex::new(HashMap::new()), instance: loc.instance };
+    let j = Journal { busy: AtomicBool::new(false), life: AtomicU8::new(Life::Recording as u8), seq: AtomicU64::new(top), inner: UnsafeCell::new(inner), settled: Mutex::new(HashMap::new()), instance: loc.instance };
     // A journal that held records starts this run on a fresh half: they're copied forward.
     if !recovered.is_empty() {
+        rune::marks::mark("journal.recover_switch");
         #[allow(unsafe_code)]
         unsafe { &mut *j.inner.get() }.switch(&j, "");
     }
@@ -417,7 +432,7 @@ pub(crate) fn attach(db: &Path, loc: &Location, fresh: bool, now_us: u64) -> Res
 pub(crate) fn abandon() {
     ABANDONED.store(true, Ordering::Release);
     if let Some(j) = JOURNAL.get() {
-        j.open.store(false, Ordering::Release);
+        j.life.store(Life::Closed as u8, Ordering::Release);
     }
     decided();
 }

@@ -57,6 +57,10 @@ impl PluginStore<'_> {
     /// Writes plugin `id`'s whole record in one durable transaction; `done` runs once it is
     /// (`synchronous = FULL`), or with why it isn't.
     pub fn record(&self, id: &str, record: PluginRecord, done: Option<Done>) {
+        let Some(_permit) = self.storage.write_permit() else {
+            if let Some(done) = done { done(Err(crate::StorageError("the workspace is closing".into()))); }
+            return;
+        };
         {
             let mut cache = self.storage.cache();
             match record.enabled {

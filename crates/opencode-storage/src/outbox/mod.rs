@@ -21,7 +21,17 @@ use crate::{Cmd, Done, Loaded, OutboxRow, Storage, StorageError};
 pub struct OutboxPut {
     pub row: OutboxRow,
     pub blobs: Vec<(String, Arc<[u8]>)>,
-    pub clear_documents: Vec<(String, u64)>,
+    pub clear_documents: Vec<DraftHandoff>,
+}
+
+/// Only the first outbox row can remove its source document. On Windows the
+/// expected value is the snapshot that left the editor, not a later draft
+/// written under the same key while startup or attachment preparation ran.
+#[derive(Clone)]
+pub struct DraftHandoff {
+    pub key: String,
+    pub revision: u64,
+    #[cfg(windows)] pub expected: Arc<str>,
 }
 
 /// Builds a prompt's first row, on the storage thread.

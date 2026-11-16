@@ -7,6 +7,8 @@ mod boot;
 mod bootcopy;
 mod dbfile;
 mod lease;
+#[cfg(windows)]
+pub mod recovery;
 mod walstamp;
 pub mod boot_record;
 pub mod import;
@@ -16,6 +18,10 @@ pub mod search;
 pub mod seed;
 pub(crate) mod sql;
 mod writer;
+#[cfg(windows)]
+mod workspace;
+#[cfg(windows)]
+pub use workspace::OriginalFile;
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
@@ -144,6 +150,13 @@ pub(crate) enum Writer {
 /// wake-up of its own; anything else, or a write to a buffer with no timer armed, wakes it at once.
 #[derive(Default)]
 pub(crate) struct Queue {
+    #[cfg(windows)]
+    volatile: Option<Box<recovery::MemoryDrafts>>,
+    /// Monotone across saves and resumes. A dequeue does not rewind this watermark.
+    revision: u64,
+    /// Mutators between changing their cache/journal and submitting their command(s).
+    producers: usize,
+    pub(crate) activity: Activity,
     admission: crate::machine::admission::State,
     queries: search::query::Lane,
     pub(crate) cmds: Vec<Cmd>,
@@ -153,7 +166,17 @@ pub(crate) struct Queue {
     pub(crate) commit_queued: bool,
 }
 
+/// What the writer is doing, for a non-waking sample at a quit request. A database sync or
+/// checkpoint blocked in the kernel is Working, not idle just because it is off CPU.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Activity { #[default] Working, Receiving }
+
 pub(crate) type SharedQueue = Arc<Mutex<Queue>>;
+
+pub(crate) struct Producer<'a>(&'a SharedQueue);
+impl Drop for Producer<'_> {
+    fn drop(&mut self) { lock_queue(self.0).producers -= 1; }
+}
 
 pub(crate) fn lock_queue(q: &SharedQueue) -> std::sync::MutexGuard<'_, Queue> {
     q.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -163,15 +186,51 @@ pub(crate) struct Backend {
     writer: Mutex<Writer>,
     queue: SharedQueue,
     urgent: Arc<AtomicU64>,
+    origin: Backing,
 }
 
+/// `Writer::Off` is also reached when a persistent writer fails or closes. Only a store
+/// constructed in memory may take the volatile-exit path; never downgrade a failed save.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Backing { Memory, Database }
+
 impl Backend {
+    pub(crate) fn producer(&self) -> Option<Producer<'_>> {
+        let mut q = lock_queue(&self.queue);
+        if !q.admission.admits() { return None; }
+        q.producers += 1;
+        Some(Producer(&self.queue))
+    }
+
+    /// The UI commit point: no worker, disk, or contended mutex wait. Covers even a producer
+    /// that has published to the cache but hasn't reached enqueue yet. A false result is not
+    /// permission to exit. A true result closes the very gate used by all following submissions.
+    pub(crate) fn try_compare(&self, epoch: u64, revision: u64, terminal: bool) -> bool {
+        use crate::machine::admission::{self, Event, State};
+        let Ok(mut q) = self.queue.try_lock() else { return false };
+        if q.admission != State::Saving(epoch) || q.revision != revision || q.producers != 0 { return false; }
+        if terminal { admission::step(&mut q.admission, Event::Certify(epoch)); }
+        true
+    }
     pub(crate) fn memory() -> Backend {
-        Backend { writer: Mutex::new(Writer::Off), queue: SharedQueue::default(), urgent: Arc::default() }
+        let q=Queue{#[cfg(windows)] volatile:Some(Box::default()),..Queue::default()};
+        Backend { origin: Backing::Memory, writer: Mutex::new(Writer::Off), queue: Arc::new(Mutex::new(q)), urgent: Arc::default() }
     }
 
     pub(crate) fn parked(w: writer::Writer) -> Backend {
-        Backend { writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() }
+        Backend { origin: Backing::Database, writer: Mutex::new(Writer::Parked(Box::new(w))), queue: SharedQueue::default(), urgent: Arc::default() }
+    }
+
+    pub(crate) fn memory_only(&self) -> bool { self.origin == Backing::Memory }
+
+    #[cfg(windows)]
+    pub(crate) fn seed_memory(&self,c:&crate::cache::Cache){if let Some(v)=lock_queue(&self.queue).volatile.as_mut(){v.baseline(c);}}
+    #[cfg(windows)]
+    pub(crate) fn memory_drafts(&self,epoch:u64)->Option<recovery::MemoryDrafts>{
+        use crate::machine::admission::{self,Event,State};
+        let mut q=lock_queue(&self.queue);
+        if epoch!=0 { admission::step(&mut q.admission,Event::Save(epoch));if q.admission!=State::Saving(epoch){return None} }
+        let mut copy=q.volatile.as_deref()?.clone();copy.revision=q.revision;Some(copy)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Writer> {
@@ -212,11 +271,17 @@ impl Backend {
     }
 
     pub(crate) fn send(&self, cmd: Cmd) {
+        let Some(_submission) = self.producer() else { return answer_closed(cmd) };
         let mut w = self.lock();
         let tx = match &*w {
             Writer::Running { tx, .. } => tx,
             _ => {
-                let Some(tx) = self.sender_locked(&mut w) else { drop(w); return answer_offline(cmd) };
+                let Some(tx) = self.sender_locked(&mut w) else {
+                    drop(w);
+                    #[cfg(windows)]
+                    { let mut q=lock_queue(&self.queue);if q.volatile.as_mut().is_some_and(|v|v.observe(&cmd)){q.revision=q.revision.checked_add(1).expect("storage revision exhausted");} }
+                    return answer_offline(cmd)
+                };
                 if self.enqueue(cmd) { tx.send(writer::Msg::Wake).ok(); }
                 return;
             }
@@ -237,6 +302,7 @@ impl Backend {
             q.commit_queued = true;
         }
         let wake = q.armed & cmd.buffer() == 0;
+        q.revision = q.revision.checked_add(1).expect("storage revision exhausted");
         q.cmds.push(cmd);
         wake
     }
@@ -285,6 +351,35 @@ impl Backend {
         }
     }
 
+    pub(crate) fn writer_idle(&self) -> Option<bool> {
+        let q = self.queue.try_lock().ok()?;
+        Some(q.activity == Activity::Receiving && q.cmds.is_empty())
+    }
+
+    pub(crate) fn barrier(&self, epoch: u64, done: Box<dyn FnOnce(Option<u64>) + Send>) {
+        use crate::machine::admission::{self, Event, State};
+        let mut slot = self.lock();
+        let mut q = lock_queue(&self.queue);
+        admission::step(&mut q.admission, Event::Save(epoch));
+        let accepted = q.admission == State::Saving(epoch);
+        drop(q);
+        let tx = accepted.then(|| self.sender_locked(&mut slot)).flatten();
+        let Some(tx) = tx else { drop(slot); return done(None) };
+        self.urgent.fetch_add(1, Ordering::Release);
+        let result = tx.send(writer::Msg::Barrier { epoch, done: writer::BarrierReply::new(done) });
+        drop(slot);
+        drop(result); // a disconnected channel's reply guard returns the failure outside the lock
+    }
+
+    pub(crate) fn resume(&self, epoch: u64) {
+        use crate::machine::admission::{self, Effect, Event};
+        let slot = self.lock();
+        if matches!(admission::step(&mut lock_queue(&self.queue).admission,Event::Resume(epoch)), Effect::WakeWriter) {
+            self.urgent.fetch_add(1, Ordering::Release);
+            if let Writer::Running { tx, .. } = &*slot { tx.send(writer::Msg::Wake).ok(); }
+        }
+    }
+
     pub(crate) fn close(&self) -> FlushReport {
         use crate::machine::admission::{self, Event};
         let mut slot = self.lock();
@@ -295,21 +390,33 @@ impl Backend {
         }
         let w = std::mem::replace(&mut *slot, Writer::Off);
         drop(slot);
-        journal::finish(false);
+        journal::freeze();
         if let Writer::Running { tx, join } = w {
             tx.send(writer::Msg::Stop).ok();
             let mut report = join.join().unwrap_or(FlushReport { unconfirmed: true, ..FlushReport::default() });
             if !report.unconfirmed { report.final_barrier = crate::model::FinalBarrier::Confirmed; }
             return report;
         }
-        let final_barrier = if matches!(w, Writer::Parked(_)) { crate::model::FinalBarrier::Confirmed } else { crate::model::FinalBarrier::NoReceipt };
+        let final_barrier = if let Writer::Parked(w) = w { w.owner.saved(); crate::model::FinalBarrier::Confirmed } else { crate::model::FinalBarrier::NoReceipt };
         FlushReport { clean: true, final_barrier, ..FlushReport::default() }
     }
 }
 
 /// A command with no database behind it: callbacks still run, so a caller waiting on one never hangs.
+fn answer_closed(cmd: Cmd) {
+    let error = || crate::StorageError("the workspace has finished saving and is closing".into());
+    match cmd {
+        Cmd::PluginRecord { done: Some(done), .. } => done(Err(error())),
+        Cmd::Outbox { op: crate::OutboxOp::Read { done, .. }, .. } => done(Err(error())),
+        Cmd::Outbox { done: Some(done), .. } => done(Err(error())),
+        other => answer_offline(other),
+    }
+}
+
 fn answer_offline(cmd: Cmd) {
     match cmd {
+        #[cfg(windows)]
+        Cmd::RecoveryPick{done,..}=>done(Err(crate::StorageError("no writable workspace".into()))),
         Cmd::PluginRecord { done: Some(done), .. } => done(Ok(())),
         Cmd::Outbox { op, done } => crate::outbox::offline(op, done),
         Cmd::LoadState { done: Some(done), .. } | Cmd::LoadDocs { done: Some(done), .. } | Cmd::LoadOutbox { done: Some(done) } => done(),

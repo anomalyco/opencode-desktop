@@ -95,6 +95,8 @@ pub fn save_draft(w: &Window, key: &TabKey, draft: Option<String>) {
 
 /// Window `id` closed while others stay open: its rows go (Desktop's `registry.closed`).
 pub fn forget(id: &str) {
+    #[cfg(not(target_arch="wasm32"))]
+    crate::restore::undo::forget_closing(id);
     crate::storage::forget_window(id);
 }
 

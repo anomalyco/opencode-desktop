@@ -14,7 +14,9 @@ mod draft_doc;
 mod parked;
 pub mod places;
 mod preview;
-mod undo;
+#[cfg(windows)]
+mod recovered;
+pub(crate) mod undo;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -75,6 +77,9 @@ pub struct Restore {
     pub parked: HashMap<String, Parked>,
     /// Which draft `App::composer` holds.
     pub shown: Option<String>,
+    /// The restored route selected a draft missing from the boot record (for instance an
+    /// older `tabs.recent` key). The empty field is a placeholder until hydration, not an edit.
+    late_shown: Option<TabKey>,
     pub inbox: InboxUi,
     /// The saved tabs and closed tabs this build can't read, written back after its own
     /// (`WindowDoc::unread_tabs`), so a launch never loses a tab it doesn't show.
@@ -93,6 +98,8 @@ pub struct Restore {
     edits: HashMap<String, rune::TextEdit>,
     /// What each draft's stored undo history was last written as (`undo`).
     undo: undo::Kept,
+    #[cfg(windows)]
+    recovery: recovered::Inbox,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.
@@ -210,6 +217,12 @@ impl App {
         self.restore_places();
         self.load_persisted_terminals(server);
         let _ = self.show_draft();
+        if let Some(shown)=self.restore.shown.as_deref() {
+            let tab=self.draft_tab_key(shown);
+            if !doc.drafts.iter().any(|(k,_)|*k==tab) && self.composer.text.is_empty() {
+                self.restore.late_shown=Some(tab);
+            }
+        }
         // What was read is what's stored: nothing is written until something changes.
         self.restore.written = Written::default();
         self.note_written();
@@ -252,7 +265,10 @@ impl App {
                 TabKey::Session { session_id, .. } => session_id.clone(),
             };
             self.restore.written.drafts.insert(key.encode(), d.to_string());
-            if self.restore.drafts.contains_key(&k) || self.restore.parked.contains_key(&k) || self.restore.shown.as_deref() == Some(k.as_str()) {
+            let late=self.restore.late_shown.as_ref()==Some(key) && self.restore.shown.as_deref()==Some(k.as_str());
+            if late { self.restore.late_shown=None; }
+            let placeholder=late && self.composer.text.is_empty() && self.composer.history_len()==(0,0) && !self.attach.any() && !self.quote.any() && self.attach.context.is_empty();
+            if !placeholder && (self.restore.drafts.contains_key(&k) || self.restore.parked.contains_key(&k) || self.restore.shown.as_deref() == Some(k.as_str())) {
                 continue;
             }
             let draft = draft_doc::decode(d);
@@ -263,6 +279,7 @@ impl App {
                 self.restore.parked.insert(k.clone(), draft.parked);
             }
             self.read_draft_files(&k, draft.stored);
+            if placeholder { self.put_composer_draft(Some(&k)); }
             if draft.shell {
                 self.add.park(k, session_view::composer::mode::Mode::Shell);
             }
@@ -295,7 +312,9 @@ impl App {
             self.restore.written.keys.insert("tabs.closed", closed);
             self.restore.written.keys.insert("rune.closedDrafts", self.closed.drafts_json());
             self.side.restore_rest(&raw["side.rest"]);
-            self.restore.written.keys.insert("side.rest", raw["side.rest"].clone());
+            // A checkpoint-only view never loaded absent panel rows. The initial empty
+            // panel model is not a user edit; a later actual change still compares unequal.
+            if let Some(rest)=raw.get("side.rest") { self.restore.written.keys.insert("side.rest",rest.clone()); }
             // The next poll compares every row with what's stored (writes only what differs).
             self.restore.stamp = None;
         }
@@ -308,6 +327,7 @@ impl App {
         }
         // A draft that still can't be read after its load stays where it is, unshown.
         if pending.is_empty() || matches!(self.restore.hydration, Hydration::Loading { .. }) {
+            self.restore.late_shown=None;
             self.restore.hydration = Hydration::Done;
             return true;
         }
@@ -346,6 +366,8 @@ impl App {
         crate::undo::commit_all(self);
         if self.persists() {
             self.poll_restore();
+            #[cfg(not(target_arch="wasm32"))]
+            self.close_undo();
             self.poll_preview(true);
             self.queue_terminal_save();
             crate::terminal::persist::flush();
@@ -353,6 +375,8 @@ impl App {
         self.window_closed();
         crate::servers::runtime::leave_all(self);
         crate::storage::flush(opencode_storage::FlushReason::Close, false);
+        #[cfg(all(windows,not(feature="hot")))]
+        crate::quit_save::window_closed(&self.window.id);
     }
 
     /// When the app starts to quit (`App::on_quit`, every window): what the window keeps is
@@ -363,6 +387,8 @@ impl App {
         crate::undo::commit_all(self);
         if self.persists() {
             self.poll_restore();
+            #[cfg(not(target_arch="wasm32"))]
+            self.close_undo();
             self.poll_preview(true);
             self.queue_terminal_save();
             crate::terminal::persist::flush();
@@ -371,6 +397,23 @@ impl App {
         self.window_quitting();
         crate::windows::quit_saved(&self.window.id);
     }
+
+    /// A reversible quit. Capture the window without disposing the updater, unregistering the
+    /// window, removing its notifications or turning a pending delete into a network request.
+    pub(crate) fn prepare_quit_snapshot(&mut self) {
+        if self.persists() {
+            self.poll_restore();
+            self.poll_preview(true);
+            self.queue_terminal_save();
+        }
+        self.window_quitting();
+    }
+
+    #[cfg(all(windows,not(feature="hot")))]
+    pub(crate) fn finish_confirmed_quit(&mut self){
+        crate::undo::commit_all(self);
+        crate::notifications::quitting(self);
+    }
     /// Swaps the composer's draft when the route moves to another: its words, pills, attachments,
     /// context and quotes go with the draft they were made in. A story's composer is its own.
     pub(crate) fn show_draft(&mut self) -> bool {
@@ -378,6 +421,7 @@ impl App {
         if key == self.restore.shown || self.stage.is_some() {
             return false;
         }
+        self.restore.late_shown=None;
         // Before any draft showed, what a scene put in the composer is the page's draft.
         if self.restore.shown.is_none() && (!self.composer.text.is_empty() || self.attach.any() || self.quote.any()) {
             self.restore.shown = key;
@@ -386,6 +430,7 @@ impl App {
         self.leave_queue_edits();
         self.add.swap_draft(self.restore.shown.as_deref(), key.as_deref());
         // The field itself (its undo history) waits for the draft to show again.
+        self.park_undo();
         let edit = (*self.composer).clone();
         let (text, parked) = self.take_composer_draft();
         if let Some(old) = self.restore.shown.take() {
@@ -463,8 +508,19 @@ impl App {
 
     /// The document draft `k`'s words are kept in (none in a window without an id, which keeps
     /// no drafts): the outbox clears it in the same transaction as the prompt's first row.
-    pub(crate) fn draft_document_of(&self, k: &str) -> Option<String> {
-        (!self.window.id.is_empty()).then(|| crate::windows::store::draft_key(&self.window, &self.draft_tab_key(k)))
+    pub(crate) fn hand_off_draft(&mut self,k:&str)->Option<opencode_storage::DraftHandoff>{
+        if self.window.id.is_empty(){return None}
+        let tab=self.draft_tab_key(k);
+        let key=crate::windows::store::draft_key(&self.window,&tab);
+        #[cfg(windows)] {
+            // Do not let the next ordinary restore poll turn a send into an
+            // independent draft deletion (including a journal tombstone).
+            self.restore.written.drafts.remove(&tab.encode());
+            let opencode_storage::Lookup::Ready(Some(expected))=crate::storage::doc(&key) else{return None};
+            let revision=opencode_storage::journal::latest(&key);
+            Some(opencode_storage::DraftHandoff{key,revision,expected})
+        }
+        #[cfg(not(windows))]{let revision=crate::storage::hand_off_doc(&key);Some(opencode_storage::DraftHandoff{key,revision})}
     }
 
     /// The tab key draft `k` is kept under: a draft tab's, or its session's on its server.
@@ -597,4 +653,3 @@ impl App {
         };
     }
 }
-

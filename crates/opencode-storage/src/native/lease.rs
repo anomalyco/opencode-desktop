@@ -8,6 +8,11 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub(super) enum Owner { WithoutJournal, Exclusive(File) }
+impl Owner {
+    pub(super) fn saved(&self) {
+        if matches!(self, Self::Exclusive(_)) { super::journal::finish(true); }
+    }
+}
 impl Drop for Owner {
     fn drop(&mut self) {
         // Also fences an early-return or unwinding writer: a process-global mapping must no

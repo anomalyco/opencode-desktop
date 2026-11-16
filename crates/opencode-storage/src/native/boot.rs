@@ -87,6 +87,10 @@ pub struct BootReport {
     /// The file couldn't be read (damaged: a power cut, a disk error) and was moved here; this
     /// run started a new one beside it.
     pub damaged: Option<std::path::PathBuf>,
+    /// Only an unsuccessful Windows open retains the original file it actually saw. No
+    /// identification syscall is made on a normal launch. A quarantined file is not retried.
+    #[cfg(windows)]
+    pub original: Option<super::OriginalFile>,
 }
 
 const MMAP_SIZE: i64 = 64 * 1024 * 1024;
@@ -220,6 +224,12 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     let owner = match super::lease::acquire(&config.path) {
         Ok(owner) => owner,
         Err(e) => {
+            #[cfg(windows)]
+            let raw = {
+                report.original=std::fs::File::open(&config.path).ok().map(super::OriginalFile::new);
+                report.original.as_ref().map_or(FastBoot::Denied,|f|boot_record::read_file(&config.path,f.file()))
+            };
+            #[cfg(not(windows))]
             let raw = boot_record::read_raw(&config.path);
             let p = match raw {
                 FastBoot::Record(b) | FastBoot::Pending(b, _) | FastBoot::Checkpointed(b, _) => BootPacket::parse(b),
@@ -238,6 +248,15 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
             return (Storage::from_parts(super::shared(cache), Backend::memory()), report);
         }
     };
+    #[cfg(windows)]
+    let initial=std::fs::File::open(&config.path);
+    #[cfg(windows)]
+    let raw=match &initial {
+        Ok(file)=>boot_record::read_file(&config.path,file),
+        Err(e) if e.kind()==std::io::ErrorKind::NotFound=>FastBoot::UseSqlite("no database file"),
+        Err(_)=>FastBoot::Denied,
+    };
+    #[cfg(not(windows))]
     let raw = boot_record::read_raw(&config.path);
     // The WAL holds frames the record on file may be behind, and there's no copy of the record
     // for them: an instance may still be quitting (`await_quit`).
@@ -381,6 +400,8 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         }
         Err(e) => {
             // Dropping `owner` must not leave a writable map in a process running from memory.
+            #[cfg(windows)]
+            if report.damaged.is_none() { report.original=initial.ok().map(super::OriginalFile::new); }
             journal::finish(false);
             report.error = Some(e.to_string());
             let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };

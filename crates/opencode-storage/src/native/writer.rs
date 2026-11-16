@@ -38,9 +38,27 @@ use rows::{apply, cmd_name, note, settled, slow};
 pub(crate) enum Msg {
     /// Commands are in the queue (`super::Queue`).
     Wake,
+    Barrier { epoch: u64, done: BarrierReply },
     Flush { reason: FlushReason, started: Instant, reply: SyncSender<FlushReport> },
     FirstFrame { done: Option<Loaded> },
     Stop,
+}
+
+/// An unwinding writer (or a dropped, not-yet-dequeued message) owes a *negative*
+/// completion, not silence. Take the callback first so it can never be answered twice.
+pub(super) struct BarrierReply(Option<Box<dyn FnOnce(Option<u64>) + Send>>);
+impl BarrierReply {
+    pub(super) fn new(done: Box<dyn FnOnce(Option<u64>) + Send>) -> Self { Self(Some(done)) }
+    pub(super) fn answer(mut self, revision: Option<u64>) {
+        if let Some(done)=self.0.take() { done(revision); }
+    }
+}
+impl Drop for BarrierReply {
+    fn drop(&mut self) {
+        if let Some(done)=self.0.take() {
+            let _=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| done(None)));
+        }
+    }
 }
 
 type StateKey = (String, String);
@@ -262,7 +280,7 @@ impl Writer {
                         self.fire_due();
                         continue;
                     }
-                    if matches!(self.search, super::search::State::Ready(super::search::Work::Pending)) {
+                    if self.quit == Quit::Running && matches!(self.search, super::search::State::Ready(super::search::Work::Pending)) {
                         use super::search::index::Step;
                         // Derived data: unsynced like every commit here (`commit`).
                         self.conn.execute_batch(UNSYNCED).ok();
@@ -292,10 +310,13 @@ impl Writer {
                         if super::lock_queue(&queue).queries.indexing_finished() { continue; }
                     }
                     let next = if self.quit == Quit::Running { self.timers.values().filter_map(|t| t.map(|(_, due)| due)).min() } else { None };
-                    match next {
-                Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
-                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                    }
+                    super::lock_queue(&queue).activity = super::Activity::Receiving;
+                    let m = match next {
+                        Some(due) => rx.recv_timeout(due.saturating_duration_since(Instant::now())),
+                        None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                    };
+                    super::lock_queue(&queue).activity = super::Activity::Working;
+                    m
                 }
             };
             // Commands made before the message (a flush, the first frame, a stop) come first.
@@ -311,6 +332,14 @@ impl Writer {
             self.commit_if_due();
             match msg {
                 Ok(Msg::Wake) => {}
+                Ok(Msg::Barrier { epoch, done }) => {
+                    if super::lock_queue(&queue).admission != crate::machine::admission::State::Saving(epoch) {
+                        done.answer(None);
+                        continue;
+                    }
+                    let covered=self.save_through_queue(&queue, epoch);
+                    done.answer(covered);
+                }
                 Ok(Msg::Flush { reason, started, reply }) => {
                     rune::marks::mark("writer.flush");
                     let quit = is_quit(reason);
@@ -341,6 +370,12 @@ impl Writer {
                     rune::marks::mark("writer.stop");
                     self.reserve_stopped();
                     self.search.quitting();
+                    if matches!(self.quit, Quit::Saved(_)) {
+                        self.close_machines();
+                        self.owner.saved();
+                        rune::marks::mark("writer.stopped");
+                        return FlushReport { clean: true, ..FlushReport::default() };
+                    }
                     if self.quit == Quit::Running {
                         self.quit = Quit::Quitting;
                     }
@@ -350,7 +385,7 @@ impl Writer {
                         self.quit_finish();
                         report.unconfirmed = self.quit != Quit::Left;
                     }
-                    if !report.unconfirmed { self.repage(); }
+                    if !report.unconfirmed { self.owner.saved(); self.repage(); }
                     rune::marks::mark("writer.stopped");
                     return report;
                 }
@@ -489,7 +524,37 @@ impl Writer {
     }
 
     fn handle(&mut self, cmd: Cmd) {
+        if let Quit::Saved(k) = self.quit {
+            // A command arrived after the attested batch. Never use its receipt for a later
+            // terminal close. On resume the ordinary writer will already have its queue.
+            self.quit = Quit::Saving(k);
+        }
         match cmd {
+            #[cfg(windows)]
+            Cmd::RecoveryPick{pick,done}=>{
+                let rows=self.flush(FlushReason::Close,Instant::now());
+                if rows.unconfirmed{return done(Err(StorageError("the current draft has not been saved".into())))}
+                let mut result=None;
+                let apply=self.durable(matches!(pick.action,crate::recovery::Action::Use{..}),|tx,now|{
+                    result=Some(super::recovery::pick(tx,&pick,now));
+                    match &result {Some(Ok(_))=>Ok(()),_=>Err(rusqlite::Error::InvalidQuery)}
+                });
+                match (apply,result){
+                    (Ok(()),Some(Ok(set)))=>{
+                        let mut c=self.cache();let (_,tab)=pick.primary_key.split_once(":draft:").unwrap();let k=crate::recovery::versions_key(tab);
+                        if set.drafts.is_empty(){c.docs.remove(&k);}else{c.docs.insert(k,Doc::Present(serde_json::to_string(&set).unwrap().into()));}
+                        if let crate::recovery::Action::Use{expected}=&pick.action {
+                            for (key,old,new) in [(&pick.primary_key,&expected.document,&pick.selected.document),(&pick.primary_key.replacen(":draft:",":undo:",1),&expected.history,&pick.selected.history)] {
+                                // A producer may already have submitted a later edit. Do not
+                                // overwrite the memory half of that later write.
+                                let ours=match c.docs.get(key){Some(Doc::Present(v))=>serde_json::from_str::<serde_json::Value>(v).is_ok_and(|v|&v==old),Some(Doc::Stored)=>true,None=>old.is_null()};
+                                if ours {if new.is_null(){c.docs.remove(key);}else{c.docs.insert(key.clone(),Doc::Present(new.to_string().into()));}}
+                            }
+                        }
+                        drop(c);done(Ok(set));
+                    },(_,Some(Err(e)))|(Err(e),_)=>done(Err(e)),_=>done(Err(StorageError("no recovery result".into()))),
+                }
+            }
             Cmd::CommitSoon => self.commit_due = true,
             Cmd::State { name, key, value } => self.state_event(WriteBehindEvent::Set { key: (name, key), value }),
             Cmd::ClearState { name } => {
@@ -526,12 +591,31 @@ impl Writer {
             }
             Cmd::Outbox { op, done } => match outbox::native::prepare(op) {
                 outbox::native::Prepared::Write(w, blobs, clear) => {
+                    #[cfg(windows)]
+                    if !clear.is_empty(){
+                        // Older accepted drafts precede the outbox in the queue
+                        // but may still be in the writer's debounce buffer.
+                        self.docs_event(WriteBehindEvent::FlushRequested);
+                        if wb::has_pending(&self.docs){return answer(done,Err(StorageError("source draft is not yet durable".into())))}
+                    }
+                    let mut applied=Vec::new();
                     // Committed to the WAL (kill-safe), answered, then synced: the request leaves
                     // on the answer, and only a power cut in the sync's few ms is left open.
-                    let r = self.committed(false, |c, now| outbox::native::write(c, &w, &blobs, &clear, now));
+                    let r = self.committed(!clear.is_empty(), |c, now| {
+                        for source in clear {
+                            #[cfg(windows)] if sql::read_document(c,&source.key)?.as_deref()!=Some(source.expected.as_ref())
+                                || super::journal::latest(&source.key)>source.revision {continue;}
+                            applied.push(source);
+                        }
+                        outbox::native::write(c,&w,&blobs,&applied,now)
+                    });
                     if r.is_ok() {
                         outbox::cached(&mut self.cache().outbox, &w);
-                        super::journal::settle(clear.iter().filter(|(_, rev)| *rev > 0).map(|(k, rev)| (k.as_str(), *rev)));
+                        #[cfg(windows)] {
+                            let mut cache=self.cache();
+                            for source in &applied{if matches!(cache.docs.get(&source.key),Some(Doc::Present(text)) if Arc::ptr_eq(text,&source.expected)){cache.docs.remove(&source.key);}}
+                        }
+                        super::journal::settle(applied.iter().filter(|s|s.revision>0).map(|s|(s.key.as_str(),s.revision)));
                         self.search.changed();
                     }
                     let ok = r.is_ok();

@@ -57,7 +57,7 @@ enum Effect {
 enum Opened {
     Saving,
     /// It couldn't (why): this run keeps its changes in memory.
-    Memory(String),
+    Memory { why: String, kept: Option<std::path::PathBuf>, #[cfg(windows)] original:Option<opencode_storage::native::OriginalFile> },
     /// It was damaged: moved aside (here) and a new one made.
     Fresh(std::path::PathBuf),
 }
@@ -66,7 +66,7 @@ impl Opened {
     fn of(report: opencode_storage::BootReport) -> Opened {
         BOOT_HOW.get_or_init(|| (report.raw_miss, report.wal_pending));
         match (report.error, report.damaged) {
-            (Some(why), _) => Opened::Memory(why),
+            (Some(why), kept) => Opened::Memory { why, kept, #[cfg(windows)] original:report.original },
             (None, Some(kept)) => Opened::Fresh(kept),
             (None, None) => Opened::Saving,
         }
@@ -90,6 +90,9 @@ enum Event {
     Delivered,
     /// The app quits: stage B is needed now.
     Quit,
+    /// Join for a reversible barrier. Unlike terminal Quit, startup and its queued writes
+    /// are retained if the hidden windows resume before adoption completes.
+    Barrier,
     /// A read the boot packet can't answer: adopt stage B if it's done (never wait for it here).
     Need,
 }
@@ -129,6 +132,17 @@ struct Told {
 
 static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false, failing: None });
 
+/// The launch toast is consumed once. Keep the reason and the original checkpoint for a
+/// later exit decision; a successful replacement after quarantine is not a memory-only run.
+#[cfg(windows)]
+pub(crate) enum VolatileOrigin {
+    Intentional,
+    Held { shown: Arc<BootPacket>, original:Option<opencode_storage::native::OriginalFile> },
+    Unavailable { why:String, kept:Option<std::path::PathBuf>, shown:Arc<BootPacket>, original:Option<opencode_storage::native::OriginalFile> },
+}
+#[cfg(windows)]
+static VOLATILE_ORIGIN: std::sync::OnceLock<VolatileOrigin> = std::sync::OnceLock::new();
+
 fn told() -> MutexGuard<'static, Told> {
     TOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -154,6 +168,8 @@ fn step(phase: Phase, event: Event) -> (Phase, Option<Effect>) {
             (Phase::Booted { boot, opening, queued: Queued::default() }, None)
         }
         (Phase::Opening { opening }, Event::Quit) => (Phase::Joining { boot: Arc::default(), queued: Queued::default(), frame: Frame::Ending }, Some(Effect::Join(opening))),
+        (Phase::Booted { boot, opening, queued }, Event::Barrier) => (Phase::Joining { boot, queued, frame: Frame::Pending }, Some(Effect::Join(opening))),
+        (Phase::Joining { boot, queued, frame: Frame::Pending }, Event::Presented) => (Phase::Joining { boot, queued, frame: Frame::Presented }, None),
         (Phase::Booted { boot, mut opening, queued }, Event::Presented) => match opening.try_storage() {
             // Stage B is usually done long before the first frame: no thread to wait on it.
             Some((storage, report)) => (Phase::Delivering { storage: storage.clone(), boot, frame: Frame::Presented }, Some(Effect::Adopt(storage, queued, Opened::of(report)))),
@@ -239,10 +255,17 @@ fn send(event: Event) {
             // can see the ready store. User callbacks are NOT executed with this lock held.
             queued.apply_rows(s);
             let mut t = told();
+            #[cfg(windows)]
+            if let Opened::Memory { why, kept, original } = &*opened && let Phase::Delivering { boot, .. }=&next {
+                let source=if t.held && kept.is_none(){ VolatileOrigin::Held{shown:boot.clone(),original:original.clone()} } else {
+                    VolatileOrigin::Unavailable { why:why.clone(), kept:kept.clone(), shown:boot.clone(), original:original.clone() }
+                };
+                let _=VOLATILE_ORIGIN.set(source);
+            }
             t.owed = match (std::mem::replace(opened, Opened::Saving), t.held) {
                 // The first frame's notice already says nothing is saved.
-                (Opened::Memory(_), true) => t.owed.take(),
-                (Opened::Memory(why), false) => Some(Notice::Memory(why)),
+                (Opened::Memory { .. }, true) => t.owed.take(),
+                (Opened::Memory { why, .. }, false) => Some(Notice::Memory(why)),
                 (Opened::Fresh(kept), _) => Some(Notice::Damaged(kept.display().to_string())),
                 (Opened::Saving, true) => Some(Notice::Saving),
                 (Opened::Saving, false) => None,
@@ -322,7 +345,11 @@ fn wake_all() {
 pub fn start() {
     let phase = match config() {
         Some(config) => Phase::Opening { opening: Storage::open_async(config) },
-        None => Phase::Memory(Storage::memory()),
+        None => {
+            #[cfg(windows)]
+            let _=VOLATILE_ORIGIN.set(VolatileOrigin::Intentional);
+            Phase::Memory(Storage::memory())
+        }
     };
     *lock() = Some(phase);
     rune::marks::mark("storage.started");
@@ -470,26 +497,29 @@ pub fn doc(key: &str) -> Lookup {
 /// Sets or removes a document. An unchanged one writes nothing. A draft goes into the draft
 /// journal first (a memory copy), so a kill keeps it even while the database's commit waits.
 pub fn set_doc(key: &str, value: Option<String>) {
-    let rev = opencode_storage::journal::record(key, value.as_deref());
-    put_doc(key, value, rev);
+    put_doc(key, value, true);
 }
 
 /// A draft whose words a prompt takes (`send_failed`): removed without a journal record, since
 /// until the prompt's row is committed the words are only there. Returns the revision the row
 /// settles ([`opencode_storage::OutboxPut::clear_documents`]).
+#[cfg(not(windows))]
 pub fn hand_off_doc(key: &str) -> u64 {
     let rev = opencode_storage::journal::latest(key);
-    put_doc(key, None, 0);
+    put_doc(key, None, false);
     rev
 }
 
-fn put_doc(key: &str, value: Option<String>, rev: u64) {
+fn put_doc(key: &str, value: Option<String>, journal: bool) {
+    let revision = || if journal { opencode_storage::journal::record(key, value.as_deref()) } else { 0 };
     with(
         |s| {
-            s.documents().set_rev(key, value.clone(), rev);
+            let Some(_permit) = s.write_permit() else { return };
+            s.documents().set_rev(key, value.clone(), revision());
             s.commit_soon();
         },
         |boot, queued| {
+            let rev = revision();
             let current = queued.doc(key).unwrap_or_else(|| boot.document(key).map(str::to_owned));
             if current != value {
                 queued.docs.push((key.to_owned(), value.clone(), rev));
@@ -692,6 +722,41 @@ pub fn begin_quit() {
     if let Some(s) = s { s.begin_quit(); }
 }
 
+/// Called off the UI thread after every window's snapshot and terminal capture was submitted.
+/// An adopting store is *not* ready for this use until its last producer callback has returned.
+#[cfg(not(target_arch="wasm32"))]
+pub(crate) fn barrier_store() -> Option<Storage> {
+    send(Event::TakeBoot);
+    send(Event::Barrier);
+    let mut phase = lock();
+    while matches!(&*phase, Some(Phase::Joining {..} | Phase::Delivering {..})) {
+        phase = READY.wait(phase).unwrap_or_else(|e|e.into_inner());
+    }
+    match &*phase { Some(Phase::Ready(s) | Phase::Early { storage:s, .. } | Phase::Memory(s)) => Some(s.clone()), _ => None }
+}
+
+#[cfg(windows)]
+pub(crate) fn volatile_origin() -> Option<&'static VolatileOrigin> { VOLATILE_ORIGIN.get() }
+
+#[cfg(windows)]
+pub(crate) fn live_volatile_store()->Option<Storage>{
+    let phase=PHASE.try_lock().ok()?;
+    match phase.as_ref()? {Phase::Ready(db)|Phase::Early{storage:db,..} if db.memory_only()=>Some(db.clone()),_=>None}
+}
+
+/// This sample neither joins stage B nor starts a writer. For the quit trace, before sending
+/// any producers a save request; a thread waiting in a disk call is not classified as idle.
+#[cfg(not(target_arch="wasm32"))]
+pub(crate) fn writer_idle() -> Option<bool> {
+    // Opening::boot() can be waiting for disk with PHASE held. A diagnostic at entry to
+    // the hook must not turn an early quit into a synchronous startup join.
+    let phase = PHASE.try_lock().ok()?;
+    match phase.as_ref()? {
+        Phase::Ready(s) | Phase::Early { storage: s, .. } => s.writer_idle(),
+        _ => None,
+    }
+}
+
 /// Lands every queued write. `wait`: block until it's durable (close, quit, session end), else
 /// ask the writer and go on (a window hidden).
 pub fn flush(reason: FlushReason, wait: bool) {
@@ -713,6 +778,8 @@ pub fn flush(reason: FlushReason, wait: bool) {
 /// Seal only after the boot queue has been delivered. The native close is the single final
 /// flush, not a second request to land the same buffers.
 pub fn close() -> Option<ConfirmedQuit> {
+    #[cfg(not(target_arch="wasm32"))]
+    crate::restore::undo::finish_closing();
     begin_quit();
     let mut guard = lock();
     while matches!(&*guard, Some(Phase::Joining { .. } | Phase::Delivering { .. })) {

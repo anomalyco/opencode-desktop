@@ -52,7 +52,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub use boot_packet::{BootPacket, BootSource};
 pub use cache::Lookup;
 pub use model::{FlushReason, FlushReport, ImportGroup, OutboxAttachment, OutboxRow, WindowFrame};
-pub use outbox::{OutboxBuild, OutboxEntry, OutboxPut, OutboxRead, OutboxStore, OutboxUpdate};
+pub use outbox::{DraftHandoff, OutboxBuild, OutboxEntry, OutboxPut, OutboxRead, OutboxStore, OutboxUpdate};
 pub use plugins::{HOST_KEY_PREFIX, PluginRecord, PluginStore};
 pub use stores::{CacheStore, DocumentStore, PreviewStore, StateStore, WindowStore};
 
@@ -178,6 +178,8 @@ pub(crate) use outbox::OutboxOp;
 
 /// What the stores send the storage thread (or the web backend).
 pub(crate) enum Cmd {
+    #[cfg(windows)]
+    RecoveryPick { pick: recovery::Pick, done: recovery::PickReply },
     State { name: String, key: String, value: Option<Arc<str>> },
     ClearState { name: String },
     /// `rev`: the draft journal's revision of this text (0 for a document it doesn't record).
@@ -239,6 +241,8 @@ impl Storage {
     }
 
     pub(crate) fn from_parts(cache: Arc<Mutex<cache::Cache>>, backend: Backend) -> Storage {
+        #[cfg(windows)]
+        if backend.memory_only(){backend.seed_memory(&cache.lock().unwrap_or_else(|e|e.into_inner()));}
         Storage { inner: Arc::new(Inner { cache, backend }) }
     }
 
@@ -282,6 +286,42 @@ impl Storage {
         self.inner.backend.begin_quit();
     }
 
+    /// Sync the rows already enqueued for this save without closing the writer or changing
+    /// the journal's ownership. The epoch fences a resume racing an old disk operation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn save_barrier(&self, epoch: u64, done: impl FnOnce(Option<u64>) + Send + 'static) {
+        self.inner.backend.barrier(epoch, Box::new(done));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn try_seal_barrier(&self, epoch: u64, revision: u64) -> bool { self.inner.backend.try_compare(epoch, revision, true) }
+
+    /// A cancellable Windows session query attests to this instant; it must not
+    /// close write admission for the rest of a session that might continue.
+    #[cfg(windows)]
+    pub fn current_barrier(&self,epoch:u64,revision:u64)->bool{self.inner.backend.try_compare(epoch,revision,false)}
+
+    /// Reserve admission across a compound cache/journal mutation and its queue submission.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn write_permit(&self) -> Option<impl Drop + '_> { self.inner.backend.producer() }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_permit(&self) -> Option<()> { Some(()) }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn resume_barrier(&self, epoch: u64) { self.inner.backend.resume(epoch); }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn writer_idle(&self) -> Option<bool> { self.inner.backend.writer_idle() }
+
+    /// Describes how this store opened, not whether its writer currently answers.
+    #[cfg(not(target_arch="wasm32"))]
+    pub fn memory_only(&self) -> bool { self.inner.backend.memory_only() }
+    #[cfg(windows)]
+    pub fn memory_drafts(&self,epoch:u64)->Option<native::recovery::MemoryDrafts>{self.inner.backend.memory_drafts(epoch)}
+    #[cfg(windows)]
+    pub fn pick_recovery(&self,pick:recovery::Pick,done:recovery::PickReply){self.send(Cmd::RecoveryPick{pick,done})}
+
     /// The kill-safe tier: the state, document and window rows set so far are committed to the
     /// WAL at the storage thread's next turn, rather than when their write-behind timer fires.
     /// Calls made before that turn share one commit. The commit hands the rows to the operating
@@ -312,3 +352,4 @@ impl Storage {
         self.inner.backend.send(cmd);
     }
 }
+pub mod recovery;

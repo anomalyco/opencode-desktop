@@ -173,6 +173,8 @@ impl UpdaterService {
         std::mem::take(&mut self.quit)
     }
 
+    pub(super) fn resume_quit(&mut self) { self.quit = false; self.dispatch(Event::QuitResumed); }
+
     /// Feeds the worker's results to the machine; true when the snapshot changed. At rest: one
     /// empty channel read and two atomic loads, no allocation.
     pub fn poll(&mut self) -> bool {
@@ -211,14 +213,21 @@ impl UpdaterService {
     /// of its own (`super::finish_quit` waits for it before the process exits): checking the staged
     /// exe's signature and copying it as the helper (about 135 MB) no longer hold the UI thread
     /// while the windows close.
-    pub fn confirmed_quit(&mut self, _receipt: &crate::storage::ConfirmedQuit) {
+    pub fn confirmed_quit(&mut self, _receipt: &crate::storage::ConfirmedQuit) -> bool {
+        // As in the ordinary install-on-quit path, the old PID keeps the
+        // instance name until death when a replacement is being handed off.
+        let mut replacing = false;
         if let State::Installing { plan: Plan::AwaitingSave { attempt }, .. } = self.state {
             self.dispatch(Event::SaveConfirmed);
             // No window poll follows terminal confirmation. The worker reports the handoff itself;
             // an install failure never causes a second process to start from the old bundle.
             while let Ok(msg) = self.messages.recv() {
                 match msg {
-                    Message::Event(e @ (Event::RestartSucceeded(a) | Event::RestartFailed(a, _))) if a == attempt => { self.dispatch(e); break; }
+                    Message::Event(e @ (Event::RestartSucceeded(a) | Event::RestartFailed(a, _))) if a == attempt => {
+                        replacing = matches!(e, Event::RestartSucceeded(_));
+                        self.dispatch(e);
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -226,9 +235,10 @@ impl UpdaterService {
         else if matches!(self.state, State::Ready { refresh: None, .. })
             && let Some(platform) = self.platform.get().cloned()
         {
-            super::install_on_quit(platform);
+            replacing = super::install_on_quit(platform);
         }
         self.dispatch(Event::Disposed);
+        replacing
     }
 
     fn ticket(&mut self) -> Ticket {

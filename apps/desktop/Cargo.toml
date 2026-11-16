@@ -96,6 +96,8 @@ libc = "0.2"
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Native hide, same-window resume and save receipts have been qualified on Windows only.
+rune = { workspace = true, features = ["deferred-quit"] }
 # The egg's sound stream (`egg/sound/wasapi.rs`): the same build of `windows` Rune's video sound uses.
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Threading"] }
 authenticode = { path = "../../crates/authenticode" }
