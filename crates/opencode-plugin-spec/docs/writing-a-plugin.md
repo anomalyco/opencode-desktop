@@ -108,6 +108,20 @@ end,
 
 ## 4. React to events and do async work
 
+**Request a redraw when what you draw changes.** A render can read a Luau local, but the host cannot observe writes to that local. After changing a value used by a panel, label, badge, menu, or command's `enabled` or `hidden` callback, fire a signal created with `ctx:CreateSignal()` or call `:Refresh()` on the contribution. Include the signal's `:Version()` in any `view:Memo` that reads the value. Update the value *before* notifying the host. Do not request a redraw for a retry deadline, a cache fill that nobody displays, or a duplicate answer.
+
+```luau
+local changed = ctx:CreateSignal()
+local title = ""
+local function setTitle(nextTitle: string)
+    if title == nextTitle then return end
+    title = nextTitle
+    changed:Fire()
+end
+```
+
+Reactive service reads keep their own invalidation: for example, a render that reads `Terminal:List` can follow a host-side title change. If you *copy* the title into plugin state and draw that copy instead, notify on changes to the copy. A coroutine resuming is not a redraw request. Installed plugins, override folders, and `--plugin-dir` plugins using contract 1.0 keep their legacy implicit invalidation; they do not need to migrate to keep working. Do not rely on that fallback in new code.
+
 ```luau
 local Server = ctx:GetService("Server")
 local changed = ctx:CreateSignal()
