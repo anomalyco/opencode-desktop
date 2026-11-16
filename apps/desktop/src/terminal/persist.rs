@@ -246,77 +246,56 @@ impl Snapshot {
     }
 }
 
-/// The saver's thread, started by the first save: it waits a second from the first change
-/// (the storage design's terminal tier) and captures once for all that came meanwhile.
-enum Msg {
-    Save(Snapshot),
-    /// Capture and write what waits now (a window closes, the app quits); answer when done.
-    Flush(std::sync::mpsc::SyncSender<()>),
-}
-
-/// The saver's state.
-enum Saver {
-    Idle,
-    /// Changes wait until `due`: the newest snapshot of each server.
-    Waiting { due: rune::time::Instant, pending: Vec<Snapshot> },
-}
-
 const SAVE_DELAY: Duration = Duration::from_millis(1000);
 
-static SAVER: std::sync::Mutex<Option<std::sync::mpsc::Sender<Msg>>> = std::sync::Mutex::new(None);
+/// The newest snapshot of each server waiting to be written, and whether a write is due. A save
+/// waits a second from the first change (the storage design's terminal tier) and captures once
+/// for all that came meanwhile, on a task (`rune::task::spawn_after`): no thread waits for saves.
+static PENDING: std::sync::Mutex<(Vec<Snapshot>, bool)> = std::sync::Mutex::new((Vec::new(), false));
+/// Held across a take and its writes, so an older capture never lands after a newer one.
+static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn saver() -> Option<std::sync::mpsc::Sender<Msg>> {
-    let mut slot = SAVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if slot.is_none() {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::Builder::new().name("terminal-saves".into()).spawn(move || run_saver(rx)).ok()?;
-        *slot = Some(tx);
-    }
-    slot.clone()
+fn pending() -> std::sync::MutexGuard<'static, (Vec<Snapshot>, bool)> {
+    PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn run_saver(rx: std::sync::mpsc::Receiver<Msg>) {
-    let mut state = Saver::Idle;
-    loop {
-        let msg = match &state {
-            Saver::Idle => rx.recv().map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
-            Saver::Waiting { due, .. } => rx.recv_timeout(due.saturating_duration_since(rune::time::Instant::now())),
-        };
-        state = match (std::mem::replace(&mut state, Saver::Idle), msg) {
-            (Saver::Idle, Ok(Msg::Save(s))) => Saver::Waiting { due: rune::time::Instant::now() + SAVE_DELAY, pending: vec![s] },
-            (Saver::Waiting { due, mut pending }, Ok(Msg::Save(s))) => {
-                pending.retain(|p| p.server != s.server);
-                pending.push(s);
-                Saver::Waiting { due, pending }
-            }
-            (waiting, Ok(Msg::Flush(done))) => {
-                if let Saver::Waiting { pending, .. } = waiting {
-                    pending.into_iter().for_each(Snapshot::write);
-                }
-                let _ = done.send(());
-                Saver::Idle
-            }
-            (Saver::Waiting { pending, .. }, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => {
-                pending.into_iter().for_each(Snapshot::write);
-                Saver::Idle
-            }
-            (waiting, Err(std::sync::mpsc::RecvTimeoutError::Disconnected)) => {
-                if let Saver::Waiting { pending, .. } = waiting {
-                    pending.into_iter().for_each(Snapshot::write);
-                }
-                return;
-            }
-            (Saver::Idle, Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => Saver::Idle,
-        };
+fn save(snapshot: Snapshot) {
+    let mut p = pending();
+    p.0.retain(|s| s.server != snapshot.server);
+    p.0.push(snapshot);
+    if p.1 {
+        return;
     }
+    p.1 = true;
+    drop(p);
+    // No task thread: the next save tries again, and a flush writes it.
+    if rune::task::spawn_after("terminal-saves", SAVE_DELAY, write_pending).is_err() {
+        pending().1 = false;
+    }
+}
+
+fn write_pending() {
+    let _writing = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let waiting = {
+        let mut p = pending();
+        p.1 = false;
+        std::mem::take(&mut p.0)
+    };
+    waiting.into_iter().for_each(Snapshot::write);
 }
 
 /// A window closes or the app quits: the saves waiting land in the storage now (up to a second
 /// for the terminals' captures), before the storage's own flush. Nothing waiting: returns at once.
 pub fn flush() {
-    let Some(tx) = SAVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() else { return };
+    if pending().0.is_empty() {
+        return;
+    }
     let (done, wait) = std::sync::mpsc::sync_channel(1);
-    if tx.send(Msg::Flush(done)).is_ok() {
+    let spawned = rune::task::spawn("terminal-saves", move || {
+        write_pending();
+        let _ = done.send(());
+    });
+    if spawned.is_ok() {
         let _ = wait.recv_timeout(Duration::from_secs(1));
     }
 }
@@ -398,9 +377,7 @@ impl App {
                     .collect(),
             });
         }
-        if let Some(tx) = saver() {
-            let _ = tx.send(Msg::Save(Snapshot { server: server_base, unhydrated, live, empty }));
-        }
+        save(Snapshot { server: server_base, unhydrated, live, empty });
     }
 
     /// Loads a workspace on first dock access: on a live server, the session's running
