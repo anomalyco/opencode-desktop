@@ -319,7 +319,6 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
             .flatten()
     };
     out.push(spacer().key("room").h(28.0).min_w(0.0).justify_end().center_y().children(actions));
-    out.extend(crate::auto_accept::indicator(s, p));
     // Shell mode keeps only Exit beside Send (`editor.tsx:491-528`), unless a dictation runs.
     // It goes and comes back at once, so Exit never lands over it; while it shows, it rides the
     // composer's edge as Send does (an instant-changes slot would jump to where it lands).
@@ -342,15 +341,12 @@ fn folds(
     let label = |text: &str, chevron: bool| 11.0 + narrow::text_w(text, UI) + if chevron { 27.0 } else { 11.0 };
     let need = |k: usize| {
         let t = narrow::Toolbar::after(k);
-        // The add button and its 2 pt margin, the room, Send, and auto-accept's mark when it's on.
+        // The add button and its 2 pt margin, the room, and Send.
         let mut items = vec![30.0, 0.0, 28.0];
         if s.add.shell() {
             // Exit and its keys (from 640 wide), 6 in and 6 apart, and 10 before Send.
             let keys = if s.layout.narrow.sm() { 6.0 + narrow::text_w(t!("common.key.esc"), UI_SMALL) + 8.0 } else { 0.0 };
             items.push(narrow::text_w(t!("ui.promptInput.exitShell"), UI_MED) + keys + 12.0 + 10.0);
-        }
-        if s.settings.auto_accept {
-            items.push(28.0);
         }
         if mic && (t.mic || dictating) {
             items.push(28.0);

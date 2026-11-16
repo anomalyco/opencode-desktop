@@ -4,11 +4,7 @@
 //! and the permission card stays hidden. Forms and questions still wait for a person.
 
 use opencode_kit::model::Pending;
-use rune::{El, Tx, row};
-
-use crate::palette::Pal;
-use rune::icon;
-use rune_theme_opencode::icons as ic;
+use rune::Tx;
 
 use crate::App;
 
@@ -90,21 +86,3 @@ impl App {
         }
     }
 }
-
-/// The composer toolbar's mark that auto-accept is on; pressing it turns it off.
-pub fn indicator(s: &App, p: &Pal) -> Option<El> {
-    s.auto_accepting().then(|| {
-        row()
-            .key("auto-accept")
-            .role("button")
-            .label_static(opencode_i18n::t!("command.permissions.autoaccept.disable"))
-            .size(28.0, 28.0)
-            .center()
-            .radius(6.0)
-            .hover(p.hover)
-            .press(p.pressed)
-            .on_press_tx(|s: &mut App, tx: &mut Tx| s.toggle_auto_accept(tx))
-            .child(icon(&ic::CHECK_SMALL, 16.0).color(p.accent))
-    })
-}
-
