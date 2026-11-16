@@ -389,7 +389,10 @@ return plugin.defineWindow(function(ctx)
                 ui.icon(qr.icon, { size = 320, color = "text-chrome" }),
             }))
             table.insert(body, ui.row({ w = "full", gap = 8, align = "center", wrap = true }, {
-                ui.text(I18n:T("expires", { time = countdown(machine.remaining(s, System:Now())) }), { size = 12, weight = "regular", lineHeight = 16, tabular = true, color = "text-muted", role = "timer" }),
+                -- Desktop marks this countdown role="timer" (page.tsx), but Rune's Luau bridge rejects that
+                -- role until https://github.com/anomalyco/rune/pull/1089 is in the pin, and the dialog stopped
+                -- drawing as a code arrived. Plain text until then: read, never announced as it ticks.
+                ui.text(I18n:T("expires", { time = countdown(machine.remaining(s, System:Now())) }), { size = 12, weight = "regular", lineHeight = 16, tabular = true, color = "text-muted" }),
                 ui.spacer(),
                 ui.row({ gap = 8, align = "center" }, {
                     refresh(d.refreshing ~= nil),
