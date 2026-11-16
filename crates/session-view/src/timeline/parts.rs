@@ -13,8 +13,8 @@ pub struct Place {
     pub tight: bool,
     pub above: bool,
     pub below: bool,
-    /// A reply's work sits right above it: the room it stands under it (`rhythm::L`, less a
-    /// footer's room), else 0.
+    /// Room over this prompt when a different block precedes it, less any footer already
+    /// under that block. Zero uses the prompt's own placement.
     pub reply: f32,
     pub fold: Fold,
 }
