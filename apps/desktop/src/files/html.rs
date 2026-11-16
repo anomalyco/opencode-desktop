@@ -2,6 +2,8 @@
 //! values reach Rune. The document has no network, filesystem, script or app bridge.
 //! Leave files requiring unsupported layout in the source viewer rather than pretending
 //! that their markup or hidden text was displayed. Find consumes the exact painted runs.
+//! The web build compiles this file too, so its parser (`scraper`) is a dependency of both
+//! `apps/desktop` and `apps/web`.
 
 use super::label_find::Document;
 use opencode_search::{SlabFind, SlabMatch};
