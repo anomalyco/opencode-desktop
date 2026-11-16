@@ -78,7 +78,7 @@ fn undo_key(key:&str)->Result<String,StorageError>{key.split_once(":draft:").map
 /// The owning process must retain this object through the UI disposition. The connection
 /// cannot create a new database or quarantine one. Field drop order: connection, lease,
 /// no-delete-sharing identity guard. No file is opened writable before identity matches.
-pub struct VerifiedWorkspace { conn:Connection, applied:Applied, _owner:lease::Owner, _identity:std::fs::File }
+pub struct VerifiedWorkspace { conn:Connection, applied:Applied, db:std::path::PathBuf, _owner:lease::Owner, _identity:std::fs::File }
 #[derive(Default)]
 enum Applied { #[default] Fresh, Through { batch:MemoryDrafts, primary:BTreeMap<String,Draft> } }
 impl OriginalFile {
@@ -90,7 +90,7 @@ impl OriginalFile {
         let mode:String=conn.query_row("PRAGMA journal_mode",[],|r|r.get(0)).map_err(err)?;
         if !mode.eq_ignore_ascii_case("wal"){return Err(err("workspace not in WAL mode"));}
         conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=0").map_err(err)?;
-        Ok(VerifiedWorkspace{conn,applied:Applied::Fresh,_owner:owner,_identity:identity})
+        Ok(VerifiedWorkspace{conn,applied:Applied::Fresh,db:db.to_path_buf(),_owner:owner,_identity:identity})
     }
 }
 
@@ -165,8 +165,19 @@ impl VerifiedWorkspace {
             Applied::Through{batch:last,..} if last.revision>=batch.revision=>return Ok(Reconciled::Durable(last.revision)),
             Applied::Through{batch:last,primary}=>(Some(last),primary.clone()),
         };
-        for (id,data) in &batch.blobs {blob(&tx,id,data,now)?;}
         let mut boot_changed=false;
+        // A killed or forced owner's journal can hold keystrokes its document rows never got,
+        // and the boot record this transaction rebuilds would stop the next owner trusting them.
+        // Write them first, as that owner's next open would: this edit then compares against
+        // that text and is kept as a recovered version instead of replacing it.
+        for r in super::journal::owed(&tx,&self.db).map_err(err)? {
+            let (stored,chunks)=sql::encode_text(&r.text);
+            for (id,data) in &chunks {if !sql::insert_blob(&tx,id,data,now).map_err(err)? {sql::touch_blob(&tx,id,now).map_err(err)?;}}
+            sql::put_document(&tx,&r.key,Some(&stored)).map_err(err)?;
+            super::journal::put_rev(&tx,&r.key,r.seq).map_err(err)?;
+            super::search::index::draft(&tx,&r.key,now).map_err(err)?;boot_changed=true;
+        }
+        for (id,data) in &batch.blobs {blob(&tx,id,data,now)?;}
         let mut keys=batch.draft_keys();keys.extend(applied.keys().cloned());
         for key in keys{
             let undo=undo_key(&key)?;let incoming=batch.payload(&key,false)?;

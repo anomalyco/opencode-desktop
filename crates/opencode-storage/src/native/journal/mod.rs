@@ -12,6 +12,8 @@
 //! hadn't written of the mapped pages; the database's synced checkpoints bound that as before.
 
 mod layout;
+mod owed;
+pub(crate) use owed::owed;
 
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
