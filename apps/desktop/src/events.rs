@@ -15,6 +15,11 @@ pub enum Heard {
     Message(Incoming),
 }
 
+/// Where this poll got the open timeline's geometry. A page wins over stream events in
+/// either order: growth opts in a whole stack, not just the row that the stream changed.
+#[derive(Default)]
+pub(crate) enum TailChange { #[default] None, Live(Route), Page }
+
 pub struct StreamEvent {
     pub ty: String,
     pub data: Value,
@@ -93,23 +98,46 @@ impl App {
     }
 
     /// Only live deliveries opt in, never a history page, replay on open, or reconnect read.
-    pub(crate) fn live_event(&mut self, ty: &str, data: &Value, tx: &mut rune::Tx) -> bool {
-        let Heard::Event(e) = self.apply_shared(Incoming::Event { ty: ty.to_owned(), data: data.clone() }) else { return false };
-        self.react_live(&e, tx)
+    pub(crate) fn live_event(&mut self, ty: String, data: Value) -> bool {
+        let Heard::Event(e) = self.apply_shared(Incoming::Event { ty, data }) else { return false };
+        self.react_live(&e)
     }
 
-    pub(crate) fn react_live(&mut self, e: &StreamEvent, tx: &mut rune::Tx) -> bool {
+    pub(crate) fn react_live(&mut self, e: &StreamEvent) -> bool {
         let ty = e.ty.as_str();
-        if (e.done.transcript || e.done.inbox)
-            && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
-                || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered"))
+        if matches!(self.tail_change, TailChange::None) && (e.done.transcript || e.done.inbox)
             && let Some(id) = e.data["sessionID"].as_str()
-            && matches!(&*self.route, Route::Session { id: open, .. } if open == id)
-            && self.ends.at_end(id) && !self.ends.due(id) && !self.stream_gaps.contains_key(id)
+            && self.showing_here(id)
+            && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
+                || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered")
+                || (ty == "session.inbox.enqueued" && self.waiting_finish(id, &e.data)))
         {
-            tx.grow_visible_tail(format!("scroll-{id}/timeline"));
+            self.tail_change = TailChange::Live((*self.route).clone());
         }
         self.react(e)
+    }
+
+    fn showing_here(&self, sid: &str) -> bool {
+        matches!(&*self.route, Route::Session { server, id } if id == sid && *server == servers::runtime::current())
+    }
+
+    fn waiting_finish(&self, sid: &str, data: &Value) -> bool {
+        use session_view::TimelineHost as _;
+        use session_view::detail::{Placement, notice_placement};
+        let Some(id) = data["inboxID"].as_str() else { return false };
+        self.session_revert(sid).is_none()
+            && self.inboxes.get(sid).is_some_and(|i| i.waiting_notices().any(|n| n.id == id
+                && matches!(n.kind, opencode_kit::model::NoticeKind::Finished(_)) && notice_placement(n, &self.timeline_detail()) != Placement::Hidden))
+    }
+
+    pub(crate) fn tail_page(&mut self, sid: &str) {
+        if self.showing_here(sid) { self.tail_change = TailChange::Page; }
+    }
+
+    pub(crate) fn finish_tail_change(&mut self, tx: &mut Tx) {
+        if let TailChange::Live(route) = std::mem::take(&mut self.tail_change) && *self.route == route
+            && let Route::Session { id, .. } = route && self.ends.at_end(&id) && !self.ends.due(&id) && !self.stream_gaps.contains_key(&id)
+        { tx.grow_visible_tail(format!("scroll-{id}/timeline")); }
     }
 
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {

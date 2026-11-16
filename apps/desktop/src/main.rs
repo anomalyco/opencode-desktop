@@ -310,6 +310,8 @@ pub struct App {
     inbox: rune::Tracked<Option<Receiver<Incoming>>>,
     /// The live server events taken, for the motion log (`motion_log.rs`).
     motion_events: rune::Tracked<motion_log::Events>,
+    // Window-local, consumed once per poll; never a view dependency.
+    tail_change: events::TailChange,
     pages: rune::Tracked<session_pages::State>,
     // Created by the first Save, never before Frame 1. A failed write wakes the window once.
     output_errors: Option<(Sender<String>, Receiver<String>)>,
@@ -1367,10 +1369,10 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
                 changed = true;
                 continue;
             }
-            s.live_event(&ty, &data, tx);
             if let Some(sid) = data["sessionID"].as_str().filter(|sid| ty == "session.step.started" && s.route == Route::here(sid.to_string())) {
                 s.refresh_fixture_page(sid);
             }
+            s.live_event(ty, data);
             changed = true;
         }
     }
@@ -1448,6 +1450,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             *s.framed = rune_mac::remember_frame("OpenCodeRuneMain");
         }
     }
+    s.finish_tail_change(tx);
     changed
 }
 

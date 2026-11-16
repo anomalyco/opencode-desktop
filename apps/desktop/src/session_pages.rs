@@ -524,6 +524,7 @@ impl super::App {
     }
 
     pub(crate) fn show_page(&mut self, page: &Page, tx: &mut rune::Tx) {
+        self.tail_page(&page.key.id);
         let shown = Instant::now();
         self.merge_page(page, tx);
         crate::telemetry::page(&page.key.id, page.history, &page.read, (shown, Instant::now()));
