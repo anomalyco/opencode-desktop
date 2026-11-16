@@ -12,7 +12,8 @@
 
   Needs: rustup's wasm32-unknown-unknown target, wasm-bindgen-cli at the Cargo.lock version
   (cargo install wasm-bindgen-cli --version <v> --locked), WASI SDK 33 or newer for Luau's C++
-  (WASI_SDK_PATH, or -WasiSdk), and Bun for the server.
+  (WASI_SDK_PATH, or -WasiSdk), Bun or Node.js 18+ for the build's steps (scripts/web-*.mjs; a CI
+  runner has Node), and Bun for -Check and for the server.
 
 .EXAMPLE
   pwsh scripts/web.ps1                      # release build, serve on 8790
@@ -69,6 +70,16 @@ if (-not $NoBuild) {
       exit $LASTEXITCODE
     } finally { Pop-Location }
   }
+  # The build's own steps (warming table, catalogs, Brotli, page) are plain JavaScript that Bun and
+  # Node both run: a CI runner has Node and no Bun. With neither, stop here, before the long build,
+  # rather than ship a page without its steps.
+  $js = (Get-Command bun -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+  if (-not $js) {
+    $js = (Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if ($js -and [int]((& $js --version) -replace '^v(\d+).*', '$1') -lt 18) { throw "scripts/web.ps1 needs Bun or Node.js 18 or newer for its build steps; this Node is $(& $js --version)." }
+  }
+  if (-not $js) { throw 'scripts/web.ps1 needs Bun or Node.js 18 or newer on PATH for its build steps (scripts/web-*.mjs); neither is there.' }
+  Write-Host "Build steps run with $js"
   $cargoArgs = @('build', '-p', 'opencode-web', '--lib', '--target', 'wasm32-unknown-unknown')
   if (-not $Dev) {
     # Small rather than fast to build: one codegen unit, size-optimised, thin LTO, no symbols.
@@ -100,11 +111,11 @@ if (-not $NoBuild) {
   $bindgen = @('--target', 'web', '--out-dir', $next, '--out-name', 'app')
   & wasm-bindgen @bindgen $wasm
   if ($LASTEXITCODE) { throw "wasm-bindgen failed ($LASTEXITCODE)" }
-  # The functions the page's warming workers compile ahead of it (`web-warm.ts`, index.html), found
+  # The functions the page's warming workers compile ahead of it (`web-warm.mjs`, index.html), found
   # by the module's names, which a release then drops.
   $warm = @((Join-Path $next 'app_bg.wasm'), (Join-Path $root 'apps/web/warm.txt'))
   if ($Dev -or $Names) { $warm += '--keep-names' }
-  & bun (Join-Path $PSScriptRoot 'web-warm.ts') @warm
+  & $js (Join-Path $PSScriptRoot 'web-warm.mjs') @warm
   if ($LASTEXITCODE) { throw "web-warm failed ($LASTEXITCODE)" }
   # The fonts the page fetches after its first frame (main.rs's LATE_FONTS), and the terminal's when one attaches (TERMINAL_FONTS).
   New-Item -ItemType Directory -Force (Join-Path $next 'fonts') | Out-Null
@@ -113,14 +124,14 @@ if (-not $NoBuild) {
   New-Item -ItemType Directory -Force (Join-Path $next 'spell') | Out-Null
   Copy-Item (Join-Path $root 'apps/web/spell/*') (Join-Path $next 'spell') -Include '*.aff', '*.dic'
   # Every locale's messages but English, which the module carries; the page fetches the one it shows.
-  & bun (Join-Path $PSScriptRoot 'web-i18n.ts') (Join-Path $next 'i18n')
+  & $js (Join-Path $PSScriptRoot 'web-i18n.mjs') (Join-Path $next 'i18n')
   if ($LASTEXITCODE) { throw "web-i18n failed ($LASTEXITCODE)" }
   # A release ships the module and the fonts Brotli-compressed beside themselves, as a static host
   # serves them (`web-serve.ts` sends them to a browser that takes br): the module's 35 MB on the
   # wire becomes about 10, the terminal's 4.8 MB face about 2.
   if (-not $Dev) {
     $packed = @(Join-Path $next 'app_bg.wasm') + @(Get-ChildItem (Join-Path $next 'fonts'), (Join-Path $next 'i18n'), (Join-Path $next 'spell') -File | ForEach-Object FullName)
-    & bun -e "const z = require('node:zlib'); const fs = require('node:fs'); for (const f of process.argv.slice(1)) { const b = fs.readFileSync(f); fs.writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } })); }" @packed
+    & $js -e "const z = require('node:zlib'); const fs = require('node:fs'); for (const f of process.argv.slice(1)) { const b = fs.readFileSync(f); fs.writeFileSync(f + '.br', z.brotliCompressSync(b, { params: { [z.constants.BROTLI_PARAM_QUALITY]: 11, [z.constants.BROTLI_PARAM_SIZE_HINT]: b.length } })); }" @packed
     if ($LASTEXITCODE) { throw "brotli failed ($LASTEXITCODE)" }
   }
   # The sound effects the page plays when they're asked for (sounds.rs).
@@ -128,7 +139,7 @@ if (-not $NoBuild) {
   # What a phone's Home Screen reads: the web app manifest and the app's icons (`apps/web/pwa`).
   Copy-Item -Recurse (Join-Path $root 'apps/web/pwa/*') $next
   # The page (with the module's size, the build's id and its English messages) and its service worker.
-  & bun (Join-Path $PSScriptRoot 'web-page.ts') $next
+  & $js (Join-Path $PSScriptRoot 'web-page.mjs') $next
   if ($LASTEXITCODE) { throw "web-page failed ($LASTEXITCODE)" }
   Remove-Item -Recurse -Force $Out -ErrorAction SilentlyContinue
   Move-Item $next $Out

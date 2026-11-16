@@ -2,18 +2,19 @@
 // its layers merged in `locales.json`'s order (a later layer winning, as `rune_i18n::codegen`
 // merges them), written as `<out>/<id>.json` for the page to fetch when it shows that locale
 // (`crates/opencode-i18n/src/web.rs`). The module carries the source locale alone.
-// Usage: bun scripts/web-i18n.ts <out dir>
+// Usage: node (or bun) scripts/web-i18n.mjs <out dir>
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const out = process.argv[2]
-if (!out) throw new Error("usage: bun scripts/web-i18n.ts <out dir>")
-const dir = join(import.meta.dir, "..", "crates", "opencode-i18n", "locales")
+if (!out) throw new Error("usage: node scripts/web-i18n.mjs <out dir>")
+const dir = join(fileURLToPath(new URL("..", import.meta.url)), "crates", "opencode-i18n", "locales")
 const manifest = JSON.parse(readFileSync(join(dir, "locales.json"), "utf8"))
 mkdirSync(out, { recursive: true })
 let bytes = 0
 for (const locale of manifest.locales.slice(1)) {
-  const merged: Record<string, string> = {}
+  const merged = {}
   for (const layer of manifest.layers) {
     const file = join(dir, layer, `${locale.id}.json`)
     if (!existsSync(file)) continue

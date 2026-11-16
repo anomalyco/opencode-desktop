@@ -4,31 +4,32 @@
 //   the user's language as the app does and fetches that locale's `i18n/<id>.json` (the module
 //   reads the same file a moment later);
 // - the worker gets the build's id and the files the first frame needs.
-// Usage: bun scripts/web-page.ts <built folder>
+// Usage: node (or bun) scripts/web-page.mjs <built folder>
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const out = process.argv[2]
-if (!out) throw new Error("usage: bun scripts/web-page.ts <built folder>")
-const root = join(import.meta.dir, "..")
+if (!out) throw new Error("usage: node scripts/web-page.mjs <built folder>")
+const root = fileURLToPath(new URL("..", import.meta.url))
 const locales = join(root, "crates", "opencode-i18n", "locales")
 const SHARED = ["common.connect", "common.ok"]
 
 const wasm = readFileSync(join(out, "app_bg.wasm"))
 const build = createHash("sha256").update(wasm).digest("hex").slice(0, 12)
-const english: Record<string, string> = {}
-for (const layer of JSON.parse(readFileSync(join(locales, "locales.json"), "utf8")).layers as string[]) {
+const english = {}
+for (const layer of JSON.parse(readFileSync(join(locales, "locales.json"), "utf8")).layers) {
   const file = join(locales, layer, "en.json")
   if (!existsSync(file)) continue
-  const all = JSON.parse(readFileSync(file, "utf8")) as Record<string, string>
+  const all = JSON.parse(readFileSync(file, "utf8"))
   for (const [key, value] of Object.entries(all)) if (key.startsWith("rune.web.") || SHARED.includes(key)) english[key] = value
 }
 const manifest = JSON.parse(readFileSync(join(locales, "locales.json"), "utf8"))
 const page = {
   build,
   shared: SHARED,
-  locales: (manifest.locales as { id: string; tag: string }[]).map((l) => [l.id, l.tag]),
+  locales: manifest.locales.map((l) => [l.id, l.tag]),
   en: english,
 }
 // `</` can't end the script element early: JSON never needs it raw.
@@ -38,8 +39,8 @@ const html = readFileSync(join(root, "apps", "web", "index.html"), "utf8")
   .replace('<script id="page" type="application/json">{}</script>', `<script id="page" type="application/json">${json}</script>`)
 writeFileSync(join(out, "index.html"), html)
 
-const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]))
-const rel = (file: string) => relative(out, file).split(sep).join("/")
+const files = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]))
+const rel = (file) => relative(out, file).split(sep).join("/")
 const shell = [
   "",
   "app.js",
