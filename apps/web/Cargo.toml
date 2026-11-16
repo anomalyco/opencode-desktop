@@ -49,6 +49,8 @@ icu_properties = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 js-sys = "0.3"
 memchr = "2"
+# HTML5 tree construction for the inert HTML preview, as in apps/desktop (Find searches its painted text).
+scraper = { version = "0.24", default-features = false }
 mlua = { git = "https://github.com/mlua-rs/mlua", rev = "a0ad4535fc72ba89967a931c5be57b162b5f0f3f", features = ["luau"] }
 opencode-i18n = { path = "../../crates/opencode-i18n" }
 opencode-kit = { path = "../../crates/opencode-kit" }

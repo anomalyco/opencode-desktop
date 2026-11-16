@@ -3572,6 +3572,7 @@ dependencies = [
  "rune-perf",
  "rune-register",
  "rune-theme-opencode",
+ "scraper",
  "serde",
  "serde_json",
  "session-view",
