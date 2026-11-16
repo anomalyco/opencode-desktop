@@ -426,22 +426,20 @@ impl App {
         if self.unfold_if_hidden(&sid, &row_key, end_byte) {
             tx.instant();
         }
-        // Land the match where Desktop's `probeSeek` puts it (`search-controller.ts:293-298`,
-        // scrolled with `behavior: "auto"`): centred in the scroll view, which runs under the
-        // composer to the page's bottom, less the sticky header's 64 (its 48 and the 16 its fade
-        // takes, `[data-session-title]`'s height). One request names the match inside its row
-        // (`row/mark`): a row that isn't mounted is mounted once where the list's estimates put
-        // it and the match placed from its layout, rather than walked to by successive reveals.
-        let mark = format!("{row_key}/{ACTIVE_KEY}");
+        let scroll_key = format!("scroll-{sid}");
+        // Mount the match's row, then land the match where Desktop's `probeSeek` puts it
+        // (`search-controller.ts:293-298`, scrolled with `behavior: "auto"`): centred in the
+        // scroll view, which runs under the composer to the page's bottom, less the sticky
+        // header's 64 (its 48 and the 16 its fade takes, `[data-session-title]`'s height).
+        tx.scroll_center_in_instant(&scroll_key, &row_key);
+        tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
         if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (self.message_nav.view, self.message_nav.page) {
             let header = if self.narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
             // `scroll_key_to` places the top of Rune's highlight *line box*. Blink instead places
             // the text range, already inset by half the leading. Centre the line, not an 18 pt
-            // glyph box with its top mistaken for the line's (3-4 device pixels low at 1.875x).
+            // glyph box with its top mistaken for the line's (3–4 device pixels low at 1.875x).
             let line = if row_key.starts_with("u-") { session_view::style::BUBBLE } else { session_view::style::MD };
-            tx.scroll_key_to(mark, header + (page_y + page_h - top - line.line_px()) / 2.0);
-        } else {
-            tx.scroll_center_in_instant(format!("scroll-{sid}"), mark);
+            tx.scroll_key_to(ACTIVE_KEY, header + (page_y + page_h - top - line.line_px()) / 2.0);
         }
     }
 
