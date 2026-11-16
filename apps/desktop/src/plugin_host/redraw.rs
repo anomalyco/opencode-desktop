@@ -13,7 +13,7 @@ use super::{Half, Tier};
 use rune_luau::Script;
 
 /// The built-ins whose rows in `redraw-audit.md` say "live".
-const LIVE: [&str; 9] = ["context", "debug", "details", "file", "goal", "pairing", "review", "rune-ui", "terminal"];
+const LIVE: [&str; 10] = ["context", "debug", "details", "file", "goal", "pairing", "review", "rune-ui", "terminal", "updater"];
 
 pub(super) fn explicit(tier: Tier, id: &str) -> bool {
     tier == Tier::Bundled && comparison(id).unwrap_or_else(|| LIVE.contains(&id))

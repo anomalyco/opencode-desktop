@@ -18,7 +18,7 @@ A built-in moves to its own redraws (`redraw.rs`, `LIVE`) when the states it dra
 | microsoft-office | legacy | none | document read, sheet switch, failure |
 | sources | legacy | none | a turn's searches, expand, favicon |
 | ssh | legacy | none | connect, authentication prompt, failure |
-| updater | legacy | release-notes switch | checking, up to date, downloading, ready, download required, error: the headless run starts no updater service, so these need a live window against a local feed |
+| updater | live | release-notes switch (headless); live window against a local feed offering a newer version: Idle, Checking, Downloading, Ready, then the "Update Ready" toast with Restart, the same states in the same order with either redraw | up to date and error on screen, download required, installing |
 | wsl | legacy | none | runtime probe, distro list, install and add server |
 
 The "live" rows were driven on Windows (a debug build, headless) and on macOS (the same cases, headless on Metal). Both gave byte-identical frames and trees between the legacy redraw and the plugin's own, changing on the same frame on both platforms. Nothing has run on Linux. The redraw logic is shared code, so what could differ there is when the platform delivers the events a plugin redraws on.
