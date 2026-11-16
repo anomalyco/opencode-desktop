@@ -163,14 +163,19 @@ pub fn version(app: &App, session: &str) -> u64 {
 
 /// The version of what `Dep::TerminalScreen(session)` reads, the surfaces and labels: each
 /// screen (a new snapshot each time the shell draws), its status, scroll and selection drag, the
-/// cursor's blink, where the keyboard is, and a rename.
+/// cursor's blink, the bell's flash, the find bar, the link under the pointer, where the keyboard
+/// is, and a rename.
 pub fn screen_version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     version(app, session).hash(&mut h);
     if let Some(ws) = app.terminal.workspaces.get(&app.terminal_workspace_key_for_session(session)) {
-        ws.tabs.iter().for_each(|t| (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits(), &t.preedit).hash(&mut h));
+        ws.tabs.iter().for_each(|t| {
+            (t.session.generation(), t.session.revealed(), t.session.cursor_offset(), t.drag, t.mount, t.scroll_px_accum.to_bits(), &t.preedit).hash(&mut h);
+            (t.find.is_some(), t.hover).hash(&mut h);
+        });
     }
-    (app.terminal.cursor_lit(*app.clock), app.composer.focused, app.side.focused, format!("{:?}", app.side.active_pane_focus)).hash(&mut h);
+    let now = *app.clock;
+    (now < app.terminal.bell_until, app.terminal.cursor_lit(now), app.composer.focused, app.side.focused, format!("{:?}", app.side.active_pane_focus)).hash(&mut h);
     crate::terminal::rename_stamp(app, &mut h);
     h.finish()
 }
