@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use rune_luau::Data;
 
+use super::session::Stamp;
 use super::store::{contract_generation, store_version};
 use super::{map, session_version};
 use crate::App;
@@ -21,20 +22,20 @@ fn hash(v: impl Hash) -> u64 {
 /// Inputs of `session_version`. A change outside the transcript can affect several rows
 /// (in particular a running child's ancestors or its family's cost). Cell identity matters
 /// as well as version: checking out a server swaps its cells into the window.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct SessionInputs {
-    shared: [(u32, u64); 5],
-    transcript: (u32, u64),
+    server: opencode_kit::servers::ServerKey,
+    shared: [Stamp; 4],
+    transcript: Stamp,
 }
 
 impl SessionInputs {
     fn read(app: &App) -> Self {
-        fn stamp<T>(cell: &rune::Tracked<T>) -> (u32, u64) {
-            (rune::Tracked::id(cell), rune::Tracked::version(cell))
-        }
         Self {
-            shared: [stamp(&app.sessions), stamp(&app.running), stamp(&app.inboxes), stamp(&app.context_windows), stamp(&app.checkout)],
-            transcript: stamp(&app.transcripts),
+            // Polling a parked server checks out and restores these cells within one turn.
+            server: crate::servers::runtime::active(app).clone(),
+            shared: [Stamp::of(&app.sessions), Stamp::of(&app.running), Stamp::of(&app.inboxes), Stamp::of(&app.context_windows)],
+            transcript: Stamp::of(&app.transcripts),
         }
     }
 }
@@ -50,23 +51,25 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
     for name in names {
         if name == "Sessions.Changed" {
             let inputs = SessionInputs::read(app);
-            let previous = half.sessions_read.replace(Some(inputs));
-            if previous == Some(inputs) {
+            let previous = half.sessions_read.replace(Some(inputs.clone()));
+            if previous.as_ref() == Some(&inputs) {
                 continue;
             }
-            let only = previous.filter(|p| p.shared == inputs.shared && p.transcript.0 == inputs.transcript.0)
+            let only = previous.filter(|p| p.server == inputs.server && p.shared == inputs.shared && p.transcript.0 == inputs.transcript.0)
                 .and_then(|p| app.transcript_edits.only(inputs.transcript.0, p.transcript.1, inputs.transcript.1));
-            let versions = match only {
-                Some(id) if app.session(id).is_some() => vec![(id.to_owned(), session_version(app, id))],
-                Some(_) => continue,
-                None => app.sessions.iter().map(|s| (s.id.clone(), session_version(app, &s.id))).collect(),
-            };
-            for (id, v) in versions {
+            let mut compare = |id: &str, v| {
                 let key = format!("Sessions.Changed:{id}");
                 let was = half.seen.borrow_mut().insert(key, v);
                 if was.is_some_and(|w| w != v) {
-                    fired |= super::super::fire_named(app, i, &name, session_data(app, &id));
+                    fired |= super::super::fire_named(app, i, &name, session_data(app, id));
                 }
+            };
+            if let Some(id) = only {
+                if app.session(id).is_some() { compare(id, session_version(app, id)); }
+            } else {
+                // Snapshot every version before dispatching the first change.
+                let versions: Vec<_> = app.sessions.iter().map(|s| (&s.id, session_version(app, &s.id))).collect();
+                for (id, v) in versions { compare(id, v); }
             }
             continue;
         }
