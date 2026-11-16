@@ -68,9 +68,13 @@ pub enum Answer {
     Installed(Result<(), String>),
 }
 
+/// The most a restart's quit waits for its prepared helper to start, once the windows are gone.
+const RESTART_WITHIN: Duration = Duration::from_secs(10);
+
 enum Job {
     Check(Attempt),
     Stage(Attempt),
+    Prepare(Attempt),
     Install(Attempt),
 }
 
@@ -206,18 +210,22 @@ impl UpdaterService {
     /// of its own (`super::finish_quit` waits for it before the process exits): checking the staged
     /// exe's signature and copying it as the helper (about 135 MB) no longer hold the UI thread
     /// while the windows close.
-    pub fn confirmed_quit(&mut self, _receipt: &crate::storage::ConfirmedQuit) -> bool {
+    pub fn confirmed_quit(&mut self, _receipt: &crate::storage::ConfirmedQuit) -> super::Handoff {
         // As in the ordinary install-on-quit path, the old PID keeps the
         // instance name until death when a replacement is being handed off.
-        let mut replacing = false;
+        let mut handoff = super::Handoff::None;
         if let State::Installing { plan: Plan::AwaitingSave { attempt }, .. } = self.state {
             self.dispatch(Event::SaveConfirmed);
-            // No window poll follows terminal confirmation. The worker reports the handoff itself;
-            // an install failure never causes a second process to start from the old bundle.
-            while let Ok(msg) = self.messages.recv() {
+            // No window poll follows terminal confirmation. The worker reports the handoff itself
+            // (`prepare_restart` already did the slow part, so this is a process start); past the
+            // bound it counts as failed. A failure never starts a second process from the old
+            // bundle beside a helper: the app starts again unchanged instead.
+            handoff = super::Handoff::RestartFailed;
+            let until = Instant::now() + RESTART_WITHIN;
+            while let Ok(msg) = self.messages.recv_timeout(until.saturating_duration_since(Instant::now())) {
                 match msg {
                     Message::Event(e @ (Event::RestartSucceeded(a) | Event::RestartFailed(a, _))) if a == attempt => {
-                        replacing = matches!(e, Event::RestartSucceeded(_));
+                        if matches!(e, Event::RestartSucceeded(_)) { handoff = super::Handoff::Replacing; }
                         self.dispatch(e);
                         break;
                     }
@@ -227,11 +235,12 @@ impl UpdaterService {
         }
         else if matches!(self.state, State::Ready { refresh: None, .. })
             && let Some(platform) = self.platform.get().cloned()
+            && super::install_on_quit(platform)
         {
-            replacing = super::install_on_quit(platform);
+            handoff = super::Handoff::Replacing;
         }
         self.dispatch(Event::Disposed);
-        replacing
+        handoff
     }
 
     fn ticket(&mut self) -> Ticket {
@@ -262,6 +271,7 @@ impl UpdaterService {
             Effect::RequestSave => self.quit = true,
             Effect::Check(a) => self.send(Job::Check(a)),
             Effect::Stage(a) => self.send(Job::Stage(a)),
+            Effect::Prepare(a) => self.send(Job::Prepare(a)),
             Effect::Restart(a) => self.send(Job::Install(a)),
             // A blocking platform call can't be stopped; its stale result is fenced by its attempt.
             Effect::Cancel(_) => {}
@@ -333,6 +343,13 @@ impl Worker {
                     let event = match platform.stage(&|done, total| self.downloaded(done, total)) {
                         Ok(()) => Event::StageSucceeded(a),
                         Err(e) => Event::StageFailed(a, e),
+                    };
+                    self.send(Message::Event(event));
+                }
+                Ok(Job::Prepare(a)) => {
+                    let event = match platform.prepare_restart() {
+                        Ok(()) => Event::PrepareSucceeded(a),
+                        Err(e) => Event::PrepareFailed(a, e),
                     };
                     self.send(Message::Event(event));
                 }

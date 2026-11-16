@@ -17,6 +17,9 @@ pub trait Platform: Send + Sync + 'static {
 
     /// Hands off to the staged update; once this returns `Ok` the app must quit.
     fn install(&self) -> Result<(), String>;
+    /// Before a restart's quit starts: everything install would do that is slow or can fail,
+    /// so the quit's own handoff is only a process start.
+    fn prepare_restart(&self) -> Result<(), String> { Ok(()) }
 
     /// The app quits with an update staged: install it on the way out, without starting again.
     fn install_on_quit(&self) {}

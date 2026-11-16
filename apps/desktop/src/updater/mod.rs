@@ -84,21 +84,46 @@ impl Updater {
     }
 }
 
-/// The install-on-quit hand-off, started by the last window's quit (`UpdaterService::quitting`).
-static QUIT_INSTALL: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+/// The install-on-quit hand-off, started by the last window's quit: says when its helper started.
+static QUIT_INSTALL: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>> = std::sync::Mutex::new(None);
+
+/// The most a quit waits for an install-on-quit hand-off (a signature check and the helper's copy)
+/// once the windows are gone; past it the process ends and the update stays staged.
+const HANDOFF_WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
 
 fn install_on_quit(platform: std::sync::Arc<dyn platform::Platform>) -> bool {
-    let handle = std::thread::Builder::new().name("opencode-update-handoff".into()).spawn(move || platform.install_on_quit());
-    if let Ok(handle) = handle {
-        *QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+    let (done, started) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("opencode-update-handoff".into()).spawn(move || { platform.install_on_quit(); let _ = done.send(()); });
+    if spawned.is_ok() {
+        *QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()) = Some(started);
         return true;
     }
     false
 }
 
+/// What a confirmed quit handed to the updater.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Handoff {
+    /// Nothing: the process just exits.
+    None,
+    /// A helper replaces the bundle once this process is gone (it may restart the app).
+    Replacing,
+    /// *Restart to update* could not start its helper after the windows closed: the app starts
+    /// again unchanged ([`restart_unchanged`]), since a quit must end visibly.
+    RestartFailed,
+}
+
 /// A confirmed save is the only call site that may hand off a replacement.
-pub fn confirmed(receipt: &crate::storage::ConfirmedQuit) -> bool {
-    SHARED.with_borrow_mut(Option::take).is_some_and(|s| s.borrow_mut().confirmed_quit(receipt))
+pub fn confirmed(receipt: &crate::storage::ConfirmedQuit) -> Handoff {
+    SHARED.with_borrow_mut(Option::take).map_or(Handoff::None, |s| s.borrow_mut().confirmed_quit(receipt))
+}
+
+/// Starts this build again with the same arguments; it waits for this process to end first.
+pub fn restart_unchanged() {
+    #[allow(clippy::disallowed_methods)]
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(args).env("RUNE_RELAUNCH_AFTER", std::process::id().to_string()).spawn());
+    if let Err(e) = started { eprintln!("updater: couldn't start the app again after a failed restart: {e}"); }
 }
 
 pub fn resumed_quit() {
@@ -108,9 +133,9 @@ pub fn resumed_quit() {
 /// Waits for an install-on-quit hand-off to finish starting its helper, which must exist before
 /// this process exits (it waits for the exit, then swaps the folders). Call it last in `main`.
 pub fn finish_quit() {
-    let handle = QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(handle) = handle {
-        let _ = handle.join();
+    let started = QUIT_INSTALL.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(started) = started && started.recv_timeout(HANDOFF_WITHIN).is_err() {
+        eprintln!("updater: the install hand-off didn't finish in {} s; the update stays staged", HANDOFF_WITHIN.as_secs());
     }
 }
 

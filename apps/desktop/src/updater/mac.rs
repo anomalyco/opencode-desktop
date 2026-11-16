@@ -69,15 +69,11 @@ impl Mac {
         Mac { engine: Engine::new(facts), bundle, check_team, check_gatekeeper, staged: Mutex::new(None) }
     }
 
-    /// Swaps the staged bundle in, without opening it (`install` opens it).
+    /// Swaps the staged bundle in, without opening it (`install` opens it). `prepare_restart`
+    /// already checked it and recorded it, while the windows and storage were still there.
     pub fn apply(&self) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|mut s| s.take()).ok_or_else(|| "No staged update ready to install.".to_owned())?;
-        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
-            std::fs::remove_dir_all(&staged.dir).ok();
-            return Err(e);
-        }
         swap(&staged.app, &self.bundle.path)?;
-        engine::record_staged(&staged.version, &staged.sha256);
         std::fs::remove_dir_all(&staged.dir).ok();
         Ok(())
     }
@@ -140,6 +136,20 @@ impl Platform for Mac {
         let status = Command::new("/usr/bin/open").arg("-n").arg(&self.bundle.path)
             .arg("--env").arg(format!("RUNE_RELAUNCH_AFTER={}", std::process::id())).status().map_err(|e| e.to_string())?;
         if status.success() { Ok(()) } else { Err(format!("could not launch the installed update: {status}")) }
+    }
+
+    fn prepare_restart(&self) -> Result<(), String> {
+        let mut slot = self.staged.lock().map_err(|_| "the staged update is unavailable".to_owned())?;
+        let staged = slot.as_ref().ok_or_else(|| "No staged update ready to install.".to_owned())?;
+        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
+            if let Some(s) = slot.take() { std::fs::remove_dir_all(&s.dir).ok(); }
+            return Err(e);
+        }
+        // Written while storage still takes writes (after its close, a write is dropped). The
+        // reader trusts it only when the running version is this one, so a swap that then fails
+        // leaves it unread.
+        engine::record_staged(&staged.version, &staged.sha256);
+        Ok(())
     }
 
     fn auto_install(&self) -> bool {
