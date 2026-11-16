@@ -16,7 +16,7 @@ A built-in moves to its own redraws (`redraw.rs`, `LIVE`) when the states it dra
 | browser | legacy | address field focus and edit; site popover (loading, then failed without an engine) | a real page's loading and title, a new tab |
 | btw | legacy | ask (tab opens, running, failed without a model); Retry (running, failed) | an answer landing, which needs a model the fixture doesn't have |
 | microsoft-office | legacy | none | document read, sheet switch, failure |
-| sources | legacy | none | a turn's searches, expand, favicon |
+| sources | live | against a loopback server with simulated web search and fetch, on its "Search the web" turn (headless, Sources on): the chip opening the turn's tab, and expanding its search; 30 frames each, byte-identical with either redraw | favicons fetched from sites, the experiment turned off |
 | ssh | legacy | none | connect, authentication prompt, failure |
 | updater | live | release-notes switch (headless); live window against a local feed offering a newer version: Idle, Checking, Downloading, Ready, then the "Update Ready" toast with Restart, the same states in the same order with either redraw | up to date and error on screen, download required, installing |
 | wsl | legacy | none | runtime probe, distro list, install and add server |
