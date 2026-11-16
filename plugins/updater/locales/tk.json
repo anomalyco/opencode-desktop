@@ -6,7 +6,6 @@
   "action.installRestart": "Guruň we täzeden açyň",
   "action.download": "OpenCode-y ýükläp al",
   "action.installing": "Gurmak …",
-  "toast.installed.description": "{{version}} wersiýasy gurnaldy. OpenCode programmasyny indiki gezek açanyňyzda şu wersiýa işlär.",
   "toast.latest.title": "Döwrebap",
   "toast.latest.description": "OpenCode-iň iň soňky wersiýasyny işleýärsiňiz.",
   "migration.title": "Beta-dan Stable-a geç",

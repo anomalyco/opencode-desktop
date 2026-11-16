@@ -6,7 +6,6 @@
   "action.installRestart": "Instalează și repornește",
   "action.download": "Descarcă OpenCode",
   "action.installing": "Se instalează…",
-  "toast.installed.description": "Versiunea {{version}} este instalată. Va porni data viitoare când deschizi OpenCode.",
   "toast.latest.title": "Ești la zi",
   "toast.latest.description": "Folosești cea mai recentă versiune OpenCode.",
   "migration.title": "Treci de la Beta la Stabil",

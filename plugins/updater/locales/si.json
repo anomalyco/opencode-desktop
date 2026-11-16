@@ -6,7 +6,6 @@
   "action.installRestart": "ස්ථාපනය කර නැවත ආරම්භ කරන්න",
   "action.download": "OpenCode බාගන්න",
   "action.installing": "ස්ථාපනය කරමින්…",
-  "toast.installed.description": "{{version}} අනුවාදය ස්ථාපනය කර ඇත. ඊළඟ වර ඔබ OpenCode විවෘත කරන විට එම අනුවාදය ක්‍රියාත්මක වේ.",
   "toast.latest.title": "ඔබ යාවත්කාලීනයි",
   "toast.latest.description": "ඔබ OpenCode හි නවතම අනුවාදය ධාවනය කරයි.",
   "migration.title": "බීටා වෙතින් ස්ථාවර අනුවාදයට මාරු වන්න",

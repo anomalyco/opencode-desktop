@@ -6,7 +6,6 @@
   "action.installRestart": "インストールして再起動",
   "action.download": "OpenCodeをダウンロード",
   "action.installing": "インストール中…",
-  "toast.installed.description": "バージョン {{version}} はインストール済みです。次に OpenCode を開くと、このバージョンが起動します。",
   "toast.latest.title": "最新です",
   "toast.latest.description": "OpenCode は最新バージョンです。",
   "migration.title": "ベータ版から安定版へ移行",

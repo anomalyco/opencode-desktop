@@ -96,17 +96,18 @@ fn run() -> i32 {
     }
     log(&format!("process {} exited", a.wait));
     let old = beside(&a.root, &format!("old-{}", std::process::id()));
-    let Ok(expected) = super::windows::bundle::identity(&a.staged) else {
-        log("staged bundle is unavailable; nothing changed");
-        return 1;
-    };
-    if let Err(e) = publish(&a.root, &a.staged, &old) {
-        log(&format!("couldn't publish {}: {e}; previous install and stage unchanged", a.version));
+    if let Err(e) = rename(&a.root, &old) {
+        log(&format!("couldn't move {} aside: {e}; starting it again", a.root.display()));
         start(&a, &log);
         return 1;
     }
-    if super::windows::bundle::identity(&a.root).ok().as_ref() != Some(&expected) {
-        log("could not confirm the staged bundle at the install path");
+    if let Err(e) = rename(&a.staged, &a.root) {
+        log(&format!("couldn't move {} into place: {e}; putting the previous version back", a.staged.display()));
+        if let Err(e) = rename(&old, &a.root) {
+            log(&format!("couldn't put the previous version back: {e}; it is in {}", old.display()));
+            return 1;
+        }
+        start(&a, &log);
         return 1;
     }
     log(&format!("{} is in place", a.version));
@@ -116,8 +117,11 @@ fn run() -> i32 {
         Err(e) => log(&format!("couldn't update the uninstall entry: {e}")),
     }
     start(&a, &log);
-    if let Err(e) = super::windows::bundle::retire(&old) {
-        log(&format!("previous bundle kept intact for a later launch: {e}"));
+    for _ in 0..20 {
+        if std::fs::remove_dir_all(&old).is_ok() || !old.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
     }
     0
 }
@@ -138,7 +142,7 @@ fn wait_for_exit(pid: u32) -> bool {
     // SAFETY: a plain handle request; a process that's already gone answers null.
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     if handle.is_null() {
-        return std::io::Error::last_os_error().raw_os_error() == Some(87); // PID no longer exists
+        return true;
     }
     // SAFETY: `handle` is the open process handle, closed once.
     unsafe {
@@ -148,10 +152,10 @@ fn wait_for_exit(pid: u32) -> bool {
     }
 }
 
-fn publish(root: &Path, staged: &Path, old: &Path) -> std::io::Result<()> {
+fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut last = None;
     for _ in 0..RENAME_TRIES {
-        match super::windows::bundle::publish(root, staged, old) {
+        match std::fs::rename(from, to) {
             Ok(()) => return Ok(()),
             Err(e) => last = Some(e),
         }

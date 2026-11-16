@@ -6,7 +6,6 @@
   "action.installRestart": "انسٹال کریں اور دوبارہ شروع کریں۔",
   "action.download": "OpenCode ڈاؤن لوڈ کریں",
   "action.installing": "انسٹال ہو رہا ہے…",
-  "toast.installed.description": "ورژن ⁨{{version}}⁩ انسٹال ہو گیا ہے۔ اگلی بار جب آپ OpenCode کھولیں گے تو یہ ورژن چلے گا۔",
   "toast.latest.title": "آپ اپ ٹو ڈیٹ ہیں۔",
   "toast.latest.description": "آپ OpenCode کا تازہ ترین ورژن چلا رہے ہیں۔",
   "migration.title": "بیٹا سے مستحکم ورژن پر جائیں",

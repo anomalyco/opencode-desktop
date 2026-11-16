@@ -75,19 +75,6 @@ return plugin.defineWindow(function(ctx)
     end
 
     local noticeState = notice.initial
-    -- A different process placed this version. Withdraw a stale offer and explain why there
-    -- is nothing to install. A manual check can ask to see the explanation again.
-    local installedVersion: string? = nil
-    local function installed(version: string, manual: boolean)
-        if offer then
-            offer:Dismiss()
-            offer = nil
-        end
-        if manual or version ~= installedVersion then
-            Toast:Show({ title = I18n:T("section.title"), description = I18n:T("toast.installed.description", { version = version }) })
-        end
-        installedVersion = version
-    end
     local function dispatchNotice(event: notice.Event)
         local next, effects = notice.transition(noticeState, event)
         noticeState = next
@@ -105,9 +92,7 @@ return plugin.defineWindow(function(ctx)
         local checking = Toast:Show({ title = I18n:T("action.checking"), variant = "loading", persistent = true })
         local state = Updater:CheckAsync()
         checking:Dismiss()
-        if state.phase == "installed" then
-            installed(state.version or "", true)
-        elseif state.phase == "up-to-date" then
+        if state.phase == "up-to-date" then
             Toast:Show({
                 title = I18n:T("toast.latest.title"),
                 description = I18n:T("toast.latest.description", { version = App.Version }),
@@ -205,9 +190,6 @@ return plugin.defineWindow(function(ctx)
         end
     end)
     Updater.StateChanged:Connect(function(state: UpdaterState?)
-        if state and state.phase == "installed" and state.version then
-            installed(state.version, false)
-        end
         dispatchNotice({ type = "updater", phase = state and state.phase, version = state and state.version, focused = focused, notified = updateNotice:Get().version })
     end)
     local menu = Contracts:Use("updater")

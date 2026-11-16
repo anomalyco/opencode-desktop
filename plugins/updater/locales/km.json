@@ -6,7 +6,6 @@
   "action.installRestart": "ដំឡើង និងចាប់ផ្តើមឡើងវិញ",
   "action.download": "ទាញយក OpenCode",
   "action.installing": "កំពុងដំឡើង…",
-  "toast.installed.description": "កំណែ {{version}} ត្រូវបានដំឡើងរួចហើយ។ វានឹងដំណើរការនៅពេលអ្នកបើក OpenCode លើកក្រោយ។",
   "toast.latest.title": "អ្នកទាន់សម័យហើយ។",
   "toast.latest.description": "អ្នកកំពុងដំណើរការកំណែចុងក្រោយបំផុតនៃ OpenCode ។",
   "migration.title": "ផ្លាស់ប្តូរពី Beta ទៅ Stable",

@@ -171,7 +171,7 @@ pub fn read_installed_sha(running_version: &str) -> Option<String> {
     (ver == running_version && sha.len() == 64).then(|| sha.to_owned())
 }
 
-/// Records the verified archive only after its bundle has reached the install path.
-pub fn record_installed(version: &str, sha256: &str) {
+/// Records the staged release: once it's installed, the next run is that version and reads it.
+pub fn record_staged(version: &str, sha256: &str) {
     crate::storage::set_json(NAMESPACE, "rune.installedRelease", &serde_json::json!(format!("{version} {sha256}")));
 }

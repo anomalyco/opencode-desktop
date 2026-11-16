@@ -6,7 +6,6 @@
   "action.installRestart": "Instalar e reiniciar",
   "action.download": "Baixar o OpenCode",
   "action.installing": "Instalando…",
-  "toast.installed.description": "A versão {{version}} está instalada. Ela será executada na próxima vez que você abrir o OpenCode.",
   "toast.latest.title": "Você está atualizado",
   "toast.latest.description": "Você está usando a versão mais recente do OpenCode.",
   "migration.title": "Migrar da versão Beta para a Estável",

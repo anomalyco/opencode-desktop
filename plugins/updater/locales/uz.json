@@ -6,7 +6,6 @@
   "action.installRestart": "O'rnating va qayta ishga tushiring",
   "action.download": "OpenCode-ni yuklab olish",
   "action.installing": "Oʻrnatilmoqda…",
-  "toast.installed.description": "{{version}} versiyasi o‘rnatildi. Keyingi safar OpenCode’ni ochganingizda shu versiya ishga tushadi.",
   "toast.latest.title": "Siz yangilangansiz",
   "toast.latest.description": "Siz OpenCode oxirgi versiyasini ishga tushiryapsiz.",
   "migration.title": "Beta-dan Stable-ga o‘tish",

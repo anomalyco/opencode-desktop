@@ -6,7 +6,6 @@
   "action.installRestart": "Инсталирайте и рестартирайте",
   "action.download": "Изтегляне на OpenCode",
   "action.installing": "Инсталира се…",
-  "toast.installed.description": "Версия {{version}} е инсталирана. Тя ще се стартира следващия път, когато отворите OpenCode.",
   "toast.latest.title": "Вие сте в крак с времето",
   "toast.latest.description": "Вие използвате най-новата версия на OpenCode.",
   "migration.title": "Преминаване от Beta към Stable",

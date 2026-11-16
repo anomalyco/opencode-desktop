@@ -6,7 +6,6 @@
   "action.installRestart": "安装并重启",
   "action.download": "下载 OpenCode",
   "action.installing": "正在安装…",
-  "toast.installed.description": "已安装版本 {{version}}。下次打开 OpenCode 时将运行此版本。",
   "toast.latest.title": "已是最新版本",
   "toast.latest.description": "你正在使用最新版本的 OpenCode。",
   "migration.title": "从 Beta 版迁移到稳定版",

@@ -1131,7 +1131,6 @@ Where the app updater stands.
 | `"downloading"` | Downloading the update. `progress` says how far. |
 | `"ready"` | Downloaded. `Install` restarts into it. |
 | `"download-required"` | A newer version this install can't update to by itself (Linux). `Install` opens its download. |
-| `"installed"` | The release is installed. This process still runs the previous version until the next launch. |
 | `"installing"` | Installing. |
 | `"error"` | Failed. `error` says why. |
 

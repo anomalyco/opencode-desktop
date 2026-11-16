@@ -6,7 +6,6 @@
   "action.installRestart": "Asenna ja käynnistä uudelleen",
   "action.download": "Lataa OpenCode",
   "action.installing": "Asennetaan…",
-  "toast.installed.description": "Versio {{version}} on asennettu. Se käynnistyy, kun seuraavan kerran avaat OpenCoden.",
   "toast.latest.title": "Olet ajan tasalla",
   "toast.latest.description": "Käytät OpenCoden uusinta versiota.",
   "migration.title": "Siirry Betasta vakaaseen versioon",

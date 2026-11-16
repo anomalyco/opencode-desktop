@@ -6,7 +6,6 @@
   "action.installRestart": "ጫን እና እንደገና አስጀምር",
   "action.download": "OpenCodeን አውርድ",
   "action.installing": "በመጫን ላይ…",
-  "toast.installed.description": "ስሪት {{version}} ተጭኗል። OpenCodeን በሚቀጥለው ጊዜ ሲከፍቱ ይህ ስሪት ይሠራል።",
   "toast.latest.title": "ዘመኑን ጠብቀዋል",
   "toast.latest.description": "የቅርብ ጊዜውን የOpenCode እትም እያሄዱ ነው።",
   "migration.title": "ከBeta ወደ Stable ይዛወሩ",

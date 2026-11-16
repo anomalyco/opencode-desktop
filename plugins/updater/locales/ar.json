@@ -6,7 +6,6 @@
   "action.installRestart": "تثبيت وإعادة تشغيل",
   "action.download": "تنزيل OpenCode",
   "action.installing": "جارٍ التثبيت…",
-  "toast.installed.description": "تم تثبيت الإصدار ⁨{{version}}⁩. سيعمل في المرة القادمة التي تفتح فيها OpenCode.",
   "toast.latest.title": "لديك أحدث إصدار",
   "toast.latest.description": "أنت تستخدم أحدث إصدار من OpenCode.",
   "migration.title": "الانتقال من الإصدار التجريبي إلى المستقر",

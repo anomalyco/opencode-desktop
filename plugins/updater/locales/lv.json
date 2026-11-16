@@ -6,7 +6,6 @@
   "action.installRestart": "Instalēt un restartēt",
   "action.download": "Lejupielādēt OpenCode",
   "action.installing": "Instalē…",
-  "toast.installed.description": "Versija {{version}} ir instalēta. Tā tiks palaista nākamreiz, kad atvērsiet OpenCode.",
   "toast.latest.title": "Jums ir jaunākā versija",
   "toast.latest.description": "Jūs izmantojat jaunāko OpenCode versiju.",
   "migration.title": "Pāriet no Beta uz stabilo versiju",

@@ -6,7 +6,6 @@
   "action.installRestart": "གཞི་བཙུགས་དང་ལོག་འགོ་བཙུགས།",
   "action.download": "OpenCode ཕབ་ལེན་འབད།",
   "action.installing": "གཞི་བཙུགས་འབད་དོ།",
-  "toast.installed.description": "Version {{version}} is installed. It will run the next time you open OpenCode.",
   "toast.latest.title": "ཁྱོད་དུས་དང་བསྟུན།",
   "toast.latest.description": "ཁྱོད་ཀྱིས་ OpenCodeགི་ཐོན་རིམ་གསརཔ་འདི་གཡོག་བཀོལ་དོ།",
   "migration.title": "Beta ལས་ Stable ལུ་སྤོ།",

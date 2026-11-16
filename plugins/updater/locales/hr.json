@@ -6,7 +6,6 @@
   "action.installRestart": "Instalirajte i ponovno pokrenite",
   "action.download": "Preuzmi OpenCode",
   "action.installing": "Instaliranje…",
-  "toast.installed.description": "Verzija {{version}} je instalirana. Pokrenut će se kad sljedeći put otvorite OpenCode.",
   "toast.latest.title": "U toku ste",
   "toast.latest.description": "Imate najnoviju verziju OpenCode.",
   "migration.title": "Prijelaz s Beta na Stable",

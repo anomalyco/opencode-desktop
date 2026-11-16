@@ -610,8 +610,6 @@ string_enum! {
         Ready = "ready",
         /// A newer version this install can't update to by itself (Linux). `Install` opens its download.
         DownloadRequired = "download-required",
-        /// The release is installed. This process still runs the previous version until the next launch.
-        Installed = "installed",
         /// Installing.
         Installing = "installing",
         /// Failed. `error` says why.
