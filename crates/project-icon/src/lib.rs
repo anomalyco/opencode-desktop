@@ -20,6 +20,7 @@ mod retro;
 mod sprites;
 mod pixels;
 mod styles;
+mod unread;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -94,6 +95,7 @@ pub struct Icons {
     marks: RefCell<HashMap<(String, bool, usize, u32, (Style, i32, i32), Finish), Image>>,
     lights: RefCell<HashMap<(Finish, bool, u32, u32), Image>>,
     vectors: RefCell<HashMap<(u64, u32), Image>>,
+    unread: RefCell<unread::Tiles>,
 }
 
 struct Inner {
@@ -140,11 +142,11 @@ struct Found {
 #[derive(Clone)]
 enum Shown {
     /// A full tile.
-    Tile(Image),
+    Tile(Image, Arc<image::RgbaImage>),
     /// A transparent mark (a logo), drawn small on a neutral tile.
-    Mark(Image),
+    Mark(Image, Arc<image::RgbaImage>),
     /// An SVG, rasterized at each size it shows at, over the avatar colour as Desktop draws it.
-    Vector(Arc<[u8]>, u64),
+    Vector(Arc<[u8]>, u64, Arc<image::RgbaImage>),
 }
 
 struct Job {
@@ -249,7 +251,7 @@ impl Icons {
             if let Some(job) = job {
                 if self.sync {
                     let done = run(&inner.cache, &job);
-                    if let Some((_, Some(Shown::Tile(i) | Shown::Mark(i)))) = &done {
+                    if let Some((_, Some(Shown::Tile(i, _) | Shown::Mark(i, _)))) = &done {
                         let _ = i.wait();
                     }
                     settle(&inner.found, &entry, done);
@@ -259,7 +261,7 @@ impl Icons {
             }
             let found = inner.found.lock().unwrap();
             found.get(&entry)?.icon.clone().filter(|s| match s {
-                Shown::Tile(i) | Shown::Mark(i) => i.is_ready() && i.error().is_none(),
+                Shown::Tile(i, _) | Shown::Mark(i, _) => i.is_ready() && i.error().is_none(),
                 Shown::Vector(..) => true,
             })
         })
@@ -323,13 +325,13 @@ impl Icons {
         let radius = size_pt * styles::RADIUS;
         let variant = chosen_color(project.color);
         Some(match self.found(&project)? {
-            Shown::Tile(img) => self.picture(pal, &img, variant, size_pt),
-            Shown::Mark(img) => {
+            Shown::Tile(img, _) => self.picture(pal, &img, variant, size_pt),
+            Shown::Mark(img, _) => {
                 let inner = el().size(size_pt * 0.75, size_pt * 0.75).pixels_fit(img.pixels(), SurfaceFit::Fit);
                 let tile = el().size(size_pt, size_pt).radius(radius).fill(pal.tile).center().child(inner);
                 self.lift(pal, tile.child(self.top(size_pt, true, pal.ring)), size_pt)
             }
-            Shown::Vector(bytes, hash) => self.picture(pal, &self.vector(&bytes, hash, size_pt), variant, size_pt),
+            Shown::Vector(bytes, hash, _) => self.picture(pal, &self.vector(&bytes, hash, size_pt), variant, size_pt),
         })
     }
 
@@ -470,14 +472,15 @@ fn run(cache: &ImageCache, job: &Job) -> Option<(Key, Option<Shown>)> {
         match find::data_url(url) {
             Some(Data::Svg(bytes)) => {
                 let hash = styles::fnv(&bytes);
-                return Some((key, Some(Shown::Vector(bytes.into(), hash))));
+                let miniature = unread::svg_miniature(&bytes)?;
+                return Some((key, Some(Shown::Vector(bytes.into(), hash, Arc::new(miniature)))));
             }
             Some(Data::Raster(bytes)) => {
                 // Desktop's `<img>` fills the tile as it is (`object-fit: cover`), never trimmed or
                 // set small on a plate as a found repo icon is.
                 if let Ok(icon) = image::load_from_memory(&bytes) {
                     let buf = Buf::from_rgba8(&icon.into_rgba8()).cover();
-                    return Some((key, Some(Shown::Tile(cache.rgba(PX, PX, buf.resize(PX, PX).to_rgba8())))));
+                    return Some((key, Some(raster(cache, buf, false))));
                 }
             }
             None => {}
@@ -503,6 +506,12 @@ fn run(cache: &ImageCache, job: &Job) -> Option<(Key, Option<Shown>)> {
 fn finish(cache: &ImageCache, buf: Buf, trim: bool) -> Shown {
     let buf = if trim { buf.trim() } else { buf };
     let mark = buf.coverage() < 0.6;
-    let image = cache.rgba(PX, PX, buf.resize(PX, PX).to_rgba8());
-    if mark { Shown::Mark(image) } else { Shown::Tile(image) }
+    raster(cache, buf, mark)
+}
+
+fn raster(cache: &ImageCache, buf: Buf, mark: bool) -> Shown {
+    let rgba = buf.resize(PX, PX).to_rgba8();
+    let image = cache.rgba(PX, PX, rgba.as_slice());
+    let src = Arc::new(image::RgbaImage::from_raw(PX, PX, rgba).expect("64 px project tile"));
+    if mark { Shown::Mark(image, src) } else { Shown::Tile(image, src) }
 }

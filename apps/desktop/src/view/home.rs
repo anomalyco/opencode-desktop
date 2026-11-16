@@ -523,19 +523,7 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, inst
 /// avatar cut clear 4.5 around a 6 pt `bg-accent` dot), a real cutout, so it holds over the
 /// row's hover and selection.
 pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &str, open: bool, unread: bool) -> El {
-    let mut face = crate::icons::badge(s, p, project, name);
-    if unread {
-        face = el().key("face").size(16.0, 16.0).cutout_circle([16.0, 0.0], 4.0, 5.0).child(face);
-    }
-    let mut a = el().key("avatar").size(16.0, 16.0).child(face);
-    if open {
-        a = a.child(el().key("open").absolute(-6.0, 2.0).size(2.0, 12.0).radius(2.0).fill(p.q.layer4));
-    }
-    if unread {
-        // On the top right corner either way, as the cutout is (`project-avatar.css`).
-        a = a.child(el().key("unread").absolute(13.0, -3.0).size(6.0, 6.0).radius(3.0).fill(p.bg_accent).unmirrored());
-    }
-    a
+    crate::icons::session_avatar(s, p, project, name, open, unread).key("avatar")
 }
 const SERVE_CMD: &str = "opencode serve --port 4096";
 

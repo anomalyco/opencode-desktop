@@ -50,12 +50,10 @@ pub fn badge(s: &App, p: &Pal, project: Option<&Project>, name: &str) -> El {
 /// A session row's avatar (`SessionTabAvatarView`): the project's badge, the open-tab bar 6 before
 /// it when `open`, and the unread dot on its corner when `unread`, cut clear of the badge.
 pub fn session_avatar(s: &App, p: &Pal, project: Option<&Project>, name: &str, open: bool, unread: bool) -> El {
-    let mut face = badge(s, p, project, name);
-    if unread {
-        // `project-avatar.css:118-120`: `radial-gradient(circle 4.5px at 100% 0, transparent 4px,
-        // black 5px)` cuts the badge's corner clear around the dot, over any row fill.
-        face = el().key("face").size(16.0, 16.0).cutout_circle([16.0, 0.0], 4.0, 5.0).child(face);
-    }
+    let face = if unread {
+        let project = project.map(Into::into).unwrap_or_else(|| project_icon::Project::named(name));
+        s.icons.unread_face(&palette(p), project)
+    } else { badge(s, p, project, name) };
     let mut avatar = el().key("badge").size(16.0, 16.0).child(face);
     if open {
         // `h-3 w-0.5 rounded-[2px] bg-v2-background-bg-layer-04`, 6 before the avatar, centred.
