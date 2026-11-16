@@ -437,13 +437,21 @@ fn tab_bar(
             .fill(if active { p.layer2 } else { Color::TRANSPARENT })
             .hover(if active { p.layer2 } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                tx.instant();
-                s.side.chosen_new_tab.insert(pane, nid.clone());
-                s.side.focused = true;
-                s.side.quiet = false;
-                s.side.pressed = true;
-                s.side.active_pane_focus = pane;
+            // Selected as the mouse button goes down, as the pane's other tabs are (Kobalte's
+            // `Tabs.Trigger`); a key or a tap selects it on the press.
+            .on_drag({
+                let nid = nid.clone();
+                let shown = active && focused;
+                move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.side_new_tab_gesture(pane, &nid, shown, d, tx)
+            })
+            .on_press_tx({
+                let nid = nid.clone();
+                move |s: &mut App, tx: &mut Tx| {
+                    if s.side.pane_drag.take_suppressed() {
+                        return tx.live_only();
+                    }
+                    s.choose_side_new_tab(pane, &nid, tx);
+                }
             })
             .child(
                 text(opencode_i18n::t!("session.tab.new"))

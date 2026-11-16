@@ -196,6 +196,35 @@ impl App {
         drawn
     }
 
+    /// A pane's New tab shows in it, and the pane takes the keyboard.
+    pub fn choose_side_new_tab(&mut self, pane: SessionPane, id: &str, tx: &mut Tx) {
+        tx.instant();
+        self.side.chosen_new_tab.insert(pane, id.to_owned());
+        self.side.focused = true;
+        self.side.quiet = false;
+        self.side.pressed = true;
+        self.side.active_pane_focus = pane;
+    }
+
+    /// A press on a pane's New tab, from its `on_drag`: as [`Self::side_tab_gesture`] for a tab
+    /// that doesn't drag. `shown`: it's the tab shown in the pane that has the keyboard.
+    pub fn side_new_tab_gesture(&mut self, pane: SessionPane, id: &str, shown: bool, d: &rune::Drag, tx: &mut Tx) {
+        match d.phase {
+            rune::Phase::Down => {
+                let selects = !session_view::style::touch_controls();
+                self.side.pane_drag.suppress_click = selects;
+                if selects && !shown {
+                    return self.choose_side_new_tab(pane, id, tx);
+                }
+            }
+            rune::Phase::Up if d.cancelled() || !((0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y)) => {
+                self.side.pane_drag.suppress_click = false;
+            }
+            _ => {}
+        }
+        tx.live_only();
+    }
+
     /// A press on a side, split or bottom tab, from its `on_drag`. A mouse selects the tab as
     /// its button goes down (`Tabs.Trigger`'s Kobalte `onPointerDown`,
     /// `create-selectable-item.ts`), so the release's click is the press's and draws nothing; a
