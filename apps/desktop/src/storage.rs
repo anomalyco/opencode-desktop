@@ -735,6 +735,14 @@ pub(crate) fn barrier_store() -> Option<Storage> {
     match &*phase { Some(Phase::Ready(s) | Phase::Early { storage:s, .. } | Phase::Memory(s)) => Some(s.clone()), _ => None }
 }
 
+/// Starts stage B's adoption without waiting for it: a worker that only needs the open to get
+/// going must not hold a pool thread for as long as the open takes.
+#[cfg(windows)]
+pub(crate) fn start_adoption() {
+    send(Event::TakeBoot);
+    send(Event::Barrier);
+}
+
 #[cfg(windows)]
 pub(crate) fn volatile_origin() -> Option<&'static VolatileOrigin> { VOLATILE_ORIGIN.get() }
 

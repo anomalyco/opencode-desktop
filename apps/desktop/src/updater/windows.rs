@@ -75,6 +75,8 @@ pub struct Windows {
     root: PathBuf,
     trust: Trust,
     staged: Mutex<Option<Staged>>,
+    /// The helper prepare_restart copied and checked, for the restart's quit to start as is.
+    prepared: Mutex<Option<PathBuf>>,
     /// The arguments to start the new version with.
     args: Vec<String>,
 }
@@ -95,7 +97,7 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
     #[allow(clippy::disallowed_methods)]
     let args = std::env::args().skip(1).collect();
-    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
+    Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), prepared: Mutex::new(None), args })
 }
 
 /// Only a build the release's publisher signed reads the release feed. A development build
@@ -179,6 +181,16 @@ impl Platform for Windows {
         self.hand_off(true)
     }
 
+    fn prepare_restart(&self) -> Result<(), String> {
+        // In place already (another process installed it): `hand_off` only starts it.
+        if self.placed() {
+            return Ok(());
+        }
+        let helper = self.prepare_helper()?;
+        if let Ok(mut slot) = self.prepared.lock() { *slot = Some(helper); }
+        Ok(())
+    }
+
     fn install_on_quit(&self) {
         if let Err(e) = self.hand_off(false) {
             log(&format!("updater: couldn't install on quit: {e}"));
@@ -219,11 +231,15 @@ impl Windows {
     fn hand_off(&self, relaunch: bool) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone(), s.dir.clone()))).ok_or_else(|| "No staged update ready to install.".to_owned())?;
         let (version, sha256, dir) = staged;
-        if receipt::at(&self.root).is_some_and(|r| r.version == version && r.sha256 == sha256) { return Ok(()); }
-        self.verify_quick(&dir)?;
+        // Another process already placed this release: nothing to swap or check. A restart still
+        // starts it, once this process has exited (Rune's relaunch wait), as the helper's
+        // `--relaunch` would.
+        if self.placed() {
+            return if relaunch { self.start_placed(&version) } else { Ok(()) };
+        }
         let updates = &self.engine.facts.updates;
-        let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
-        std::fs::copy(dir.join(EXE), &helper).map_err(|e| format!("could not prepare the update: {e}"))?;
+        let prepared = if relaunch { self.prepared.lock().ok().and_then(|mut p| p.take()).filter(|h| h.is_file()) } else { None };
+        let helper = match prepared { Some(helper) => helper, None => self.prepare_helper()? };
         let mut cmd = Command::new(&helper);
         cmd.arg("--apply-update")
             .arg("--wait")
@@ -252,6 +268,37 @@ impl Windows {
         let child = cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).map_err(|e| format!("could not start the update: {e}"))?;
         log(&format!("updater: helper {} (pid {}) installs {version} after this process exits{}", helper.display(), child.id(), if relaunch { ", then restarts" } else { "" }));
         Ok(())
+    }
+
+    /// The staged release is the one at the install path (its receipt names it).
+    fn placed(&self) -> bool {
+        let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone())));
+        staged.is_some_and(|(version, sha256)| receipt::at(&self.root).is_some_and(|r| r.version == version && r.sha256 == sha256))
+    }
+
+    /// The release already in place, started with this run's arguments once this process has
+    /// exited (`RUNE_RELAUNCH_AFTER`, as `Tx::relaunch` starts it).
+    fn start_placed(&self, version: &str) -> Result<(), String> {
+        let mut cmd = Command::new(self.root.join(EXE));
+        cmd.args(&self.args)
+            .env("RUNE_RELAUNCH_AFTER", std::process::id().to_string())
+            .current_dir(std::env::current_dir().unwrap_or_else(|_| self.root.clone()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+        let child = cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).map_err(|e| format!("could not start the update: {e}"))?;
+        log(&format!("updater: {version} is in place already; started it (pid {}) for after this process exits", child.id()));
+        Ok(())
+    }
+
+    /// The staged executable checked again and copied out as this process's update helper.
+    fn prepare_helper(&self) -> Result<PathBuf, String> {
+        let dir = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| s.dir.clone())).ok_or_else(|| "No staged update ready to install.".to_owned())?;
+        self.verify_quick(&dir)?;
+        let helper = self.engine.facts.updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
+        std::fs::copy(dir.join(EXE), &helper).map_err(|e| format!("could not prepare the update: {e}"))?;
+        Ok(helper)
     }
 
     /// The staged executable, which runs as the helper, is still there and still trusted.

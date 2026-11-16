@@ -76,15 +76,12 @@ impl Mac {
         Mac { engine: Engine::new(facts), bundle, exe_rel, check_team, check_gatekeeper, staged: Mutex::new(None) }
     }
 
-    /// Swaps the staged bundle in, without opening it (`install` opens it). Writes a receipt
-    /// keyed by the placed executable's `(dev, ino)` into `Updates/` after `swap` succeeds so the
+    /// Swaps the staged bundle in, without opening it (`install` opens it). `prepare_restart`
+    /// already checked it while the windows and storage were still there. Writes a receipt keyed
+    /// by the placed executable's `(dev, ino)` into `Updates/` after `swap` succeeds, so the
     /// record survives even when `apply` runs after `storage::close()`.
     pub fn apply(&self) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|mut s| s.take()).ok_or_else(|| "No staged update ready to install.".to_owned())?;
-        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
-            std::fs::remove_dir_all(&staged.dir).ok();
-            return Err(e);
-        }
         swap(&staged.app, &self.bundle.path)?;
         write_installed_receipt(&self.engine.facts.updates, &self.bundle.path.join(&self.exe_rel), &staged.version, &staged.sha256);
         engine::record_installed(&staged.version, &staged.sha256);
@@ -156,6 +153,16 @@ impl Platform for Mac {
         let status = Command::new("/usr/bin/open").arg("-n").arg(&self.bundle.path)
             .arg("--env").arg(format!("RUNE_RELAUNCH_AFTER={}", std::process::id())).status().map_err(|e| e.to_string())?;
         if status.success() { Ok(()) } else { Err(format!("could not launch the installed update: {status}")) }
+    }
+
+    fn prepare_restart(&self) -> Result<(), String> {
+        let mut slot = self.staged.lock().map_err(|_| "the staged update is unavailable".to_owned())?;
+        let staged = slot.as_ref().ok_or_else(|| "No staged update ready to install.".to_owned())?;
+        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
+            if let Some(s) = slot.take() { std::fs::remove_dir_all(&s.dir).ok(); }
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn auto_install(&self) -> bool {

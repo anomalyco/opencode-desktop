@@ -78,6 +78,9 @@ pub enum Refresh {
 pub enum Plan {
     Checking { attempt: Attempt, waiters: Vec<Waiter> },
     Staging { attempt: Attempt, next: String, waiters: Vec<Waiter> },
+    /// Everything slow or fallible before the quit (signature checks, the helper's copy), while
+    /// the windows are still there to show a failure: a quit must end visibly or not start.
+    Preparing { attempt: Attempt },
     /// Staged and verified, but no helper, bundle swap or restart is authorized yet.
     AwaitingSave { attempt: Attempt },
     Restarting { attempt: Attempt },
@@ -119,6 +122,8 @@ pub enum Event {
     CheckFailed(Attempt, String),
     StageSucceeded(Attempt),
     StageFailed(Attempt, String),
+    PrepareSucceeded(Attempt),
+    PrepareFailed(Attempt, String),
     RestartSucceeded(Attempt),
     RestartFailed(Attempt, String),
     ExternalSucceeded(Attempt),
@@ -133,6 +138,7 @@ pub enum Effect {
     RequestSave,
     Check(Attempt),
     Stage(Attempt),
+    Prepare(Attempt),
     Restart(Attempt),
     /// Open the external download at the URL.
     External(Attempt, String),
@@ -447,6 +453,14 @@ fn restart_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter],
             restart(state, version, waiters.clone(), vec![staged_refresh_failed(version, &message)])
         }
         (Plan::Staging { next, waiters, .. }, Event::StageSucceeded(_)) => restart(state, next, waiters.clone(), vec![Effect::PersistSet(next.clone())]),
+        (Plan::Preparing { .. }, Event::PrepareSucceeded(_)) => {
+            let (meta, attempt) = issue(state);
+            (State::Installing { meta, version: version.to_owned(), plan: Plan::AwaitingSave { attempt }, installs: installs.to_vec() }, vec![Effect::RequestSave])
+        }
+        // Nothing has quit: the app keeps running and says why, so the user can retry.
+        (Plan::Preparing { .. }, Event::PrepareFailed(_, message)) => {
+            (State::Ready { meta: meta.clone(), version: version.to_owned(), refresh: None }, vec![Effect::RejectInstalls(installs.to_vec(), message)])
+        }
         (Plan::Restarting { .. }, Event::RestartSucceeded(_)) => {
             (State::Installing { meta: meta.clone(), version: version.to_owned(), plan: Plan::Quitting, installs: Vec::new() }, vec![Effect::ResolveInstalls(installs.to_vec())])
         }
@@ -506,8 +520,8 @@ fn restart(state: &State, version: &str, waiters: Vec<Waiter>, mut effects: Vec<
         State::Installing { installs, .. } => installs.clone(),
         _ => Vec::new(),
     };
-    effects.push(Effect::RequestSave);
-    with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::AwaitingSave { attempt }, installs }, waiters, effects)
+    effects.push(Effect::Prepare(attempt));
+    with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::Preparing { attempt }, installs }, waiters, effects)
 }
 
 fn keeps_staged(meta: &Meta, staged: &str, target: Option<&Target>) -> bool {
@@ -524,6 +538,8 @@ fn attempt_of(event: &Event) -> Option<Attempt> {
         | Event::CheckFailed(a, _)
         | Event::StageSucceeded(a)
         | Event::StageFailed(a, _)
+        | Event::PrepareSucceeded(a)
+        | Event::PrepareFailed(a, _)
         | Event::RestartSucceeded(a)
         | Event::RestartFailed(a, _)
         | Event::ExternalSucceeded(a)
@@ -538,7 +554,7 @@ fn active_attempt(state: &State) -> Option<Attempt> {
         State::Ready { refresh: Some(Refresh::Checking { attempt, .. } | Refresh::Staging { attempt, .. }), .. } => Some(*attempt),
         State::DownloadRequired { refresh: Some(r), .. } => Some(r.attempt),
         State::Installing {
-            plan: Plan::Checking { attempt, .. } | Plan::Staging { attempt, .. } | Plan::Restarting { attempt } | Plan::ExternalChecking { attempt, .. } | Plan::Opening { attempt, .. },
+            plan: Plan::Checking { attempt, .. } | Plan::Staging { attempt, .. } | Plan::Preparing { attempt } | Plan::Restarting { attempt } | Plan::ExternalChecking { attempt, .. } | Plan::Opening { attempt, .. },
             ..
         } => Some(*attempt),
         _ => None,

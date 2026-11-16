@@ -114,7 +114,7 @@ fn send(event: Event) {
         }
     }
 }
-pub fn install() { dq::install(dq::Hooks { begin, activated, try_seal, overdue: status::overdue, resumed, confirmed, shutdown_reason: || t!("rune.storage.quit.title").to_owned() }).unwrap_or_else(|_|panic!("quit hook installed twice")); send(Event::Install); }
+pub fn install() { dq::install(dq::Hooks { begin, activated, try_seal, overdue: status::overdue, status_closed: status::closed, resumed, confirmed, shutdown_reason: || t!("rune.storage.quit.title").to_owned() }).unwrap_or_else(|_|panic!("quit hook installed twice")); send(Event::Install); }
 fn activated(args:&[String]) {
     if args.iter().any(|a| a=="--toast-activated" || a.eq_ignore_ascii_case("-Embedding")) {
         let args=args.to_vec();
@@ -190,6 +190,21 @@ fn stage(ticket:Ticket)->Option<Stage> {
         State::Database(k,_)|State::Durable(k,_,_)|State::Checking(k,_,_)|State::Empty(k,_,_) if k.ticket==ticket=>Some(Stage::Database),
         State::Memory(k,_,r) if k.ticket==ticket=>Some(Stage::Volatile(r.clone())),
         State::Failed(k,_)|State::LostWindow(k) if k.ticket==ticket=>Some(Stage::Failed), _=>None,
+    }
+}
+
+/// Installs the quit hooks and claims the instance: true when this launch owns the workspace,
+/// false when it handed its launch to the running one or showed why it couldn't.
+pub fn claim() -> bool {
+    install();
+    rune::marks::mark("instance.claim");
+    loop {
+        match dq::claim(&crate::launch::instance_id()) {
+            dq::Claim::Primary => return true,
+            dq::Claim::Delivered | dq::Claim::LegacyDelivery => return false,
+            dq::Claim::StillClosing => if !retry_closing() { return false },
+            dq::Claim::Unresponsive => { unavailable(); return false }
+        }
     }
 }
 

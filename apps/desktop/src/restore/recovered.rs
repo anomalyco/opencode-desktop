@@ -88,7 +88,7 @@ impl App {
     pub(crate) fn recovered_notice(&self,p:&Pal)->Option<rune::El>{
         let State::Notice(_,set,page)=&self.restore.recovery.state else{return None};
         let count=set.drafts.len();let title=if count==1{t!("rune.storage.recovered.one").to_owned()}else{t!("rune.storage.recovered.many",count=count.to_string())};
-        let mut notice=col().key("recovered-drafts").w_full().px(12.).py(8.).gap(4.).fill(p.layer1).child(text(title).color(p.text).wrap().w_full());
+        let mut notice=col().key("recovered-drafts").role("status").label(title.clone()).w_full().px(12.).py(8.).gap(4.).fill(p.layer1).child(text(title).color(p.text).wrap().w_full());
         for (i,draft) in set.drafts.iter().enumerate(){
             let mut actions=row().gap(8.);
             for (key,label,act) in [("preview",t!("rune.storage.recovered.preview"),0),("use",t!("rune.storage.recovered.use"),1),("discard",t!("rune.storage.recovered.discard"),2)]{

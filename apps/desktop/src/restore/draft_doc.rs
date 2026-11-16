@@ -255,7 +255,7 @@ impl App {
                 // its Presented event. Start adoption off-frame in that case:
                 // the hash closure is in `queued.later`; waiting for the final
                 // producer before starting adoption would wait for itself.
-                #[cfg(windows)] if !crate::storage::is_ready(){let _=crate::storage::barrier_store();}
+                #[cfg(windows)] if !crate::storage::is_ready(){crate::storage::start_adoption();}
             });
             #[cfg(target_arch="wasm32")] store();
         }
