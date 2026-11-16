@@ -9,5 +9,8 @@
   "suspended": "Browser suspendat. Interacționați cu această sesiune pentru a vă reconecta.",
   "failed.title": "Adresa URL nu poate fi accesată",
   "failed.description": "Verifică adresa URL și conexiunea, apoi încearcă din nou.",
-  "action.reload": "Reîncarcă"
+  "action.reload": "Reîncarcă",
+  "download.failed.tooLarge": "{{name}} nu a putut fi păstrat: depășește 5 MiB, limita browserului pentru descărcări.",
+  "download.failed.canceled": "Descărcarea {{name}} a fost anulată.",
+  "download.failed.other": "{{name}} nu a putut fi descărcat ({{reason}})."
 }

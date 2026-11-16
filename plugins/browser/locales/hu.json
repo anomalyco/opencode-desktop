@@ -9,5 +9,8 @@
   "suspended": "A böngésző felfüggesztve. Lépjen kapcsolatba ezzel a munkamenettel az újracsatlakozáshoz.",
   "failed.title": "Az URL-cím nem érhető el",
   "failed.description": "Ellenőrizze az URL-címet és a kapcsolatot, majd próbálja újra.",
-  "action.reload": "Újratöltés"
+  "action.reload": "Újratöltés",
+  "download.failed.tooLarge": "A(z) {{name}} nem tartható meg: nagyobb 5 MiB-nál, ami a böngésző letöltési korlátja.",
+  "download.failed.canceled": "A(z) {{name}} letöltése megszakadt.",
+  "download.failed.other": "A(z) {{name}} nem tölthető le ({{reason}})."
 }

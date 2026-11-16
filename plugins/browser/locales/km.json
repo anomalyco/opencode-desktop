@@ -9,5 +9,8 @@
   "suspended": "កម្មវិធីរុករកបានផ្អាក។ សូមអន្តរកម្មជាមួយសម័យនេះដើម្បីភ្ជាប់ឡើងវិញ។",
   "failed.title": "មិនអាចចូលដល់ URL បានទេ",
   "failed.description": "ពិនិត្យ URL និងការតភ្ជាប់របស់អ្នក រួចសាកល្បងម្តងទៀត។",
-  "action.reload": "ផ្ទុកឡើងវិញ"
+  "action.reload": "ផ្ទុកឡើងវិញ",
+  "download.failed.tooLarge": "មិនអាចរក្សាទុក {{name}} បានទេ៖ វាធំជាង 5 MiB ដែលជាដែនកំណត់ទាញយករបស់កម្មវិធីរុករក។",
+  "download.failed.canceled": "ការទាញយក {{name}} ត្រូវបានបោះបង់។",
+  "download.failed.other": "មិនអាចទាញយក {{name}} បានទេ ({{reason}})។"
 }

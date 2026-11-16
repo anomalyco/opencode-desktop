@@ -9,5 +9,8 @@
   "suspended": "Preglednik je obustavljen. Stupite u interakciju s ovom sesijom da biste se ponovo povezali.",
   "failed.title": "URL nije dostupan",
   "failed.description": "Provjerite URL i vezu, a zatim pokušajte ponovo.",
-  "action.reload": "Ponovo učitaj"
+  "action.reload": "Ponovo učitaj",
+  "download.failed.tooLarge": "{{name}} nije moguće zadržati: veći je od 5 MiB, ograničenja preglednika za preuzimanja.",
+  "download.failed.canceled": "Preuzimanje datoteke {{name}} je otkazano.",
+  "download.failed.other": "{{name}} nije moguće preuzeti ({{reason}})."
 }

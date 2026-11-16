@@ -9,5 +9,8 @@
   "suspended": "Trình duyệt bị tạm dừng. Tương tác với phiên này để kết nối lại.",
   "failed.title": "Không thể truy cập URL",
   "failed.description": "Kiểm tra URL và kết nối, rồi thử lại.",
-  "action.reload": "Tải lại"
+  "action.reload": "Tải lại",
+  "download.failed.tooLarge": "Không thể giữ {{name}}: tệp lớn hơn 5 MiB, giới hạn tải xuống của trình duyệt.",
+  "download.failed.canceled": "Đã hủy tải xuống {{name}}.",
+  "download.failed.other": "Không thể tải xuống {{name}} ({{reason}})."
 }

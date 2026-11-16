@@ -123,9 +123,18 @@ impl CefRuntime {
     }
 }
 
+impl CefRuntime {
+    /// Where the pages' downloads go (the profile's, so a throwaway profile's go with it).
+    pub fn downloads_dir(&self) -> std::path::PathBuf {
+        self.profile.root.join("Downloads")
+    }
+}
+
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
+        // The pages' downloads end with the engine, as Desktop's go with its pages.
+        let _ = std::fs::remove_dir_all(self.downloads_dir());
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
         }
@@ -205,6 +214,8 @@ pub struct EngineManager {
     next_eref: u64,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
+    /// The pages' downloads, in the profile's `Downloads` folder.
+    downloads: Arc<crate::downloads::Downloads>,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -212,7 +223,7 @@ pub struct EngineManager {
 
 impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
-    pub fn new(out_tx: crate::output::Output, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
+    pub fn new(out_tx: crate::output::Output, downloads: std::path::PathBuf, #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>) -> Self {
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -220,6 +231,7 @@ impl EngineManager {
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
             dark: None,
+            downloads: crate::downloads::Downloads::open(downloads),
             #[cfg(windows)]
             gpu,
         }
@@ -335,6 +347,7 @@ impl EngineManager {
             HostMsg::CloseTab { tab_id } => {
                 if let Some(tab) = self.tabs.remove(&tab_id) {
                     tab.host.close_browser(1);
+                    self.downloads.close_tab(tab_id);
                     let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
                 }
             }
@@ -641,7 +654,8 @@ impl EngineManager {
         let display = TabDisplayHandler::new(snap.clone(), self.out_tx.clone());
         let load = TabLoadHandler::new(snap.clone(), self.out_tx.clone());
         let request = TabRequestHandler::new(snap.clone(), self.out_tx.clone());
-        let mut client = SidecarTabClient::new(render, display, load, request);
+        let download = crate::downloads::TabDownloadHandler::new(tab_id, self.downloads.clone(), self.out_tx.clone());
+        let mut client = SidecarTabClient::new(render, display, load, request, download);
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = i32::from(shared_texture);

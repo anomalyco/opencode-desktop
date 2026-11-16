@@ -50,5 +50,6 @@ pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus,
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
+pub use protocol::{DownloadFile, DownloadState};
 pub use protocol::PickedElement;
 pub use site_zoom::ZoomStore;

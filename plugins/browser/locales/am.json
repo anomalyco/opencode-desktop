@@ -9,5 +9,8 @@
   "suspended": "አሳሽ ታግዷል። እንደገና ለመገናኘት ከዚህ ክፍለ ጊዜ ጋር ይገናኙ።",
   "failed.title": "URL ላይ መድረስ አልተቻለም",
   "failed.description": "URL-ውን እና ግንኙነትዎን ይፈትሹ፣ ከዚያ እንደገና ይሞክሩ።",
-  "action.reload": "ዳግም ጫን"
+  "action.reload": "ዳግም ጫን",
+  "download.failed.tooLarge": "{{name}}ን ማቆየት አልተቻለም፦ ከ5 MiB በላይ ነው፣ ይህም የአሳሹ የማውረድ ገደብ ነው።",
+  "download.failed.canceled": "የ{{name}} ማውረድ ተሰርዟል።",
+  "download.failed.other": "{{name}}ን ማውረድ አልተቻለም ({{reason}})።"
 }
