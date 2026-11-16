@@ -11,7 +11,9 @@ impl App {
     pub(super) fn session_matches(&self, q: &str, group: &'static str, archived: bool) -> Vec<Entry> {
         let limit = if q.trim().is_empty() { RECENT_SESSIONS.max(RECENT) } else { MATCHES };
         let mut hits: Vec<(i32, i64, &SessionInfo)> = Vec::new();
-        for (score, updated, id) in self.find_sessions(Scope::Palette { archived }, q, limit) {
+        let titles = self.switcher.mode == SwitcherMode::All;
+        let scope = if titles { Scope::CommandTitles } else { Scope::Palette { archived } };
+        for (score, updated, id) in self.find_sessions(scope, q, limit) {
             let Some(s) = self.search_session(&id) else { continue };
             let s = self.switcher.loaded.iter().find(|x| x.id == s.id && x.updated >= s.updated).unwrap_or(s);
             hits.push((score, updated, s));
@@ -27,7 +29,9 @@ impl App {
                     // Titles only, as the server matched them (`title LIKE`).
                     arena.push(&title_of(s));
                 }
-                hits.extend(arena.ranked_scored(q, MATCHES, |i| Some((0, found[i].active_ms()))).into_iter().map(|(score, updated, i)| (score, updated, found[i])));
+                let context = |i: usize| Some((0, found[i].active_ms()));
+                let ranked = if titles { arena.ranked_titles(q, MATCHES, context) } else { arena.ranked_scored(q, MATCHES, context) };
+                hits.extend(ranked.into_iter().map(|(score, updated, i)| (score, updated, found[i])));
             }
             hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
             hits.truncate(limit);

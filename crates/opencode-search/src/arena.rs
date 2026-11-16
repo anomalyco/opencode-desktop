@@ -141,6 +141,16 @@ impl SearchArena {
         fields: usize,
         context: impl Fn(usize) -> Option<(i32, i64)>,
     ) -> Vec<(i32, i64, usize)> {
+        self.rank_fields(query, limit, fields, true, context)
+    }
+
+    /// Contiguous matches in the first field (a title). Filter before keeping the best K;
+    /// non-contiguous matches must not displace a real title match at the cutoff.
+    pub fn ranked_titles(&self, query: &str, limit: usize, context: impl Fn(usize) -> Option<(i32, i64)>) -> Vec<(i32, i64, usize)> {
+        self.rank_fields(query, limit, 1, false, context)
+    }
+
+    fn rank_fields(&self, query: &str, limit: usize, fields: usize, allow_fuzzy: bool, context: impl Fn(usize) -> Option<(i32, i64)>) -> Vec<(i32, i64, usize)> {
         let limit = limit.min(self.ends.len());
         if limit == 0 {
             return Vec::new();
@@ -211,7 +221,7 @@ impl SearchArena {
                         };
                         base - (pos.saturating_mul(2) + hay.len()).min(4_999) as i32
                     }
-                } else if let Some(score) = fuzzy(hay, &q) {
+                } else if allow_fuzzy && let Some(score) = fuzzy(hay, &q) {
                     score
                 } else {
                     continue;

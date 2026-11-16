@@ -38,6 +38,9 @@ type Version = (u32, u64, u32, u64, u64);
 /// What a surface searches in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Scope {
+    /// The ordinary command palette's title source (`palette.ts:localSessions`); unlike
+    /// the dedicated fuzzy picker it offers only titles containing the search string.
+    CommandTitles,
     /// The palette's sessions, or its archived ones.
     Palette { archived: bool },
     /// Home: unarchived roots, in the project picked (none: all).
@@ -107,10 +110,10 @@ impl Built {
     fn query(&self, scope: &Scope, q: &str, limit: usize) -> Vec<(i32, i64, Box<str>)> {
         if q.trim().is_empty() {
 
-            let Scope::Palette { archived } = scope else { return Vec::new() };
-            return self.recent[usize::from(*archived)].iter().take(limit).map(|&i| (0, self.rows[i as usize].active_ms, self.ids[i as usize].clone())).collect();
+            let archived = match scope { Scope::CommandTitles => false, Scope::Palette { archived } => *archived, Scope::Home { .. } => return Vec::new() };
+            return self.recent[usize::from(archived)].iter().take(limit).map(|&i| (0, self.rows[i as usize].active_ms, self.ids[i as usize].clone())).collect();
         }
-        if let (Scope::Palette { archived: false }, Some(first), [b]) = (scope, &self.first, q.trim().as_bytes())
+        if let (Scope::Palette { archived: false } | Scope::CommandTitles, Some(first), [b]) = (scope, &self.first, q.trim().as_bytes())
             && b.is_ascii_alphabetic()
             && limit <= FIRST
         {
@@ -125,12 +128,17 @@ impl Built {
             _ => None,
         };
         let within = |r: &Row| match scope {
+            Scope::CommandTitles => !r.archived,
             Scope::Palette { archived } => r.archived == *archived,
             Scope::Home { .. } => !r.archived && project.is_none_or(|p| r.project == p),
         };
         // The palette matches titles; Home titles and projects.
-        let fields = if matches!(scope, Scope::Palette { .. }) { 1 } else { 2 };
-        self.arena.ranked_scored_in(q, limit, fields, |i| within(&self.rows[i]).then(|| (0, self.rows[i].active_ms)))
+        let context = |i: usize| within(&self.rows[i]).then(|| (0, self.rows[i].active_ms));
+        match scope {
+            Scope::CommandTitles => self.arena.ranked_titles(q, limit, context),
+            Scope::Palette { .. } => self.arena.ranked_scored_in(q, limit, 1, context),
+            Scope::Home { .. } => self.arena.ranked_scored_in(q, limit, 2, context),
+        }
     }
 }
 
@@ -367,6 +375,7 @@ impl App {
         let hits = match (ss.state.borrow().built(), &scope) {
             (Some(b), _) => b.query(&scope, q, limit),
             (None, Scope::Palette { archived }) if q.trim().is_empty() => self.recent_sessions(*archived, limit),
+            (None, Scope::CommandTitles) if q.trim().is_empty() => self.recent_sessions(false, limit),
             (None, _) => Vec::new(),
         };
         let mut last = ss.last.borrow_mut();
