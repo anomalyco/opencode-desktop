@@ -5,6 +5,7 @@
 //! computer" beside the app's own), "Unreachable" when it can't be reached; Manage servers opens
 //! Settings › Servers.
 
+use crate::popup::MenuButton as _;
 use opencode_kit::servers::ServerKey;
 use opencode_kit::servers::health::indicator;
 use rune::{Align, El, Tx, row, text};
@@ -39,8 +40,8 @@ pub fn view(s: &App, p: &Pal) -> Option<El> {
                 .child(text(name).font(font).color(color).truncate().shrink().min_w(0.0))
                 .child(rune::icon(&ic::CHEVRON_DOWN, 16.0).color(chevron))
         })
-        .on_press_tx(|s: &mut App, tx: &mut Tx| open_menu(s, tx))
         .build(crate::palette::kit(p))
+        .menu_button("settings-server-switcher", |s: &mut App, tx: &mut Tx| open_menu(s, tx))
         .px(6.0)
         .max_w(240.0)
         .key("settings-server-switcher");

@@ -4,6 +4,7 @@
 //! with 24 pt gutters; below that the rail gives way to a bar with Back and the page menu. The
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
+use crate::popup::MenuButton as _;
 use rune::{Color, Drag, El, Phase, PointerButton, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -171,7 +172,7 @@ fn narrow_bar(s: &App, p: &Pal, inset: f32) -> El {
     let current = label(s, &s.settings_pages.page);
     let trigger = row().key("settings-mobile-menu").role("button").label(current.clone()).h(28.0).px(11.0).gap(6.0).center_y().radius(6.0)
         .fill(p.bg_base).box_shadow(Pal::ring_out(p.ring)).hover(p.hover)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .menu_button("settings-mobile-menu", |s: &mut App, tx: &mut Tx| {
             let groups = groups(s);
             let selected = s.settings_pages.page.id().to_owned();
             // `.settings-mobile-menu`: as tall as the room under it (`--kb-popper-content-available-height`),

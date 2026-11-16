@@ -15,6 +15,8 @@ use crate::popover::{self, MENU, Opt};
 pub mod context;
 mod keys;
 mod restore;
+mod trigger;
+pub use trigger::MenuButton;
 mod rows;
 mod search;
 mod standard;
@@ -396,6 +398,8 @@ pub struct Popup {
     query: TextEdit,
     /// The element focused as a [`Menu::remembers_focus`] menu opened.
     remembered: Option<String>,
+    /// A menu button's mouse press in progress ([`menu_button`]).
+    press: trigger::Press,
 }
 
 impl Popup {
@@ -594,12 +598,40 @@ fn open_sub_at(s: &mut App, level: usize, n: usize, keys: bool, tx: &mut Tx) {
 
 fn row_key(id: &str) -> String { format!("popup-item-{id}") }
 
+/// Chooses the offered item drawn under window point `at` (a press that dragged from its menu
+/// button and let go here, as Kobalte's items select on a release from any press origin).
+/// False when no item is there.
+fn pick_at(s: &mut App, at: [f32; 2], tx: &mut Tx) -> bool {
+    let Some(shown) = &s.popup.shown else { return false };
+    let levels = 1 + shown.subs.len();
+    let hit = (0..levels).rev().find_map(|level| {
+        let menu = shown.menu_at(level)?;
+        menu.entries.iter().find_map(|e| match e {
+            Entry::Item(i) if i.enabled => rune::memo::layout(&row_key(&i.id))
+                .filter(|r| at[0] >= r[0] && at[0] <= r[0] + r[2] && at[1] >= r[1] && at[1] <= r[1] + r[3])
+                .map(|_| i.id.clone()),
+            _ => None,
+        })
+    });
+    let Some(id) = hit else { return false };
+    close(s, Some(&id), restore::Reason::Picked, tx);
+    true
+}
+
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
 pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let Some(shown) = &s.popup.shown else { return vec![] };
     // A press outside focuses the scroll region it lands on ("scrollable content"), as one
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
+    // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
     let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, restore::Reason::Outside, tx))
+        .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            if d.phase == rune::Phase::Down && tx.button() == rune::PointerButton::Primary && !session_view::style::touch_controls() {
+                close(s, None, restore::Reason::Outside, tx);
+            } else {
+                tx.live_only();
+            }
+        })
         .press_focuses_below()
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
     let (anchor, point, align, side) = match &shown.anchor {

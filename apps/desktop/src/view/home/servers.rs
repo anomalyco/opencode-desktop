@@ -1,4 +1,5 @@
 use super::*;
+use crate::popup::MenuButton as _;
 use crate::popup::{self, Item, Menu};
 use crate::projects::home::{self as home_state, ServerView};
 use opencode_i18n::t;
@@ -145,7 +146,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
         .gap(4.0)
         .center_y()
         .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, fade.alpha(0.0)), (8.0 / actions_w, fade), (1.0, fade)])
-        .child(super::projects::icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open).on_press_tx(move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_target, tx)))
+        .child(super::projects::icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open).menu_button(menu.clone(), move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_target, tx)))
         .child(add);
     let mut r = row()
         .key(format!("hs-{}", v.key))

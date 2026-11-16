@@ -8,6 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::popup::MenuButton as _;
+
 use super::grouping::{self as m, Grouping, Group, Kind, Row, Status, ViewState};
 use super::rows::{HEADER, Lead, SessionRow, ghost_button, group_header, session_row};
 use super::*;
@@ -188,7 +190,7 @@ pub(crate) fn customized(s: &App, p: &Pal) -> El {
 
 /// The Sessions header (`sidebar-customized.tsx:675-697`): its label, View options and New session.
 fn header(p: &Pal, servers: Vec<(String, String)>, projects: Vec<(String, String)>, unread: Vec<String>) -> El {
-    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, false).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+    let options = super::super::home::projects::icon_button(p, super::menu::TRIGGER, t!("sidebar.view.options"), &ic::OUTLINE_SLIDERS, false).menu_button(super::menu::TRIGGER, move |s: &mut App, tx: &mut Tx| {
         let o = super::menu::Options { servers: servers.clone(), projects: projects.clone(), can_mark_read: !unread.is_empty(), unread: unread.clone() };
         super::menu::open(s, o, tx)
     });

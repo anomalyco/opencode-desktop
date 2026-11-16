@@ -3,6 +3,7 @@
 //! entries Windows shows), drawn in the window in menu-v2's standard look. An item shows its
 //! command's keys or the menu's own accelerator, and runs what Desktop's does.
 
+use crate::popup::MenuButton as _;
 use rune::{El, Key, KeyEvent, Mods, Tx, icon};
 
 use rune_theme_opencode::icons as ic;
@@ -150,7 +151,7 @@ fn glyph_button(s: &App, p: &Pal) -> El {
         .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
         // Desktop remembers the focused field and puts it back for the Edit items.
         .keeps_text_selection()
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .menu_button(KEY, |s: &mut App, tx: &mut Tx| {
             tx.instant();
             open_menu(s, tx);
         })

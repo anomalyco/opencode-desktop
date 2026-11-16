@@ -1,6 +1,7 @@
 //! The open file: its toolbar, find bar, and either the shared [`CodeViewer`] or, for Markdown,
 //! the rendered page ([`super::markdown`]).
 
+use crate::popup::MenuButton as _;
 use rune::{Anim, Color, Cursor, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -296,7 +297,7 @@ fn artifact_toolbar(s: &App, p: &Pal, session_id: &str, path: &str, rendered: bo
     let (sid, at, menu_name) = (session_id.to_owned(), path.to_owned(), name.clone());
     let open = s.popup.open_at("files-artifact-menu");
     actions = actions.child(
-        action(p, "files-artifact-menu", &ic::OUTLINE_DOTS, opencode_i18n::t!("plugin.file.view.actions"), move |s: &mut App, tx: &mut Tx| {
+        menu_action(p, "files-artifact-menu", &ic::OUTLINE_DOTS, opencode_i18n::t!("plugin.file.view.actions"), move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             let (sid, at, body, name) = (sid.clone(), at.clone(), text_body.clone(), menu_name.clone());
             crate::popup::open(s, artifact_menu(s, previewable, rendered), "files-artifact-menu".to_owned(), tx, move |s: &mut App, picked, tx| {
@@ -363,6 +364,15 @@ fn artifact_menu(s: &App, previewable: bool, rendered: bool) -> crate::popup::Me
 
 /// An `IconButton` ghost-muted large: 28 square, 6 round, its 16 pt glyph in icon-muted.
 fn action(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static str, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    action_face(p, key, glyph, label).on_press_tx(press)
+}
+
+/// [`action`] as a menu button: its menu opens as the mouse button goes down.
+fn menu_action(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static str, open: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    action_face(p, key, glyph, label).menu_button(key, open)
+}
+
+fn action_face(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static str) -> El {
     el().key(key)
         .size(28.0, 28.0)
         .radius(6.0)
@@ -374,6 +384,5 @@ fn action(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static str,
         .role("button")
         .label(label)
         .help(label)
-        .on_press_tx(press)
         .child(icon(glyph, 16.0).color(p.icon_muted))
 }

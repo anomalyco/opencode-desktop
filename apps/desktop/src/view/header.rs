@@ -1,3 +1,4 @@
+use crate::popup::MenuButton as _;
 use std::cell::Cell;
 
 use super::header_fit::{HeaderFit, Measured};
@@ -202,7 +203,7 @@ fn header_title(s: &App, p: &Pal, info: &SessionInfo) -> Vec<El> {
     };
     // While its menu is open the `…` keeps its wash, as an expanded trigger does; the title takes none.
     let dots = el().key("header-more").role("button").label_static(t!("common.moreOptions")).size(28.0, 28.0).radius(6.0).center().hover(p.hover).hover_motion(INSTANT, INSTANT)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
+        .menu_button("header-more", move |s: &mut App, tx: &mut Tx| crate::session_menu::open(s, dots_target.clone(), "header-more", tx))
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     let dots = if marked { dots.fill(p.hover) } else { dots };
     vec![title, dots]

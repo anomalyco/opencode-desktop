@@ -6,6 +6,7 @@
 //! startup script; a save that fails says so under its field with Retry. Worktrees lists this
 //! project's, and Extensions what its folder adds to the server's (`project_extensions.rs`).
 
+use crate::popup::MenuButton as _;
 use base64::Engine as _;
 use opencode_kit::model::Project;
 use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, text};
@@ -228,7 +229,7 @@ pub fn options_with(s: &App, p: &Pal, x: &Project, key: &str, size: f32, row_men
     let anchor = key.to_owned();
     row().key(key.to_owned()).role("button").label_static(t!("common.moreOptions")).size(size, size).center().radius(if size > 24.0 { 6.0 } else { 4.0 })
         .hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .menu_button(anchor.clone(), move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::new(t!("rune.settings.project.menu")).align(rune::Align::End)
                 .items((!used).then(|| Item::new("add", t!("home.project.add"))))
                 .items(row_menu.then(|| Item::new("edit", t!("common.edit"))))

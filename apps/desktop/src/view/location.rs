@@ -2,6 +2,7 @@
 //! project's avatar and name as a button that opens the location card: the project (back to it
 //! on Home), its workspace, the branch, the folder, and Edit project.
 
+use crate::popup::MenuButton as _;
 use rune::{El, TextStyle, Tx, row, text};
 use rune_theme_opencode::icons as ic;
 
@@ -42,7 +43,7 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
         .hover_group()
         .hover(p.hover)
         .hover_motion(crate::view::INSTANT, crate::view::INSTANT)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| super::location_card::open_card(s, tx))
+        .menu_button(TRIGGER, |s: &mut App, tx: &mut Tx| super::location_card::open_card(s, tx))
         .child(crate::icons::badge(s, p, project, name));
     if collapse < 2 {
         t = t.child(text(name.to_owned()).key("location-project").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));
