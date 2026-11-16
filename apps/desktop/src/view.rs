@@ -291,7 +291,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // side insets the frame reaches the screen's edge and the page (`panel`) sits inside them.
     let surface = |frame: El| {
         let frame = frame.grow(1.0).shrink().ml(inset).mt(chrome().top()).mr(inset).mb(8.0 + bottom_reserve + chrome().foot())
-            .radius(10.0).fill(p.bg_base).elevate(p.raised).clip_soft(0.0).paint_contained(main);
+            .radius(10.0).fill(p.bg_base).elevate(p.raised).clip_soft(0.0);
         if switching { frame.motion(GLIDE).raise() } else { frame.motion(crate::panels::view::SIDE_SPRING).motion_snaps() }
     };
     let page = col()
@@ -338,7 +338,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
         // chat panel), and paints over the page and the panels after it.
         .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
-        .child(panel)
+        // `paint_contained` establishes its children's pixel grid. The painted frame is
+        // itself inside <main> (shell.tsx:304), not the element establishing containment.
+        // Keep its ring, shadow and clip on the same grid as the content they surround.
+        .child(row().key("main-content").grow(1.0).min_w(0.0).h_full().paint_contained(main).child(panel))
         .child(crate::panels::view::side_region(s, p, win_w, bottom_reserve, main, cx));
     if let Some(dock) = dock {
         root = root.child(
