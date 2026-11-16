@@ -1,4 +1,5 @@
 use super::*;
+use crate::popup::MenuButton as _;
 use crate::popup::{self, Item, Menu};
 use opencode_kit::servers::ServerKey;
 use opencode_i18n::t;
@@ -118,7 +119,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, surface.alpha(0.0)), (8.0 / actions_w, surface), (1.0, surface)])
         .child(
             icon_button(p, &menu, t!("common.moreOptions"), &ic::OUTLINE_DOTS, menu_open)
-                .on_press_tx(move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_server, &menu_id, tx)),
+                .menu_button(menu.clone(), move |s: &mut App, tx: &mut Tx| open_menu(s, &menu_server, &menu_id, tx)),
         )
         .child(icon_button(p, &format!("hp-new-{}", proj.id), t!("command.session.new"), &ic::EDIT, false).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             crate::servers::runtime::switch(s, &new_server);

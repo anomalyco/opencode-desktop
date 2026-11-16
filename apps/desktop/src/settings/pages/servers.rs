@@ -12,6 +12,7 @@ pub mod inventory;
 pub mod switcher;
 pub mod unavailable;
 
+use crate::popup::MenuButton as _;
 use std::collections::HashMap;
 
 use opencode_kit::servers::ServerKey;
@@ -191,7 +192,7 @@ fn select_for(s: &App, p: &Pal, key: &str, label: &str, options: Vec<(String, St
     let (label, current) = (label.to_owned(), current.to_owned());
     let open = s.popup.open_at(&anchor);
     rune_kit::Select::new(key.to_owned(), &[shown.as_str()]).current(Some(&shown)).label(label.clone()).open(open).trigger(crate::palette::kit(p))
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .menu_button(anchor.clone(), move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::picker(label.clone(), options.clone(), &current);
             let pick = pick.clone();
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| {
@@ -232,7 +233,7 @@ fn own_row(p: &Pal, server: &Server) -> El {
     let url = server.address();
     let dots = row().key("settings-server-menu").role("button").label_static(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
         .hover(p.hover).press(p.pressed)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+        .menu_button("settings-server-menu", |s: &mut App, tx: &mut Tx| {
             let url = inventory::list(s).into_iter().next().map(|x| x.address()).unwrap_or_default();
             let menu = Menu::new(t!("settings.section.server")).align(Align::End).group(t!("settings.section.server"))
                 .item(Item::new("edit", t!("dialog.server.menu.edit")).enabled(false))
@@ -266,7 +267,7 @@ pub(crate) fn http_row(p: &Pal, server: &crate::servers::Server) -> El {
     let url = server.url.clone();
     let dots = row().key(anchor.clone()).role("button").label_static(t!("common.moreOptions")).size(24.0, 24.0).center().radius(4.0)
         .hover(p.hover).press(p.pressed)
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .menu_button(anchor.clone(), move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::new(t!("settings.section.server")).align(Align::End).group(t!("settings.section.server"))
                 .item(Item::new("edit", t!("dialog.server.menu.edit")))
                 .separator()

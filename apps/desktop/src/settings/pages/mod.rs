@@ -18,6 +18,7 @@ pub mod shortcuts;
 pub mod timeline;
 pub mod worktrees;
 
+use crate::popup::MenuButton as _;
 use rune::{Color, El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
@@ -335,8 +336,9 @@ pub fn select_some(s: &App, p: &Pal, key: &str, label: &str, options: Vec<(Strin
     let label = label.to_owned();
     let current = current.to_owned();
     let open = s.popup.open_at(&anchor);
+    let anchor_key = anchor.clone();
     Select::new(key.to_owned(), &[shown.as_str()]).current(Some(&shown)).label(label.clone()).open(open).trigger(kit(p))
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .menu_button(anchor_key, move |s: &mut App, tx: &mut Tx| {
             let menu = Menu::picker_some(label.clone(), options.clone(), &current);
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut App, picked, tx| {
                 if let Some(id) = picked {
@@ -387,13 +389,32 @@ pub fn text_field(p: &Pal, key: &str, label: &str, placeholder: &str, edit: &Tex
 /// `button-v2` ghost or ghost-muted with an optional leading icon (Add project, Add server,
 /// Reset to defaults, History on GitHub).
 pub fn ghost_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
-    ghost_menu_button(p, key, label, glyph, muted, enabled, false, press)
+    let b = ghost_face(p, key, label, glyph, muted, enabled, false);
+    if !enabled {
+        return b;
+    }
+    b.on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        tx.instant();
+        press(s, tx);
+    })
 }
 
 /// [`ghost_button`] as a menu's trigger: while its menu is open (`aria-expanded`) it keeps the
 /// pressed fill and draws in the base ink.
 #[allow(clippy::too_many_arguments)]
 pub fn ghost_menu_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, open: bool, press: impl Fn(&mut App, &mut Tx) + 'static) -> El {
+    let b = ghost_face(p, key, label, glyph, muted, enabled, open);
+    if !enabled {
+        return b;
+    }
+    b.menu_button(key.to_owned(), move |s: &mut App, tx: &mut Tx| {
+        tx.instant();
+        press(s, tx);
+    })
+}
+
+/// The face [`ghost_button`] and [`ghost_menu_button`] share.
+fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, open: bool) -> El {
     let ink = if !enabled { p.faint } else if muted && !open { p.muted } else { p.text };
     let glyph_ink = if !enabled { p.icon_faint } else if open { p.icon } else { p.icon_muted };
     let b = row().key(key.to_owned()).role("button").label(label.to_owned()).h(28.0).px(if glyph.is_some() { 8.0 } else { 11.0 }).gap(6.0).center_y().radius(6.0)
@@ -404,10 +425,7 @@ pub fn ghost_menu_button(p: &Pal, key: &str, label: &str, glyph: Option<&'static
         return b.disabled(true);
     }
     let b = if open { b.fill(p.pressed) } else { b };
-    b.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
-        tx.instant();
-        press(s, tx);
-    })
+    b.hover(p.hover).press(p.pressed)
 }
 
 /// `SettingsSearchEmpty`: "No results for" and the query in quotes (`settings.search.empty`,

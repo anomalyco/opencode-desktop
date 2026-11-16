@@ -10,6 +10,7 @@
 //! why. An undelivered prompt is withdrawn instead, its words back in the composer once the
 //! server lets it go.
 
+use crate::popup::MenuButton as _;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -492,7 +493,7 @@ pub fn user_menu(s: &App, p: &Pal, session: &str, id: &str, pending: bool) -> Op
     let (sid, mid) = (session.to_owned(), id.to_owned());
     Some(
         session_view::timeline::user_menu_button(p, menu_key(id), opencode_i18n::t!("ui.message.moreActions"), open)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| s.toggle_message_menu(&sid, &mid, tx))
+            .menu_button(menu_key(id), move |s: &mut App, tx: &mut Tx| s.toggle_message_menu(&sid, &mid, tx))
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(if open { p.icon } else { p.icon_muted })),
     )
 }

@@ -5,6 +5,7 @@
 //! through `delete`'s machine, its confirmations in `dialog`. With none,
 //! "No worktrees yet".
 
+use crate::popup::MenuButton as _;
 use opencode_kit::model::SessionInfo;
 use opencode_kit::path;
 use rune::{Align, El, TextStyle, Tx, col, el, icon, row, text};
@@ -176,7 +177,7 @@ fn toolbar(s: &App, p: &Pal, list: &[Worktree], active: Option<String>, filter: 
     let dots = row().key("settings-workspaces-more").role("button").label_static(t!("common.moreOptions")).size(20.0, 20.0).center().radius(4.0)
         .child(icon(&ic::OUTLINE_DOTS, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
     let dots = if busy { dots.disabled(true) } else {
-        dots.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        dots.hover(p.hover).press(p.pressed).menu_button("settings-workspaces-more", move |s: &mut App, tx: &mut Tx| {
             let mut menu = Menu::new(t!("common.moreOptions")).align(Align::End);
             if !unused.is_empty() {
                 menu = menu.item(Item::new("unused", t!("settings.workspaces.deleteWithoutSessions"))).separator();
@@ -220,7 +221,7 @@ fn project_menu(s: &App, p: &Pal, selected: Option<&str>) -> Option<El> {
         .child(text(label).font(rune::TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(p.muted).truncate().shrink().min_w(0.0))
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted));
     let b = if open { b.fill(p.pressed) } else { b.hover(p.hover) };
-    Some(b.press(p.pressed).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+    Some(b.press(p.pressed).menu_button(FILTER, move |s: &mut App, tx: &mut Tx| {
         tx.instant();
         let items = std::iter::once((ALL.to_owned(), all.clone())).chain(projects.iter().cloned())
             .map(|(id, name)| Item::new(id.clone(), name).checked(id == current));
