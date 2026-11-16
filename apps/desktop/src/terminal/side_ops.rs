@@ -22,6 +22,7 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
     let field = super::rename::field(s, p, id);
     let (rename_id, menu_id) = (id.to_owned(), id.to_owned());
     let (drag_key, drag_title) = (format!("{PLUGIN}:{id}"), title.to_owned());
+    let shown = active && s.side.focused;
     row()
         .key(format!("terminal-label-{id}"))
             .gap(6.0)
@@ -45,7 +46,7 @@ pub(crate) fn tab_label(s: &App, p: &Pal, id: &str, title: &str, active: bool) -
                     .on_double_press_tx(move |s: &mut App, tx: &mut Tx| super::rename::start(s, &rename_id, super::rename::Source::Pointer, tx))
                     // The title takes the press for its double-click, so it carries the tab's drag too:
                     // the whole tab drags, as Desktop's does.
-                    .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx)),
+                    .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| s.side_tab_gesture(&drag_key, &drag_title, true, shown, d, tx)),
             )
             .children(field)
 }

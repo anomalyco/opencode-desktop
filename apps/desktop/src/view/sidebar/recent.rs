@@ -112,10 +112,14 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
             if inside {
                 s.prefetch_session(id);
             }
-        });
+        })
+        // A row opens as the mouse button goes down (`TabNavItem`'s `onMouseDown`), which takes
+        // the strip's press tracking; only the pins reorder.
+        .drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag)
+        .select_on_drag_start(!session_view::style::touch_controls());
     if let Some(visible) = pins {
         let server = here.as_str().to_owned();
-        strip = strip.drag_state(&s.tab_drag, |s: &mut App| &mut s.tab_drag).on_reorder(move |s: &mut App, r, _| {
+        strip = strip.on_reorder(move |s: &mut App, r, _| {
             let visible: Vec<String> = visible.iter().map(|id| key(&server, id)).collect();
             s.project_state.recent.reorder(&visible, r.from, r.to);
         });

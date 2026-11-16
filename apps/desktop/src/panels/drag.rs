@@ -175,9 +175,12 @@ fn hit(z: &Zones, at: [f32; 2], key: &str) -> Option<DropTarget> {
 }
 
 impl App {
-    fn dispatch_pane_drag(&mut self, event: PaneDragEvent, tx: &mut Tx) {
+    /// Steps the machine; true when what it draws changed (a drag shows, moves, drops or ends).
+    fn dispatch_pane_drag(&mut self, event: PaneDragEvent, tx: &mut Tx) -> bool {
+        let was = self.side.pane_drag.state.dragging().is_some();
         let (next, effects) = self.side.pane_drag.state.transition(event);
         self.side.pane_drag.state = next;
+        let drawn = was || self.side.pane_drag.state.dragging().is_some() || !effects.is_empty();
         for effect in effects {
             match effect {
                 PaneDragEffect::SuppressClick => self.side.pane_drag.suppress_click = true,
@@ -187,33 +190,50 @@ impl App {
                 }
             }
         }
-        tx.instant();
+        if drawn {
+            tx.instant();
+        }
+        drawn
     }
 
-    /// A tab's drag gesture, from its `on_drag`: `phase` at window point `at`.
-    pub fn pane_drag_gesture(&mut self, key: &str, title: &str, d: &rune::Drag, tx: &mut Tx) {
+    /// A press on a side, split or bottom tab, from its `on_drag`. A mouse selects the tab as
+    /// its button goes down (`Tabs.Trigger`'s Kobalte `onPointerDown`,
+    /// `create-selectable-item.ts`), so the release's click is the press's and draws nothing; a
+    /// finger selects on the tap. `shown`: the tab is already selected in the pane that has the
+    /// keyboard, where a press changes nothing. A draggable tab's press also arms its drag.
+    pub fn side_tab_gesture(&mut self, key: &str, title: &str, draggable: bool, shown: bool, d: &rune::Drag, tx: &mut Tx) {
         let at = d.window_point();
         let session = self.active_session_id().unwrap_or_default().to_owned();
-        match d.phase {
+        let drawn = match d.phase {
             rune::Phase::Down => {
-                self.side.pane_drag.suppress_click = false;
-                self.dispatch_pane_drag(PaneDragEvent::Down { session, key: key.to_owned(), title: title.to_owned(), at }, tx);
-            }
-            rune::Phase::Move => {
-                if self.side.pane_drag.state.session().is_some_and(|s| s != session) {
-                    return self.dispatch_pane_drag(PaneDragEvent::SessionChanged, tx);
+                let selects = !session_view::style::touch_controls();
+                self.side.pane_drag.suppress_click = selects;
+                let drawn = draggable && self.dispatch_pane_drag(PaneDragEvent::Down { session, key: key.to_owned(), title: title.to_owned(), at }, tx);
+                if selects && !shown {
+                    self.select_side_tab(key, tx);
                 }
+                drawn || (selects && !shown)
+            }
+            rune::Phase::Move if !draggable => false,
+            rune::Phase::Move if self.side.pane_drag.state.session().is_some_and(|s| s != session) => self.dispatch_pane_drag(PaneDragEvent::SessionChanged, tx),
+            rune::Phase::Move => {
                 let target = self.side.pane_drag.state.key().and_then(|k| hit(&self.side.pane_drag.zones.borrow(), at, k));
-                self.dispatch_pane_drag(PaneDragEvent::Move { at, target }, tx);
+                self.dispatch_pane_drag(PaneDragEvent::Move { at, target }, tx)
             }
             rune::Phase::Up => {
+                // Released off the tab or cancelled: no click follows to swallow.
+                if d.cancelled() || !((0.0..=d.w).contains(&d.x) && (0.0..=d.h).contains(&d.y)) {
+                    self.side.pane_drag.suppress_click = false;
+                }
                 let event = if d.cancelled() { PaneDragEvent::Cancel } else { PaneDragEvent::Up };
-                self.dispatch_pane_drag(event, tx);
+                draggable && self.dispatch_pane_drag(event, tx)
             }
+        };
+        if !drawn {
+            tx.live_only();
         }
     }
 }
-
 /// Notes where the drop zones lie while a tab drags, from the last layout.
 pub fn note_zones(s: &App) {
     if !s.side.pane_drag.active() {

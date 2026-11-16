@@ -613,7 +613,7 @@ pub(super) fn safe_id(key: &str) -> String {
 /// One tab of a pane's strip (`PanelTrigger`): 28 tall, 10 in, 72 at the narrowest, the
 /// selected one on `layer-02`; 13/440 labels in the muted ink, the selected one's in the base
 /// ink while its pane has the keyboard; the 20 pt close button 4 from its end. A press selects
-/// it, a drag moves it between panes, a right click opens its menu.
+/// it as the button goes down, a drag moves it between panes, a right click opens its menu.
 fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, active: bool, focused: bool, dragging: bool) -> El {
     let select_key = entry.key.clone();
     let promote_key = entry.key.clone();
@@ -649,10 +649,12 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, act
         .hover_motion(INSTANT, INSTANT)
         .opacity(if dragging { 0.4 } else { 1.0 })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-            // The release that ends a drag isn't a click on the tab under it.
-            if !s.side.pane_drag.take_suppressed() {
-                s.select_side_tab(&select_key, tx);
+            // The press already selected it, and the release that ends a drag isn't a click on
+            // the tab under it: either draws nothing. A key or a tap selects it here.
+            if s.side.pane_drag.take_suppressed() {
+                return tx.live_only();
             }
+            s.select_side_tab(&select_key, tx);
         })
         .on_double_press(move |s: &mut App| {
             s.promote_preview_tab(&promote_key);
@@ -666,9 +668,8 @@ fn tab_trigger(p: &Pal, entry: &ResolvedEntry, lead: Option<El>, width: f32, act
     if entry.tab.can_close() {
         pill = pill.on_middle_press(move |s: &mut App, tx: &mut Tx| s.close_side_tab(&middle_key, tx));
     }
-    if !entry.tab.pinned && entry.tab.draggable {
-        pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.pane_drag_gesture(&drag_key, &drag_title, d, tx));
-    }
+    let (draggable, shown) = (!entry.tab.pinned && entry.tab.draggable, active && focused);
+    pill = pill.on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| s.side_tab_gesture(&drag_key, &drag_title, draggable, shown, d, tx));
 
     if let Some(label) = lead {
         pill = pill.child(label.shrink().min_w(0.0));
