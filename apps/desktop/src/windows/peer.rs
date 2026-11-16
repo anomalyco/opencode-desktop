@@ -317,7 +317,7 @@ pub fn join(s: &mut App, wake: Option<rune::Waker>) {
         peer.wakers.lock().unwrap_or_else(|e| e.into_inner()).push((token, w.clone()));
     }
     peer.members.borrow_mut().push(Member { token, wake, heard: VecDeque::new(), view: View::Current });
-    *s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
+    **s.store = Link { peer: Some(peer), token, edit: Edit::Dirty, local: ServerData::default() };
 }
 
 /// What a window has read of its server and can show without it: its projects, sessions and

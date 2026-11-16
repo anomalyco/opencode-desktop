@@ -76,7 +76,7 @@ pub(super) fn bar(p: &Pal, wk: &str, tab: &super::TerminalTab, snap: &terminal::
                         .caret(p.text, p.selection)
                         .selection_style(p.field_selection)
                         .on_edit(move |s: &mut App| {
-                            let super::TerminalPane { workspaces, spare_field, .. } = &mut *s.terminal;
+                            let super::TerminalPane { workspaces, spare_field, .. } = &mut **s.terminal;
                             match workspaces.get_mut(&wk_edit).and_then(|ws| ws.tabs.iter_mut().find(|t| t.id == tid_edit)).and_then(|t| t.find.as_mut()) {
                                 Some(f) => f,
                                 None => spare_field,

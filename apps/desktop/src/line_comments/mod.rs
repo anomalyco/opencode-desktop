@@ -218,7 +218,7 @@ impl App {
     /// The editor field's own event at `spot` (keys, buttons, the `@` list).
     pub fn line_comment_field(&mut self, spot: &Spot, event: FieldEvent, tx: &mut Tx) -> bool {
         let editing = matches!(self.line_comments.mode(spot), Mode::Editing { .. });
-        let LineComments { sessions, field_seq, .. } = &mut *self.line_comments;
+        let LineComments { sessions, field_seq, .. } = &mut **self.line_comments;
         let mode = sessions.get_mut(&spot.session).and_then(|s| s.modes.get_mut(&spot.surface)).and_then(|m| m.get_mut(&spot.path));
         let Some(draft) = mode.and_then(Mode::draft_mut) else { return false };
         let (effects, handled) = field::field_step(field_seq, &mut draft.field, event);

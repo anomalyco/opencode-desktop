@@ -386,7 +386,7 @@ pub struct App {
     /// A send held while a session opens (`submit.rs`).
     pub submit: rune::Tracked<submit::Submit>,
     /// This window's place in its server's peer (`windows::peer`).
-    pub store: rune::Tracked<windows::peer::Link>,
+    pub store: rune::Tracked<Box<windows::peer::Link>>,
     /// The question dock's place and in-progress answers for the forms it shows.
     pub question: rune::Tracked<question::Dock>,
     /// Where a new draft starts, and where paths resolve off a session: the folder last picked.
@@ -402,27 +402,27 @@ pub struct App {
     /// Sent prompts, for ↑ and ↓ in the composer (`prompt_history.rs`).
     pub prompts: rune::Tracked<prompt_history::PromptHistory>,
     /// The composer's images, and sent prompts waiting on the server's copy.
-    pub attach: rune::Tracked<attachments::Attach>,
+    pub attach: rune::Tracked<Box<attachments::Attach>>,
     /// The Quote button over a timeline selection, and the quotes waiting in the composer.
-    pub quote: rune::Tracked<quote::Quotes>,
+    pub quote: rune::Tracked<Box<quote::Quotes>>,
     /// Comments on lines of files, from Files and Changes (`line_comments`).
-    pub line_comments: rune::Tracked<line_comments::LineComments>,
-    pub find: rune::Tracked<find::Find>,
+    pub line_comments: rune::Tracked<Box<line_comments::LineComments>>,
+    pub find: rune::Tracked<Box<find::Find>>,
     pub message_nav: rune::Tracked<message_nav::MessageNav>,
     pub usage: rune::Tracked<usage::Usage>,
     pub search: rune::Tracked<TextEdit>,
-    pub home_search: rune::Tracked<home_search::HomeSearch>,
+    pub home_search: rune::Tracked<Box<home_search::HomeSearch>>,
     /// Session menus, the title being renamed and Delete's confirmation.
-    pub menus: rune::Tracked<session_menu::Menus>,
+    pub menus: rune::Tracked<Box<session_menu::Menus>>,
     /// The drawn menu or picker open now (off macOS).
-    pub popup: rune::Tracked<popup::Popup>,
-    pub pickers: rune::Tracked<pickers::Pickers>,
+    pub popup: rune::Tracked<Box<popup::Popup>>,
+    pub pickers: rune::Tracked<Box<pickers::Pickers>>,
     /// The composer's `@` popover and what it lists.
-    pub mentions: rune::Tracked<mentions::Mentions>,
+    pub mentions: rune::Tracked<Box<mentions::Mentions>>,
     /// Session ids named in replies, looked up once (`mentions::refs`).
     pub session_refs: rune::Tracked<mentions::refs::Lookups>,
     /// Live look-and-feel sliders (⌘⇧K).
-    pub knobs: rune::Tracked<rune_knobs::Knobs>,
+    pub knobs: rune::Tracked<Box<rune_knobs::Knobs>>,
     /// The frame recorder and its scrubber, for animation glitches (⌘⇧⌥R).
     pub glitch: rune::Tracked<glitch::Glitch>,
     /// The new-session wordmark's Easter egg (`egg`): nothing until the pointer comes near its "e".
@@ -435,22 +435,22 @@ pub struct App {
     pub suggest: rune::Tracked<suggestions::Suggest>,
     /// Hex dictation into the composer (⇧⌘M or the mic).
     pub dictation: rune::Tracked<dictation::Dictation>,
-    pub switcher: rune::Tracked<switcher::Switcher>,
+    pub switcher: rune::Tracked<Box<switcher::Switcher>>,
     pub project_switcher: rune::Tracked<project_switcher::ProjectSwitcher>,
-    pub project_state: rune::Tracked<projects::ProjectsState>,
+    pub project_state: rune::Tracked<Box<projects::ProjectsState>>,
     /// Home across servers: its selection, its servers and its list's phase (`projects::home`).
     pub home_state: rune::Tracked<projects::home::Home>,
     /// A server's folder picker, while one is open (`projects::remote_picker`).
     pub remote_picker: rune::Tracked<projects::remote_picker::Picker>,
     pub settings: rune::Tracked<settings::Settings>,
     /// Settings' Providers, Models and Extensions pages (`settings::pages`).
-    pub settings_pages: rune::Tracked<settings::pages::State>,
+    pub settings_pages: rune::Tracked<Box<settings::pages::State>>,
     /// The connect dialog (`connect`).
-    pub connect: rune::Tracked<connect::Connect>,
+    pub connect: rune::Tracked<Box<connect::Connect>>,
     /// The integrations and providers it and Settings read, by folder.
     pub catalogs: rune::Tracked<connect::catalog::Catalogs>,
     /// The MCP servers' toggles and the MCPs dialog (`mcp`).
-    pub mcp: rune::Tracked<mcp::Mcp>,
+    pub mcp: rune::Tracked<Box<mcp::Mcp>>,
     /// Server requests on their way back (`jobs`).
     jobs: rune::Tracked<jobs::Jobs>,
     /// System notifications for finished runs, permission requests and errors.
@@ -464,7 +464,7 @@ pub struct App {
     /// Whether each open session can show, by (server, session) (`session_state`).
     pub session_states: rune::Tracked<session_state::States>,
     /// The open session and composer drafts, saved for the next launch.
-    pub restore: rune::Tracked<restore::Restore>,
+    pub restore: rune::Tracked<Box<restore::Restore>>,
     /// Background shells, and the running-work list above the composer (`subagents::activity`).
     pub shells: rune::Tracked<subagents::shells::Shells>,
     /// Permission replies still on their way, to bring back if the server refuses one.
@@ -492,7 +492,7 @@ pub struct App {
     pub debug: rune::Tracked<bool>,
     pub status: rune::Tracked<String>,
     pub rewind: rune::Tracked<rewind::RewindState>,
-    pub fork: rune::Tracked<fork::ForkState>,
+    pub fork: rune::Tracked<Box<fork::ForkState>>,
     pub jump: rune::Tracked<message_nav::jump::JumpState>,
     pub toast: rune::Tracked<status_toast::StatusToast>,
     /// The paced one-time tips (`tips.rs`).
@@ -504,7 +504,7 @@ pub struct App {
     /// What the window's toasts offer back (`undo`).
     pub undos: rune::Tracked<undo::Undos>,
     /// Drafts that start in a new worktree, worktree lists and the branch picker (`new_worktree.rs`).
-    pub new_worktree: rune::Tracked<new_worktree::NewWorktree>,
+    pub new_worktree: rune::Tracked<Box<new_worktree::NewWorktree>>,
     /// Wall-clock milliseconds for relative times (fixture: its own fixed "now").
     pub now_ms: rune::Tracked<i64>,
     base_ms: rune::Tracked<i64>,
@@ -531,19 +531,19 @@ pub struct App {
     launch: rune::Tracked<launch::Launch>,
     pub updater: rune::Tracked<updater::Updater>,
     pub icons: rune::Tracked<project_icon::Icons>,
-    pub side: rune::Tracked<panels::SideState>,
-    pub browser: rune::Tracked<browser::BrowserPane>,
-    pub review: rune::Tracked<review::ReviewPane>,
+    pub side: rune::Tracked<Box<panels::SideState>>,
+    pub browser: rune::Tracked<Box<browser::BrowserPane>>,
+    pub review: rune::Tracked<Box<review::ReviewPane>>,
     /// The file sidebar the Review and Files panels share (Desktop's `PanelSidebar`).
     pub panel_sidebar: rune::Tracked<plugin_host::native::sidebar::PanelSidebar>,
-    pub files: rune::Tracked<files::FilesPane>,
+    pub files: rune::Tracked<Box<files::FilesPane>>,
     pub open_in: rune::Tracked<open_in::OpenIn>,
     /// What a tool step last opened in the side region (`tool_open`).
     pub tool_open: rune::Tracked<Option<tool_open::Opened>>,
-    pub terminal: rune::Tracked<terminal::TerminalPane>,
+    pub terminal: rune::Tracked<Box<terminal::TerminalPane>>,
     pub rune_mcp: rune::Tracked<rune_mcp::WindowMcp>,
     /// The plugins: their panels, commands, menus, settings and MCP tools (`plugin_host`).
-    pub plugins: rune::Tracked<plugin_host::PluginHost>,
+    pub plugins: rune::Tracked<Box<plugin_host::PluginHost>>,
     /// The server the window works against now and its halves of the others (`servers::runtime`).
     pub checkout: rune::Tracked<servers::runtime::Checkout>,
     /// The session header's location card: each folder's branch once read.
