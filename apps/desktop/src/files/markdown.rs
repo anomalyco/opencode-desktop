@@ -263,6 +263,11 @@ impl App {
         v.matches = rune_kit::markdown::find(doc.text(), &q, Case::Folded(crate::language::search_fold()));
         v.applied = q;
         v.active = 0;
+        // A new query lands its first match at once, however far down it is
+        // (`gui-plugins/src/file/find.tsx`: `search(query, 0)`, `scrollIntoView({ block: "center" })`).
+        if !v.matches.is_empty() {
+            tx.scroll_center_in_instant(scroll_key(sid, path), "find-active");
+        }
         true
     }
 
@@ -298,7 +303,7 @@ impl App {
             return;
         }
         v.active = if forward { (v.active + 1) % n } else { (v.active + n - 1) % n };
-        tx.scroll_center_in(scroll_key(sid, path), "find-active");
+        tx.scroll_center_in_instant(scroll_key(sid, path), "find-active");
     }
 
     /// Scrolls `path` to its heading `anchor`: in the rendered view, or to its line in the source.
