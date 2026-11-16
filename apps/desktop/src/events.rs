@@ -9,7 +9,7 @@ use std::cell::Cell;
 use super::*;
 
 /// The latest uninterrupted run of stream writes to one transcript. Bulk loads, clears,
-/// another window's edits and server swaps need no bookkeeping: the cell and both ends of
+/// other transcript writers and server swaps need no bookkeeping: the cell and both ends of
 /// the version interval must match before a reader can narrow its comparison to this id.
 #[derive(Default)]
 pub(crate) struct TranscriptEdits {

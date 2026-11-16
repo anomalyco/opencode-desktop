@@ -84,6 +84,7 @@ fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::As
 
 /// A session's version, as plugins see it: it moves when its title, cost, usage, message count
 /// or busy state does, and not while a reply streams within a step.
+/// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
 pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
     let t = app.transcripts.get(&info.id);
