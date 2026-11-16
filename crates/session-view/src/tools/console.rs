@@ -91,7 +91,8 @@ const COMMAND_MAX_H: f32 = 8.0 * 20.0 + 2.0 * PAD;
 /// The inset of a section's text, kept while it scrolls.
 const PAD: f32 = 12.0;
 const RADIUS: f32 = 6.0;
-/// The ring's width: the sections sit inside it, rounded concentrically.
+/// The ring's width in CSS px (`message-part.css:806`): it lays out on whole device pixels and the
+/// sections sit inside it, rounded concentrically.
 const RING: f32 = 0.5;
 
 /// Desktop's console card: the command over its result, each with a copy button. Each section
@@ -101,10 +102,13 @@ const RING: f32 = 0.5;
 /// `max-height`, which takes the command and the output in one region), the output giving way.
 pub fn console<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, command: Option<&str>, out: &str) -> El {
     // A terminal reads left to right in any window; its Copy buttons stay at its right.
-    let mut card = col().key("console").dir(rune::Direction::Ltr).w_full().max_h(MAX_H + 2.0 * RING).radius(RADIUS).padding(RING).border(RING, p.ring).fill(p.bg_base).hover_group()
+    // `border: 0.5px solid border-base` (`message-part.css:806`) takes its device pixel in layout, as
+    // Chromium's does, so the sections' fills never round onto it at a fractional offset.
+    let ring = crate::scroller::border_width(RING);
+    let mut card = col().key("console").dir(rune::Direction::Ltr).w_full().max_h(MAX_H + 2.0 * ring).radius(RADIUS).border(RING, p.border).border_layout().fill(p.bg_base).hover_group()
         // Its Copy fades in and out over 0.15 s ease (`message-part.css:796-800`'s `bash-copy`).
         .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE);
-    let inner = RADIUS - RING;
+    let inner = RADIUS - ring;
     let result = !out.is_empty();
     if let Some(cmd) = command {
         let words = text(cmd.to_owned()).font(TOOL_CODE).color(p.text).wrap_anywhere();

@@ -63,6 +63,16 @@ pub fn set_device_scale(scale: f32) {
     SCALE.set(scale);
 }
 
+/// The points a `w` pt CSS border takes at the view's scale: Chromium lays it out on whole
+/// device pixels, one at least, as `El::border_layout` does.
+pub fn border_width(w: f32) -> f32 {
+    let s = SCALE.get();
+    if s <= 0.0 {
+        return w;
+    }
+    (w * s + 1.0 / 64.0).floor().max(1.0) / s
+}
+
 /// `scrollbar.css`'s bar, in the room its box keeps for it: its thumb's length rounded and its
 /// place truncated to the device pixels, as Chromium's (`ScrollbarTheme::ThumbPosition`).
 pub fn native_bar(p: &Pal) -> ScrollBarStyle {
