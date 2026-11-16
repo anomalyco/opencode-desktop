@@ -264,3 +264,5 @@ mod calls;
 #[path = "agent_rows/steered_stories.rs"]
 pub(crate) mod steered_stories;
 
+#[path = "agent_rows/event_marks_stories.rs"]
+mod event_marks_stories;

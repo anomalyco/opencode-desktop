@@ -1,15 +1,15 @@
 //! Work that runs on (`timeline-next/event-row.tsx`, as of anomalyco/opencode 0cfe2c2610,
-//! #64017): a run of background shells read like a group's label, "Started 2 shells · Finished 1
-//! shell", opening to each command; and a subagent's event, a row of its own: what happened as
-//! a chip, its agent, and its task, which opens its session.
+//! #64017): a run of background shells read like a group's label, "◯ 2 shells · ✓ 1 shell",
+//! opening to each command; and a subagent's event, a row of its own: a mark for what happened,
+//! its agent, and its task, which opens its session. Marks only (t1582): each status is a bare
+//! glyph whose word is its tooltip and accessible name, with no chip around it.
 
 use rune::{Color, El, Icon, Tx, col, el, icon, row, text};
 
 use super::events::{self, Event, Verb};
-use super::tag;
 use crate::TimelineHost;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, ROW_GAP, UI, arrow};
+use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, arrow, readable};
 
 /// The row of `events` in session `session`; `open` lists them, and a press on the
 /// label runs `press`. Nothing when nothing in it has happened yet.
@@ -28,23 +28,32 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
         let detail = opencode_i18n::plural!("ui.timeline.event.shells", b.count);
         let verb = events::verb_word(b.verb);
         label.push(format!("{verb} {detail}"));
-        words = words.child(text(verb).key(format!("verb-{k}")).font(UI).color(p.muted))
-            .child(text(detail).key(format!("detail-{k}")).font(UI).color(p.text).shrink().min_w(0.0).truncate_fade());
+        // A bucket whose every shell failed takes the cross, so "Ran 2 shells" never ticks.
+        let all_failed = events.iter().filter(|e| e.kind == events::Kind::Shell && e.verb == b.verb).all(|e| e.failed);
+        let m = if all_failed { Mark::Failed } else { Mark::of_verb(b.verb) };
+        words = words.child(row().key(format!("bucket-{k}")).gap(5.0).center_y().shrink().min_w(0.0)
+            .child(mark(p, m, verb))
+            .child(text(detail).key("detail").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade()));
     }
-    // Where every one failed, the tag says so without counting them again.
+    // Failures keep their count in words, in the danger colour; where every one failed it says
+    // so without counting them again.
     if failed > 0 {
         let words_failed = if failed == events.len() { opencode_i18n::t!("ui.timeline.event.allFailed").to_owned() } else { opencode_i18n::t!("ui.timeline.event.failed", count = failed) };
-        words = words.child(tag(p, &words_failed, true));
+        label.push(words_failed.clone());
+        words = words.child(row().key("failed").gap(5.0).ml(4.0).center_y()
+            .child(mark(p, Mark::Failed, opencode_i18n::t!("ui.toolErrorCard.failed")))
+            .child(text(words_failed).key("count").font(UI).color(p.danger)));
     }
-    let mut trigger = row().key("trigger").h(28.0).gap(4.0).center_y().shrink().min_w(0.0).child(words);
-    if !items.is_empty() {
+    // `self_start`: its hover fill hugs its words rather than the timeline's width.
+    let mut trigger = row().key("trigger").h(28.0).gap(4.0).center_y().self_start().shrink().min_w(0.0).child(words);
+    if items.is_empty() {
+        trigger = trigger.role("group").label(label.join(" · "));
+    } else {
         let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
-        trigger = trigger
+        trigger = hoverable(p, trigger)
             .role("button")
             .label(label.join(" · "))
             .expanded(open)
-            .hover_group()
-            .hover_motion(HOVER_FADE, HOVER_FADE)
             .on_press_tx(press)
             .child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) });
     }
@@ -61,68 +70,71 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested(p, ROW_GAP, list)))
 }
 
-/// One shell an events row lists (`TimelineEventItem`): "Shell", its command, and a Failed tag.
+/// One shell an events row lists (`TimelineEventItem`): "Shell", its command on one line as a
+/// Shell call's row shows it, and a cross when it failed. A command over several lines keeps
+/// all of them in its tooltip and accessible name.
 fn item<S: TimelineHost>(_s: &S, p: &Pal, _session: &str, k: usize, e: &Event) -> El {
-    row().key(format!("item-{k}")).h(28.0).gap(6.0).center_y().shrink().min_w(0.0)
-        .child(text(opencode_i18n::t!("ui.tool.shell")).key("name").font(UI).color(p.muted))
-        .child(text(e.title.clone().unwrap_or_default()).key("title").font(UI).color(p.text).shrink().min_w(0.0).truncate_fade())
-        .children(e.failed.then(|| tag(p, opencode_i18n::t!("ui.toolErrorCard.failed"), true)))
+    let shell = opencode_i18n::t!("ui.tool.shell");
+    let command = e.title.clone().unwrap_or_default();
+    let failed = opencode_i18n::t!("ui.toolErrorCard.failed");
+    let said = if e.failed { format!("{shell} {command}, {failed}") } else { format!("{shell} {command}") };
+    let line = text(crate::tools::plain::one_line(&command)).key("title").dir(rune::Direction::Ltr).font(TOOL_CODE.lh(16.0)).color(p.text).truncate_fade();
+    row().key(format!("item-{k}")).h(28.0).gap(6.0).center_y().shrink().min_w(0.0).role("group").label(said).help(command)
+        .child(text(shell).key("name").font(UI).color(p.muted))
+        .child(readable(p, line).shrink().min_w(0.0))
+        .children(e.failed.then(|| mark(p, Mark::Failed, failed)))
 }
 
-/// What a subagent row's status chip shows. The timeline is a set of events, so a Started chip
-/// never spins while its agent runs, unlike official's (#64102).
+/// What an event's mark shows. The timeline is a set of events, so a Started ring never spins
+/// while its agent runs, unlike official's (#64102).
 #[derive(Clone, Copy, PartialEq)]
-enum Chip {
+pub enum Mark {
     Started,
     Updated,
     Completed,
     Failed,
     Stopped,
+    /// A session notice that only tells: a server restart, a job's report.
+    Info,
 }
 
-impl Chip {
+impl Mark {
     fn of(e: &Event) -> Self {
-        match e.verb {
-            _ if e.failed => Chip::Failed,
-            Verb::Started => Chip::Started,
-            Verb::Updated => Chip::Updated,
-            Verb::Stopped => Chip::Stopped,
-            Verb::Ran | Verb::Finished => Chip::Completed,
+        if e.failed { Mark::Failed } else { Mark::of_verb(e.verb) }
+    }
+
+    fn of_verb(v: Verb) -> Self {
+        match v {
+            Verb::Started => Mark::Started,
+            Verb::Updated => Mark::Updated,
+            Verb::Stopped => Mark::Stopped,
+            Verb::Ran | Verb::Finished => Mark::Completed,
         }
     }
 }
 
-/// The status chip leading a subagent row (`timeline-event-item-status` in `timeline-next.css`,
-/// e3ed63c7de): 18 pt tall, 6 pt in, 12/530, radius 4, a 1 pt border, a 12 pt glyph 4 before
-/// its word, styled by state. Started a faint outline with a ring, Updated a quiet blue dashed outline with ↻, Completed a soft green fill with ✓,
-/// Failed the danger tag with ✕, Stopped a gray outline with ■.
-fn status_chip(p: &Pal, chip: Chip, word: &str) -> El {
-    // `color-mix(in srgb, c n%, transparent)`, as it should paint over the timeline here.
-    let tint = |c: Color, n: f32| rune::theme::for_blend(c.alpha(c.a * n), p.bg_base);
-    let (fill, border, ink) = match chip {
-        Chip::Started { .. } => (None, Some(tint(p.muted, 0.35)), p.faint),
-        Chip::Updated => (None, Some(tint(p.info, 0.5)), mix_srgb(p.info, p.muted, 0.7)),
-        Chip::Completed => (Some(tint(p.success, 0.16)), None, p.success),
-        Chip::Failed => (Some(p.danger_bg), None, p.danger),
-        Chip::Stopped => (None, Some(tint(p.muted, 0.55)), p.muted),
+/// A bare status mark: a 14 pt glyph with no box, its `word` the tooltip and the name a screen
+/// reader hears. Started a faint ring, Updated a quiet blue ↻, Completed a green ✓, Failed a red
+/// ✕, Stopped a muted ■, Info a faint ⓘ.
+pub fn mark(p: &Pal, m: Mark, word: &str) -> El {
+    let (glyph, ink): (&'static Icon, Color) = match m {
+        Mark::Started => (&RING, p.faint),
+        Mark::Updated => (&AGAIN, mix_srgb(p.info, p.muted, 0.7)),
+        Mark::Completed => (&CHECK, p.success),
+        Mark::Failed => (&CROSS, p.danger),
+        Mark::Stopped => (&SQUARE, p.muted),
+        Mark::Info => (&INFO, p.faint),
     };
-    let glyph = match chip {
-        Chip::Started => icon(&RING, GLYPH).key("glyph").color(ink),
-        Chip::Updated => icon(&AGAIN, GLYPH).key("glyph").color(ink),
-        Chip::Completed => icon(&CHECK, GLYPH).key("glyph").color(ink),
-        Chip::Failed => icon(&CROSS, GLYPH).key("glyph").color(ink),
-        Chip::Stopped => icon(&SQUARE, GLYPH).key("glyph").color(ink),
-    };
-    let mut c = row().key("status").h(18.0).px(6.0).gap(4.0).center().radius(4.0)
-        .child(el().ml(-1.0).size(GLYPH, GLYPH).child(glyph))
-        .child(text(word.to_owned()).font(super::TAG).color(ink));
-    if let Some(f) = fill {
-        c = c.fill(f);
-    }
-    if let Some(b) = border {
-        c = c.border(1.0, b);
-    }
-    if chip == Chip::Updated { c.border_dash(3.0, 3.0) } else { c }
+    el().key("mark").size(GLYPH, GLYPH).center().role("img").label(word.to_owned()).help(word.to_owned())
+        .child(icon(glyph, GLYPH).key("glyph").color(ink))
+}
+
+/// An interactive event row's hover: a quiet fill that comes and goes at once, 6 past its words
+/// each side with a 4 radius, and a ring there while the keyboard has it. No underline.
+fn hoverable(p: &Pal, row: El) -> El {
+    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .focus_ring(2.0, 0.0, p.v2.border_focus)
 }
 
 /// `color-mix(in srgb, a n%, b)` for opaque `a` and `b`.
@@ -132,7 +144,7 @@ fn mix_srgb(a: Color, b: Color, n: f32) -> Color {
     Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: a.a * n + b.a * (1.0 - n) }
 }
 
-const GLYPH: f32 = 12.0;
+const GLYPH: f32 = 14.0;
 
 static RING: Icon = Icon {
     name: "subagent-started",
@@ -159,12 +171,17 @@ static SQUARE: Icon = Icon {
     view: 16.0,
     body: r#"<rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.2" fill="currentColor"/>"#,
 };
+static INFO: Icon = Icon {
+    name: "event-info",
+    view: 16.0,
+    body: r#"<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v3.4M8 5.3v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>"#,
+};
 
 /// A subagent's event, a row of its own (`TimelineEventItem`, anomalyco/opencode e3ed63c7de,
-/// #64102): a status chip saying what happened (see [`status_chip`]), its agent's name in muted
-/// ("Explore Agent"), and its task when it names one. 28 tall
-/// around its 16 pt line like the timeline's other rows; under the pointer it takes a faint fill
-/// 6 past its words each side, its task underlines, and a press opens its session.
+/// #64102): a bare mark saying what happened (see [`mark`]), its agent's name in muted
+/// ("Explore Agent"), and its task when it names one. 28 tall around its 16 pt line like the
+/// timeline's other rows; when it opens a session it takes a faint rounded fill under the
+/// pointer, and a press opens it.
 pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El {
     let name = match e.agent.as_deref().filter(|a| !a.is_empty()) {
         Some(agent) => opencode_i18n::t!("ui.timeline.subagent.name", name = opencode_kit::model::capitalize(agent)),
@@ -172,22 +189,15 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     };
     let status = events::subagent_status(e);
     let title = e.title.clone().unwrap_or_default();
-    let chip = Chip::of(e);
     let child = s.resolve_subagent(session, e.session.as_deref(), &title).map(str::to_owned).filter(|_| s.can_open_subagent());
-    let words = |underline: bool| {
-        let t = text(title.clone()).key("title").font(UI).color(p.text).truncate_fade();
-        let t = el().key("task").shrink().min_w(0.0).child(t);
-        if underline { t.child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.text.alpha(0.4)).group_opacity(0.0, 1.0)) } else { t }
-    };
-    let line = row().key("subagent").h(28.0).ml(-6.0).px(6.0).gap(8.0).center_y().radius(4.0).shrink().min_w(0.0)
-        .child(status_chip(p, chip, status))
-        .child(text(name.clone()).key("agent").font(UI).color(p.muted))
-        .children((!title.is_empty()).then(|| words(child.is_some())));
-    let Some(child) = child else { return row().w_full().child(line) };
-    let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
     let said = [status, name.as_str(), title.as_str()].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
-    let line = line.role("link").label(said).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
-        .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
+    let line = row().key("subagent").h(28.0).gap(8.0).center_y().shrink().min_w(0.0).label(said)
+        .child(mark(p, Mark::of(e), status))
+        .child(text(name.clone()).key("agent").font(UI).color(p.muted))
+        .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
+    let Some(child) = child else { return row().w_full().child(line.role("group")) };
+    let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
+    let line = hoverable(p, line.role("link"))
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {

@@ -22,7 +22,7 @@ mod execute;
 mod files;
 mod lists;
 mod log;
-mod plain;
+pub(crate) mod plain;
 
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
