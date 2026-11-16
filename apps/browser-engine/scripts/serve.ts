@@ -1,11 +1,11 @@
 // Serves package-windows.ps1's output where a development build of the app looks for the browser
-// engine (browser-pane installer.rs, DEV_SOURCE): http://127.0.0.1:47963/index.json and the
+// engine (browser-pane installer.rs, DEV_SOURCE): http://127.0.0.1:47981/index.json and the
 // archives it names, with byte ranges so a download cut short resumes.
 // Usage: bun apps/browser-engine/scripts/serve.ts [<folder>] [<port>]
 import { resolve, sep } from "node:path"
 
 const root = resolve(process.argv[2] ?? resolve(import.meta.dir, "../target/package"))
-const port = Number(process.argv[3] ?? 47963)
+const port = Number(process.argv[3] ?? 47981)
 
 Bun.serve({
   hostname: "127.0.0.1",

@@ -36,11 +36,13 @@ pub const TRUST: &str = match option_env!("OPENCODE_BROWSER_ENGINE_TRUST") {
 };
 
 /// Windows, a debug build: `bun apps/browser-engine/scripts/serve.ts` serves a local package here.
+/// Not 47963, which published builds up to `b22a2521` read: a development engine served for a test
+/// must never be one an installed app on the same computer could take.
 /// A release build never reads it: on a user's computer nothing serves it (every download failed
 /// as "check your connection"), and the `local` rule would install whatever another program on
 /// that computer served there. Without a source a release build says none is published.
 #[cfg(all(windows, debug_assertions))]
-const DEV_SOURCE: &str = "http://127.0.0.1:47963/index.json";
+const DEV_SOURCE: &str = "http://127.0.0.1:47981/index.json";
 #[cfg(all(windows, debug_assertions))]
 const DEV_TRUST: &str = "local";
 #[cfg(all(windows, not(debug_assertions)))]
