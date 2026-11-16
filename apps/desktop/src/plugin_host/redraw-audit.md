@@ -21,4 +21,4 @@ A built-in moves to its own redraws (`redraw.rs`, `LIVE`) when the states it dra
 | updater | legacy | none | checking, up to date, downloading, ready, download required, error |
 | wsl | legacy | none | runtime probe, distro list, install and add server |
 
-All rows were driven on Windows only. The redraw logic is shared code. What could differ on macOS and Linux is when the platform delivers the events a plugin redraws on.
+The "live" rows were driven on Windows (a debug build, headless) and on macOS (the same cases, headless on Metal). Both gave byte-identical frames and trees between the legacy redraw and the plugin's own, changing on the same frame on both platforms. Nothing has run on Linux. The redraw logic is shared code, so what could differ there is when the platform delivers the events a plugin redraws on.
