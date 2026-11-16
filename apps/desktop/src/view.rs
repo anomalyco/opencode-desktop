@@ -240,7 +240,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
-    let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.present();
+    let need_panel_sz = !s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home);
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
     } else {
@@ -302,17 +302,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
             s.side.tab_menu = None;
             s.side.add_menu = None;
         })
-        // Files dropped anywhere on the page attach, as in Desktop; a timeline image
-        // dragged out of the page attaches only on the composer.
-        .on_drop_files(crate::dropzone::drop)
-        .accepts_files(|path| !session_view::images::drag::is_own(path))
-        .on_drop_hover(crate::dropzone::hover)
         .child(if s.settings.open { crate::settings::page(s, p, settings_sz) } else { match &*s.route {
             Route::Home => home(s, p, [panel_sz.0, panel_sz.1], cx.layout_size("zoom").map_or([0.0, 0.0], |[w, h]| [w, h])),
             Route::Session { id, .. } => session_page(s, p, id),
             Route::Draft(_) => draft_page(s, p, panel_sz.0),
-        } })
-        .child(crate::dropzone::overlay(s, p, panel_sz));
+        } });
     let panel = if inset_l + inset_r > 0.0 {
         surface(col().key("panel-frame").pl(inset_l).pr(inset_r)).child(page.grow(1.0).w_full().min_h(0.0))
     } else {
@@ -380,15 +374,23 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // One shape whether the foot holds anything or not: a plugin filling its slot at idle (after
     // the first frames) mustn't move the window's tree under a new path, which mounts every
     // element afresh and puts each scroll view back on its start or end.
+    // Files dropped anywhere in the window attach, as Desktop's document-level listeners take
+    // them (`composer/attachments/attachments.ts`), and the overlay covers what takes them; a timeline
+    // image dragged out of the page attaches only on the composer.
+    let drop_sz = if s.attach.drop.present() { cx.layout_size("window-column").map_or((0.0, 0.0), |[w, h]| (w, h)) } else { (0.0, 0.0) };
     let window = col()
         .key("window-column")
         .w_full()
         .h_full()
         .fill(p.bg_deep)
+        .on_drop_files(crate::dropzone::drop)
+        .accepts_files(|path| !session_view::images::drag::is_own(path))
+        .on_drop_hover(crate::dropzone::hover)
         .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
         .children((!bottom.is_empty()).then(|| col().key("plugin-window-bottom").w_full().children(bottom)))
         .children(touch_bar)
-        .pb(foot_clear);
+        .pb(foot_clear)
+        .child(crate::dropzone::overlay(s, p, drop_sz));
     // The web app's `#root` is `p-px` (`packages/app/index.html`; Desktop's renderer isn't): the
     // whole shell sits 1 pt in from the page's edges, and the panels' shadows end there, as `<main>`'s
     // overflow clips them. Sheets and menus, fixed to the page, don't.
