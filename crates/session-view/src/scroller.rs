@@ -63,6 +63,12 @@ pub fn set_device_scale(scale: f32) {
     SCALE.set(scale);
 }
 
+/// The device pixels to a point of the view being built, 1 before [`set_device_scale`].
+pub fn device_scale() -> f32 {
+    let s = SCALE.get();
+    if s > 0.0 { s } else { 1.0 }
+}
+
 /// The points a `w` pt CSS border takes at the view's scale: Chromium lays it out on whole
 /// device pixels, one at least, as `El::border_layout` does.
 pub fn border_width(w: f32) -> f32 {

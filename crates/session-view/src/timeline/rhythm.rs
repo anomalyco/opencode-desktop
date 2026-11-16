@@ -47,7 +47,7 @@ enum Item {
 }
 
 /// A row's place in the rhythm: who and what, how far inside its box what shows starts and
-/// ends (a 28 pt trigger's 16 pt line sits 6 in; Markdown's half-leading about 3), whether it
+/// ends (a 28 pt trigger's 16 pt line sits 6 in; Markdown's trimmed half-leading, prose_insets), whether it
 /// is work reporting back, which always starts a block, and the room at its foot a finished
 /// turn's footer holds (`parts::turn_footer`).
 #[derive(Clone, Copy)]
@@ -66,15 +66,27 @@ const fn edges(who: Who, item: Item, inset: f32) -> Edges {
 
 /// A 28 pt trigger around a 16 pt line.
 const LINE_INSET: f32 = 6.0;
-/// Markdown's half-leading at the reply's 14/22.4.
-const PROSE_INSET: f32 = 3.0;
+/// Markdown's half-leading over and under its text at the reply's 14/22.4, as Desktop trims it
+/// (`timeline-next.css:449-451`, `text-box: trim-both text`): Inter's ascent (1984/2048 em) and
+/// descent (494/2048) rounded to device pixels, the leading floored above them and the rest
+/// below, as Blink splits it and Rune lays the line out. 2 and 3.4 at 1x; 2.67 and 3.2 at 1.875x.
+fn prose_insets() -> (f32, f32) {
+    let s = crate::scroller::device_scale();
+    let md = crate::style::MD;
+    let line = (md.line_px() * s * 64.0).round() / 64.0;
+    let text = (md.size * s * 1984.0 / 2048.0).round() + (md.size * s * 494.0 / 2048.0).round();
+    let over = ((line - text) / 2.0).floor();
+    (over / s, (line - text - over) / s)
+}
 
 /// Words; `footer`, they end a turn a later prompt follows, under its footer. A fenced block at an
 /// edge is a card's edge there.
 fn prose(body: &str, footer: bool) -> Edges {
-    let inset = |fenced: bool| if fenced { 0.0 } else { PROSE_INSET };
+    let (over, under) = prose_insets();
     let footer = if footer { crate::working::COPY_AT.1 + crate::working::COPY } else { 0.0 };
-    Edges { top: inset(body.trim_start().starts_with("```")), bottom: inset(body.trim_end().ends_with("```")), footer, ..edges(Who::Agent, Item::Prose, 0.0) }
+    let top = if body.trim_start().starts_with("```") { 0.0 } else { over };
+    let bottom = if body.trim_end().ends_with("```") { 0.0 } else { under };
+    Edges { top, bottom, footer, ..edges(Who::Agent, Item::Prose, 0.0) }
 }
 
 /// The last turn [`edges_of`] folded: a turn's rows sit together, so each turn folds once.
