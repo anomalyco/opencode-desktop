@@ -48,8 +48,10 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         }
         return col().w_full().child(trigger(s,p,cx,c,d,t,Press::Toggle(super::key(c.id)),None)).child(card);
     }
+    // Open, the console starts the small gap under the trigger's line, which ends 6 above the
+    // trigger's foot (`timeline-next.css:395-402`, `:486-494`).
     disclosure(s, trigger(s, p, cx, c, d, t, Press::Toggle(super::key(c.id)), None), d, || {
-        body(console(s, p, cx.session, c.id, (!command.is_empty()).then_some(command), out), false, 8.0)
+        body(console(s, p, cx.session, c.id, (!command.is_empty()).then_some(command), out), false, crate::timeline::rhythm::S - 6.0)
     })
 }
 
