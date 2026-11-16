@@ -99,10 +99,17 @@ return plugin.defineWindow(function(ctx)
         end)
     end
 
-    local function serverRequest(method: HttpMethod, path: string): any?
+    -- The host's answer when the app has no server of its own: pairing can't work at all, so the
+    -- dialog says so instead of polling for a tunnel.
+    local NO_LOCAL_SERVER = "This app has no local server"
+
+    local function serverRequest(method: HttpMethod, path: string): (any?, boolean)
         local answer = Server:RequestAsync(method, path)
-        if not answer.ok or type(answer.json) ~= "table" then
-            return nil
+        if answer and not answer.ok and answer.error == NO_LOCAL_SERVER then
+            return nil, true
+        end
+        if not answer or not answer.ok or type(answer.json) ~= "table" then
+            return nil, false
         end
         local json = answer.json
         return if type(json.data) == "table" then json.data else json
@@ -140,18 +147,23 @@ return plugin.defineWindow(function(ctx)
         elseif t == "poll-tunnel" then
             timer(attempt, effect.timeout, { type = "tunnel.missing", attempt = attempt })
             task.spawn(function()
-                local info = serverRequest("GET", "local:/api/info")
+                local info, noServer = serverRequest("GET", "local:/api/info")
                 local tunnel = info and remoteAddress(info.urls)
-                if timers[attempt] then
+                if timers[attempt] and noServer then
+                    dispatch({ type = "server.changed", available = false })
+                elseif timers[attempt] then
                     dispatch(if tunnel then { type = "tunnel.found", attempt = attempt, tunnel = tunnel } else { type = "tunnel.missing", attempt = attempt })
                 end
             end)
         elseif t == "fetch-code" then
             timer(attempt, effect.timeout, { type = "code.failed", attempt = attempt })
             task.spawn(function()
-                local pairing = serverRequest("POST", "local:/api/pair")
+                local pairing, noServer = serverRequest("POST", "local:/api/pair")
                 if not timers[attempt] then
                     return
+                end
+                if noServer then
+                    return dispatch({ type = "server.changed", available = false })
                 end
                 if pairing and type(pairing.code) == "string" then
                     dispatch({ type = "code.loaded", attempt = attempt, code = pairing.code, expiresIn = if type(pairing.expires_in) == "number" then pairing.expires_in else 300, now = System:Now() })

@@ -62,9 +62,12 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
         other => Some(Data::from_lua(other, lua)?.to_json()),
     };
     let app = cx::app().ok_or_else(|| mlua::Error::runtime("Server:RequestAsync needs a window"))?;
-    // A window without a server (a fixture) runs no jobs: answer at once rather than never.
-    if !app.live() && !path.starts_with("local:") {
-        done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String("This window has no server".into()))]));
+    // A window without a server (a fixture) runs no jobs: answer at once rather than never. A
+    // `local:` request goes to the app's own server, and without one it would wait on those jobs.
+    let local = path.starts_with("local:");
+    if !app.live() && (!local || crate::servers::runtime::own_server().is_none()) {
+        let error = if local { "This app has no local server" } else { "This window has no server" };
+        done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String(error.into()))]));
         return Ok(());
     }
     let send = move |srv: &opencode_kit::client::Server, path: &str| {
