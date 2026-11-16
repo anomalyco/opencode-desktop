@@ -18,7 +18,7 @@ use rune_luau::Script;
 #[cfg(windows)]
 const LIVE: &[&str] = &["context", "goal", "rune-ui", "sources", "ssh", "terminal", "updater", "wsl"];
 #[cfg(target_os = "macos")]
-const LIVE: &[&str] = &["context", "goal", "terminal"];
+const LIVE: &[&str] = &["context", "goal", "rune-ui", "terminal"];
 #[cfg(not(any(windows, target_os = "macos")))]
 const LIVE: &[&str] = &[];
 
