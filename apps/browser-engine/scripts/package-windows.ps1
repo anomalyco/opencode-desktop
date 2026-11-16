@@ -3,11 +3,13 @@
 #   <out>\index.json   (the release index the app reads; each run adds or replaces its own target)
 # The archive holds one folder, `OpenCode Browser Engine`: both executables and the part of CEF's
 # runtime a side-panel browser uses.
-# TODO(IMPORTANT before release): the engine's delivery and trust root are decided when the app
-# moves into the opencode repo. Nothing here signs or publishes: with a publisher trust rule, every
-# .exe and .dll in the stage folder is signed before step 4 archives it.
+# Nothing here signs or publishes. With a publisher trust rule, every .exe and .dll in the stage
+# folder is signed between a -StageOnly run and an -ArchiveOnly run (notes for the release
+# workflow: the browser-pane README).
 #
 #   pwsh apps/browser-engine/scripts/package-windows.ps1 [-Arch x64|arm64] [-Out <dir>] [-Cargo <cargo or wrapper.ps1>]
+#   ... -StageOnly                  stops after the folder (<out>\stage-<arch>), for signing its programs
+#   ... -ArchiveOnly <stage folder>  archives a (signed) stage and adds it to <out>\index.json
 #   bun apps/browser-engine/scripts/serve.ts [<out>]   # serves it where a development build looks
 #
 # Needs: Rust's target for -Arch, MSVC's build tools for it, and a Windows tar.exe with zstd
@@ -18,7 +20,10 @@ param(
   [string]$Out,
   [string]$Cargo = 'cargo',
   # Package what cargo last built (a build run elsewhere, or a repackage).
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  # A release signs every .exe and .dll between the two halves: build and stage, then archive.
+  [switch]$StageOnly,
+  [string]$ArchiveOnly
 )
 $ErrorActionPreference = 'Stop'
 $Engine = Split-Path -Parent $PSScriptRoot
@@ -43,6 +48,7 @@ if ($lock -notmatch "name = `"cef-dll-sys`"\r?\nversion = `"[^`"]+\+$([regex]::E
   throw "Cargo.lock's cef-dll-sys isn't CEF ${CefBuild}: update `$CefVersion and the SHA-256s here with it."
 }
 
+if (-not $ArchiveOnly) {
 # 1. CEF, laid out as cef-dll-sys expects it under CEF_PATH (<build>\<dir>, with archive.json).
 $env:CEF_PATH = Join-Path $Engine 'target\cef'
 $cefDir = Join-Path $env:CEF_PATH "$CefBuild\$($T.Dir)"
@@ -109,6 +115,20 @@ foreach ($l in $locales) { Copy-Item (Join-Path $cefDir "locales\$l.pak") (Join-
 Copy-Item (Join-Path $bin 'opencode-browser-engine.exe'), (Join-Path $bin 'opencode-browser-engine-helper.exe') $app
 $entries = @($files + @('opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe') + ($locales | ForEach-Object { "locales/$_.pak" })) |
   ForEach-Object { "OpenCode Browser Engine/$_" }
+if ($StageOnly) {
+  Write-Host "staged $stage"
+  return
+}
+} else {
+  # The stage a -StageOnly run made, its programs signed since: archived in the same order.
+  $stage = $ArchiveOnly
+  New-Item -ItemType Directory -Force $Out | Out-Null
+  $app = Join-Path $stage 'OpenCode Browser Engine'
+  $order = @('libcef.dll', 'dxcompiler.dll', 'resources.pak', 'icudtl.dat', 'chrome_elf.dll', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'chrome_100_percent.pak', 'CREDITS.html', 'LICENSE.txt', 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe')
+  $locales = @(Get-ChildItem (Join-Path $app 'locales') -Filter *.pak | ForEach-Object BaseName)
+  $entries = @($order | Where-Object { Test-Path (Join-Path $app $_) }) + @(Get-ChildItem (Join-Path $app 'locales') -Filter *.pak | Sort-Object Name | ForEach-Object { "locales/$($_.Name)" }) |
+    ForEach-Object { "OpenCode Browser Engine/$_" }
+}
 
 # 4. The archive: ustar, zstd level 19 (an 8 MB window, so unpacking needs little memory).
 $name = "OpenCode-Browser-Engine-$Version-windows-$Arch.tar.zst"
