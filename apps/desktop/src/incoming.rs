@@ -35,7 +35,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                     crate::session_menu::preferences::forget(s, &crate::servers::runtime::current(), id);
                 }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
-                s.react(e) | gone
+                s.react_live(e) | gone
             }
             crate::events::Heard::Message(m) => message(s, m.clone(), tx),
         };
@@ -128,6 +128,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Children { sessions, .. } => s.children_listed(sessions),
         Incoming::Messages { session, messages } => {
+            s.tail_page(&session);
             s.judge_sends_by_page(&session, &messages);
             s.check_sends();
             let cold = s.launch.cold_transcript.as_deref() == Some(session.as_str());
@@ -167,7 +168,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Event { ty, data } => {
             if crate::motion_log::wanted() { s.motion_events.note(&ty); }
-            return s.apply_event(&ty, &data);
+            return s.live_event(ty, data);
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
