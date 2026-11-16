@@ -18,6 +18,27 @@ fn hash(v: impl Hash) -> u64 {
     h.finish()
 }
 
+/// Inputs of `session_version`. A change outside the transcript can affect several rows
+/// (in particular a running child's ancestors or its family's cost). Cell identity matters
+/// as well as version: checking out a server swaps its cells into the window.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SessionInputs {
+    shared: [(u32, u64); 5],
+    transcript: (u32, u64),
+}
+
+impl SessionInputs {
+    fn read(app: &App) -> Self {
+        fn stamp<T>(cell: &rune::Tracked<T>) -> (u32, u64) {
+            (rune::Tracked::id(cell), rune::Tracked::version(cell))
+        }
+        Self {
+            shared: [stamp(&app.sessions), stamp(&app.running), stamp(&app.inboxes), stamp(&app.context_windows), stamp(&app.checkout)],
+            transcript: stamp(&app.transcripts),
+        }
+    }
+}
+
 /// Fires plugin `i`'s watched signals whose state moved. True when any fired.
 pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
     let half = app.plugins.list[i].half.clone();
@@ -28,13 +49,18 @@ pub fn fire_watched(app: &App, i: usize, vm: u64) -> bool {
     let mut fired = false;
     for name in names {
         if name == "Sessions.Changed" {
-            // A session's version is made of `Tracked` state alone: while none of what the last
-            // comparison read was written, no version moved, and the sessions aren't hashed again.
-            if half.sessions_read.borrow().as_ref().is_some_and(|read| !read.changed()) {
+            let inputs = SessionInputs::read(app);
+            let previous = half.sessions_read.replace(Some(inputs));
+            if previous == Some(inputs) {
                 continue;
             }
-            let (versions, read) = rune::tracked_reads(|| app.sessions.iter().map(|s| (s.id.clone(), session_version(app, &s.id))).collect::<Vec<_>>());
-            *half.sessions_read.borrow_mut() = Some(read);
+            let only = previous.filter(|p| p.shared == inputs.shared && p.transcript.0 == inputs.transcript.0)
+                .and_then(|p| app.transcript_edits.only(inputs.transcript.0, p.transcript.1, inputs.transcript.1));
+            let versions = match only {
+                Some(id) if app.session(id).is_some() => vec![(id.to_owned(), session_version(app, id))],
+                Some(_) => continue,
+                None => app.sessions.iter().map(|s| (s.id.clone(), session_version(app, &s.id))).collect(),
+            };
             for (id, v) in versions {
                 let key = format!("Sessions.Changed:{id}");
                 let was = half.seen.borrow_mut().insert(key, v);
