@@ -399,7 +399,7 @@ pub struct App {
     pub sidebar_open: rune::Tracked<bool>,
     pub sidebar_w: rune::Tracked<f32>,
     /// The width when a resize drag started.
-    pub sidebar_drag: rune::Tracked<Option<f32>>,
+    pub sidebar_drag: rune::Tracked<view::sidebar::Resize>,
     pub composer: rune::Tracked<TextEdit>,
     /// Sent prompts, for ↑ and ↓ in the composer (`prompt_history.rs`).
     pub prompts: rune::Tracked<prompt_history::PromptHistory>,

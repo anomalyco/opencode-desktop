@@ -358,7 +358,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         root = root.child(cover.pin(Some(s.sidebar_shown_w()), Some(chrome().main_top()), Some(0.0), Some(chrome().foot())).paint_contained(main));
     }
     if open {
-        root = root.child(resize_handle(s, p, w));
+        root = root.child(resize_handle(w));
     }
     if let Some(handle) = crate::panels::view::resize_handle(s, p, win_w) {
         root = root.child(handle);

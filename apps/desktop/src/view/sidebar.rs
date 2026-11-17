@@ -271,47 +271,52 @@ fn held(s: &App) -> bool {
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
 fn can_peek(s: &App) -> bool {
-    !s.popup.is_open() && s.tab_drag.dragging().is_none() && s.sidebar_drag.is_none() && s.menus.confirming().is_none()
+    !s.popup.is_open() && s.tab_drag.dragging().is_none() && matches!(*s.sidebar_drag, Resize::Idle) && s.menus.confirming().is_none()
 }
 
-/// The sidebar edge's resize handle: an 8px hit area across the gap, with a pill that waits a
-/// moment before showing on hover (`resize-handle.css`).
-pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
-    let enter = Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)).delay(0.2);
-    let exit = Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0));
-    let dragging = s.sidebar_drag.is_some();
+/// `packages/ui/src/components/resize-handle-machine.ts`. Rune owns pointer capture
+/// and disposal; this fixed-width sidebar has no collapse threshold.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum Resize { #[default] Idle, Pressed(f32), Dragging(f32) }
+
+enum ResizeEvent { Press(f32), Move(f32), Release, Cancel }
+
+fn resize_step(state: &mut Resize, event: ResizeEvent) -> Option<f32> {
+    match (*state, event) {
+        (Resize::Idle, ResizeEvent::Press(w)) => *state = Resize::Pressed(w),
+        (Resize::Pressed(from) | Resize::Dragging(from), ResizeEvent::Move(dx)) if dx != 0.0 || matches!(*state, Resize::Dragging(_)) => {
+            *state = Resize::Dragging(from);
+            return Some((from + dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX));
+        }
+        (Resize::Dragging(from), ResizeEvent::Cancel) => { *state = Resize::Idle; return Some(from); }
+        (_, ResizeEvent::Cancel | ResizeEvent::Release) => *state = Resize::Idle,
+        _ => {}
+    }
+    None
+}
+
+/// The full 8pt draggable edge, invisible at rest, hovered, and pressed (#64219).
+pub(super) fn resize_handle(w: f32) -> El {
     el().key("sidebar-resize")
         // Below a titlebar row, which moves the window instead.
         .absolute(w, chrome().row_h)
         .w(8.0)
         .h_full()
-        .center()
         .cursor(Cursor::ResizeColumn)
-        .hover_group()
-        .hover_motion(enter, exit)
         .on_drag(|s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
-            match d.phase {
-                Phase::Down => *s.sidebar_drag = Some(*s.sidebar_w),
+            let event = match d.phase {
+                Phase::Down => ResizeEvent::Press(*s.sidebar_w),
                 Phase::Move => {
-                    let from = s.sidebar_drag.unwrap_or(*s.sidebar_w);
                     // Dragging toward the chat widens it: right, or left in a right-to-left window.
                     let dx = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -d.dx } else { d.dx };
-                    *s.sidebar_w = (from + dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    ResizeEvent::Move(dx)
                 }
-                Phase::Up => {
-                    if d.cancelled() && let Some(w) = *s.sidebar_drag { *s.sidebar_w = w; }
-                    *s.sidebar_drag = None;
-                }
-            }
+                Phase::Up if d.cancelled() => ResizeEvent::Cancel,
+                Phase::Up => ResizeEvent::Release,
+            };
+            if let Some(width) = resize_step(&mut s.sidebar_drag, event) { *s.sidebar_w = width; }
         })
-        .child(
-            el().key("pill")
-                .size(4.0, 40.0)
-                .radius(2.0)
-                .fill(if dragging { p.icon } else { p.icon_muted })
-                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
-        )
 }
 
 /// The sidebar toggle (`SidebarToggle`, ghost-muted large): the open glyph or the closed one,
