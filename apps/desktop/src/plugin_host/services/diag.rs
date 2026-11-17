@@ -226,7 +226,7 @@ fn heap_snapshot(_: &Lua, _: MultiValue, done: Completer) -> mlua::Result<()> {
     // Measurements first: writing a heap snapshot raises the memory of the process it serializes.
     let before: Json = serde_json::from_str(&crate::plugin_host::memory::report()).unwrap_or(Json::Null);
     let clock = Instant::now();
-    rune_luau::spawn_blocking(move || {
+    crate::plugin_host::tasks::run(move || {
         let path = format!("/api/debug/heap-dump?directory={}", super::session::encode_uri(&directory.display().to_string()));
         let answer = match &server {
             Some(srv) => srv.call_within("POST", &path, None, SNAPSHOT_TIMEOUT),

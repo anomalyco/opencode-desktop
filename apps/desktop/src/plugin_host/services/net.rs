@@ -93,7 +93,7 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
     match (path.strip_prefix("local:"), crate::servers::runtime::own_server()) {
         (Some(local), Some(own)) => {
             let local = local.to_owned();
-            rune_luau::spawn_blocking(move || send(&own, &local));
+            crate::plugin_host::tasks::run(move || send(&own, &local));
         }
         (local, _) => {
             let path = local.map_or(path.clone(), str::to_owned);
@@ -110,7 +110,7 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
 fn fetch(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (req,): (Value,) = args(lua, a)?;
     let req: spec::HttpRequest = Data::from_lua(req, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("HttpRequest: {e}")))?;
-    rune_luau::spawn_blocking(move || done.complete(send(&req)));
+    crate::plugin_host::tasks::run(move || done.complete(send(&req)));
     Ok(())
 }
 
@@ -164,7 +164,7 @@ fn send(r: &spec::HttpRequest) -> Data {
 
 fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (path,): (String,) = args(lua, a)?;
-    rune_luau::spawn_blocking(move || {
+    crate::plugin_host::tasks::run(move || {
         done.complete(match std::fs::read_to_string(&path) {
             Ok(text) => map([("text", Data::String(text))]),
             Err(e) => map([("error", Data::String(format!("{path}: {e}")))]),
