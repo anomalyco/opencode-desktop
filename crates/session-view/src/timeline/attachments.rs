@@ -1,7 +1,7 @@
 //! A sent prompt's attachments, over its bubble, as Desktop's user message draws them
 //! (`session-ui/src/message/message-content.tsx:505-648`, `message-part.css:26-125`,
 //! `attachment-card.css`): first the files it named by path (`metadata.attachments`) as cards,
-//! then its own files: an image as a 58×46 thumbnail that opens the viewer, anything else as a
+//! then its own files: an image as a 132×88 thumbnail that opens the viewer, anything else as a
 //! card that shows the file. 8 apart, wrapping, flush right in the bubble's `min(82%, 64ch)`.
 
 use std::path::Path;
@@ -15,10 +15,8 @@ use crate::images::{Fetched, gallery_id, opens};
 use crate::palette::Pal;
 use crate::style::BUBBLE_MAX;
 
-/// `[data-type="image"]`: a thumbnail's size.
-const THUMB: (f32, f32) = (58.0, 46.0);
-/// `MIN_IMAGE_PLACEHOLDER_PX`: a picture still loading, or one that failed, holds this square.
-const PLACEHOLDER: f32 = 96.0;
+/// All image states share one footprint (OpenCode 26f2522e60, `message-part.css`, `message-content.tsx`).
+const THUMB: (f32, f32) = (132.0, 88.0);
 
 /// `outline-photo` (`icons/catalog.ts`), which a failed image shows.
 static OUTLINE_PHOTO: Icon = Icon {
@@ -50,26 +48,25 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str) -> Option<El> {
 }
 
 /// An image: its picture cropped to fill, with a 0.5 hairline over it, opening the viewer.
-/// Still loading it holds the placeholder square; failed, the photo glyph in it, and a press
+/// Still loading it holds the same space; failed, the photo glyph in it, and a press
 /// asks again (`attachment-media-machine.ts`, `message-file.ts`).
 fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachment) -> El {
     let store = s.media_store();
     let key = format!("file-{i}");
     let image = store.image(f).filter(|img| img.error().is_none());
-    let ring = |w: f32, h: f32| el().key("ring").absolute(0.0, 0.0).size(w, h).radius(6.0).box_shadow(Pal::ring_in(p.border)).inert();
-    let tile = |w: f32, h: f32| el().key(key.clone()).label(f.name.clone()).size(w, h).radius(6.0).fill(p.layer2);
+    let (w, h) = THUMB;
+    let ring = el().key("ring").absolute(0.0, 0.0).size(w, h).radius(6.0).box_shadow(Pal::ring_in(p.border)).inert();
+    let tile = el().key(key.clone()).label(f.name.clone()).size(w, h).radius(6.0).fill(p.layer2);
     match image {
         Some(img) => {
-            let (w, h) = THUMB;
-            let thumb = tile(w, h).pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring(w, h));
+            let thumb = tile.pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring);
             let held = el().key(format!("{key}-held")).size(w, h);
             opens(s, thumb, held, gallery_id(&format!("user-attachments:{message}"), i), f, img, Some(message))
         }
-        None if store.fetched(f) == Some(Fetched::Loading) => tile(PLACEHOLDER, PLACEHOLDER).child(ring(PLACEHOLDER, PLACEHOLDER)),
+        None if store.fetched(f) == Some(Fetched::Loading) => tile.child(ring),
         None => {
             let retry = f.clone();
-            tile(PLACEHOLDER, PLACEHOLDER)
-                .role("button")
+            tile.role("button")
                 .label(opencode_i18n::t!("ui.fileMedia.state.error", kind = opencode_i18n::t!("ui.fileMedia.kind.image")))
                 .center()
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -77,7 +74,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, i: usize, f: &Attachmen
                     s.media_store().retry(&retry);
                 })
                 .child(icon(&OUTLINE_PHOTO, 20.0).color(p.icon_faint))
-                .child(ring(PLACEHOLDER, PLACEHOLDER))
+                .child(ring)
         }
     }
 }

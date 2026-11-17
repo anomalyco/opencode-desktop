@@ -8,7 +8,7 @@ use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon,
 use rune_theme_opencode::icons as ic;
 
 use super::ComposerHost;
-use crate::images::{identity, opens};
+use crate::images::{Fetched, identity, opens};
 use crate::palette::Pal;
 use crate::user_parts::{CARD_SUBTITLE, CARD_TITLE};
 
@@ -135,7 +135,10 @@ pub fn reconcile(echoes: &mut Vec<(String, String, String)>, t: &mut Transcript,
     });
 }
 
-/// Renders the composer's attachment chips: quote cards, `58×46` image thumbnails, `160px` file
+/// Image and loading footprint (OpenCode 26f2522e60, `packages/app/src/composer/editor/editor.tsx`).
+const THUMB: (f32, f32) = (78.0, 52.0);
+
+/// Renders the composer's attachment chips: quote cards, image thumbnails, `160px` file
 /// cards, and in-progress uploads, each with a round hover remove button.
 pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     let quotes = s.composer_quote_chips(p);
@@ -148,13 +151,12 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     let mut r = row().key("attachments-strip").px(8.0).pt(8.0).pb(4.0).gap(8.0).children(quotes);
     for f in files {
         let id = identity(f);
-        let img = s.media_store().image(f);
-        let w = if img.is_some() { 58.0 } else { 160.0 };
-        let body = match img {
+        let store = s.media_store();
+        let (w, body) = match store.image(f).filter(|img| img.error().is_none()) {
             Some(img) => {
                 let thumb = el()
                     .key("attachment-thumb")
-                    .size(58.0, 46.0)
+                    .size(THUMB.0, THUMB.1)
                     .radius(6.0)
                     .fill(p.layer2)
                     .pixels_fit(img.pixels(), SurfaceFit::Fill)
@@ -162,17 +164,19 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
                         el()
                             .key("thumb-ring")
                             .absolute(0.0, 0.0)
-                            .size(58.0, 46.0)
+                            .size(THUMB.0, THUMB.1)
                             .radius(6.0)
                             .box_shadow(Pal::ring_in(p.border)),
                     );
-                opens(s, thumb, el().key("held").size(58.0, 46.0), format!("composer:{id}"), f, img, None)
+                let held = el().key("held").size(THUMB.0, THUMB.1);
+                (THUMB.0, opens(s, thumb, held, format!("composer:{id}"), f, img, None))
             }
-            None => card(p, &f.name, type_label(&f.name)),
+            None if f.is_image() && store.fetched(f) == Some(Fetched::Loading) => (THUMB.0, el().size(THUMB.0, THUMB.1)),
+            None => (160.0, card(p, &f.name, type_label(&f.name))),
         };
         let gone = id.clone();
         let remove = remove_button(p, &f.name, w, move |s: &mut S| s.composer_remove_attachment(&gone));
-        r = r.child(el().key(format!("chip-{id}")).hover_group().child(body).child(remove));
+        r = r.child(el().key(format!("chip-{id}")).self_start().hover_group().child(body).child(remove));
     }
     for f in paths {
         let gone = f.path.clone();
