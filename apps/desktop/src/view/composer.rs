@@ -13,24 +13,40 @@ pub(super) mod touch;
 // Composer and status bar
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let (queue, status) = match &*s.route {
-        Route::Session { id, .. } => (
-            Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
-            crate::subagents::reply::status_line(s, p, id),
-        ),
-        _ => (None, None),
+    let session_ver = match &*s.route {
+        Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
+        _ => None,
     };
-    // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
-    let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
-    col()
-        .key("dock")
-        .w_full()
-        .center()
-        .px(crate::view::DOCK_SIDE)
-        .pb(pb)
-        .children(queue)
-        .child(composer(s, p))
-        .children(status)
+    let inputs = (
+        (p.theme, p.generation, p.dark),
+        opencode_i18n::locale().id(),
+        session_view::style::dock_w().to_bits(),
+        session_view::style::touch_controls(),
+        crate::speech::listening(s),
+        crate::plugin_host::surfaces_version(s),
+        session_ver,
+        rune::Tracked::untracked(&s.composer),
+    );
+    rune::region_with("composer-dock", inputs, || {
+        let (queue, status) = match &*s.route {
+            Route::Session { id, .. } => (
+                Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
+                crate::subagents::reply::status_line(s, p, id),
+            ),
+            _ => (None, None),
+        };
+        // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
+        let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
+        col()
+            .key("dock")
+            .w_full()
+            .center()
+            .px(crate::view::DOCK_SIDE)
+            .pb(pb)
+            .children(queue)
+            .child(composer(s, p))
+            .children(status)
+    })
 }
 
 /// The composer. A timeline image dragged onto it attaches, as a file from Finder does; the page
@@ -95,7 +111,7 @@ impl ComposerHost for App {
         self.mention_active().map(|k| format!("mention-{k}")).or_else(|| self.slash_active().map(|id| format!("command-{id}")))
     }
     fn composer_edit(&self) -> &TextEdit {
-        &self.composer
+        rune::Tracked::untracked(&self.composer)
     }
     fn composer_edit_mut(&mut self) -> &mut TextEdit {
         &mut self.composer

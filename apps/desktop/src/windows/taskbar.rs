@@ -154,7 +154,9 @@ impl App {
 
     fn step_taskbar(&mut self, handle: &WindowHandle, event: Event) {
         let (next, effects) = self.window.taskbar.step(event);
-        self.window.taskbar = next;
+        if self.window.taskbar != next {
+            self.window.taskbar = next;
+        }
         for effect in effects {
             match effect {
                 Effect::Show(state) => handle.set_taskbar(state),

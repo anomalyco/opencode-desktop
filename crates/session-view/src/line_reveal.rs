@@ -61,7 +61,7 @@ pub(crate) const CUSHION: f32 = 24.0;
 
 /// How much of each streaming text part shows, by "message:part": Desktop's paced text, and
 /// Kit's Grow, then show on top of it.
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Hold {
     /// Desktop's paced reveal of each live text part (`PacedTextState`).
     paced: HashMap<String, Paced>,
@@ -195,7 +195,7 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     if !live && s.line_hold().paced.is_empty() && s.line_hold().held.is_empty() {
         return false;
     }
-    let mut hold = std::mem::take(s.line_hold_mut());
+    let mut hold = s.line_hold().clone();
     let (mut changed, mut next) = (false, f64::INFINITY);
     let mut lens: Vec<(String, usize)> = Vec::new();
     let mut live_keys = std::collections::HashSet::new();
@@ -256,7 +256,9 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
             at.len() > 1 || live_keys.contains(key)
         });
     }
-    *s.line_hold_mut() = hold;
+    if hold != *s.line_hold() {
+        *s.line_hold_mut() = hold;
+    }
     if next.is_finite() {
         tx.wake_after(std::time::Duration::from_secs_f64(next.max(0.0)));
     }

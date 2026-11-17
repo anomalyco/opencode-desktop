@@ -43,7 +43,8 @@ impl App {
     /// Whether another window of the app is open (a torn-out tab's window still following the
     /// pointer doesn't count).
     pub(crate) fn other_windows(&self) -> bool {
-        OPEN.with(|o| o.borrow().iter().any(|w| w.id != self.window.id && w.life.saved()))
+        let id = &rune::Tracked::untracked(&self.window).id;
+        OPEN.with(|o| o.borrow().iter().any(|w| w.id != *id && w.life.saved()))
     }
 
     /// ⌘W and File › Close Tab.

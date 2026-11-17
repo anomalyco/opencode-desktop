@@ -42,7 +42,7 @@ pub struct Window {
     /// Where it is, and the frame restoring it returns to.
     pub placement: placement::Placement,
     /// When `placement` was last read (`App::clock`).
-    read_at: f64,
+    read_at: std::cell::Cell<f64>,
     /// What its taskbar button shows.
     pub taskbar: taskbar::Taskbar,
     /// The frame last saved.
@@ -233,10 +233,10 @@ impl App {
             let id = self.window.id.clone();
             OPEN.with(|o| o.borrow_mut().iter_mut().filter(|w| w.id == id).for_each(|w| w.strip = None));
         }
-        if self.window.id.is_empty() || !self.persists() || (*self.clock - self.window.read_at).abs() < 0.5 {
+        if self.window.id.is_empty() || !self.persists() || (*self.clock - self.window.read_at.get()).abs() < 0.5 {
             return;
         }
-        self.window.read_at = *self.clock;
+        self.window.read_at.set(*self.clock);
         let Some(frame) = self.window_frame() else { return };
         if self.window.saved != Some(frame) {
             self.window.saved = Some(frame);
@@ -248,7 +248,9 @@ impl App {
     fn window_frame(&mut self) -> Option<store::Frame> {
         let p = handle(&self.window.id)?.placement()?;
         let (next, frame) = self.window.placement.step(p);
-        self.window.placement = next;
+        if self.window.placement != next {
+            self.window.placement = next;
+        }
         frame
     }
 

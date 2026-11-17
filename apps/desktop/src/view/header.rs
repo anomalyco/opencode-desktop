@@ -25,7 +25,13 @@ thread_local! {
 }
 
 pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Transcript>) -> El {
-    header_in(s, p, info, t, "")
+    let inputs = (
+        (p.theme, p.generation, p.dark),
+        opencode_i18n::locale().id(),
+        info.map(|i| (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), i.parent.clone(), crate::plugin_host::services::session_version(s, &i.id))),
+        crate::plugin_host::surfaces_version(s),
+    );
+    rune::region_with("session-header", inputs, || header_in(s, p, info, t, ""))
 }
 
 /// The session header (`SessionIdentityHeader`, `SessionHeaderLayout`), keyed `{scope}-header`

@@ -87,7 +87,7 @@ thread_local! {
 /// Session `id`'s step whose tokens fill the context window (`session_view::usage`).
 fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::Assistant, &'a opencode_kit::model::Tokens)> {
     let info = app.session(id)?;
-    let t = app.transcripts.get(&info.id)?;
+    let t = rune::Tracked::untracked(&app.transcripts).get(&info.id)?;
     let key = UsageInputs {
         server: crate::servers::runtime::active(app).clone(),
         transcripts: Stamp::of(&app.transcripts),
@@ -110,7 +110,7 @@ fn last_usage<'a>(app: &'a App, id: &str) -> Option<(&'a opencode_kit::model::As
 /// `watch::SessionInputs` tracks the shared inputs. Only this session reads its transcript.
 pub fn session_version(app: &App, id: &str) -> u64 {
     let Some(info) = app.session(id) else { return 0 };
-    let t = app.transcripts.get(&info.id);
+    let t = rune::Tracked::untracked(&app.transcripts).get(&info.id);
     let last = last_usage(app, id);
     let cost = app.session_cost(id);
     let messages = t.map(|t| t.messages.len());
@@ -128,7 +128,7 @@ pub fn session_version(app: &App, id: &str) -> u64 {
 fn messages_version(app: &App, id: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     app.session(id).map(|i| i.updated).hash(&mut h);
-    if let Some(m) = app.transcripts.get(id).and_then(|t| t.messages.last()) {
+    if let Some(m) = rune::Tracked::untracked(&app.transcripts).get(id).and_then(|t| t.messages.last()) {
         m.id().hash(&mut h);
         if let opencode_kit::model::Message::Assistant(a) = m {
             a.completed.hash(&mut h);
@@ -177,7 +177,7 @@ fn other_server_session(lua: &Lua, app: &App, tab: &crate::tabs::Tab) -> mlua::R
 
 fn build_session(lua: &Lua, app: &App, id: &str) -> mlua::Result<Value> {
     let Some(info) = app.session(id) else { return Ok(Value::Nil) };
-    let t = app.transcripts.get(&info.id);
+    let t = rune::Tracked::untracked(&app.transcripts).get(&info.id);
     let last = last_usage(app, id);
     let busy = app.subtree_running(&info.id);
     let version = (session_version(app, id) >> 11) as f64;
