@@ -138,8 +138,10 @@ pub fn build_version() -> &'static str {
     }
 }
 
-/// The commit this build was made from (`build.rs`), when it knows it.
+/// The commit this build was made from (`build.rs`), when it knows it. Kept in `.rdata` as
+/// `{"sha":"<commit>"}` so binary provenance checks still read it after `beta_notes.json` went.
 pub fn build_commit() -> Option<&'static str> {
+    std::hint::black_box(option_env!("OPENCODE_RUNE_BUILD_STAMP"));
     option_env!("OPENCODE_RUNE_COMMIT").filter(|c| !c.is_empty())
 }
 
