@@ -87,6 +87,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         let fold = crate::disclosure::fold(s.knobs());
         let edge = rune::StreamEdge { word_fade: 0.0, ..rune::edge::FEATHER };
         let items = std::rc::Rc::new(plan(steps));
+        let pb = (6.0 - items.last().map_or(6.0, |&(i, n)| step_foot(s, session, live, &steps[i..i + n]))).max(0.0);
         let keys: std::rc::Rc<Vec<String>> = std::rc::Rc::new(items.iter().map(|&(i, _)| item_key(steps, i)).collect());
         let at: std::rc::Rc<[Loc]> = at.into();
         let version = (key, &*keys);
@@ -110,7 +111,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
             .virtual_rows_version(version);
         let line = p.border.alpha(p.border.a * 0.5);
         let rail = el().key("rail").pin(Some(2.0), Some(GROUP_GAP + 6.0), None, Some(6.0)).w(1.0).fill(line);
-        let list = col().key("steps").w_full().pt(GROUP_GAP).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
+        let list = col().key("steps").w_full().pt(GROUP_GAP).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.
@@ -189,6 +190,30 @@ fn item_key(steps: &[Step], i: usize) -> String {
 /// Events in a run of work (`ContextGroup`'s `items`): shells reporting back, in order.
 fn run_events(steps: &[Step]) -> Vec<events::Event> {
     steps.iter().filter_map(activity::step_event).collect()
+}
+
+/// How far inside its box an open group's last row visually ends (`rhythm` subtracts `6` for a
+/// closed 28 pt trigger; a row ending at a card or open body has 0 overhang and keeps the 6).
+fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) -> f32 {
+    let Some(first) = steps.first() else { return 6.0 };
+    match first {
+        st if is_work(st) => 6.0,
+        Step::Thought { msg, index, secs, .. } => {
+            let open = crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), live && secs.is_none() && s.timeline_detail().expanded(Category::Thinking));
+            if open { crate::timeline::rhythm::prose_insets().1 } else { 6.0 }
+        }
+        Step::Notice(_) => 4.0,
+        Step::Text { body } => if body.trim_end().ends_with("```") { 0.0 } else { crate::timeline::rhythm::prose_insets().1 },
+        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
+        st @ Step::Tool { .. } if file_tool(st) => 0.0,
+        st @ Step::Tool { files, .. } => {
+            if !files.is_empty() {
+                return 0.0;
+            }
+            let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
+            if call(st).is_some_and(|c| crate::tools::shows_body(s, cx, &c)) { 0.0 } else { 6.0 }
+        }
+    }
 }
 
 /// One open group's row, `steps` those it draws ([`plan`]).

@@ -70,7 +70,7 @@ const LINE_INSET: f32 = 6.0;
 /// (`timeline-next.css:449-451`, `text-box: trim-both text`): Inter's ascent (1984/2048 em) and
 /// descent (494/2048) rounded to device pixels, the leading floored above them and the rest
 /// below, as Blink splits it and Rune lays the line out. 2 and 3.4 at 1x; 2.67 and 3.2 at 1.875x.
-fn prose_insets() -> (f32, f32) {
+pub(crate) fn prose_insets() -> (f32, f32) {
     let s = crate::scroller::device_scale();
     let md = crate::style::MD;
     let line = (md.line_px() * s * 64.0).round() / 64.0;

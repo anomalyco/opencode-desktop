@@ -153,6 +153,37 @@ pub fn sub_key(id: &str, part: impl std::fmt::Display) -> String {
     format!("tool:{id}/{part}")
 }
 
+/// Whether call `c` shows a body below its 28 pt trigger line (so its visual foot sits at its
+/// box's bottom rather than 6 pt inside the trigger).
+pub fn shows_body<S: TimelineHost>(s: &S, cx: Ctx, c: &Call) -> bool {
+    let cx = if opencode_kit::model::shell_message(c.metadata) { Ctx { live: true, ..cx } } else { cx };
+    let stopped_shell = matches!(c.name, "shell" | "bash") && crate::activity::rules::stopped(c.status, c.metadata);
+    if *c.status == ToolStatus::Error && c.name != "execute" && !stopped_shell {
+        return crate::disclosure::is_open(s, &key(c.id), default_open(s, c));
+    }
+    match c.name {
+        "shell" if opencode_kit::model::shell_message(c.metadata) => {
+            let has_err = matches!(c.metadata["status"].as_str(), Some("timeout" | "killed"))
+                || (c.metadata["status"].as_str() == Some("exited") && c.metadata["exit"].as_i64().is_some_and(|e| e != 0));
+            has_err || matches!(log::Excerpt::new(console::current_output(s, c)), log::Excerpt::Ends { .. }) || Display::of(s, cx, c, true).open()
+        }
+        "shell" | "bash" => matches!(log::Excerpt::new(console::current_output(s, c)), log::Excerpt::Ends { .. }) || Display::of(s, cx, c, true).open(),
+        "execute" => {
+            let calls = execute::calls(c.metadata);
+            let err = execute::error(c);
+            let out = if err.is_some() { "" } else { output(c).trim() };
+            Display::of(s, cx, c, !calls.is_empty() || err.is_some() || !out.is_empty()).open()
+        }
+        "edit" | "multiedit" | "write" | "patch" | "apply_patch" => true,
+        "websearch" => {
+            let out = output(c);
+            let opens = !busy(c.status, cx.live) && (out.len() > 8192 || !plain::urls(out).is_empty());
+            Display::of(s, cx, c, opens).open()
+        }
+        _ => false,
+    }
+}
+
 /// The row of call `c` inside its group, with what it shows open under it, built again only
 /// when what it shows changes. A shimmering title isn't cached, so its sweep keeps the run's
 /// rhythm.
