@@ -183,6 +183,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_frame_encoded(move |f| {
             encoded.encoded(f);
             crate::telemetry::encoded(f);
+            crate::files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
             drawn.drawn(rt);

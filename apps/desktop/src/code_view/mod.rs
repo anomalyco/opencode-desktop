@@ -219,6 +219,11 @@ pub struct SourceLines {
 
 impl SourceLines {
     pub fn new(src: &str) -> Self {
+        Self::from_string(src.to_owned())
+    }
+
+    /// `new` for text read on a worker, kept rather than copied.
+    pub fn from_string(src: String) -> Self {
         let mut lines = Vec::new();
         let mut max_cols = 0u32;
         let mut start = 0usize;
@@ -234,7 +239,7 @@ impl SourceLines {
             lines.push((start as u32, end as u32));
         }
         Self {
-            text: std::sync::Arc::new(src.to_owned()),
+            text: std::sync::Arc::new(src),
             lines: lines.into(),
             columns: max_cols,
         }

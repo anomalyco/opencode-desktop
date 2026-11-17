@@ -3,6 +3,7 @@
 //! and sharing [`CodeViewer`](crate::code_view::CodeViewer) with the Review panel's `code_view` engine.
 
 pub mod code_paths;
+pub(crate) mod content;
 pub mod data;
 pub(crate) mod delimited;
 mod table_view;
@@ -15,6 +16,7 @@ mod link_tip_stories;
 pub mod links;
 pub mod markdown;
 pub mod narrow;
+pub(crate) mod trace;
 pub(crate) mod path_index;
 mod markdown_stories;
 mod stories;
@@ -33,7 +35,7 @@ use crate::code_view::CodeDocState;
 use crate::panels::SessionPane;
 use crate::{App, Source};
 use data::{
-    FilePayload, OPEN_TAB_ID, OPEN_TAB_KEY, build_workspace_tree, fetch_live_dir, fetch_live_file_payload,
+    OPEN_TAB_ID, OPEN_TAB_KEY, build_workspace_tree, fetch_live_dir,
     fetch_live_find, file_tab_key, file_tab_path, load_fixture_workspace, rank_file_query,
 };
 
@@ -245,7 +247,8 @@ pub struct FilesPane {
     pub dirty: bool,
     pub wrap: markdown::WrapPrefs,
     dir_fetch: Latest<(String, String, Vec<(String, bool)>)>,
-    content_fetch: Latest<(String, String, FilePayload)>,
+    /// Each file's reads (content).
+    pub(crate) reads: content::Reads,
     find_fetch: Latest<(String, String, Vec<String>)>,
     /// Decodes picture files, once one opens.
     images: Option<rune::ImageCache>,
@@ -267,7 +270,7 @@ impl Default for FilesPane {
             dirty: false,
             wrap: markdown::WrapPrefs::default(),
             dir_fetch: Latest::default(),
-            content_fetch: Latest::default(),
+            reads: Default::default(),
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
             images: None,
             waker: None,
@@ -284,7 +287,7 @@ impl FilesPane {
 
     pub fn set_waker(&mut self, waker: Waker) {
         self.dir_fetch.set_waker(waker.clone());
-        self.content_fetch.set_waker(waker.clone());
+        self.reads.set_waker(waker.clone());
         self.find_fetch.set_waker(waker.clone());
         self.waker = Some(waker);
     }
@@ -330,52 +333,8 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         ws.rebuild_tree();
         changed = true;
     }
-    if let Some((session_id, path, payload)) = s.files.content_fetch.take() {
-        tx.instant();
-        let server_label = crate::servers::runtime::label(crate::servers::runtime::active(s));
-        let wrap = s.files.wrap;
-        let picture = match &payload {
-            FilePayload::Image(bytes) => Some(s.files.picture(bytes.clone(), false)),
-            FilePayload::Text(text) if image::is_svg(&path) => Some(s.files.picture(text.clone().into_bytes(), true)),
-            _ => None,
-        };
-        let ws = s.files.sessions.entry(session_id.clone()).or_default();
-        match picture {
-            Some(p) => { ws.images.insert(path.clone(), p); }
-            None => { ws.images.remove(&path); }
-        }
-        ws.md.remove(&path);
-        if let Some(previous) = ws.tables.remove(&path) { ws.table_find.forget(&previous); }
-        if let Some(previous) = ws.html.remove(&path) { ws.html_find.forget(&previous); }
-        let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
-        match payload {
-            FilePayload::Text(text) => doc.set_text(&text),
-            FilePayload::Html { source, document } => {
-                doc.set_text(&source);
-                ws.html.insert(path.clone(), document);
-            }
-            FilePayload::Table { source, document } => {
-                doc.set_text(&source);
-                ws.tables.insert(path.clone(), document);
-            }
-            FilePayload::Binary(sz) => doc.set_binary(sz),
-            FilePayload::Image(bytes) => doc.set_binary(bytes.len()),
-            FilePayload::Missing => doc.set_missing(),
-            FilePayload::Failed(wire) => {
-                let what = opencode_i18n::t!("rune.file.readFailed", path = opencode_kit::path::basename(&path)).to_owned();
-                let words = crate::errors::UserError::from_wire(&what, &server_label, &wire).description();
-                doc.set_failed(what, words);
-            }
-        }
-        if let Some((start, end)) = ws.pending_jump.remove(&path) {
-            let scroll_key = format!("file-code-{session_id}-{path}-scroll");
-            doc.scroll_to_lines(&scroll_key, start, end, tx);
-        }
-        if let Some(link) = ws.link_opens.remove(&path) {
-            s.finish_file_link(&session_id, &path, link, tx);
-        }
-        s.check_code_paths(&session_id, &path);
-        changed = true;
+    while let Some(landed) = s.files.reads.take() {
+        changed |= land_read(s, landed, tx);
     }
     if let Some((session_id, query, found)) = s.files.find_fetch.take() {
         if let Some(ws) = s.files.sessions.get_mut(&session_id)
@@ -423,6 +382,87 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
         s.files.spoken_match = None;
     }
     changed
+}
+
+/// A read that came back (`content`): shown in place of what showed, keeping where the view is,
+/// unless a newer read superseded it. A refresh that fails keeps the text that shows, with no
+/// error, and reads again on the next ask (Desktop's `stale`); a failure or a missing file that
+/// a later change already outdated isn't shown at all: the next read is on its way.
+fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
+    let (sid, path) = (landed.sid.clone(), landed.path.clone());
+    let again = match s.files.reads.land(&landed) {
+        content::ReadEffect::Show => None,
+        content::ReadEffect::ShowThenStart { attempt } => Some(attempt),
+        _ => return false,
+    };
+    if let Some(attempt) = again {
+        s.start_read(&sid, &path, attempt);
+    }
+    let body = landed.body;
+    let shows_text = s.files.sessions.get(&sid).and_then(|w| w.docs.get(&path)).is_some_and(|d| d.ready() && d.failure().is_none() && !d.missing() && !d.binary());
+    if !body.content() && (again.is_some() || (shows_text && matches!(body, content::Body::Failed(_)))) {
+        if again.is_none() {
+            s.files.reads.outdate(&sid, &path);
+        }
+        return false;
+    }
+    tx.instant();
+    let swap = rune::time::Instant::now();
+    let server_label = crate::servers::runtime::label(crate::servers::runtime::active(s));
+    let wrap = s.files.wrap;
+    let picture = match &body {
+        content::Body::Image(bytes) => Some(s.files.picture(bytes.clone(), false)),
+        content::Body::Svg(_, bytes) => Some(s.files.picture(bytes.clone(), true)),
+        _ => None,
+    };
+    let ws = s.files.sessions.entry(sid.clone()).or_default();
+    match picture {
+        // A picture read again keeps its zoom.
+        Some(mut p) => {
+            if let Some(old) = ws.images.remove(&path) { p.zoom = old.zoom; }
+            ws.images.insert(path.clone(), p);
+        }
+        None => { ws.images.remove(&path); }
+    }
+    ws.md.remove(&path);
+    if let Some(previous) = ws.tables.remove(&path) { ws.table_find.forget(&previous); }
+    if let Some(previous) = ws.html.remove(&path) { ws.html_find.forget(&previous); }
+    let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
+    let lines = match body {
+        content::Body::Text(text) | content::Body::Svg(text, _) => { let n = text.lines(); doc.refresh(text); n }
+        content::Body::Html(text, document) => {
+            let n = text.lines();
+            doc.refresh(text);
+            ws.html.insert(path.clone(), document);
+            n
+        }
+        content::Body::Table(text, document) => {
+            let n = text.lines();
+            doc.refresh(text);
+            ws.tables.insert(path.clone(), document);
+            n
+        }
+        content::Body::Binary(sz) => { doc.set_binary(sz); 0 }
+        content::Body::Image(bytes) => { doc.set_binary(bytes.len()); 0 }
+        content::Body::Missing => { doc.set_missing(); 0 }
+        content::Body::Failed(wire) => {
+            let what = opencode_i18n::t!("rune.file.readFailed", path = opencode_kit::path::basename(&path)).to_owned();
+            let words = crate::errors::UserError::from_wire(&what, &server_label, &wire).description();
+            doc.set_failed(what, words);
+            0
+        }
+    };
+    let bytes = doc.size_bytes();
+    if let Some((start, end)) = ws.pending_jump.remove(&path) {
+        let scroll_key = format!("file-code-{sid}-{path}-scroll");
+        doc.scroll_to_lines(&scroll_key, start, end, tx);
+    }
+    if let Some(link) = ws.link_opens.remove(&path) {
+        s.finish_file_link(&sid, &path, link, tx);
+    }
+    s.check_code_paths(&sid, &path);
+    trace::landed(&sid, &path, landed.attempt, landed.times, swap, bytes, lines);
+    true
 }
 
 /// Keys for the open file while a Files tab shows: its find, selection and copy.
@@ -604,9 +644,10 @@ impl App {
             .sessions
             .get(session_id)
             .and_then(|w| w.docs.get(path))
-            // One still loading asks again (another file's read may have taken its place), and
-            // one whose read failed reads again: neither stays as it is.
-            .is_some_and(|d| d.ready() && d.failure().is_none());
+            // One still loading asks again (it joins the read in flight), one whose read failed
+            // reads again, and one a change left stale reads again.
+            .is_some_and(|d| d.ready() && d.failure().is_none())
+            && !self.files.reads.stale(session_id, path);
         if already {
             return;
         }
@@ -652,19 +693,34 @@ impl App {
                     ws.videos.insert(path.to_owned(), clip);
                     return;
                 }
+                // A stale file keeps its text while it reads again; a failed one shows loading.
                 let ws = self.files.sessions.entry(session_id.to_owned()).or_default();
-                ws.docs.insert(path.to_owned(), wrap.doc(path, ""));
-                let srv = server.clone();
-                let sid = session_id.to_owned();
-                let p = path.to_owned();
-                self.files
-                    .content_fetch
-                    .request((sid, directory, p), move |(sid, dir, p)| {
-                        let payload = fetch_live_file_payload(&srv, &dir, &p);
-                        (sid, p, payload)
-                    });
+                if !ws.docs.get(path).is_some_and(|d| d.ready() && d.failure().is_none()) {
+                    ws.docs.insert(path.to_owned(), wrap.doc(path, ""));
+                }
+                self.read_file(session_id, path, false);
             }
         }
+    }
+
+    /// Reads `path` for `sid` unless a read runs already (`content`); `force` reads even when it
+    /// has loaded (it changed on disk, or while the server was away). Live servers only.
+    pub(crate) fn read_file(&mut self, sid: &str, path: &str, force: bool) {
+        if !matches!(*self.source, Source::Live { .. }) {
+            return;
+        }
+        let loaded = self.files.sessions.get(sid).and_then(|w| w.docs.get(path)).is_some_and(|d| d.ready());
+        if let Some(attempt) = self.files.reads.ask(sid, path, force, loaded) {
+            self.start_read(sid, path, attempt);
+        }
+    }
+
+    pub(crate) fn start_read(&mut self, sid: &str, path: &str, attempt: u64) {
+        let Source::Live { server, .. } = &*self.source else { return };
+        let server = server.clone();
+        let directory = self.session(sid).map(|s| s.directory.clone()).unwrap_or_default();
+        let find = self.files.sessions.get(sid).and_then(|w| w.docs.get(path)).and_then(|d| d.find_query());
+        self.files.reads.start(&server, &directory, sid, path, attempt, find);
     }
 
     pub fn open_workspace_file(

@@ -879,7 +879,12 @@ impl App {
         }
         // A closed session's diffs and open files (their source lines, highlight chunks, images).
         if !review_gone.is_empty() { for id in &review_gone { s.review.sessions.remove(id); } }
-        if !files_gone.is_empty() { for id in &files_gone { s.files.sessions.remove(id); } }
+        if !files_gone.is_empty() {
+            for id in &files_gone {
+                s.files.sessions.remove(id);
+                s.files.reads.forget_session(id);
+            }
+        }
         // What `opencode_kit` keeps beside each user message (files, mentions, comments, times):
         // only for the messages of the transcripts left.
         let cached = s.pages.user_message_ids();
@@ -1423,6 +1428,7 @@ fn main() {
             .on_frame_encoded(move |f| {
                 encoded.encoded(f);
                 telemetry::encoded(f);
+                files::trace::frame(f);
             })
             .on_frame_drawn(move |rt| {
                 drawn.drawn(rt);

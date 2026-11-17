@@ -153,6 +153,46 @@ impl CodeDocState {
         self.bump_keys();
     }
 
+    /// A read's text, split (and folded and searched for Find when it was open) off the UI
+    /// thread (`Prepared::new`), in place of what shows: as Desktop's reload, the selected
+    /// lines and the scroll stay, and Find keeps its query and lights the first match again
+    /// (`pierre/file-find-machine.ts`, `refresh.requested` with `reset`), without scrolling.
+    pub fn refresh(&mut self, prepared: Prepared) {
+        self.failure = None;
+        self.content = Content::Text { size: prepared.source.text().len() };
+        self.trailing = prepared.source.text().ends_with('\n');
+        self.source = prepared.source;
+        self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
+        self.cursor = self.cursor.min(self.lines().max(1));
+        self.chunks.borrow_mut().clear();
+        self.heights.clear();
+        self.find.restart();
+        match prepared.find {
+            Some(find) if self.find_open() => {
+                let same = find.query == self.find.query();
+                self.slab = Slab::Ready(find.slab);
+                if same {
+                    self.matches = find.matches;
+                    self.rebuild_line_match_index();
+                } else {
+                    // The query changed during the read: found again as a keystroke finds.
+                    self.recompute_matches();
+                }
+            }
+            _ => {
+                self.slab = Slab::Absent;
+                self.prepare_slab();
+                self.recompute_matches();
+            }
+        }
+        self.bump_keys();
+    }
+
+    /// What `refresh` needs for Find: the query its matches are for, when Find is open.
+    pub fn find_query(&self) -> Option<String> {
+        self.find_open().then(|| self.find.query().to_owned())
+    }
+
     pub fn set_binary(&mut self, size_bytes: usize) {
         self.failure = None;
         self.content = Content::Binary { size: size_bytes };
@@ -571,6 +611,13 @@ impl DocFind {
         }
     }
 
+    /// The text changed under an open Find: its query stays, the first match lights.
+    fn restart(&mut self) {
+        if let DocFind::Open { active, .. } = self {
+            *active = 0;
+        }
+    }
+
     pub(super) fn query(&self) -> &str {
         match self {
             DocFind::Open { query, .. } => query,
@@ -583,6 +630,44 @@ impl DocFind {
             DocFind::Open { active, .. } => *active,
             DocFind::Closed => 0,
         }
+    }
+}
+
+/// A file's text made ready for [`CodeDocState::refresh`] on the worker that read it, so the
+/// UI thread does nothing proportional to the file's size: its lines split and, while Find is
+/// open, its folded copy and the matches for Find's query.
+pub struct Prepared {
+    source: SourceLines,
+    find: Option<PreparedFind>,
+}
+
+struct PreparedFind {
+    query: String,
+    slab: opencode_search::SlabFind,
+    matches: Vec<(u32, Range<usize>)>,
+}
+
+impl Prepared {
+    /// `find`: Find's query when it's open (`CodeDocState::find_query`).
+    pub fn new(text: String, find: Option<String>) -> Prepared {
+        let source = SourceLines::from_string(text);
+        let find = find.map(|query| {
+            let slab = Slab::build(&source);
+            let mut matches = Vec::new();
+            if !query.is_empty() {
+                slab.find(&query, |m| matches.push((m.row as u32 + 1, m.bytes)));
+            }
+            PreparedFind { query, slab, matches }
+        });
+        Prepared { source, find }
+    }
+
+    pub fn text(&self) -> &str {
+        self.source.text()
+    }
+
+    pub fn lines(&self) -> u32 {
+        self.source.len()
     }
 }
 
