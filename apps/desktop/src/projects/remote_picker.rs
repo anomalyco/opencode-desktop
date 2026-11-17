@@ -78,7 +78,8 @@ pub enum Suggest {
     #[default]
     Closed,
     Searching { attempt: Attempt, query: String },
-    Shown { items: Vec<String>, active: usize },
+    Shown { items: Vec<String>, active: Option<usize> },
+    MoreProjects,
 }
 
 impl Tree {
@@ -115,7 +116,7 @@ pub fn pick(s: &mut App, server: &ServerKey, title: String, tx: &mut Tx, on_pick
         // recently active first, then by id (`desc(time_active), asc(id)`, `sync.tsx:136-138`).
         let mut all: Vec<&Project> = s.projects.iter().collect();
         all.sort_by(|a, b| b.active.cmp(&a.active).then_with(|| a.id.cmp(&b.id)));
-        let recent: Vec<Project> = all.into_iter().filter(|p| p.id != "global" && !p.directory.is_empty() && seen.insert(crate::projects::clean_dir(&p.directory))).take(5).cloned().collect();
+        let recent: Vec<Project> = all.into_iter().filter(|p| p.id != "global" && !p.directory.is_empty() && seen.insert(crate::projects::clean_dir(&p.directory))).take(10).cloned().collect();
         let git = s.projects.iter().filter(|p| opencode_kit::model::project_git(&p.id)).map(|p| canonical(&p.directory)).collect();
         (recent, git)
     })
@@ -181,6 +182,7 @@ pub fn navigate(s: &mut App, root: String, tx: &mut Tx) {
     let Picker::Open(o) = &mut *s.remote_picker else { return };
     let attempt = o.seq.next();
     let root = canonical(&root);
+    o.sync_input(&root);
     o.tree = Tree::Browsing { root: root.clone(), nodes: BTreeMap::from([(root.clone(), Node::Loading { attempt })]), expanded: BTreeSet::new(), selected: None };
     o.suggest = Suggest::Closed;
     tx.instant();
@@ -190,6 +192,7 @@ pub fn navigate(s: &mut App, root: String, tx: &mut Tx) {
 /// A folder's row: it's selected, and opens or shuts; opening reads it once.
 pub fn toggle(s: &mut App, dir: &str, tx: &mut Tx) {
     let Picker::Open(o) = &mut *s.remote_picker else { return };
+    o.sync_input(dir);
     let Tree::Browsing { nodes, expanded, selected, .. } = &mut o.tree else { return };
     *selected = Some(dir.to_owned());
     tx.instant();
@@ -237,7 +240,8 @@ fn listed(s: &mut App, dir: String, attempt: Attempt, dirs: Option<Vec<Dir>>, tx
         Suggest::Searching { attempt: a, query } if *a == attempt => {
             let prefix = query.rsplit('/').next().unwrap_or_default().to_lowercase();
             let items: Vec<String> = dirs.unwrap_or_default().into_iter().filter(|d| d.name.to_lowercase().starts_with(&prefix)).take(5).map(|d| d.absolute).collect();
-            o.suggest = if items.is_empty() { Suggest::Closed } else { Suggest::Shown { items, active: 0 } };
+            let folder = o.input.text == "~" || o.input.text.ends_with(['/', '\\']);
+            o.suggest = if items.is_empty() { Suggest::Closed } else { Suggest::Shown { items, active: (!folder).then_some(0) } };
             return tx.instant();
         }
         _ => {}
@@ -289,16 +293,16 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
     match (&mut o.suggest, &ev.key) {
         (Suggest::Shown { items, active }, rune::Key::Down | rune::Key::Up) => {
             let n = items.len();
-            *active = if ev.key == rune::Key::Down { (*active + 1) % n } else { (*active + n - 1) % n };
+            *active = Some(if ev.key == rune::Key::Down { active.map_or(0, |i| (i + 1) % n) } else { active.map_or(n - 1, |i| (i + n - 1) % n) });
             tx.instant();
             true
         }
-        (Suggest::Shown { items, active }, rune::Key::Enter) => {
+        (Suggest::Shown { items, active: Some(active) }, rune::Key::Enter) => {
             let path = items[*active].clone();
             choose_input(s, path, tx);
             true
         }
-        (Suggest::Shown { .. } | Suggest::Searching { .. }, rune::Key::Escape) => {
+        (Suggest::Shown { .. } | Suggest::MoreProjects, rune::Key::Escape) => {
             o.suggest = Suggest::Closed;
             tx.instant();
             true
@@ -310,6 +314,12 @@ pub fn key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
             true
         }
         (_, rune::Key::Escape) => {
+            let selected = o.tree.result().unwrap_or("").to_owned();
+            if o.input.text != display(&selected, &o.home) {
+                o.sync_input(&selected);
+                tx.instant();
+                return true;
+            }
             close(s, tx);
             true
         }
@@ -329,7 +339,13 @@ pub fn choose_input(s: &mut App, path: String, tx: &mut Tx) {
 /// Select folder: the pick ends with the folder.
 pub fn resolve_pick(s: &mut App, tx: &mut Tx) {
     let Picker::Open(o) = std::mem::take(&mut *s.remote_picker) else { return };
-    let Some(path) = o.tree.result().map(str::to_owned) else {
+    let typed = o.input.text.trim();
+    let path = match &o.suggest {
+        Suggest::Shown { items, active: Some(i) } => items.get(*i).cloned(),
+        _ if !typed.is_empty() => Some(resolve(typed, &o.home, o.tree.result().unwrap_or(&o.home))),
+        _ => o.tree.result().map(str::to_owned),
+    };
+    let Some(path) = path else {
         *s.remote_picker = Picker::Open(o);
         return;
     };
@@ -359,6 +375,15 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 impl Open {
+    fn sync_input(&mut self, dir: &str) {
+        let value = display(dir, &self.home);
+        self.input = TextEdit::new(&value);
+        self.input.anchor = value.len();
+        self.input.focus = value.len();
+        self.input.focused = true;
+        self.suggest = Suggest::Closed;
+    }
+
     /// The folder's row shows "git repo" (`renderRowDecoration`).
     pub fn git(&self, dir: &str) -> bool {
         self.git.contains(&canonical(dir))
@@ -489,24 +514,17 @@ pub mod view {
             .grow(1.0)
             .shrink()
             .min_w(0.0);
-        let base = o.tree.result().map(str::to_owned).unwrap_or_default();
-        let home = if o.home.is_empty() { base.clone() } else { o.home.clone() };
-        let (root, parent) = (super::root_of(&base), super::parent_of(&base));
-        let ghost = |key: &str, label: String, to: String| {
-            crate::widgets::button(label, ButtonVariant::Ghost).on_press_tx(move |s: &mut App, tx: &mut Tx| super::navigate(s, to.clone(), tx)).build(k).key(key.to_owned())
-        };
         let mut path = row()
             .key("directory-picker-path")
             .w_full()
             .gap(8.0)
             .center_y()
-            .child(input)
-            .child(row().key("directory-picker-actions").gap(2.0).child(ghost("picker-home", "~".into(), home)).child(ghost("picker-root", t!("dialog.directory.root").into(), root)).child(ghost("picker-parent", t!("dialog.directory.parent").into(), parent)));
+            .child(input);
         if let Suggest::Shown { items, active } = &o.suggest {
             let mut list = col().key("directory-picker-suggestions").role("listbox").pin(Some(0.0), Some(34.0), Some(0.0), None).padding(4.0).radius(6.0).fill(p.layer2).box_shadow(crate::palette::Pal::ring_in(p.border)).elevate(p.overlay);
             for (i, item) in items.iter().enumerate() {
                 let to = item.clone();
-                let lit = i == *active;
+                let lit = Some(i) == *active;
                 list = list.child(
                     row()
                         .key(format!("suggestion-{i}"))
@@ -526,7 +544,7 @@ pub mod view {
         let mut body = col().key("directory-picker-body").w_full().grow(1.0).min_h(0.0).gap(12.0).pt(14.0).px(16.0).child(path);
         if !o.recent.is_empty() {
             let mut chips = row().key("directory-picker-recent-list").w_full().gap(8.0).wrap();
-            for proj in &o.recent {
+            for proj in o.recent.iter().take(3) {
                 let to = proj.directory.clone();
                 let name = proj.name.clone();
                 let full = super::display(&proj.directory, &o.home);
@@ -539,12 +557,51 @@ pub mod view {
                     .key(format!("recent-{}", proj.id));
                 chips = chips.child(chip);
             }
-            body = body.child(col().key("directory-picker-recent").w_full().gap(8.0).child(text(t!("dialog.directory.recent")).font(UI_MED).color(p.text)).child(chips));
+            if o.recent.len() > 3 {
+                chips = chips.child(crate::widgets::button("…", ButtonVariant::Ghost).help(t!("dialog.directory.moreProjects"))
+                    .on_press_tx(|s: &mut App, tx| if let Picker::Open(o) = &mut *s.remote_picker {
+                        o.suggest = if o.suggest == Suggest::MoreProjects { Suggest::Closed } else { Suggest::MoreProjects }; tx.instant();
+                    }).build(k));
+            }
+            body = body.child(chips);
+            if o.suggest == Suggest::MoreProjects {
+                let mut menu = col().role("menu").padding(4.0).radius(8.0).fill(p.bg_base).elevate(p.overlay);
+                for project in o.recent.iter().skip(3) {
+                    let dir = project.directory.clone();
+                    menu = menu.child(crate::widgets::button(project.name.clone(), ButtonVariant::Ghost).help(dir.clone())
+                        .on_press_tx(move |s: &mut App, tx| super::navigate(s, dir.clone(), tx)).build(k));
+                }
+                body = body.child(menu);
+            }
+        }
+        if let Tree::Browsing { root, .. } = &o.tree {
+            let mut crumbs = Vec::new();
+            let mut path = root.clone();
+            loop {
+                let parent = super::parent_of(&path);
+                let label = if path == o.home { "~" } else if parent == path { &path } else { opencode_kit::path::basename(&path) };
+                crumbs.push((label.to_owned(), path.clone()));
+                if parent == path { break; }
+                path = if path == o.home { super::root_of(&path) } else { parent };
+            }
+            crumbs.reverse();
+            let lead = if crumbs.get(1).is_some_and(|(label, _)| label == "~") { 2 } else { 1 };
+            if crumbs.len() > lead + 3 {
+                crumbs.drain(lead..crumbs.len() - 3);
+                crumbs[lead].0 = "…".into();
+            }
+            let mut nav = row().role("navigation").label_static(t!("dialog.directory.breadcrumbs")).center_y().gap(2.0);
+            for (i, (label, path)) in crumbs.into_iter().enumerate() {
+                if i > 0 { nav = nav.child(icon(&ic::CHEVRON_RIGHT, 14.0).color(p.faint)); }
+                nav = nav.child(crate::widgets::button(label, ButtonVariant::Ghost).help(path.clone())
+                    .on_press_tx(move |s: &mut App, tx| super::navigate(s, path.clone(), tx)).build(k));
+            }
+            body = body.child(nav);
         }
         body = body.child(browser(o, p));
         let selection = o.tree.result().map(|r| super::shorten(r, &o.home)).unwrap_or_default();
         let full = o.tree.result().map(|r| super::display(r, &o.home)).unwrap_or_default();
-        let picked = o.tree.result().is_some();
+        let picked = o.tree.result().is_some() || !o.input.text.trim().is_empty();
         let cancel = crate::widgets::button(t!("common.cancel"), ButtonVariant::Neutral).on_press_tx(|s: &mut App, tx: &mut Tx| super::close(s, tx)).build(k).key("directory-picker-cancel");
         let select = crate::widgets::button(t!("dialog.directory.action.selectFolder"), ButtonVariant::Contrast).disabled(!picked).on_press_tx(|s: &mut App, tx: &mut Tx| super::resolve_pick(s, tx)).build(k).key("directory-picker-select");
         let mut chosen = text(selection.clone()).key("directory-picker-selection").font(UI).color(p.faint).truncate().dir(rune::Direction::Ltr).grow(1.0).shrink().min_w(0.0);
