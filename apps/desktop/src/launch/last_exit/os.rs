@@ -2,15 +2,13 @@
 #![allow(unsafe_code)]
 
 use std::path::{Path, PathBuf};
-#[cfg(windows)]
 use std::sync::atomic::Ordering;
 
-use super::imp::PATHS;
-#[cfg(windows)]
-use super::imp::{TERMINAL_RECORDED, TENTATIVE_PANIC, record_fault};
-use super::{RECORD_BYTES, SKIP_BYTES, SKIP_MAGIC};
-#[cfg(windows)]
-use super::{FLAG_OS_EXCEPTION, TAG_FATAL, TAG_OUT_OF_MEMORY, TAG_STACK_OVERFLOW};
+use super::imp::{PATHS, TERMINAL_RECORDED, TENTATIVE_PANIC, record_fault};
+use super::{
+    FLAG_OS_EXCEPTION, RECORD_BYTES, SKIP_BYTES, SKIP_MAGIC, TAG_FATAL, TAG_OUT_OF_MEMORY,
+    TAG_STACK_OVERFLOW,
+};
 
 pub(super) struct EncodedPaths {
     pub(super) record: PathBuf,
@@ -68,7 +66,47 @@ pub(super) fn reserve_main_stack_guarantee() {
 }
 
 #[cfg(unix)]
-pub(super) fn reserve_main_stack_guarantee() {}
+static mut ALT_STACK: [u8; 65_536] = [0; 65_536];
+
+#[cfg(all(unix, not(target_os = "macos")))]
+static MAIN_STACK_BOUNDS: [std::sync::atomic::AtomicUsize; 2] = [
+    std::sync::atomic::AtomicUsize::new(0),
+    std::sync::atomic::AtomicUsize::new(0),
+];
+
+#[cfg(unix)]
+pub(super) fn reserve_main_stack_guarantee() {
+    unsafe {
+        let mut cur: libc::stack_t = core::mem::zeroed();
+        if libc::sigaltstack(core::ptr::null(), &raw mut cur) != 0
+            || (cur.ss_flags & libc::SS_DISABLE) != 0
+            || cur.ss_size < 32_768
+        {
+            let ss = libc::stack_t {
+                ss_sp: (&raw mut ALT_STACK).cast(),
+                ss_flags: 0,
+                ss_size: 65_536,
+            };
+            let _ = libc::sigaltstack(&raw const ss, core::ptr::null_mut());
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let mut attr: libc::pthread_attr_t = core::mem::zeroed();
+            if libc::pthread_getattr_np(libc::pthread_self(), &raw mut attr) == 0 {
+                let mut addr: *mut core::ffi::c_void = core::ptr::null_mut();
+                let mut size: usize = 0;
+                if libc::pthread_attr_getstack(&raw const attr, &raw mut addr, &raw mut size) == 0
+                    && !addr.is_null()
+                    && size > 0
+                {
+                    MAIN_STACK_BOUNDS[0].store(addr as usize, Ordering::Release);
+                    MAIN_STACK_BOUNDS[1].store((addr as usize).saturating_add(size), Ordering::Release);
+                }
+                let _ = libc::pthread_attr_destroy(&raw mut attr);
+            }
+        }
+    }
+}
 
 #[cfg(windows)]
 #[repr(C)]
@@ -114,7 +152,95 @@ pub(super) fn install_os_hooks() {
 }
 
 #[cfg(unix)]
-pub(super) fn install_os_hooks() {}
+const FATAL_SIGS: [libc::c_int; 6] = [
+    libc::SIGSEGV,
+    libc::SIGBUS,
+    libc::SIGABRT,
+    libc::SIGILL,
+    libc::SIGFPE,
+    libc::SIGTRAP,
+];
+
+#[cfg(unix)]
+pub(super) fn install_os_hooks() {
+    unsafe {
+        for &sig in &FATAL_SIGS {
+            let mut act: libc::sigaction = core::mem::zeroed();
+            act.sa_sigaction = on_fatal_signal as *const () as libc::sighandler_t;
+            libc::sigemptyset(&raw mut act.sa_mask);
+            act.sa_flags = libc::SA_SIGINFO | libc::SA_ONSTACK;
+            let _ = libc::sigaction(sig, &raw const act, core::ptr::null_mut());
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn is_stack_overflow_addr(addr: usize) -> bool {
+    if addr < 4096 {
+        return false;
+    }
+    unsafe {
+        let th = libc::pthread_self();
+        let high = libc::pthread_get_stackaddr_np(th) as usize;
+        let size = libc::pthread_get_stacksize_np(th);
+        if high == 0 || size == 0 {
+            return false;
+        }
+        let low = high.saturating_sub(size);
+        addr >= low.saturating_sub(65_536) && addr <= low.saturating_add(32_768)
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn is_stack_overflow_addr(addr: usize) -> bool {
+    if addr < 4096 {
+        return false;
+    }
+    let low = MAIN_STACK_BOUNDS[0].load(Ordering::Acquire);
+    let high = MAIN_STACK_BOUNDS[1].load(Ordering::Acquire);
+    low > 0 && high > low && addr >= low.saturating_sub(65_536) && addr <= low.saturating_add(32_768)
+}
+
+#[cfg(unix)]
+fn siginfo_fault_addr(info: *mut libc::siginfo_t) -> usize {
+    if info.is_null() {
+        return 0;
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        (*info).si_addr() as usize
+    }
+    #[cfg(not(target_os = "linux"))]
+    unsafe {
+        (*info).si_addr as usize
+    }
+}
+
+#[cfg(unix)]
+extern "C" fn on_fatal_signal(
+    sig: libc::c_int,
+    info: *mut libc::siginfo_t,
+    _ucontext: *mut core::ffi::c_void,
+) {
+    if sig == libc::SIGABRT && TENTATIVE_PANIC.load(Ordering::Acquire) {
+        TERMINAL_RECORDED.store(true, Ordering::Release);
+    } else {
+        let addr = siginfo_fault_addr(info);
+        let (short, avail) = commit_short_and_avail();
+        let tag = if (sig == libc::SIGSEGV || sig == libc::SIGBUS) && is_stack_overflow_addr(addr) {
+            if short { TAG_OUT_OF_MEMORY } else { TAG_STACK_OVERFLOW }
+        } else if sig == libc::SIGABRT && short {
+            TAG_OUT_OF_MEMORY
+        } else {
+            TAG_FATAL
+        };
+        record_fault(tag, FLAG_OS_EXCEPTION, sig as u32, 0, avail, true);
+    }
+    // End at once via `_exit` rather than re-raising into CrashReporter or unwinding on an exhausted stack.
+    unsafe {
+        libc::_exit(128 + sig);
+    }
+}
 
 #[cfg(windows)]
 extern "C" fn on_sigabrt(_sig: i32) {
@@ -408,5 +534,25 @@ pub(super) fn raise_access_violation() {
             0,
             core::ptr::null(),
         );
+    }
+    #[cfg(unix)]
+    unsafe {
+        #[cfg(target_os = "macos")]
+        const ANON: libc::c_int = libc::MAP_ANON;
+        #[cfg(not(target_os = "macos"))]
+        const ANON: libc::c_int = libc::MAP_ANONYMOUS;
+        let page = libc::mmap(
+            core::ptr::null_mut(),
+            262_144,
+            libc::PROT_NONE,
+            libc::MAP_PRIVATE | ANON,
+            -1,
+            0,
+        );
+        if page != libc::MAP_FAILED {
+            let _ = core::ptr::read_volatile(page.cast::<u8>().add(131_072));
+        } else {
+            libc::abort();
+        }
     }
 }
