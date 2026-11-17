@@ -5,10 +5,13 @@
 //! a folder (summary, motion trace, contact sheet) in the app's data folder and sends it to the
 //! open session as a message.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 use opencode_kit::model::Message;
-use opencode_kit::prompt::{PathAttachment, Prompt};
+#[cfg(not(target_arch = "wasm32"))]
+use opencode_kit::prompt::PathAttachment;
+use opencode_kit::prompt::Prompt;
 use rune::KeyEvent;
 use rune::rewind::{Keyed, Rewind, Scrub, Sent};
 use rune::{El, Tx};
@@ -99,6 +102,7 @@ pub fn wrap(s: &App, app: El) -> El {
 
 /// Where a bundle goes: `<data dir>/rune-opencode/glitches/<ms>`, or the temp folder in tests
 /// and headless runs.
+#[cfg(not(target_arch = "wasm32"))]
 fn bundle_dir(s: &App) -> PathBuf {
     let base = if s.persists() { crate::dirs::data() } else { None };
     base.unwrap_or_else(|| std::env::temp_dir().join("rune-opencode")).join("glitches").join(crate::wall_ms().to_string())
@@ -114,6 +118,7 @@ fn target(s: &App) -> Option<String> {
 
 /// The message a bundle sends: its summary to read, with the trace and contact sheet attached
 /// by path.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn prompt(bundle: &rune::rewind::Bundle) -> Prompt {
     let [_, trace, contact] = bundle.files();
     let path = |p: PathBuf| p.to_string_lossy().into_owned();
@@ -131,16 +136,58 @@ pub fn prompt(bundle: &rune::rewind::Bundle) -> Prompt {
     }
 }
 
+/// On the web there is no local filesystem for path attachments: build the rewind summary in
+/// memory from the clip's recorded stretch, jumps and moved elements and send it as the prompt.
+#[cfg(target_arch = "wasm32")]
+fn web_prompt(sent: &Sent) -> Prompt {
+    use std::fmt::Write as _;
+    let clip = sent.clip();
+    let end = sent.frames().end.min(clip.len());
+    let range = sent.frames().start.min(end.saturating_sub(1))..end.max(1).min(clip.len());
+    let (vw, vh) = clip.viewport();
+    let dt = if range.end > range.start { (clip.time(range.end - 1) - clip.time(range.start)).max(0.0) } else { 0.0 };
+    let mut out = String::new();
+    let note = sent.note().trim();
+    if !note.is_empty() {
+        let _ = writeln!(out, "{note}\n");
+    }
+    let _ = writeln!(out, "## Rewind ({:.0}×{:.0} pt, frames {}..{}, {:.2}s)", vw, vh, range.start, range.end, dt);
+    let jumps: Vec<usize> = range.clone().filter(|&k| clip.has_jump(k)).collect();
+    if !jumps.is_empty() {
+        let list: Vec<String> = jumps.iter().take(12).map(usize::to_string).collect();
+        let _ = writeln!(out, "- Jumps at frames: {}", list.join(", "));
+    }
+    let mut moved: Vec<(f32, usize, String)> = range
+        .flat_map(|k| clip.changes(k).into_iter().map(move |c| (c.distance(), k, c.label())))
+        .collect();
+    moved.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (_, k, label) in moved.into_iter().take(12) {
+        let _ = writeln!(out, "- frame {k}: {label}");
+    }
+    let summary = out.trim_end().to_owned();
+    Prompt {
+        id: Some(opencode_kit::client::message_id()),
+        text: summary.clone(),
+        display_text: Some(summary),
+        ..Default::default()
+    }
+}
+
 fn send(s: &mut App, sent: Sent, _: &mut Tx) {
     let Some(session) = target(s) else {
         crate::status_toast::say(s, "Open a session to send to", "The rewind stays open until you send it.");
         return;
     };
-    let bundle = match sent.write(&bundle_dir(s)) {
-        Ok(b) => b,
-        Err(e) => return crate::status_toast::fail(s, "Couldn't save the rewind", e.to_string()),
+    #[cfg(not(target_arch = "wasm32"))]
+    let prompt = {
+        let bundle = match sent.write(&bundle_dir(s)) {
+            Ok(b) => b,
+            Err(e) => return crate::status_toast::fail(s, "Couldn't save the rewind", e.to_string()),
+        };
+        prompt(&bundle)
     };
-    let prompt = prompt(&bundle);
+    #[cfg(target_arch = "wasm32")]
+    let prompt = web_prompt(&sent);
     let local = prompt.id.clone().unwrap_or_default();
     let display = prompt.display_text.clone().unwrap_or_default();
     if matches!(*s.source, Source::Live { .. }) {
