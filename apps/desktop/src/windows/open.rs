@@ -105,6 +105,24 @@ pub(super) fn refit(f: Frame) -> Option<Frame> {
     super::placement::fit(f, &displays)
 }
 
+/// Scale of the display `frame` opens on, else the primary display's, before the OS window exists
+/// (or on Wayland, where `WindowHandle::placement` hides positions).
+fn display_scale(frame: Option<&Frame>) -> Option<f32> {
+    let displays = DISPLAYS.lock().unwrap_or_else(|e| e.into_inner());
+    let bounds = |d: &Display| [d.position.0, d.position.1, d.size.0 as i32, d.size.1 as i32];
+    let by_frame = frame.and_then(|f| {
+        let by_pos = f.x.zip(f.y).and_then(|(x, y)| {
+            let (cx, cy) = (x + f.width as i32 / 2, y + f.height as i32 / 2);
+            displays.iter().find(|d| {
+                let b = bounds(d);
+                cx >= b[0] && cy >= b[1] && cx < b[0] + b[2] && cy < b[1] + b[3]
+            })
+        });
+        by_pos.or_else(|| f.display.and_then(|saved| displays.iter().find(|d| bounds(d) == saved)))
+    });
+    by_frame.or_else(|| displays.iter().find(|d| d.primary)).or_else(|| displays.first()).map(|d| d.scale as f32)
+}
+
 /// Opens every window saved at the last quit, or one for a new profile, each where it was. The
 /// list and the frames come from the boot packet, taken once the event loop is up (so the
 /// storage's read runs under it); a list that didn't change isn't written again. Returns when
@@ -157,6 +175,7 @@ pub(super) fn open(s: &App, w: Window, frame: Option<Frame>, inactive: bool) -> 
 /// Window `w`'s spec: the app, at `frame` when it has one.
 fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics::Diagnostics) -> WindowSpec<App> {
     w.placement = super::placement::Placement::opening(frame.as_ref());
+    w.scale = display_scale(frame.as_ref()).unwrap_or(0.0);
     let (id, life) = (w.id.clone(), w.life);
     let diagnostics = diagnostics.clone();
     let app_diagnostics = diagnostics.clone();

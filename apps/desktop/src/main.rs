@@ -686,6 +686,7 @@ impl App {
         for pair in all.iter().zip(all.iter().skip(1)).filter(|(k, _)| *k == "--knob").map(|(_, v)| v) {
             knobs::apply_arg(&mut app, pair);
         }
+        session_view::scroller::set_device_scale(windows::view_scale(&app));
         rune::marks::mark("state.restored");
         app
     }
@@ -975,7 +976,7 @@ impl App {
 }
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
-   
+    session_view::scroller::set_device_scale(windows::view_scale(s));
     *s.clock = now;
     s.sync_history();
     *s.now_ms = if s.live() { wall_ms() } else { *s.base_ms + (now * 1000.0) as i64 };

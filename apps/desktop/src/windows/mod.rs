@@ -57,6 +57,8 @@ pub struct Window {
     pub life: life::Life,
     /// The last window, hidden by Close Window on macOS while the app keeps running.
     pub hidden: bool,
+    /// Its display scale before or outside `view` (from the opening display, `placement`, or web).
+    pub scale: f32,
 }
 
 impl Window {
@@ -204,6 +206,21 @@ fn saved_ids() -> Vec<String> {
 /// Window `id`'s native handle, while it's open.
 pub fn handle(id: &str) -> Option<WindowHandle> {
     OPEN.with(|o| o.borrow().iter().find(|w| w.id == id).map(|w| w.handle.clone()))
+}
+
+/// Window `s`'s view scale (`device_scale`) before or outside `view`: its live OS window's
+/// `scale_factor` (including a second monitor or after a monitor move), else the display it opened
+/// on (Wayland, or before `on_created`), else `--scale` (headless).
+pub fn view_scale(s: &App) -> f32 {
+    let win = handle(&s.window.id)
+        .and_then(|h| h.placement().map(|p| p.scale as f32))
+        .or_else(|| (s.window.scale > 0.0).then_some(s.window.scale))
+        .or_else(|| crate::arg("--scale").and_then(|v| v.parse::<f32>().ok()))
+        .filter(|&v| v > 0.0);
+    match win {
+        Some(w) => w * (*s.zoom).clamp(0.25, 4.0),
+        None => session_view::scroller::device_scale(),
+    }
 }
 
 /// A window's own reads and writes on `server`. The event stream is its server's, which every

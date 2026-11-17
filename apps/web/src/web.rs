@@ -6,7 +6,7 @@
 
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 
-use crate::{App, appearance, launch, rune_app, spec, storage};
+use crate::{App, appearance, launch, rune_app, spec, storage, windows};
 
 #[path = "browser_history.rs"]
 mod browser_history;
@@ -43,6 +43,10 @@ pub fn start(password: Option<String>) {
     flush_on_pagehide();
     app.init(move || {
         let mut s = App::new();
+        if let Some(dpr) = web_sys::window().map(|w| w.device_pixel_ratio() as f32).filter(|&v| v > 0.0) {
+            s.window.scale = dpr;
+            session_view::scroller::set_device_scale(windows::view_scale(&s));
+        }
         s.launch.inbox_wake = Some(wake);
         s
     }).on_ready(move |_| {
@@ -54,6 +58,9 @@ pub fn start(password: Option<String>) {
 
 /// The app's poll, then the browser's history catching up with where it went.
 fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
+    if let Some(dpr) = web_sys::window().map(|w| w.device_pixel_ratio() as f32).filter(|&v| v > 0.0) {
+        s.window.scale = dpr;
+    }
     let changed = crate::poll(s, now, tx);
     browser_history::sync(s);
     changed

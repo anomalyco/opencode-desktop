@@ -58,6 +58,7 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     s.view_runs.set(s.view_runs.get().wrapping_add(1));
     cx.zoom(*s.zoom);
+    session_view::scroller::set_device_scale(cx.env().scale);
     // A system contrast theme paints the app in its colours alone, whatever theme is picked.
     match cx.system_contrast() {
         Some(c) => crate::themes::set_active(crate::themes::contrast(&c)),
@@ -81,7 +82,6 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     }
     // A narrow window keeps top tabs' titlebar row in every layout, its tabs in a drawer.
     let layout = if narrow { crate::layout_state::TabLayout::Horizontal } else { s.tab_layout() };
-    session_view::scroller::set_device_scale(cx.env().scale);
     // A phone's notch, status bar and home indicator (a browser's safe area; zero natively).
     let safe = cx.safe_area().map(|inset| inset / *s.zoom);
     session_view::style::set_safe_area(safe);
