@@ -12,8 +12,8 @@ use crate::stories::{Story, Trigger, replay};
 
 const KEYS: &[Trigger] = &[
     replay(start),
-    Trigger { key: 'o', label: "Open", run: |s, tx| if s.pickers.open.is_none() { toggle(s, tx) } },
-    Trigger { key: 'c', label: "Close", run: |s, tx| if s.pickers.open.is_some() { toggle(s, tx) } },
+    Trigger { key: 'o', label: "Open", run: |s, tx| if s.pickers.open().is_none() { toggle(s, tx) } },
+    Trigger { key: 'c', label: "Close", run: |s, tx| if s.pickers.open().is_some() { toggle(s, tx) } },
     Trigger { key: 't', label: "Toggle quickly", run: quick },
 ];
 
@@ -31,7 +31,7 @@ fn kind(s: &App) -> Kind {
 fn toggle(s: &mut App, tx: &mut Play<App>) {
     // Neither the search nor the composer takes focus: a focused field would keep every
     // letter, O, C and T included.
-    if s.pickers.open.is_some() {
+    if s.pickers.open().is_some() {
         s.close_picker(false);
         super::motion::closing(&s.knobs, tx);
     } else {

@@ -32,7 +32,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
 
 /// The model list open on `query`, as if typed.
 fn search(s: &mut App, query: &str) {
-    if s.pickers.open.is_some() { s.close_picker(false); }
+    if s.pickers.open().is_some() { s.close_picker(false); }
     s.open_picker(Kind::Model);
     s.pickers.search = TextEdit::new(query);
     s.pickers.search.focused = true;

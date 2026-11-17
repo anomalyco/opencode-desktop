@@ -199,7 +199,7 @@ impl App {
             return false;
         }
         // The menus and pickers use the arrows themselves while open.
-        if self.add.open() || self.pickers.open.is_some() || self.switcher.open || self.settings.open {
+        if self.add.open() || self.pickers.open().is_some() || self.switcher.open || self.settings.open {
             return false;
         }
         if self.composer.anchor != self.composer.focus || self.composer.is_composing() {

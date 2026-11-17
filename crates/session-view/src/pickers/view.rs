@@ -14,16 +14,21 @@ use crate::style::UI;
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     // A narrow window picks from drawers (`composer.tsx:192`, `editor.tsx:1126`); a project
     // keeps its menu.
-    if crate::style::narrow() && s.pickers().open.is_some_and(|k| k != Kind::Project) {
+    if crate::style::narrow() && s.pickers().open().is_some_and(|k| k != Kind::Project) {
         let win_h = rune::memo::layout_with("zoom", |r| r[3]).map_or(800.0, |h| h);
         return super::drawer::layer(s, p, win_h);
     }
-    match s.pickers().open {
+    match s.pickers().open() {
         None => super::manage::layer(s, p),
         Some(Kind::Model) => super::dialog::layer(s, p),
-        // Nothing gets focus back, so the search field can unmount in this frame.
-        // Kobalte's menu dismisses on an outside `pointerdown`.
-        Some(_) => vec![pop::scrim::<S>("picker-dismiss", |s: &mut S, _| s.close_picker(false)).press_on_down(), picker(s, p)],
+        // Kobalte's non-modal menu (`modal={false}`, `editor.tsx:1152`) dismisses on an outside
+        // `pointerdown` and leaves focus where that press landed (`outside.interacted`).
+        Some(_) => vec![
+            pop::scrim::<S>("picker-dismiss", |s: &mut S, tx| s.close_picker_with(super::menu::CloseReason::Outside, tx))
+                .press_on_down()
+                .press_focuses_below(),
+            picker(s, p),
+        ],
     }
 }
 
@@ -33,7 +38,7 @@ const BUTTON: rune::TextStyle = UI.features("\"tnum\"");
 
 /// A toolbar button that opens the `kind` list, labelled with what's picked.
 pub fn trigger<S: PickerHost>(s: &S, p: &Pal, kind: Kind, label: &str, color: Color, chevron: bool) -> El {
-    let open = s.pickers().open == Some(kind);
+    let open = s.pickers().open() == Some(kind);
     let label = text(label.to_owned()).font(BUTTON).color(if open { p.text } else { color }).truncate_fade();
     wrap(s, p, kind, crate::composer::ghost_with(p, kind.key(), label, chevron, open))
 }
@@ -56,11 +61,8 @@ pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, mode
 fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
-    if s.pickers().open == Some(kind) && kind != Kind::Model {
+    if s.pickers().open() == Some(kind) && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
-        // Focus stays on the trigger, so it names the lit row for a screen reader, where
-        // Kobalte moves focus onto the row itself.
-        if let Some(key) = s.picker_active() { button = button.active_descendant(format!("option-{key}")); }
     }
     let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
     // A Kobalte `Menu.Trigger` (`editor.tsx:1153`) opens on the mouse's `pointerdown`; the model's
@@ -69,8 +71,7 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
-    let active = if s.pickers().open == Some(Kind::Agent) { s.picker_active() } else { None };
+pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
@@ -83,21 +84,23 @@ pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
         .press(p.pressed)
         .motion(Spring::NONE)
         .focus_ring(2.0, -2.0, p.v2.border_focus)
-        .active_descendant(active.map(|k| format!("option-{k}")).unwrap_or_default())
         .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
     b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
-    // The trigger keeps keyboard focus while its menu is open, so Return or Space there is the
-    // list's: it picks the lit row, as Kobalte's focused listbox does, rather than shutting it.
-    if tx.by_keys() && kind != Kind::Model && s.pickers().open == Some(kind)
-        && let Some(key) = s.picker_active()
-    {
-        return s.choose_picker_tx(&key, tx);
-    }
-    s.open_picker(kind);
-    match s.pickers().open {
+    // Real mouse press queued `Action::FocusControl` right before `Action::Press`, so
+    // `tx.focused() == Some(kind.key())` with `!tx.focus_visible()` and `!tx.by_keys()`.
+    // Keyboard (`Enter` / `Space`) and assistive presses (`AXPress` / UIA `Invoke`) open with
+    // keyboard modality and focus the first `menuitemradio` (`editor.tsx:1152-1183`).
+    let pointer = !tx.by_keys() && !tx.focus_visible() && tx.focused() == Some(kind.key());
+    let gesture = if pointer {
+        super::menu::Gesture::Pointer
+    } else {
+        super::menu::Gesture::Keyboard(super::menu::EntryFocus::First)
+    };
+    s.open_picker_with(kind, gesture, tx);
+    match s.pickers().open() {
         // Desktop's dialog is whole in the frame it opens (`context/dialog.tsx`).
         Some(Kind::Model) => tx.instant(),
         Some(_) => pop::motion::opening(s.knobs(), tx),
@@ -131,17 +134,22 @@ pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: boo
     let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
     // Rune shows it at its hovered opacity while the keyboard is on it (`:focus-visible`).
-    let shown = crate::style::hover_none() || !default || s.pickers().open == Some(Kind::Effort);
+    let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort);
     if shown { button } else { button.group_opacity(0.0, 1.0) }
 }
 
 /// The open menu (agent, effort or project), above its trigger.
 pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
-    let kind = s.pickers().open.unwrap();
+    let kind = s.pickers().open().unwrap();
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
-    let mut menu = pop::surface::<S>(p, MENU, format!("picker-{}", kind.key()), kind.choose_label()).w(if kind == Kind::Project { 240.0 } else { 180.0 });
+    let mut menu = pop::surface::<S>(p, MENU, format!("picker-{}", kind.key()), kind.choose_label())
+        .w(if kind == Kind::Project { 240.0 } else { 180.0 })
+        .focusable(true)
+        .tab_index(-1)
+        .no_focus_ring()
+        .on_key(|s: &mut S, ev, tx| s.picker_key(ev, tx));
     let mut list = pop::List::new("picker-options", MENU);
     let mut footer: Option<El> = None;
     let mut group = "";
@@ -164,13 +172,16 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
             }
         }
         let hover_key = key.clone();
-        let row = pop::option(
+        let row = pop::option_tx(
             p,
             MENU,
             o,
-            move |s: &mut S| s.pickers_mut().point(hover_key.clone()),
+            move |s: &mut S, tx: &mut Tx| s.hover_picker_option(hover_key.clone(), tx),
             move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&key, tx),
-        );
+        )
+        .focusable(true)
+        .tab_index(-1)
+        .no_focus_ring();
         if is_add {
             footer = Some(row);
         } else {

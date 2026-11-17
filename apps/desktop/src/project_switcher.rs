@@ -232,7 +232,7 @@ impl App {
         }
         let restore = self.composer.focused
             || (self.switcher.open && self.switcher.restore_composer())
-            || self.pickers.open.is_some();
+            || self.pickers.open().is_some();
         self.close_picker(false);
         self.close_switcher(false);
         self.project_state.home_menu_open = false;

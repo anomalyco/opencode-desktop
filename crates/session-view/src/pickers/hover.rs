@@ -241,7 +241,7 @@ impl<S: PickerHost + 'static> ModelHover for S {}
 /// Fires the flyout's due timer, follows the query and the results, and closes a flyout whose
 /// row left the results or moved with the window.
 pub fn poll<S: PickerHost + 'static>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
-    if s.pickers().open != Some(Kind::Model) {
+    if s.pickers().open() != Some(Kind::Model) {
         return false;
     }
     // What the pointer did, it did in the input before this frame.

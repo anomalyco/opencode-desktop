@@ -191,7 +191,7 @@ impl session_view::TimelineHost for App {
         true
     }
     fn switch_model(&mut self, _tx: &mut Tx) {
-        if self.pickers.open != Some(pickers::Kind::Model) {
+        if self.pickers.open() != Some(pickers::Kind::Model) {
             self.open_picker(pickers::Kind::Model);
         }
     }

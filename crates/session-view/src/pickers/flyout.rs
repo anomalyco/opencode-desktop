@@ -45,14 +45,14 @@ impl<S: PickerHost + 'static> EffortFlyout for S {}
 /// across the row 2 pt above it, so the flyout's first option, 2 pt into it, lands level with
 /// the row.
 pub fn anchor<S: PickerHost>(s: &S, key: &str) -> Option<El> {
-    (s.pickers().hover.flyout_model() == Some(key) && s.pickers().open == Some(Kind::Model)).then_some(())?;
+    (s.pickers().hover.flyout_model() == Some(key) && s.pickers().open() == Some(Kind::Model)).then_some(())?;
     Some(el().key("effort-anchor").pin(Some(0.0), Some(-MENU.inset), Some(0.0), None).h(0.0).transition(Transition::none()))
 }
 
 /// The flyout, when one is open.
 pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let pk = s.pickers();
-    let flyout = pk.hover.flyout_model().filter(|_| pk.open == Some(Kind::Model))?;
+    let flyout = pk.hover.flyout_model().filter(|_| pk.open() == Some(Kind::Model))?;
     let model = pk.models.iter().find(|m| m.key == flyout)?;
     let lit = pk.hover.lit();
     let now = s.model_effort(flyout).unwrap_or_default();

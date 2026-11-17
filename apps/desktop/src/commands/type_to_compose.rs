@@ -72,7 +72,7 @@ impl App {
             && self.menus.on.is_none()
             && self.menus.renaming().is_none()
             && self.menus.confirming().is_none()
-            && self.pickers.open.is_none()
+            && self.pickers.open().is_none()
             && self.rewind.menu.is_none()
             && !self.popup.is_open()
             && !self.project_state.home_menu_open

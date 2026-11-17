@@ -29,7 +29,7 @@ pub const SHEET: &str = "picker-drawer";
 
 /// The open picker's drawer, in a window `win_h` tall.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal, win_h: f32) -> Vec<El> {
-    let Some(kind) = s.pickers().open else { return Vec::new() };
+    let Some(kind) = s.pickers().open() else { return Vec::new() };
     let content = if kind == Kind::Model { models(s, p) } else { menu(s, p, kind) };
     crate::sheet::sheet(p, SHEET, false, win_h, win_h, content, |s: &mut S, tx: &mut Tx| {
         tx.instant();

@@ -274,7 +274,7 @@ impl App {
     pub fn open_project_dialog(&mut self, tx: &mut Tx) {
         let restore_composer = self.composer.focused
             || (self.switcher.open && self.switcher.restore_composer())
-            || self.pickers.open.is_some();
+            || self.pickers.open().is_some();
         tx.instant();
         self.close_picker(false);
         self.close_switcher(false);

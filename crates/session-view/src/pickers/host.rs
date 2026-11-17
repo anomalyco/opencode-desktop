@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, search};
+use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -110,20 +110,23 @@ pub trait PickerHost: ComposerHost {
         (agent, model)
     }
 
-    fn picker_items(&self) -> Vec<Item> {
+    fn picker_items_for(&self, kind: Kind) -> Vec<Item> {
         let selection = self.selection();
         let pk = self.pickers();
-        match pk.open {
-            Some(Kind::Model) => model_items(pk),
-            Some(Kind::Agent) => pk.agents.iter().map(|a| Item::new(a.clone(), capitalize(a))).collect(),
-            Some(Kind::Effort) => {
+        match kind {
+            Kind::Model => model_items(pk),
+            Kind::Agent => pk.agents.iter().map(|a| Item::new(a.clone(), capitalize(a))).collect(),
+            Kind::Effort => {
                 let variants = pk.models.iter().find(|m| m.id == selection.model.id && m.provider == selection.model.provider);
                 std::iter::once(Item::new("default", opencode_i18n::t!("common.default")))
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item::new(v.clone(), capitalize(v)))).collect()
             }
-            Some(Kind::Project) => self.picker_projects(),
-            None => vec![],
+            Kind::Project => self.picker_projects(),
         }
+    }
+
+    fn picker_items(&self) -> Vec<Item> {
+        self.pickers().open().map_or_else(Vec::new, |kind| self.picker_items_for(kind))
     }
 
     /// The effort the model `key` would run with if picked now: "" for its default, or none
@@ -159,7 +162,7 @@ pub trait PickerHost: ComposerHost {
         pk.prefs.toggle_favorite(key);
         // The row moves between groups; the highlight goes with it, and typing still searches.
         pk.activate(key.to_owned());
-        pk.search.focused = pk.open == Some(Kind::Model);
+        pk.search.focused = pk.open() == Some(Kind::Model);
     }
 
     /// Whether the selected model has an effort to choose: Desktop shows the picker (with
@@ -182,57 +185,88 @@ pub trait PickerHost: ComposerHost {
     fn picker_active(&self) -> Option<String> {
         let items = self.picker_items();
         let pk = self.pickers();
-        pk.active.resolve(items.iter().map(|i| i.key.as_str()))
+        if pk.open() == Some(Kind::Model) {
+            pk.active.resolve(items.iter().map(|i| i.key.as_str()))
+        } else {
+            pk.menu.menu_active().filter(|k| items.iter().any(|i| i.key == *k)).map(str::to_owned)
+        }
+    }
+
+    fn apply_menu_effect(&mut self, effect: menu::Effect, tx: &mut Tx) {
+        match effect {
+            menu::Effect::None => {}
+            menu::Effect::FocusModelSearch => {
+                self.pickers_mut().search.focused = true;
+                self.composer_edit_mut().focused = false;
+            }
+            menu::Effect::Focus { key, ring, scroll_option } => {
+                self.composer_edit_mut().focused = false;
+                if let Some(opt) = scroll_option {
+                    tx.scroll_into_view_in("picker-scroll", format!("option-{opt}"));
+                }
+                tx.focus(key, ring);
+            }
+            menu::Effect::ReturnTrigger { key, ring } => {
+                self.composer_edit_mut().focused = false;
+                tx.return_focus(key, ring);
+            }
+            menu::Effect::FocusComposer => {
+                self.composer_edit_mut().focused = true;
+            }
+            menu::Effect::LeaveFocus => {
+                self.composer_edit_mut().focused = false;
+            }
+        }
+    }
+
+    fn open_picker_with(&mut self, kind: Kind, gesture: menu::Gesture, tx: &mut Tx) {
+        if kind == Kind::Model && self.pickers().open() != Some(Kind::Model) {
+            self.picker_model_opening();
+        }
+        let item_keys: Vec<String> = self.picker_items_for(kind).into_iter().map(|i| i.key).collect();
+        let pk = self.pickers_mut();
+        let eff = menu::step(&mut pk.menu, menu::Event::Open { kind, gesture, items: &item_keys });
+        pk.search = TextEdit::new("");
+        pk.search.focused = false;
+        pk.staged.clear();
+        pk.hover = hover::Hover::fresh();
+        if pk.open() == Some(Kind::Model) {
+            pk.active.clear();
+        }
+        self.apply_menu_effect(eff, tx);
     }
 
     fn open_picker(&mut self, kind: Kind) {
-        if self.pickers().open == Some(kind) { self.close_picker(true); return; }
-        if kind == Kind::Model { self.picker_model_opening(); }
-        let pk = self.pickers_mut();
-        pk.open = Some(kind);
-        pk.search = TextEdit::new("");
-        pk.search.focused = kind == Kind::Model;
-        pk.staged.clear();
-        pk.hover = hover::Hover::fresh();
-        // The model list starts on its first row, as Desktop's `SearchList` does
-        // (`typeahead/controller.ts:22`); a menu starts on what's picked.
-        if kind == Kind::Model {
-            pk.active.clear();
-        } else {
-            let current = self.picker_current(kind);
-            self.pickers_mut().active.set(current);
-        }
-        self.composer_edit_mut().focused = false;
+        self.open_picker_with(kind, menu::Gesture::Keyboard(menu::EntryFocus::First), &mut Tx::default());
     }
 
-    fn close_picker(&mut self, restore: bool) {
+    fn close_picker_with(&mut self, reason: menu::CloseReason, tx: &mut Tx) {
         let pk = self.pickers_mut();
-        pk.open = None;
+        let eff = menu::step(&mut pk.menu, menu::Event::Close(reason));
         pk.hover = hover::Hover::fresh();
         pk.search.focused = false;
         pk.search.cancel_composition();
         pk.search.break_history_group();
-        self.composer_edit_mut().focused = restore;
+        self.apply_menu_effect(eff, tx);
     }
 
-    fn choose_picker(&mut self, key: &str) {
-        self.choose_picker_tx(key, &mut Tx::default());
+    fn close_picker(&mut self, restore: bool) {
+        let reason = if restore { menu::CloseReason::Escape } else { menu::CloseReason::Replaced };
+        self.close_picker_with(reason, &mut Tx::default());
     }
 
-    fn choose_picker_tx(&mut self, key: &str, tx: &mut Tx) {
-        // Never accept a stale, filtered-out item or a non-option (including empty results).
-        if !self.picker_items().iter().any(|i| i.key == key) { return; }
-        if self.pickers().open == Some(Kind::Project) {
-            if key != ADD_PROJECT_KEY { self.close_picker(true); }
-            self.picker_choose_project(key, tx);
-            return;
-        }
+    fn hover_picker_option(&mut self, key: String, tx: &mut Tx) {
+        let eff = menu::step(&mut self.pickers_mut().menu, menu::Event::Hover(key));
+        self.apply_menu_effect(eff, tx);
+    }
+
+    fn apply_selection_for(&mut self, kind: Kind, key: &str) -> bool {
         let mut selected = self.selection();
         let session = self.picker_scope();
         let pk = self.pickers_mut();
-        match pk.open {
-            Some(Kind::Model) => {
-                let Some(m) = pk.models.iter().find(|m| m.key == key).cloned() else { return };
+        match kind {
+            Kind::Model => {
+                let Some(m) = pk.models.iter().find(|m| m.key == key).cloned() else { return false };
                 pk.prefs.picked(key);
                 let staged = pk.staged.get(key).cloned();
                 if m.id != selected.model.id || m.provider != selected.model.provider {
@@ -243,36 +277,53 @@ pub trait PickerHost: ComposerHost {
                 }
                 if let Some(v) = staged { pk.efforts.insert(key.to_owned(), v); }
             }
-            Some(Kind::Agent) => {
+            Kind::Agent => {
                 if selected.agent != key {
                     let remembered = pk.choices.get(&session).and_then(|c| c.get(key));
                     if let Some(m) = remembered.or_else(|| pk.agent_models.get(key)) { selected.model = m.clone(); }
                     selected.agent = key.into();
                 }
             }
-            Some(Kind::Effort) => {
+            Kind::Effort => {
                 selected.model.variant = if key == "default" { String::new() } else { key.into() };
                 pk.efforts.insert(format!("{}:{}", selected.model.provider, selected.model.id), selected.model.variant.clone());
             }
-            Some(Kind::Project) | None => return,
+            Kind::Project => return false,
         }
         pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
         let live = !self.picker_draft();
         let durable = self.durable();
         let pk = self.pickers_mut();
         if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session, selected); }
+        true
+    }
+
+    fn choose_picker(&mut self, key: &str) {
+        self.choose_picker_tx(key, &mut Tx::default());
+    }
+
+    fn choose_picker_tx(&mut self, key: &str, tx: &mut Tx) {
+        let Some(kind) = self.pickers().open() else { return };
+        // Never accept a stale, filtered-out item or a non-option (including empty results).
+        if !self.picker_items().iter().any(|i| i.key == key) { return; }
+        if kind == Kind::Project {
+            if key != ADD_PROJECT_KEY { self.close_picker_with(menu::CloseReason::Picked, tx); }
+            self.picker_choose_project(key, tx);
+            return;
+        }
+        if !self.apply_selection_for(kind, key) { return; }
         tx.color_motion(rune::Spring::NONE);
-        self.close_picker(true);
+        self.close_picker_with(menu::CloseReason::Picked, tx);
     }
 
     /// A picker's keys. Opening it (unless it has an entrance to play) and moving in it land in
     /// the keystroke. (Not closing: an instant unmount of the focused search field drops the focus
     /// handed back to the composer.)
     fn picker_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        let was = self.pickers().open;
+        let was = self.pickers().open();
         let used = picker_keys(self, ev, tx);
-        if used && self.pickers().open.is_some() {
-            let open = self.pickers().open;
+        if used && self.pickers().open().is_some() {
+            let open = self.pickers().open();
             if open == was || open == Some(Kind::Model) { tx.instant(); } else { pop::motion::opening(self.knobs(), tx); }
         } else if used && was.is_some() {
             // The trigger lets go of its open look at once, as Desktop's button-v2 has no transition.
@@ -281,11 +332,15 @@ pub trait PickerHost: ComposerHost {
         used
     }
 
-    /// ⌘. and ⇧⌘D: the next (or previous) agent or variant, picked without showing the list.
-    fn cycle_picker(&mut self, kind: Kind, backwards: bool, tx: &mut Tx) {
-        self.open_picker(kind);
-        picker_keys(self, &KeyEvent { key: if backwards { Key::Up } else { Key::Down }, mods: Default::default() }, tx);
-        if let Some(key) = self.picker_active() { self.choose_picker_tx(&key, tx); }
+    /// ⌘. and ⇧⌘D: the next (or previous) agent or variant, picked directly without opening the
+    /// menu or moving keyboard focus (`composer/commands.tsx:152-160`).
+    fn cycle_picker(&mut self, kind: Kind, backwards: bool, _tx: &mut Tx) {
+        let items = self.picker_items_for(kind);
+        if items.is_empty() { return; }
+        let cur = self.picker_current(kind);
+        let at = items.iter().position(|i| i.key == cur);
+        let next = items[cycle(items.len(), at, if backwards { -1 } else { 1 })].key.clone();
+        self.apply_selection_for(kind, &next);
     }
 }
 
@@ -341,39 +396,42 @@ pub(super) fn provider_rank(m: &Model) -> (usize, String) {
 }
 
 fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if let Some(open) = s.pickers().open {
+    if let Some(open) = s.pickers().open() {
+        let is_space = matches!(&ev.key, Key::Text(t) if t == " ") && ev.mods == Default::default();
         match nav(ev) {
-            Some(Nav::Close) => {
-                // Escape hands focus back to the agent's or effort's trigger, as a Kobalte menu's
-                // `onCloseAutoFocus` does (`editor.tsx:1038-1063`); the model dialog and the
-                // project menu give it to the composer.
-                let kind = Some(open).filter(|k| matches!(k, Kind::Agent | Kind::Effort));
-                s.close_picker(kind.is_none());
-                if let Some(kind) = kind { tx.focus(kind.key(), true); }
-            }
+            Some(Nav::Close) => s.close_picker_with(menu::CloseReason::Escape, tx),
             // In the model dialog Tab moves on to Connect and Manage, as Desktop's does.
             Some(Nav::Leave) if open == Kind::Model => return false,
-            Some(Nav::Leave) => {
-                // Tab leaves the list on its trigger, as a Kobalte select returns focus there.
-                let kind = Some(open).filter(|k| *k != Kind::Project);
-                s.close_picker(kind.is_none());
-                if let Some(kind) = kind { tx.focus(kind.key(), true); }
-            }
+            Some(Nav::Leave) => s.close_picker_with(menu::CloseReason::Tab, tx),
             Some(Nav::Step(step)) => {
                 if s.pickers().search.is_composing() { return false; }
                 let items = s.picker_items();
                 if !items.is_empty() {
-                    let active = s.picker_active();
-                    let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
-                    let key = items[cycle(items.len(), at, step)].key.clone();
-                    s.model_list_keyed();
-                    s.pickers_mut().hover.navigated = true;
-                    tx.scroll_into_view_in("picker-scroll", format!("option-{key}"));
-                    s.pickers_mut().activate(key);
+                    if open == Kind::Model {
+                        let active = s.picker_active();
+                        let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
+                        let key = items[cycle(items.len(), at, step)].key.clone();
+                        s.model_list_keyed();
+                        s.pickers_mut().hover.navigated = true;
+                        tx.scroll_into_view_in("picker-scroll", format!("option-{key}"));
+                        s.pickers_mut().activate(key);
+                    } else {
+                        let keys: Vec<String> = items.into_iter().map(|i| i.key).collect();
+                        let eff = menu::step(&mut s.pickers_mut().menu, menu::Event::Step { step, items: &keys });
+                        s.apply_menu_effect(eff, tx);
+                    }
                 }
             }
             Some(Nav::Choose) => {
                 if s.pickers().search.preedit().is_none() && let Some(key) = s.picker_active() { s.choose_picker_tx(&key, tx); }
+            }
+            None if is_space && open != Kind::Model => {
+                if let Some(key) = s.picker_active() { s.choose_picker_tx(&key, tx); }
+            }
+            None if matches!(ev.key, Key::Home | Key::End) && ev.mods == Default::default() && open != Kind::Model => {
+                let keys: Vec<String> = s.picker_items().into_iter().map(|i| i.key).collect();
+                let eff = menu::step(&mut s.pickers_mut().menu, menu::Event::Jump { last: ev.key == Key::End, items: &keys });
+                s.apply_menu_effect(eff, tx);
             }
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
                 if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
@@ -396,13 +454,17 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
-    // A focused trigger opens its list on the arrows too, as a Kobalte select's does; Tab moves
-    // through them as Rune's document order has it, and Return and Space press them.
+    // A focused trigger opens its list on the arrows too, as Kobalte's `MenuTrigger.onKeyDown`
+    // does (`ArrowDown` focuses the first row, `ArrowUp` the last).
     let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort].into_iter().find(|k| tx.focused() == Some(k.key()));
     if matches!(ev.key, Key::Down | Key::Up) && ev.mods == Default::default()
-        && let Some(kind) = toolbar_focus { s.open_picker(kind); return true; }
+        && let Some(kind) = toolbar_focus {
+        let entry = if ev.key == Key::Up { menu::EntryFocus::Last } else { menu::EntryFocus::First };
+        s.open_picker_with(kind, menu::Gesture::Keyboard(entry), tx);
+        return true;
+    }
     use crate::keymap::Bind;
-    if Bind::Model.matches_tx(ev, tx) { s.open_picker(Kind::Model); return true; }
+    if Bind::Model.matches_tx(ev, tx) { s.open_picker_with(Kind::Model, menu::Gesture::Keyboard(menu::EntryFocus::First), tx); return true; }
     let cycle = match () {
         _ if Bind::Agent.matches_tx(ev, tx) => Some((Kind::Agent, false)),
         _ if Bind::AgentBack.matches_tx(ev, tx) => Some((Kind::Agent, true)),

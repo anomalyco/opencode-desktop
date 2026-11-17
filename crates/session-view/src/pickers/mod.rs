@@ -16,6 +16,7 @@ mod host;
 pub mod hover;
 pub mod manage;
 pub mod mark;
+pub mod menu;
 pub mod prefs;
 pub mod search;
 pub mod view;
@@ -143,7 +144,8 @@ pub struct Pickers {
     pub agents: Vec<String>,
     /// Each agent's configured model (`/api/agent`'s `model`), which it switches to when picked.
     pub agent_models: HashMap<String, ModelRef>,
-    pub open: Option<Kind>,
+    /// Explicit state machine for the open overlay (`Closed | Model | Menu`).
+    pub menu: menu::State,
     pub search: TextEdit,
     pub(crate) active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
@@ -181,6 +183,11 @@ fn wall_ms() -> i64 {
 }
 
 impl Pickers {
+    /// Which picker overlay is currently open (`None` when `State::Closed`).
+    pub fn open(&self) -> Option<Kind> {
+        self.menu.kind()
+    }
+
     pub fn load(&mut self, fixture: &Value) {
         self.models = fixture["models"].as_array().into_iter().flatten().map(|v| {
             let s = |key: &str| v[key].as_str().unwrap_or("").to_owned();
