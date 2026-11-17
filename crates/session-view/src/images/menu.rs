@@ -83,6 +83,11 @@ pub fn run<S: TimelineHost>(s: &mut S, d: &Dragged, id: &str, tx: &mut Tx) -> bo
             });
         }
         OPEN => {
+            #[cfg(target_arch = "wasm32")]
+            if let Some((bytes, hint)) = s.media_store().image_bytes(d) {
+                web::open_image_blob(&bytes, mime_of(&bytes, &hint));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(path) = s.media_store().image_file(d) {
                 s.open_file(path);
             }
@@ -139,5 +144,37 @@ pub fn reveal_with_system(path: &Path) -> bool {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let spawned = std::process::Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn();
     spawned.map_err(|e| eprintln!("reveal {}: {e}", path.display())).is_ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn mime_of(bytes: &[u8], hint: &str) -> &'static str {
+    match image::guess_format(bytes) {
+        Ok(image::ImageFormat::Png) => "image/png",
+        Ok(image::ImageFormat::Jpeg) => "image/jpeg",
+        Ok(image::ImageFormat::Gif) => "image/gif",
+        Ok(image::ImageFormat::WebP) => "image/webp",
+        Ok(image::ImageFormat::Bmp) => "image/bmp",
+        Ok(image::ImageFormat::Ico) => "image/x-icon",
+        _ => {
+            let path = hint.split(['?', '#']).next().unwrap_or("");
+            let trimmed = bytes.trim_ascii_start();
+            if path.to_ascii_lowercase().ends_with(".svg") || trimmed.starts_with(b"<svg") || trimmed.starts_with(b"<?xml") {
+                "image/svg+xml"
+            } else {
+                "image/png"
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use wasm_bindgen::prelude::wasm_bindgen;
+
+    #[wasm_bindgen(inline_js = "export function openImageBlob(bytes, mime) {\n  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));\n  window.open(url, '_blank', 'noopener,noreferrer');\n  setTimeout(() => URL.revokeObjectURL(url), 60000);\n}\n")]
+    extern "C" {
+        #[wasm_bindgen(js_name = openImageBlob)]
+        pub fn open_image_blob(bytes: &[u8], mime: &str);
+    }
 }
 

@@ -44,12 +44,21 @@ impl MediaStore {
 
     /// `d`'s bytes as a file in the drag folder, named for the image.
     pub fn image_file(&self, d: &Dragged) -> Option<PathBuf> {
-        let (bytes, hint) = self.image_bytes(d)?;
-        write(&root(), &bytes, &hint)
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = d;
+            None
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (bytes, hint) = self.image_bytes(d)?;
+            write(&root(), &bytes, &hint)
+        }
     }
 }
 
 /// The folder dragged and copied images are written to.
+#[cfg(not(target_arch = "wasm32"))]
 fn root() -> PathBuf {
     std::env::temp_dir().join("opencode-drag")
 }
@@ -57,12 +66,21 @@ fn root() -> PathBuf {
 /// Whether `path` is a timeline image this app wrote for a drag or a copy: its own drag coming
 /// back to it.
 pub fn is_own(path: &Path) -> bool {
-    let root = root();
-    path.starts_with(&root) || std::fs::canonicalize(path).ok().zip(std::fs::canonicalize(&root).ok()).is_some_and(|(p, r)| p.starts_with(r))
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = path;
+        false
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let root = root();
+        path.starts_with(&root) || std::fs::canonicalize(path).ok().zip(std::fs::canonicalize(&root).ok()).is_some_and(|(p, r)| p.starts_with(r))
+    }
 }
 
 /// Writes `bytes` once into a folder named by their hash under `root`, so equal names from
 /// different images never collide and a second drag reuses the file.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write(root: &Path, bytes: &[u8], hint: &str) -> Option<PathBuf> {
     use sha2::{Digest, Sha256};
     if bytes.is_empty() {
