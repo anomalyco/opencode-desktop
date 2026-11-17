@@ -276,7 +276,9 @@ impl App {
         tx.instant();
         // Its error view goes with it (`detail.closed`).
         self.mcp.open = None;
-        self.composer.focused = self.has_composer() && !self.settings.open;
+        if crate::auto_focus_composer(tx) {
+            self.composer.focused = self.has_composer() && !self.settings.open;
+        }
     }
 
     /// The error view of `name`, opened from the list, while it has failed.

@@ -29,7 +29,9 @@ impl App {
 fn close(s: &mut App, tx: &mut Tx) {
     tx.instant();
     s.connect.welcome = false;
-    s.composer.focused = s.has_composer() && !s.settings.open;
+    if crate::auto_focus_composer(tx) {
+        s.composer.focused = s.has_composer() && !s.settings.open;
+    }
 }
 
 /// Esc and Enter close it, Enter as the focused Got it does.

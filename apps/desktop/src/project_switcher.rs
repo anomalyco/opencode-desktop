@@ -219,7 +219,9 @@ impl App {
         // draft's project (`titlebar.tsx:478-492`); the page's own command searches in place.
         if !matches!(*self.route, Route::Draft(_)) && self.stage.is_none() {
             self.open_draft_tab();
-            self.composer.focused = true;
+            if !session_view::style::touch_controls() {
+                self.composer.focused = true;
+            }
         }
         self.open_project_switcher();
     }
@@ -356,7 +358,7 @@ impl App {
                 // The worktree step's own choices (New worktree, a worktree) run there now.
                 return self.project_switcher_choose_here(row, worktree, base, tx);
             }
-            if self.stage.is_none() {
+            if self.stage.is_none() && crate::auto_focus_composer(tx) {
                 self.composer.focused = true;
             }
             return;
@@ -392,7 +394,7 @@ impl App {
                 self.choose_new_worktree(&project_id, directory);
                 self.set_draft_base(base);
                 self.sort_projects();
-                if self.stage.is_none() {
+                if self.stage.is_none() && crate::auto_focus_composer(tx) {
                     self.composer.focused = true;
                 }
             }
@@ -407,7 +409,7 @@ impl App {
                 self.close_project_switcher(false);
                 if matches!(*self.route, Route::Draft(_)) {
                     self.set_draft_dir(directory);
-                    if self.stage.is_none() {
+                    if self.stage.is_none() && crate::auto_focus_composer(tx) {
                         self.composer.focused = true;
                     }
                 } else {

@@ -434,7 +434,9 @@ impl App {
                 }
             }
         }
-        self.composer.focused = true;
+        if !session_view::style::touch_controls() {
+            self.composer.focused = true;
+        }
     }
 }
 

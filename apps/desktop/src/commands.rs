@@ -239,7 +239,7 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 
 fn toggle_shell(s: &mut App, tx: &mut Tx) {
     tx.animated();
-    if s.add.shell() { s.exit_shell() } else { s.enter_shell() }
+    if s.add.shell() { s.exit_shell() } else { s.enter_shell(tx) }
 }
 
 /// Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
@@ -467,7 +467,7 @@ rune_register::register!(COMMANDS: Cmd = [
     Cmd::new("prompt.mode.toggle", opencode_i18n::key!("command.prompt.mode.toggle"), toggle_shell).keys(Bind::PromptModeToggle).when(App::has_composer),
     Cmd::new("prompt.mode.shell", opencode_i18n::key!("command.prompt.mode.shell"), |s, tx| {
         tx.instant();
-        s.enter_shell();
+        s.enter_shell(tx);
     })
     .when(|s| s.has_composer() && !s.add.shell()),
     Cmd::new("prompt.mode.normal", opencode_i18n::key!("command.prompt.mode.normal"), |s, tx| {

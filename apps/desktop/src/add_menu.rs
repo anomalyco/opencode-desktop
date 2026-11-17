@@ -204,7 +204,7 @@ impl App {
             Item::Context => self.open_context(tx),
             Item::Shell => {
                 tx.animated();
-                self.enter_shell();
+                self.enter_shell(tx);
             }
         }
     }
@@ -227,9 +227,11 @@ impl App {
         step.handled
     }
 
-    pub fn enter_shell(&mut self) {
+    pub fn enter_shell(&mut self, tx: &Tx) {
         self.composer_mode(Event::Shell);
-        self.composer.focused = true;
+        if crate::auto_focus_composer(tx) {
+            self.composer.focused = true;
+        }
     }
 
     pub fn exit_shell(&mut self) {
@@ -417,9 +419,11 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         // It shows and goes at once with all it holds, as Desktop's `<Show>` does.
         .transition(rune::Transition::none())
         .instant_changes()
-        .on_press_tx(|s: &mut App, _: &mut Tx| {
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
             s.exit_shell();
-            s.composer.focused = true;
+            if crate::auto_focus_composer(tx) {
+                s.composer.focused = true;
+            }
         })
         .child(word)
         .children(wide.then(|| crate::keymap::chips(p, vec![t!("common.key.esc").to_owned()])))

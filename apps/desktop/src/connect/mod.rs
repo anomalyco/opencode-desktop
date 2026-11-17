@@ -118,7 +118,9 @@ impl App {
         let welcome = self.connect.open.as_ref().is_some_and(|o| o.dialog.chatgpt_welcome);
         self.connect_event(Event::Disposed, tx);
         self.connect.open = None;
-        self.composer.focused = self.has_composer() && !self.settings.open;
+        if crate::auto_focus_composer(tx) {
+            self.composer.focused = self.has_composer() && !self.settings.open;
+        }
         if welcome {
             self.welcome_chatgpt_plan();
         }

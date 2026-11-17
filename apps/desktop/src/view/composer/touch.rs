@@ -39,7 +39,12 @@ pub(in crate::view) fn bar(s: &App, p: &Pal) -> Option<El> {
         .fill(p.bg_base).border_sides([1.0, 0.0, 0.0, 0.0], p.border);
     if shell {
         bar = bar.child(control(p, "exit-shell", t!("ui.promptInput.exitShell"))
-            .px(12.0).on_press_tx(|s: &mut App, tx| { s.exit_shell(); s.focus_composer(tx); })
+            .px(12.0).on_press_tx(|s: &mut App, tx| {
+                s.exit_shell();
+                if crate::auto_focus_composer(tx) {
+                    s.focus_composer(tx);
+                }
+            })
             .child(text(t!("ui.promptInput.exitShell")).font(LABEL).color(p.muted)));
     } else {
         for (key, label, item, symbol) in [

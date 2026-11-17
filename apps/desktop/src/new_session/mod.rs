@@ -367,7 +367,9 @@ impl App {
             if worktree {
                 self.set_draft_dir(directory);
             }
-            self.composer.focused = true;
+            if crate::auto_focus_composer(tx) {
+                self.composer.focused = true;
+            }
             tx.settle();
         }
         if let Some(sent) = held.and_then(|h| self.unsent.take(&h.id)) {

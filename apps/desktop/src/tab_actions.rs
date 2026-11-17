@@ -173,9 +173,7 @@ impl App {
         *self.route = Route::Draft(id.clone());
         let _ = self.show_draft();
         self.apply_default_destination();
-        if self.stage.is_none() {
-            self.composer.focused = true;
-        }
+        self.composer.focused = self.stage.is_none() && !session_view::style::touch_controls();
         self.save_tabs();
         id
     }
@@ -194,7 +192,9 @@ impl App {
         *self.opening = None;
         *self.route = Route::Draft(tab.id);
         let _ = self.show_draft();
-        if self.stage.is_none() {
+        if !crate::auto_focus_composer(tx) {
+            self.composer.focused = false;
+        } else if self.stage.is_none() {
             self.composer.focused = true;
         }
         tx.settle();

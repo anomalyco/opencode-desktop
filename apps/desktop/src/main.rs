@@ -970,9 +970,19 @@ impl App {
         }
         *self.opening = None;
         self.open_draft_tab();
+        if self.stage.is_none() && auto_focus_composer(tx) {
+            self.composer.focused = true;
+        }
         tx.settle();
     }
 
+}
+
+/// On a touch screen (`touch_controls()`), only a direct tap inside a text field or a hardware key
+/// (`tx.by_keys()`) puts focus in the composer; opening a session or tab, leaving Settings or a
+/// dialog, or tapping a toolbar button must not pop up the OS keyboard.
+pub(crate) fn auto_focus_composer(tx: &Tx) -> bool {
+    !session_view::style::touch_controls() || tx.by_keys()
 }
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {

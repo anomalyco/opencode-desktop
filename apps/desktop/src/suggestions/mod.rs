@@ -64,11 +64,14 @@ impl App {
             Effect::Command { id, menu } => self.pick_command(&id, menu, tx),
             Effect::FocusEditor => {
                 self.suggest.search.focused = false;
-                self.composer.focused = true;
+                if crate::auto_focus_composer(tx) {
+                    self.composer.focused = true;
+                }
             }
             Effect::FocusSearch => {
+                let keep_keyboard = self.composer.focused || crate::auto_focus_composer(tx);
                 self.suggest.search = TextEdit::new("");
-                self.suggest.search.focused = true;
+                self.suggest.search.focused = keep_keyboard;
                 self.composer.focused = false;
             }
             Effect::Preview(id) => {
@@ -81,14 +84,18 @@ impl App {
                     let caret = caret.unwrap_or(entry.text.len());
                     entry.put(&mut self.composer, caret);
                     self.suggest.search.focused = false;
-                    self.composer.focused = true;
+                    if crate::auto_focus_composer(tx) {
+                        self.composer.focused = true;
+                    }
                 }
             }
             Effect::Restore { saved, focus } => {
                 saved.entry.put(&mut self.composer, saved.caret);
                 if focus {
                     self.suggest.search.focused = false;
-                    self.composer.focused = true;
+                    if crate::auto_focus_composer(tx) {
+                        self.composer.focused = true;
+                    }
                 }
             }
             Effect::Select(id) => {

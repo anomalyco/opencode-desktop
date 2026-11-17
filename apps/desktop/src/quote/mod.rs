@@ -302,7 +302,7 @@ fn add_text(s: &mut App, text: String, comment: bool, tx: &mut Tx) {
     if comment {
         let anchor = s.quote.placed.borrow_mut().take();
         editor::open(s, key, anchor);
-    } else {
+    } else if crate::auto_focus_composer(tx) {
         s.composer.focused = true;
     }
 }

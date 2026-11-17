@@ -145,7 +145,7 @@ impl App {
         draft.entry.put(&mut self.composer, draft.caret.min(draft.entry.text.len()));
         self.attach.files = draft.files;
         self.attach.paths = draft.paths;
-        if focus {
+        if focus && !session_view::style::touch_controls() {
             self.composer.focused = true;
         }
     }
@@ -154,7 +154,10 @@ impl App {
     pub(super) fn queue_draft_effect(&mut self, session: &str, effect: Effect) -> Option<Effect> {
         let shown = self.route.is_session(session);
         match effect {
-            Effect::Load(draft) if shown => self.put_draft(draft, true),
+            Effect::Load(draft) if shown => {
+                self.put_draft(draft, true);
+                self.composer.focused = true;
+            }
             Effect::Restore { stash, focus, keep } if shown => {
                 let current = self.composer_draft();
                 // What was typed into the edit of a prompt the server took meanwhile joins the
@@ -173,7 +176,9 @@ impl App {
                 let caret = merged.len();
                 self.composer.replace_text(merged);
                 self.composer.set_caret(caret);
-                self.composer.focused = true;
+                if !session_view::style::touch_controls() {
+                    self.composer.focused = true;
+                }
                 self.attach.files.extend(files);
                 self.attach.paths.extend(paths);
             }

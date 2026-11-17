@@ -281,7 +281,9 @@ fn close(s: &mut App, tx: &mut Tx) {
     let effects = step(x, Event::Disposed);
     run(s, effects);
     s.mcp.sign_in = None;
-    s.composer.focused = s.has_composer() && !s.settings.open && s.mcp.open.is_none();
+    if crate::auto_focus_composer(tx) {
+        s.composer.focused = s.has_composer() && !s.settings.open && s.mcp.open.is_none();
+    }
 }
 
 /// Continue: sends the pasted URL, or asks for one.

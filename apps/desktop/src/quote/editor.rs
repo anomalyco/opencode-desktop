@@ -47,7 +47,7 @@ pub fn open(s: &mut App, key: u64, anchor: Option<Anchor>) {
 pub fn close(s: &mut App, focus: bool) {
     let q = &mut *s.quote;
     comment::step(&mut q.comment_seq, &mut q.comment, Event::Closed);
-    if focus {
+    if focus && !session_view::style::touch_controls() {
         s.composer.focused = true;
     }
 }

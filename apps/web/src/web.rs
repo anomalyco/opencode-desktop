@@ -11,6 +11,14 @@ use crate::{App, appearance, launch, rune_app, spec, storage, windows};
 #[path = "browser_history.rs"]
 mod browser_history;
 
+#[wasm_bindgen(inline_js = "export function initialPointer() {\n  const hoverNone = matchMedia('(hover: none)').matches;\n  const coarse = matchMedia('(pointer: coarse)').matches;\n  return (hoverNone ? 1 : 0) | (hoverNone && coarse ? 2 : 0);\n}\nexport function watchKeyboardDismiss(onDismiss) {\n  let touchDown = 0;\n  window.addEventListener('touchstart', () => { touchDown++; }, { passive: true, capture: true });\n  const end = () => { touchDown = Math.max(0, touchDown - 1); };\n  window.addEventListener('touchend', end, { passive: true, capture: true });\n  window.addEventListener('touchcancel', end, { passive: true, capture: true });\n  window.addEventListener('focusout', ev => {\n    const tag = ev.target?.tagName;\n    if (tag !== 'TEXTAREA' && tag !== 'INPUT') return;\n    queueMicrotask(() => {\n      if (touchDown > 0) return;\n      const a = document.activeElement?.tagName;\n      if (a === 'TEXTAREA' || a === 'INPUT') return;\n      onDismiss();\n    });\n  });\n}\n")]
+extern "C" {
+    #[wasm_bindgen(js_name = initialPointer)]
+    fn initial_pointer() -> u32;
+    #[wasm_bindgen(js_name = watchKeyboardDismiss)]
+    fn watch_keyboard_dismiss(on_dismiss: &js_sys::Function);
+}
+
 /// The page calls this once the module is in, with the server's password if it has one. A JSPI
 /// export, so the app's background work runs on fibers that wait on the network without holding
 /// the page (`rune::task`). The password lives only in the kit's memory, which sends it as the
@@ -19,6 +27,8 @@ mod browser_history;
 #[wasm_bindgen(jspi)]
 pub fn start(password: Option<String>) {
     rune::task::start_runners();
+    let pointer = initial_pointer();
+    session_view::style::set_pointer(pointer & 1 != 0, pointer & 2 != 0);
     // The dictionaries beside the page (`spell/`, scripts/web.ps1).
     rune::spell::set_web_dictionaries(&["en-US"]);
     // The page's arguments first: the storage and the app's spec read them.
@@ -40,6 +50,7 @@ pub fn start(password: Option<String>) {
     let i18n_wake = wake.clone();
     opencode_i18n::on_loaded(move || i18n_wake());
     browser_history::listen(handle.clone());
+    sync_keyboard_dismiss(handle.clone());
     flush_on_pagehide();
     app.init(move || {
         let mut s = App::new();
@@ -64,6 +75,25 @@ fn poll(s: &mut App, now: f64, tx: &mut rune::Tx) -> bool {
     let changed = crate::poll(s, now, tx);
     browser_history::sync(s);
     changed
+}
+
+/// On a phone or tablet, dismissing the OS soft keyboard blurs the hidden `<textarea>` without
+/// touching the canvas: mirror that blur back into `App` so the next tap on a `preserve_focus`
+/// button doesn't raise the keyboard again.
+fn sync_keyboard_dismiss(handle: rune::AppHandle<App>) {
+    let on_dismiss = Closure::<dyn FnMut()>::new(move || {
+        handle.update_if(|s, _| {
+            if !session_view::style::touch_controls() {
+                return false;
+            }
+            let changed = s.composer.focused || s.suggest.search.focused;
+            s.composer.focused = false;
+            s.suggest.search.focused = false;
+            changed
+        });
+    });
+    watch_keyboard_dismiss(on_dismiss.as_ref().unchecked_ref());
+    on_dismiss.forget();
 }
 
 /// Closing or reloading a browser tab never runs winit's `on_close`: land any queued terminal

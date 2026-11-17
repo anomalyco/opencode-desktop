@@ -290,7 +290,9 @@ impl App {
             Ok(Some(path)) => {
                 tx.instant();
                 s.attach_path(&path);
-                s.composer.focused = true;
+                if crate::auto_focus_composer(tx) {
+                    s.composer.focused = true;
+                }
             }
             Ok(None) => {}
             Err(e) => crate::status_toast::fail(s, opencode_i18n::t!("rune.status.filePickerFailed"), e.to_string()),

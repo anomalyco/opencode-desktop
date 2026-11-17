@@ -135,6 +135,7 @@ pub fn popup(
                 .role("option")
                 .label(r.label)
                 .focus_selected(active == Some(id.as_str()))
+                .preserve_focus_on_press(true)
                 .w_full()
                 .h(ROW_H)
                 .px(8.0)
@@ -149,7 +150,9 @@ pub fn popup(
                 // A row picks on the click, a release over the row it went down on, as Desktop's
                 // row button does (`editor.tsx:1388`, `onClick`); VoiceOver's press too.
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| {
-                    s.composer.focused = true;
+                    if crate::auto_focus_composer(tx) {
+                        s.composer.focused = true;
+                    }
                     press(s, &id_press, tx);
                 })
                 .child(words)

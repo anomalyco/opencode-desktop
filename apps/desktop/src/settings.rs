@@ -406,7 +406,7 @@ impl App {
     /// (`fn-key-settings.open`).
     pub(crate) fn back_to_app(&mut self, tx: &mut Tx) {
         self.close_settings();
-        if self.has_composer() {
+        if self.has_composer() && crate::auto_focus_composer(tx) {
             self.composer.focused = true;
         } else {
             tx.blur();
