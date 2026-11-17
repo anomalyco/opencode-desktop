@@ -19,17 +19,24 @@ use opencode_i18n::t;
 const TAB: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const BACK: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0);
 
-/// The rail's groups (`RootSettings`'s `groups`): the server's pages; the app's, with plugin
-/// pages (Pairing among them) before Server; then the plugins' About pages (What's new), Experimental and About.
+/// `RootSettings`'s groups: client preferences, server pages, plugin pages and about.
 pub fn groups(s: &App) -> Vec<Vec<Page>> {
     let plugins = crate::plugin_host::settings_page_ids(s);
     let (about, own): (Vec<_>, Vec<_>) = plugins.into_iter().partition(|(_, about)| *about);
-    let mut client = vec![Page::General, Page::Appearance, Page::Notifications, Page::Shortcuts];
-    client.extend(own.into_iter().map(|(id, _)| Page::Plugin(id)));
-    client.push(Page::Servers);
+    let client = vec![Page::General, Page::Appearance, Page::Notifications, Page::Shortcuts];
+    let mut server = vec![Page::Providers, Page::Models, Page::Extensions, Page::Projects, Page::Worktrees, Page::Servers];
+    let pairing = crate::plugin_host::settings_page_key(s, "pairing");
+    let mut plugins = Vec::new();
+    for (id, _) in own {
+        if id == pairing {
+            server.push(Page::Plugin(id));
+        } else {
+            plugins.push(Page::Plugin(id));
+        }
+    }
     let mut last: Vec<Page> = about.into_iter().map(|(id, _)| Page::Plugin(id)).collect();
     last.extend([Page::Experimental, Page::About]);
-    vec![vec![Page::Providers, Page::Models, Page::Extensions, Page::Projects, Page::Worktrees], client, last]
+    [client, server, plugins, last].into_iter().filter(|group| !group.is_empty()).collect()
 }
 
 /// A page's name in the rail.
