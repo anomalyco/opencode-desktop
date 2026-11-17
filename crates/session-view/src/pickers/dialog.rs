@@ -146,7 +146,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
         .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
         .child(words)
-        .children((s.pickers().hover.flyout_model() != Some(&key)).then(|| s.model_budget(&key)).flatten().map(|(label, reached)|
+        .children((!lit).then(|| s.model_budget(&key)).flatten().map(|(label, reached)|
             text(label).font(UI).color(if reached { p.v2.danger.fg } else { p.faint })))
         .children(variant);
     // The pointer on it, and its hover change (not `on_hover`: its commit would animate the
