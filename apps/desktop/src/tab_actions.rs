@@ -107,6 +107,10 @@ impl App {
 
     /// Home's button and ⌘B: Home, or back to the tab that opened Home if it's still here.
     pub(crate) fn toggle_home(&mut self, tx: &mut Tx) -> bool {
+        if self.project_navigation() {
+            crate::view::home::browse::open(self, tx);
+            return true;
+        }
         if self.route == Route::Home && !self.settings.open {
             if let Some(uid) = self.home_return_tab.take()
                 && self.tabs.iter().any(|tab| tab.uid() == uid)

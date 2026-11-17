@@ -6,7 +6,6 @@
 use std::rc::Rc;
 
 use rune_kit::ScrollBar;
-use rune_kit::shell::TabOrientation;
 
 use super::*;
 use opencode_i18n::t;
@@ -30,12 +29,14 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     let st = &s.project_state;
     let mut section = col().key("organize-projects").w_full().gap(8.0).child(header(p, st.organize_collapsed));
     if !st.organize_collapsed {
-        section = section.child(projects(s, p));
+        section = section.child(if s.project_navigation() && s.home_state.servers.len() > 1 { server_groups(s, p) } else { projects(s, p) });
     }
     // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
     // `ScrollView`, `sidebar-organized.tsx:118-158`).
     let mut content = col().key("organize-content").w_full().gap(12.0).child(section);
-    if !s.tabs.is_empty() {
+    let (pins, recent) = sidebar::pins::section(s, p);
+    content = content.children(pins);
+    if !recent.is_empty() {
         let mut tabs = col().key("organize-tabs-section").w_full().gap(12.0);
         if !st.organize_collapsed {
             tabs = tabs.child(el().key("organize-divider").mx(8.0).h(1.0).fill(p.border_muted));
@@ -43,8 +44,9 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
         // Desktop's strip here is as tall as its tabs (its section has no height of its own), so
         // this one list scrolls them. The strip scrolls itself and, with no height given, lays
         // out at none: it takes its tabs' height (`tabs-list`, as of their last layout).
-        let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(0.0);
-        content = content.child(tabs.child(col().key("organize-tabs").w_full().h(tabs_h).child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None))));
+        let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(recent.len() as f32 * 30.0);
+        content = content.child(tabs.child(sidebar::rows::section_title(p, "organize-recent-title", t!("sidebar.recent.section.recent")))
+            .child(col().key("organize-tabs").w_full().h(tabs_h).child(super::tab_strip::section_strip(s, p, "tabs", &recent, false))));
     }
     // Its thumb runs in a 12 pt track past the list's end edge, across the sidebar's end inset and
     // the gap to the panel (`inset-inline-end: calc(-1 * (3px + 8px))`), and the pointer anywhere
@@ -59,6 +61,43 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
 /// How far past the list's end edge the thumb's track ends: the sidebar's end inset and the
 /// shell's inline inset (`--sidebar-inset-end`, `--shell-inline-inset`).
 const TRACK_PAST_END: f32 = 3.0 + 8.0;
+
+/// Only label the server groups when more than one is visible (`sidebar-organized.tsx`, #64220).
+fn server_groups(s: &App, p: &Pal) -> El {
+    use crate::servers::runtime;
+    let mut groups = col().w_full().gap(4.0);
+    for server in &s.home_state.servers {
+        let key = server.key.clone();
+        let collapsed = crate::projects::home::collapsed(&key);
+        let mut group = col().role("group").label(server.label.clone()).w_full().gap(4.0)
+            .child(small_button(p, &format!("server-{key}"), &server.label).expanded(!collapsed)
+                .on_press_tx(move |_: &mut App, tx| crate::projects::home::toggle_collapsed(&key, tx)));
+        if !collapsed && server.key == *runtime::active(s) { group = group.child(projects(s, p)); }
+        if !collapsed && server.key != *runtime::active(s) {
+            for proj in &server.projects {
+                let key = format!("{}:{}", server.key, proj.id);
+                let open = s.project_state.organize_expanded.contains(&key);
+                let (on, id, anchor) = (server.key.clone(), proj.id.clone(), key.clone());
+                group = group.child(small_button(p, &key, &proj.name).expanded(open).on_press_tx(move |s: &mut App, tx| {
+                    tx.instant();
+                    if !s.project_state.organize_expanded.remove(&key) { s.project_state.organize_expanded.insert(key.clone()); }
+                }).on_secondary_press(move |s: &mut App, _, tx| {
+                    runtime::with_server(s, &on, |s| home::projects::open_project_menu(s, &id, anchor.clone(), tx));
+                }));
+                if open && let Some(rows) = server.sessions.get(&proj.id) {
+                    for (id, title) in rows.iter().take(SESSIONS) {
+                        let (server, id) = (server.key.clone(), id.clone());
+                        group = group.child(small_button(p, &format!("so-{server}-{id}"), title).pl(32.0).on_press_tx(move |s: &mut App, tx| {
+                            runtime::switch(s, &server); s.open(&id, tx);
+                        }));
+                    }
+                }
+            }
+        }
+        groups = groups.child(group);
+    }
+    groups
+}
 
 /// The Projects toggle: its label and a triangle that turns shut.
 fn header(p: &Pal, collapsed: bool) -> El {
@@ -294,11 +333,10 @@ fn target(s: &App, drag: &ProjectDrag, shown: usize) -> usize {
 
 /// A project's latest root sessions, five more per Show more, or a line when it has none.
 fn sessions(s: &App, p: &Pal, proj: &model::Project) -> Vec<El> {
-    let dir = crate::projects::clean_dir(&proj.directory);
     let mut all: Vec<&SessionInfo> = s
         .sessions
         .iter()
-        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && crate::projects::clean_dir(&i.directory) == dir)
+        .filter(|i| i.parent.is_none() && i.archived.is_none() && !crate::view::is_automation(&i.title) && s.project_for_session(i).is_some_and(|p| p.id == proj.id))
         .collect();
     all.sort_by_key(|i| std::cmp::Reverse(s.recent_page.active_ms(i)));
     if all.is_empty() {
@@ -330,6 +368,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     let target = crate::session_menu::Target::on(crate::servers::runtime::active(s), &ses.id, crate::session_menu::Spot::Row);
     let mark = match s.tab_status(&ses.id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
+        _ if crate::session_menu::preferences::muted(&target.server, &target.id) => Some(sidebar::pins::muted_mark(p)),
         Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
         _ => None,
     };

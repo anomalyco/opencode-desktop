@@ -90,14 +90,14 @@ fn strip(s: &App, p: &Pal, strip_key: &str, sessions: &[&SessionInfo], pins: Opt
             .avatar(crate::icons::badge(s, p, s.project_for_session(info), &info.title));
         // Desktop's faint trailing "Muted" label (`TabNavItem`'s `label`); the kit's tab has no
         // trailing label, so it reads under the title.
-        if muted {
-            item = item.subtitle(t!("sidebar.recent.muted"));
-        }
         if let Some(field) = crate::session_menu_view::field(s, p, &target, UI_MED) {
             item = item.editor(field);
         }
         let (id, server, count) = (info.id.clone(), here.clone(), sessions.len());
-        item.decorate(move |slot, _| slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &server, &id, pinned.then_some((index, count)), press, tx)))
+        item.decorate(move |slot, _| {
+            let slot = if muted { super::pins::marked_slot(slot, super::pins::muted_mark(p)) } else { slot };
+            slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_menu(s, &server, &id, pinned.then_some((index, count)), press, tx))
+        })
     });
     let mut strip = TabStrip::new(strip_key, TabOrientation::Vertical)
         .words(crate::view::tab_strip::tab_words())

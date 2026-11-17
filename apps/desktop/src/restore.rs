@@ -160,6 +160,11 @@ impl App {
     /// Puts back the window's saved page, drafts, closed tabs and panes, and what every window
     /// shares (live mode, before the first frame). `server` is the app's own server.
     pub fn restore_ui(&mut self, doc: &WindowDoc, server: &str) {
+        *self.home_return_tab = doc.recent.as_ref().and_then(|key| self.tabs.iter().find(|t| t.key() == *key)).map(crate::tabs::Tab::uid);
+        let namespace = opencode_storage::window_namespace(&self.window.id);
+        self.home_state.last_project = crate::storage::json(&namespace, "tabs.recent").and_then(|r| {
+            Some((opencode_kit::servers::ServerKey::new(r["target"]["server"].as_str()?), r["target"]["directory"].as_str()?.to_owned()))
+        });
         self.restore.drafts = HashMap::new();
         self.take_drafts(&doc.drafts);
         *self.closed = crate::tabs::Closed::from_doc(&doc.closed);
@@ -438,11 +443,13 @@ impl App {
     /// draws them); every other session's are `side.rest`, read after it, so the record doesn't
     /// grow with every session ever opened (3,600 sessions made it 1.2 MB).
     fn window_keys(&self) -> [(&'static str, Value); 6] {
-        let recent = self.current_tab().and_then(|uid| self.tab(&uid)).map(|t| json!({ "key": t.key().encode() }));
+        let key = self.current_tab().or_else(|| (*self.home_return_tab).clone()).and_then(|uid| self.tab(&uid)).map(|t| t.key().encode());
+        let target = self.home_state.last_project.as_ref().map(|(server, directory)| json!({ "server": server, "directory": directory }));
+        let recent = json!({ "key": key, "target": target });
         let hot = |k: &str| self.tabs.iter().any(|t| t.id == k) || matches!(&*self.route, Route::Session { id, .. } if id == k);
         [
             ("lastActiveUrl", json!(page_href(self))),
-            ("tabs.recent", recent.unwrap_or(Value::Null)),
+            ("tabs.recent", recent),
             ("side", self.side.to_json_where(hot)),
             ("side.rest", self.side.to_json_where(|k| !hot(k))),
             ("tabs.closed", closed_json(&self.closed, &self.restore.unread_closed)),
@@ -518,6 +525,7 @@ impl App {
 
     fn restore_stamp(&self) -> u64 {
         let mut h = DefaultHasher::new();
+        self.home_state.last_project.hash(&mut h);
         (&*self.route, *self.sidebar_open, self.sidebar_w.to_bits(), &self.composer.text, self.add.mode, &self.closed, self.restore.inbox).hash(&mut h);
         (self.restore.drafts.len(), self.restore.shown.as_deref()).hash(&mut h);
         // The rest of the shown draft and what the parked ones hold (`draft_doc`).
@@ -635,4 +643,3 @@ impl App {
         };
     }
 }
-

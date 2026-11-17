@@ -37,6 +37,7 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
     let id = r.session.id.clone();
     let mark = match s.tab_status(&id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
+        _ if crate::session_menu::preferences::muted(r.server, &id) => Some(super::pins::muted_mark(p)),
         Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !r.active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
         _ => None,
     };
@@ -137,7 +138,7 @@ pub(super) fn group_header(s: &App, p: &Pal, key: &str, label: String, lead: Lea
 }
 
 /// A section's title (`SectionHeader`, `recent-sessions.tsx:651-660`): 24 tall, `px-2`.
-pub(super) fn section_title(p: &Pal, key: &str, label: &str) -> El {
+pub(crate) fn section_title(p: &Pal, key: &str, label: &str) -> El {
     row().key(key.to_owned()).role("heading").label(label.to_owned()).w_full().h(24.0).px(8.0).center_y().child(text(label.to_owned()).font(HEADER).color(p.muted).shrink().truncate())
 }
 

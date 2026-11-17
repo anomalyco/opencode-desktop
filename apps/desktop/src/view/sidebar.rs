@@ -10,6 +10,7 @@ mod customized;
 mod menu;
 pub(crate) mod grouping;
 mod recent;
+pub(crate) mod pins;
 pub(super) mod rows;
 pub(crate) mod state;
 
@@ -102,7 +103,8 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
     // Away past the window's start edge: its left, or its right in a right-to-left window (an
     // offset is physical, so it turns with the direction here).
     let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
-    let x = if away && !(reduced && peek.shown()) { if rtl { w } else { -w } } else { 0.0 };
+    let surface = surface_width(s);
+    let x = if away && !(reduced && peek.shown()) { if rtl { surface } else { -surface } } else { 0.0 };
     let slide = match peek {
         SidebarPeekState::Leaving { .. } => Spring::new(k.get(&PEEK_OUT), 0.0),
         _ if peek.shown() => Spring::new(k.get(&PEEK_IN), 0.0),
@@ -151,16 +153,26 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
 /// How far the aside reaches past the sidebar into the gap before the panel (`--shell-inline-inset`).
 const GAP_ROOM: f32 = 8.0;
 
+/// A floating mount covers the panel gutter as additional end padding
+/// (`shell/shell.tsx`, `sidebar-peek.css`, 9b57cc05cb). Rows stay docked in place.
+fn surface_width(s: &App) -> f32 {
+    *s.sidebar_w + if s.layout.peek.shown() { GAP_ROOM } else { 0.0 }
+}
+
 /// What the sidebar holds, `w` wide from `top` down: the header line where the traffic lights
 /// share it, Home, Search sessions and New session, then the tabs (or the inbox).
 fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
     let home = s.route == Route::Home && !s.settings.open;
+    let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
+        .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
+        .on_secondary_press(|s: &mut App, press, tx| crate::recently_closed::open(s, press, tx));
     col()
-        .w(*s.sidebar_w)
+        .w(surface_width(s))
         .pt(top)
         .pl(INSET_START)
-        .pr(INSET_END)
+        .pr(if s.layout.peek.shown() { INSET_END + GAP_ROOM } else { INSET_END })
         .pb(10.0)
         // Shares the session header's 48px centre line with the traffic lights; drags the window.
         // A titlebar row above holds the toggle instead (`titlebar.tsx` on Windows).
@@ -185,11 +197,11 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 .w_full()
                 .gap(3.0)
                 .child(
-                    action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
+                    if s.project_navigation() { new() } else { action_row(p, "home", &ic::GRID_PLUS, t!("home.title"), &crate::keymap::Bind::Home.label(), home)
                         .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
                         .on_press_tx(|s: &mut App, tx: &mut Tx| {
                             s.toggle_home(tx);
-                        }),
+                        }) },
                 )
                 .child(
                     action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
@@ -200,11 +212,10 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                         }),
                 )
                 .child(
-                    action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
-                        .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
-                        .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
-                        // Right-click: "Recently closed" (`RecentlyClosedTabsMenu`).
-                        .on_secondary_press(|s: &mut App, press: rune::PointerPress, tx: &mut Tx| crate::recently_closed::open(s, press, tx)),
+                    if s.project_navigation() {
+                        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings.open)
+                            .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
+                    } else { new() },
                 ),
         )
         .child(el().key("tabs-gap").w_full().h(16.0))
@@ -252,7 +263,7 @@ pub(crate) fn peek(s: &App) -> Vec<El> {
     let corridor = el()
         .key("peek-corridor")
         .pin(Some(0.0), Some(chrome.row_h), None, Some(0.0))
-        .w(*s.sidebar_w + CORRIDOR)
+        .w(surface_width(s) + CORRIDOR)
         .on_hover_change(|s: &mut App, inside, tx: &mut Tx| {
             tx.live_only();
             s.queue_peek(PeekEvent::Corridor { inside, held: held(s) }, tx);
@@ -267,47 +278,52 @@ fn held(s: &App) -> bool {
 
 /// Nothing holds the pointer elsewhere: no drag, resize or menu.
 fn can_peek(s: &App) -> bool {
-    !s.popup.is_open() && s.tab_drag.dragging().is_none() && s.sidebar_drag.is_none() && s.menus.confirming().is_none()
+    !s.popup.is_open() && s.tab_drag.dragging().is_none() && matches!(*s.sidebar_drag, Resize::Idle) && s.menus.confirming().is_none()
 }
 
-/// The sidebar edge's resize handle: an 8px hit area across the gap, with a pill that waits a
-/// moment before showing on hover (`resize-handle.css`).
-pub(super) fn resize_handle(s: &App, p: &Pal, w: f32) -> El {
-    let enter = Curve::tween(0.15, Easing::cubic(0.2, 0.8, 0.2, 1.0)).delay(0.2);
-    let exit = Curve::tween(0.11, Easing::cubic(0.4, 0.0, 1.0, 1.0));
-    let dragging = s.sidebar_drag.is_some();
+/// `packages/ui/src/components/resize-handle-machine.ts`. Rune owns pointer capture
+/// and disposal; this fixed-width sidebar has no collapse threshold.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum Resize { #[default] Idle, Pressed(f32), Dragging(f32) }
+
+enum ResizeEvent { Press(f32), Move(f32), Release, Cancel }
+
+fn resize_step(state: &mut Resize, event: ResizeEvent) -> Option<f32> {
+    match (*state, event) {
+        (Resize::Idle, ResizeEvent::Press(w)) => *state = Resize::Pressed(w),
+        (Resize::Pressed(from) | Resize::Dragging(from), ResizeEvent::Move(dx)) if dx != 0.0 || matches!(*state, Resize::Dragging(_)) => {
+            *state = Resize::Dragging(from);
+            return Some((from + dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX));
+        }
+        (Resize::Dragging(from), ResizeEvent::Cancel) => { *state = Resize::Idle; return Some(from); }
+        (_, ResizeEvent::Cancel | ResizeEvent::Release) => *state = Resize::Idle,
+        _ => {}
+    }
+    None
+}
+
+/// The full 8pt draggable edge, invisible at rest, hovered, and pressed (#64219).
+pub(super) fn resize_handle(w: f32) -> El {
     el().key("sidebar-resize")
         // Below a titlebar row, which moves the window instead.
         .absolute(w, chrome().row_h)
         .w(8.0)
         .h_full()
-        .center()
         .cursor(Cursor::ResizeColumn)
-        .hover_group()
-        .hover_motion(enter, exit)
         .on_drag(|s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
-            match d.phase {
-                Phase::Down => *s.sidebar_drag = Some(*s.sidebar_w),
+            let event = match d.phase {
+                Phase::Down => ResizeEvent::Press(*s.sidebar_w),
                 Phase::Move => {
-                    let from = s.sidebar_drag.unwrap_or(*s.sidebar_w);
                     // Dragging toward the chat widens it: right, or left in a right-to-left window.
                     let dx = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -d.dx } else { d.dx };
-                    *s.sidebar_w = (from + dx).clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                    ResizeEvent::Move(dx)
                 }
-                Phase::Up => {
-                    if d.cancelled() && let Some(w) = *s.sidebar_drag { *s.sidebar_w = w; }
-                    *s.sidebar_drag = None;
-                }
-            }
+                Phase::Up if d.cancelled() => ResizeEvent::Cancel,
+                Phase::Up => ResizeEvent::Release,
+            };
+            if let Some(width) = resize_step(&mut s.sidebar_drag, event) { *s.sidebar_w = width; }
         })
-        .child(
-            el().key("pill")
-                .size(4.0, 40.0)
-                .radius(2.0)
-                .fill(if dragging { p.icon } else { p.icon_muted })
-                .group_opacity(if dragging { 1.0 } else { 0.0 }, 1.0),
-        )
 }
 
 /// The sidebar toggle (`SidebarToggle`, ghost-muted large): the open glyph or the closed one,

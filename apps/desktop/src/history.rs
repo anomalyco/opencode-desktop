@@ -24,17 +24,23 @@ pub struct Place {
 impl Place {
     /// The same entry, whichever Settings page it shows.
     fn same(&self, other: &Place) -> bool {
-        self.route == other.route && self.settings.is_some() == other.settings.is_some()
+        self.settings.is_some() && other.settings.is_some() || (self.route == other.route && self.settings == other.settings)
     }
 }
 
 #[derive(Default)]
 pub struct History {
     stack: Vec<Place>,
-    index: usize,
-    /// The entry back or forward is opening, until the page lands on it (a session may wait for its page).
-    expect: Option<Place>,
+    cursor: Cursor,
 }
+
+/// `shell/titlebar/history-machine.ts` at e85035a36c. While traversing, repeated
+/// Back/Forward steps from the target; a failed navigation stays at the source.
+enum Cursor { Idle(usize), Traversing { source: usize, target: usize } }
+
+impl Default for Cursor { fn default() -> Self { Self::Idle(0) } }
+
+enum Event { Location(Place), Back(Option<Place>), Forward }
 
 impl History {
     pub fn places(&self) -> Vec<Place> {
@@ -42,35 +48,18 @@ impl History {
     }
 
     pub fn index(&self) -> usize {
-        self.index
+        match self.cursor { Cursor::Idle(i) => i, Cursor::Traversing { target, .. } => target }
     }
 
     /// Whether `observe` would leave the history as it is: the app is where the current entry says.
     fn holds(&self, route: &Route, settings: &Option<Page>) -> bool {
-        self.expect.is_none() && self.stack.get(self.index).is_some_and(|cur| cur.route == *route && cur.settings == *settings)
+        matches!(self.cursor, Cursor::Idle(i) if self.stack.get(i).is_some_and(|cur| cur.route == *route && cur.settings == *settings))
     }
 
     /// Where the app is now. The first call starts the stack with Home behind it.
-    fn observe(&mut self, route: &Route, settings: Option<Page>, opening: bool) {
-        // Every poll lands here, so staying put clones nothing.
-        if self.expect.is_none()
-            && let Some(cur) = self.stack.get_mut(self.index)
-            && cur.route == *route
-            && cur.settings.is_some() == settings.is_some()
-        {
-            cur.settings = settings;
-            return;
-        }
-        let now = Place { route: route.clone(), settings };
-        if let Some(want) = &self.expect {
-            if *want == now {
-                self.expect = None;
-                return;
-            }
-            if opening {
-                return;
-            }
-            self.expect = None;
+    fn observe(&mut self, now: Place) {
+        if let Cursor::Traversing { source, target } = self.cursor {
+            self.cursor = Cursor::Idle(if self.stack[target].same(&now) { target } else { source });
         }
         if self.stack.is_empty() {
             let home = Place { route: Route::Home, settings: None };
@@ -78,26 +67,35 @@ impl History {
                 self.stack.push(home);
             }
             self.stack.push(now);
-            self.index = self.stack.len() - 1;
+            self.cursor = Cursor::Idle(self.stack.len() - 1);
             return;
         }
-        if self.stack[self.index].same(&now) {
-            self.stack[self.index].settings = now.settings;
+        let index = self.index();
+        if self.stack[index].same(&now) {
+            self.stack[index] = now;
             return;
         }
-        self.stack.truncate(self.index + 1);
+        self.stack.truncate(index + 1);
         self.stack.push(now);
         if self.stack.len() > MAX {
             self.stack.remove(0);
         }
-        self.index = self.stack.len() - 1;
+        self.cursor = Cursor::Idle(self.stack.len() - 1);
     }
 
-    fn step(&mut self, forward: bool) -> Option<Place> {
-        let index = if forward { self.index + 1 } else { self.index.checked_sub(1)? };
-        let to = self.stack.get(index)?.clone();
-        self.index = index;
-        self.expect = Some(to.clone());
+    fn step(&mut self, event: Event) -> Option<Place> {
+        let mut source = match self.cursor { Cursor::Idle(i) | Cursor::Traversing { source: i, .. } => i };
+        let target = match event {
+            Event::Location(now) => { self.observe(now); return None; }
+            Event::Forward => self.index() + 1,
+            Event::Back(None) => self.index().checked_sub(1)?,
+            Event::Back(Some(to)) => match self.index().checked_sub(1) {
+                Some(i) => { self.stack[i] = to; i }
+                None => { self.stack.insert(0, to); source += 1; 0 }
+            },
+        };
+        let to = self.stack.get(target)?.clone();
+        self.cursor = Cursor::Traversing { source, target };
         Some(to)
     }
 
@@ -112,13 +110,12 @@ impl History {
             if !kept.last().is_some_and(|k| k.same(&place)) {
                 kept.push(place);
             }
-            if i <= self.index {
+            if i <= self.index() {
                 index = kept.len() - 1;
             }
         }
         self.stack = kept;
-        self.index = index;
-        self.expect = None;
+        self.cursor = Cursor::Idle(index);
     }
 }
 
@@ -145,15 +142,17 @@ impl App {
     pub fn sync_history(&mut self) {
         let page = self.settings.open.then(|| self.settings_pages.page.clone());
         // Every poll comes here: the history is written only when the app moved.
-        if !self.nav.holds(&self.route, &page) {
-            self.nav.observe(&*self.route, page, self.opening.is_some());
+        if !self.nav.holds(&self.route, &page) && (self.opening.is_none() || matches!(self.nav.cursor, Cursor::Idle(_))) {
+            let now = Place { route: (*self.route).clone(), settings: page };
+            self.nav.step(Event::Location(now));
         }
     }
 
     /// Opens the entry before (or after) this one. False when there's nowhere to go.
     pub fn navigate(&mut self, forward: bool, tx: &mut Tx) -> bool {
         self.sync_history();
-        let Some(to) = self.nav.step(forward) else { return false };
+        let dest = (self.settings.open && self.project_navigation()).then(|| Place { route: self.restore_project_tab().map_or(Route::Home, |tab| tab.route()), settings: None });
+        let Some(to) = self.nav.step(if forward { Event::Forward } else { Event::Back(dest) }) else { return false };
         let keep_home = tx.focused() == Some("home");
         tx.instant();
         self.cancel_open(tx);

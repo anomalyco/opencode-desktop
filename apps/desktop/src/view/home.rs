@@ -4,6 +4,7 @@ use opencode_i18n::t;
 use rune_kit::{ScrollBar, ScrollBarStyle};
 
 pub(crate) mod fold;
+pub(crate) mod browse;
 pub(crate) mod list;
 pub(crate) mod projects;
 mod search;
@@ -66,6 +67,7 @@ const SESSIONS_MAX: f32 = 720.0;
 
 /// Home in the panel `panel` big, in a window `window` big (zeros when unknown: a story).
 pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32; 2]) -> El {
+    if s.project_navigation() { return browse::landing(s, p); }
     // One server that didn't answer shows the setup card; with several, Home lists them.
     if crate::launch::offline(s) && !servers::grouped(s) {
         return no_server_home(s, p);
