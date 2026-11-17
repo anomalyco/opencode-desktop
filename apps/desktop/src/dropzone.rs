@@ -1,5 +1,5 @@
-//! Desktop's drop overlay (`composer/dropzone.tsx`) over the page while a file drag is over it:
-//! the page frosts under a 1.5 pt blur that fades out toward the edges, then a wash, faint
+//! Desktop's drop overlay (`composer/dropzone.tsx`) over the window while a file drag is over it:
+//! the window frosts under a 1.5 pt blur that fades out toward the edges, then a wash, faint
 //! diagonal stripes fading out from the centre, an upload badge, and a label for what the
 //! selected model reads (images, PDFs, both or neither), as `attach_path` sends them. It fades in
 //! and out over Desktop's 200 ms ease-out cubic, at once under Reduce Motion.
