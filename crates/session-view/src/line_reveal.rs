@@ -207,6 +207,11 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
             let Some(opencode_kit::model::Message::Assistant(a)) = t.messages.last() else { return };
             for (i, part) in a.parts.iter().enumerate() {
                 let opencode_kit::model::Part::Text { text } = part else { continue };
+                // Desktop's row mounts once `text.trim()` is non-empty (`timeline-next/projection.ts:117-135`),
+                // so `createPacedTextState` mounts the first rendered chunk whole before pacing later bursts.
+                if text.trim().is_empty() {
+                    continue;
+                }
                 let key = format!("{}:{i}", a.id);
                 let was = hold.paced(&a.id, i);
                 let paced = hold.paced.entry(key.clone()).or_insert_with(|| Paced::mount(text));
