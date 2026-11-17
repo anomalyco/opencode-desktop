@@ -34,6 +34,9 @@ pub const CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0);
 /// A tool's code (`--v2-font-family-code` at 440, tracking -0.04): a console's text, a shell's
 /// command, Execute's calls.
 pub const TOOL_CODE: TextStyle = TextStyle::new(13.0, 440.0).mono().lh(20.0).tracking(-0.04);
+/// The faces a transcript draws in, whose ASCII outlines build in the idle turns after the first
+/// frame (`rune::text::warm_outlines`): Inter's 440, 530, 600 and 670 instances, and Plex Mono.
+pub const WARM: [TextStyle; 5] = [MD, UI_MED, H1, MD_H[2], CODE];
 
 /// `--container-session`: 744 including 24 px padding on each side.
 pub const CONTENT_W: f32 = 696.0;

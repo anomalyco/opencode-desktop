@@ -173,6 +173,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_ready(move |_| {
             // The first frame is up: the storage's second stage is taken off the UI thread.
             crate::storage::presented();
+            // A new session's first frame then finds its glyphs' outlines built.
+            rune::text::warm_outlines(&session_view::style::WARM);
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
             ready.update_if(move |s, tx| {
