@@ -201,6 +201,16 @@ impl App {
                 None => t.apply(ty, data, now),
             };
         }
+        // A user's message can reach the transcript before the separate inbox delivery.
+        // Once the echo landed, the steer is that row, not another copy below Working.
+        if done.transcript && matches!(ty, "session.user.message" | "session.prompted")
+            && let Some(id) = data["messageID"].as_str()
+            && self.inboxes.get(&sid).is_some_and(|i| i.steering().any(|item| item.id == id))
+            && let Some(item) = self.inboxes.get_mut(&sid).and_then(|i| i.remove(id))
+        {
+            if !item.files.is_empty() { opencode_kit::model::set_user_files(id, item.files); }
+            done.inbox = true;
+        }
         if ty == "session.renamed" && let Some(title) = data["title"].as_str()
             && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
             session.title = title.to_owned();
