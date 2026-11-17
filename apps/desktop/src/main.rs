@@ -206,6 +206,7 @@ mod rune_mcp;
 mod scenes;
 mod scrollbar;
 mod shell_fold;
+mod wheel;
 mod short_group;
 mod selection_stories;
 mod send;
