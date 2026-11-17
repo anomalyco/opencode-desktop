@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Använd {{origin}}",
   "rune.web.limits": "En förhandsversion: den inbyggda webbläsaren, diktering och uppdateringar fungerar inte i webbläsaren än. Sessioner du öppnar är serverns egna: det du skickar, byter namn på och tar bort når fram till den.",
   "rune.web.loading": "Laddar…",
-  "rune.web.needsJspi": "Den här sidan behöver WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) eller senare.",
   "rune.web.signOut": "Logga ut",
   "rune.web.stay.body": "Den här webbläsaren sparar ditt lösenord för {{server}} på den här enheten, och en hemskärmsapp som du lägger till härifrån får det också, så appen öppnas utan att fråga. Alla som kan använda enheten upplåst kan använda det. Logga ut, under Inställningar › Server, tar bort det.",
   "rune.web.stay.no": "Inte nu",

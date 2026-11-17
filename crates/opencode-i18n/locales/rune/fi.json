@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Käytä osoitetta {{origin}}",
   "rune.web.limits": "Esiversio: sisäänrakennettu selain, sanelu ja päivitykset eivät vielä toimi selaimessa. Avaamasi istunnot ovat palvelimen omia: lähettämäsi, uudelleennimeämäsi ja poistamasi asiat päätyvät sinne.",
   "rune.web.loading": "Ladataan…",
-  "rune.web.needsJspi": "Tämä sivu tarvitsee WebAssembly JS Promise Integrationin: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) tai uudempi.",
   "rune.web.signOut": "Kirjaudu ulos",
   "rune.web.stay.body": "Tämä selain säilyttää palvelimen {{server}} salasanasi tällä laitteella, ja täältä Koti-valikkoon lisäämäsi appi saa sen myös, joten se avautuu kysymättä. Kuka tahansa, joka voi käyttää tätä laitetta lukitsemattomana, voi käyttää sitä. Kirjaudu ulos -kohta asetuksissa › Palvelin poistaa sen.",
   "rune.web.stay.no": "Ei nyt",

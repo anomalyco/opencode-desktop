@@ -36,7 +36,7 @@
   #connect .error { display: none; margin: 8px 0 0; color: #e5484d; }
   button { height: 28px; padding: 0 12px; font: inherit; border: 1px solid #009fff; border-radius: 0; background: #009fff; color: #fff; cursor: pointer; }
   .limits { margin: 12px 0 0; color: color-mix(in srgb, CanvasText 60%, transparent); }
-  #status { position: fixed; inset: 0; display: grid; place-items: center; color: color-mix(in srgb, CanvasText 60%, transparent); pointer-events: none; }
+  #status { position: fixed; inset: 0; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 420px); justify-content: center; align-content: center; padding: 24px max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left)); text-align: center; color: color-mix(in srgb, CanvasText 60%, transparent); pointer-events: none; }
   #notice, #stay { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 10; display: none; max-width: 360px; padding: 8px 12px; }
   #notice button { margin-top: 8px; height: 24px; }
   #stay h2 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }

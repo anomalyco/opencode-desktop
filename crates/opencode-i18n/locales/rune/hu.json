@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "{{origin}} használata",
   "rune.web.limits": "Előzetes verzió: a beépített böngésző, a diktálás és a frissítések még nem működnek a böngészőben. A megnyitott munkamenetek a kiszolgálóéi: amit küld, átnevez és töröl, az eljut hozzá.",
   "rune.web.loading": "Betöltés…",
-  "rune.web.needsJspi": "Ehhez az oldalhoz WebAssembly JS Promise Integration kell: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) vagy újabb.",
   "rune.web.signOut": "Kijelentkezés",
   "rune.web.stay.body": "Ez a böngésző ezen az eszközön tárolja a(z) {{server}} jelszavát, és az innen a Főképernyőhöz adott alkalmazás is megkapja, így kérdés nélkül nyílik meg. Bárki, aki feloldva használhatja az eszközt, használhatja. A Kijelentkezés a Beállítások › Kiszolgáló alatt eltávolítja.",
   "rune.web.stay.no": "Most nem",

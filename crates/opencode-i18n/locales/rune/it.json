@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Usa {{origin}}",
   "rune.web.limits": "Un'anteprima: il browser integrato, la dettatura e gli aggiornamenti non funzionano ancora nel browser. Le sessioni che apri sono del server: ciò che invii, rinomini ed elimini arriva a lui.",
   "rune.web.loading": "Caricamento…",
-  "rune.web.needsJspi": "Questa pagina richiede WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) o successivi.",
   "rune.web.signOut": "Esci",
   "rune.web.stay.body": "Questo browser conserva la tua password per {{server}} su questo dispositivo, e un'app della schermata Home aggiunta da qui la riceve anch'essa, così si apre senza chiederla. Chiunque possa usare questo dispositivo sbloccato può usarla. Esci, in Impostazioni › Server, la rimuove.",
   "rune.web.stay.no": "Non ora",

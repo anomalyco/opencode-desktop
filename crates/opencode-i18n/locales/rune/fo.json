@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Nýt {{origin}}",
   "rune.web.limits": "Ein undanvísing: innbygdi kagin, upplestur og dagføringar virka ikki í kaganum enn. Setur, tú letur upp, eru ambætarans egnu: tað, tú sendir, gevur nýtt navn og strikar, røkkur til hansara.",
   "rune.web.loading": "Innlesing…",
-  "rune.web.needsJspi": "Henda síðan krevur WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ella nýggjari.",
   "rune.web.signOut": "Rita út",
   "rune.web.stay.body": "Hesin kagin goymir loyniorð títt til {{server}} á hesi eindini, og ein heimaskíggja-app, tú leggur afturat héðani, fær tað eisini, so appin letur seg upp uttan at spyrja. Øll, ið kunnu nýta eindina ólæsta, kunnu nýta tað. Rita út, í Stillingum › Ambætari, strikar tað.",
   "rune.web.stay.no": "Ikki nú",

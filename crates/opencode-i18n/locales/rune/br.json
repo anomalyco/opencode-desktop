@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Usar {{origin}}",
   "rune.web.limits": "Uma prévia: o navegador integrado, o ditado e as atualizações ainda não funcionam no navegador. As sessões que você abre são do servidor: o que você envia, renomeia e exclui chega a ele.",
   "rune.web.loading": "Carregando…",
-  "rune.web.needsJspi": "Esta página precisa de WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ou mais recente.",
   "rune.web.signOut": "Sair",
   "rune.web.stay.body": "Este navegador guarda sua senha de {{server}} neste dispositivo, e um app da Tela de Início que você adicionar daqui também a recebe, então ele abre sem pedi-la. Qualquer pessoa que use este dispositivo desbloqueado pode usá-la. Sair, em Configurações › Servidor, a remove.",
   "rune.web.stay.no": "Agora não",

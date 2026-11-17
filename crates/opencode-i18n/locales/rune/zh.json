@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "使用 {{origin}}",
   "rune.web.limits": "预览版：内置浏览器、听写和更新在浏览器中暂不可用。你打开的会话属于服务器本身：你发送、重命名和删除的内容都会同步到服务器。",
   "rune.web.loading": "加载中…",
-  "rune.web.needsJspi": "此页面需要 WebAssembly JS Promise Integration：Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) 或更高版本。",
   "rune.web.signOut": "退出登录",
   "rune.web.stay.body": "此浏览器会在此设备上保存你在 {{server}} 的密码，从这里添加到主屏幕的应用也会获得它，因此应用打开时不再询问密码。任何能使用这台已解锁设备的人都可以使用它。在“设置 › 服务器”中退出登录即可将其删除。",
   "rune.web.stay.no": "以后再说",

@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "{{origin}} dan foydalanish",
   "rune.web.limits": "Oldindan ko'rish: o'rnatilgan brauzer, diktovka va yangilanishlar brauzerda hali ishlamaydi. Siz ochgan seanslar serverniki: yuborgan, nomini o'zgartirgan va o'chirgan narsalaringiz unga yetib boradi.",
   "rune.web.loading": "Yuklanmoqda…",
-  "rune.web.needsJspi": "Bu sahifaga WebAssembly JS Promise Integration kerak: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) yoki yangiroq.",
   "rune.web.signOut": "Chiqish",
   "rune.web.stay.body": "Bu brauzer {{server}} uchun parolingizni shu qurilmada saqlaydi, va bu yerdan Bosh ekranga qo'shgan ilovangiz ham uni oladi, shuning uchun ilova so'ramasdan ochiladi. Bu qurilmani qulfi ochiq holda ishlata oladigan har kim undan foydalana oladi. Sozlamalar › Server bo'limidagi Chiqish uni o'chiradi.",
   "rune.web.stay.no": "Hozir emas",

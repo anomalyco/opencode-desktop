@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Izmantot {{origin}}",
   "rune.web.limits": "Priekšskatījums: iebūvētais pārlūks, diktēšana un atjauninājumi pārlūkā vēl nedarbojas. Jūsu atvērtās sesijas pieder serverim: tas, ko sūtāt, pārdēvējat un dzēšat, nonāk pie tā.",
   "rune.web.loading": "Ielādējas…",
-  "rune.web.needsJspi": "Šai lapai vajag WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) vai jaunāku.",
   "rune.web.signOut": "Izrakstīties",
   "rune.web.stay.body": "Šis pārlūks glabā jūsu {{server}} paroli šajā ierīcē, un no šejienes sākuma ekrānam pievienotā lietotne to arī saņem, tāpēc tā atveras bez jautāšanas. Ikviens, kas var lietot atbloķētu ierīci, to var izmantot. Izrakstīšanās sadaļā Iestatījumi › Serveris to noņem.",
   "rune.web.stay.no": "Ne tagad",

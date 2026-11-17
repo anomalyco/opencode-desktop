@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Guna {{origin}}",
   "rune.web.limits": "Pratonton: pelayar terbenam, imlak dan kemas kini belum berfungsi dalam pelayar. Sesi yang anda buka milik pelayan: apa yang anda hantar, namakan semula dan padam sampai kepadanya.",
   "rune.web.loading": "Memuatkan…",
-  "rune.web.needsJspi": "Halaman ini memerlukan WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) atau lebih baharu.",
   "rune.web.signOut": "Log keluar",
   "rune.web.stay.body": "Pelayar ini menyimpan kata laluan anda untuk {{server}} pada peranti ini, dan apl Skrin Utama yang anda tambah dari sini turut menerimanya, jadi apl dibuka tanpa bertanya. Sesiapa yang boleh menggunakan peranti ini tanpa kunci boleh menggunakannya. Log keluar, dalam Tetapan › Pelayan, membuangnya.",
   "rune.web.stay.no": "Bukan sekarang",

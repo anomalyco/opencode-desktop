@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Použít {{origin}}",
   "rune.web.limits": "Náhled: vestavěný prohlížeč, diktování a aktualizace v prohlížeči zatím nefungují. Relace, které otevřete, patří serveru: co odešlete, přejmenujete a smažete, se k němu dostane.",
   "rune.web.loading": "Načítání…",
-  "rune.web.needsJspi": "Tato stránka potřebuje WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) nebo novější.",
   "rune.web.signOut": "Odhlásit",
   "rune.web.stay.body": "Tento prohlížeč uchová vaše heslo k {{server}} na tomto zařízení a aplikace na ploše přidaná odsud ho dostane také, takže se otevře bez ptaní. Kdokoli, kdo může odemčené zařízení používat, ho může použít. Odhlášení v Nastavení › Server ho odstraní.",
   "rune.web.stay.no": "Teď ne",

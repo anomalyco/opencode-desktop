@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "{{origin}} ይጠቀሙ",
   "rune.web.limits": "ቅድመ እይታ፦ የተካተተው አሳሽ፣ በድምፅ መጻፍ እና ዝማኔዎች በአሳሹ ውስጥ ገና አይሰሩም። የሚከፍቷቸው ክፍለ ጊዜዎች የአገልጋዩ ናቸው፦ የሚልኩት፣ ስሙን የሚቀይሩት እና የሚሰርዙት ሁሉ ይደርሰዋል።",
   "rune.web.loading": "በመጫን ላይ…",
-  "rune.web.needsJspi": "ይህ ገጽ WebAssembly JS Promise Integration ያስፈልገዋል፦ Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ወይም አዲስ።",
   "rune.web.signOut": "ውጣ",
   "rune.web.stay.body": "ይህ አሳሽ ለ{{server}} የይለፍ ቃልዎን በዚህ መሣሪያ ላይ ያስቀምጣል፣ ከዚህ ወደ መነሻ ማያ ገጽ የሚያክሉት መተግበሪያም ያገኘዋል፣ ስለዚህ መተግበሪያው ሳይጠይቅ ይከፈታል። ይህን መሣሪያ ተከፍቶ መጠቀም የሚችል ማንኛውም ሰው ሊጠቀምበት ይችላል። በቅንብሮች › አገልጋይ ውስጥ ውጣ ያስወግደዋል።",
   "rune.web.stay.no": "አሁን አይደለም",

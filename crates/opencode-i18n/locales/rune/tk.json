@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "{{origin}} ulan",
   "rune.web.limits": "Synag görnüşi: içine gurlan brauzer, diktowka we täzelenmeler brauzerde entek işlemeýär. Açýan sessiýalaryňyz serweriňkidir: iberýän, adyny üýtgedýän we pozýan zatlaryňyz oňa ýetýär.",
   "rune.web.loading": "Ýüklenýär…",
-  "rune.web.needsJspi": "Bu sahypa WebAssembly JS Promise Integration gerek: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ýa-da täzesi.",
   "rune.web.signOut": "Çykmak",
   "rune.web.stay.body": "Bu brauzer {{server}} üçin parolyňyzy bu enjamda saklaýar, we şu ýerden Baş ekrana goşan programmaňyz hem ony alýar, şonuň üçin programma soramazdan açylýar. Bu enjamy gulpy açyk ulanyp bilýän islendik adam ony ulanyp biler. Sazlamalar › Serwer bölümindäki Çykmak ony aýyrýar.",
   "rune.web.stay.no": "Häzir däl",

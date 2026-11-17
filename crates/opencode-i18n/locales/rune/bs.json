@@ -270,7 +270,6 @@
   "rune.web.connect.useOrigin": "Koristi {{origin}}",
   "rune.web.limits": "Pregled: ugrađeni preglednik, diktiranje i ažuriranja još ne rade u pregledniku. Sesije koje otvorite pripadaju serveru: ono što pošaljete, preimenujete i izbrišete stiže do njega.",
   "rune.web.loading": "Učitavanje…",
-  "rune.web.needsJspi": "Ova stranica treba WebAssembly JS Promise Integration: Chrome / Edge 137, Firefox 153, Safari 27 (iOS 27) ili noviji.",
   "rune.web.signOut": "Odjava",
   "rune.web.stay.body": "Ovaj preglednik čuva vašu lozinku za {{server}} na ovom uređaju, a aplikacija na početnom ekranu dodana odavde je također dobija, pa se otvara bez pitanja. Svako ko može koristiti ovaj otključani uređaj može je koristiti. Odjava u Postavkama › Server je uklanja.",
   "rune.web.stay.no": "Ne sada",
