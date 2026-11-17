@@ -117,6 +117,9 @@ struct Global {
     fold_user: bool,
     viewport: u32,
     revert: Option<String>,
+    /// The device scale the rows were spaced at (`rhythm::prose_insets`): a projection filled
+    /// before a window's first view spaced them at 1, so the view that knows the scale respaces.
+    scale: u32,
 }
 
 /// What only the newest span reads: whether the turn runs, Working, and what waits to send.
@@ -204,6 +207,7 @@ pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Rc<Projection> {
         fold_user,
         viewport: crate::fold::place(s, &t.session)("").viewport.to_bits(),
         revert: inp.revert.map(str::to_owned),
+        scale: crate::scroller::device_scale().to_bits(),
     };
     let tail = tail_of(s, t, &inp);
     // Only a reader at the end can start with the newest rows: one scrolled up needs the row it
