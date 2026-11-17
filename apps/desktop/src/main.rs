@@ -1005,7 +1005,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     changed |= s.poll_places(now, tx);
     s.poll_undo(now, tx);
     reconnect::audit(s);
-    popup::poll(s);
+    popup::poll(s, tx);
     // The servers the window isn't checked out on: their launches, replies and streams.
     changed |= servers::runtime::poll(s, tx);
     changed |= servers::health::poll(s, tx);

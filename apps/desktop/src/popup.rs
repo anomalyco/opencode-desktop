@@ -454,8 +454,10 @@ fn focus_lit(s: &App, level: usize, ring: bool, tx: &mut Tx) {
 }
 
 /// Settles [`Popup::native`] once its repost window elapses.
-pub fn poll(s: &mut App) {
-    let _ = native::step(&mut s.popup.native, native::Event::Tick { now: *s.clock });
+pub fn poll(s: &mut App, tx: &mut Tx) {
+    if let native::Effect::WakeAfter(d) = native::step(&mut s.popup.native, native::Event::Tick { now: *s.clock }) {
+        tx.wake_after(d);
+    }
 }
 
 /// Opens `menu` at `anchor`, an element's key or a point in window points. `pick` runs once it
@@ -473,7 +475,7 @@ pub fn open(s: &mut App, menu: Menu, anchor: impl Into<PopupAnchor>, tx: &mut Tx
             }
             native::Effect::Show | native::Effect::WakeAfter(_) | native::Effect::None => {
                 tx.popup_menu(menu.native(), anchor, move |s: &mut App, picked: Option<&str>, tx: &mut Tx| {
-                    if let native::Effect::WakeAfter(d) = native::step(&mut s.popup.native, native::Event::MenuClosed { picked: picked.is_some(), now: *s.clock }) {
+                    if let native::Effect::WakeAfter(d) = native::step(&mut s.popup.native, native::Event::MenuClosed { picked: picked.is_some() }) {
                         tx.wake_after(d);
                     }
                     pick(s, picked, tx);

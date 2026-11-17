@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 /// How long after an unpicked native dismissal a reposted pointer press on the same anchor counts
-/// as the press that closed it.
-const REPOST_WINDOW_S: f64 = 0.08;
+/// as the press that closed it (covers AppKit's menu fade-out before reposting).
+const REPOST_WINDOW_S: f64 = 0.20;
 
 #[derive(Debug, Default, PartialEq)]
 pub enum State {
@@ -17,6 +17,10 @@ pub enum State {
     Closed,
     /// `tx.popup_menu` was asked to open on `anchor` (if keyed) and has not yet resolved.
     Open { anchor: Option<String> },
+    /// `anchor`'s menu just ended its modal tracking loop without a pick; the next `poll` stamps
+    /// `due` from the post-tracking frame clock (`*s.clock` inside `resolve_popup` still holds the
+    /// pre-menu frame's timestamp).
+    JustClosed { anchor: String },
     /// `anchor`'s menu closed without a pick; until `due`, a pointer press on `anchor` is the
     /// reposted press that dismissed it.
     Dismissing { anchor: String, due: f64 },
@@ -24,7 +28,7 @@ pub enum State {
 
 pub enum Event<'a> {
     OpenRequested { anchor: Option<&'a str>, by_keys: bool },
-    MenuClosed { picked: bool, now: f64 },
+    MenuClosed { picked: bool },
     Tick { now: f64 },
 }
 
@@ -39,7 +43,13 @@ pub enum Effect {
 pub fn step(state: &mut State, event: Event<'_>) -> Effect {
     match event {
         Event::OpenRequested { anchor: Some(a), by_keys: false }
-            if matches!(state, State::Open { anchor: Some(open) } | State::Dismissing { anchor: open, .. } if open == a) =>
+            if matches!(
+                state,
+                State::Open { anchor: Some(open) }
+                    | State::JustClosed { anchor: open }
+                    | State::Dismissing { anchor: open, .. }
+                    if open == a
+            ) =>
         {
             *state = State::Closed;
             Effect::SwallowReposted
@@ -48,22 +58,28 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effect {
             *state = State::Open { anchor: anchor.map(str::to_owned) };
             Effect::Show
         }
-        Event::MenuClosed { picked: false, now } => match std::mem::take(state) {
+        Event::MenuClosed { picked: false } => match std::mem::take(state) {
             State::Open { anchor: Some(anchor) } => {
-                *state = State::Dismissing { anchor, due: now + REPOST_WINDOW_S };
-                Effect::WakeAfter(Duration::from_secs_f64(REPOST_WINDOW_S))
+                *state = State::JustClosed { anchor };
+                Effect::WakeAfter(Duration::ZERO)
             }
             _ => Effect::None,
         },
-        Event::MenuClosed { picked: true, .. } => {
+        Event::MenuClosed { picked: true } => {
             *state = State::Closed;
             Effect::None
         }
-        Event::Tick { now } => {
-            if matches!(state, State::Dismissing { due, .. } if now >= *due) {
-                *state = State::Closed;
+        Event::Tick { now } => match state {
+            State::JustClosed { anchor } => {
+                let anchor = std::mem::take(anchor);
+                *state = State::Dismissing { anchor, due: now + REPOST_WINDOW_S };
+                Effect::WakeAfter(Duration::from_secs_f64(REPOST_WINDOW_S))
             }
-            Effect::None
-        }
+            State::Dismissing { due, .. } if now >= *due => {
+                *state = State::Closed;
+                Effect::None
+            }
+            _ => Effect::None,
+        },
     }
 }
