@@ -60,12 +60,26 @@ const META: TextStyle = UI.features("\"tnum\"");
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Color) -> El {
     let t = text(s.to_owned()).font(style).color(color).truncate_fade();
+    match match_span(s, q, accent) {
+        Some(span) => t.spans(vec![span]),
+        None => t,
+    }
+}
+
+/// [`highlighted`]'s span: the first match of the query in `s`.
+fn match_span(s: &str, q: &str, accent: Color) -> Option<Span> {
     let lower = s.to_lowercase();
     let needle = q.trim().to_lowercase();
     match lower.find(&needle) {
-        Some(at) if !needle.is_empty() && lower.len() == s.len() => t.spans(vec![Span::new(at, at + needle.len()).color(accent)]),
-        _ => t,
+        Some(at) if !needle.is_empty() && lower.len() == s.len() => Some(Span::new(at, at + needle.len()).color(accent)),
+        _ => None,
     }
+}
+
+/// `s`'s width as a text that inherits `dir` draws it, so the measure and the drawn text share
+/// one shaped layout.
+fn width_in(s: &str, spans: &[Span], style: TextStyle, dir: rune::Direction) -> f32 {
+    rune::text::measure_with(s, spans, style, None, rune::text::RichLayoutOptions::new().direction(dir)).0
 }
 
 /// The scrim, and the dialog where Desktop puts it: `<Dialog size="large" fit>`
@@ -243,6 +257,7 @@ fn memo_row(s: &App, p: &Pal, e: &Entry, lit: bool, q: &str, w: f32, place: (usi
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut v = DefaultHasher::new();
     (e, q, w.to_bits(), lit, place, stacked(s, e), session_view::style::touch_controls()).hash(&mut v);
+
     (s.switcher.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
     let own = crate::servers::runtime::active(s);
     let session = match &e.action {
@@ -444,7 +459,7 @@ fn session_parts(s: &App, p: &Pal, e: &Entry, id: &str, project: Option<&opencod
     }
     let meta = e.updated.map(|at| {
         let ago = relative_time(*s.now_ms, at);
-        let w = rune::text::measure(&ago, &[], META, None).0;
+        let w = width_in(&ago, &[], META, crate::view::ui_direction());
         // The full date shows on hover (`Tooltip` over `command-palette-meta`).
         let full = opencode_i18n::date::format(opencode_i18n::date::Style::MonthDayYearTime, session_view::turn_errors::moment(rune::LocalTime::at(at)));
         (text(ago).key("meta").font(META).color(p.muted).help(full), w)
@@ -479,8 +494,8 @@ fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
         (_, Some(chord)) => crate::keymap::caps(chord),
         _ => return None,
     };
-    let label = TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);
-    let w = caps.iter().map(|c| rune::text::measure(&c.to_uppercase(), &[], label, None).0.max(6.0) + 8.0).sum::<f32>() + 2.0 * (caps.len() as f32 - 1.0);
+    // The chips' own label style, in their left-to-right row.
+    let w = caps.iter().map(|c| width_in(&c.to_uppercase(), &[], crate::keymap::LABEL, rune::Direction::Ltr).max(6.0) + 8.0).sum::<f32>() + 2.0 * (caps.len() as f32 - 1.0);
     Some((crate::keymap::chips(p, caps).key("hint"), w))
 }
 
@@ -508,6 +523,6 @@ fn file_main(p: &Pal, path: &str, q: &str) -> El {
                 .dir(rune::Direction::Ltr)
                 .child(highlighted(&dir, q, UI, p.muted, p.accent).truncate().shrink().min_w(0.0))
                 // The name never gives way (`flex-shrink: 0`).
-                .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(rune::text::measure(name, &[], UI_MED, None).0)),
+                .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(width_in(name, &match_span(name, q, p.accent).into_iter().collect::<Vec<_>>(), UI_MED, rune::Direction::Ltr))),
         )
 }

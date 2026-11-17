@@ -14,6 +14,7 @@ use rune::{Chord, Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 pub mod overrides;
 pub(crate) mod view;
 pub use view::{chips, keycaps};
+pub(crate) use view::LABEL;
 
 use KeyPlatform::{Linux, Mac, Windows};
 
