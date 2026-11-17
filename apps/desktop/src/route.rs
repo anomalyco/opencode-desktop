@@ -5,13 +5,13 @@
 use opencode_kit::servers::ServerKey;
 
 impl crate::App {
-    /// Desktop's `shell/projects-sidebar.ts` (e85035a36c). All navigation entry points
+    /// Desktop's `shell/project-navigation.ts` (139e5c2a14). All navigation entry points
     /// use the same predicate, including when the vertical sidebar is collapsed.
     pub(crate) fn project_navigation(&self) -> bool {
         let width = self.layout.narrow.width();
         !cfg!(target_arch = "wasm32") && (width == 0.0 || width >= 768.0)
             && self.tab_layout() == crate::layout_state::TabLayout::Vertical
-            && matches!(self.settings.sidebar_organize.effective(), crate::settings::Organize::Projects)
+            && matches!(self.settings.sidebar_organize.effective(), crate::settings::Organize::Projects | crate::settings::Organize::Customize)
     }
 
     pub(crate) fn restore_project_tab(&self) -> Option<&crate::tabs::Tab> {

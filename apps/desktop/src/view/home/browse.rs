@@ -140,3 +140,18 @@ pub(super) fn landing(s: &App, p: &Pal) -> El {
         .child(text(caption).font(UI).color(p.muted))
         .child(widgets::button(t!("project.browse.title"), ButtonVariant::Ghost).on_press_tx(open).build(kit))
 }
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("sidebar-project-landing", |s| {
+        crate::scenes::side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Projects;
+        s.tabs.clear();
+        *s.route = Route::Home;
+    }),
+    ("sidebar-customize-landing", |s| {
+        crate::scenes::side_tabs(s);
+        s.settings.sidebar_organize = crate::settings::Organize::Customize;
+        s.tabs.clear();
+        *s.route = Route::Home;
+    }),
+]);
