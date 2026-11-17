@@ -27,14 +27,15 @@ pub enum Event<'a> {
     /// The press was cancelled (the window lost the pointer, a system dialog took capture): it
     /// chooses nothing and the menu stays as it is.
     Cancel,
-    /// `anchor`'s drawn menu closed before any release picked from it.
-    MenuClosed { anchor: Option<&'a str> },
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// The release landed off the trigger: choose the menu row under it, if any.
-    PickUnder,
+    /// The press recorded `anchor`; its `on_press` (`El::press_on_down`) commits the open menu in
+    /// the same frame.
+    Armed,
+    /// The release landed off the trigger: choose the menu row under it if `anchor` is still open.
+    PickUnder { anchor: String },
     Nothing,
 }
 
@@ -42,22 +43,16 @@ pub fn step(state: &mut Press, event: Event<'_>) -> Effect {
     match event {
         Event::Down { anchor } => {
             *state = Press::Down { anchor: anchor.to_owned() };
-            Effect::Nothing
+            Effect::Armed
         }
         Event::Up { on_trigger: true } | Event::Cancel => {
             *state = Press::Idle;
             Effect::Nothing
         }
         Event::Up { on_trigger: false } => match std::mem::take(state) {
-            Press::Down { .. } => Effect::PickUnder,
+            Press::Down { anchor } => Effect::PickUnder { anchor },
             Press::Idle => Effect::Nothing,
         },
-        Event::MenuClosed { anchor } => {
-            if matches!(state, Press::Down { anchor: open } if anchor == Some(open.as_str())) {
-                *state = Press::Idle;
-            }
-            Effect::Nothing
-        }
     }
 }
 
@@ -83,8 +78,9 @@ pub fn menu_button(el: El, anchor: impl Into<String>, open: impl Fn(&mut App, &m
         };
         let at = d.window_point();
         match step(&mut s.popup.press, event) {
-            Effect::PickUnder => {
-                if !super::pick_at(s, at, tx) {
+            Effect::Armed => {}
+            Effect::PickUnder { anchor } => {
+                if !s.popup.open_at(&anchor) || !super::pick_at(s, at, tx) {
                     tx.live_only();
                 }
             }

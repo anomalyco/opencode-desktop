@@ -538,11 +538,6 @@ fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx
         return;
     }
     let Some(shown) = s.popup.shown.take() else { return };
-    let closed_anchor = match &shown.anchor {
-        PopupAnchor::Key(key) => Some(key.as_str()),
-        PopupAnchor::Point(..) => None,
-    };
-    trigger::step(&mut s.popup.press, trigger::Event::MenuClosed { anchor: closed_anchor });
     s.popup.query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
     let trigger = matches!(shown.opened.origin, restore::Origin::Trigger(_));
