@@ -87,6 +87,21 @@ thread_local! {
     /// Each code view's lines built in its latest build: (build, first, last).
     static VIEWS: RefCell<HashMap<String, (u64, u32, u32)>> = RefCell::new(HashMap::new());
     static BUILD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Luau VM calls run since the previous drawn frame (`--files-trace`).
+    static LUAU: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Records one Luau VM call made during the current frame (`--files-trace`).
+pub(crate) fn luau(plugin: &str, kind: &str, name: &str, args: &str, us: u64) {
+    if !on() {
+        return;
+    }
+    LUAU.with(|l| {
+        let mut l = l.borrow_mut();
+        if l.len() < 128 {
+            l.push(json!({ "plugin": plugin, "kind": kind, "name": name, "args": args, "us": us }));
+        }
+    });
 }
 
 fn us(origin: Instant, at: Instant) -> u64 {
@@ -171,6 +186,7 @@ pub(crate) fn frame(f: &rune::FrameEncoded) {
     if f.outcome() != rune::FrameOutcome::Drawn {
         return;
     }
+    let luau_calls = LUAU.with(|l| std::mem::take(&mut *l.borrow_mut()));
     let following = CHANGED.with(|c| !c.borrow().is_empty()) || PENDING.with(|p| !p.borrow().is_empty());
     if !following {
         FRAMES.with(|fr| fr.borrow_mut().clear());
@@ -194,6 +210,7 @@ pub(crate) fn frame(f: &rune::FrameEncoded) {
         pending.line["drawn_encode_ms"] = json!(encode);
         pending.line["frames"] = Value::Array(frames);
         pending.line["scroll_after"] = json!(scroll(&pending.key));
+        pending.line["luau"] = Value::Array(luau_calls.clone());
         let _ = sender.send(pending.line.to_string());
     }
 }

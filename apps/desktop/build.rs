@@ -227,13 +227,16 @@ fn catalog_table(locales: &[(String, std::path::PathBuf)]) -> Vec<u8> {
 
 /// The build's commit (`OPENCODE_RUNE_COMMIT`); without git, nothing is embedded.
 fn embed_build_commit(manifest_dir: &std::path::Path) {
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_COMMIT");
+    #[allow(clippy::disallowed_methods)]
+    let env_sha = std::env::var("OPENCODE_RUNE_COMMIT").ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
     let git = |args: &[&str]| std::process::Command::new("git").args(args).current_dir(manifest_dir).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
     if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
         let dir = std::path::Path::new(dir.trim());
         println!("cargo:rerun-if-changed={}", dir.join("HEAD").display());
         println!("cargo:rerun-if-changed={}", dir.join("logs").join("HEAD").display());
     }
-    if let Some(sha) = git(&["rev-parse", "HEAD"]).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()) {
+    if let Some(sha) = env_sha.or_else(|| git(&["rev-parse", "HEAD"]).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())) {
         println!("cargo:rustc-env=OPENCODE_RUNE_COMMIT={sha}");
         println!("cargo:rustc-env=OPENCODE_RUNE_BUILD_STAMP={{\"sha\":\"{sha}\"}}");
     }

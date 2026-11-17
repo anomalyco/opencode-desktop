@@ -47,6 +47,8 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let version = h.finish();
     let before = script.metrics().renders;
     let props_for_bench = crate::flag("--luau-bench").then(|| props.clone());
+    let trace_args = crate::files::trace::on().then(|| format!("{props:?}"));
+    let t0 = crate::files::trace::on().then(rune::time::Instant::now);
     let id = half.id.clone();
     let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::with_app(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
     if chrome && FAILED.replace(false) {
@@ -54,6 +56,9 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
         return el();
     }
     if script.metrics().renders > before {
+        if let (Some(t0), Some(args_str)) = (t0, trace_args) {
+            crate::files::trace::luau(&plugin.manifest.id, "render", surface, &args_str, t0.elapsed().as_micros() as u64);
+        }
         bench(app, p, script, surface, f, &props_for_bench);
         half.reads.borrow_mut().insert(surface.to_owned(), read);
         app.plugins.renders.set(app.plugins.renders.get() + 1);

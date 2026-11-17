@@ -303,13 +303,20 @@ fn live(lua: &Lua, vmx: &Rc<Vmx>, id: String) -> mlua::Result<Table> {
         let value = data.into_lua(lua)?;
         for (path, f) in fns {
             let (gen_id, generation) = (i.clone(), contract_generation(&i));
+            let fn_name = path.join(".");
             let proxy = lua.create_function(move |lua, args: MultiValue| {
                 // A provider that reloaded or went away answers nothing.
                 if contract_generation(&gen_id) != generation {
                     return Err(mlua::Error::runtime(format!("contract {gen_id} changed; use Get() again")));
                 }
                 let args: Vec<Data> = args.into_iter().map(|a| Data::from_lua(a, lua)).collect::<mlua::Result<_>>()?;
-                f.call::<Data>(Variadic::from_iter(args))?.into_lua(lua)
+                let t0 = crate::files::trace::on().then(rune::time::Instant::now);
+                let trace_args = crate::files::trace::on().then(|| format!("{args:?}"));
+                let out = f.call::<Data>(Variadic::from_iter(args))?;
+                if let (Some(t0), Some(a)) = (t0, trace_args) {
+                    crate::files::trace::luau(&gen_id, "contract", &fn_name, &a, t0.elapsed().as_micros() as u64);
+                }
+                out.into_lua(lua)
             })?;
             set_path(lua, &value, &path, Value::Function(proxy))?;
         }

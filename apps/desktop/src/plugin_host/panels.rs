@@ -54,7 +54,11 @@ pub(super) fn answer(app: &App, i: usize, key: &str, f: &Function, args: impl ml
     if let Some(found) = ANSWERS.with_borrow(|a| a.get(&key).filter(|(v, _, deps)| *v == base(deps)).map(|(_, d, _)| d.clone())) {
         return found;
     }
+    let t0 = crate::files::trace::on().then(rune::time::Instant::now);
     let (out, deps) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(f, args).ok()));
+    if let Some(t0) = t0 {
+        crate::files::trace::luau(&p.half.id, "answer", &key, "", t0.elapsed().as_micros() as u64);
+    }
     let v = base(&deps);
     ANSWERS.with_borrow_mut(|a| a.insert(key, (v, out.clone(), deps)));
     out
@@ -189,7 +193,11 @@ fn listed(app: &App, owner: &super::Plugin, list: &Function, plugin: &str, panel
     if let Some(tabs) = hit {
         return tabs;
     }
+    let t0 = crate::files::trace::on().then(rune::time::Instant::now);
     let (answer, reads) = cx::recording(|| cx::with_app(app, || script.eval_fn::<Data>(list, (session.to_owned(), open.to_vec())).ok()));
+    if let Some(t0) = t0 {
+        crate::files::trace::luau(plugin, "list", &format!("{panel}:{session}"), &format!("{open:?}"), t0.elapsed().as_micros() as u64);
+    }
     let tabs: Vec<PanelTab> = answer.and_then(|d| d.decode().ok()).unwrap_or_default();
     let read = cx::stamp(app, &reads);
     LISTED.with_borrow_mut(|c| c.insert(key, Listed { asked, reads, read, tabs: tabs.clone() }));
