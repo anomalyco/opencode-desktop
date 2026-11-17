@@ -76,9 +76,10 @@ impl Organize {
     /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx:352-357`): Recent only
     /// in local and dev builds (`recentSessionsAvailable`).
     pub fn options() -> &'static [Organize] {
-        match crate::updater::build_channel() {
-            "local" | "dev" => &[Organize::List, Organize::Projects, Organize::Customize, Organize::Recent],
-            _ => &[Organize::List, Organize::Projects, Organize::Customize],
+        if !cfg!(target_arch = "wasm32") && matches!(crate::updater::build_channel(), "local" | "dev") {
+            &[Organize::List, Organize::Projects, Organize::Customize, Organize::Recent]
+        } else {
+            &[Organize::List, Organize::Projects, Organize::Customize]
         }
     }
 

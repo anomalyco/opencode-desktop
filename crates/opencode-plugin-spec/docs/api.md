@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.1)
+# OpenCode plugin API reference (contract 1.2)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.1`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.2`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -668,6 +668,7 @@ The app build's release channel.
 | Value | Meaning |
 |---|---|
 | `"local"` | A development build. |
+| `"dev"` | A dev release build. |
 | `"beta"` | A beta build. |
 | `"prod"` | A production build. |
 

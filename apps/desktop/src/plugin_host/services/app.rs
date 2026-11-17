@@ -9,18 +9,21 @@ use super::{app_now, lazy_signals, method};
 use crate::plugin_host::cx::{self, Request};
 use crate::plugin_host::vm::Vmx;
 
+pub(crate) fn channel() -> opencode_plugin_spec::Channel {
+    use opencode_plugin_spec::Channel;
+    match crate::updater::build_channel() {
+        "stable" | "prod" | "latest" => Channel::Prod,
+        "beta" => Channel::Beta,
+        "dev" => Channel::Dev,
+        _ => Channel::Local,
+    }
+}
+
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()> {
     let p = vmx.half.id.clone();
     if name == "App" {
         t.raw_set("Version", crate::updater::build_version())?;
-        t.raw_set(
-            "Channel",
-            match crate::updater::build_channel() {
-                "prod" | "latest" => "prod",
-                "beta" => "beta",
-                _ => "local",
-            },
-        )?;
+        t.raw_set("Channel", channel().as_str())?;
         t.raw_set("Commit", crate::updater::build_commit())?;
         if let Some(notes) = crate::updater::beta_notes().and_then(|n| serde_json::from_str::<serde_json::Value>(n).ok()) {
             t.raw_set("BetaNotes", super::json_to_lua(lua, &notes)?)?;

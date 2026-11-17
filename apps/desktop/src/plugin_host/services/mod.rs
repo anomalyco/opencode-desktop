@@ -10,7 +10,7 @@
 // Records are built on the Lua stack through the C API; each block says what it relies on.
 #![allow(unsafe_code)]
 
-mod app;
+pub(super) mod app;
 pub mod askpass;
 pub mod diag;
 mod i18n;

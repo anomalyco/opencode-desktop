@@ -32,6 +32,8 @@ string_enum! {
     pub enum Channel {
         /// A development build.
         Local = "local",
+        /// A dev release build.
+        Dev = "dev",
         /// A beta build.
         Beta = "beta",
         /// A production build.

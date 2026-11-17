@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.1",
+  "contract": "1.2",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -72,6 +72,7 @@
     ] },
     { "name": "Channel", "rust": true, "doc": "The app build's release channel.", "values": [
       { "value": "local", "doc": "A development build." },
+      { "value": "dev", "doc": "A dev release build." },
       { "value": "beta", "doc": "A beta build." },
       { "value": "prod", "doc": "A production build." }
     ] },

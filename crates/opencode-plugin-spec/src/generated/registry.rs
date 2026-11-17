@@ -4,9 +4,9 @@
 use crate::{Half, string_enum};
 
 /// The contract version this crate describes.
-pub const CONTRACT: &str = "1.1";
+pub const CONTRACT: &str = "1.2";
 pub const CONTRACT_MAJOR: u16 = 1;
-pub const CONTRACT_MINOR: u16 = 1;
+pub const CONTRACT_MINOR: u16 = 2;
 
 string_enum! {
     /// A contribution kind, by its contract name.

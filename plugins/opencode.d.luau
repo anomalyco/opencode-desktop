@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.1: global types for luau-lsp.
+-- OpenCode plugin contract 1.2: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -61,7 +61,7 @@ export type Half = "window" | "app"
 export type Platform = "windows" | "macos" | "linux" | "web"
 
 --- The app build's release channel.
-export type Channel = "local" | "beta" | "prod"
+export type Channel = "local" | "dev" | "beta" | "prod"
 
 --- A light or dark color scheme.
 export type ColorScheme = "light" | "dark"

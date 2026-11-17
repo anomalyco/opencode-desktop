@@ -625,7 +625,7 @@ fn runs_here(m: &Manifest) -> bool {
     } else {
         Platform::Linux
     };
-    m.os.is_empty() || m.os.contains(&here)
+    (m.os.is_empty() || m.os.contains(&here)) && (m.channels.is_empty() || m.channels.contains(&services::app::channel()))
 }
 
 /// Steps plugin `i`'s life with `event` and carries out what the step asks for.
