@@ -9,6 +9,8 @@ use rune::{Key, KeyEvent, TextEdit, Tx};
 use rune_kit::line_selection::{Column, LineEvent, LineSelection, Lines};
 use rune_kit::syntax::Paint;
 
+use super::prepared::{BAND_LINES, Prior, band_keys, fresh_line_ids};
+pub use super::prepared::Prepared;
 use super::{CHUNK_LINES, ChunkMap, HighlightChunk, LINE_H, SourceLines, lang_for_path};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +63,11 @@ pub struct CodeDocState {
     /// The text ends with a newline: the empty line after it shows numbered.
     trailing: bool,
     digits: u32,
+    /// Monotonic identity per logical line, preserved across unchanged prefixes and suffixes.
+    line_ids: std::sync::Arc<[u64]>,
+    row_keys: std::sync::Arc<[Box<str>]>,
+    mounted_cur: Cell<(u32, u32)>,
+    mounted_prev: Cell<(u32, u32)>,
     /// The selected lines and the gesture on the line numbers making them (rune-kit's shared machine).
     lines: LineSelection<u32>,
     chunks: RefCell<ChunkMap<u32>>,
@@ -108,6 +115,10 @@ impl CodeDocState {
             wrap: false,
             trailing: false,
             digits: 3,
+            line_ids: std::sync::Arc::from([]),
+            row_keys: std::sync::Arc::from([]),
+            mounted_cur: Cell::new((u32::MAX, 0)),
+            mounted_prev: Cell::new((0, 0)),
             lines: LineSelection::default(),
             chunks: RefCell::new(HashMap::new()),
             find_input: TextEdit::new(""),
@@ -144,7 +155,10 @@ impl CodeDocState {
         };
         // Pierre numbers the empty line after a file's last newline too.
         self.trailing = !binary && content.ends_with('\n');
-        self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
+        let count = self.line_count();
+        self.line_ids = if binary { std::sync::Arc::from([]) } else { fresh_line_ids(count) };
+        self.row_keys = if binary { std::sync::Arc::from([]) } else { band_keys(count) };
+        self.digits = (count.max(1).ilog10() + 1).max(3);
         self.chunks.borrow_mut().clear();
         self.heights.clear();
         self.slab = Slab::Absent;
@@ -153,24 +167,58 @@ impl CodeDocState {
         self.bump_keys();
     }
 
+    /// Snapshot for [`Prepared::new`], so a background read keeps unchanged line identities and
+    /// colours only what changed around the viewport.
+    pub fn prior(&self) -> Prior {
+        Prior {
+            source: self.source.clone(),
+            trailing: self.trailing,
+            line_ids: self.line_ids.clone(),
+            lang: lang_for_path(&self.path),
+            mounted: self.mounted_range(),
+        }
+    }
+
     /// A read's text, split (and folded and searched for Find when it was open) off the UI
     /// thread (`Prepared::new`), in place of what shows: as Desktop's reload, the selected
-    /// lines and the scroll stay, and Find keeps its query and lights the first match again
-    /// (`pierre/file-find-machine.ts`, `refresh.requested` with `reset`), without scrolling.
+    /// lines and the scroll stay, Find keeps its query and lights the first match again
+    /// (`pierre/file-find-machine.ts`, `refresh.requested` with `reset`), without scrolling, and
+    /// unchanged highlight chunks and row identities carry across.
     pub fn refresh(&mut self, prepared: Prepared) {
         self.failure = None;
         self.content = Content::Text { size: prepared.source.text().len() };
-        self.trailing = prepared.source.text().ends_with('\n');
-        // The old text, its folded copy and matches are let go on a worker: freeing a big
-        // file's is itself proportional to its size.
+        self.trailing = prepared.trailing;
+        let mut stale_chunks = Vec::new();
+        {
+            let mut cache = self.chunks.borrow_mut();
+            cache.retain(|&c, chunk| {
+                if prepared.keeps_chunk(c) {
+                    true
+                } else {
+                    stale_chunks.push(chunk.clone());
+                    false
+                }
+            });
+            for (c, chunk) in prepared.chunks {
+                cache.insert(c, chunk);
+            }
+        }
+        self.heights.retain_prefix(prepared.prefix_rows);
+        // The old text, its folded copy, matches and evicted chunks are let go on a worker when
+        // large: freeing a big file's is itself proportional to its size.
+        let large = self.source.len() > 512 || !stale_chunks.is_empty();
         let old_source = std::mem::replace(&mut self.source, prepared.source);
+        let old_ids = std::mem::replace(&mut self.line_ids, prepared.line_ids);
+        self.row_keys = prepared.row_keys;
         let old_slab = std::mem::replace(&mut self.slab, Slab::Absent);
         let old_matches = (std::mem::take(&mut self.matches), std::mem::take(&mut self.by_line_matches));
-        let _ = rune::task::spawn("file-text-drop", move || drop((old_source, old_slab, old_matches)));
+        if large {
+            let _ = rune::task::spawn("file-text-drop", move || {
+                drop((old_source, old_ids, old_slab, old_matches, stale_chunks));
+            });
+        }
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.cursor = self.cursor.min(self.lines().max(1));
-        self.chunks.borrow_mut().clear();
-        self.heights.clear();
         self.find.restart();
         match prepared.find {
             Some(find) if self.find_open() => {
@@ -190,6 +238,42 @@ impl CodeDocState {
             }
         }
         self.bump_keys();
+    }
+
+    pub fn line_id(&self, n: u32) -> u64 {
+        self.line_ids.get((n as usize).wrapping_sub(1)).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn band_key(&self, b: usize) -> std::borrow::Cow<'_, str> {
+        match self.row_keys.get(b) {
+            Some(k) => std::borrow::Cow::Borrowed(&**k),
+            None => std::borrow::Cow::Owned(format!("cb{b}")),
+        }
+    }
+
+    pub(crate) fn begin_build(&self) {
+        let cur = self.mounted_cur.get();
+        if cur.1 > 0 {
+            self.mounted_prev.set(cur);
+        }
+        self.mounted_cur.set((u32::MAX, 0));
+    }
+
+    pub(crate) fn note_mounted_row(&self, n: u32) {
+        let (lo, hi) = self.mounted_cur.get();
+        self.mounted_cur.set((lo.min(n), hi.max(n)));
+    }
+
+    pub(crate) fn mounted_range(&self) -> (u32, u32) {
+        let cur = self.mounted_cur.get();
+        if cur.1 > 0 {
+            return cur;
+        }
+        let prev = self.mounted_prev.get();
+        if prev.1 > 0 {
+            return prev;
+        }
+        (1, CHUNK_LINES * 2)
     }
     /// What `refresh` needs for Find: the query its matches are for, when Find is open.
     pub fn find_query(&self) -> Option<String> {
@@ -284,6 +368,7 @@ impl CodeDocState {
         };
         tx.instant();
         self.cursor = to;
+        tx.scroll_into_view(self.band_key(((to - 1) / BAND_LINES) as usize).into_owned());
         tx.scroll_into_view(format!("cl{to}"));
         tx.focus(format!("cl{to}"), true);
         true
@@ -396,6 +481,10 @@ impl CodeDocState {
         self.step_lines(LineEvent::Release);
     }
 
+    pub(crate) fn line_of_id(&self, lid: u64) -> Option<u32> {
+        self.line_ids.iter().position(|&id| id == lid).map(|i| (i + 1) as u32)
+    }
+
     pub(crate) fn release_line(&mut self) {
         self.step_lines(LineEvent::Release);
     }
@@ -495,24 +584,31 @@ impl CodeDocState {
         self.by_line_matches.get(&line).map_or(&[], Vec::as_slice)
     }
 
-    pub(crate) fn highlights(&self, line: u32) -> Vec<(Range<usize>, Paint)> {
-        let Some(lang) = lang_for_path(&self.path) else {
-            return Vec::new();
-        };
+    fn chunk_of(&self, line: u32) -> Option<std::sync::Arc<HighlightChunk>> {
+        let lang = lang_for_path(&self.path)?;
         let c = line.saturating_sub(1) / CHUNK_LINES;
-        let cached = self.chunks.borrow().get(&c).cloned();
-        let chunk = cached.unwrap_or_else(|| {
-            let first_n = c * CHUNK_LINES + 1;
-            let last_n = ((c + 1) * CHUNK_LINES).min(self.source.len().max(1));
-            let built = HighlightChunk::lines(Some(lang), first_n, last_n, |m| self.source.line(m).unwrap_or(""));
-            let mut cache = self.chunks.borrow_mut();
-            if cache.len() > 512 {
-                cache.clear();
-            }
-            cache.insert(c, built.clone());
-            built
-        });
-        chunk.line_highlights((line.saturating_sub(1) % CHUNK_LINES) as usize)
+        if let Some(cached) = self.chunks.borrow().get(&c).cloned() {
+            return Some(cached);
+        }
+        let first_n = c * CHUNK_LINES + 1;
+        let last_n = ((c + 1) * CHUNK_LINES).min(self.source.len().max(1));
+        let built = HighlightChunk::lines(Some(lang), first_n, last_n, |m| self.source.line(m).unwrap_or(""));
+        let mut cache = self.chunks.borrow_mut();
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        cache.insert(c, built.clone());
+        Some(built)
+    }
+
+    pub(crate) fn highlight_hash(&self, line: u32) -> u64 {
+        self.chunk_of(line)
+            .map_or(0, |chunk| chunk.line_hash((line.saturating_sub(1) % CHUNK_LINES) as usize))
+    }
+
+    pub(crate) fn highlights(&self, line: u32) -> Vec<(Range<usize>, Paint)> {
+        self.chunk_of(line)
+            .map_or_else(Vec::new, |chunk| chunk.line_highlights((line.saturating_sub(1) % CHUNK_LINES) as usize))
     }
 
     pub fn handle_key(&mut self, scroll_key: &str, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -636,44 +732,8 @@ impl DocFind {
     }
 }
 
-/// A file's text made ready for [`CodeDocState::refresh`] on the worker that read it, so the
-/// UI thread does nothing proportional to the file's size: its lines split and, while Find is
-/// open, its folded copy and the matches for Find's query.
-pub struct Prepared {
-    source: SourceLines,
-    find: Option<PreparedFind>,
-}
-
-struct PreparedFind {
-    query: String,
-    slab: opencode_search::SlabFind,
-    matches: Vec<(u32, Range<usize>)>,
-    /// The matches by line, the first one lit (`CodeDocState::by_line_matches`).
-    by_line: HashMap<u32, Vec<(Range<usize>, bool)>>,
-}
-
-impl Prepared {
-    /// `find`: Find's query when it's open (`CodeDocState::find_query`).
-    pub fn new(text: String, find: Option<String>) -> Prepared {
-        let source = SourceLines::from_string(text);
-        let find = find.map(|query| {
-            let slab = Slab::build(&source);
-            let mut matches = Vec::new();
-            if !query.is_empty() {
-                slab.find(&query, |m| matches.push((m.row as u32 + 1, m.bytes)));
-            }
-            let mut by_line: HashMap<u32, Vec<(Range<usize>, bool)>> = HashMap::new();
-            for (i, (line, range)) in matches.iter().enumerate() {
-                by_line.entry(*line).or_default().push((range.clone(), i == 0));
-            }
-            PreparedFind { query, slab, matches, by_line }
-        });
-        Prepared { source, find }
-    }
-}
-
 /// Find's folded copy of the text: none yet, folding on a worker (native) or ready.
-enum Slab {
+pub(super) enum Slab {
     Absent,
     #[cfg(not(target_arch = "wasm32"))]
     Folding(std::sync::mpsc::Receiver<opencode_search::SlabFind>),
@@ -681,7 +741,7 @@ enum Slab {
 }
 
 impl Slab {
-    fn build(source: &SourceLines) -> opencode_search::SlabFind {
+    pub(super) fn build(source: &SourceLines) -> opencode_search::SlabFind {
         let mut slab = opencode_search::SlabFind::default();
         (1..=source.len()).for_each(|n| slab.push(source.line(n).unwrap_or("")));
         slab

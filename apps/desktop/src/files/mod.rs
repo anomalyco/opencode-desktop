@@ -789,8 +789,10 @@ impl App {
             self.files.reads.abandon(sid, path);
             return;
         };
-        let find = self.files.sessions.get(sid).and_then(|w| w.docs.get(path)).and_then(|d| d.find_query());
-        self.files.reads.start(&server, &directory, sid, path, attempt, find);
+        let doc = self.files.sessions.get(sid).and_then(|w| w.docs.get(path));
+        let find = doc.and_then(|d| d.find_query());
+        let prior = doc.map_or_else(|| crate::code_view::prepared::Prior::initial(path), |d| d.prior());
+        self.files.reads.start(&server, &directory, sid, path, attempt, find, prior);
     }
 
     pub fn open_workspace_file(

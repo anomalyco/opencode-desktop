@@ -13,11 +13,11 @@ pub mod file_view;
 pub(crate) mod find_bar;
 pub mod fold;
 pub mod notes;
+pub mod prepared;
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
-use std::rc::Rc;
 
 use rune::{Color, Span, TextStyle};
 use rune_kit::syntax::{Highlight, Paint, Syntax, SyntaxTheme, highlight};
@@ -283,7 +283,8 @@ pub fn visual_columns(line: &str) -> u32 {
 /// Cached 128-line highlight chunk for either a `SourceLines` or a slice of lines.
 pub struct HighlightChunk {
     starts: Vec<u32>,
-    hl: Rc<[Highlight]>,
+    hl: std::sync::Arc<[Highlight]>,
+    line_hashes: Box<[u64]>,
 }
 
 /// Bytes of the lines before a chunk that its highlighting reads, so a comment or string opened
@@ -291,11 +292,51 @@ pub struct HighlightChunk {
 /// 128 KiB, so every chunk of a file up to that size is coloured exactly as the whole file is.
 const CONTEXT_BYTES: usize = 120 * 1024;
 
+fn hash_paint(paint: Paint, h: &mut impl Hasher) {
+    match paint {
+        Paint::Kind(k) => {
+            0u8.hash(h);
+            k.hash(h);
+        }
+        Paint::Color(c) => {
+            1u8.hash(h);
+            [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(h);
+        }
+    }
+}
+
 impl HighlightChunk {
     /// Lines `first..=last` of a text whose 1-based lines `line` gives, coloured after up to
     /// [`CONTEXT_BYTES`] of the lines before them. Consecutive chunks extend one source, which
     /// `rune_kit::syntax` lexes incrementally.
-    pub fn lines<'a>(lang: Option<&str>, first: u32, last: u32, line: impl Fn(u32) -> &'a str) -> Rc<Self> {
+    pub fn lines<'a>(lang: Option<&str>, first: u32, last: u32, line: impl Fn(u32) -> &'a str) -> std::sync::Arc<Self> {
+        Self::build_with(first, last, line, |buf, base| {
+            highlight(lang, buf)
+                .iter()
+                .filter(|(r, _)| r.end > base)
+                .map(|(r, p)| (r.start.max(base) - base..r.end - base, *p))
+                .collect()
+        })
+    }
+
+    /// [`Self::lines`] for a background read worker, using `builtin` directly so short-lived
+    /// pool threads do not hold cached 128 KiB sources in thread-local storage.
+    pub fn lines_worker<'a>(lang: Option<&str>, first: u32, last: u32, line: impl Fn(u32) -> &'a str) -> std::sync::Arc<Self> {
+        Self::build_with(first, last, line, |buf, base| {
+            rune_kit::syntax::builtin(lang, buf)
+                .into_iter()
+                .filter(|(r, _)| r.end > base)
+                .map(|(r, p)| (r.start.max(base) - base..r.end - base, p))
+                .collect()
+        })
+    }
+
+    fn build_with<'a>(
+        first: u32,
+        last: u32,
+        line: impl Fn(u32) -> &'a str,
+        lex: impl FnOnce(&str, usize) -> Vec<Highlight>,
+    ) -> std::sync::Arc<Self> {
         let mut from = first;
         let mut context = 0;
         while from > 1 && context + line(from - 1).len() < CONTEXT_BYTES {
@@ -315,13 +356,41 @@ impl HighlightChunk {
             buf.push('\n');
         }
         starts.push((buf.len() - base) as u32);
-        let all = highlight(lang, &buf);
-        let hl = all
-            .iter()
-            .filter(|(r, _)| r.end > base)
-            .map(|(r, p)| (r.start.max(base) - base..r.end - base, *p))
-            .collect();
-        Rc::new(Self { starts, hl })
+        let hl: std::sync::Arc<[Highlight]> = lex(&buf, base).into();
+        let line_count = starts.len().saturating_sub(1);
+        let mut line_hashes = Vec::with_capacity(line_count);
+        let mut idx = 0usize;
+        for offset in 0..line_count {
+            let a = starts[offset] as usize;
+            let b = starts[offset + 1].saturating_sub(1) as usize;
+            let mut h = DefaultHasher::new();
+            if a < b {
+                while idx < hl.len() && hl[idx].0.end <= a {
+                    idx += 1;
+                }
+                for (r, paint) in &hl[idx..] {
+                    if r.start >= b {
+                        break;
+                    }
+                    let s = r.start.max(a) - a;
+                    let e = r.end.min(b) - a;
+                    if s < e {
+                        (s, e).hash(&mut h);
+                        hash_paint(*paint, &mut h);
+                    }
+                }
+            }
+            line_hashes.push(h.finish());
+        }
+        std::sync::Arc::new(Self {
+            starts,
+            hl,
+            line_hashes: line_hashes.into_boxed_slice(),
+        })
+    }
+
+    pub fn line_hash(&self, offset: usize) -> u64 {
+        self.line_hashes.get(offset).copied().unwrap_or(0)
     }
 
     /// Token highlights within `offset` (`0..CHUNK_LINES`), shifted to line-local byte offsets.
@@ -350,7 +419,7 @@ impl HighlightChunk {
     }
 }
 
-pub type ChunkMap<K> = HashMap<K, Rc<HighlightChunk>>;
+pub type ChunkMap<K> = HashMap<K, std::sync::Arc<HighlightChunk>>;
 
 /// The rows' laid-out heights by row key, as their layouts report them: what a drag down the
 /// line numbers walks, since a wrapped line or one with comments under it is taller than its
@@ -375,6 +444,15 @@ impl RowHeights {
 
     pub fn clear(&self) {
         self.0.borrow_mut().clear();
+    }
+
+    /// Keeps laid-out heights for `cl1..=cl{prefix}` across an edit below `prefix`.
+    pub fn retain_prefix(&self, prefix: u32) {
+        self.0.borrow_mut().retain(|k, _| {
+            k.strip_prefix("cl")
+                .and_then(|n| n.parse::<u32>().ok())
+                .is_some_and(|n| n <= prefix)
+        });
     }
 }
 

@@ -16,6 +16,7 @@ use rune::time::Instant;
 use super::data::{FilePayload, fetch_live_file_payload};
 use super::{delimited, html};
 use crate::code_view::file_state::Prepared;
+use crate::code_view::prepared::Prior;
 
 /// One file's reads; a file with none running whose text is current has no entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,15 +99,15 @@ pub(crate) enum Body {
 
 impl Body {
     /// Everything proportional to the file's size happens here, off the UI thread.
-    fn prepare(path: &str, payload: FilePayload, find: Option<String>) -> Body {
+    fn prepare(path: &str, payload: FilePayload, find: Option<String>, prior: Prior) -> Body {
         match payload {
             FilePayload::Text(text) if super::image::is_svg(path) => {
                 let bytes = text.as_bytes().to_vec();
-                Body::Svg(Prepared::new(text, find), bytes)
+                Body::Svg(Prepared::new(text, find, prior), bytes)
             }
-            FilePayload::Text(text) => Body::Text(Prepared::new(text, find)),
-            FilePayload::Html { source, document } => Body::Html(Prepared::new(source, find), document),
-            FilePayload::Table { source, document } => Body::Table(Prepared::new(source, find), document),
+            FilePayload::Text(text) => Body::Text(Prepared::new(text, find, prior)),
+            FilePayload::Html { source, document } => Body::Html(Prepared::new(source, find, prior), document),
+            FilePayload::Table { source, document } => Body::Table(Prepared::new(source, find, prior), document),
             FilePayload::Binary(size) => Body::Binary(size),
             FilePayload::Image(bytes) => Body::Image(bytes),
             FilePayload::Missing => Body::Missing,
@@ -213,7 +214,7 @@ impl Reads {
     /// Reads `path` of `directory` on a worker as `attempt`; `find` is Find's query while it's
     /// open, so its matches are found there too. With no thread to read on, the read is
     /// forgotten, so the next ask tries again.
-    pub(crate) fn start(&mut self, server: &Server, directory: &str, sid: &str, path: &str, attempt: u64, find: Option<String>) {
+    pub(crate) fn start(&mut self, server: &Server, directory: &str, sid: &str, path: &str, attempt: u64, find: Option<String>, prior: Prior) {
         let key = (sid.to_owned(), path.to_owned());
         let (server, directory, sid, path) = (server.clone(), directory.to_owned(), sid.to_owned(), path.to_owned());
         let (sender, waker) = (self.sender.clone(), self.waker.clone());
@@ -221,7 +222,7 @@ impl Reads {
             let started = Instant::now();
             let payload = fetch_live_file_payload(&server, &directory, &path);
             let fetched = Instant::now();
-            let body = Body::prepare(&path, payload, find);
+            let body = Body::prepare(&path, payload, find, prior);
             let times = [started, fetched, Instant::now()];
             if sender.send(Landed { sid, path, attempt, body, times }).is_ok()
                 && let Some(w) = waker

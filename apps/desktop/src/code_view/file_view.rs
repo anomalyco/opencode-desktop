@@ -1,6 +1,5 @@
 //! Virtualized single-file viewer [`CodeViewer`], sharing [`CodeLook`] and syntax highlighting with [`DiffViewer`](super::DiffViewer).
 
-use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -110,8 +109,10 @@ impl<S: 'static> CodeViewer<S> {
         if !wrap && let Some(r) = rune::memo::layout(&scroll_key) {
             st.set_viewport(r);
         }
+        st.begin_build();
 
         let count = st.line_count();
+        let key_get = self.get.clone();
         let inner = Rc::new(Inner { look, pal: *p, v: self });
         // Pierre's file starts at its first line (`--diffs-gap-block: 0`, session-ui
         // `pierre/index.ts:329`), and Desktop's file tab leaves 160 px of the panel under the last
@@ -129,15 +130,16 @@ impl<S: 'static> CodeViewer<S> {
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
+        let bands = count.div_ceil(super::prepared::BAND_LINES as usize);
         let build_inner = inner.clone();
         let list = list
             .virtual_rows(
-                count,
-                LINE_H,
-                |_s: &S, i| Cow::Owned(format!("cl{}", i + 1)),
-                move |s: &S, i| build_inner.row(s, i),
+                bands,
+                LINE_H * super::prepared::BAND_LINES as f32,
+                move |s: &S, b| key_get(s).band_key(b),
+                move |s: &S, b| build_inner.band(s, b),
             )
-            .virtual_rows_version(st.keys_rev);
+            .virtual_rows_version(0u32);
 
         let scroll = col()
             .key(scroll_key)
@@ -192,9 +194,21 @@ impl<S: 'static> Inner<S> {
         self.look.number_w(st.digits()) + (st.columns() + 2) as f32 * self.look.adv
     }
 
+    fn band(&self, s: &S, b: usize) -> El {
+        let st = (self.v.get)(s);
+        let first = b * super::prepared::BAND_LINES as usize;
+        let last = ((b + 1) * super::prepared::BAND_LINES as usize).min(st.line_count());
+        let mut out = col().w_full();
+        for i in first..last {
+            out = out.child(self.row(s, i));
+        }
+        out
+    }
+
     fn row(&self, s: &S, i: usize) -> El {
         let st = (self.v.get)(s);
         let n = (i + 1) as u32;
+        st.note_mounted_row(n);
         if crate::files::trace::on() {
             crate::files::trace::row(&format!("{}-scroll", self.v.key), n);
         }
@@ -204,6 +218,7 @@ impl<S: 'static> Inner<S> {
         let notes_version = self.v.notes.as_ref().map_or(0, |notes| notes.version(s, st.path()));
         let commented = self.v.notes.as_ref().is_some_and(|notes| notes.commented(s, st.path(), Side::New, n));
         let selected = st.selection().is_some_and(|sel| sel.contains(n)) || commented;
+        let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
         // Find lights rows by what each holds, so a key rebuilds only rows whose matches moved.
         let matches = {
             use std::hash::{Hash, Hasher};
@@ -211,28 +226,53 @@ impl<S: 'static> Inner<S> {
             st.line_matches(n).hash(&mut h);
             h.finish()
         };
-        let key = format!("cl{n}");
+        let lid = st.line_id(n);
+        let hl_hash = st.highlight_hash(n);
+        let row_memo_key = format!("cr{lid}");
+        let line_key = format!("cl{n}");
+        let height_key = line_key.clone();
         let get_mut = self.v.get_mut.clone();
         let cursor = st.cursor == n;
-        let row = memo(
-            key.as_str(),
-            (self.look.version, st.rev, selected, matches, notes_version, cursor),
+        memo(
+            row_memo_key.as_str(),
+            (
+                self.look.version,
+                st.path(),
+                st.digits(),
+                st.wrap(),
+                n,
+                hl_hash,
+                selected,
+                matches,
+                notes_version,
+                quiet,
+                cursor,
+            ),
             || {
-                let quiet = self.v.notes.as_ref().is_some_and(|notes| notes.plus_quiet(s));
-                let line = self.line_row(st, n, selected, quiet);
+                let line = self.line_row(st, n, lid, hl_hash, matches, selected, quiet);
+                let line = self.line_stop(st, n, cursor, line).key(line_key);
                 let items = self.v.notes.as_ref().map_or_else(Vec::new, |notes| notes.annotations(s, &self.pal, st.path(), Side::New, n));
-                let row = if items.is_empty() {
-                    line
+                let wrap_row = col().w_full().child(line);
+                let wrap_row = if items.is_empty() {
+                    wrap_row
                 } else {
-                    col().w_full().child(line.key("line")).child(super::notes::annotation_row(&self.pal, self.look.number_w(st.digits()), items))
+                    wrap_row.child(super::notes::annotation_row(&self.pal, self.look.number_w(st.digits()), items))
                 };
-                self.line_stop(st, n, cursor, row)
+                super::report_height(wrap_row, move |s: &mut S, h| get_mut(s).heights.record(&height_key, h))
             },
-        );
-        super::report_height(row, move |s: &mut S, h| get_mut(s).heights.record(&key, h))
+        )
     }
 
-    fn line_row(&self, st: &CodeDocState, n: u32, selected: bool, quiet: bool) -> El {
+    fn line_row(
+        &self,
+        st: &CodeDocState,
+        n: u32,
+        lid: u64,
+        hl_hash: u64,
+        matches: u64,
+        selected: bool,
+        quiet: bool,
+    ) -> El {
         let l = &self.look;
         let fill = if selected { l.selected } else { l.bg };
         let num_color = if selected { l.selected_number } else { l.faint };
@@ -291,24 +331,48 @@ impl<S: 'static> Inner<S> {
             gutter = gutter.fill(fill).sticky_left(0.0);
         }
 
-        let raw = st.line(n).unwrap_or("");
-
-        let match_bgs: Vec<(Range<usize>, Color)> = st
-            .line_matches(n)
-            .iter()
-            .map(|(r, active)| {
-                (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
-            })
-            .collect();
-        let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs, None);
-        let (shown, spans) = expand_tabs(raw, spans);
-        let mut code_txt = rich(shown, spans)
-            .font(l.mono)
-            .color(l.plain)
-            .selectable(true)
-            .selection_color(l.selection)
-            .key("text");
-        code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
+        let code_col = memo(
+            "code",
+            (l.version, st.wrap(), hl_hash, matches),
+            || {
+                let raw = st.line(n).unwrap_or("");
+                let match_bgs: Vec<(Range<usize>, Color)> = st
+                    .line_matches(n)
+                    .iter()
+                    .map(|(r, active)| {
+                        (r.clone(), if *active { l.active_match_bg } else { l.match_bg })
+                    })
+                    .collect();
+                let spans = l.spans(raw.len(), &st.highlights(n), &match_bgs, None);
+                let (shown, spans) = expand_tabs(raw, spans);
+                let mut code_txt = rich(shown, spans)
+                    .font(l.mono)
+                    .color(l.plain)
+                    .selectable(true)
+                    .selection_color(l.selection)
+                    .key("text");
+                code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
+                col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_background_press_tx({
+                    let get_mut = self.v.get_mut.clone();
+                    let notes = self.v.notes.clone();
+                    move |s: &mut S, tx: &mut Tx| {
+                        tx.instant();
+                        let st = get_mut(s);
+                        let Some(line_num) = st.line_of_id(lid) else { return };
+                        let before = st.selection().map(file_range);
+                        st.click_code(line_num);
+                        let after = st.selection().map(file_range);
+                        let path = st.path().to_owned();
+                        if let Some(notes) = &notes {
+                            if before != after {
+                                notes.handoff(s, &path, Handoff::Selected(after), tx);
+                            }
+                            notes.handoff(s, &path, Handoff::Ended(after), tx);
+                        }
+                    }
+                })
+            },
+        );
 
         let mut line = row()
             .w_full()
@@ -318,24 +382,7 @@ impl<S: 'static> Inner<S> {
             .role("listitem")
             .child(gutter)
             // The pointer's click, not a control: the keyboard selects and comments by the line's row.
-            .child(col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_background_press_tx({
-                let get_mut = self.v.get_mut.clone();
-                let notes = self.v.notes.clone();
-                move |s: &mut S, tx: &mut Tx| {
-                    tx.instant();
-                    let st = get_mut(s);
-                    let before = st.selection().map(file_range);
-                    st.click_code(n);
-                    let after = st.selection().map(file_range);
-                    let path = st.path().to_owned();
-                    if let Some(notes) = &notes {
-                        if before != after {
-                            notes.handoff(s, &path, Handoff::Selected(after), tx);
-                        }
-                        notes.handoff(s, &path, Handoff::Ended(after), tx);
-                    }
-                }
-            }));
+            .child(code_col);
         if let Some(notes) = self.v.notes.as_ref().filter(|_| !quiet) {
             let notes = notes.clone();
             let path = st.path().to_owned();
