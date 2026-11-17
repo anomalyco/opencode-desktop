@@ -375,7 +375,16 @@ fn out_of_memory(code: u32) -> bool {
 /// Whether the engine answers `msg` with a message of its own soon: a page it loads says it's
 /// loading, a tab it opens reports itself, a DevTools call returns.
 fn expects_answer(msg: &HostMsg) -> bool {
-    matches!(msg, HostMsg::Hello { .. } | HostMsg::OpenTab { .. } | HostMsg::Navigate { .. } | HostMsg::Reload { .. } | HostMsg::CdpCall { .. })
+    matches!(
+        msg,
+        HostMsg::Hello { .. }
+            | HostMsg::OpenTab { .. }
+            | HostMsg::Navigate { .. }
+            | HostMsg::Reload { .. }
+            | HostMsg::CdpCall { .. }
+            | HostMsg::SiteCookies { .. }
+            | HostMsg::ClearSite { .. }
+    )
 }
 
 /// The oldest request the engine hasn't answered, whether the pane says it isn't responding

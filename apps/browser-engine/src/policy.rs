@@ -117,6 +117,60 @@ pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
     !is_file_scheme(url) || file_url_within(url, roots)
 }
 
+pub fn check_cdp(method: &str, params: &serde_json::Value) -> Result<(), String> {
+    let trimmed = method.trim();
+    match trimmed {
+        "Accessibility.getFullAXTree"
+        | "DOM.enable"
+        | "DOM.getDocument"
+        | "DOM.describeNode"
+        | "DOM.resolveNode"
+        | "DOM.getBoxModel"
+        | "DOM.getContentQuads"
+        | "DOM.scrollIntoViewIfNeeded"
+        | "DOM.focus"
+        | "DOM.getFrameOwner"
+        | "DOM.querySelector"
+        | "DOM.querySelectorAll"
+        | "Input.dispatchMouseEvent"
+        | "Input.insertText"
+        | "Page.getFrameTree"
+        | "Page.getLayoutMetrics"
+        | "Page.captureScreenshot"
+        | "Page.handleJavaScriptDialog"
+        | "Runtime.releaseObject" => Ok(()),
+        "Runtime.evaluate" | "Runtime.callFunctionOn" => {
+            if params.get("includeCommandLineAPI").and_then(serde_json::Value::as_bool) == Some(true) {
+                return Err(format!("DevTools method '{trimmed}' cannot enable includeCommandLineAPI."));
+            }
+            Ok(())
+        }
+        "Input.dispatchKeyEvent" => {
+            if params.get("commands").is_some_and(|v| !v.is_null()) {
+                return Err("DevTools method 'Input.dispatchKeyEvent' does not permit editing commands.".into());
+            }
+            let modifiers = params.get("modifiers").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let shortcuts = (modifiers & 6) != 0;
+            let ctrl = (modifiers & 2) != 0;
+            let shift = (modifiers & 8) != 0;
+            let key = params.get("key").and_then(serde_json::Value::as_str).unwrap_or("");
+            let vk = params
+                .get("windowsVirtualKeyCode")
+                .and_then(serde_json::Value::as_u64)
+                .or_else(|| params.get("nativeVirtualKeyCode").and_then(serde_json::Value::as_u64))
+                .unwrap_or(0);
+            if (shortcuts && (matches!(key, "c" | "C" | "v" | "V" | "x" | "X") || matches!(vk, 67 | 86 | 88)))
+                || ((key.eq_ignore_ascii_case("Insert") || vk == 45) && (shift || ctrl))
+                || (shift && (key.eq_ignore_ascii_case("Delete") || vk == 46 || key.eq_ignore_ascii_case("F10") || vk == 121))
+            {
+                return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
+            }
+            Ok(())
+        }
+        _ => Err(format!("DevTools method '{trimmed}' is not permitted in the built-in browser.")),
+    }
+}
+
 fn split_http_scheme(input: &str) -> Option<(&'static str, &str)> {
     if input.len() >= 7 && input.as_bytes()[..7].eq_ignore_ascii_case(b"http://") {
         return Some(("http", &input[7..]));

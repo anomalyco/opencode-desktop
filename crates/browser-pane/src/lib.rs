@@ -49,8 +49,8 @@ pub use client::BrowserTab;
 pub use frame::TabSurface;
 pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
 pub use policy::{
-    Refusal, allowed_destination, destination_origin, file_url_within, frame_guard, local_file_path,
-    normalize_url, refusal, subresource_allowed, with_scheme,
+    Refusal, allowed_destination, check_cdp, destination_origin, file_url_within, frame_guard,
+    local_file_path, normalize_url, refusal, subresource_allowed, with_scheme,
 };
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;

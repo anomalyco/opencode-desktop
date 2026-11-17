@@ -154,10 +154,12 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })
 }
 
-/// The host's async functions: `Browser:OpenAsync` and `BrowserTab:DevtoolsAsync`.
+/// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.OpenAsync", host.async_function("Browser:OpenAsync", open)?)?;
     t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
+    t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
+    t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
     t.raw_set("BrowserTab.ReadFileAsync", host.async_function("BrowserTab:ReadFileAsync", read_file)?)
 }
 
@@ -232,8 +234,8 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Sends the DevTools command on the next poll; `poll` answers it with `{ result }`, or with
-/// `{ error }` when the engine refused it, isn't running, or took too long.
+/// Sends the allow-listed DevTools command on the next poll; `poll` answers it with `{ result }`,
+/// or with `{ error }` when the policy or engine refused it, isn't running, or took too long.
 fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (id, cdp, params, target): (String, String, Value, Option<String>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
     let params = match <Data as mlua::FromLua>::from_lua(params, lua)?.to_json() {
@@ -248,8 +250,52 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
         if !s.browser.host.has_live_sidecar() {
             return done.complete(failed(not_running(&s.browser.host.status())));
         }
-        let request = s.browser.host.send_cdp(id, cdp, params, target);
-        s.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+        match s.browser.host.send_cdp(id, cdp, params, target) {
+            Ok(request) => {
+                s.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+            }
+            Err(err) => done.complete(failed(err)),
+        }
+    }));
+    Ok(())
+}
+
+fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    app_now("BrowserTab:SiteCookiesAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
+        let failed = |message: String| map([("error", Data::String(message))]);
+        let Some(id) = id.parse::<u64>().ok().filter(|&id| s.browser.host.tab(id).is_some()) else {
+            return done.complete(failed(format!("No browser tab with tabID {id}")));
+        };
+        if !s.browser.host.has_live_sidecar() {
+            return done.complete(failed(not_running(&s.browser.host.status())));
+        }
+        match s.browser.host.site_cookies(id) {
+            Ok(request) => {
+                s.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+            }
+            Err(err) => done.complete(failed(err)),
+        }
+    }));
+    Ok(())
+}
+
+fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    app_now("BrowserTab:ClearSiteAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
+        let failed = |message: String| map([("error", Data::String(message))]);
+        let Some(id) = id.parse::<u64>().ok().filter(|&id| s.browser.host.tab(id).is_some()) else {
+            return done.complete(failed(format!("No browser tab with tabID {id}")));
+        };
+        if !s.browser.host.has_live_sidecar() {
+            return done.complete(failed(not_running(&s.browser.host.status())));
+        }
+        match s.browser.host.clear_site(id) {
+            Ok(request) => {
+                s.browser.devtools.insert(request, (done, Instant::now() + DEVTOOLS_TIMEOUT));
+            }
+            Err(err) => done.complete(failed(err)),
+        }
     }));
     Ok(())
 }
@@ -436,6 +482,24 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         .set_name("=BrowserTab:DevtoolsAsync")
         .call(raw)?;
     m.raw_set("DevtoolsAsync", call)?;
+    let raw: Function = match lua.app_data_ref::<std::rc::Rc<Vmx>>() {
+        Some(vmx) => vmx.asyncs.raw_get("BrowserTab.SiteCookiesAsync")?,
+        None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
+    };
+    let call: Function = lua
+        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end local res = if r then r.result else nil if type(res) == 'table' then if type(res.cookies) == 'number' then return res.cookies end if type(res.cookies) == 'table' then return #res.cookies end end return 0 end")
+        .set_name("=BrowserTab:SiteCookiesAsync")
+        .call(raw)?;
+    m.raw_set("SiteCookiesAsync", call)?;
+    let raw: Function = match lua.app_data_ref::<std::rc::Rc<Vmx>>() {
+        Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ClearSiteAsync")?,
+        None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
+    };
+    let call: Function = lua
+        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end end")
+        .set_name("=BrowserTab:ClearSiteAsync")
+        .call(raw)?;
+    m.raw_set("ClearSiteAsync", call)?;
     let raw: Function = match lua.app_data_ref::<std::rc::Rc<Vmx>>() {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ReadFileAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),

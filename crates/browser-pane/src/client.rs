@@ -585,17 +585,62 @@ impl BrowserHost {
         method: impl Into<String>,
         params: Value,
         session_id: Option<String>,
-    ) -> u64 {
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_cdp(&method, &params, self.engine_policy)?;
         let request_id = self.next_req_id;
         self.next_req_id += 1;
         self.send(HostMsg::CdpCall {
             tab_id,
             request_id,
-            method: method.into(),
+            method,
             params,
             session_id,
         });
-        request_id
+        Ok(request_id)
+    }
+
+    /// Counts cookies for tab `tab_id`'s HTTP(S) destination without exposing cookie values.
+    pub fn site_cookies(&mut self, tab_id: u64) -> Result<u64, String> {
+        let url = self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .map(|t| t.url.clone())
+            .ok_or_else(|| format!("No browser tab with tabID {tab_id}"))?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if crate::policy::destination_origin(&url).is_none() {
+            self.cdp_responses.insert(request_id, Ok(serde_json::json!({ "cookies": 0 })));
+            return Ok(request_id);
+        }
+        if self.engine_policy {
+            self.send(HostMsg::SiteCookies { tab_id, request_id });
+        } else {
+            // Older engine fallback: request in Rust; `native/browser.rs` returns only the integer count.
+            self.send(HostMsg::CdpCall {
+                tab_id,
+                request_id,
+                method: "Network.getCookies".into(),
+                params: serde_json::json!({ "urls": [url] }),
+                session_id: None,
+            });
+        }
+        Ok(request_id)
+    }
+
+    /// Deletes cookies and origin storage for tab `tab_id`'s HTTP(S) destination and reloads.
+    pub fn clear_site(&mut self, tab_id: u64) -> Result<u64, String> {
+        if !self.tabs.iter().any(|t| t.id == tab_id) {
+            return Err(format!("No browser tab with tabID {tab_id}"));
+        }
+        if !self.engine_policy {
+            return Err("Clearing site data requires an updated browser engine.".into());
+        }
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(HostMsg::ClearSite { tab_id, request_id });
+        Ok(request_id)
     }
 
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {

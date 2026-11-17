@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.3: global types for luau-lsp.
+-- OpenCode plugin contract 1.4: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -3984,8 +3984,12 @@ export type BrowserTab = {
     Show: (self: BrowserTab, options: BrowserShowOptions?) -> (),
     --- Closes the page and its tab.
     Close: (self: BrowserTab) -> (),
-    --- Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields: call it from a handler, a task or a signal callback.
+    --- Sends one allow-listed DevTools protocol command and returns its result. Raises when the method or parameters are not permitted, when the engine fails, or after 10 seconds. Yields: call it from a handler, a task or a signal callback.
     DevtoolsAsync: (self: BrowserTab, method: string, params: { [string]: any }?, targetSessionId: string?) -> any,
+    --- Counts the cookies in use for the page's HTTP(S) address; 0 for blank or workspace file pages. Yields: call it from a handler, a task or a signal callback.
+    SiteCookiesAsync: (self: BrowserTab) -> number,
+    --- Deletes cookies and origin storage for the page's HTTP(S) address and reloads the page. Yields: call it from a handler, a task or a signal callback.
+    ClearSiteAsync: (self: BrowserTab) -> (),
     --- Reads a completed download of the page: its text when it is UTF-8, else its bytes in base64. Raises when the file is unknown, still downloading, failed, or over 5 MiB. Yields: call it from a handler, a task or a signal callback.
     ReadFileAsync: (self: BrowserTab, fileId: string) -> BrowserFileContents,
 }

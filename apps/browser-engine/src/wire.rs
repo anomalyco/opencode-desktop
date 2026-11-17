@@ -96,6 +96,8 @@ pub enum HostMsg {
     SetInspect { tab_id: u64, enabled: bool },
     HighlightNode { tab_id: u64, backend_node_id: Option<i64> },
     CdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
+    SiteCookies { tab_id: u64, request_id: u64 },
+    ClearSite { tab_id: u64, request_id: u64 },
     Shutdown,
 }
 

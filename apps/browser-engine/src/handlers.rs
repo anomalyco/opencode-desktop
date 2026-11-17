@@ -588,11 +588,25 @@ wrap_request_handler! {
     }
 }
 
+pub enum CdpPending {
+    Raw(u64),
+    CookieCount(u64),
+    ClearSite { request_id: u64, origin: String },
+}
+
+pub struct PendingClear {
+    pub tab_id: u64,
+    pub request_id: u64,
+    pub origin: String,
+    pub cookies: Vec<(String, String, String)>,
+}
+
 wrap_dev_tools_message_observer! {
     pub struct TabCdpObserver {
         tab_id: u64,
-        id_map: Arc<Mutex<HashMap<i32, u64>>>,
+        id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
+        pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         out_tx: Output,
     }
 
@@ -604,18 +618,63 @@ wrap_dev_tools_message_observer! {
             success: i32,
             result: Option<&[u8]>,
         ) {
-            let Some(req_id) = self.id_map.lock().unwrap().remove(&message_id) else {
+            let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
                 return;
             };
             let val = result
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
-            let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                tab_id: self.tab_id,
-                request_id: req_id,
-                ok: success != 0,
-                result: val,
-            });
+            match pending {
+                CdpPending::Raw(req_id) => {
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: self.tab_id,
+                        request_id: req_id,
+                        ok: success != 0,
+                        result: val,
+                    });
+                }
+                CdpPending::CookieCount(req_id) => {
+                    let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: self.tab_id,
+                        request_id: req_id,
+                        ok: success != 0,
+                        result: serde_json::json!({ "cookies": count }),
+                    });
+                }
+                CdpPending::ClearSite { request_id, origin } => {
+                    if success == 0 {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id: self.tab_id,
+                            request_id,
+                            ok: false,
+                            result: val,
+                        });
+                        return;
+                    }
+                    let cookies = val
+                        .get("cookies")
+                        .and_then(Value::as_array)
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|c| {
+                                    Some((
+                                        c.get("name")?.as_str()?.to_owned(),
+                                        c.get("domain")?.as_str()?.to_owned(),
+                                        c.get("path")?.as_str().unwrap_or("/").to_owned(),
+                                    ))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.pending_clears.lock().unwrap().push(PendingClear {
+                        tab_id: self.tab_id,
+                        request_id,
+                        origin,
+                        cookies,
+                    });
+                }
+            }
         }
 
         fn on_dev_tools_event(

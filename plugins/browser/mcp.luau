@@ -406,8 +406,8 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
     end
     addFileTools()
     Browser.Changed:Connect(addFileTools)
-    tool("browser_cdp", "Send a raw Chrome DevTools Protocol command to a browser tab in OpenCode (Rune).", {
-        method = { type = "string", description = "CDP method name, e.g. 'Input.dispatchMouseEvent' or 'DOM.getDocument'." },
+    tool("browser_cdp", "Send an allow-listed Chrome DevTools Protocol command to a browser tab in OpenCode (Rune).", {
+        method = { type = "string", description = "Allow-listed CDP method name, e.g. 'Input.dispatchMouseEvent' or 'DOM.getDocument'." },
         params = { type = "object", description = "CDP method parameters." },
         tabID = tabSchema(DEFAULT_TAB),
         sessionId = { type = "string", description = "Optional CDP target sessionId." },
@@ -417,6 +417,9 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
             error("Missing 'method'", 0)
         end
         local tab = target(args, sid)
+        if not Browser:Engine().policy then
+            error("browser_cdp requires an updated browser engine that enforces URL policy.", 0)
+        end
         local result = tab:DevtoolsAsync(method, if type(args.params) == "table" then args.params else {}, if type(args.sessionId) == "string" then args.sessionId else nil)
         -- An answer that is one long `data` string is an image (a screenshot through CDP).
         if type(result) == "table" and type(result.data) == "string" and #result.data > 256 then

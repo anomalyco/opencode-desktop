@@ -227,6 +227,14 @@ pub enum HostMsg {
         params: Value,
         session_id: Option<String>,
     },
+    SiteCookies {
+        tab_id: u64,
+        request_id: u64,
+    },
+    ClearSite {
+        tab_id: u64,
+        request_id: u64,
+    },
     Shutdown,
 }
 

@@ -16,8 +16,9 @@ use cef::{
 use serde_json::{Value, json};
 
 use crate::handlers::{
-    FrameRing, TabCdpObserver, TabDisplayHandler, TabLoadHandler, TabRenderHandler, TabRequestHandler, ViewRectState, ascii_vk,
-    cef_mods, event_flag, mac_key_code, named_codes, native_key_code,
+    CdpPending, FrameRing, PendingClear, TabCdpObserver, TabDisplayHandler, TabLoadHandler,
+    TabRenderHandler, TabRequestHandler, ViewRectState, ascii_vk, cef_mods, event_flag,
+    mac_key_code, named_codes, native_key_code,
 };
 use crate::profile::Profile;
 use crate::tab_client::SidecarTabClient;
@@ -199,8 +200,9 @@ struct ManagedTab {
     file_roots: Arc<Mutex<Vec<String>>>,
     view_state: Arc<Mutex<ViewRectState>>,
     snap: Arc<Mutex<TabSnapshot>>,
-    cdp_id_map: Arc<Mutex<HashMap<i32, u64>>>,
+    cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
+    pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     _cdp_reg: Option<Registration>,
     held_buttons: u32,
     #[cfg(windows)]
@@ -266,9 +268,39 @@ impl EngineManager {
 
     pub fn poll_picks(&mut self) {
         let mut ready = Vec::new();
+        let mut clears = Vec::new();
         for (&tab_id, tab) in &self.tabs {
             for backend_id in tab.internal_picked.lock().unwrap().drain(..) {
                 ready.push((tab_id, backend_id));
+            }
+            for clear in tab.pending_clears.lock().unwrap().drain(..) {
+                clears.push(clear);
+            }
+        }
+        for clear in clears {
+            if let Some(tab) = self.tabs.get(&clear.tab_id) {
+                for (name, domain, path) in clear.cookies {
+                    self.send_internal_cdp(
+                        &tab.host,
+                        "Network.deleteCookies",
+                        json!({ "name": name, "domain": domain, "path": path }),
+                    );
+                }
+                self.send_internal_cdp(
+                    &tab.host,
+                    "Storage.clearDataForOrigin",
+                    json!({
+                        "origin": clear.origin,
+                        "storageTypes": "local_storage,indexeddb,service_workers,cache_storage,file_systems,shader_cache",
+                    }),
+                );
+                tab.browser.reload();
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id: clear.tab_id,
+                    request_id: clear.request_id,
+                    ok: true,
+                    result: json!({}),
+                });
             }
         }
         for (tab_id, backend_id) in ready {
@@ -589,26 +621,17 @@ impl EngineManager {
             }
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if method == "Page.navigate"
-                        && let Some(url) = params.get("url").and_then(Value::as_str)
-                    {
-                        let roots = t.file_roots.lock().unwrap().clone();
-                        if let Some(why) = crate::policy::frame_guard(url, session_id.is_none(), &roots) {
-                            let _ = self.out_tx.send(EngineMsg::Refused {
-                                tab_id,
-                                reason: why.code().to_owned(),
-                            });
-                            let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                                tab_id,
-                                request_id,
-                                ok: false,
-                                result: json!({ "message": why.code() }),
-                            });
-                            return true;
-                        }
+                    if let Err(err) = crate::policy::check_cdp(&method, &params) {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": err }),
+                        });
+                        return true;
                     }
                     let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map.lock().unwrap().insert(msg_id, request_id);
+                    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
                     let mut payload = json!({
                         "id": msg_id,
                         "method": method,
@@ -625,6 +648,71 @@ impl EngineManager {
                             request_id,
                             ok: false,
                             result: json!({ "error": "send_dev_tools_message rejected" }),
+                        });
+                    }
+                }
+            }
+            HostMsg::SiteCookies { tab_id, request_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    if crate::policy::destination_origin(&url).is_none() {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: true,
+                            result: json!({ "cookies": 0 }),
+                        });
+                        return true;
+                    }
+                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CookieCount(request_id));
+                    let raw = json!({
+                        "id": msg_id,
+                        "method": "Network.getCookies",
+                        "params": { "urls": [url] },
+                    })
+                    .to_string();
+                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "send_dev_tools_message rejected" }),
+                        });
+                    }
+                }
+            }
+            HostMsg::ClearSite { tab_id, request_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let url = t.snap.lock().unwrap().url.clone();
+                    let Some(origin) = crate::policy::destination_origin(&url) else {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: true,
+                            result: json!({}),
+                        });
+                        return true;
+                    };
+                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                    t.cdp_id_map
+                        .lock()
+                        .unwrap()
+                        .insert(msg_id, CdpPending::ClearSite { request_id, origin });
+                    let raw = json!({
+                        "id": msg_id,
+                        "method": "Network.getCookies",
+                        "params": { "urls": [url] },
+                    })
+                    .to_string();
+                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id,
+                            request_id,
+                            ok: false,
+                            result: json!({ "message": "send_dev_tools_message rejected" }),
                         });
                     }
                 }
@@ -731,10 +819,12 @@ impl EngineManager {
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
+        let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id,
             cdp_id_map.clone(),
             internal_picked.clone(),
+            pending_clears.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
@@ -752,6 +842,7 @@ impl EngineManager {
                 snap,
                 cdp_id_map,
                 internal_picked,
+                pending_clears,
                 _cdp_reg: cdp_reg,
                 held_buttons: 0,
                 #[cfg(windows)]

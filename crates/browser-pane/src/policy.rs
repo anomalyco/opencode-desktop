@@ -177,6 +177,74 @@ pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
     !is_file_scheme(url) || file_url_within(url, roots)
 }
 
+/// Validates a DevTools Protocol call against the fixed set of protocol operations Official's
+/// browser actions make (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,912,938,974,
+/// 1003,1026,1205,1267-1389,1469-1484,1698-1722`). Enforced in both the app and the sidecar.
+pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
+    let trimmed = method.trim();
+    if !engine_has_policy {
+        return match trimmed {
+            "Accessibility.getFullAXTree" | "Page.captureScreenshot" => Ok(()),
+            "Runtime.evaluate" => check_runtime_params(trimmed, params),
+            _ => Err(format!("DevTools method '{trimmed}' requires an updated browser engine that enforces URL policy.")),
+        };
+    }
+    match trimmed {
+        "Accessibility.getFullAXTree"
+        | "DOM.enable"
+        | "DOM.getDocument"
+        | "DOM.describeNode"
+        | "DOM.resolveNode"
+        | "DOM.getBoxModel"
+        | "DOM.getContentQuads"
+        | "DOM.scrollIntoViewIfNeeded"
+        | "DOM.focus"
+        | "DOM.getFrameOwner"
+        | "DOM.querySelector"
+        | "DOM.querySelectorAll"
+        | "Input.dispatchMouseEvent"
+        | "Input.insertText"
+        | "Page.getFrameTree"
+        | "Page.getLayoutMetrics"
+        | "Page.captureScreenshot"
+        | "Page.handleJavaScriptDialog"
+        | "Runtime.releaseObject" => Ok(()),
+        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(trimmed, params),
+        "Input.dispatchKeyEvent" => check_key_params(params),
+        _ => Err(format!("DevTools method '{trimmed}' is not permitted in the built-in browser.")),
+    }
+}
+
+fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
+    if params.get("includeCommandLineAPI").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
+    }
+    Ok(())
+}
+
+fn check_key_params(params: &serde_json::Value) -> Result<(), String> {
+    if params.get("commands").is_some_and(|v| !v.is_null()) {
+        return Err("DevTools method 'Input.dispatchKeyEvent' does not permit editing commands.".into());
+    }
+    let modifiers = params.get("modifiers").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let shortcuts = (modifiers & 6) != 0;
+    let ctrl = (modifiers & 2) != 0;
+    let shift = (modifiers & 8) != 0;
+    let key = params.get("key").and_then(serde_json::Value::as_str).unwrap_or("");
+    let vk = params
+        .get("windowsVirtualKeyCode")
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| params.get("nativeVirtualKeyCode").and_then(serde_json::Value::as_u64))
+        .unwrap_or(0);
+    if (shortcuts && (matches!(key, "c" | "C" | "v" | "V" | "x" | "X") || matches!(vk, 67 | 86 | 88)))
+        || ((key.eq_ignore_ascii_case("Insert") || vk == 45) && (shift || ctrl))
+        || (shift && (key.eq_ignore_ascii_case("Delete") || vk == 46 || key.eq_ignore_ascii_case("F10") || vk == 121))
+    {
+        return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
+    }
+    Ok(())
+}
+
 /// Whether the user's address field treats `input` as a web search rather than an address (`address.ts:23-38`).
 pub fn searches(input: &str) -> bool {
     let value = input.trim();

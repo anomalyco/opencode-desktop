@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.3)
+# OpenCode plugin API reference (contract 1.4)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.3`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.4`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -2684,7 +2684,9 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:Highlight` | `(nodeId: number?) -> ()` | Outlines the DevTools backend node `nodeId` in the page, or clears the outline. |
 | `:Show` | `(options: BrowserShowOptions?) -> ()` | Selects its tab in a session's side region, opening the region and adding the tab when it isn't there. |
 | `:Close` | `() -> ()` | Closes the page and its tab. |
-| `:DevtoolsAsync` | `(method: string, params: { [string]: any }?, targetSessionId: string?) -> any` | Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields. |
+| `:DevtoolsAsync` | `(method: string, params: { [string]: any }?, targetSessionId: string?) -> any` | Sends one allow-listed DevTools protocol command and returns its result. Raises when the method or parameters are not permitted, when the engine fails, or after 10 seconds. Yields. |
+| `:SiteCookiesAsync` | `() -> number` | Counts the cookies in use for the page's HTTP(S) address; 0 for blank or workspace file pages. Yields. |
+| `:ClearSiteAsync` | `() -> ()` | Deletes cookies and origin storage for the page's HTTP(S) address and reloads the page. Yields. |
 | `:ReadFileAsync` | `(fileId: string) -> BrowserFileContents` | Reads a completed download of the page: its text when it is UTF-8, else its bytes in base64. Raises when the file is unknown, still downloading, failed, or over 5 MiB. Yields. |
 
 ### BrowserFile

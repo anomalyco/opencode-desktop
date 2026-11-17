@@ -215,11 +215,10 @@ return plugin.defineWindow(function(ctx)
                         siteDispatch({ type = "timeout", phase = "loading", attempt = attempt })
                     end)
                     task.spawn(function()
-                        local ok, answer = pcall(function()
-                            return if tab then tab:DevtoolsAsync("Network.getCookies", { urls = { described.url } }) else nil
+                        local ok, count = pcall(function()
+                            return if tab then tab:SiteCookiesAsync() else nil
                         end)
-                        local cookies = if ok and type(answer) == "table" and type(answer.cookies) == "table" then answer.cookies else nil
-                        siteDispatch(if cookies then { type = "load.succeeded", attempt = attempt, cookies = #cookies } else { type = "load.failed", attempt = attempt })
+                        siteDispatch(if ok and type(count) == "number" then { type = "load.succeeded", attempt = attempt, cookies = count } else { type = "load.failed", attempt = attempt })
                     end)
                 else
                     task.delay(site.CLEAR_TIMEOUT, function()
@@ -230,20 +229,7 @@ return plugin.defineWindow(function(ctx)
                             if tab == nil then
                                 error("gone", 0)
                             end
-                            local answer = tab:DevtoolsAsync("Network.getCookies", { urls = { described.url } })
-                            for _, cookie in (if type(answer) == "table" and type(answer.cookies) == "table" then answer.cookies else {}) do
-                                tab:DevtoolsAsync("Network.deleteCookies", { name = cookie.name, domain = cookie.domain, path = cookie.path })
-                            end
-                            local scheme, host = address.parts(described.url)
-                            if (string.lower(scheme) == "http://" or string.lower(scheme) == "https://") and host ~= "" then
-                                pcall(function()
-                                    tab:DevtoolsAsync("Storage.clearDataForOrigin", {
-                                        origin = `{string.lower(scheme)}{host}`,
-                                        storageTypes = "local_storage,indexeddb,service_workers,cache_storage,file_systems,shader_cache",
-                                    })
-                                end)
-                            end
-                            tab:Reload()
+                            tab:ClearSiteAsync()
                         end)
                         siteDispatch(if ok then { type = "clear.succeeded", attempt = attempt } else { type = "clear.failed", attempt = attempt })
                     end)
