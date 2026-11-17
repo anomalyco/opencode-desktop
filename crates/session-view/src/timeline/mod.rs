@@ -174,9 +174,9 @@ impl RowSpec {
                             let directory = s.active_session_id().and_then(|id| s.session_directory(id));
                             (m.markdown.version(), m.viewing.as_ref().map(|v| v.id.clone()), directory, favicons)
                         });
-                        // An earlier turn's own footer: its Copy's tick, and its "Model · 1s",
-                        // which leaves out the model in a narrow window.
-                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow()));
+                        // An earlier turn's own footer: its Copy's tick, whether Copy stays out at
+                        // rest, and its "Model · 1s", which leaves out the model in a narrow window.
+                        let own = turn_footer_text(t, *message, *part).then(|| (crate::copied::current(s), crate::style::narrow(), s.copy_always_visible()));
                         // A session id it names being looked up, renamed, starting or stopping.
                         let chips = body.contains("ses_").then(|| crate::session_chips::version(s, body));
                         // A path its code names being found (`TimelineHost::code_links`); a streaming
