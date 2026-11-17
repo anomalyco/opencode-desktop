@@ -65,7 +65,10 @@ pub struct SheetFrame {
 /// Starts the thread for `bytes`; its answers come on `replies` and each one calls `wake`.
 pub fn start(kind: Kind, bytes: Vec<u8>, packs: FontPacks, replies: Sender<Reply>, wake: Arc<dyn Fn() + Send + Sync>) -> Option<Sender<Job>> {
     let (jobs, rx) = std::sync::mpsc::channel();
-    std::thread::Builder::new().name("office-document".into()).spawn(move || run(kind, &bytes, packs, &rx, &replies, &*wake)).ok()?;
+    // Word's parser recurses once per nested table or content control (~40 KB a level) up to its
+    // 64-level cap (~2.80 MiB), which overflowed Rust's 2 MiB default worker stack at 41 levels.
+    // Address space only; at most two document threads stay open (`machine.KEPT`).
+    std::thread::Builder::new().name("office-document".into()).stack_size(8 * 1024 * 1024).spawn(move || run(kind, &bytes, packs, &rx, &replies, &*wake)).ok()?;
     Some(jobs)
 }
 

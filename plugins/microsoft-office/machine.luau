@@ -15,7 +15,7 @@ export type Kind = "docx" | "xlsx" | "pptx"
 export type Status =
     { kind: "reading", attempt: number }
     | { kind: "open", document: OfficeDocument, size: number }
-    -- `reason` is a message key: `problem.compound`, `problem.format`, or none for a failed engine.
+    -- `reason` is a message key: `problem.compound`, `problem.format`, `problem.depth`, or `problem.openFailed`.
     | { kind: "binary", size: number, reason: string? }
 
 export type File = { kind: Kind, directory: string, status: Status }
@@ -99,8 +99,10 @@ function machine.step(state: State, event: Event): { Effect }
             file.status = { kind = "binary", size = found.size, reason = "problem.compound" }
         elseif found.signature == "other" then
             file.status = { kind = "binary", size = found.size, reason = "problem.format" }
+        elseif found.error and (found.error:find("Depth", 1, true) ~= nil or found.error:find("nesting", 1, true) ~= nil or found.error:find("recursion limit", 1, true) ~= nil or found.error:find("levels deep", 1, true) ~= nil) then
+            file.status = { kind = "binary", size = found.size, reason = "problem.depth" }
         else
-            file.status = { kind = "binary", size = found.size }
+            file.status = { kind = "binary", size = found.size, reason = "problem.openFailed" }
         end
     elseif event.type == "disposed" then
         for path in state.files do

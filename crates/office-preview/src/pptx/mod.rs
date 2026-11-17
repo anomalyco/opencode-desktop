@@ -111,20 +111,21 @@ fn decode_media(package: &PptxPackage) -> HashMap<String, Result<ImageData, Stri
 
 /// Every family a deck names (`typeface`, `latin`, `fontFamily`...), theme references left out,
 /// in the order met.
-fn collect_families(v: &Value, out: &mut Vec<String>) {
-    match v {
-        Value::Object(map) => {
-            for (k, v) in map {
-                if let (Some(name), true) = (v.as_str(), matches!(k.as_str(), "typeface" | "latin" | "fontFamily" | "family" | "font" | "ea" | "cs")) {
-                    let name = name.trim();
-                    if !name.is_empty() && !name.starts_with('+') && !out.iter().any(|f| f.eq_ignore_ascii_case(name)) && out.len() < 64 {
-                        out.push(name.to_owned());
-                    }
-                }
-                collect_families(v, out);
+fn collect_families(root: &Value, out: &mut Vec<String>) {
+    let mut stack = vec![(None, root)];
+    while let Some((key, v)) = stack.pop() {
+        if let (Some(k), Some(name)) = (key, v.as_str())
+            && matches!(k, "typeface" | "latin" | "fontFamily" | "family" | "font" | "ea" | "cs")
+        {
+            let name = name.trim();
+            if !name.is_empty() && !name.starts_with('+') && !out.iter().any(|f| f.eq_ignore_ascii_case(name)) && out.len() < 64 {
+                out.push(name.to_owned());
             }
         }
-        Value::Array(items) => items.iter().for_each(|v| collect_families(v, out)),
-        _ => {}
+        match v {
+            Value::Object(map) => stack.extend(map.iter().rev().map(|(k, v)| (Some(k.as_str()), v))),
+            Value::Array(items) => stack.extend(items.iter().rev().map(|v| (None, v))),
+            _ => {}
+        }
     }
 }
