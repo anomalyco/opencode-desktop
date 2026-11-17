@@ -111,6 +111,7 @@ mod compositor;
 mod compaction_stories;
 mod connect;
 mod context_window;
+mod crash_notice;
 mod deep_links;
 mod demo;
 mod demo_script;
@@ -1149,6 +1150,7 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.persists() {
         changed |= s.tell_storage_notice();
         changed |= s.hydrate_restore();
+        changed |= crash_notice::poll(s);
         s.poll_restore();
         s.poll_preview(false);
         changed |= s.poll_copies(tx);

@@ -40,6 +40,8 @@ pub struct BootReport {
     pub error: Option<String>,
     /// Never set on the web (the browser's storage has no file to move aside); native's twin.
     pub damaged: Option<std::path::PathBuf>,
+    pub created: bool,
+    pub journal_replayed: bool,
 }
 
 type StateKey = (String, String);

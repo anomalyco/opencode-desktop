@@ -77,6 +77,8 @@ pub struct BootReport {
     /// Drafts it held at launch, and of them those newer than the database, written to it.
     pub journal_recovered: usize,
     pub journal_written: usize,
+    /// True when an existing draft journal from the previous run attached and replayed cleanly.
+    pub journal_replayed: bool,
     /// Why this run has no journal, when it hasn't.
     pub journal_error: Option<String>,
     /// The file couldn't be read (damaged: a power cut, a disk error) and was moved here; this
@@ -310,6 +312,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
     // never opened again, so a launch can't meet it twice.
     if result.as_ref().is_err_and(|e| !is_held(e, &config)) && damaged(&config.path) {
         journal::abandon();
+        report.journal_replayed = false;
         match keep_damaged(&config.path, (config.clock)()) {
             Ok(kept) => {
                 eprintln!("opencode-storage: the database was damaged; kept as {} and started a new one", kept.display());
@@ -351,6 +354,7 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         }
         Err(e) => {
             report.error = Some(e.to_string());
+            report.journal_replayed = false;
             let mut cache = crate::cache::Cache { complete: true, outbox: OutboxCache::Loaded(BTreeMap::new()), ..Default::default() };
             match &packet {
                 // The windows were built from the record: memory keeps what they show.

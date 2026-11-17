@@ -51,6 +51,13 @@ pub enum ToastAction {
     Tip(crate::tips::queue::Tip),
 }
 
+/// Built-in recovery toast buttons (`crate::crash_notice`): first is primary neutral, rest ghost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeButton {
+    OpenSkippedSession,
+    ExportLogs,
+}
+
 /// A plugin toast's button (`ToastAction` with `run`): it closes the toast, then runs `run` in its
 /// plugin or opens `url`. `secondary` is Desktop's ghost button, the rest its neutral one.
 #[derive(Clone, Debug)]
@@ -75,6 +82,8 @@ pub struct Entry {
     /// The glyph before the words: a success toast's tick.
     pub icon: Option<&'static Icon>,
     pub persistent: bool,
+    /// Built-in recovery buttons (`crash_notice`), in place of `action`.
+    pub native_buttons: Vec<NativeButton>,
     /// A plugin's buttons, in place of `action`.
     pub buttons: Vec<PluginButton>,
     /// The handle `Toast:Show` answered with, which `Dismiss` names.
@@ -214,6 +223,7 @@ fn step(s: &mut App, event: ToastEvent<Shown>, mut tx: Option<&mut Tx>) {
             ToastEffect::Pulse(id) if !*s.reduced_motion => s.toast.pulse.step(PulseEvent::Start { id, now: *s.clock }),
             ToastEffect::Closed(id) => {
                 crate::undo::toast_closed(s, id);
+                crate::crash_notice::toast_closed(s, id);
                 None
             }
             ToastEffect::Pulse(_) => None,
@@ -235,7 +245,7 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
         ToastAction::Tip(tip) => tip.install().to_owned(),
     });
     let parts = [entry.description.as_deref(), entry.quote.as_deref(), entry.next.as_deref()].map(|p| p.unwrap_or(""));
-    let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}", entry.title, parts.join("\u{1f}"));
+    let key = format!("{}\u{1f}{}\u{1f}{secs:?}\u{1f}{action:?}\u{1f}{:?}", entry.title, parts.join("\u{1f}"), entry.native_buttons);
     let now = *s.clock;
     let words = std::iter::once(entry.title.as_str()).chain(parts).map(str::trim).filter(|w| !w.is_empty()).fold(String::new(), |out, w| match out.chars().last() {
         None => w.to_owned(),
@@ -253,7 +263,33 @@ fn show(s: &mut App, entry: Entry, secs: Option<f64>) -> u64 {
 }
 
 fn entry(title: impl Into<String>, description: Option<String>, persistent: bool) -> Entry {
-    Entry { id: 0, title: title.into(), description, quote: None, next: None, action: None, icon: None, persistent, buttons: Vec::new(), handle: None }
+    Entry { id: 0, title: title.into(), description, quote: None, next: None, action: None, icon: None, persistent, native_buttons: Vec::new(), buttons: Vec::new(), handle: None }
+}
+
+/// Non-modal next-launch notice after an unexpected close (`crate::crash_notice`).
+pub fn crash_notice(
+    s: &mut App,
+    title: String,
+    description: String,
+    restored_line: Option<String>,
+    native_buttons: Vec<NativeButton>,
+) -> u64 {
+    let summary = match &restored_line {
+        Some(r) => format!("{title}: {description} {r}"),
+        None => format!("{title}: {description}"),
+    };
+    *s.status = summary.into();
+    let id = show(
+        s,
+        Entry {
+            next: restored_line,
+            native_buttons,
+            ..entry(title, Some(description), true)
+        },
+        None,
+    );
+    s.speech.urgent();
+    id
 }
 
 /// Shows `"Reverted"` with an `"Undo"` button bound to `undo`.
@@ -650,6 +686,9 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .children(entry.next.as_ref().map(|next| text(next.clone()).key("toast-next").font(DESC).color(p.muted).wrap().w_full().mt(4.0)));
     if let Some(btn) = action_btn {
         content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).child(btn).child(spacer().fill(Color::TRANSPARENT)));
+    } else if !entry.native_buttons.is_empty() {
+        let buttons = entry.native_buttons.iter().enumerate().map(|(i, &b)| native_button(p, id, i > 0, b));
+        content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).wrap().children(buttons));
     } else if !entry.buttons.is_empty() {
         let buttons = entry.buttons.iter().enumerate().map(|(i, b)| plugin_button(p, id, i, b.clone()));
         content = content.child(row().key("toast-actions").mt(8.0).gap(8.0).wrap().children(buttons));
@@ -678,6 +717,28 @@ fn card(p: &Pal, entry: &Entry, content_shows: bool) -> El {
         .motion(Spring::NONE)
         .on_press(|_: &mut App| {})
         .child(body)
+}
+
+/// A built-in recovery toast button (`crash_notice`): primary neutral or secondary ghost.
+fn native_button(p: &Pal, id: u64, secondary: bool, button: NativeButton) -> El {
+    let (key, label) = match button {
+        NativeButton::OpenSkippedSession => ("toast-open-anyway", opencode_i18n::t!("rune.crash.openAnyway").to_owned()),
+        NativeButton::ExportLogs => ("toast-export-logs", opencode_i18n::t!("command.logs.export").to_owned()),
+    };
+    let base = row().key(key).role("button").label(label.clone()).h(24.0).px(9.0).radius(4.0).center();
+    let styled = if secondary { base } else { base.fill(if p.dark && p.theme == 0 { Color::WHITE.alpha(0.06) } else { p.q.neutral }).elevate(neutral_lift(p)) };
+    styled
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            match button {
+                NativeButton::OpenSkippedSession => crate::crash_notice::open_anyway(s, id, tx),
+                NativeButton::ExportLogs => s.export_logs(),
+            }
+        })
+        .child(text(label).font(TITLE).color(p.text))
 }
 
 /// A plugin's toast button (`toast.tsx` `createToastActions`): `button-v2` small, neutral or

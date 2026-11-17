@@ -140,7 +140,8 @@ fn arch() -> &'static str {
 
 /// Shows `file` selected in the system's file manager (`shell.showItemInFolder`).
 fn reveal(file: &Path) {
-    if crate::headless() {
+    if crate::headless() || crate::dirs::rooted() {
+        eprintln!("export logs: wrote {}", file.display());
         return;
     }
     #[cfg(target_os = "windows")]

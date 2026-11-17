@@ -29,6 +29,9 @@ pub(super) fn attach_journal(config: &StorageConfig, report: &mut BootReport, ow
     let ok = match journal::attach(&config.path, loc, fresh, now_us) {
         Ok(r) => {
             report.journal_recovered = r.len();
+            if !fresh {
+                report.journal_replayed = true;
+            }
             owe.recovered = r;
             true
         }

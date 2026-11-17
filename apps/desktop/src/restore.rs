@@ -93,6 +93,8 @@ pub struct Restore {
     edits: HashMap<String, rune::TextEdit>,
     /// What each draft's stored undo history was last written as (`undo`).
     undo: undo::Kept,
+    /// Next-launch notice state after an unexpected close (`crash_notice`).
+    pub crash_notice: crate::crash_notice::State,
 }
 
 /// The rows this window last wrote (or read): its keys and each draft's document by tab key.
@@ -189,8 +191,26 @@ impl App {
                 Route::Home => false,
             };
             if !lost {
-                if let Route::Session { id, .. } = &route {
+                if let Route::Session { server: on, id } = &route {
                     if crate::launch::last_exit::take_skip_restore(id) {
+                        let title = self
+                            .tabs
+                            .iter()
+                            .find(|t| t.is(on, id) && !t.title.trim().is_empty())
+                            .map(|t| t.title.trim().to_owned())
+                            .or_else(|| {
+                                self.sessions
+                                    .iter()
+                                    .find(|x| x.id == *id && !x.title.trim().is_empty())
+                                    .map(|x| x.title.trim().to_owned())
+                            })
+                            .unwrap_or_default();
+                        crate::crash_notice::note_skipped(
+                            &mut self.restore.crash_notice,
+                            on.clone(),
+                            id.clone(),
+                            title,
+                        );
                         skipped_session = true;
                     } else {
                         crate::launch::last_exit::note_restoring_session(id);

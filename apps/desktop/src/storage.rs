@@ -54,7 +54,7 @@ enum Effect {
 
 /// How the database opened, for what the windows are told.
 enum Opened {
-    Saving,
+    Saving { drafts_replayed: bool },
     /// It couldn't (why): this run keeps its changes in memory.
     Memory(String),
     /// It was damaged: moved aside (here) and a new one made.
@@ -66,7 +66,9 @@ impl Opened {
         match (report.error, report.damaged) {
             (Some(why), _) => Opened::Memory(why),
             (None, Some(kept)) => Opened::Fresh(kept),
-            (None, None) => Opened::Saving,
+            (None, None) => Opened::Saving {
+                drafts_replayed: !report.created && report.journal_replayed,
+            },
         }
     }
 }
@@ -118,11 +120,13 @@ pub enum Notice {
 struct Told {
     owed: Option<Notice>,
     held: bool,
+    /// Whether an existing draft journal from the previous run attached and replayed cleanly.
+    drafts_replayed: bool,
     /// Whether the windows were last told writes fail (and of which kind: the disk full or not).
     failing: Option<bool>,
 }
 
-static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false, failing: None });
+static TOLD: Mutex<Told> = Mutex::new(Told { owed: None, held: false, drafts_replayed: false, failing: None });
 
 fn told() -> MutexGuard<'static, Told> {
     TOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -224,13 +228,15 @@ fn send(event: Event) {
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
         if let Some(Effect::Adopt(_, _, opened, _)) = &mut effect {
             let mut t = told();
-            t.owed = match (std::mem::replace(opened, Opened::Saving), t.held) {
+            let was_opened = std::mem::replace(opened, Opened::Saving { drafts_replayed: false });
+            t.drafts_replayed = matches!((&was_opened, t.held), (Opened::Saving { drafts_replayed: true }, false));
+            t.owed = match (was_opened, t.held) {
                 // The first frame's notice already says nothing is saved.
                 (Opened::Memory(_), true) => t.owed.take(),
                 (Opened::Memory(why), false) => Some(Notice::Memory(why)),
                 (Opened::Fresh(kept), _) => Some(Notice::Damaged(kept.display().to_string())),
-                (Opened::Saving, true) => Some(Notice::Saving),
-                (Opened::Saving, false) => None,
+                (Opened::Saving { .. }, true) => Some(Notice::Saving),
+                (Opened::Saving { .. }, false) => None,
             };
         }
         if let Phase::Booted { boot, .. } = &next {
@@ -299,7 +305,12 @@ pub fn claimed() {
     }
 }
 
-fn wake_all() {
+/// True when an existing draft journal from the previous run attached and replayed cleanly.
+pub fn drafts_replayed() -> bool {
+    told().drafts_replayed
+}
+
+pub(crate) fn wake_all() {
     for w in WAKERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
         w();
     }

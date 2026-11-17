@@ -226,6 +226,17 @@ fn decode_record(buf: &[u8; RECORD_BYTES], opened_home: bool) -> Option<(Previou
     ))
 }
 
+/// Readiness of `<data>/last-exit.bin` when a window polls for the previous session's outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PollPrevious {
+    /// Post-Frame-1 open on the task pool is still in flight.
+    Opening,
+    /// First caller in this process: returns what `<data>/last-exit.bin` recorded.
+    Ready(Previous),
+    /// Already taken by a window in this process, or closed/unavailable.
+    Taken,
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn init_hooks() {}
 #[cfg(target_arch = "wasm32")]
@@ -240,6 +251,8 @@ pub fn take_skip_restore(_id: &str) -> bool { false }
 pub fn mark_restore_settled(_id: &str) {}
 #[cfg(target_arch = "wasm32")]
 pub fn set_active_session(_id: Option<&str>) {}
+#[cfg(target_arch = "wasm32")]
+pub fn poll_previous() -> PollPrevious { PollPrevious::Taken }
 #[cfg(target_arch = "wasm32")]
 pub fn poll_debug_drill() {}
 
@@ -260,9 +273,9 @@ mod imp {
         write_skip_sentinel,
     };
     use super::{
-        Effect, Event, FLAG_HEAP_ALLOC, FLAG_PANIC, Previous, RECORD_BYTES, SKIP_BYTES, SKIP_MAGIC,
-        State, TAG_CLEAN, TAG_FATAL, TAG_OUT_OF_MEMORY, TAG_RUNNING, decode_raw_fields,
-        decode_record, encode_record, hash_session, step,
+        Effect, Event, FLAG_HEAP_ALLOC, FLAG_PANIC, PollPrevious, Previous, RECORD_BYTES,
+        SKIP_BYTES, SKIP_MAGIC, State, TAG_CLEAN, TAG_FATAL, TAG_OUT_OF_MEMORY, TAG_RUNNING,
+        decode_raw_fields, decode_record, encode_record, hash_session, step,
     };
 
     pub(super) static PATHS: OnceLock<EncodedPaths> = OnceLock::new();
@@ -445,6 +458,9 @@ mod imp {
                 let buf = encode_record(TAG_RUNNING, 0, 0, raw_pid(), 0, u64::MAX, seq, 0, 0);
                 write_raw(fd, &buf);
             }
+            if matches!(previous, Previous::Ended { .. }) {
+                crate::storage::wake_all();
+            }
             #[cfg(debug_assertions)]
             maybe_start_drill();
         }
@@ -471,12 +487,16 @@ mod imp {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn take_previous() -> Option<Previous> {
+    pub fn poll_previous() -> PollPrevious {
         let mut guard = STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let State::Active { previous, taken: false, .. } = *guard else { return None };
-        let _ = step(&mut guard, Event::TakePrevious);
-        Some(previous)
+        match *guard {
+            State::Unopened => PollPrevious::Opening,
+            State::Active { previous, taken: false, .. } => {
+                let _ = step(&mut guard, Event::TakePrevious);
+                PollPrevious::Ready(previous)
+            }
+            State::Active { taken: true, .. } | State::Closed { .. } => PollPrevious::Taken,
+        }
     }
 
     pub(super) fn record_fault(
@@ -610,5 +630,5 @@ mod imp {
 #[cfg(not(target_arch = "wasm32"))]
 pub use imp::{
     OomGuard, init_hooks, mark_clean, mark_restore_settled, note_restoring_session,
-    poll_debug_drill, presented, set_active_session, take_skip_restore,
+    poll_debug_drill, poll_previous, presented, set_active_session, take_skip_restore,
 };
