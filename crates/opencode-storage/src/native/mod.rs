@@ -5,6 +5,7 @@
 
 mod boot;
 mod dbfile;
+mod lease;
 pub mod boot_record;
 pub mod import;
 pub mod journal;
@@ -282,6 +283,8 @@ impl Backend {
             tx.send(writer::Msg::Stop).ok();
             join.join().ok();
         }
+        // The writer's last write and its repage are done: another process may have the profile.
+        lease::release();
         report
     }
 }
