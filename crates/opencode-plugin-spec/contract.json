@@ -734,8 +734,17 @@
       { "name": "selected", "type": "boolean?", "doc": "The tab is selected." }
     ] },
     { "name": "UiBrowserSurfaceProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.browserSurface` props. Native: the browser engine, its compositor, and input forwarding stay in the host.", "fields": [
+      { "name": "areaWidth", "type": "number?", "doc": "Available width of the device preview area." },
+      { "name": "areaHeight", "type": "number?", "doc": "Available height of the device preview area." },
       { "name": "tab", "type": "BrowserTab", "doc": "The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed." },
       { "name": "focused", "type": "boolean?", "doc": "Takes keyboard focus." }
+    ] },
+    { "name": "BrowserViewport", "kind": "record", "doc": "Device dimensions in CSS pixels and optional display scale.", "fields": [
+      { "name": "width", "type": "number", "doc": "Width from 1 to 4096." },
+      { "name": "height", "type": "number", "doc": "Height from 1 to 4096." },
+      { "name": "profile", "type": "string", "doc": "desktop, phone, tablet or windows_tablet." },
+      { "name": "preset", "type": "string?", "doc": "Device preset id." },
+      { "name": "scale", "type": "number?", "doc": "Display factor, or nil to fit the pane." }
     ] },
     { "name": "UiCodeViewProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.codeView` props. Native: highlighting, the line buffer, the gutter, selection and find stay in the host.", "fields": [
       { "name": "doc", "type": "CodeDocument", "doc": "The file, from `Workspace:OpenDocument`." },
@@ -1198,6 +1207,8 @@
       { "name": "Stop", "kind": "method", "sig": "() -> ()", "doc": "Stops loading." },
       { "name": "SetZoom", "kind": "method", "sig": "(direction: BrowserZoom) -> ()", "doc": "Zooms the page in or out a step, or back to 100%. The site keeps its zoom." },
       { "name": "Inspect", "kind": "method", "sig": "(enabled: boolean?) -> ()", "doc": "Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`." },
+      { "name": "Viewport", "kind": "method", "sig": "() -> BrowserViewport?", "doc": "The fixed CSS viewport, or nil when the page follows the pane." },
+      { "name": "SetViewport", "kind": "method", "sig": "(viewport: BrowserViewport?) -> ()", "doc": "Apply a device viewport in a local or dev build, or nil to restore the page." },
       { "name": "Highlight", "kind": "method", "sig": "(nodeId: number?) -> ()", "doc": "Outlines the DevTools backend node `nodeId` in the page, or clears the outline." },
       { "name": "Show", "kind": "method", "sig": "(options: BrowserShowOptions?) -> ()", "doc": "Selects its tab in a session's side region, opening the region and adding the tab when it isn't there." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes the page and its tab." },

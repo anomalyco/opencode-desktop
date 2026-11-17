@@ -2512,10 +2512,28 @@ export type UiBrowserSurfaceProps = {
     helpSide: Side?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- Available width of the device preview area.
+    areaWidth: number?,
+    --- Available height of the device preview area.
+    areaHeight: number?,
     --- The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed.
     tab: BrowserTab,
     --- Takes keyboard focus.
     focused: boolean?,
+}
+
+--- Device dimensions in CSS pixels and optional display scale.
+export type BrowserViewport = {
+    --- Width from 1 to 4096.
+    width: number,
+    --- Height from 1 to 4096.
+    height: number,
+    --- desktop, phone, tablet or windows_tablet.
+    profile: string,
+    --- Device preset id.
+    preset: string?,
+    --- Display factor, or nil to fit the pane.
+    scale: number?,
 }
 
 --- `ui.codeView` props. Native: highlighting, the line buffer, the gutter, selection and find stay in the host.
@@ -3978,6 +3996,10 @@ export type BrowserTab = {
     SetZoom: (self: BrowserTab, direction: BrowserZoom) -> (),
     --- Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`.
     Inspect: (self: BrowserTab, enabled: boolean?) -> (),
+    --- The fixed CSS viewport, or nil when the page follows the pane.
+    Viewport: (self: BrowserTab) -> BrowserViewport?,
+    --- Apply a device viewport in a local or dev build, or nil to restore the page.
+    SetViewport: (self: BrowserTab, viewport: BrowserViewport?) -> (),
     --- Outlines the DevTools backend node `nodeId` in the page, or clears the outline.
     Highlight: (self: BrowserTab, nodeId: number?) -> (),
     --- Selects its tab in a session's side region, opening the region and adding the tab when it isn't there.

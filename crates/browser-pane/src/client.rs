@@ -21,6 +21,7 @@ use crate::protocol::{
 
 #[derive(Clone, Debug)]
 pub struct BrowserTab {
+    pub device: Option<crate::device::Device>,
     pub id: u64,
     pub url: String,
     pub title: String,
@@ -328,6 +329,7 @@ impl BrowserHost {
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
+            device: None,
             scale: 2.0,
             sent_resize: None,
         });
@@ -422,6 +424,7 @@ impl BrowserHost {
             surface,
             file_roots: file_roots.clone(),
             viewport_pt: (width_pt, height_pt),
+            device: None,
             scale,
             sent_resize: connected.then_some((width_pt, height_pt, scale)),
         });
@@ -1085,6 +1088,7 @@ impl BrowserHost {
             surface,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
+            device: None,
             scale: 2.0,
             sent_resize: None,
         });

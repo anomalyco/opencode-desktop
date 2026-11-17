@@ -51,6 +51,7 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
         return !ev.mods.shift && matches!(ch, 'r' | 'b' | 'p');
     }
     if ev.mods.shift {
+        if ch == 'm' && matches!(crate::updater::build_channel(), "dev" | "local") { return true; }
         return matches!(ch, 't' | '[' | ']' | '{' | '}' | 'r' | 'p' | 'l' | 'e' | 'o' | 's' | 'c');
     }
     matches!(ch, 'l' | 't' | 'n' | 'w' | ',' | '\\' | '[' | ']')

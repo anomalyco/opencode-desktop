@@ -12,6 +12,7 @@ use browser_pane::EngineStatus;
 use mlua::{Function, Lua, MultiValue, Table, Value};
 use rune::{El, Ime, Tx, col};
 use rune_luau::{Completer, Data, Host, NodeArgs};
+mod viewport;
 
 use super::super::cx::{self, Dep};
 use super::super::services::{app_now, json_to_data, lazy_signals, map, method};
@@ -399,6 +400,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     m.raw_set("Zoom", lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Zoom").map(|(app, id)| app.browser.host.tab(id).map_or(1.0, |t| t.zoom)))?)?;
+    viewport::methods(lua, &m)?;
     m.raw_set(
         "Navigate",
         lua.create_function(|_, (this, url): (Table, String)| later(&this, "BrowserTab:Navigate", move |s, id, _| s.navigate_browser_tab(id, &url)))?,
@@ -519,6 +521,7 @@ pub fn version(app: &App) -> u64 {
     app.browser.host.engine_downloads().hash(&mut h);
     app.browser.host.engine_policy().hash(&mut h);
     for t in app.browser.host.tabs() {
+        if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.refusal, t.rejected).hash(&mut h);
         // A download's step or end: `BrowserTab:Files` reads them.
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
@@ -556,6 +559,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     let id = handle_field(a, "tab", "Id").and_then(|s| s.parse::<u64>().ok()).ok_or("ui.browserSurface needs a page from the Browser service")?;
     let pal = p(a);
     let surface = crate::browser::view::surface(app, &pal, id, super::terminal::SCALE.get()).unwrap_or_else(|| col().key("browser-no-page").grow(1.0).w_full());
+    let surface = viewport::frame(a, app, id, surface);
     // The node's key lands on this frame, so the page and the engine's states keep their own.
     Ok(col().grow(1.0).min_h(0.0).w_full().child(surface))
 }
