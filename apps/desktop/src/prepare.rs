@@ -189,7 +189,67 @@ impl App {
             self.prepare = State::Idle;
             return;
         }
-        tx.prepare_text(view, None);
+        match mode() {
+            Mode::Page => match PAGE.get() {
+                Some(size) => tx.prepare_text(page, Some(size)),
+                None => tx.prepare_text(view, None),
+            },
+            Mode::Root | Mode::Lean => tx.prepare_text(view, None),
+        }
+    }
+}
+
+/// Measuring only (SCALE, `scale/prepare-text`): which view a prepare lays out, from
+/// `RUNE_PREPARE_VIEW`: `root` (the window's root), `lean` (the root without the sidebar's and
+/// titlebar's contents, the default) or `page` (the session page alone at the page's size).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Mode {
+    Root,
+    Lean,
+    Page,
+}
+
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn mode() -> Mode {
+    static MODE: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("RUNE_PREPARE_VIEW").as_deref() {
+        Ok("root") => Mode::Root,
+        Ok("page") => Mode::Page,
+        _ => Mode::Lean,
+    })
+}
+
+/// Whether a prepare leaves out the sidebar's and titlebar's contents.
+pub(crate) fn lean(s: &App) -> bool {
+    preparing(s).is_some() && mode() == Mode::Lean
+}
+
+thread_local! {
+    /// The session page's size in the last frame that showed one (`set_page_size`).
+    static PAGE: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
+}
+
+/// From the shell, while a session shows: the size its page lays out at.
+pub(crate) fn set_page_size(size: [f32; 2]) {
+    PAGE.set(Some((size[0], size[1])));
+}
+
+/// The prepared session's page alone, at the page's size: what a press on its tab lays out under
+/// the window's chrome.
+fn page(s: &App, cx: &mut rune::Cx<App>) -> rune::El {
+    struct Done;
+    impl Drop for Done {
+        fn drop(&mut self) {
+            PREPARING.set(false);
+        }
+    }
+    PREPARING.set(true);
+    let _done = Done;
+    cx.zoom(*s.zoom);
+    let p = session_view::palette::pal(s.dark(cx));
+    match preparing(s) {
+        Some(id) => rune::el().key("panel").w_full().h_full().child(crate::view::session_page(s, p, id)),
+        None => rune::el(),
     }
 }
 

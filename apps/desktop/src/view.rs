@@ -248,6 +248,10 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         0.0
     };
+    // The page's size while a session shows, for a prepare of a tab's page alone (prepare).
+    if crate::prepare::mode() == crate::prepare::Mode::Page && crate::prepare::preparing(s).is_none() && matches!(*s.route, Route::Session { .. }) && let Some(size) = cx.layout_size("panel") {
+        crate::prepare::set_page_size(size);
+    }
     let need_panel_sz = (!s.settings.open && matches!(*s.route, Route::Draft(_) | Route::Home)) || s.attach.drop.present();
     let panel_sz = if need_panel_sz {
         cx.layout_size("panel").map_or((0.0, 0.0), |[w, h]| (w, h))
@@ -282,7 +286,7 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         crate::plugin_host::surfaces_version(s),
     );
     // Laid out ahead for a tab (`prepare`), the pinned titlebar row takes no room from the page.
-    let band = (chrome().row_h > 0.0 && crate::prepare::preparing(s).is_none())
+    let band = (chrome().row_h > 0.0 && !crate::prepare::lean(s))
         .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
         .map(|bar| {
             // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
