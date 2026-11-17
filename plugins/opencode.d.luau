@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.0: global types for luau-lsp.
+-- OpenCode plugin contract 1.1: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -548,6 +548,8 @@ export type UiBoxProps = {
     disabled: boolean?,
     --- Runs on a press.
     onPress: UiHandler?,
+    --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down, and that press's release runs nothing. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1; a 1.0 host ignores it with one warning and opens on the click.
+    menuTrigger: boolean?,
     --- Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys.
     onMiddlePress: UiHandler?,
     --- Runs as the pointer enters and leaves.
@@ -1172,6 +1174,8 @@ export type UiButtonProps = {
     pressed: boolean?,
     --- Runs on a press.
     onPress: UiHandler?,
+    --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
+    menuTrigger: boolean?,
 }
 
 --- `ui.iconButton` props: a square button with an icon. Give it a `label`.
@@ -1252,6 +1256,8 @@ export type UiIconButtonProps = {
     keybind: string?,
     --- Runs on a press.
     onPress: UiHandler?,
+    --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
+    menuTrigger: boolean?,
 }
 
 --- `ui.switch` props: the app's own switch.

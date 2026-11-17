@@ -356,6 +356,7 @@ return plugin.defineWindow(function(ctx)
         I18n = I18n,
         Browser = Browser,
         Server = Server,
+        menuTrigger = App.Platform ~= "macos",
         editor = editor,
         state = function()
             return state

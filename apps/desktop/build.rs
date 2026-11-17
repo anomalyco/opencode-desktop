@@ -50,6 +50,15 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/DELAYLOAD:{dll}");
     }
     println!("cargo:rustc-link-arg-bin=opencode-desktop=delayimp.lib");
+    // The main thread reserves 8 MiB of stack, as macOS and Linux give a main thread; Windows'
+    // default is 1 MiB. Layout recurses once per nesting level (about 14 KB a Markdown list level
+    // in a release build), so a reply nested 60 deep overflowed 1 MiB and closed the app. Only
+    // address space is reserved: pages are committed as the stack reaches them. Here rather than
+    // in .cargo/config.toml so it holds for every profile and for builds that set RUSTFLAGS (the
+    // PGO recording does), and only for this executable.
+    if env("CARGO_CFG_TARGET_ENV").as_deref() == Some("msvc") {
+        println!("cargo:rustc-link-arg-bin=opencode-desktop=/STACK:8388608");
+    }
     // The exe's icon (Explorer, the taskbar, Alt+Tab, a pinned shortcut), version and manifest.
     let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| "OpenCode (Rune)".into());
     let version = env("OPENCODE_RUNE_VERSION").or_else(|| env("CARGO_PKG_VERSION")).unwrap_or_default();

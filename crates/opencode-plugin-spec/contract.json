@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.0",
+  "contract": "1.1",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -532,6 +532,7 @@
       { "name": "focusable", "type": "boolean?", "doc": "Takes keyboard focus." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down, and that press's release runs nothing. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1; a 1.0 host ignores it with one warning and opens on the click." },
       { "name": "onMiddlePress", "type": "UiHandler?", "doc": "Runs on a middle click, as a browser's `auxclick`: a tab closes, a row opens in the background. A `middle-press` event, with the modifier keys." },
       { "name": "onHover", "type": "UiHandler?", "doc": "Runs as the pointer enters and leaves." },
       { "name": "hoverTransition", "type": "HoverTransition?", "doc": "How hover and press fills change." },
@@ -602,7 +603,8 @@
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "loading", "type": "boolean?", "doc": "Shows the app's loader and takes no presses." },
       { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
-      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
     ] },
     { "name": "UiIconButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.iconButton` props: a square button with an icon. Give it a `label`.", "fields": [
       { "name": "icon", "type": "IconName", "doc": "The icon." },
@@ -612,7 +614,8 @@
       { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
       { "name": "color", "type": "Color?", "doc": "The icon's color, instead of the variant's." },
       { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut its tooltip shows after the `help` text, as keycaps." },
-      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." }
+      { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
     ] },
     { "name": "UiSwitchProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.switch` props: the app's own switch.", "fields": [
       { "name": "checked", "type": "boolean", "doc": "On." },

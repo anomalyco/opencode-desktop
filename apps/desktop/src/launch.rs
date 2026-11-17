@@ -399,6 +399,7 @@ fn retry_delay(attempt: u32) -> f64 { (0.25 * 2_f64.powi(attempt.min(4) as i32))
 mod network;
 #[cfg(target_os = "windows")]
 pub mod io_trace;
+pub mod last_exit;
 pub mod trace;
 pub(crate) fn network_available(s:&mut App,tx:&mut Tx) {
     if !s.live() { return; }
@@ -496,6 +497,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     crate::updater::start_if_packaged(s);
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
+    last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
     }

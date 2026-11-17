@@ -53,6 +53,7 @@ function row.render(env: any, v: View, props: ServerRowProps): UiNode?
             variant = "ghost-muted",
             size = "small",
             label = I18n:T("common.moreOptions"),
+            menuTrigger = env.menuTrigger,
             onPress = v:Handler(function()
                 local now = model.row(env.api() and env.api().state, distro)
                 local items: { MenuEntry } = { { kind = "group", title = I18n:T("server.menu.label") } }

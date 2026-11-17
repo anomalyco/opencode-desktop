@@ -2,7 +2,7 @@
 id = "review"
 name = "Review"
 version = "1.0.0"
-contract = "1.0"
+contract = "1.1"
 description = "A session's changes: the Review tab with its change tree and the diff of one file, the narrow Changes view, and the changes other plugins read"
 
 [[stores]]

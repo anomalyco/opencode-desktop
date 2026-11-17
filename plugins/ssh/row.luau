@@ -59,6 +59,7 @@ function row.render(env: any, v: View, props: ServerRowProps): UiNode?
             variant = "ghost-muted",
             size = "small",
             label = I18n:T("common.moreOptions"),
+            menuTrigger = env.menuTrigger,
             onPress = v:Handler(function()
                 local now = env.item(id)
                 if not now then
