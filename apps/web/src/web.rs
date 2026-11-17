@@ -11,10 +11,14 @@ use crate::{App, appearance, launch, rune_app, spec, storage, windows};
 #[path = "browser_history.rs"]
 mod browser_history;
 
-#[wasm_bindgen(inline_js = "export function initialPointer() {\n  const hoverNone = matchMedia('(hover: none)').matches;\n  const coarse = matchMedia('(pointer: coarse)').matches;\n  return (hoverNone ? 1 : 0) | (hoverNone && coarse ? 2 : 0);\n}\nexport function watchKeyboardDismiss(onDismiss) {\n  let touchDown = 0;\n  window.addEventListener('touchstart', () => { touchDown++; }, { passive: true, capture: true });\n  const end = () => { touchDown = Math.max(0, touchDown - 1); };\n  window.addEventListener('touchend', end, { passive: true, capture: true });\n  window.addEventListener('touchcancel', end, { passive: true, capture: true });\n  window.addEventListener('focusout', ev => {\n    const tag = ev.target?.tagName;\n    if (tag !== 'TEXTAREA' && tag !== 'INPUT') return;\n    queueMicrotask(() => {\n      if (touchDown > 0) return;\n      const a = document.activeElement?.tagName;\n      if (a === 'TEXTAREA' || a === 'INPUT') return;\n      onDismiss();\n    });\n  });\n}\n")]
+#[wasm_bindgen(inline_js = "export function initialPointer() {\n  const hoverNone = matchMedia('(hover: none)').matches;\n  const coarse = matchMedia('(pointer: coarse)').matches;\n  return (hoverNone ? 1 : 0) | (hoverNone && coarse ? 2 : 0);\n}\nexport function initialCpuCanvasOnly() {\n  return !(globalThis.navigator && 'gpu' in globalThis.navigator) || globalThis.RUNE_CPU_FIRST === 'only';\n}\nexport function watchPermanentCpuCanvas(onPermanent) {\n  if (typeof PerformanceObserver === 'undefined') return;\n  const marks = new Set(['web.gpu.failed', 'web.handover.failed', 'web.gpu.lost']);\n  const obs = new PerformanceObserver(list => {\n    for (const entry of list.getEntries()) {\n      if (marks.has(entry.name)) {\n        obs.disconnect();\n        onPermanent();\n        return;\n      }\n    }\n  });\n  try { obs.observe({ type: 'mark', buffered: true }); } catch {}\n}\nexport function watchKeyboardDismiss(onDismiss) {\n  let touchDown = 0;\n  window.addEventListener('touchstart', () => { touchDown++; }, { passive: true, capture: true });\n  const end = () => { touchDown = Math.max(0, touchDown - 1); };\n  window.addEventListener('touchend', end, { passive: true, capture: true });\n  window.addEventListener('touchcancel', end, { passive: true, capture: true });\n  window.addEventListener('focusout', ev => {\n    const tag = ev.target?.tagName;\n    if (tag !== 'TEXTAREA' && tag !== 'INPUT') return;\n    queueMicrotask(() => {\n      if (touchDown > 0) return;\n      const a = document.activeElement?.tagName;\n      if (a === 'TEXTAREA' || a === 'INPUT') return;\n      onDismiss();\n    });\n  });\n}\n")]
 extern "C" {
     #[wasm_bindgen(js_name = initialPointer)]
     fn initial_pointer() -> u32;
+    #[wasm_bindgen(js_name = initialCpuCanvasOnly)]
+    fn initial_cpu_canvas_only() -> bool;
+    #[wasm_bindgen(js_name = watchPermanentCpuCanvas)]
+    fn watch_permanent_cpu_canvas(on_permanent: &js_sys::Function);
     #[wasm_bindgen(js_name = watchKeyboardDismiss)]
     fn watch_keyboard_dismiss(on_dismiss: &js_sys::Function);
 }
@@ -29,6 +33,8 @@ pub fn start(password: Option<String>) {
     rune::task::start_runners();
     let pointer = initial_pointer();
     session_view::style::set_pointer(pointer & 1 != 0, pointer & 2 != 0);
+    let cpu_only = initial_cpu_canvas_only();
+    session_view::style::set_permanent_cpu_canvas(cpu_only);
     // The dictionaries beside the page (`spell/`, scripts/web.ps1).
     rune::spell::set_web_dictionaries(&["en-US"]);
     // The page's arguments first: the storage and the app's spec read them.
@@ -51,6 +57,9 @@ pub fn start(password: Option<String>) {
     opencode_i18n::on_loaded(move || i18n_wake());
     browser_history::listen(handle.clone());
     sync_keyboard_dismiss(handle.clone());
+    if !cpu_only {
+        sync_permanent_cpu_canvas(handle.clone());
+    }
     flush_on_pagehide();
     app.init(move || {
         let mut s = App::new();
@@ -94,6 +103,22 @@ fn sync_keyboard_dismiss(handle: rune::AppHandle<App>) {
     });
     watch_keyboard_dismiss(on_dismiss.as_ref().unchecked_ref());
     on_dismiss.forget();
+}
+
+/// When WebGPU fails or loses the device (`web.gpu.failed`, `web.handover.failed`, `web.gpu.lost`),
+/// the page stays on `CpuCanvas` for good: switch `backdrop_blur` surfaces to their flat tint.
+fn sync_permanent_cpu_canvas(handle: rune::AppHandle<App>) {
+    let on_permanent = Closure::<dyn FnMut()>::new(move || {
+        handle.update_if(|_, _| {
+            if session_view::style::permanent_cpu_canvas() {
+                return false;
+            }
+            session_view::style::set_permanent_cpu_canvas(true);
+            true
+        });
+    });
+    watch_permanent_cpu_canvas(on_permanent.as_ref().unchecked_ref());
+    on_permanent.forget();
 }
 
 /// Closing or reloading a browser tab never runs winit's `on_close`: land any queued terminal

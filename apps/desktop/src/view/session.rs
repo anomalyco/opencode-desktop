@@ -43,7 +43,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     let timeline = match s.displayed_session(id) {
         Some(shown) => {
             // A long transcript's projection fills in above its newest rows on the frame after its first.
-            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), crate::plugin_host::surfaces_version(s), s.family_transcript_version(shown), (crate::speech::listening(s), session_view::timeline::projection_wanted(), session_view::scroller::device_scale().to_bits()));
+            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), session_view::style::permanent_cpu_canvas(), crate::plugin_host::surfaces_version(s), s.family_transcript_version(shown), (crate::speech::listening(s), session_view::timeline::projection_wanted(), session_view::scroller::device_scale().to_bits()));
             rune::region_with("timeline-area", (id, shown, inputs), || {
                 let t = rune::Tracked::untracked(&s.transcripts).get(shown).filter(|_| !s.loading_session(id));
                 let child = s.session(id).is_some_and(|i| i.parent.is_some());

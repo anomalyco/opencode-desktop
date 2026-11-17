@@ -118,6 +118,16 @@ thread_local! {
 
 pub fn set_safe_area(insets: [f32; 4]) { SAFE_AREA.set(insets); }
 
+thread_local! {
+    /// The page draws on `CpuCanvas` permanently (no WebGPU, or hand-over/device failed): skip
+    /// `backdrop_blur` and draw its flat tint instead.
+    static PERMANENT_CPU_CANVAS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub fn set_permanent_cpu_canvas(on: bool) { PERMANENT_CPU_CANVAS.set(on); }
+
+pub fn permanent_cpu_canvas() -> bool { PERMANENT_CPU_CANVAS.get() }
+
 /// The window keeps its content clear of these and lets its surfaces (the shell's panel, a
 /// sheet, the touch bar) run under them to the screen's edge. Zero off a phone.
 pub fn safe_area() -> [f32; 4] { SAFE_AREA.get() }

@@ -256,15 +256,18 @@ fn at_end<S: TimelineHost>(id: &str) -> impl Fn(&mut S, bool) -> bool + 'static 
 /// (`backdrop-blur-[2px]`), raised, with a soft bg-base halo under it (`0 2px 8px`).
 pub fn face(p: &Pal, radius: f32) -> El {
     let [far, near, ring, edge] = p.raised;
-    el()
+    let mut button = el()
         .key("jump-latest")
         .role("button")
         .label_static(opencode_i18n::t!("session.messages.jumpToLatest"))
         // `w-8 h-7 rounded-lg` (`virtualizer.tsx:1141`).
         .size(32.0, 28.0)
         .radius(radius)
-        .center()
-        .backdrop_blur(2.0)
+        .center();
+    if !crate::style::permanent_cpu_canvas() {
+        button = button.backdrop_blur(2.0);
+    }
+    button
         .fill(p.frost)
         // Bottom first: CSS paints its first shadow on top.
         .shadow(2.0, 8.0, p.bg_base)

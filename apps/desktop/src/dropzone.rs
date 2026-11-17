@@ -216,6 +216,9 @@ pub fn layer(p: &Pal, (w, h): (f32, f32), zone: Dropzone, label: &str, reduced: 
         .child(el().absolute(0.0, 0.0).w_full().h_full().fill(p.bg_base.alpha(0.25)).shape(stripes(w, h, p.text.alpha(stripe * 0.6))))
         .center()
         .child(words);
+    if session_view::style::permanent_cpu_canvas() {
+        return layer.child(content);
+    }
     layer.child(frost).child(content)
 }
 /// `repeating-linear-gradient(135deg, …12px, ink 12px 24px)` across the session column,
