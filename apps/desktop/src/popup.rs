@@ -28,6 +28,10 @@ use search::{SEARCH_H, search_field};
 /// Native menus where Kit chose them.
 const NATIVE: bool = cfg!(target_os = "macos");
 
+/// Menu buttons and scrims act as the mouse button goes down where that path has been driven
+/// (`!cfg!(target_os = "macos")` until the Mac run).
+pub(crate) const PRESS_ON_DOWN: bool = !cfg!(target_os = "macos");
+
 /// The tallest a drawn menu gets before its rows scroll: eleven rows and most of the twelfth.
 const MAX_H: f32 = 2.0 * MENU.inset + 11.5 * MENU.row_h;
 
@@ -534,7 +538,11 @@ fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx
         return;
     }
     let Some(shown) = s.popup.shown.take() else { return };
-    trigger::step(&mut s.popup.press, trigger::Event::MenuClosed);
+    let closed_anchor = match &shown.anchor {
+        PopupAnchor::Key(key) => Some(key.as_str()),
+        PopupAnchor::Point(..) => None,
+    };
+    trigger::step(&mut s.popup.press, trigger::Event::MenuClosed { anchor: closed_anchor });
     s.popup.query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
     let trigger = matches!(shown.opened.origin, restore::Origin::Trigger(_));
@@ -642,15 +650,9 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
     let scrim = popover::scrim::<App>("popup-scrim", |s, tx| close(s, None, restore::Reason::Outside, tx))
-        .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
-            if d.phase == rune::Phase::Down && trigger::opens_on_press(tx) {
-                close(s, None, restore::Reason::Outside, tx);
-            } else {
-                tx.live_only();
-            }
-        })
         .press_focuses_below()
         .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| close(s, None, restore::Reason::Outside, tx));
+    let scrim = if PRESS_ON_DOWN { scrim.press_on_down() } else { scrim };
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
         &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(1.0, 1.0)), Align::Start, Side::Bottom),
