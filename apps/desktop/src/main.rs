@@ -1383,6 +1383,7 @@ fn main() {
         return launch::trace::finish(0);
     }
     storage::claimed();
+    launch::last_exit::init_hooks();
     notifications::take_activation(rune::extra_args());
     glyph_masks::start();
     // The first view's theme tokens (OpenCode's kit and the default theme's palette, both

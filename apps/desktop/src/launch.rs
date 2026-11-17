@@ -672,6 +672,7 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     }
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) { network_available(s,tx); }
     harness_network_change(s, tx);
+    last_exit::poll_debug_drill();
     let now = *s.clock;
     if s.live() && crate::attended() {
         step(s, LaunchEvent::Tick { now }, tx);

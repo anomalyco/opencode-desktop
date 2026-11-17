@@ -176,6 +176,7 @@ impl App {
             }
             None => None,
         };
+        let mut skipped_session = false;
         if let Some(route) = saved {
             // The window starts on the app's own server (`App::load_live`).
             let own = opencode_kit::servers::ServerKey::sidecar();
@@ -188,15 +189,24 @@ impl App {
                 Route::Home => false,
             };
             if !lost {
-                if waiting
-                    && let Route::Session { server: on, id } = &route
-                    && *on == own
-                    && !self.transcripts.contains_key(id)
-                    && self.take_boot_preview(on, id)
-                {
-                    self.launch.cold_transcript = Some(id.clone());
+                if let Route::Session { id, .. } = &route {
+                    if crate::launch::last_exit::take_skip_restore(id) {
+                        skipped_session = true;
+                    } else {
+                        crate::launch::last_exit::note_restoring_session(id);
+                    }
                 }
-                *self.route = route;
+                if !skipped_session {
+                    if waiting
+                        && let Route::Session { server: on, id } = &route
+                        && *on == own
+                        && !self.transcripts.contains_key(id)
+                        && self.take_boot_preview(on, id)
+                    {
+                        self.launch.cold_transcript = Some(id.clone());
+                    }
+                    *self.route = route;
+                }
             }
         }
         let sidebar = &global("layout")["sidebar"];
@@ -219,6 +229,10 @@ impl App {
             self.restore.written.keys.insert("side", side.clone());
         }
         self.restore.stamp = Some(self.restore_stamp());
+        if skipped_session {
+            self.restore.written.keys.remove("lastActiveUrl");
+            self.restore.stamp = None;
+        }
         if crate::storage::is_ready() {
             self.hydrate_restore();
         }
@@ -501,6 +515,10 @@ impl App {
     /// to the storage (memory now, the database behind). A keystroke changes one draft's
     /// document; a sidebar drag step the shared `layout`.
     pub fn poll_restore(&mut self) {
+        crate::launch::last_exit::set_active_session(match &*self.route {
+            Route::Session { id, .. } => Some(id.as_str()),
+            _ => None,
+        });
         let _ = self.show_draft();
         if self.persists() {
             self.poll_draft_files();

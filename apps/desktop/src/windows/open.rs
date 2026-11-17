@@ -206,6 +206,14 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         })
         .on_frame_drawn(move |rt| {
             drawn.drawn(rt);
+            if let Some((sid, msgs)) = rt.state.painted_session()
+                && msgs > 0
+                && !crate::launch::waiting(&rt.state)
+                && rt.state.launch.cold_transcript.is_none()
+                && rt.state.pages.first_read_done(sid)
+            {
+                crate::launch::last_exit::mark_restore_settled(sid);
+            }
             if let Some(frame) = crate::telemetry::last_frame() {
                 crate::telemetry::drawn(rt.state.painted_session(), frame);
                 crate::telemetry::stream_drawn(&rt.state.window.id, frame.0);
