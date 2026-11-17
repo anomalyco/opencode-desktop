@@ -21,7 +21,7 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     s.settings.auto_accept = false;
     s.pending.clear();
-    s.add_pending(Pending::Permission {
+    let _ = s.add_pending(Pending::Permission {
         id: "per_story_auto".into(),
         session: crate::stories::sid(s),
         action: "bash".into(),

@@ -117,21 +117,60 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
-            s.recent_page.observe(&info);
-            s.session_search.invalidate();
+            let recent_changed = rune::Tracked::untracked(&s.recent_page).would_observe(&info);
+            if recent_changed {
+                s.recent_page.observe(&info);
+            }
             let parent = info.parent.clone();
-            match s.sessions.iter_mut().find(|x| x.id == info.id) {
-                Some(old) => {
+            let root = s.root_of(&info.id).to_owned();
+            let tab_before = s.tab_status(&root);
+            let (changed, visible_meta) = match s.sessions.iter().position(|x| x.id == info.id) {
+                Some(idx) => {
+                    let old = &s.sessions[idx];
                     info.viewed = info.viewed.max(old.viewed);
-                    *old = info;
+                    let meta = old.title != info.title
+                        || old.directory != info.directory
+                        || old.parent != info.parent
+                        || old.project != info.project
+                        || old.revert != info.revert
+                        || old.outcome != info.outcome
+                        || old.cost.to_bits() != info.cost.to_bits()
+                        || old.model != info.model
+                        || old.agent != info.agent;
+                    let any = meta
+                        || old.updated != info.updated
+                        || old.idle != info.idle
+                        || old.viewed != info.viewed
+                        || old.busy != info.busy
+                        || old.created != info.created
+                        || old.archived != info.archived
+                        || old.metadata != info.metadata;
+                    if any {
+                        s.sessions[idx] = info.clone();
+                    }
+                    (any, meta)
                 }
-                None => s.sessions.push(info),
+                None => {
+                    s.sessions.push(info.clone());
+                    (true, true)
+                }
+            };
+            if changed {
+                s.session_search.invalidate();
             }
             if let Some(missing) = parent.and_then(|p| s.missing_ancestor(&p)) {
                 s.fetch_info(&missing);
             }
             crate::rewind::read_sessions(s);
-            s.note_tab_titles();
+            if visible_meta {
+                s.note_tab_titles();
+            }
+            let tab_after = s.tab_status(&root);
+            let shown_here = matches!(&*s.route, crate::Route::Home)
+                || s.tab_layout() == crate::layout_state::TabLayout::Inbox
+                || s.switcher.open
+                || matches!(&*s.route, crate::Route::Session { id, .. } if s.root_of(id) == root);
+            return recent_changed || visible_meta || tab_before != tab_after || (changed && shown_here);
         }
         Incoming::Children { sessions, .. } => s.children_listed(sessions),
         Incoming::Messages { session, messages } => {
@@ -193,11 +232,16 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             }
         }
         Incoming::Pending { session, items } => {
-            s.sidebar_inbox.heard_pending(&session);
-            s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
-            for p in items {
-                s.add_pending(p);
+            let inbox = !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
+            let drop_any = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
+            if drop_any {
+                s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
             }
+            let mut added = false;
+            for p in items {
+                added |= s.add_pending(p);
+            }
+            return inbox || drop_any || added;
         }
         // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
         // link's inbox gets the same resync.

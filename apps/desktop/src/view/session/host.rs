@@ -74,11 +74,10 @@ impl session_view::TimelineHost for App {
         }
     }
     fn transcript(&self, session: &str) -> Option<&Transcript> {
-        self.transcripts.get(session)
+        rune::Tracked::untracked(&self.transcripts).get(session)
     }
-    fn transcript_version(&self, _session: &str) -> Option<u64> {
-        // Every write to any transcript goes through the map's `Tracked` cell.
-        Some(rune::Tracked::version(&self.transcripts))
+    fn transcript_version(&self, session: &str) -> Option<u64> {
+        Some(self.family_transcript_version(session).1)
     }
     fn session_directory(&self, session: &str) -> Option<&str> {
         self.session(session).map(|i| i.directory.as_str())
@@ -88,7 +87,7 @@ impl session_view::TimelineHost for App {
     }
     fn is_session_live(&self, session: &str) -> bool {
         self.running.contains(session)
-            || (self.transcripts.get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
+            || (rune::Tracked::untracked(&self.transcripts).get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
     }
     fn timeline_busy(&self,t:&Transcript)->bool {
         let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(_)) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));

@@ -35,6 +35,10 @@ impl Page {
         self.range = self.times.values().min().zip(self.times.values().max()).map(|(&min, &max)| (min, max));
     }
 
+    pub fn would_observe(&self, session: &SessionInfo) -> bool {
+        matches!(self.sends.get(&session.id), Some(SendTime::Accepted { server_updated_at, .. }) if session.active_ms() > *server_updated_at)
+    }
+
     pub fn observe(&mut self, session: &SessionInfo) {
         if let Some(state) = self.sends.get_mut(&session.id)
             && let SendTime::Accepted { server_updated_at, .. } = *state

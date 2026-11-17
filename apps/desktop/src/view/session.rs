@@ -43,9 +43,9 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     let timeline = match s.displayed_session(id) {
         Some(shown) => {
             // A long transcript's projection fills in above its newest rows on the frame after its first.
-            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), crate::plugin_host::surfaces_version(s), (crate::speech::listening(s), session_view::timeline::projection_wanted()));
+            let inputs = ((p.theme, p.generation, p.dark), format!("{:?}", super::chrome::chrome()), content_w.to_bits(), with_header, session_view::style::hover_none(), crate::plugin_host::surfaces_version(s), s.family_transcript_version(shown), (crate::speech::listening(s), session_view::timeline::projection_wanted()));
             rune::region_with("timeline-area", (id, shown, inputs), || {
-                let t = s.transcripts.get(shown).filter(|_| !s.loading_session(id));
+                let t = rune::Tracked::untracked(&s.transcripts).get(shown).filter(|_| !s.loading_session(id));
                 let child = s.session(id).is_some_and(|i| i.parent.is_some());
                 let pills = if child { Vec::new() } else { pills(s, p, id) };
                 // The header scrolls with the timeline and sticks over its top (`virtualizer.tsx:1175`).
@@ -69,7 +69,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
         }
         None => {
             let head = with_header.then(|| {
-                let t = s.transcripts.get(id).filter(|_| !s.loading_session(id));
+                let t = rune::Tracked::untracked(&s.transcripts).get(id).filter(|_| !s.loading_session(id));
                 let saved = s.session(id).is_none().then(|| s.tabs.iter().find(|t| t.id == id && t.kind == crate::tabs::TabKind::Session && !t.title.is_empty())).flatten().map(|t| {
                     opencode_kit::model::SessionInfo { id: t.id.clone(), title: t.title.clone(), directory: t.directory.clone(), ..Default::default() }
                 });

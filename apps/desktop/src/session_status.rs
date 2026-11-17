@@ -140,18 +140,20 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
             .map(|(i, t)| (i, t.id.clone()))
             .collect()
     };
-    let reads = &mut *s.request_reads;
-    reads.due.retain(|id, _| tabs.iter().any(|(_, t)| t == id));
-    for (index, id) in &tabs {
-        reads.due.entry(id.clone()).or_insert(now + TAB_DELAY + TAB_STEP * *index as f64);
-    }
-    let ready: Vec<String> = reads.due.iter().filter(|(_, at)| **at <= now + 1e-9).map(|(id, _)| id.clone()).collect();
-    if let Some(next) = reads.due.values().copied().filter(|at| *at > now + 1e-9).reduce(f64::min) {
-        tx.wake_after(Duration::from_secs_f64(next - now));
-    }
-    for id in &ready {
-        s.request_reads.due.remove(id);
-        s.read_requests(id);
+    if !tabs.is_empty() || !s.request_reads.due.is_empty() {
+        let reads = &mut *s.request_reads;
+        reads.due.retain(|id, _| tabs.iter().any(|(_, t)| t == id));
+        for (index, id) in &tabs {
+            reads.due.entry(id.clone()).or_insert(now + TAB_DELAY + TAB_STEP * *index as f64);
+        }
+        let ready: Vec<String> = reads.due.iter().filter(|(_, at)| **at <= now + 1e-9).map(|(id, _)| id.clone()).collect();
+        if let Some(next) = reads.due.values().copied().filter(|at| *at > now + 1e-9).reduce(f64::min) {
+            tx.wake_after(Duration::from_secs_f64(next - now));
+        }
+        for id in &ready {
+            s.request_reads.due.remove(id);
+            s.read_requests(id);
+        }
     }
     // A live run may be waiting on a person. A saved busy timestamp is not a live run:
     // asking for its permissions/forms can boot a cold location just to draw the Inbox.

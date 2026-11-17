@@ -37,6 +37,26 @@ impl TranscriptEdits {
     pub(crate) fn only(&self, cell: u32, from: u64, to: u64) -> Option<&str> {
         (cell == self.cell && self.from <= from && from < to && to == self.to).then_some(&self.session)
     }
+
+    pub(crate) fn from(&self) -> u64 {
+        self.from
+    }
+}
+
+impl App {
+    /// Version of `session`'s family in `self.transcripts`: unchanged across an uninterrupted
+    /// stream run on an unrelated session (`TranscriptEdits`), and jumping to the map's version
+    /// whenever anything else writes `self.transcripts`.
+    pub(crate) fn family_transcript_version(&self, session: &str) -> (u32, u64) {
+        let cell = rune::Tracked::id(&self.transcripts);
+        let now = rune::Tracked::version(&self.transcripts);
+        let root = self.root_of(session);
+        let v = match self.transcript_edits.only(cell, self.transcript_edits.from(), now) {
+            Some(edited) if self.root_of(edited) != root => self.transcript_edits.from(),
+            _ => now,
+        };
+        (cell, v)
+    }
 }
 
 /// A stream message after `apply_shared`, for each window's `react`.
@@ -300,8 +320,7 @@ impl App {
             "permission.asked" | "form.created" => {
                 let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
                 let Some(p) = parsed else { return false };
-                self.add_pending(p);
-                true
+                self.add_pending(p)
             }
             "permission.replied" | "form.replied" | "form.cancelled" => {
                 let rid = if ty == "permission.replied" { id(&data["requestID"]) } else { id(&data["id"]) };

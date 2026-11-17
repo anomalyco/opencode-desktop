@@ -516,11 +516,13 @@ impl SidebarInbox {
         self.heard.sessions = true;
     }
 
+    pub fn settled(&self) -> bool {
+        matches!(self.settle, Settle::Settled)
+    }
+
     /// A session's pending requests arrived.
-    pub fn heard_pending(&mut self, session: &str) {
-        if !matches!(self.settle, Settle::Settled) {
-            self.heard.read.insert(session.to_owned());
-        }
+    pub fn heard_pending(&mut self, session: &str) -> bool {
+        !self.settled() && self.heard.read.insert(session.to_owned())
     }
 
     /// Starts or finishes the first load at `now` (wall ms), waiting on the requests of the

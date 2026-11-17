@@ -94,11 +94,11 @@ impl App {
         if !self.running.contains(id) {
             return Vec::new();
         }
-        let Some(t) = self.transcripts.get(id) else { return Vec::new() };
+        let Some(t) = rune::Tracked::untracked(&self.transcripts).get(id) else { return Vec::new() };
         let revert = self.session(id).and_then(|i| i.revert.as_deref());
         // Every poll asks: the plan is read once per version of the transcripts, not by walking
         // a long session back to its last plan each frame.
-        let version = (id.to_owned(), rune::Tracked::version(&self.transcripts), revert.map(str::to_owned));
+        let version = (id.to_owned(), self.family_transcript_version(id).1, revert.map(str::to_owned));
         let todos = PLAN.with_borrow_mut(|kept| match kept.as_ref().filter(|(v, _)| *v == version) {
             Some((_, todos)) => todos.clone(),
             None => {

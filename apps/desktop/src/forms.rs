@@ -14,17 +14,19 @@ impl App {
         self.pending.iter().filter(|p| self.root_of(p.session()) == root).collect()
     }
 
-    pub(crate) fn add_pending(&mut self, p: Pending) {
+    pub(crate) fn add_pending(&mut self, p: Pending) -> bool {
         // An answered permission: a re-read before the server drops it doesn't bring it back.
         if self.permission_sent.replied(p.id()) {
-            return;
+            return false;
         }
-        self.requests.insert((p.session().to_owned(), p.id().to_owned()));
+        let mut changed = self.requests.insert((p.session().to_owned(), p.id().to_owned()));
         if !self.pending.iter().any(|x| x.id() == p.id()) {
             let id = p.id().to_owned();
             self.pending.push(p);
             self.auto_answer(&id);
+            changed = true;
         }
+        changed
     }
 
     pub(crate) fn forget(&mut self, id: &str) {

@@ -50,7 +50,7 @@ impl App {
             return Vec::new();
         }
         let mut calls: Vec<(&str, &str, &str, Option<i64>)> = Vec::new();
-        for m in self.transcripts.get(id).map_or(&[][..], |t| &t.messages[..]) {
+        for m in rune::Tracked::untracked(&self.transcripts).get(id).map_or(&[][..], |t| &t.messages[..]) {
             let Message::Assistant(a) = m else { continue };
             for p in &a.parts {
                 if let Part::Tool { name, title, input, metadata, .. } = p

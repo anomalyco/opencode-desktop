@@ -473,7 +473,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     // meanwhile waits for one piece, not the whole start.
     if super::start_app_half(app, &id) {
         tx.wake_after(Duration::ZERO);
-        return true;
+        return false;
     }
     wake(app, &id, Why::Idle);
     if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
