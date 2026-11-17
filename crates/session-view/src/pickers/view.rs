@@ -22,8 +22,17 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         None => super::manage::layer(s, p),
         Some(Kind::Model) => super::dialog::layer(s, p),
         // Nothing gets focus back, so the search field can unmount in this frame.
-        Some(_) => vec![pop::scrim::<S>("picker-dismiss", |s: &mut S, _| s.close_picker(false)), picker(s, p)],
+        // Kobalte's menu dismisses on an outside `pointerdown`; macOS stays on the click until the Mac run.
+        Some(_) => vec![menu_trigger(pop::scrim::<S>("picker-dismiss", |s: &mut S, _| s.close_picker(false))), picker(s, p)],
     }
+}
+
+/// Menu buttons open as the mouse button goes down where menus are drawn (`popup::NATIVE` keeps
+/// macOS on the click until the Mac run).
+const PRESS_ON_DOWN: bool = !cfg!(target_os = "macos");
+
+fn menu_trigger(el: El) -> El {
+    if PRESS_ON_DOWN { el.press_on_down() } else { el }
 }
 
 /// A toolbar button's words: `button-v2` sets figures at one width (`button.css:21`), which in
@@ -58,7 +67,10 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     if s.pickers().open == Some(kind) && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
     }
-    button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx))
+    let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
+    // A Kobalte `Menu.Trigger` (`editor.tsx:1153`) opens on the mouse's `pointerdown`; the model's
+    // dialog opens on the click.
+    if kind == Kind::Model { button } else { menu_trigger(button) }
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
@@ -76,7 +88,7 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
         .motion(Spring::NONE)
         .focus_ring(2.0, -2.0, p.v2.border_focus)
         .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
-    b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx))
+    menu_trigger(b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)))
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
