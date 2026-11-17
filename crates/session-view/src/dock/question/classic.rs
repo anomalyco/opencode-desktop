@@ -22,8 +22,8 @@ const HEAD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 const QUESTION: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 const HINT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const LABEL: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
-/// `option-description`: 12 px on the tight line height.
-const DESC: TextStyle = TextStyle::new(12.0, 440.0).lh(12.0).tracking(0.05);
+/// `option-description`: compact leading (OpenCode ee5dfa9d41, `question-prompt.css`).
+const DESC: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05);
 const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 /// A number key's cap (`keybind-v2` at the shortcut's 10 px, regular).
 const KEY: TextStyle = TextStyle::new(10.0, 400.0).lh(11.0).tracking(0.05).features("\"tnum\", \"lnum\"");
@@ -109,7 +109,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         .key("main")
                         .grow(1.0)
                         .shrink()
-                        .gap(6.0)
+                        .gap(4.0)
                         .child(text(label.clone()).key("label").font(LABEL).color(p.text).wrap_anywhere())
                         .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
                 )
