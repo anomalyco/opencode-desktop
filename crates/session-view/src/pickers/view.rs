@@ -58,6 +58,9 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
     if s.pickers().open == Some(kind) && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
+        // Focus stays on the trigger, so it names the lit row for a screen reader, where
+        // Kobalte moves focus onto the row itself.
+        if let Some(key) = s.picker_active() { button = button.active_descendant(format!("option-{key}")); }
     }
     let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
     // A Kobalte `Menu.Trigger` (`editor.tsx:1153`) opens on the mouse's `pointerdown`; the model's
@@ -66,7 +69,8 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
+pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
+    let active = if s.pickers().open == Some(Kind::Agent) { s.picker_active() } else { None };
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
@@ -79,6 +83,7 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
         .press(p.pressed)
         .motion(Spring::NONE)
         .focus_ring(2.0, -2.0, p.v2.border_focus)
+        .active_descendant(active.map(|k| format!("option-{k}")).unwrap_or_default())
         .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
     b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
 }

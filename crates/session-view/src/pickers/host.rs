@@ -343,7 +343,14 @@ pub(super) fn provider_rank(m: &Model) -> (usize, String) {
 fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(open) = s.pickers().open {
         match nav(ev) {
-            Some(Nav::Close) => s.close_picker(true),
+            Some(Nav::Close) => {
+                // Escape hands focus back to the agent's or effort's trigger, as a Kobalte menu's
+                // `onCloseAutoFocus` does (`editor.tsx:1038-1063`); the model dialog and the
+                // project menu give it to the composer.
+                let kind = Some(open).filter(|k| matches!(k, Kind::Agent | Kind::Effort));
+                s.close_picker(kind.is_none());
+                if let Some(kind) = kind { tx.focus(kind.key(), true); }
+            }
             // In the model dialog Tab moves on to Connect and Manage, as Desktop's does.
             Some(Nav::Leave) if open == Kind::Model => return false,
             Some(Nav::Leave) => {
