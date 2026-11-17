@@ -25,12 +25,30 @@ const STOPS: usize = PRESETS.len();
 #[derive(Default)]
 pub struct State {
     /// Advanced, once opened or shut; until then open only for a custom mix.
-    pub advanced: Option<bool>,
+    advanced: Advanced,
     /// Where each hidden category went back to when shown again (`visiblePlacements`).
     pub shown: [Option<Placement>; 7],
 }
 
-/// The section: its title over its card of four rows.
+#[derive(Default)]
+enum Advanced {
+    #[default]
+    Automatic,
+    Open,
+    Closed,
+}
+
+impl Advanced {
+    fn open(&self, custom: bool) -> bool {
+        match self { Self::Automatic => custom, Self::Open => true, Self::Closed => false }
+    }
+
+    fn toggle(&mut self, custom: bool) {
+        *self = if self.open(custom) { Self::Closed } else { Self::Open };
+    }
+}
+
+/// The section: its title over the preference rows.
 pub fn section(s: &App, p: &Pal) -> El {
     let st = &s.settings;
     let rows = vec![
@@ -39,6 +57,8 @@ pub fn section(s: &App, p: &Pal) -> El {
             choice(s, p, "settings-timeline-width-select", t!("settings.timeline.row.width.title"), st.timeline_width, |s, id, _| s.change_settings(|x| x.timeline_width = TimelineWidth::parse(Some(id)))))),
         ("settings-background-activity", setting(p, "settings-background-activity", t!("settings.timeline.row.backgroundActivity.title"), t!("settings.timeline.row.backgroundActivity.description"),
             choice(s, p, "settings-background-activity-select", t!("settings.timeline.row.backgroundActivity.title"), st.background_activity, |s, id, _| s.change_settings(|x| x.background_activity = BackgroundActivity::parse(Some(id)))))),
+        ("settings-fold-user-messages", setting(p, "settings-fold-user-messages", t!("settings.timeline.row.foldUserMessages.title"), t!("settings.timeline.row.foldUserMessages.description"),
+            switch(p, "fold-user-switch", st.fold_user).label_static(t!("settings.timeline.row.foldUserMessages.title")).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user)))),
         ("settings-show-turn-diffs", setting(p, "settings-show-turn-diffs", t!("settings.timeline.row.turnDiffs.title"), t!("settings.timeline.row.turnDiffs.description"),
             switch(p, "turn-diffs-switch", st.turn_diffs).on_press(|s: &mut App| s.change_settings(|x| x.turn_diffs = !x.turn_diffs)))),
     ];
@@ -64,39 +84,32 @@ fn detail(s: &App, p: &Pal) -> El {
         .child(text(preset_description(id)).font(BODY).color(p.muted).wrap().shrink().min_w(0.0));
     col().key("timeline-detail-control").w_full().gap(8.0)
         .child(copy)
-        .child(scale(p, stop(&d)).mt(16.0))
+        .child(scale(p, preset.map(|i| STOPS - 1 - i)).mt(4.0))
         .child(summary)
         .child(advanced(s, p, &d, preset.is_none()))
 }
 
-/// The five-stop scale: a 4 pt track filled to the stop in the accent, its stops 6 pt dots
-/// ringed in the card's fill, and a 16 pt thumb (`timeline-detail-scale`, the range input).
+/// A custom mix leaves the track, stops and thumb unselected.
 /// A press or drag anywhere on it picks the nearest stop; the arrows step it.
-fn scale(p: &Pal, at: usize) -> El {
-    let frac = at as f32 / (STOPS - 1) as f32;
-    let track_bg = if p.dark { p.layer3 } else { p.q.layer4 };
-    let marker = session_view::palette::token(p.dark, "grey-500").unwrap_or(p.icon_faint);
+fn scale(p: &Pal, at: Option<usize>) -> El {
+    let frac = at.unwrap_or_default() as f32 / (STOPS - 1) as f32;
+    let track_bg = if p.dark { p.layer2 } else { p.q.layer4 };
+    let marker = session_view::palette::token(p.dark, if p.dark { "grey-700" } else { "grey-500" }).unwrap_or(p.icon_faint);
     let grey300 = session_view::palette::token(p.dark, "grey-300").unwrap_or(p.switch_thumb);
-    let depth = |name: &str| session_view::palette::token(p.dark, &format!("overlay-gradient-depth-overlay-depth-{name}")).unwrap_or(Color::TRANSPARENT);
-    // Grey-300 under the depth gradient, as the thumb (and a dark stop) paints.
-    let raised = |size: f32| el().size(size, size).radius(size / 2.0).fill(grey300)
-        .child(el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(size / 2.0).gradient(depth("top"), depth("bot")));
-    let dots = (0..STOPS).fold(row().key("stops").pin(Some(-5.0), Some(-3.0), Some(-5.0), None).h(10.0).justify_between(), |r, i| {
-        let ring = |inner: El| el().size(10.0, 10.0).radius(5.0).fill(p.layer1).center().child(inner);
-        r.child(match (i <= at, p.dark) {
-            (true, _) => ring(el().size(6.0, 6.0).radius(3.0).fill(p.bg_accent)),
-            (false, false) => ring(el().size(6.0, 6.0).radius(3.0).fill(marker)),
-            (false, true) => ring(raised(6.0)),
-        })
+    let accent = p.bg_accent.mix(Color::WHITE, 0.1);
+    let dots = (0..STOPS).fold(row().key("stops").pin(Some(-4.0), Some(-3.0), Some(-4.0), None).h(8.0).justify_between(), |r, i| {
+        r.child(el().size(8.0, 8.0).radius(4.0).fill(if at.is_some_and(|at| i <= at) { accent } else { marker }))
     });
-    let track = el().key("timeline-detail-track").pin(Some(8.0), Some(12.0), Some(8.0), None).h(4.0).radius(2.0).fill(track_bg)
-        .child(el().key("progress").pin(Some(0.0), Some(0.0), None, Some(0.0)).w_frac(frac).radius(2.0).fill(p.bg_accent))
+    let track = el().key("timeline-detail-track").pin(Some(8.0), Some(13.0), Some(8.0), None).h(2.0).radius(1.0).fill(track_bg)
+        .child(el().key("progress").pin(Some(0.0), Some(0.0), None, Some(0.0)).w_frac(frac).radius(1.0).fill(accent))
         .child(dots);
     // The range's thumb travels its width less its own, so its centre lands on each stop.
-    let thumb = row().key("thumb-lane").pin(Some(0.0), Some(6.0), Some(0.0), None).h(16.0)
+    let thumb = at.map(|_| row().key("thumb-lane").pin(Some(0.0), Some(6.0), Some(0.0), None).h(16.0)
         .child(el().grow(frac))
-        .child(raised(16.0).key("thumb").elevate(crate::status_toast::neutral_lift(p)))
-        .child(el().grow(1.0 - frac));
+        .child(el().key("thumb").size(16.0, 16.0).radius(8.0).center()
+            .gradient(p.bg_accent.mix(Color::WHITE, 0.2), p.bg_accent).border(0.5, p.q.border_strong)
+            .child(el().size(8.0, 8.0).radius(4.0).fill(grey300).border(0.5, p.q.border_strong)))
+        .child(el().grow(1.0 - frac)));
     let pick = |s: &mut App, g: &mut Drag, tx: &mut Tx| {
         if !matches!(g.phase, Phase::Down | Phase::Move) {
             return;
@@ -107,7 +120,7 @@ fn scale(p: &Pal, at: usize) -> El {
         let x = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 1.0 - x } else { x };
         set_stop(s, (x * (STOPS - 1) as f32).round() as usize);
     };
-    el().key("settings-timeline-detail").role("slider").label_static(t!("settings.timeline.detail")).range_value(at as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
+    el().key("settings-timeline-detail").role("slider").label_static(t!("settings.timeline.detail")).range_value(at.unwrap_or(2) as f64, 0.0, (STOPS - 1) as f64).range_step(1.0).focusable(true).w_full().h(28.0)
         .on_drag(pick)
         .on_key(|s: &mut App, ev, tx| {
             let at = stop(&s.settings.timeline_detail);
@@ -125,7 +138,7 @@ fn scale(p: &Pal, at: usize) -> El {
             set_stop(s, to);
             true
         })
-        .child(row().key("timeline-detail-scale").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).child(track).child(thumb))
+        .child(row().key("timeline-detail-scale").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).child(track).children(thumb))
 }
 
 fn set_stop(s: &mut App, at: usize) {
@@ -135,18 +148,18 @@ fn set_stop(s: &mut App, at: usize) {
 
 /// Advanced (`timeline-detail-advanced`): its trigger, and while open each activity's row.
 fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
-    let open = s.settings_pages.timeline.advanced.unwrap_or(custom);
+    let open = s.settings_pages.timeline.advanced.open(custom);
     let trigger = row().key("timeline-detail-advanced-trigger").role("button").label_static(t!("settings.timeline.advanced")).expanded(open).h(24.0).gap(6.0).center_y().self_start()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
-            s.settings_pages.timeline.advanced = Some(!open);
+            s.settings_pages.timeline.advanced.toggle(custom);
         })
         .hover_group()
         .hover_motion(session_view::style::HOVER_FADE, session_view::style::HOVER_FADE)
         .child(text(t!("settings.timeline.advanced")).font(LINE_MED).color(p.text));
-    // The arrow shows under the pointer, and always while open (`collapsible.css`).
+    // Keep the disclosure visible beside Advanced.
     let arrow = el().w(16.0).h(24.0).center().child(session_view::style::arrow(p, open));
-    let trigger = trigger.child(if open { arrow } else { arrow.group_opacity(0.0, 1.0) });
+    let trigger = trigger.child(arrow);
     let mut c = col().key("timeline-detail-advanced").w_full().pt(8.0).child(trigger);
     if !open {
         return c;
@@ -169,9 +182,9 @@ fn advanced(s: &App, p: &Pal, d: &Detail, custom: bool) -> El {
 fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
     let v = d.get(c);
     let hidden = v.placement == Placement::Hidden;
-    let eye = row().key(format!("timeline-detail-visibility-{}", c.id())).role("button").label(t!("settings.timeline.visibility.label", activity = c.label())).expanded(!hidden)
+    let eye = row().key(format!("timeline-detail-visibility-{}", c.id())).role("button").label(t!("settings.timeline.visibility.label", activity = c.label())).checked(!hidden)
         .help(if hidden { t!("settings.timeline.visibility.show") } else { t!("settings.timeline.visibility.hide") })
-        .size(20.0, 20.0).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(20.0, 20.0).center().radius(4.0).fill(p.q.neutral).elevate(crate::status_toast::neutral_lift(p)).hover(p.hover).press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             let v = s.settings.timeline_detail.get(c);
@@ -184,7 +197,7 @@ fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
             s.change_settings(|x| x.timeline_detail.set(c, Activity { placement, ..v }));
         })
         .child(icon(if hidden { &ic::OUTLINE_EYE_SLASH } else { &ic::OUTLINE_EYE }, 16.0).color(if hidden { p.icon_muted } else { p.icon }));
-    let activity = row().grow(1.0).shrink().min_w(0.0).gap(8.0).center_y()
+    let activity = row().grow(1.0).shrink().min_w(0.0).gap(12.0).center_y()
         .child(eye)
         .child(text(c.label()).font(LINE).color(if hidden { p.faint } else { p.text }).shrink().min_w(0.0));
     let unavailable = || el().w(24.0).h(1.0).fill(p.icon_muted).opacity(0.5);
@@ -208,7 +221,7 @@ fn category(p: &Pal, d: &Detail, c: Category, last: bool) -> El {
                 s.change_settings(|x| x.timeline_detail.set(c, Activity { expanded: !v.expanded, ..v }));
             })
     });
-    let r = row().key(format!("timeline-detail-category-{}", c.id())).w_full().h(40.0).px(12.0).gap(8.0).center_y()
+    let r = row().key(format!("timeline-detail-category-{}", c.id())).w_full().h(40.0).pl(9.5).pr(12.0).gap(8.0).center_y()
         .child(activity)
         .child(row().w(72.0).center().child(grouped))
         .child(row().w(88.0).pl(8.0).center().children(collapse));

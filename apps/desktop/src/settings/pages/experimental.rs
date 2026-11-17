@@ -1,5 +1,5 @@
 //! Settings › Experimental (`settings/experimental/experimental.tsx`): Organize vertical sidebar,
-//! New icons, Fold long messages, New question UI and Smooth timeline; then this app's
+//! New icons, New question UI and Smooth timeline; then this app's
 //! Developer section (Rewind).
 
 use rune::{El, col};
@@ -20,8 +20,6 @@ pub fn view(s: &App, p: &Pal) -> El {
                 s.change_settings(|x| x.new_icons = !x.new_icons);
                 crate::appearance::apply_icons(&s.settings);
             }))),
-        ("settings-fold-user-messages", setting(p, "settings-fold-user-messages", t!("settings.experimental.row.foldUserMessages.title"), t!("settings.experimental.row.foldUserMessages.description"),
-            switch(p, "fold-user-switch", st.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user)))),
         ("settings-new-question-ui", setting(p, "settings-new-question-ui", t!("settings.experimental.row.newQuestionUI.title"), t!("settings.experimental.row.newQuestionUI.description"),
             switch(p, "new-question-ui-switch", st.new_question_ui).on_press(|s: &mut App| s.change_settings(|x| x.new_question_ui = !x.new_question_ui)))),
         ("settings-smooth-timeline", setting(p, "settings-smooth-timeline", t!("rune.settings.experimental.row.smoothTimeline.title"), t!("rune.settings.experimental.row.smoothTimeline.description"),
