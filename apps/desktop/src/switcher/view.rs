@@ -256,8 +256,15 @@ fn gap_for(group: &str, n: usize, (count, h): (usize, f32)) -> El {
 fn memo_row(s: &App, p: &Pal, e: &Entry, lit: bool, q: &str, w: f32, place: (usize, usize)) -> El {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut v = DefaultHasher::new();
-    (e, q, w.to_bits(), lit, place, stacked(s, e), session_view::style::touch_controls()).hash(&mut v);
-
+    // Not the query itself: what the row draws from it, its highlights and its line of context, so
+    // a row a new query leaves as it was is kept.
+    (e, w.to_bits(), lit, place, stacked(s, e), session_view::style::touch_controls()).hash(&mut v);
+    let mark = |t: &str| match_span(t, q, Color::TRANSPARENT).map(|m| (m.start, m.end));
+    match &e.action {
+        Action::File(path) => (mark(&format!("{}/", opencode_kit::path::parent(path))), mark(opencode_kit::path::basename(path))).hash(&mut v),
+        _ => (mark(&e.title), mark(&e.description)).hash(&mut v),
+    }
+    snippet(s, e, q).is_some().hash(&mut v);
     (s.switcher.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
     let own = crate::servers::runtime::active(s);
     let session = match &e.action {
