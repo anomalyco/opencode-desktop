@@ -95,6 +95,10 @@ pub(crate) fn sidebar(s: &App, p: &Pal) -> El {
         return aside.w(GAP_ROOM).clip_soft(0.0);
     }
     let (w, open, peek, k) = (*s.sidebar_w, *s.sidebar_open, s.layout.peek, &s.knobs);
+    // Laid out ahead for a tab (`prepare`): only the room it takes, which its pinned contents don't.
+    if crate::prepare::preparing(s).is_some() {
+        return aside.w(if open { w } else { 0.0 } + GAP_ROOM);
+    }
     let reduced = *s.reduced_motion;
     // Past the window's start: closed, or a peek sliding away. Under Reduce Motion a peek fades
     // where it is instead.

@@ -281,7 +281,8 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         s.can_tear(),
         crate::plugin_host::surfaces_version(s),
     );
-    let band = (chrome().row_h > 0.0)
+    // Laid out ahead for a tab (`prepare`), the pinned titlebar row takes no room from the page.
+    let band = (chrome().row_h > 0.0 && crate::prepare::preparing(s).is_none())
         .then(|| rune::region_with("titlebar", bar_inputs, || titlebar::titlebar(s, p, cx).unwrap_or_else(el)))
         .map(|bar| {
             // Settings › Bottom navigation moves a narrow window's row to its foot (`order-last`).
