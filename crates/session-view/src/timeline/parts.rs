@@ -279,10 +279,8 @@ pub fn turn_footer_text(t: &Transcript, message: usize, part: usize) -> bool {
 }
 
 /// A finished turn's footer under its reply's last text (`text-part-copy-wrapper`): 8 under the
-/// text, 20 tall, Copy (the part's text) then "Model · 1s". Local and dev builds keep Copy visible
-/// at rest and reveal only the metadata on hover or keyboard focus; stable hides the whole footer
-/// until hover or keyboard focus (`session-ui-provider.tsx:49-50,263`, `message-part.css:577-616,
-/// 671-681`). A stopped turn's runs to the reply's end and ends in Interrupted (`[data-interrupted]`).
+/// text, 20 tall, Copy (the part's text) then "Model · 1s". Copy stays visible while the metadata
+/// waits for hover or keyboard focus (OpenCode 5db3553efa, `packages/session-ui/src/components/message-part.css`).
 pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usize, part: usize) -> El {
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let Message::Assistant(a) = &t.messages[message] else { return el() };
@@ -300,7 +298,6 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         })
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted))
         .ml(COPY_AT.0);
-    let button = if s.copy_always_visible() { button } else { crate::style::hover_reveal(button) };
     let interrupted = a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind));
     let mut items = reply_meta(s, t, message);
     if interrupted {
@@ -451,7 +448,6 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     } else {
         COPY_AT.1 + COPY
     };
-    let copy_visible = s.copy_always_visible();
     let working = busy && !crate::working::thinking(s, session);
     let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
@@ -461,11 +457,9 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
-        // Interrupted stays in view and rises out of Working's place as the run settles (Kit's);
-        // Copy stays out at rest in local and dev builds, and joins the rest on hover or focus on stable.
+        // Interrupted stays in view and rises out of Working's place as the run settles.
         let mut tail = row().key("tail").pin(None, Some(COPY_AT.1), Some(0.0), None).h(COPY).gap(4.0).center_y();
         if has_text {
-            let button = if copy_visible { button } else { crate::style::hover_reveal(button) };
             tail = tail.child(button);
             if !items.is_empty() {
                 tail = tail.child(meta(items)).child(crate::style::hover_reveal(text("\u{00b7}").key("sep-interrupted").font(META).color(p.faint)));
@@ -481,10 +475,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         Some(c) => lane.child(crate::sources_chip::chip(s, p, c).absolute(0.0, 16.0)),
         None => lane,
     };
-    // Local and dev builds keep Copy visible at rest and hide only the metadata; stable hides both
-    // until the reply or its footer is hovered or keyboard-focused (`message-part.css:585-599, 671-681`).
     let button = button.absolute(COPY_AT.0 + dx, y);
-    let button = if copy_visible { button } else { crate::style::hover_reveal(button) };
     lane.child(button)
         .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + dx + COPY + 4.0, y)))
         .children(s.turn_tail_extra(p, session, busy))

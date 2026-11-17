@@ -123,8 +123,7 @@ pub fn space<S: TimelineHost>(s: &S, run: Run) -> (f32, f32) {
     (side(run.above), side(run.below))
 }
 
-/// Desktop's timeline separator: a hairline from nothing to the strong border on each side of a
-/// faint label, which fades out where it's cut off.
+/// Flat muted hairlines flank the label (OpenCode b181df309d, `timeline-separator.tsx`).
 pub fn divider<S: TimelineHost>(s: &S, p: &Pal, label: &str, run: Run) -> El {
     divider_of(s, p, text(label.to_owned()).key("label").font(UI).color(p.faint).truncate_fade(), run)
 }
@@ -132,8 +131,8 @@ pub fn divider<S: TimelineHost>(s: &S, p: &Pal, label: &str, run: Run) -> El {
 /// The divider around any `words`, such as a label with its value (a moved session's folder).
 pub fn divider_of<S: TimelineHost>(s: &S, p: &Pal, words: El, run: Run) -> El {
     // The lines keep some length when long words (a moved session's folder) fill the row.
-    let line = |end: bool| hairline(p, el().key(if end { "end" } else { "start" }).h(1.0).grow(1.0).min_w(24.0), end);
-    col().w_full().child(divider_bar(line(false), words, line(true), space(s, run)).key("separator"))
+    let line = |key: &'static str| el().key(key).h(1.0).grow(1.0).min_w(24.0).fill(p.border_muted);
+    col().w_full().child(divider_bar(line("start"), words, line("end"), space(s, run)).key("separator"))
 }
 
 /// A divider's row: `words` between its two lines, with `(over, under)` room around them.
@@ -145,7 +144,7 @@ fn divider_bar(start: El, words: El, end: El, (over, under): (f32, f32)) -> El {
 /// fraction of the line.
 const RAMP: f32 = 0.7;
 
-/// Paints `line` as every divider's hairline: from nothing at its outer end to the strong border
+/// Paints a quiet compaction's hairline: from nothing at its outer end to the strong border
 /// [`RAMP`] of the way in. `end`: the line after the words, which mirrors the first.
 fn hairline(p: &Pal, line: El, end: bool) -> El {
     let strong = p.q.border_strong;
