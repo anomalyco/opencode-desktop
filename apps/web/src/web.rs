@@ -1,7 +1,8 @@
 //! The browser entry: the desktop app's window, as the page. The page's query names the server
-//! (`?server=http://127.0.0.1:4096`); any other `?flag` or `?flag=value` passes on as the desktop
-//! app's `--flag [value]` (`?debug`, `?zoom=1.25`, `?theme=dark`). The page (index.html) takes a
-//! password out of its address before it loads this, and hands it to [`start`].
+//! (`?server=http://127.0.0.1:4096`) and the page-safe options [`page_args`] accepts (`?session=…`,
+//! `?debug`, `?zoom=1.25`, `?theme=dark`); unknown or malformed query parameters are ignored so a
+//! shared link never traps the module. The page (index.html) takes a password out of its address
+//! before it loads this, and hands it to [`start`].
 
 use wasm_bindgen::{JsCast, closure::Closure, prelude::wasm_bindgen};
 
@@ -69,7 +70,10 @@ fn flush_on_pagehide() {
     on_hide.forget();
 }
 
-/// The query as the app's arguments: `?a=1&b` is `--a 1 --b`.
+/// Known, validated page query parameters mapped to app arguments. CLI-only, headless and
+/// filesystem flags (`?help`, `?scale=…`, `?scene=…`, `?fixture=…`, `?snap=…`), malformed values
+/// and arbitrary link parameters (`?utm_source=…`) are ignored rather than trapping before the
+/// first frame.
 fn page_args() -> Vec<String> {
     let Some(search) = web_sys::window().and_then(|w| w.location().search().ok()) else { return Vec::new() };
     let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) else { return Vec::new() };
@@ -77,9 +81,35 @@ fn page_args() -> Vec<String> {
     for entry in params.entries().into_iter().flatten() {
         let pair = js_sys::Array::from(&entry);
         let (Some(key), value) = (pair.get(0).as_string(), pair.get(1).as_string().unwrap_or_default()) else { continue };
-        out.push(format!("--{key}"));
-        if !value.is_empty() {
-            out.push(value);
+        match key.as_str() {
+            "server" | "session" | "directory" | "language" | "tab-layout" | "preset" | "ui-font" | "code-font" | "font-smoothing" => {
+                if !value.is_empty() {
+                    out.push(format!("--{key}"));
+                    out.push(value);
+                }
+            }
+            "theme" if matches!(value.as_str(), "light" | "dark") => {
+                out.push("--theme".into());
+                out.push(value);
+            }
+            "scroll-bars" if matches!(value.as_str(), "when-scrolling" | "always" | "automatic") => {
+                out.push("--scroll-bars".into());
+                out.push(value);
+            }
+            "zoom" if value.parse::<f32>().is_ok_and(f32::is_finite) => {
+                out.push("--zoom".into());
+                out.push(value);
+            }
+            "egg-seed" if value.parse::<u32>().is_ok() => {
+                out.push("--egg-seed".into());
+                out.push(value);
+            }
+            "debug" | "reduced-motion" | "sidebar-closed" | "read-only" | "no-plugins" | "plugins-eager" | "no-stream" => {
+                if !matches!(value.as_str(), "0" | "false") {
+                    out.push(format!("--{key}"));
+                }
+            }
+            _ => {}
         }
     }
     out
