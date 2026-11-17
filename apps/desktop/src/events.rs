@@ -49,7 +49,7 @@ pub enum Heard {
 /// Where this poll got the open timeline's geometry. A page wins over stream events in
 /// either order: growth opts in a whole stack, not just the row that the stream changed.
 #[derive(Default)]
-pub(crate) enum TailChange { #[default] None, Live(Route), Page }
+pub(crate) enum TailChange { #[default] None, Live(Route), Queued(Route, String), Page }
 
 pub struct StreamEvent {
     pub ty: String,
@@ -94,6 +94,8 @@ pub struct Done {
     /// Running sessions, idle and busy marks, requests (`apply_status`).
     pub status: bool,
     pub inbox: bool,
+    /// The delivered item occupied the queue, not a Pending row in the transcript.
+    pub queued_delivery: bool,
     /// A revert's mark moved.
     pub revert: bool,
     /// The session's agent or model, archive or metadata.
@@ -136,6 +138,9 @@ impl App {
 
     pub(crate) fn react_live(&mut self, e: &StreamEvent) -> bool {
         let ty = e.ty.as_str();
+        if self.settings.smooth_timeline && e.done.queued_delivery && !matches!(self.tail_change, TailChange::Page)
+            && e.data["sessionID"].as_str().is_some_and(|id| self.showing_here(id)) && let Some(id) = e.data["inboxID"].as_str()
+        { self.tail_change = TailChange::Queued((*self.route).clone(), format!("u-{id}")); }
         if matches!(self.tail_change, TailChange::None) && (e.done.transcript || e.done.inbox)
             && let Some(id) = e.data["sessionID"].as_str()
             && self.showing_here(id)
@@ -166,9 +171,21 @@ impl App {
     }
 
     pub(crate) fn finish_tail_change(&mut self, tx: &mut Tx) {
-        if let TailChange::Live(route) = std::mem::take(&mut self.tail_change) && *self.route == route
-            && let Route::Session { id, .. } = route && self.ends.at_end(&id) && !self.ends.due(&id) && !self.stream_gaps.contains_key(&id)
-        { tx.grow_visible_tail(format!("scroll-{id}/timeline")); }
+        let (route, row) = match std::mem::take(&mut self.tail_change) {
+            TailChange::Live(route) => (route, None),
+            TailChange::Queued(route, row) => (route, Some(row)),
+            _ => return,
+        };
+        if *self.route == route && let Route::Session { id, .. } = route && self.ends.at_end(&id) && !self.ends.due(&id) && !self.stream_gaps.contains_key(&id) {
+            let stack = format!("scroll-{id}/timeline");
+            if session_view::TimelineHost::smooth_timeline(self) {
+                if let Some(row) = row { tx.grow_visible_tail_from(stack.clone(), row, "dock/queue-room"); }
+                tx.grow_visible_tail_with_ink(stack);
+            } else {
+                // The shipped live-row growth and reordering stay on in either presentation.
+                tx.grow_visible_tail(stack);
+            }
+        }
     }
 
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
@@ -176,6 +193,8 @@ impl App {
         let now = *self.now_ms;
         let mut done = Done { status: self.apply_status(ty, data, &sid), ..Done::default() };
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
+            done.queued_delivery = ty == "session.inbox.delivered" && data["inboxID"].as_str().is_some_and(|id|
+                self.inboxes.get(&sid).is_some_and(|i| i.queued().any(|item| item.id == id)));
             done.inbox = self.apply_inbox(ty, data, &sid);
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {

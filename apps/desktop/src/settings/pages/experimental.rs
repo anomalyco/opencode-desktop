@@ -1,5 +1,5 @@
 //! Settings › Experimental (`settings/experimental/experimental.tsx`): Organize vertical sidebar,
-//! New icons, Fold long messages and New question UI; then this app's Developer section (Rewind).
+//! New icons, Fold long messages and New question UI; then Rune's live timeline and Rewind.
 
 use rune::{El, col};
 
@@ -23,6 +23,8 @@ pub fn view(s: &App, p: &Pal) -> El {
             switch(p, "fold-user-switch", st.fold_user).on_press(|s: &mut App| s.set_fold_user(!s.settings.fold_user)))),
         ("settings-new-question-ui", setting(p, "settings-new-question-ui", t!("settings.experimental.row.newQuestionUI.title"), t!("settings.experimental.row.newQuestionUI.description"),
             switch(p, "new-question-ui-switch", st.new_question_ui).on_press(|s: &mut App| s.change_settings(|x| x.new_question_ui = !x.new_question_ui)))),
+        ("settings-smooth-timeline", setting(p, "settings-smooth-timeline", t!("rune.settings.experimental.row.smoothTimeline.title"), t!("rune.settings.experimental.row.smoothTimeline.description"),
+            switch(p, "smooth-timeline-switch", st.smooth_timeline).on_press(|s: &mut App| s.change_settings(|x| x.smooth_timeline = !x.smooth_timeline)))),
     ];
     let body = col().w_full().gap(32.0)
         .child(settings::list(p, "experimental-list", super::rows(s, p, 20.0, rows)))

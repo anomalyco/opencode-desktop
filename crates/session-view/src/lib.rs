@@ -110,6 +110,10 @@ pub trait TimelineHost: Sized + 'static {
     fn reduced_motion(&self) -> bool {
         false
     }
+    /// Animate a live delivery's Pending label in addition to its row geometry.
+    fn smooth_timeline(&self) -> bool {
+        false
+    }
 
     fn active_session_id(&self) -> Option<&str>;
     fn transcript(&self, _session: &str) -> Option<&Transcript> {

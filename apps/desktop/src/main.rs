@@ -599,6 +599,9 @@ impl session_view::TimelineHost for App {
     fn reduced_motion(&self) -> bool {
         *self.reduced_motion
     }
+    fn smooth_timeline(&self) -> bool {
+        self.settings.smooth_timeline && !*self.reduced_motion
+    }
     fn timeline_detail(&self) -> session_view::detail::Detail {
         self.settings.timeline_detail
     }
