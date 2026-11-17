@@ -585,8 +585,9 @@ pub fn file_viewer(app: &App, p: &Pal, session: &str, directory: &str, path: &st
     let abs = if std::path::Path::new(path).is_absolute() { path.to_owned() } else { format!("{}/{path}", directory.trim_end_matches(['/', '\\'])) };
     let props = map([("path", Data::String(abs.clone())), ("sessionId", Data::String(session.to_owned())), ("directory", Data::String(directory.to_owned()))]);
     let body = render(app, p, i, &format!("file:{}:{abs}", spec.id), &f?, props);
-    // A plain `overflow-y-auto` box's bar, as the file view's (`gui-plugins/src/file/view.tsx:517`).
-    Some(session_view::scroller::scroller(format!("plugin-file-{key}")).build::<App>(p, col().w_full().grow(1.0).min_h(0.0), body))
+    // `artifact-view.tsx:168`: a `flex min-h-0 flex-1 flex-col` container so the viewer owns its
+    // scrollport, pinned zoom controls and centred placeholders (`office-scroll`, `office-workbook`).
+    Some(col().key(format!("plugin-file-{key}")).w_full().grow(1.0).min_h(0.0).child(body))
 }
 
 // `--scene plugin-dialog`: the updater's beta notes dialog with 30 notes, as its `Dialog:Open`
