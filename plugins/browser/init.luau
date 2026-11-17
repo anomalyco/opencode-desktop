@@ -234,6 +234,15 @@ return plugin.defineWindow(function(ctx)
                             for _, cookie in (if type(answer) == "table" and type(answer.cookies) == "table" then answer.cookies else {}) do
                                 tab:DevtoolsAsync("Network.deleteCookies", { name = cookie.name, domain = cookie.domain, path = cookie.path })
                             end
+                            local scheme, host = address.parts(described.url)
+                            if (string.lower(scheme) == "http://" or string.lower(scheme) == "https://") and host ~= "" then
+                                pcall(function()
+                                    tab:DevtoolsAsync("Storage.clearDataForOrigin", {
+                                        origin = `{string.lower(scheme)}{host}`,
+                                        storageTypes = "local_storage,indexeddb,service_workers,cache_storage,file_systems,shader_cache",
+                                    })
+                                end)
+                            end
                             tab:Reload()
                         end)
                         siteDispatch(if ok then { type = "clear.succeeded", attempt = attempt } else { type = "clear.failed", attempt = attempt })

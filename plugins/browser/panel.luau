@@ -147,9 +147,9 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         }))
         -- The suggestion Enter opens, after the typed text.
         if bar.chosen and #bar.query <= address.HINT_MAX_LENGTH then
-            table.insert(body, ui.row({ pin = { left = 0, top = 0, bottom = 0 }, align = "center" }, {
+            table.insert(body, ui.row({ pin = { left = 0, top = 0, bottom = 0 }, gap = 6, align = "center" }, {
                 text(bar.query, "text-muted", { opacity = 0 }),
-                text(`- {history.bare(bar.chosen.url)}`, "text-muted", { ml = 6, truncate = true, shrink = true, minW = 0 }),
+                text(`- {history.bare(bar.chosen.url)}`, "text-muted", { truncate = true, shrink = true, minW = 0 }),
             }))
         end
     elseif bar.field ~= "" then
@@ -180,7 +180,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         }, { ui.text(env.I18n:T("zoom.percent", { percent = math.floor(zoom * 100 + 0.5) }), { size = 11, weight = "medium", lineHeight = 12, tracking = 0.05, tabular = true, noWrap = true, color = "text-muted", hoverGroupColor = "text-chrome" }) }))
     end
     if shown then
-        table.insert(items, ui.row({ key = "browser-address-actions", gap = 4, align = "center" }, {
+        table.insert(items, ui.row({ key = "browser-address-actions", gap = 6, align = "center" }, {
             small(view, "browser-page-add", "outline-globe-plus", env.I18n:T("page.add"), true, function()
                 env.act("page", tab)
             end),

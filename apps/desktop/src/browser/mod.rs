@@ -29,25 +29,28 @@ pub struct BrowserPane {
     pub devtools: HashMap<u64, (rune_luau::Completer, Instant)>,
 }
 
-/// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow.
+/// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
+/// matching Desktop's `packages/gui-plugins/src/browser/keys.ts` (`pageShortcut`): in-page chords
+/// such as ⌘K, ⌘B, ⌘F and ⌘G stay with the page.
 pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
-    // The page's own editing keys: select all, copy, paste, cut, undo, redo, and reload. Off
-    // macOS Ctrl+R is also Rename, which leaves a focused page alone, as Desktop's does.
     if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
         return false;
     }
     if crate::shortcuts::action(ev).is_some() {
         return true;
     }
-    // Rename, Move to background and the terminal toggle, whose chords name Ctrl.
     if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {
         return true;
     }
-    // Shell, side-region, picker, knobs, storybook, and dictation chords: any with the primary key.
-    matches!(&ev.key, Key::Command(c) if matches!(
-        c.to_ascii_lowercase(),
-        'k' | 'l' | 'b' | 'j' | 'r' | 'p' | 'o' | 'c' | 'd' | 'm' | 't' | 'w' | '\'' | '.' | ',' | '[' | ']' | '{' | '}'
-    ))
+    let Key::Command(c) = ev.key else { return false };
+    let ch = c.to_ascii_lowercase();
+    if ev.mods.alt {
+        return !ev.mods.shift && matches!(ch, 'r' | 'b' | 'p');
+    }
+    if ev.mods.shift {
+        return matches!(ch, 't' | '[' | ']' | '{' | '}' | 'r' | 'p' | 'l' | 'e' | 'o' | 's' | 'c');
+    }
+    matches!(ch, 'l' | 't' | 'n' | 'w' | ',' | '\\' | '[' | ']')
 }
 
 static PAGE_KEYS: std::sync::LazyLock<[rune::Chord; 7]> = std::sync::LazyLock::new(|| {
