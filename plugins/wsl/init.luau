@@ -15,6 +15,7 @@ return plugin.defineWindow(function(ctx)
     local Toast = ctx:GetService("Toast")
     local Dialog = ctx:GetService("Dialog")
     local Menu = ctx:GetService("Menu")
+    local App = ctx:GetService("App")
     local Contracts = ctx:GetService("Contracts")
     local wsl = Contracts:Use("wsl")
     local search = ctx:CreateEditor("")
@@ -33,6 +34,7 @@ return plugin.defineWindow(function(ctx)
         Toast = Toast,
         Dialog = Dialog,
         Menu = Menu,
+        menuTrigger = App.Platform ~= "macos",
         api = api,
         search = search,
         changed = function()

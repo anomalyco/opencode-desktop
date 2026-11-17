@@ -19,6 +19,7 @@ export type Env = {
     Layout: LayoutService,
     Menu: MenuService,
     Theme: ThemeService,
+    menuTrigger: boolean,
     -- One document per session, opened once.
     docs: { [string]: DiffDocument },
     -- The sidebar's filter.
@@ -101,6 +102,7 @@ function panel.title(env: Env, view: View, sid: string, key: string): ui.Node
         hoverTransition = "instant",
         shrink = true,
         minW = 0,
+        menuTrigger = env.menuTrigger,
         onPress = view:Handler(function()
             local items: { MenuEntry } = {}
             for _, mode in sources do

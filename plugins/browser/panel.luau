@@ -16,6 +16,7 @@ export type Env = {
     I18n: I18nService,
     Browser: BrowserService,
     Server: ServerService,
+    menuTrigger: boolean,
     -- The window's address editor.
     editor: Editor,
     -- The address machine and each page's report counts.
@@ -265,7 +266,7 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View): 
                 end, { pressed = picking, color = if picking then "accent" else nil, keybind = "browser.inspect" }),
                 large(view, "browser-options", "outline-dots", env.I18n:T("options"), true, function()
                     env.act("options", tab)
-                end),
+                end, { menuTrigger = env.menuTrigger }),
             }),
         }),
         -- `border-b-[0.5px]`: one device pixel at half the colour.

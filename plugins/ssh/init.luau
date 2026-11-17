@@ -17,6 +17,7 @@ return plugin.defineWindow(function(ctx)
     local Dialog = ctx:GetService("Dialog")
     local Menu = ctx:GetService("Menu")
     local System = ctx:GetService("System")
+    local App = ctx:GetService("App")
     local Contracts = ctx:GetService("Contracts")
     local Layout = ctx:GetService("Layout")
     local live = Contracts:Use("ssh")
@@ -64,6 +65,7 @@ return plugin.defineWindow(function(ctx)
     local env: any = {
         I18n = I18n,
         Menu = Menu,
+        menuTrigger = App.Platform ~= "macos",
         target = target,
         name = name,
         response = response,
