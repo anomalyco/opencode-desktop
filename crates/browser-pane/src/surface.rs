@@ -6,6 +6,14 @@ use crate::client::BrowserHost;
 use crate::protocol::{HostMsg, PointerBtn, pack_mods};
 
 impl BrowserHost {
+    pub fn set_device(&mut self, tab_id: u64, device: Option<crate::device::Device>) {
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        if tab.device == device { return; }
+        tab.device = device.clone();
+        let scale = device.as_ref().map_or(1.0, |d| d.fit([tab.viewport_pt.0, tab.viewport_pt.1]));
+        self.send(HostMsg::Emulate { tab_id, device, scale });
+    }
+
     /// The page's surface element. `scale` is the window's backing scale and `view_zoom` how many
     /// window points one layout point of this element covers (the app's own zoom). The page gets
     /// a viewport in window points, so it renders at its own zoom, not the app's. Frames draw
@@ -62,6 +70,12 @@ impl BrowserHost {
                 }
                 if should_send {
                     host.send(HostMsg::Resize { tab_id, width_pt, height_pt, scale: sc });
+                    if let Some(device) = host.tab(tab_id).and_then(|t| t.device.clone()) {
+                        // CEF receives ordinary surface-local input; the CDP metrics scale
+                        // maps the composited page to that surface's window points.
+                        let scale = device.fit([width_pt, height_pt]);
+                        host.send(HostMsg::Emulate { tab_id, device: Some(device), scale });
+                    }
                 }
             })
             .on_pointer_move_local(move |s: &mut S, p: PointerEvent, tx| {

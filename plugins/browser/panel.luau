@@ -13,6 +13,7 @@ local panel = {}
 local RECENT = 5
 
 export type Env = {
+    device: ((View, BrowserTab, PanelProps) -> ui.Node?)?,
     I18n: I18nService,
     Browser: BrowserService,
     Server: ServerService,
@@ -261,6 +262,9 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View): 
             }),
             field(env, view, tab, state, tab:Zoom()),
             ui.row({ align = "center", gap = 4 }, {
+                if env.device then large(view, "browser-device-toggle", "outline-sliders", env.I18n:T("plugin.browser.command.toggleToolbar"), true, function()
+                    env.act("device", tab)
+                end) else nil,
                 large(view, "browser-inspect", "outline-browser-annotate", env.I18n:T("inspect"), page ~= "", function()
                     tab:Inspect()
                 end, { pressed = picking, color = if picking then "accent" else nil, keybind = "browser.inspect" }),
@@ -449,6 +453,8 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     if engine ~= "unsupported" then
         table.insert(items, bar(env, view, tab, state))
     end
+    local toolbar = if env.device and engine ~= "unsupported" then env.device(view, tab, props) else nil
+    if toolbar then table.insert(items, toolbar) end
     local alert = refusal(env, tab) or download(env, tab)
     if alert then
         table.insert(items, alert)
@@ -461,7 +467,8 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))
     else
-        table.insert(items, ui.browserSurface({ key = "browser-page", tab = tab, grow = 1 }))
+        table.insert(items, ui.browserSurface({ key = "browser-page", tab = tab, grow = 1,
+            areaWidth = props.width, areaHeight = props.height - 44 - (if toolbar then 36 else 0) }))
     end
     local list = suggestions(env, view, tab, state, props.width)
     if list then

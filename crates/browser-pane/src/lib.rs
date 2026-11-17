@@ -17,6 +17,7 @@ pub mod address;
 #[cfg(feature = "engine")]
 mod background;
 mod client;
+pub mod device;
 #[cfg(feature = "engine")]
 mod download;
 mod frame;

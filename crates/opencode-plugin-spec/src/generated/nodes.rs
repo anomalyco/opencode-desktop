@@ -193,6 +193,8 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
 
 /// `UiBrowserSurfaceProps`.
 pub static UI_BROWSER_SURFACE_PROPS: PropsSpec = PropsSpec::new("UiBrowserSurfaceProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("areaWidth", PropType::Number, false),
+    PropSpec::new("areaHeight", PropType::Number, false),
     PropSpec::new("tab", PropType::Handle("BrowserTab"), true),
     PropSpec::new("focused", PropType::Bool, false),
 ]);

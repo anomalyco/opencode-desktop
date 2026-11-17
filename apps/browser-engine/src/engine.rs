@@ -451,6 +451,11 @@ impl EngineManager {
                     self.send_color_scheme(&t.host, dark);
                 }
             }
+            HostMsg::Emulate { tab_id, device, scale } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
+                }
+            }
             HostMsg::Resize { tab_id, width_pt, height_pt, scale } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let changed = {
@@ -868,6 +873,8 @@ impl EngineManager {
         let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
     }
 }
+
+mod emulation;
 
 fn send_key(
     host: &BrowserHost,

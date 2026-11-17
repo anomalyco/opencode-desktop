@@ -11,6 +11,7 @@ local address = require("@self/address")
 local history = require("@self/history")
 local mcp = require("@self/mcp")
 local panel = require("@self/panel")
+local createDevice = require("@self/device")
 local site = require("@self/site")
 
 -- The panel's id: its tabs key as `browser:<page id>`, as Desktop's.
@@ -54,6 +55,8 @@ return plugin.defineWindow(function(ctx)
         local value = stored:Get()
         return if type(value) == "table" and type(value.visits) == "table" then value.visits else {}
     end
+
+    local device = if App.Channel == "local" or App.Channel == "dev" then createDevice(ctx, I18n, Menu, refresh) else nil
 
     local function pageUrl(tab: BrowserTab): string
         local url = tab:Url()
@@ -318,7 +321,9 @@ return plugin.defineWindow(function(ctx)
         if tab == nil then
             return
         end
-        if what == "edit" then
+        if what == "device" and device then
+            device.toggle(tab)
+        elseif what == "edit" then
             edit(tab)
         elseif what == "go" then
             dispatch({ type = "navigated", tab = tab.Id, url = arg :: string, epoch = epoch(tab) })
@@ -348,6 +353,7 @@ return plugin.defineWindow(function(ctx)
     end
 
     local env: panel.Env = {
+        device = if device then device.render else nil,
         I18n = I18n,
         Browser = Browser,
         Server = Server,
@@ -496,6 +502,12 @@ return plugin.defineWindow(function(ctx)
         tab:Reload()
         return true
     end)
+    if device then
+        scoped("toggleToolbar", "mod+shift+m", false, I18n:T("plugin.browser.command.toggleToolbar"), function(tab)
+            device.toggle(tab)
+            return true
+        end)
+    end
     scoped("address", "mod+l", false, I18n:T("command.address"), function(tab)
         edit(tab)
         return true

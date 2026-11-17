@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[path = "../../../crates/browser-pane/src/device.rs"]
+pub mod device;
+
 pub const MOD_SHIFT: u8 = 1 << 0;
 pub const MOD_CTRL: u8 = 1 << 1;
 pub const MOD_ALT: u8 = 1 << 2;
@@ -87,6 +90,7 @@ pub enum HostMsg {
     SetZoom { tab_id: u64, factor: f64 },
     SetColorScheme { dark: bool },
     Resize { tab_id: u64, width_pt: f32, height_pt: f32, scale: f32 },
+    Emulate { tab_id: u64, device: Option<device::Device>, scale: f32 },
     MouseMove { tab_id: u64, x: f32, y: f32, mods: u8, leave: bool },
     MouseButton { tab_id: u64, x: f32, y: f32, button: PointerBtn, up: bool, clicks: u32, mods: u8 },
     Wheel { tab_id: u64, x: f32, y: f32, dx: f32, dy: f32, mods: u8 },

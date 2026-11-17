@@ -1885,8 +1885,22 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 | Field | Type | Description |
 |---|---|---|
+| `areaWidth` | `number?` | Available width of the device preview area. |
+| `areaHeight` | `number?` | Available height of the device preview area. |
 | `tab` | `BrowserTab` | The page, from the `Browser` service. Until the engine runs, the surface shows the engine's state instead: its download, the download's progress, or why it failed. |
 | `focused` | `boolean?` | Takes keyboard focus. |
+
+### BrowserViewport
+
+Device dimensions in CSS pixels and optional display scale.
+
+| Field | Type | Description |
+|---|---|---|
+| `width` | `number` | Width from 1 to 4096. |
+| `height` | `number` | Height from 1 to 4096. |
+| `profile` | `string` | desktop, phone, tablet or windows_tablet. |
+| `preset` | `string?` | Device preset id. |
+| `scale` | `number?` | Display factor, or nil to fit the pane. |
 
 ### UiCodeViewProps
 
@@ -2681,6 +2695,8 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:Stop` | `() -> ()` | Stops loading. |
 | `:SetZoom` | `(direction: BrowserZoom) -> ()` | Zooms the page in or out a step, or back to 100%. The site keeps its zoom. |
 | `:Inspect` | `(enabled: boolean?) -> ()` | Starts or stops the element picker; without an argument, toggles it. A pick fires `Browser.Picked`. |
+| `:Viewport` | `() -> BrowserViewport?` | The fixed CSS viewport, or nil when the page follows the pane. |
+| `:SetViewport` | `(viewport: BrowserViewport?) -> ()` | Apply a device viewport in a local or dev build, or nil to restore the page. |
 | `:Highlight` | `(nodeId: number?) -> ()` | Outlines the DevTools backend node `nodeId` in the page, or clears the outline. |
 | `:Show` | `(options: BrowserShowOptions?) -> ()` | Selects its tab in a session's side region, opening the region and adding the tab when it isn't there. |
 | `:Close` | `() -> ()` | Closes the page and its tab. |

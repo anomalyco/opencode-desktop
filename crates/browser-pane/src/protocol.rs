@@ -172,6 +172,7 @@ pub enum HostMsg {
         height_pt: f32,
         scale: f32,
     },
+    Emulate { tab_id: u64, device: Option<crate::device::Device>, scale: f32 },
     MouseMove {
         tab_id: u64,
         x: f32,
