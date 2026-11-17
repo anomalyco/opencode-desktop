@@ -688,6 +688,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
 /// the database closes, so its exclusive lock goes now rather than when the process is gone (an
 /// update's helper, the next launch). Later reads and writes stay in memory.
 pub fn close() {
+    crate::launch::last_exit::mark_clean();
     flush(FlushReason::Quit, true);
     let storage = match &*lock() {
         Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
