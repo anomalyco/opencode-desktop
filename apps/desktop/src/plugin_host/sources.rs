@@ -144,6 +144,16 @@ pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
     embedded::BUILTINS.iter().map(|(id, _, _)| *id)
 }
 
+/// Message `key` of built-in `plugin_id` in `lang`, falling back to English.
+pub fn builtin_message(plugin_id: &str, lang: &str, key: &str) -> Option<&'static str> {
+    let (_, _, bytes) = embedded::BUILTINS.iter().find(|(id, _, _)| *id == plugin_id)?;
+    let table = super::Catalogs::Table(bytes);
+    match table.get(lang, key).or_else(|| table.get("en", key))? {
+        std::borrow::Cow::Borrowed(s) => Some(s),
+        std::borrow::Cow::Owned(_) => None,
+    }
+}
+
 fn read_embedded(files: &'static [(&'static str, &'static str)], catalogs: &'static [u8]) -> Option<Found> {
     let toml = files.iter().find(|(p, _)| *p == "plugin.toml")?.1;
     Some(match parse(toml) {

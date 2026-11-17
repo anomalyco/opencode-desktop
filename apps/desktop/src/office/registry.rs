@@ -63,6 +63,7 @@ struct Doc {
 enum State {
     Opening { waiters: Vec<(Completer, usize)> },
     Open(Box<Open>),
+    RenderFailed(String),
     Failed,
 }
 
@@ -125,6 +126,7 @@ impl PageDraw {
 pub struct Snapshot {
     pub pages: Vec<PageInfo>,
     pub failed_pages: Vec<usize>,
+    pub render_error: Option<String>,
     pub zoom: f32,
     pub width: f32,
     pub layout: Option<Arc<SheetLayout>>,
@@ -270,11 +272,16 @@ fn document(id: u64, kind: Kind, pages: &[PageInfo], sheets: &[String]) -> Data 
 pub fn snapshot(id: u64) -> Option<Snapshot> {
     REGISTRY.with_borrow(|r| {
         let doc = r.docs.get(&id)?;
-        let State::Open(open) = &doc.state else { return Some(Snapshot { zoom: doc.zoom, width: doc.width, ..Snapshot::default() }) };
+        let open = match &doc.state {
+            State::Open(open) => open,
+            State::RenderFailed(reason) => return Some(Snapshot { render_error: Some(reason.clone()), zoom: doc.zoom, width: doc.width, ..Snapshot::default() }),
+            State::Opening { .. } | State::Failed => return Some(Snapshot { zoom: doc.zoom, width: doc.width, ..Snapshot::default() }),
+        };
         let failed_pages = open.scenes.iter().filter(|(_, s)| matches!(s, Slot::Failed)).map(|(i, _)| *i).collect();
         Some(Snapshot {
             pages: open.pages.clone(),
             failed_pages,
+            render_error: None,
             zoom: doc.zoom,
             width: doc.width,
             layout: open.sheet.layout.clone(),
@@ -285,6 +292,30 @@ pub fn snapshot(id: u64) -> Option<Snapshot> {
             reach: open.sheet.grid.reach,
         })
     })
+}
+
+/// Records that the compositor could not draw `marks`: each affected document moves to
+/// `State::RenderFailed` with `reason`, drops its marks so the compositor is not asked again, and
+/// wakes the windows so the viewer shows why.
+pub fn fail_marks(marks: &[u32], reason: &str) {
+    let mut woke = false;
+    REGISTRY.with_borrow_mut(|r| {
+        let mut ids: Vec<u64> = marks.iter().filter_map(|m| r.marks.get(m).map(|(id, _)| *id)).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        for id in ids {
+            if let Some(doc) = r.docs.get_mut(&id) && !matches!(doc.state, State::RenderFailed(_)) {
+                doc.state = State::RenderFailed(reason.to_owned());
+                doc.version += 1;
+                woke = true;
+            }
+            r.marks.retain(|_, (d, _)| *d != id);
+            r.by_target.retain(|(d, _), _| *d != id);
+        }
+    });
+    if woke {
+        redraw();
+    }
 }
 
 /// File `id`'s version, which grows with every change its views draw.

@@ -1,12 +1,13 @@
 //! `ui.officePages` and `ui.officeSheet`: the host's Office views (`crate::office`) for an
 //! `OfficeDocument` the plugin opened with `Office:OpenAsync`.
 
-use rune::El;
+use rune::{El, TextStyle, col, text};
 use rune_luau::{Data, HostNode, NodeArgs};
 
 use super::cx::{self, Dep};
+use super::sources::builtin_message;
 use crate::office;
-use crate::palette::pal;
+use crate::palette::{Pal, pal};
 
 pub fn all() -> Vec<HostNode> {
     vec![HostNode::new("officePages", pages), HostNode::new("officeSheet", sheet)]
@@ -15,6 +16,9 @@ pub fn all() -> Vec<HostNode> {
 fn pages(a: &mut NodeArgs) -> Result<El, String> {
     let id = document(a)?;
     cx::read(Dep::Office(id));
+    if let Some(reason) = office::registry::snapshot(id).and_then(|s| s.render_error) {
+        return Ok(render_failed(pal(a.dark()), &reason));
+    }
     let labels = a.data("labels").unwrap_or(Data::Nil);
     let field = |name: &str| match &labels {
         Data::Map(m) => m.get(name).and_then(|v| if let Data::String(s) = v { Some(s.clone()) } else { None }).unwrap_or_default(),
@@ -36,6 +40,9 @@ fn pages(a: &mut NodeArgs) -> Result<El, String> {
 fn sheet(a: &mut NodeArgs) -> Result<El, String> {
     let id = document(a)?;
     cx::read(Dep::Office(id));
+    if let Some(reason) = office::registry::snapshot(id).and_then(|s| s.render_error) {
+        return Ok(render_failed(pal(a.dark()), &reason));
+    }
     let labels = a.data("labels").unwrap_or(Data::Nil);
     let field = |name: &str| match &labels {
         Data::Map(m) => m.get(name).and_then(|v| if let Data::String(s) = v { Some(s.clone()) } else { None }).unwrap_or_default(),
@@ -43,6 +50,23 @@ fn sheet(a: &mut NodeArgs) -> Result<El, String> {
     };
     let labels = office::sheet::Labels { name: field("name"), too_large: field("copyTooLarge"), failed: field("copyFailed") };
     Ok(office::sheet::view(id, labels, pal(a.dark()).v2.border_focus))
+}
+
+fn render_failed(p: &Pal, reason: &str) -> El {
+    let lang = opencode_i18n::locale().id();
+    let title = builtin_message("microsoft-office", lang, "problem.openFailed").unwrap_or("This file could not be shown.");
+    col()
+        .key("office-render-failed")
+        .role("status")
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .padding(24.0)
+        .gap(8.0)
+        .center()
+        .fill(p.layer1)
+        .child(text(title).font(TextStyle::new(13.0, 440.0).lh(24.0)).color(p.muted))
+        .child(text(reason.to_owned()).font(TextStyle::new(12.0, 400.0).lh(18.0)).color(p.muted).wrap().wrap_anywhere().selectable(true).max_w(520.0))
 }
 
 /// The `document` prop's id.
