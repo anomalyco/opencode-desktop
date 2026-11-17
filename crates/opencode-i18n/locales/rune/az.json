@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} istifadə et",
   "rune.web.limits": "Önizləmə: daxili brauzer, diktə və yeniləmələr hələ brauzerdə işləmir. Açdığınız sessiyalar serverindir: göndərdiyiniz, adını dəyişdiyiniz və sildiyiniz hər şey ona çatır.",
   "rune.web.loading": "Yüklənir…",
+  "rune.web.needsJspi": "OpenCode istifadə etmək üçün brauzerinizi yeniləyin: Chrome və ya Edge 137, Firefox 153, Safari 27 və ya daha yenisi. iPhone və iPad cihazlarında hər brauzer üçün iOS 27 lazımdır.",
   "rune.web.signOut": "Çıxış",
   "rune.web.stay.body": "Bu brauzer {{server}} üçün şifrənizi bu cihazda saxlayır və buradan Əsas ekrana əlavə etdiyiniz tətbiq də onu alır, ona görə tətbiq soruşmadan açılır. Bu cihazı kilidi açıq istifadə edə bilən hər kəs onu istifadə edə bilər. Parametrlər › Server bölməsində Çıxış onu silir.",
   "rune.web.stay.no": "İndi yox",

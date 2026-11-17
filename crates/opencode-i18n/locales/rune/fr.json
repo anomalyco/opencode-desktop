@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Utiliser {{origin}}",
   "rune.web.limits": "Un aperçu : le navigateur intégré, la dictée et les mises à jour ne fonctionnent pas encore dans le navigateur. Les sessions que vous ouvrez sont celles du serveur : ce que vous envoyez, renommez et supprimez l'atteint.",
   "rune.web.loading": "Chargement…",
+  "rune.web.needsJspi": "Mettez à jour votre navigateur pour utiliser OpenCode : Chrome ou Edge 137, Firefox 153, Safari 27 ou plus récent. Sur iPhone et iPad, chaque navigateur nécessite iOS 27.",
   "rune.web.signOut": "Se déconnecter",
   "rune.web.stay.body": "Ce navigateur garde votre mot de passe pour {{server}} sur cet appareil, et une app d'écran d'accueil ajoutée d'ici le reçoit aussi : elle s'ouvre sans le demander. Toute personne pouvant utiliser cet appareil déverrouillé peut s'en servir. Se déconnecter, dans Réglages › Serveur, le supprime.",
   "rune.web.stay.no": "Pas maintenant",

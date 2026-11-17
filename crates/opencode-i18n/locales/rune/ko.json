@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} 사용",
   "rune.web.limits": "미리 보기: 내장 브라우저, 받아쓰기, 업데이트는 아직 브라우저에서 작동하지 않습니다. 여는 세션은 서버의 세션이므로 보내기, 이름 변경, 삭제가 서버에 반영됩니다.",
   "rune.web.loading": "로딩 중…",
+  "rune.web.needsJspi": "OpenCode를 사용하려면 브라우저를 업데이트하세요: Chrome 또는 Edge 137, Firefox 153, Safari 27 이상. iPhone과 iPad에서는 모든 브라우저에 iOS 27이 필요합니다.",
   "rune.web.signOut": "로그아웃",
   "rune.web.stay.body": "이 브라우저가 이 기기에 {{server}}의 비밀번호를 보관하며, 여기서 홈 화면에 추가한 앱도 이를 받으므로 앱을 열 때 비밀번호를 묻지 않습니다. 잠금 해제된 이 기기를 사용할 수 있는 사람은 누구나 사용할 수 있습니다. 설정 › 서버에서 로그아웃하면 삭제됩니다.",
   "rune.web.stay.no": "나중에",

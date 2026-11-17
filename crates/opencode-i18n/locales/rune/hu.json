@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} használata",
   "rune.web.limits": "Előzetes verzió: a beépített böngésző, a diktálás és a frissítések még nem működnek a böngészőben. A megnyitott munkamenetek a kiszolgálóéi: amit küld, átnevez és töröl, az eljut hozzá.",
   "rune.web.loading": "Betöltés…",
+  "rune.web.needsJspi": "Frissítse a böngészőjét az OpenCode használatához: Chrome vagy Edge 137, Firefox 153, Safari 27 vagy újabb. iPhone és iPad készüléken minden böngészőhöz iOS 27 szükséges.",
   "rune.web.signOut": "Kijelentkezés",
   "rune.web.stay.body": "Ez a böngésző ezen az eszközön tárolja a(z) {{server}} jelszavát, és az innen a Főképernyőhöz adott alkalmazás is megkapja, így kérdés nélkül nyílik meg. Bárki, aki feloldva használhatja az eszközt, használhatja. A Kijelentkezés a Beállítások › Kiszolgáló alatt eltávolítja.",
   "rune.web.stay.no": "Most nem",

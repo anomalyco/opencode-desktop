@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Brug {{origin}}",
   "rune.web.limits": "En forhåndsvisning: den indbyggede browser, diktering og opdateringer virker ikke i browseren endnu. Sessioner, du åbner, er serverens egne: det, du sender, omdøber og sletter, når frem til den.",
   "rune.web.loading": "Indlæser…",
+  "rune.web.needsJspi": "Opdater din browser for at bruge OpenCode: Chrome eller Edge 137, Firefox 153, Safari 27 eller nyere. På iPhone og iPad kræver alle browsere iOS 27.",
   "rune.web.signOut": "Log ud",
   "rune.web.stay.body": "Denne browser gemmer din adgangskode til {{server}} på denne enhed, og en hjemmeskærmsapp, du tilføjer herfra, får den også, så appen åbner uden at spørge. Alle, der kan bruge enheden ulåst, kan bruge den. Log ud under Indstillinger › Server fjerner den.",
   "rune.web.stay.no": "Ikke nu",

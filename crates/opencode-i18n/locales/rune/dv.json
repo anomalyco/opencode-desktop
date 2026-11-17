@@ -137,6 +137,7 @@
   "rune.web.connect.server": "ސަރވަރ އެޑްރެސް",
   "rune.web.loading": "ލޯޑިންގ…",
   "rune.web.loadingMb": "ލޯޑިންގ… {{loaded}} MB",
+  "rune.web.needsJspi": "Update your browser to use OpenCode: Chrome or Edge 137, Firefox 153, Safari 27 or newer. On iPhone and iPad every browser needs iOS 27.",
   "session.markRead": "ކިޔެވިފައިވާ ގޮތުގައި ފާހަގަ ކުރޭ",
   "session.markUnread": "ނުކިޔާ ގޮތުގައި ފާހަގަ ކުރޭ"
 }

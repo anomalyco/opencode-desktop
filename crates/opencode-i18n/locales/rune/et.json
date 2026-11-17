@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Kasuta {{origin}}",
   "rune.web.limits": "Eelvaade: sisseehitatud brauser, dikteerimine ja uuendused ei tööta brauseris veel. Sinu avatud seansid on serveri omad: see, mida saadad, ümber nimetad ja kustutad, jõuab sinna.",
   "rune.web.loading": "Laadimine…",
+  "rune.web.needsJspi": "OpenCode'i kasutamiseks uuendage oma brauserit: Chrome või Edge 137, Firefox 153, Safari 27 või uuem. iPhone ja iPad seadmetes vajab iga brauser iOS 27.",
   "rune.web.signOut": "Logi välja",
   "rune.web.stay.body": "See brauser hoiab sinu {{server}} parooli selles seadmes ja siit avakuvale lisatud rakendus saab selle samuti, nii et rakendus avaneb küsimata. Igaüks, kes saab seda seadet lukustamata kasutada, saab seda kasutada. Väljalogimine menüüs Seaded › Server eemaldab selle.",
   "rune.web.stay.no": "Mitte praegu",

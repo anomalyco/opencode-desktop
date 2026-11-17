@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Përdor {{origin}}",
   "rune.web.limits": "Një parapamje: shfletuesi i integruar, diktimi dhe përditësimet ende nuk punojnë në shfletues. Seancat që hapni janë të serverit: çfarë dërgoni, riemërtoni dhe fshini arrin tek ai.",
   "rune.web.loading": "Po ngarkohet…",
+  "rune.web.needsJspi": "Përditësoni shfletuesin për të përdorur OpenCode: Chrome ose Edge 137, Firefox 153, Safari 27 ose më i ri. Në iPhone dhe iPad çdo shfletues kërkon iOS 27.",
   "rune.web.signOut": "Dil",
   "rune.web.stay.body": "Ky shfletues ruan fjalëkalimin tuaj për {{server}} në këtë pajisje, dhe një aplikacion i ekranit bazë që shtoni nga këtu e merr gjithashtu, kështu që hapet pa pyetur. Kushdo që mund ta përdorë pajisjen të shkyçur mund ta përdorë. Dalja, te Cilësimet › Serveri, e heq.",
   "rune.web.stay.no": "Jo tani",

@@ -101,6 +101,7 @@
   "rune.web.connect.password": "ཆོག་ཡིག་ (གདམ་ཁ་ཅན།)",
   "rune.web.connect.server": "སར་བར་ཁ་བྱང་།",
   "rune.web.loading": "མངོན་གསལ་འབད་དོ།…",
+  "rune.web.needsJspi": "Update your browser to use OpenCode: Chrome or Edge 137, Firefox 153, Safari 27 or newer. On iPhone and iPad every browser needs iOS 27.",
   "session.markRead": "ལྷག་ཚར་བ་སྦེ་རྟགས་བཀལ།",
   "session.markUnread": "མ་ལྷག་པ་སྦེ་རྟགས་བཀལ།"
 }

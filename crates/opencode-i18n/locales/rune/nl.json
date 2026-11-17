@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} gebruiken",
   "rune.web.limits": "Een preview: de ingebouwde browser, dicteren en updates werken nog niet in de browser. Sessies die je opent zijn van de server: wat je verstuurt, hernoemt en verwijdert, komt daar aan.",
   "rune.web.loading": "Laden…",
+  "rune.web.needsJspi": "Werk je browser bij om OpenCode te gebruiken: Chrome of Edge 137, Firefox 153, Safari 27 of nieuwer. Op iPhone en iPad heeft elke browser iOS 27 nodig.",
   "rune.web.signOut": "Uitloggen",
   "rune.web.stay.body": "Deze browser bewaart je wachtwoord voor {{server}} op dit apparaat, en een beginscherm-app die je hiervandaan toevoegt krijgt het ook, zodat die opent zonder te vragen. Iedereen die dit apparaat ontgrendeld kan gebruiken, kan het gebruiken. Uitloggen, in Instellingen › Server, verwijdert het.",
   "rune.web.stay.no": "Niet nu",

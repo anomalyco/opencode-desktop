@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Dùng {{origin}}",
   "rune.web.limits": "Bản xem trước: trình duyệt tích hợp, đọc chính tả và cập nhật chưa hoạt động trong trình duyệt. Các phiên bạn mở thuộc về máy chủ: những gì bạn gửi, đổi tên và xóa đều đến máy chủ.",
   "rune.web.loading": "Đang tải…",
+  "rune.web.needsJspi": "Cập nhật trình duyệt để dùng OpenCode: Chrome hoặc Edge 137, Firefox 153, Safari 27 trở lên. Trên iPhone và iPad, mọi trình duyệt đều cần iOS 27.",
   "rune.web.signOut": "Đăng xuất",
   "rune.web.stay.body": "Trình duyệt này lưu mật khẩu của bạn cho {{server}} trên thiết bị này, và ứng dụng Màn hình chính bạn thêm từ đây cũng nhận được, nên ứng dụng mở mà không hỏi. Bất kỳ ai dùng được thiết bị này khi đã mở khóa đều dùng được nó. Đăng xuất, trong Cài đặt › Máy chủ, sẽ xóa nó.",
   "rune.web.stay.no": "Để sau",

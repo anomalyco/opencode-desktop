@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} を使う",
   "rune.web.limits": "プレビュー版: 内蔵ブラウザ、音声入力、アップデートはまだブラウザでは動作しません。開いたセッションはサーバーのものです。送信、名前の変更、削除はサーバーに反映されます。",
   "rune.web.loading": "読み込み中…",
+  "rune.web.needsJspi": "OpenCode を使うにはブラウザーを更新してください: Chrome または Edge 137、Firefox 153、Safari 27 以降。iPhone と iPad ではどのブラウザーにも iOS 27 が必要です。",
   "rune.web.signOut": "サインアウト",
   "rune.web.stay.body": "このブラウザは {{server}} のパスワードをこのデバイスに保存します。ここからホーム画面に追加したアプリにも渡されるため、アプリは確認なしで開きます。ロック解除されたこのデバイスを使える人は誰でも利用できます。設定 › サーバーのサインアウトで削除されます。",
   "rune.web.stay.no": "今はしない",

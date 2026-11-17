@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Folosește {{origin}}",
   "rune.web.limits": "O previzualizare: browserul încorporat, dictarea și actualizările încă nu funcționează în browser. Sesiunile pe care le deschizi sunt ale serverului: ce trimiți, redenumești și ștergi ajunge la el.",
   "rune.web.loading": "Se încarcă…",
+  "rune.web.needsJspi": "Actualizează browserul pentru a folosi OpenCode: Chrome sau Edge 137, Firefox 153, Safari 27 sau mai nou. Pe iPhone și iPad, fiecare browser necesită iOS 27.",
   "rune.web.signOut": "Deconectează-te",
   "rune.web.stay.body": "Acest browser păstrează parola ta pentru {{server}} pe acest dispozitiv, iar o aplicație de pe ecranul principal adăugată de aici o primește și ea, așa că se deschide fără să întrebe. Oricine poate folosi dispozitivul deblocat o poate folosi. Deconectarea, din Setări › Server, o elimină.",
   "rune.web.stay.no": "Nu acum",

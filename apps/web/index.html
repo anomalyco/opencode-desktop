@@ -109,6 +109,9 @@
   }
   const messagesReady = (async () => {
     const id = localeId();
+    const meta = (PAGE.locales ?? []).find(([k]) => k === id);
+    document.documentElement.lang = meta?.[1] ?? id;
+    document.documentElement.dir = meta?.[2] ? 'rtl' : 'ltr';
     if (id !== 'en') {
       try {
         const response = await fetch(`i18n/${id}.json`);

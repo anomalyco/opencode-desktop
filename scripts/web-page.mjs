@@ -29,7 +29,7 @@ const manifest = JSON.parse(readFileSync(join(locales, "locales.json"), "utf8"))
 const page = {
   build,
   shared: SHARED,
-  locales: manifest.locales.map((l) => [l.id, l.tag]),
+  locales: manifest.locales.map((l) => (l.rtl ? [l.id, l.tag, 1] : [l.id, l.tag])),
   en: english,
 }
 // `</` can't end the script element early: JSON never needs it raw.

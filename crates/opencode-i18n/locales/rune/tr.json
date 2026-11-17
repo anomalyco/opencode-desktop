@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} kullan",
   "rune.web.limits": "Önizleme: yerleşik tarayıcı, dikte ve güncellemeler henüz tarayıcıda çalışmıyor. Açtığınız oturumlar sunucunundur: gönderdiğiniz, yeniden adlandırdığınız ve sildiğiniz her şey ona ulaşır.",
   "rune.web.loading": "Yükleniyor…",
+  "rune.web.needsJspi": "OpenCode'u kullanmak için tarayıcınızı güncelleyin: Chrome veya Edge 137, Firefox 153, Safari 27 veya daha yenisi. iPhone ve iPad'de her tarayıcı iOS 27 gerektirir.",
   "rune.web.signOut": "Oturumu kapat",
   "rune.web.stay.body": "Bu tarayıcı {{server}} parolanızı bu cihazda saklar ve buradan Ana Ekran'a eklediğiniz uygulama da onu alır; böylece uygulama sormadan açılır. Bu cihazı kilidi açıkken kullanabilen herkes onu kullanabilir. Ayarlar › Sunucu'daki Oturumu kapat onu kaldırır.",
   "rune.web.stay.no": "Şimdi değil",

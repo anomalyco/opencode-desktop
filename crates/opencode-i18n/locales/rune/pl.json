@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Użyj {{origin}}",
   "rune.web.limits": "Wersja zapoznawcza: wbudowana przeglądarka, dyktowanie i aktualizacje nie działają jeszcze w przeglądarce. Otwierane sesje należą do serwera: to, co wysyłasz, zmieniasz i usuwasz, trafia do niego.",
   "rune.web.loading": "Ładowanie…",
+  "rune.web.needsJspi": "Zaktualizuj przeglądarkę, aby korzystać z OpenCode: Chrome lub Edge 137, Firefox 153, Safari 27 lub nowsza. Na urządzeniach iPhone i iPad każda przeglądarka wymaga systemu iOS 27.",
   "rune.web.signOut": "Wyloguj",
   "rune.web.stay.body": "Ta przeglądarka przechowuje Twoje hasło do {{server}} na tym urządzeniu, a aplikacja dodana stąd do ekranu początkowego też je dostaje, więc otwiera się bez pytania. Każdy, kto może używać odblokowanego urządzenia, może z niego skorzystać. Wylogowanie w Ustawieniach › Serwer je usuwa.",
   "rune.web.stay.no": "Nie teraz",

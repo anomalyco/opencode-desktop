@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Bruk {{origin}}",
   "rune.web.limits": "En forhåndsvisning: den innebygde nettleseren, diktering og oppdateringer virker ikke i nettleseren ennå. Økter du åpner, er serverens egne: det du sender, gir nytt navn og sletter, når fram til den.",
   "rune.web.loading": "Laster…",
+  "rune.web.needsJspi": "Oppdater nettleseren din for å bruke OpenCode: Chrome eller Edge 137, Firefox 153, Safari 27 eller nyere. På iPhone og iPad krever alle nettlesere iOS 27.",
   "rune.web.signOut": "Logg av",
   "rune.web.stay.body": "Denne nettleseren lagrer passordet ditt for {{server}} på denne enheten, og en Hjem-skjerm-app du legger til herfra, får det også, så appen åpnes uten å spørre. Alle som kan bruke enheten ulåst, kan bruke det. Logg av under Innstillinger › Server fjerner det.",
   "rune.web.stay.no": "Ikke nå",

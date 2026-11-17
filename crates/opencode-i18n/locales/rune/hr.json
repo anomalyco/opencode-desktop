@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Upotrijebi {{origin}}",
   "rune.web.limits": "Pretpregled: ugrađeni preglednik, diktiranje i ažuriranja još ne rade u pregledniku. Sesije koje otvorite pripadaju poslužitelju: ono što pošaljete, preimenujete i izbrišete stiže do njega.",
   "rune.web.loading": "Učitavanje…",
+  "rune.web.needsJspi": "Ažurirajte preglednik za korištenje aplikacije OpenCode: Chrome ili Edge 137, Firefox 153, Safari 27 ili noviji. Na iPhone i iPad uređajima svaki preglednik treba iOS 27.",
   "rune.web.signOut": "Odjava",
   "rune.web.stay.body": "Ovaj preglednik čuva vašu lozinku za {{server}} na ovom uređaju, a aplikacija početnog zaslona dodana odavde također je dobiva, pa se otvara bez pitanja. Svatko tko može koristiti otključan uređaj može je upotrijebiti. Odjava u Postavkama › Poslužitelj uklanja je.",
   "rune.web.stay.no": "Ne sada",

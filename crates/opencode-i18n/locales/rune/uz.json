@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "{{origin}} dan foydalanish",
   "rune.web.limits": "Oldindan ko'rish: o'rnatilgan brauzer, diktovka va yangilanishlar brauzerda hali ishlamaydi. Siz ochgan seanslar serverniki: yuborgan, nomini o'zgartirgan va o'chirgan narsalaringiz unga yetib boradi.",
   "rune.web.loading": "Yuklanmoqda…",
+  "rune.web.needsJspi": "OpenCode'dan foydalanish uchun brauzeringizni yangilang: Chrome yoki Edge 137, Firefox 153, Safari 27 yoki yangiroq. iPhone va iPad'da har bir brauzer uchun iOS 27 kerak.",
   "rune.web.signOut": "Chiqish",
   "rune.web.stay.body": "Bu brauzer {{server}} uchun parolingizni shu qurilmada saqlaydi, va bu yerdan Bosh ekranga qo'shgan ilovangiz ham uni oladi, shuning uchun ilova so'ramasdan ochiladi. Bu qurilmani qulfi ochiq holda ishlata oladigan har kim undan foydalana oladi. Sozlamalar › Server bo'limidagi Chiqish uni o'chiradi.",
   "rune.web.stay.no": "Hozir emas",

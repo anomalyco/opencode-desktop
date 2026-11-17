@@ -268,6 +268,7 @@
   "rune.web.connect.useOrigin": "Uporabi {{origin}}",
   "rune.web.limits": "Predogled: vgrajeni brskalnik, nareki in posodobitve v brskalniku še ne delujejo. Seje, ki jih odprete, so strežnikove: kar pošljete, preimenujete in izbrišete, pride do njega.",
   "rune.web.loading": "Nalaganje…",
+  "rune.web.needsJspi": "Posodobite brskalnik za uporabo OpenCode: Chrome ali Edge 137, Firefox 153, Safari 27 ali novejši. V napravah iPhone in iPad vsak brskalnik potrebuje iOS 27.",
   "rune.web.signOut": "Odjava",
   "rune.web.stay.body": "Ta brskalnik hrani vaše geslo za {{server}} na tej napravi, in aplikacija na začetnem zaslonu, dodana od tu, ga prav tako dobi, zato se odpre brez vprašanja. Kdorkoli lahko uporablja odklenjeno napravo, ga lahko uporabi. Odjava v Nastavitvah › Strežnik ga odstrani.",
   "rune.web.stay.no": "Ne zdaj",
