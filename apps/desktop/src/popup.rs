@@ -398,8 +398,12 @@ pub struct Popup {
     query: TextEdit,
     /// The element focused as a [`Menu::remembers_focus`] menu opened.
     remembered: Option<String>,
-    /// A menu button's mouse press in progress ([`menu_button`]).
+    /// A menu button's mouse press in progress ([`MenuButton`]).
     press: trigger::Press,
+    /// The offered rows of this window's drawn menu, deepest level last, with their window rects
+    /// as its view last built: a layout read only works while the view builds, and [`pick_at`]
+    /// runs from an input handler.
+    rows: std::cell::RefCell<Vec<(String, [f32; 4])>>,
 }
 
 impl Popup {
@@ -530,6 +534,7 @@ fn close(s: &mut App, picked: Option<&str>, reason: restore::Reason, tx: &mut Tx
         return;
     }
     let Some(shown) = s.popup.shown.take() else { return };
+    trigger::step(&mut s.popup.press, trigger::Event::MenuClosed);
     s.popup.query.focused = false;
     // A menu that never took focus leaves it where it is, but the keys still hand it to the trigger.
     let trigger = matches!(shown.opened.origin, restore::Origin::Trigger(_));
@@ -606,25 +611,20 @@ fn pick_at(s: &mut App, at: [f32; 2], tx: &mut Tx) -> bool {
         return false;
     }
     let inside = |r: &[f32; 4]| at[0] >= r[0] && at[0] <= r[0] + r[2] && at[1] >= r[1] && at[1] <= r[1] + r[3];
-    let hit = ROWS.with_borrow(|rows| rows.iter().rev().find(|(_, r)| inside(r)).map(|(id, _)| id.clone()));
+    let hit = s.popup.rows.borrow().iter().rev().find(|(_, r)| inside(r)).map(|(id, _)| id.clone());
     let Some(id) = hit else { return false };
     close(s, Some(&id), restore::Reason::Picked, tx);
     true
 }
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
-// The offered rows of the menu drawn last, deepest level last, with their window rects: a layout
-// read only works while the view builds, and pick_at runs from an input handler.
-thread_local! {
-    static ROWS: std::cell::RefCell<Vec<(String, [f32; 4])>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
 pub fn view(s: &App, p: &Pal) -> Vec<El> {
     let Some(shown) = &s.popup.shown else {
-        ROWS.with_borrow_mut(Vec::clear);
+        s.popup.rows.borrow_mut().clear();
         return vec![];
     };
-    ROWS.with_borrow_mut(|rows| {
+    {
+        let mut rows = s.popup.rows.borrow_mut();
         rows.clear();
         for level in 0..=shown.subs.len() {
             let Some(menu) = shown.menu_at(level) else { continue };
@@ -637,7 +637,7 @@ pub fn view(s: &App, p: &Pal) -> Vec<El> {
                 }
             }
         }
-    });
+    }
     // A press outside focuses the scroll region it lands on ("scrollable content"), as one
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.

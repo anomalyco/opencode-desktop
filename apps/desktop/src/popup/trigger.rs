@@ -16,6 +16,10 @@ pub enum Press {
     Idle,
     /// The button went down on `anchor`'s trigger; the press opened its menu or closed it.
     Down { anchor: String },
+    /// It came up over the trigger: the click it makes next is the same gesture. A click that
+    /// comes with no release before it (a screen reader's Invoke, a press whose release was lost
+    /// to a native menu or an unmounted trigger) is its own.
+    Released { anchor: String },
 }
 
 pub enum Event<'a> {
@@ -30,6 +34,8 @@ pub enum Event<'a> {
     Click { anchor: &'a str },
     /// Return or Space on the trigger: always the keyboard's own open.
     Key,
+    /// The menu closed: a release's click can't be pending past it.
+    MenuClosed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -47,23 +53,34 @@ pub fn step(state: &mut Press, event: Event<'_>) -> Effect {
             *state = Press::Down { anchor: anchor.to_owned() };
             if open { Effect::Close } else { Effect::Open }
         }
-        Event::Up { on_trigger: true } => Effect::Nothing,
+        Event::Up { on_trigger: true } => {
+            if let Press::Down { anchor } = std::mem::take(state) {
+                *state = Press::Released { anchor };
+            }
+            Effect::Nothing
+        }
         Event::Cancel => {
             *state = Press::Idle;
             Effect::Nothing
         }
         Event::Up { on_trigger: false } => match std::mem::take(state) {
             Press::Down { .. } => Effect::PickUnder,
-            Press::Idle => Effect::Nothing,
+            _ => Effect::Nothing,
         },
         Event::Click { anchor } => match std::mem::take(state) {
             // The press already opened or closed it: its click is the same gesture.
-            Press::Down { anchor: pressed } if pressed == anchor => Effect::Nothing,
+            Press::Released { anchor: pressed } if pressed == anchor => Effect::Nothing,
             _ => Effect::Open,
         },
         Event::Key => {
             *state = Press::Idle;
             Effect::Open
+        }
+        Event::MenuClosed => {
+            if matches!(state, Press::Released { .. }) {
+                *state = Press::Idle;
+            }
+            Effect::Nothing
         }
     }
 }
