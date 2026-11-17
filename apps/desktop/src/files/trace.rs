@@ -45,12 +45,36 @@ fn key(sid: &str, path: &str) -> String {
     format!("file-code-{sid}-{path}-scroll")
 }
 
-/// How far the code view under `key` is scrolled (its rows' top above the viewport's), and
-/// the viewport's height, as last laid out.
-fn scroll(key: &str) -> Option<[f32; 2]> {
-    let view = rune::memo::layout(key)?;
-    let rows = rune::memo::layout(&format!("{key}/rows"))?;
-    Some([view[1] - rows[1], view[3]])
+/// Where the code view under `key` is scrolled: the first and last line its virtual list built
+/// in its latest build (the lines on screen and the list's margin around them).
+fn scroll(key: &str) -> Option<[u32; 2]> {
+    VIEWS.with(|v| v.borrow().get(key).map(|&(_, first, last)| [first, last]))
+}
+
+/// Whether `--files-trace` records, so a view adds its calls only then.
+pub(crate) fn on() -> bool {
+    out().is_some()
+}
+
+/// A code view under `key` builds; the lines it builds next are this build's (`row`).
+pub(crate) fn view() {
+    if on() {
+        BUILD.with(|b| b.set(b.get() + 1));
+    }
+}
+
+/// The code view under `key` built line `n`.
+pub(crate) fn row(key: &str, n: u32) {
+    let build = BUILD.with(std::cell::Cell::get);
+    VIEWS.with(|v| {
+        let mut v = v.borrow_mut();
+        let e = v.entry(key.to_owned()).or_insert((build, n, n));
+        if e.0 != build {
+            *e = (build, n, n);
+        }
+        e.1 = e.1.min(n);
+        e.2 = e.2.max(n);
+    });
 }
 
 thread_local! {
@@ -60,6 +84,9 @@ thread_local! {
     static PENDING: RefCell<Vec<Pending>> = const { RefCell::new(Vec::new()) };
     /// Frames drawn since the oldest change still followed: (start, end, update ms, encode ms).
     static FRAMES: RefCell<Vec<(Instant, Instant, f64, f64)>> = const { RefCell::new(Vec::new()) };
+    /// Each code view's lines built in its latest build: (build, first, last).
+    static VIEWS: RefCell<HashMap<String, (u64, u32, u32)>> = RefCell::new(HashMap::new());
+    static BUILD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 fn us(origin: Instant, at: Instant) -> u64 {
@@ -107,6 +134,14 @@ pub(crate) fn landed(sid: &str, path: &str, attempt: u64, times: [Instant; 3], s
     PENDING.with(|p| p.borrow_mut().push(Pending { line, from: changed.unwrap_or(times[0]), key: key(sid, path) }));
 }
 
+/// A read landed and wasn't shown: `why` (a failed refresh kept the text, or a newer read
+/// follows).
+pub(crate) fn kept(sid: &str, path: &str, attempt: u64, why: &str) {
+    let Some((sender, origin)) = out() else { return };
+    CHANGED.with(|c| c.borrow_mut().remove(&(sid.to_owned(), path.to_owned())));
+    let _ = sender.send(json!({ "path": path, "attempt": attempt, "kept": why, "at_us": us(*origin, Instant::now()) }).to_string());
+}
+
 /// Each frame a window ran (`on_frame_encoded`): the first drawn one after a swap completes its
 /// line.
 pub(crate) fn frame(f: &rune::FrameEncoded) {
@@ -127,8 +162,8 @@ pub(crate) fn frame(f: &rune::FrameEncoded) {
         }
         fr.push((f.started().unwrap_or(f.at()), f.at(), update, encode));
     });
-    let done: Vec<Pending> = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
-    for mut pending in done {
+    let pending: Vec<Pending> = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    for mut pending in pending {
         let frames: Vec<Value> = FRAMES.with(|fr| {
             fr.borrow().iter().filter(|(_, end, _, _)| *end >= pending.from).map(|(start, end, u, e)| json!([us(*origin, *start), us(*origin, *end), u, e])).collect()
         });

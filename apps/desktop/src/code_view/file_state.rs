@@ -161,7 +161,12 @@ impl CodeDocState {
         self.failure = None;
         self.content = Content::Text { size: prepared.source.text().len() };
         self.trailing = prepared.source.text().ends_with('\n');
-        self.source = prepared.source;
+        // The old text, its folded copy and matches are let go on a worker: freeing a big
+        // file's is itself proportional to its size.
+        let old_source = std::mem::replace(&mut self.source, prepared.source);
+        let old_slab = std::mem::replace(&mut self.slab, Slab::Absent);
+        let old_matches = (std::mem::take(&mut self.matches), std::mem::take(&mut self.by_line_matches));
+        let _ = rune::task::spawn("file-text-drop", move || drop((old_source, old_slab, old_matches)));
         self.digits = (self.line_count().max(1).ilog10() + 1).max(3);
         self.cursor = self.cursor.min(self.lines().max(1));
         self.chunks.borrow_mut().clear();
@@ -173,21 +178,19 @@ impl CodeDocState {
                 self.slab = Slab::Ready(find.slab);
                 if same {
                     self.matches = find.matches;
-                    self.rebuild_line_match_index();
+                    self.by_line_matches = find.by_line;
                 } else {
                     // The query changed during the read: found again as a keystroke finds.
                     self.recompute_matches();
                 }
             }
             _ => {
-                self.slab = Slab::Absent;
                 self.prepare_slab();
                 self.recompute_matches();
             }
         }
         self.bump_keys();
     }
-
     /// What `refresh` needs for Find: the query its matches are for, when Find is open.
     pub fn find_query(&self) -> Option<String> {
         self.find_open().then(|| self.find.query().to_owned())
@@ -645,6 +648,8 @@ struct PreparedFind {
     query: String,
     slab: opencode_search::SlabFind,
     matches: Vec<(u32, Range<usize>)>,
+    /// The matches by line, the first one lit (`CodeDocState::by_line_matches`).
+    by_line: HashMap<u32, Vec<(Range<usize>, bool)>>,
 }
 
 impl Prepared {
@@ -657,7 +662,11 @@ impl Prepared {
             if !query.is_empty() {
                 slab.find(&query, |m| matches.push((m.row as u32 + 1, m.bytes)));
             }
-            PreparedFind { query, slab, matches }
+            let mut by_line: HashMap<u32, Vec<(Range<usize>, bool)>> = HashMap::new();
+            for (i, (line, range)) in matches.iter().enumerate() {
+                by_line.entry(*line).or_default().push((range.clone(), i == 0));
+            }
+            PreparedFind { query, slab, matches, by_line }
         });
         Prepared { source, find }
     }

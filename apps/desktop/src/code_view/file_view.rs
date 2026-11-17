@@ -54,6 +54,7 @@ impl<S: 'static> CodeViewer<S> {
 
         let root_key = self.key.clone();
         let scroll_key = format!("{root_key}-scroll");
+        crate::files::trace::view();
 
         if !st.ready() {
             return col()
@@ -194,6 +195,9 @@ impl<S: 'static> Inner<S> {
     fn row(&self, s: &S, i: usize) -> El {
         let st = (self.v.get)(s);
         let n = (i + 1) as u32;
+        if crate::files::trace::on() {
+            crate::files::trace::row(&format!("{}-scroll", self.v.key), n);
+        }
         // A commented line shows as selected (`[data-comment-selected]`, session-ui
         // `pierre/index.ts:180-196`).
         // Rows build as they lay out, from the state then: the comments are read here.

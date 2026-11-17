@@ -457,6 +457,7 @@ fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
         if again.is_none() {
             s.files.reads.outdate(&sid, &path);
         }
+        trace::kept(&sid, &path, landed.attempt, if again.is_some() { "a newer read follows" } else { "the refresh failed; the text stays, stale" });
         return false;
     }
     tx.instant();
