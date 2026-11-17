@@ -36,7 +36,10 @@ pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
     if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
         return false;
     }
-    if crate::shortcuts::action(ev).is_some() {
+    if matches!(
+        crate::shortcuts::action(ev),
+        Some(a) if !matches!(a, crate::shortcuts::Action::ZoomIn | crate::shortcuts::Action::ZoomOut | crate::shortcuts::Action::ZoomReset)
+    ) {
         return true;
     }
     if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {
@@ -73,7 +76,7 @@ impl App {
     /// Opens browser tab `id`'s page in the default browser.
     pub fn open_browser_tab_externally(&mut self, id: u64, tx: &mut Tx) {
         if let Some(url) = self.browser_tab_external_url(id) {
-            let _ = tx.open_url(&url);
+            crate::open_in::open_external(tx, &url);
         }
     }
 

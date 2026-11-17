@@ -8,6 +8,23 @@ use rune::{Key, KeyEvent, Keybind};
 static TAB_KEYS: LazyLock<Keybind> =
     LazyLock::new(|| Keybind::new("alt+up, alt+down, shift+alt+up, shift+alt+down, ctrl+tab, ctrl+shift+tab"));
 
+static ZOOM_IN_KEYS: LazyLock<Keybind> = LazyLock::new(|| Keybind::new("mod+=, mod+plus, mod+shift+=, mod+shift+plus"));
+static ZOOM_OUT_KEYS: LazyLock<Keybind> = LazyLock::new(|| Keybind::new("mod+-, mod+shift+-, mod+_"));
+static ZOOM_RESET_KEYS: LazyLock<Keybind> = LazyLock::new(|| Keybind::new("mod+0"));
+
+/// Page zoom direction requested by `ev` (`packages/gui-plugins/src/browser/chromium.ts:124-130`).
+pub(crate) fn page_zoom_dir(ev: &KeyEvent) -> Option<i32> {
+    if ZOOM_IN_KEYS.matches(ev) {
+        Some(1)
+    } else if ZOOM_OUT_KEYS.matches(ev) {
+        Some(-1)
+    } else if ZOOM_RESET_KEYS.matches(ev) {
+        Some(0)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn is_shell_shortcut(ev: &KeyEvent) -> bool {
     if TAB_KEYS.matches(ev) {
         return true;
@@ -15,7 +32,7 @@ pub(crate) fn is_shell_shortcut(ev: &KeyEvent) -> bool {
     match ev.key {
         Key::Command(c) => matches!(
             c.to_ascii_lowercase(),
-            'k' | 'l' | 't' | 'n' | 'w' | 'b' | ',' | '[' | ']' | '1'..='9' | '=' | '+' | '-' | '_' | '0'
+            'k' | 'l' | 't' | 'n' | 'w' | 'b' | ',' | '[' | ']' | '1'..='9'
         ),
         _ => false,
     }

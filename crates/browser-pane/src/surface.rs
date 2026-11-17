@@ -137,6 +137,11 @@ impl BrowserHost {
                 }
             })
             .on_wheel(move |s: &mut S, w: WheelEvent, _tx| {
+                let zoom_mod = if cfg!(target_os = "macos") { w.mods.cmd && !w.mods.ctrl } else { w.mods.ctrl && !w.mods.cmd };
+                if zoom_mod && !w.mods.alt && w.dy.abs() > 0.0 {
+                    access(s).step_zoom(tab_id, if w.dy > 0.0 { 1 } else { -1 });
+                    return true;
+                }
                 access(s).send(HostMsg::Wheel {
                     tab_id,
                     x: w.x * z,
@@ -147,14 +152,15 @@ impl BrowserHost {
                 });
                 true
             })
-            // Off macOS a pinch or Ctrl + wheel reaches Rune as a pinch; the page gets it back as
-            // the Ctrl + wheel it was (Rune's -dy / 200), so the window's own pinch zoom leaves it.
+            // Off macOS a pinch or Ctrl + wheel reaches Rune as a pinch; step the page's zoom
+            // presets (`chromium.ts:275` `zoom-changed`), leaving the window's own pinch zoom alone.
             .on_magnify(move |s: &mut S, m: MagnifyEvent, _tx| {
                 if cfg!(target_os = "macos") {
                     return false;
                 }
-                let mods = rune::Mods { ctrl: true, ..rune::Mods::default() };
-                access(s).send(HostMsg::Wheel { tab_id, x: m.x * z, y: m.y * z, dx: 0.0, dy: -m.delta * 200.0, mods: pack_mods(mods) });
+                if m.delta.abs() > 0.0 {
+                    access(s).step_zoom(tab_id, if m.delta > 0.0 { 1 } else { -1 });
+                }
                 true
             })
             .on_key(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, true))

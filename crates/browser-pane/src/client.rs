@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::address::resolve_address;
 use crate::frame::{self, TabSurface};
 use crate::installer::EngineStatus;
-use crate::keys::{is_shell_shortcut, named_key_str};
+use crate::keys::{is_shell_shortcut, named_key_str, page_zoom_dir};
 #[cfg(all(feature = "engine", target_os = "macos"))]
 use crate::mach_pipe::MachReceiver;
 use crate::site_zoom::{SiteZoom, site_of};
@@ -537,18 +537,32 @@ impl BrowserHost {
     }
 
     pub fn step_zoom(&mut self, tab_id: u64, dir: i32) {
+        // Chromium's 17 zoom presets (`packages/gui-plugins/src/browser/chromium.ts:118, 144-150`).
+        const STEPS: [f64; 17] = [
+            0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0,
+        ];
         let next = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            t.zoom = if dir == 0 {
+            let cur = t.zoom;
+            let z = if dir == 0 {
                 1.0
+            } else if dir > 0 {
+                STEPS.into_iter().find(|&s| s > cur + 0.001).unwrap_or(cur)
             } else {
-                ((t.zoom * 100.0).round() as i32 + dir.signum() * 10).clamp(25, 500) as f64 / 100.0
+                STEPS.into_iter().rev().find(|&s| s < cur - 0.001).unwrap_or(cur)
             };
+            if (z - cur).abs() < 0.0005 {
+                return;
+            }
+            t.zoom = z;
             self.site_zoom.set(&t.url, t.zoom);
             t.zoom
         } else {
             return;
         };
         self.send(HostMsg::SetZoom { tab_id, factor: next });
+        if let Some(w) = &self.waker {
+            w();
+        }
     }
 
     pub fn toggle_inspect(&mut self, tab_id: u64) {
@@ -902,9 +916,15 @@ impl BrowserHost {
         }
     }
 
-    pub(crate) fn forward_key(&self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
+    pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;
+        }
+        if let Some(dir) = page_zoom_dir(ev) {
+            if down {
+                self.step_zoom(tab_id, dir);
+            }
+            return true;
         }
         if down && let Key::Command(c) = ev.key {
             let cmd = match c {
