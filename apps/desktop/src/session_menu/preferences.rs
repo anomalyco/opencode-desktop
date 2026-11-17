@@ -121,6 +121,15 @@ pub(crate) fn muted(server: &ServerKey, id: &str) -> bool {
     PREFS.with_borrow(|state| state.has(Kind::Muted, &key(server.as_str(), id)))
 }
 
+/// A fixture can start before persistent storage is hydrated. Seed its in-memory
+/// preference through the normal transitions, without writing to the user's store.
+pub(crate) fn scene_muted(server: &ServerKey, id: &str) {
+    PREFS.with_borrow_mut(|state| {
+        state.step(Event::Hydrate(Prefs::default()));
+        state.step(Event::Set(Kind::Muted, &key(server.as_str(), id), true));
+    });
+}
+
 /// Notifications skip a session muted itself or through its root (`host-apis.tsx`'s notify,
 /// `notification.tsx`'s requests).
 pub(crate) fn silenced(s: &App, server: &ServerKey, id: &str) -> bool {

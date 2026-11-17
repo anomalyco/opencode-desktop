@@ -6,7 +6,6 @@
 use std::rc::Rc;
 
 use rune_kit::ScrollBar;
-use rune_kit::shell::TabOrientation;
 
 use super::*;
 use opencode_i18n::t;
@@ -35,7 +34,9 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
     // The projects, the divider and the side tabs scroll together (`flex flex-col gap-3` in one
     // `ScrollView`, `sidebar-organized.tsx:118-158`).
     let mut content = col().key("organize-content").w_full().gap(12.0).child(section);
-    if !s.tabs.is_empty() {
+    let (pins, recent) = sidebar::pins::section(s, p);
+    content = content.children(pins);
+    if !recent.is_empty() {
         let mut tabs = col().key("organize-tabs-section").w_full().gap(12.0);
         if !st.organize_collapsed {
             tabs = tabs.child(el().key("organize-divider").mx(8.0).h(1.0).fill(p.border_muted));
@@ -43,8 +44,9 @@ pub(super) fn organized(s: &App, p: &Pal) -> El {
         // Desktop's strip here is as tall as its tabs (its section has no height of its own), so
         // this one list scrolls them. The strip scrolls itself and, with no height given, lays
         // out at none: it takes its tabs' height (`tabs-list`, as of their last layout).
-        let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(0.0);
-        content = content.child(tabs.child(col().key("organize-tabs").w_full().h(tabs_h).child(tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None))));
+        let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(recent.len() as f32 * 30.0);
+        content = content.child(tabs.child(sidebar::rows::section_title(p, "organize-recent-title", t!("sidebar.recent.section.recent")))
+            .child(col().key("organize-tabs").w_full().h(tabs_h).child(super::tab_strip::section_strip(s, p, "tabs", &recent, false))));
     }
     // Its thumb runs in a 12 pt track past the list's end edge, across the sidebar's end inset and
     // the gap to the panel (`inset-inline-end: calc(-1 * (3px + 8px))`), and the pointer anywhere
@@ -366,6 +368,7 @@ fn session(s: &App, p: &Pal, ses: &SessionInfo) -> El {
     let target = crate::session_menu::Target::on(crate::servers::runtime::active(s), &ses.id, crate::session_menu::Spot::Row);
     let mark = match s.tab_status(&ses.id) {
         Some(crate::TabStatus::Busy) => Some(activity_ring(p).key("ring")),
+        _ if crate::session_menu::preferences::muted(&target.server, &target.id) => Some(sidebar::pins::muted_mark(p)),
         Some(crate::TabStatus::Unread | crate::TabStatus::Failed) if !active => Some(el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.text)),
         _ => None,
     };

@@ -121,7 +121,9 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     // No server badge or dot on the tab itself: only its preview names the server
     // (`tab-nav.tsx:158-164`).
     let id = uid.clone();
-    let mut item = TabItem::new(uid, face.title).status(status(s, t)).marked(marked);
+    let mark = status(s, t);
+    let muted = !draft && s.project_navigation() && crate::session_menu::preferences::muted(&t.server, &t.id) && mark != Some(TabItemStatus::Busy);
+    let mut item = TabItem::new(uid, face.title).status(if muted { None } else { mark }).marked(marked);
     item = match (draft, hide_avatar) {
         (true, _) => item.icon(&DRAFT_PENCIL),
         // Its slot stays, empty (`[data-avatar="hidden"]`'s `visibility: hidden`, `tab-nav.css:466`).
@@ -136,7 +138,9 @@ fn item<'a>(s: &'a App, p: &Pal, t: &'a crate::tabs::Tab, uid: String, index: us
     let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
     let active = !draft && matches!(&*s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
+    let bell = muted.then(|| super::sidebar::pins::muted_mark(p));
     item.decorate(move |slot, _| {
+        let slot = if let Some(mark) = bell { super::sidebar::pins::marked_slot(slot, mark) } else { slot };
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
         // Down the side tabs, the preview card follows the pointer's height.

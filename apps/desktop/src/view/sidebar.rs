@@ -10,6 +10,7 @@ mod customized;
 mod menu;
 pub(crate) mod grouping;
 mod recent;
+pub(crate) mod pins;
 pub(super) mod rows;
 pub(crate) mod state;
 

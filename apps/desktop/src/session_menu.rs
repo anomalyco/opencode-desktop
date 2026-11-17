@@ -208,7 +208,14 @@ fn open_with(s: &mut App, t: Target, at: impl Into<PopupAnchor>, dialog: bool, t
     if s.menus.renaming().is_some_and(|r| r.spot == Spot::Row) {
         return;
     }
-    let lines = lines(s, &t);
+    let mut lines = lines(s, &t);
+    if s.project_navigation() && (dialog || t.spot == Spot::Tab) && !t.tab(s).is_some_and(crate::tabs::Tab::is_draft) {
+        let key = crate::view::sidebar::state::key(t.server.as_str(), &t.id);
+        let pinned = s.project_state.recent.pins.contains(&key);
+        let muted = preferences::muted(&t.server, &t.id);
+        lines.splice(0..0, [item("pin-toggle", if pinned { opencode_i18n::t!("sidebar.recent.unpin") } else { opencode_i18n::t!("sidebar.recent.pin") }, true),
+            item("mute-toggle", if muted { opencode_i18n::t!("sidebar.recent.unmute") } else { opencode_i18n::t!("sidebar.recent.mute") }, true), Line::Sep]);
+    }
     if lines.is_empty() {
         return;
     }
@@ -247,6 +254,12 @@ pub fn on_dialog(e: rune::El, t: Target) -> rune::El {
 /// Runs the menu item `id` on `t`.
 pub fn run(s: &mut App, t: &Target, id: &str, tx: &mut Tx) {
     match id {
+        "pin-toggle" => {
+            let key = crate::view::sidebar::state::key(t.server.as_str(), &t.id);
+            let recent = &mut s.project_state.recent;
+            if recent.pins.contains(&key) { recent.unpin(&key); } else { recent.pin(key); }
+        }
+        "mute-toggle" => preferences::update(s, preferences::Kind::Muted, &t.server, &t.id, !preferences::muted(&t.server, &t.id)),
         "rename" => s.begin_rename(t),
         "close" => {
             if let Some(uid) = t.tab(s).map(crate::tabs::Tab::uid) {
