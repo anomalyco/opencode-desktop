@@ -466,8 +466,62 @@ pub fn try_socket_path() -> Result<PathBuf, &'static str> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = create_private_dir(dirs.cache());
-        Ok(dirs.cache().join(name))
+        fit_socket(dirs.cache().join(name))
     }
+}
+
+/// The longest path a socket binds: `sun_path` holds 104 bytes on macOS and 108 on Windows, with
+/// the NUL. Past it the engine can't listen and ends while starting. (Linux keeps its path: the
+/// same limit applies there, but nothing has run this on Linux yet.)
+#[cfg(all(feature = "engine", not(target_os = "linux")))]
+const SOCKET_PATH_MAX: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
+
+/// `path`, or when it is too long for a socket (a long home folder or `RUNE_DIRS_ROOT`: the
+/// cache's own part of it is about 60 bytes on macOS), `s-<hash of path>.sock` in a folder only
+/// this user can open under the system's short per-user temporary folder. A path that fits stays
+/// where every app and engine before this looked; a long one never worked, so no running engine
+/// is lost. The hash keeps two apps, or one app with two homes, apart.
+#[cfg(all(feature = "engine", not(target_os = "linux")))]
+fn fit_socket(path: PathBuf) -> Result<PathBuf, &'static str> {
+    const ERR: &str = "Couldn't create the browser socket directory.";
+    if path.as_os_str().len() <= SOCKET_PATH_MAX {
+        return Ok(path);
+    }
+    let digest = Sha256::digest(path.as_os_str().as_encoded_bytes());
+    let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let dir = short_socket_dir();
+    create_private_dir(&dir).map_err(|_| ERR)?;
+    let short = dir.join(format!("s-{hash}.sock"));
+    if short.as_os_str().len() > SOCKET_PATH_MAX {
+        return Err(ERR);
+    }
+    Ok(short)
+}
+
+/// macOS: `TMPDIR` (the system's per-user `/var/folders/…/T`, private to the user and about 50
+/// bytes, unless it was moved), or when that is too long too, the folder the system names.
+#[cfg(all(feature = "engine", target_os = "macos"))]
+#[allow(unsafe_code)]
+fn short_socket_dir() -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    // The longest socket name in it: `/opencode-browser/s-<16 hex>.sock`.
+    const NAME: usize = 40;
+    let tmp = std::env::temp_dir();
+    if tmp.as_os_str().len() + NAME <= SOCKET_PATH_MAX {
+        return tmp.join("opencode-browser");
+    }
+    let mut buf = [0u8; 1024];
+    // SAFETY: confstr writes at most `buf.len()` bytes, NUL included, and returns the length the
+    // whole value needs (0 on failure).
+    let n = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len()) };
+    let base = if n > 1 && n <= buf.len() { PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..n - 1])) } else { tmp };
+    base.join("opencode-browser")
+}
+
+/// Windows: the user's own temporary folder.
+#[cfg(all(feature = "engine", windows))]
+fn short_socket_dir() -> PathBuf {
+    std::env::temp_dir().join("opencode-browser")
 }
 
 /// The engine chmods its socket's parent. On Linux, only pass an override in an already private
