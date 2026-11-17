@@ -143,12 +143,6 @@ pub fn build_commit() -> Option<&'static str> {
     option_env!("OPENCODE_RUNE_COMMIT").filter(|c| !c.is_empty())
 }
 
-/// The changes a local or beta build carries (`build.rs`, Desktop's `OPENCODE_BETA_NOTES`): JSON
-/// `{ sha, commits, notes }`. Other builds carry none.
-pub fn beta_notes() -> Option<&'static str> {
-    Some(include_str!(concat!(env!("OUT_DIR"), "/beta_notes.json"))).filter(|n| !n.is_empty())
-}
-
 /// Starts the update service, or joins this window to the one the first window started. Called
 /// after the first frame; the service's worker finds out whether this build updates
 /// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.

@@ -14,18 +14,15 @@ whatsnew.CHANGELOG_URL = "https://opencode.ai/changelog.json"
 
 export type Highlight = { title: string, description: string, media: { type: string, src: string, alt: string? }? }
 
-export type Content = { channel: "beta", notes: any } | { channel: "stable", highlights: { Highlight } }
+export type Content = { highlights: { Highlight } }
 
 export type Init = {
     version: string?,
-    commit: string?,
-    channel: "beta" | "stable",
     previousVersion: string?,
-    previousCommit: string?,
     enabled: boolean,
 }
 
-export type State = { status: "loading", version: string, commit: string?, previousVersion: string } | { status: "done" }
+export type State = { status: "loading", version: string } | { status: "done" }
 
 export type Event =
     { type: "loaded", content: Content? }
@@ -35,10 +32,10 @@ export type Event =
     | { type: "disposed" }
 
 export type Effect =
-    { type: "load", channel: "beta" | "stable", previousVersion: string, previousCommit: string?, version: string, timeout: number }
+    { type: "load", previousVersion: string, version: string, timeout: number }
     | { type: "abort-load" }
-    | { type: "mark-seen", version: string, commit: string? }
-    | { type: "open", content: Content, previousVersion: string }
+    | { type: "mark-seen", version: string }
+    | { type: "open", content: Content }
 
 local DONE: State = { status = "done" }
 
@@ -48,11 +45,11 @@ function whatsnew.init(input: Init): (State, { Effect })
         return DONE, {}
     end
     if not input.previousVersion or not input.enabled then
-        return DONE, { { type = "mark-seen", version = version, commit = input.commit } }
+        return DONE, { { type = "mark-seen", version = version } }
     end
     local previous = input.previousVersion :: string
-    return { status = "loading", version = version, commit = input.commit, previousVersion = previous },
-        { { type = "load", channel = input.channel, previousVersion = previous, previousCommit = input.previousCommit, version = version, timeout = whatsnew.TIMEOUT } }
+    return { status = "loading", version = version },
+        { { type = "load", previousVersion = previous, version = version, timeout = whatsnew.TIMEOUT } }
 end
 
 function whatsnew.transition(state: State, event: Event): (State, { Effect })
@@ -63,12 +60,12 @@ function whatsnew.transition(state: State, event: Event): (State, { Effect })
     if event.type == "load.failed" or event.type == "load.timed-out" or event.type == "disposed" then
         return DONE, { { type = "abort-load" } }
     end
-    local seen: { Effect } = { { type = "abort-load" }, { type = "mark-seen", version = state.version, commit = state.commit } }
+    local seen: { Effect } = { { type = "abort-load" }, { type = "mark-seen", version = state.version } }
     local content = if event.type == "loaded" then event.content else nil
-    if not content or (content.channel == "stable" and #content.highlights == 0) then
+    if not content or #content.highlights == 0 then
         return DONE, seen
     end
-    table.insert(seen, { type = "open", content = content, previousVersion = state.previousVersion })
+    table.insert(seen, { type = "open", content = content })
     return DONE, seen
 end
 

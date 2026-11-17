@@ -8,16 +8,14 @@
 -- the work (`Updater`); this window's own requests follow `machine.luau` (`window-machine.ts`).
 
 local plugin = require("@opencode/plugin")
-local ui = require("@opencode/ui")
 local machine = require("@self/machine")
 local notice = require("@self/notice")
 local action = require("@self/action")
-local notes = require("@self/notes")
 local whatsnew = require("@self/whatsnew")
 local view = require("@self/view")
 
 type ReleaseNotes = { enabled: boolean }
-type Seen = { version: string?, commit: string? }
+type Seen = { version: string? }
 type UpdateNotice = { version: string? }
 
 return plugin.defineWindow(function(ctx)
@@ -25,8 +23,6 @@ return plugin.defineWindow(function(ctx)
     local Updater = ctx:GetService("Updater")
     local Store = ctx:GetService("Store")
     local Toast = ctx:GetService("Toast")
-    local Layout = ctx:GetService("Layout")
-    local System = ctx:GetService("System")
     local Dialog = ctx:GetService("Dialog")
     local Contracts = ctx:GetService("Contracts")
     local App = ctx:GetService("App")
@@ -37,7 +33,6 @@ return plugin.defineWindow(function(ctx)
     local seen = Store:Value("seen", {} :: Seen) :: StoreValue<Seen>
     local updateNotice = Store:Value("updateNotice", {} :: UpdateNotice) :: StoreValue<UpdateNotice>
     local changed = ctx:CreateSignal()
-    local embedded = notes.embedded(App.BetaNotes)
 
     local windowState = machine.initial
     local dispatchWindow: (event: machine.Event) -> ()
@@ -225,60 +220,7 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Settings > What's new, in builds that carry their notes.
-    if embedded then
-        local notesOf = embedded :: notes.Embedded
-        ctx:AddSettingsPage({
-            id = "whats-new",
-            icon = "outline-list-changelog",
-            about = true,
-            title = I18n:T("beta.title"),
-            description = I18n:T("beta.page.description"),
-            entries = { { id = "whats-new", title = I18n:T("beta.title"), keywords = "changelog release notes beta" } },
-            render = function(v)
-                return v:Memo("whats-new", I18n:Locale().id, function()
-                    return view.page(I18n, v, notesOf, function(url)
-                        System:OpenExternal(url)
-                    end)
-                end)
-            end,
-            renderActions = function(v)
-                return ui.button({
-                    key = "settings-whats-new-history",
-                    text = I18n:T("beta.github"),
-                    variant = "ghost-muted",
-                    onPress = v:Handler(function()
-                        System:OpenExternal(notes.history(notesOf))
-                    end),
-                })
-            end,
-        })
-    end
-
     local highlightIndex = 1
-    ctx:AddDialog({
-        id = "beta",
-        size = "normal",
-        render = function(v, props)
-            local data = (props.data or {}) :: any
-            return v:Memo("beta-dialog", I18n:Locale().id, function()
-                return view.betaDialog(I18n, v, {
-                    notes = data.notes,
-                    previous = data.previous or "",
-                    open = function(url)
-                        System:OpenExternal(url)
-                    end,
-                    viewAll = function()
-                        Dialog:Close()
-                        Layout:OpenSettings("whats-new")
-                    end,
-                    done = function()
-                        Dialog:Close()
-                    end,
-                })
-            end)
-        end,
-    })
     ctx:AddDialog({
         id = "release",
         size = "large",
@@ -316,10 +258,7 @@ return plugin.defineWindow(function(ctx)
     local previous = seen:Get()
     local whatsState, startEffects = whatsnew.init({
         version = App.Version,
-        commit = App.Commit,
-        channel = if App.Channel == "beta" then "beta" else "stable",
         previousVersion = previous.version,
-        previousCommit = previous.commit,
         enabled = releaseNotes:Get().enabled ~= false,
     })
     local timer: thread? = nil
@@ -327,39 +266,28 @@ return plugin.defineWindow(function(ctx)
 
     local function runWhatsNew(effect: whatsnew.Effect)
         if effect.type == "mark-seen" then
-            local next: Seen = { version = effect.version, commit = effect.commit or seen:Get().commit }
-            seen:Set(next)
+            seen:Set({ version = effect.version })
         elseif effect.type == "abort-load" then
             if timer then
                 task.cancel(timer)
                 timer = nil
             end
         elseif effect.type == "open" then
-            local content = effect.content
-            if content.channel == "beta" then
-                Dialog:Open("beta", { notes = content.notes, previous = effect.previousVersion })
-            else
-                highlightIndex = 1
-                Dialog:Open("release", { highlights = content.highlights })
-            end
+            highlightIndex = 1
+            Dialog:Open("release", { highlights = effect.content.highlights })
         elseif effect.type == "load" then
             timer = task.delay(effect.timeout, function()
                 timer = nil
                 dispatchWhatsNew({ type = "load.timed-out" })
             end)
-            if effect.channel == "beta" then
-                local since = embedded and notes.since(embedded, effect.previousCommit)
-                task.defer(dispatchWhatsNew, { type = "loaded", content = if since then { channel = "beta", notes = since } else nil })
-            else
-                task.spawn(function()
-                    local res = Http:FetchAsync({ url = whatsnew.CHANGELOG_URL, headers = { Accept = "application/json" }, timeout = effect.timeout })
-                    if not res.ok then
-                        dispatchWhatsNew({ type = "load.failed" })
-                        return
-                    end
-                    dispatchWhatsNew({ type = "loaded", content = { channel = "stable", highlights = whatsnew.highlights(res.json, effect.version, effect.previousVersion) } })
-                end)
-            end
+            task.spawn(function()
+                local res = Http:FetchAsync({ url = whatsnew.CHANGELOG_URL, headers = { Accept = "application/json" }, timeout = effect.timeout })
+                if not res.ok then
+                    dispatchWhatsNew({ type = "load.failed" })
+                    return
+                end
+                dispatchWhatsNew({ type = "loaded", content = { highlights = whatsnew.highlights(res.json, effect.version, effect.previousVersion) } })
+            end)
         end
     end
 

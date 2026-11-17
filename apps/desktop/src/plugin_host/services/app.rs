@@ -25,9 +25,6 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
         t.raw_set("Version", crate::updater::build_version())?;
         t.raw_set("Channel", channel().as_str())?;
         t.raw_set("Commit", crate::updater::build_commit())?;
-        if let Some(notes) = crate::updater::beta_notes().and_then(|n| serde_json::from_str::<serde_json::Value>(n).ok()) {
-            t.raw_set("BetaNotes", super::json_to_lua(lua, &notes)?)?;
-        }
         t.raw_set("Platform", if cfg!(target_os = "windows") { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" })?;
         method(lua, t, "Locale", |_, ()| {
             cx::read(cx::Dep::Locale);
