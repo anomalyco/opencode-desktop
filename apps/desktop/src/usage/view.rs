@@ -37,13 +37,12 @@ pub fn layer(s: &App, p: &Pal, cx: &Cx<App>) -> Vec<El> {
 /// The dialog in a window `win`, while open.
 pub(super) fn dialog(s: &App, p: &Pal, win: [f32; 2]) -> Option<El> {
     let open = s.usage.open.as_ref()?;
-    let width = widgets::DialogSize::Normal.width(win[0]);
     let (body, footer) = match &open.load {
         Load::Ready(info) | Load::Refreshing { info, .. } => {
             let v = limits::view(info, open.model.as_ref(), open.credits);
             (content(s, p, &v), Some(footer(p, &v, &info.workspace.usage_url)))
         }
-        load => (fallback(p, load, width), None),
+        load => (fallback(p, load), None),
     };
     // `<Dialog fit>` (`usage/dialog.tsx`): the normal size, as tall as its content up to the
     // window less 32; past that its content scrolls with the bar hidden (`dialog-content`).
@@ -52,7 +51,7 @@ pub(super) fn dialog(s: &App, p: &Pal, win: [f32; 2]) -> Option<El> {
         .key("usage-dialog")
         .role("dialog")
         .label_static(t!("usage.title"))
-        .radius(6.0)
+        .radius(12.0)
         .fill(p.layer1)
         .elevate(p.overlay)
         .clip_soft(0.0)
@@ -80,13 +79,10 @@ fn header(p: &Pal) -> El {
 /// at least 120 tall, 16 in at the sides and foot. Signed out, the panel stretches to the row's
 /// height and keeps its lines' width, so a long line runs it past the row's insets, centred, as
 /// Chromium lays out the flex item.
-fn fallback(p: &Pal, load: &Load, width: f32) -> El {
+fn fallback(p: &Pal, load: &Load) -> El {
     if let Load::SignedOut = load {
         let (title, body) = (t!("usage.signedOut.title"), t!("usage.signedOut.body"));
-        let w = rune::text::measure(title, &[], LINE_MED, None).0.max(rune::text::measure(body, &[], LINE, None).0) + 32.0;
-        let panel = panel(p, 8.0).w(w).ml((width - 32.0 - w) / 2.0).self_stretch()
-            .child(item().child(text(title).font(LINE_MED).color(p.text)).child(text(body).font(LINE).color(p.muted)));
-        return row().key("usage-state").w_full().min_h(120.0).px(16.0).pb(16.0).child(panel);
+        return col().key("usage-state").w_full().px(12.0).pb(12.0).child(message(p, title, body));
     }
     let inner = match load {
         Load::Failed => col().gap(12.0).items_center()
@@ -98,6 +94,11 @@ fn fallback(p: &Pal, load: &Load, width: f32) -> El {
         _ => col().child(Loader::new().build(kit(p))),
     };
     row().key("usage-state").w_full().min_h(120.0).px(16.0).pb(16.0).center().child(inner)
+}
+
+fn message(p: &Pal, title: &str, body: &str) -> El {
+    panel(p, 8.0).child(col().w_full().px(16.0).gap(4.0)
+        .child(line(title, LINE_MED, p.text)).child(text(body.to_owned()).font(LINE.lh(20.0)).color(p.muted)))
 }
 
 fn content(s: &App, p: &Pal, v: &limits::View) -> El {
@@ -126,9 +127,7 @@ fn content(s: &App, p: &Pal, v: &limits::View) -> El {
         out = out.child(section(p, t!("usage.section.go"), None, false, panel));
     }
     let budgets = if v.budgets.is_empty() {
-        panel(p, 8.0).child(item()
-            .child(line(t!("usage.empty.title"), LINE_MED, p.text))
-            .child(line(&t!("usage.empty.body", workspace = workspace), LINE, p.muted)))
+        message(p, t!("usage.empty.title"), &t!("usage.empty.body", workspace = workspace))
     } else {
         let mut panel = panel(p, 16.0);
         for (k, r) in v.budgets.iter().enumerate() {
