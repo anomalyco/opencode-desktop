@@ -28,7 +28,7 @@ Application code only. This repo has no automated tests of any kind, and none ge
 
 - Keep `session-view`'s standalone example building: `cargo check -p session-view --examples`.
 - File size & folder shape: keep Rust files under 800 lines (1,500 hard cap, `scripts/file-size.sh`); keep prefix families in subfolders (`scripts/folder-shape.sh`).
-- Dialog sizes: every dialog takes a `session_view::dialog::DialogSize` preset (normal 480, large 880 × 600, x-large 1040 × 680; `widgets::sized` / `sized_modal` in the app), never its own width or height (`scripts/dialog-size.sh`).
+- Dialog sizes: every dialog takes a `session_view::dialog::DialogSize` preset (normal 480, large 720 × 600, x-large 880 × 680; `widgets::sized` / `sized_modal` in the app), never its own width or height (`scripts/dialog-size.sh`).
 - Hot reload & local install: `apps/desktop/scripts/dev.sh` (`apps/desktop/scripts/bundle.sh` / `scripts/mac-app`) and `apps/desktop/scripts/hot.sh` (`scripts/rune-hot`).
 - Keep personal paths (`/Users/<real-name>`), tailnet hostnames (`*.ts.net`, except `*.example.ts.net`), real session IDs, and credentials out of code, scripts, and commits.
 

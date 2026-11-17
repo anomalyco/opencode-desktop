@@ -1,9 +1,9 @@
 //! Desktop's three dialog sizes (`overlays/dialog/dialog.css`, `dialog.tsx`; anomalyco/opencode
-//! #63432). Every dialog takes one; none sets its own width or height (`scripts/dialog-size.sh`).
+//! #63432, #64206). Every dialog takes one; none sets its own width or height (`scripts/dialog-size.sh`).
 //!
 //! - `Normal`: 480 wide, 368 tall, for confirmations, sign-ins and small forms.
-//! - `Large`: 880 × 600, for palettes, pickers and lists.
-//! - `XLarge`: 1040 × 680, for long documents and settings-like panels.
+//! - `Large`: 720 × 600, for palettes, pickers and lists.
+//! - `XLarge`: 880 × 680, for long documents and settings-like panels.
 //!
 //! Each clamps to the window. A dialog that fits its content grows up to its size's height; a
 //! large one, or an anchored normal one, keeps its top edge where the full height would put it,
@@ -22,8 +22,8 @@ impl DialogSize {
     pub fn width(self, win_w: f32) -> f32 {
         let w = match self {
             DialogSize::Normal => 480.0,
-            DialogSize::Large => 880.0,
-            DialogSize::XLarge => 1040.0,
+            DialogSize::Large => 720.0,
+            DialogSize::XLarge => 880.0,
         };
         (win_w - 32.0).min(w).max(0.0)
     }
