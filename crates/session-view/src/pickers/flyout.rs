@@ -54,9 +54,16 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let pk = s.pickers();
     let flyout = pk.hover.flyout_model().filter(|_| pk.open() == Some(Kind::Model))?;
     let model = pk.models.iter().find(|m| m.key == flyout)?;
-    let lit = pk.hover.lit();
+    let keyed = pk.hover.option().map(|i| match i {
+        0 => "effort-default".to_owned(),
+        i => model.variants.get(i - 1).map_or_else(|| "effort-favorite".into(), |v| format!("effort-{v}")),
+    });
+    let lit = keyed.as_deref().or_else(|| pk.hover.lit());
     let now = s.model_effort(flyout).unwrap_or_default();
     let mut list = col().key("effort-options").w_full().py(MENU.inset);
+    if let Some((label, reached)) = s.model_budget(flyout) {
+        list = list.child(text(label).font(UI).color(if reached { p.v2.danger.fg } else { p.muted }).padding(8.0)).child(separator(p, "budget-rule"));
+    }
     // A model without efforts still lists Default, its only option.
     for effort in std::iter::once(String::new()).chain(model.variants.iter().cloned()) {
         let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };

@@ -15,9 +15,9 @@ use opencode_i18n::t;
 
 /// The search block (`search-list-search` in the compact palette, `dialog.css:156-166`): 6 above
 /// the 28-tall field, 17 below it, with the hairline 8 from the block's foot.
-const HEAD_H: f32 = 6.0 + 28.0 + 17.0;
+const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
 /// A compact row (`search-list-row[data-size=compact]`) and a section header, both 28 tall.
-const ROW_H: f32 = 28.0;
+const ROW_H: f32 = 32.0;
 /// A row whose description goes under its title in a window 640 pt or narrower (`min-height: 40px`).
 const STACKED_H: f32 = 40.0;
 
@@ -51,7 +51,7 @@ fn stacked(s: &App, e: &Entry) -> bool {
 }
 /// Rows and the header sit 4 apart in a section, and a section ends 4 above the next
 /// (`dialog.css:196-202`).
-const GAP: f32 = 4.0;
+const GAP: f32 = 2.0;
 /// `search-list-empty`'s height.
 const EMPTY_H: f32 = 120.0;
 /// `command-palette-meta`: tabular figures.
@@ -133,7 +133,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
     };
     let search = row()
         .key("switcher-field")
-        .h(entry_height(false))
+        .h(entry_height(false) - 4.0)
         .pl(6.0)
         .pr(6.0)
         .gap(6.0)
@@ -152,7 +152,8 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         let last = end == entries.len();
         // Space inside the section, so the next header meets this one and pushes it up. For a
         // reader the section is a group named by its header, and the header only a picture.
-        let mut section = col().key(format!("sw-section-{group}")).w_full().gap(GAP).pb(if last { 0.0 } else { GAP }).role("group").label(group).child(
+        let bare = i == 0 && last && matches!(s.switcher.mode, SwitcherMode::Commands | SwitcherMode::Sessions | SwitcherMode::Archived);
+        let mut section = col().key(format!("sw-section-{group}")).w_full().pt(if bare { 4.0 } else { 0.0 }).gap(GAP).pb(if last { 0.0 } else { GAP }).role("group").label(group).children((!bare).then(||
             row()
                 .key("header")
                 .w_full()
@@ -162,10 +163,10 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
                 .fill(p.bg_base)
                 .sticky_top(0.0)
                 .a11y_hidden()
-                .child(text(group).font(UI).color(p.muted)),
-        );
+                .child(text(group).font(TextStyle::new(12.0, 440.0).lh(18.0)).color(p.faint))
+        ));
         let size = end - i;
-        let mut top = content_h + ROW_H + GAP;
+        let mut top = content_h + if bare { 4.0 } else { ROW_H + GAP };
         // Rows left out since the last built one: their count and heights.
         let mut skipped = (0usize, 0.0_f32);
         for (n, e) in entries[i..end].iter().enumerate() {
@@ -232,7 +233,7 @@ pub fn dialog(s: &App, p: &Pal, w: f32, max_h: f32) -> El {
         .modal(true, |s: &mut App| s.close_switcher(true))
         .child(col().key("switcher-search").w_full().pt(6.0).px(6.0).child(search))
         // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
-        .child(el().key("switcher-divider").w_full().h(0.5).mt(8.5).mb(8.0).fill(p.border))
+        .child(el().key("switcher-divider").w_full().h(0.5).mt(6.25).mb(2.25).fill(p.border))
         .child(
             // `MenuScroll`: the thumb shows while the list scrolls (`search-list.tsx:311`).
             session_view::scroller::scroller("switcher-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<App>(
@@ -434,7 +435,7 @@ pub(crate) fn snippet_line(p: &Pal, r: &Row) -> El {
 fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
     // Each in its own direction (`dialog.tsx:166-171`, `:236-243`).
-    let title = highlighted(&e.title, q, UI_MED, fade(p.text), p.accent).truncate().dir(rune::Direction::Auto);
+    let title = highlighted(&e.title, q, UI, fade(p.text), p.accent).truncate().dir(rune::Direction::Auto);
     // At 640 pt or narrower the description goes under the title (`dialog.css:127-138`).
     if stacked {
         return col().key("words").grow(1.0).shrink().min_w(0.0).gap(1.0)

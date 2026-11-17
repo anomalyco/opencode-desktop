@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks that dialogs take one of Desktop's three size presets (`session_view::dialog::DialogSize`:
-# normal 480, large 880 × 600, x-large 1040 × 680; anomalyco/opencode#63432, whose lint rule is
+# normal 480, large 720 × 600, x-large 880 × 680; anomalyco/opencode#63432, whose lint rule is
 # `script/ast-grep/dialog-size.yml`) instead of sizing themselves. In every tracked .rs file under
 # apps/ and crates/ that draws a dialog (`role("dialog")` or `role("alertdialog")`), it flags a
 # dialog-scale literal (380 or more) given to `.w`, `.h`, `.max_w`, `.max_h` or a `W`/`H`/`*_W`/

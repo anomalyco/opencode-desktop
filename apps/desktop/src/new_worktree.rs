@@ -91,6 +91,20 @@ impl BranchPicker {
 }
 
 const TRIGGER: &str = "location-branch";
+// NUL is not valid in a git ref, so the checkout row has its own stable typeahead key.
+const CHECKOUT: &str = "\0checkout";
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("worktree-draft", |s| {
+        let Some(project) = opencode_kit::model::parse_project(&serde_json::json!({
+            "id":"rune", "name":"Rune", "canonical":"/workspace/rune", "vcs":"git"
+        })) else { return };
+        s.projects.push(project.clone());
+        s.open_draft_tab();
+        s.choose_new_worktree(&project.id, project.directory);
+        s.set_draft_base(Some("release/desktop".into()));
+    }),
+]);
 
 impl App {
     /// The open draft starts its session in a new worktree.
@@ -364,7 +378,10 @@ impl App {
     }
 
     fn branch_rows(&self) -> Vec<String> {
-        self.new_worktree.picker.rows().0
+        let picker = &self.new_worktree.picker;
+        let mut rows = picker.rows().0;
+        if picker.search.text.is_empty() { rows.insert(0, CHECKOUT.to_owned()); }
+        rows
     }
 
     fn active_branch(&self, rows: &[String]) -> Option<String> {
@@ -372,7 +389,9 @@ impl App {
     }
 
     fn choose_branch(&mut self, branch: String, tx: &mut Tx) {
-        if let Route::Draft(id) = &*self.route {
+        if branch == CHECKOUT {
+            if let Some(project) = self.draft_project() { self.set_draft_dir(project.directory.clone()); }
+        } else if let Route::Draft(id) = &*self.route {
             self.new_worktree.drafts.insert(id.clone(), Some(branch));
         }
         self.close_branch_picker(tx);
@@ -392,7 +411,7 @@ impl App {
             }
             Key::Enter => {
                 // The user's choice never rests on a row the pending query hasn't confirmed.
-                if let Some(i) = at.filter(|_| !self.new_worktree.picker.typeahead.stale) {
+                if let Some(i) = at.filter(|&i| rows[i] == CHECKOUT || !self.new_worktree.picker.typeahead.stale) {
                     self.choose_branch(rows[i].clone(), tx);
                 }
             }
@@ -436,7 +455,7 @@ pub fn trigger(s: &App, p: &Pal, current: &str) -> El {
         .hover(p.hover)
         .on_press_tx(|s: &mut App, tx: &mut Tx| if s.new_worktree.picker.is_open() { s.close_branch_picker(tx) } else { s.open_branch_picker(tx) })
         .child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted))
-        .child(text(format!("from {branch}")).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade())
+        .child(text(opencode_i18n::t!("session.new.workspace.fromBranch", branch = branch)).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade())
         .child(icon(&ic::CHEVRON_DOWN, 14.0).ml(-2.0).color(p.icon_muted))
 }
 
@@ -446,7 +465,8 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
         return None;
     }
     let picker = &s.new_worktree.picker;
-    let (rows, stale) = picker.rows();
+    let rows = s.branch_rows();
+    let stale = picker.typeahead.stale;
     let active = s.active_branch(&rows);
     let selected = s.draft_base().map(str::to_owned).or_else(|| s.sidebar_inbox.branches.get(s.draft_dir()).map(str::to_owned));
     // The search row: 32 tall, 12 in and 8 from the end, the glyph 8 before the field.
@@ -494,11 +514,13 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
     }
     for b in &rows {
         let (pick, hover) = (b.clone(), b.clone());
+        let checkout = b == CHECKOUT;
+        let title = if checkout { opencode_i18n::t!("session.new.workspace.useMainCheckout") } else { b };
         list = list.child(
             row()
                 .key(format!("branch-{b}"))
                 .role("option")
-                .label(b.clone())
+                .label(title.to_owned())
                 .w_full()
                 .h(28.0)
                 .px(8.0)
@@ -515,7 +537,10 @@ pub fn picker(s: &App, p: &Pal) -> Option<[El; 2]> {
                     }
                 })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.choose_branch(pick.clone(), tx))
-                .child(text(b.clone()).font(UI).color(p.text).truncate_fade().shrink().min_w(0.0))
+                .child(if checkout { text(title.to_owned()).font(UI).color(p.text).truncate() }
+                    else { text(title.to_owned()).font(UI).color(p.text).shrink().min_w(0.0).truncate() })
+                .children(checkout.then(|| text(s.sidebar_inbox.branches.get(s.draft_dir()).unwrap_or("").to_owned())
+                    .font(UI).color(p.muted).shrink().min_w(0.0).truncate()))
                 .child(rune::spacer())
                 .children((selected.as_deref() == Some(b.as_str())).then(|| icon(&ic::CHECK, 14.0).color(p.icon_muted))),
         );

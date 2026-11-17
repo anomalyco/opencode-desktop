@@ -20,7 +20,7 @@ const KEYS: &[Trigger] = &[
     } },
 ];
 
-const VARIANTS: &[(&str, usize)] = &[("List", 0), ("Efforts", 1), ("Favorite", 2)];
+const VARIANTS: &[(&str, usize)] = &[("List", 0), ("Efforts", 1), ("Favorite", 2), ("Keyboard budget", 3), ("Manage", 4)];
 
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
@@ -57,9 +57,21 @@ fn open(s: &mut App, _: &mut Play<App>) {
         s.pickers.prefs.favorites = vec!["openai:gpt-6-astra".to_owned()];
     }
     s.composer.focused = false;
+    if s.variant == 3 {
+        s.fixture["usage_limits"] = serde_json::json!({"workspace":{"name":"Acme","usageURL":"https://example.com/usage"},
+            "budgets":[{"id":"team", "limit":100, "spent":28, "coverage":"all", "resetsAt":1796083200000_i64}]});
+    }
     s.open_picker(Kind::Model);
     if s.variant == 1 {
         s.toggle_effort_flyout(CURRENT);
+    }
+    if s.variant == 3 {
+        s.pickers.activate(CURRENT.into());
+        s.picker_key(&rune::KeyEvent { key: rune::Key::Right, mods: Default::default() }, &mut rune::Tx::default());
+    }
+    if s.variant == 4 {
+        s.close_picker(false);
+        s.pickers.open_manage();
     }
 }
 

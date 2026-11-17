@@ -80,6 +80,7 @@ pub fn bare_server_address(value: &str) -> Option<String> {
 pub struct Link {
     pub urls: Vec<String>,
     pub code: String,
+    pub name: Option<String>,
 }
 
 fn valid_code(code: &str) -> bool {
@@ -107,12 +108,13 @@ pub fn pairing_link(value: &str) -> Option<Link> {
         if urls.is_empty() {
             return None;
         }
-        return Some(Link { urls, code: code.to_owned() });
+        let name = match v.get("name") { None => None, Some(name) => Some(name.as_str()?.to_owned()) };
+        return Some(Link { urls, code: code.to_owned(), name });
     }
     let url = parse(trimmed)?;
     let code = url.path.strip_prefix("/auth/connect/").filter(|c| !c.contains('/'))?;
     let address = server_address(&format!("{}://{}", url.scheme, url.authority))?;
-    valid_code(code).then(|| Link { urls: vec![address], code: code.to_owned() })
+    valid_code(code).then(|| Link { urls: vec![address], code: code.to_owned(), name: None })
 }
 
 /// `legacyPairingLink`: servers before one-time links paired with `/connect#<credentials>` or

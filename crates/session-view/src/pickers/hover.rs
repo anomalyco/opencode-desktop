@@ -73,6 +73,9 @@ pub struct Hover {
 }
 
 impl Hover {
+    pub(super) fn option(&self) -> Option<usize> {
+        match self.state { State::Keyed { option, .. } => option, _ => None }
+    }
     /// As the list opens: the highlight is the keys' until the pointer moves.
     pub fn fresh() -> Hover {
         Hover::default()

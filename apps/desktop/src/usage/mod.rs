@@ -100,6 +100,35 @@ fn step(open: &mut Open, event: Event) -> Option<Sync> {
     }
 }
 impl App {
+    pub(crate) fn refresh_picker_usage(&mut self) {
+        let directory = self.composer_directory();
+        if !self.live() {
+            if let Some(info) = self.fixture.get("usage_limits").and_then(Info::parse) { self.usage.cache.insert(directory, info); }
+            return;
+        }
+        self.job(move |srv| {
+            let path = format!("/api/experimental/usage/limits?location%5Bdirectory%5D={}", crate::switcher::encode(&directory));
+            let result = srv.get(&path);
+            Box::new(move |s: &mut App, tx: &mut Tx| {
+                if let Ok(value) = result {
+                    if let Some(info) = Info::parse(value.get("data").unwrap_or(&value)) { s.usage.cache.insert(directory, info); }
+                    else { s.usage.cache.remove(&directory); }
+                    tx.instant();
+                }
+            })
+        });
+    }
+
+    pub(crate) fn picker_budget_label(&self, key: &str) -> Option<(String, bool)> {
+        let info = self.usage.cache.get(&self.composer_directory())?;
+        let model = self.pickers.models.iter().find(|m| m.key == key && !m.free)?;
+        let served = model.provider != "opencode-go" && (model.provider == "opencode" || self.provider_infos(None).unwrap_or_default().iter()
+            .any(|p| p.id == model.provider && p.integration.as_deref() == Some("opencode")));
+        let left = info.model_left(&model.provider, &model.id, served)?;
+        let label = if left <= 0.0 { opencode_i18n::t!("usage.budget.reached").into() }
+            else { opencode_i18n::t!("usage.budget.left", amount = view::money(left, false)) };
+        Some((label, left <= 0.0))
+    }
     /// `usage.view`: opens the dialog over the composer's location and reads its limits.
     pub fn open_usage(&mut self, tx: &mut Tx) {
         tx.instant();

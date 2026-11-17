@@ -185,6 +185,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(move_recovery::view(s, p, cx));
     inner = inner.children(crate::plugin_host::dialog_view(s, p, cx));
     inner = inner.children(crate::servers::dialog::view(s, p, cx));
+    if s.settings.open { inner = inner.children(crate::settings::pages::providers::confirmation(s, p, cx)); }
     inner = inner.children(crate::projects::remote_picker::view::view(s, p, cx));
     inner = inner.children(tab_preview::view(s, &p));
     inner = inner.children(crate::popup::view(s, p));

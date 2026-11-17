@@ -15,7 +15,7 @@ use crate::mentions::list::Highlight;
 use crate::palette::{Elevate as _, Pal};
 use crate::projects::folder_name;
 use crate::switcher::{move_for, target};
-use crate::view::{UI, UI_MED};
+use crate::view::UI;
 use crate::{App, Route};
 use opencode_i18n::t;
 
@@ -335,6 +335,15 @@ impl App {
                     }
                 }
                 location::Effect::Close => self.close_project_switcher(true),
+                location::Effect::CreateFrom { project, server, directory, branch } => {
+                    self.close_project_switcher(false);
+                    if let Some(server) = server.filter(|k| k != crate::servers::runtime::active(self)) {
+                        servers::select(self, &server, directory.clone(), tx);
+                    }
+                    self.choose_new_worktree(&project, directory);
+                    self.set_draft_base(Some(branch));
+                    self.composer.focused = self.stage.is_none() && crate::auto_focus_composer(tx);
+                }
             }
         }
         handled
@@ -566,8 +575,8 @@ fn draw_row(s: &App, p: &Pal, r: &SwitcherRow, active: bool, q: &str, w: f32) ->
         .role("option")
         .label(r.title.clone())
         .w_full()
-        .h(28.0)
-        .px(6.0)
+        .h(32.0)
+        .pl(8.0).pr(6.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
@@ -612,7 +621,7 @@ fn drill(p: &Pal, key: &str, label: &str, on: impl Fn(&mut App, &mut Tx) + 'stat
 }
 
 /// A row's title: `palette-menu-title`, 13 at 530.
-const TITLE: rune::TextStyle = UI_MED;
+const TITLE: rune::TextStyle = UI;
 
 /// The dialog (`<Dialog size="large" fit>`, `new-session/location/dialog.tsx`): large, on bg-base
 /// with `--v2-elevation-overlay` and 12 pt corners, as tall as it needs up to the size's height,
@@ -632,8 +641,8 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
 
     let (placeholder, step_title) = match &s.project_switcher.mode {
         StepMode::Projects => (t!("session.new.project.search"), None),
-        StepMode::Others => (t!("session.new.project.search"), Some(t!("session.new.location.otherProjects"))),
-        StepMode::Servers => (t!("session.new.location.servers.search"), Some(t!("session.new.location.servers"))),
+        StepMode::Others => (t!("session.new.project.other.search"), None),
+        StepMode::Servers => (t!("session.new.location.servers.search"), None),
         StepMode::Branches { .. } => (t!("session.new.workspace.branch.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
         StepMode::Worktrees { .. } => (t!("session.new.workspace.search.placeholder"), Some(t!("session.new.workspace.runIn"))),
     };
@@ -644,7 +653,12 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
         .pr(6.0)
         .gap(6.0)
         .center_y()
-        .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
+        .child(if matches!(s.project_switcher.mode, StepMode::Others | StepMode::Servers) {
+            el().key("project-switcher-search-back").role("button").label_static(t!("session.new.location.back"))
+                .size(24.0, 24.0).mx(-4.0).center().radius(4.0).hover(p.hover)
+                .on_press_tx(|s: &mut App, tx| s.project_switcher_back(tx))
+                .child(icon(&ic::ARROW_LEFT, 16.0).color(p.icon_muted).mirror_in_rtl())
+        } else { icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted) })
         .child(
             session_view::style::field(&s.project_switcher.search, UI)
                 .key("project-switcher-input")
@@ -660,7 +674,7 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
                 .on_input_key(|s: &mut App, ev, tx| s.project_switcher_key(ev, tx) || s.shortcut(ev, tx)),
         );
 
-    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(4.0);
+    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0);
     let mut content_h = 6.0_f32;
     if let Some(title) = step_title {
         list = list.child(
@@ -697,9 +711,9 @@ pub fn view(s: &App, p: &Pal, cx: &Cx<App>) -> [El; 2] {
             content_h += 8.5;
         }
         list = list.child(draw_row(s, p, r, active.as_deref() == Some(r.key.as_str()), q, w));
-        content_h += 32.0;
+        content_h += 34.0;
     }
-    content_h -= 4.0;
+    content_h -= 2.0;
 
     // The search block (6 above, the field) and the divider (9 between 4 and 4).
     let head_h = 6.0 + 28.0 + 17.0;

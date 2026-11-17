@@ -235,7 +235,10 @@ impl State {
     }
 
     fn saved(&mut self, http: Http) -> Vec<Effect> {
-        let server = Saved { http, name: Some(self.draft.name.trim().to_owned()).filter(|n| !n.is_empty()) };
+        let value = if self.method == Method::Link { &self.draft.link } else { &self.draft.url };
+        let name = Some(self.draft.name.trim().to_owned()).filter(|n| !n.is_empty())
+            .or_else(|| super::pairing::pairing_link(value).and_then(|link| link.name));
+        let server = Saved { http, name };
         let save = match &self.target {
             Target::Edit(o) if o.url != server.http.url => Save::Replace { original: o.url.clone(), server },
             _ => Save::Add(server),

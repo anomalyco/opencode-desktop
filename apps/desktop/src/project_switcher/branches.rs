@@ -74,6 +74,9 @@ impl App {
     }
 
     pub(crate) fn open_git_location(&mut self, base: bool, tx: &mut Tx) {
+        if base && self.draft_creates() {
+            return self.open_branch_picker(tx);
+        }
         let Some(p) = self.draft_project().filter(|p| opencode_kit::model::project_git(&p.id)) else { return };
         let (id, directory) = (p.id.clone(), p.directory.clone());
         self.close_branch_picker(tx);

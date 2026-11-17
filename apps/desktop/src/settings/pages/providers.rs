@@ -35,7 +35,24 @@ pub enum Accounts {
     Idle,
     Menu { provider: String, menu: Menu },
     Renaming { provider: String, credential: String, field: TextEdit },
+    Confirm(Removal),
 }
+
+#[derive(Clone)]
+pub enum Removal {
+    Provider { id: String, name: String, description: String },
+    Account { credential: String, provider: String, label: String, last: bool },
+}
+
+rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
+    ("provider-disconnect", |s| {
+        s.open_settings_at(super::Page::Providers);
+        s.step_accounts(Event::Ask(Removal::Provider {
+            id: "anthropic".into(), name: "Anthropic".into(),
+            description: t!("settings.providers.disconnect.description").into(),
+        }), &mut Tx::default());
+    }),
+]);
 
 pub enum Event {
     /// A row's account trigger or options button: opens its menu, or closes it when already open.
@@ -46,15 +63,20 @@ pub enum Event {
     Rename { credential: String, label: String },
     Cancel,
     Submit,
+    Ask(Removal),
 }
 
 pub enum Effect {
     Rename { credential: String, label: String },
+    Remove(Removal),
 }
 
 impl Accounts {
     pub fn step(&mut self, event: Event) -> Effects<Effect> {
         match (std::mem::take(self), event) {
+            (_, Event::Ask(target)) => { *self = Accounts::Confirm(target); Effects::none() }
+            (Accounts::Confirm(target), Event::Submit) => Effects::one(Effect::Remove(target)),
+            (Accounts::Confirm(_), Event::Cancel | Event::Close) => Effects::none(),
             (Accounts::Menu { provider, menu }, Event::Toggle { provider: p, menu: m }) if provider == p && menu == m => Effects::none(),
             (_, Event::Toggle { provider, menu }) => {
                 *self = Accounts::Menu { provider, menu };
@@ -112,6 +134,28 @@ fn note(id: &str) -> Option<&'static str> {
         _ if id.starts_with("github-copilot") => t!("dialog.provider.copilot.note"),
         _ => return None,
     })
+}
+
+/// `DialogConfirmProviderRemoval` (#64212), shared by Disconnect and Remove account.
+pub fn confirmation(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
+    let Accounts::Confirm(target) = &s.settings_pages.accounts else { return vec![] };
+    let (title, description, action) = match target {
+        Removal::Provider { name, description, .. } => (t!("settings.providers.disconnect.title", provider = name), description.clone(), t!("common.disconnect")),
+        Removal::Account { label, provider, last, .. } => {
+            let description = if *last { t!("settings.providers.account.remove.finalDescription", provider = provider) }
+                else { t!("settings.providers.account.remove.description", provider = provider) };
+            (t!("settings.providers.account.remove.title", account = label), description, t!("dialog.provider.accounts.remove"))
+        }
+    };
+    let cancel = |s: &mut App, tx: &mut Tx| s.step_accounts(Event::Cancel, tx);
+    let card = widgets::overlay(p, col()).key("provider-removal").role("alertdialog").label(title.clone())
+        .radius(12.0).fill(p.layer1).modal_tx(true, cancel)
+        .child(col().padding(16.0).gap(4.0).child(text(title).font(NAME).color(p.text))
+            .child(text(description).font(BODY).color(p.muted).wrap()))
+        .child(row().padding(16.0).gap(8.0).child(spacer())
+            .child(button(t!("common.cancel"), ButtonVariant::Neutral).on_press_tx(cancel).build(kit(p)).autofocus())
+            .child(button(action, ButtonVariant::Danger).on_press_tx(|s: &mut App, tx| s.step_accounts(Event::Submit, tx)).build(kit(p))));
+    widgets::sized_modal("provider-removal-modal", p, widgets::DialogSize::Normal, widgets::Fit::Content, widgets::dialog_window(cx, *s.zoom), card)
 }
 
 /// How a provider connects, from the integration list as the TUI reads it: a credential is an
@@ -183,7 +227,16 @@ fn connected_row(s: &App, p: &Pal, pi: &ProviderInfo, integration: Option<&Integ
         e.child(account_menu(s, p, &pi.id, &id, &pi.name, integration))
     } else if can_disconnect {
         let (id, name) = (id.clone(), pi.name.clone());
-        button(t!("common.disconnect"), ButtonVariant::GhostMuted).on_press_tx(move |s: &mut App, tx: &mut Tx| s.disconnect_provider(&id, &name, tx)).build(kit(p))
+        button(t!("common.disconnect"), ButtonVariant::GhostMuted).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            let providers = s.provider_infos(None).unwrap_or_default();
+            let count = providers.iter().filter(|pi| pi.integration.as_deref().unwrap_or(&pi.id) == id).count();
+            let description = if id == "opencode" && count > 1 {
+                let workspace = s.integrations(None).unwrap_or_default().iter().find(|i| i.id == id)
+                    .and_then(|i| i.connections.iter().find(|c| c.credential)).map_or(t!("usage.workspace.fallback"), |c| c.label.as_str());
+                opencode_i18n::plural!("settings.providers.disconnect.consoleDescription", count, workspace = workspace)
+            } else { t!("settings.providers.disconnect.description").to_owned() };
+            s.step_accounts(Event::Ask(Removal::Provider { id: id.clone(), name: name.clone(), description }), tx);
+        }).build(kit(p))
     } else {
         text(t!("settings.providers.connected.environmentDescription")).key("settings-provider-env-hint").font(super::NAME_REGULAR).color(p.muted).pr(12.0).group_opacity(0.0, 1.0)
     };
@@ -278,7 +331,9 @@ fn menu(p: &Pal, id: &str, name: &str, accounts: &[&opencode_kit::integration::C
                     s.step_accounts(Event::Rename { credential: rename.0.clone(), label: label.clone() }, tx);
                 }))
                 .child(item("settings-account-remove".into(), t!("dialog.provider.accounts.remove").into())
-                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.remove_account(&remove, &provider, last, tx)));
+                    .on_press_tx(move |s: &mut App, tx: &mut Tx| s.step_accounts(Event::Ask(Removal::Account {
+                        credential: remove.clone(), provider: provider.clone(), label: active.1.clone(), last,
+                    }), tx)));
         }
     }
     widgets::overlay(p, col()).key("settings-provider-menu").pin(None, Some(34.0), Some(0.0), None).w(220.0).padding(4.0).radius(8.0).fill(p.bg_base).raise().child(list)
@@ -289,6 +344,8 @@ impl App {
         tx.instant();
         for effect in self.settings_pages.accounts.step(event) {
             match effect {
+                Effect::Remove(Removal::Provider { id, name, .. }) => self.disconnect_provider(&id, &name, tx),
+                Effect::Remove(Removal::Account { credential, provider, .. }) => self.remove_account(&credential, &provider, tx),
                 Effect::Rename { credential, label } => self.account_write(move |srv| srv.credential_rename(&credential, &label), String::new(), String::new()),
             }
         }
@@ -325,7 +382,7 @@ impl App {
         self.account_write(move |srv| srv.credential_activate(&credential), t!("settings.providers.account.switched.title", provider = provider), t!("settings.providers.account.switched.description", account = label));
     }
 
-    fn remove_account(&mut self, credential: &str, provider: &str, _last: bool, tx: &mut Tx) {
+    fn remove_account(&mut self, credential: &str, provider: &str, tx: &mut Tx) {
         tx.instant();
         let _ = self.settings_pages.accounts.step(Event::Close);
         let (credential, provider) = (credential.to_owned(), provider.to_owned());
