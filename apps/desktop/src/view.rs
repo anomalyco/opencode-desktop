@@ -169,6 +169,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     inner = inner.children(crate::settings::pages::worktrees::dialog(s, p, cx));
     inner = inner.children(crate::quote::editor::view(s, p, cx));
     inner = inner.children(crate::quote::toolbar(s, p, cx));
+    inner = inner.children(crate::line_comments::selection::toolbar(s, p, cx));
     inner = inner.children(crate::panels::view::context_menus(s, p));
     inner = inner.children(crate::panels::drag::layer(s, p));
     if s.fork.open {

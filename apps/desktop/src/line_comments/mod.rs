@@ -14,6 +14,7 @@ pub mod focus;
 pub mod host;
 pub mod machine;
 pub mod saved;
+pub mod selection;
 pub mod view;
 
 use std::collections::HashMap;
@@ -86,6 +87,7 @@ impl SessionComments {
 /// Every session's line comments.
 #[derive(Default)]
 pub struct LineComments {
+    pub selection: selection::State,
     pub sessions: HashMap<String, SessionComments>,
     next: u64,
     focus_seq: Seq,
@@ -399,7 +401,7 @@ pub fn diff_selection(file: usize, r: Range) -> rune_kit::diff::LineRange {
 /// Lands the editors' `@` searches, reveals a comment a card or a new comment asked for, and
 /// lets a lapsed request go.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
-    let mut changed = false;
+    let mut changed = selection::dispatch(s, selection::Event::Tick(tx.clock()), tx);
     if let Some((attempt, items)) = s.line_comments.mention_fetch.take()
         && let Some(spot) = s.line_comments.mention_for.clone()
     {

@@ -27,6 +27,7 @@ pub enum Handoff {
 
 /// The host of a view's line comments. `path` is the file the lines belong to.
 pub trait LineNotes<S> {
+    fn text_selection(&self, s: &mut S, viewer: &str, dragging: bool, selected: Option<(&str, Range, bool)>, tx: &mut Tx);
     /// Changes whenever anything the other reads show for `path` changes (the rows' memos).
     fn version(&self, s: &S, path: &str) -> u64;
     /// Whether line `line` on `side` carries a saved comment (`commentedLines`).
@@ -42,6 +43,35 @@ pub trait LineNotes<S> {
     fn plus_quiet(&self, s: &S) -> bool;
     /// The pointer moved over the view.
     fn pointer_moved(&self, s: &mut S, tx: &mut Tx);
+}
+
+/// Read both ends from the same selection snapshot. A range crossing files can't be a file comment.
+pub fn observe<S: 'static>(rows: El, viewer: String, notes: std::rc::Rc<dyn LineNotes<S>>, file: impl for<'a> Fn(&'a S, usize) -> Option<&'a str> + 'static) -> El {
+    rows.on_selection_change(move |s: &mut S, change, tx| {
+        let selected = change.selection().filter(|_| !change.dragging()).and_then(|sel| {
+            let mut texts = sel.texts().iter().filter(|t| t.is_selected());
+            let first = texts.next()?;
+            let last = texts.next_back().unwrap_or(first);
+            let (f, side, start) = decode(first.key()?)?;
+            let (end_file, end_side, end) = decode(last.key()?)?;
+            if f != end_file { return None; }
+            let path = file(s, f)?.to_owned();
+            Some((path, Range { start, end, side, end_side: end_side.filter(|_| side != end_side) }, sel.backward()))
+        });
+        notes.text_selection(s, &viewer, change.dragging(), selected.as_ref().map(|(p,r,b)| (p.as_str(),*r,*b)), tx);
+    })
+}
+
+pub fn text_key(file: usize, side: Option<Side>, line: u32) -> String {
+    let side = match side { None => "file", Some(Side::Old) => "old", Some(Side::New) => "new" };
+    format!("source:{file}:{side}:{line}")
+}
+
+fn decode(key: &str) -> Option<(usize, Option<Side>, u32)> {
+    let mut parts = key.strip_prefix("source:")?.split(':');
+    let file = parts.next()?.parse().ok()?;
+    let side = match parts.next()? { "file" => None, "old" => Some(Side::Old), "new" => Some(Side::New), _ => return None };
+    Some((file, side, parts.next()?.parse().ok()?))
 }
 
 /// `--diffs-comment-bg`: `background-bg-accent` at 6% over the code's background, laid as CSS

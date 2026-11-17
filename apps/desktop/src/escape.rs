@@ -32,6 +32,7 @@ pub(crate) enum Layer {
     Opening,
     /// The "Add to chat" offer over a selection.
     Quote,
+    CommentSelection,
     /// The sidebar peeking over the page.
     Peek,
 }
@@ -67,6 +68,7 @@ pub(crate) fn stack(s: &App) -> Vec<Layer> {
         (Layer::Run, crate::stop::escape_stops(s)),
         (Layer::Opening, s.opening.is_some()),
         (Layer::Quote, s.quote.offered()),
+        (Layer::CommentSelection, matches!(s.line_comments.selection, crate::line_comments::selection::State::Settling { .. } | crate::line_comments::selection::State::Shown(_))),
         (Layer::Peek, !*s.sidebar_open && s.layout.peek.shown()),
     ]
     .into_iter()
@@ -84,6 +86,10 @@ pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 fn apply(s: &mut App, effect: Effect, ev: &KeyEvent, tx: &mut Tx) {
     let Effect::Dismiss(layer) = effect;
     match layer {
+        Layer::CommentSelection => {
+            use crate::line_comments::selection::{Event, dispatch};
+            dispatch(s, Event::Clear, tx);
+        }
         Layer::Peek => s.queue_peek(crate::layout_state::PeekEvent::Escape, tx),
         Layer::Quote => {
             tx.instant();

@@ -131,6 +131,10 @@ impl<S: 'static> CodeViewer<S> {
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
+        if let Some(notes) = inner.v.notes.clone() {
+            let get = inner.v.get.clone();
+            list = super::notes::observe(list, root_key.clone(), notes, move |s, _| Some(get(s).path()));
+        }
         let bands = count.div_ceil(super::prepared::BAND_LINES as usize);
         let build_inner = inner.clone();
         let list = list
@@ -250,7 +254,7 @@ impl<S: 'static> Inner<S> {
                 cursor,
             ),
             || {
-                let line = self.line_row(st, n, lid, hl_hash, matches, selected, quiet);
+                let line = self.line_row(st, n, hl_hash, matches, selected, quiet);
                 let line = self.line_stop(st, n, cursor, line).key(line_key);
                 let items = self.v.notes.as_ref().map_or_else(Vec::new, |notes| notes.annotations(s, &self.pal, st.path(), Side::New, n));
                 let wrap_row = col().w_full().child(line);
@@ -268,7 +272,6 @@ impl<S: 'static> Inner<S> {
         &self,
         st: &CodeDocState,
         n: u32,
-        lid: u64,
         hl_hash: u64,
         matches: u64,
         selected: bool,
@@ -334,7 +337,7 @@ impl<S: 'static> Inner<S> {
 
         let code_col = memo(
             "code",
-            (l.version, st.wrap(), hl_hash, matches),
+            (l.version, st.wrap(), n, hl_hash, matches),
             || {
                 let raw = st.line(n).unwrap_or("");
                 let match_bgs: Vec<(Range<usize>, Color)> = st
@@ -351,25 +354,21 @@ impl<S: 'static> Inner<S> {
                     .color(l.plain)
                     .selectable(true)
                     .selection_color(l.selection)
-                    .key("text");
+                    .key(super::notes::text_key(0, None, n));
                 code_txt = if st.wrap() { code_txt.w_full().wrap_anywhere() } else { code_txt.single_line() };
-                col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt).on_background_press_tx({
-                    let get_mut = self.v.get_mut.clone();
-                    let notes = self.v.notes.clone();
-                    move |s: &mut S, tx: &mut Tx| {
-                        tx.instant();
-                        let st = get_mut(s);
-                        let Some(line_num) = st.line_of_id(lid) else { return };
-                        let before = st.selection().map(file_range);
-                        st.click_code(line_num);
-                        let after = st.selection().map(file_range);
-                        let path = st.path().to_owned();
-                        if let Some(notes) = &notes {
-                            if before != after {
-                                notes.handoff(s, &path, Handoff::Selected(after), tx);
-                            }
-                            notes.handoff(s, &path, Handoff::Ended(after), tx);
-                        }
+                let code = col().grow(1.0).min_w(0.0).px(l.adv).child(code_txt);
+                let notes = self.v.notes.clone();
+                let get_mut = self.v.get_mut.clone();
+                code.on_background_press_tx(move |s: &mut S, tx| {
+                    if !tx.touch_tap() { return; }
+                    let st = get_mut(s);
+                    let before = st.selection().map(file_range);
+                    st.click_code(n);
+                    let after = st.selection().map(file_range);
+                    let path = st.path().to_owned();
+                    if let Some(notes) = &notes {
+                        if before != after { notes.handoff(s, &path, Handoff::Selected(after), tx); }
+                        notes.handoff(s, &path, Handoff::Ended(after), tx);
                     }
                 })
             },
