@@ -9,8 +9,5 @@
   "suspended": "براؤزر معطل۔ دوبارہ منسلک ہونے لئی اس سیشن دے ساتھ تعامل کرو۔",
   "failed.title": "URL تک نہیں پہنچیا جا سکیا",
   "failed.description": "URL تے اپنا کنکشن چیک کرو، فیر کوشش کرو۔",
-  "action.reload": "دوبارہ لوڈ کرو",
-  "download.failed.tooLarge": "⁨{{name}}⁩ رکھیا نہیں جا سکیا: ایہ 5 MiB توں وڈا اے، جو براؤزر دی ڈاؤن لوڈ حد اے۔",
-  "download.failed.canceled": "⁨{{name}}⁩ دا ڈاؤن لوڈ منسوخ ہو گیا۔",
-  "download.failed.other": "⁨{{name}}⁩ ڈاؤن لوڈ نہیں ہو سکیا (⁨{{reason}}⁩)۔"
+  "action.reload": "دوبارہ لوڈ کرو"
 }

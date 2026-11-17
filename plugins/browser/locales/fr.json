@@ -9,8 +9,5 @@
   "suspended": "Navigateur suspendu. Interagissez avec cette session pour vous reconnecter.",
   "failed.title": "L’URL est inaccessible",
   "failed.description": "Vérifiez l’URL et votre connexion, puis réessayez.",
-  "action.reload": "Recharger",
-  "download.failed.tooLarge": "Impossible de conserver {{name}} : il dépasse 5 Mio, la limite du navigateur pour les téléchargements.",
-  "download.failed.canceled": "Le téléchargement de {{name}} a été annulé.",
-  "download.failed.other": "Impossible de télécharger {{name}} ({{reason}})."
+  "action.reload": "Recharger"
 }

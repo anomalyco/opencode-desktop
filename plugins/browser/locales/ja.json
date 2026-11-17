@@ -9,8 +9,5 @@
   "suspended": "ブラウザーが一時停止しました。このセッションと対話して再接続してください。",
   "failed.title": "URLにアクセスできません",
   "failed.description": "URLと接続を確認して、もう一度お試しください。",
-  "action.reload": "再読み込み",
-  "download.failed.tooLarge": "{{name}} を保持できませんでした。ブラウザーのダウンロード上限である 5 MiB を超えています。",
-  "download.failed.canceled": "{{name}} のダウンロードはキャンセルされました。",
-  "download.failed.other": "{{name}} をダウンロードできませんでした ({{reason}})。"
+  "action.reload": "再読み込み"
 }

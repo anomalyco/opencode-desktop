@@ -9,8 +9,5 @@
   "suspended": "Brskalnik je začasno ustavljen. Interakcija s sejo za ponovno povezavo.",
   "failed.title": "URL ni dosegljiv",
   "failed.description": "Preverite URL in povezavo ter poskusite znova.",
-  "action.reload": "Znova naloži",
-  "download.failed.tooLarge": "{{name}} ni bilo mogoče obdržati: večja je od 5 MiB, omejitve brskalnika za prenose.",
-  "download.failed.canceled": "Prenos datoteke {{name}} je bil preklican.",
-  "download.failed.other": "{{name}} ni bilo mogoče prenesti ({{reason}})."
+  "action.reload": "Znova naloži"
 }

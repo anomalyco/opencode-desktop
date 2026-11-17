@@ -2662,7 +2662,6 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:CanGoForward` | `() -> boolean` | History has a later page. |
 | `:Zoom` | `() -> number` | The page's zoom: 1 at 100%. |
 | `:Inspecting` | `() -> boolean` | The element picker waits for a click in the page. |
-| `:Files` | `() -> { BrowserFile }` | What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled. |
 | `:LoadError` | `() -> string?` | Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again. |
 | `:Navigate` | `(url: string) -> ()` | Loads a URL, or a local `:port`. |
 | `:Back` | `() -> ()` | Goes back. |
@@ -2675,32 +2674,6 @@ A page in the app's browser, for `ui.browserSurface`.
 | `:Show` | `(options: BrowserShowOptions?) -> ()` | Selects its tab in a session's side region, opening the region and adding the tab when it isn't there. |
 | `:Close` | `() -> ()` | Closes the page and its tab. |
 | `:DevtoolsAsync` | `(method: string, params: { [string]: any }?, targetSessionId: string?) -> any` | Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields. |
-| `:ReadFileAsync` | `(fileId: string) -> BrowserFileContents` | Reads a completed download of the page: its text when it is UTF-8, else its bytes in base64. Raises when the file is unknown, still downloading, failed, or over 5 MiB. Yields. |
-
-### BrowserFile
-
-A file a page downloaded (`BrowserTab:Files`).
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | `string` | `file_<n>`, for `BrowserTab:ReadFileAsync`. |
-| `name` | `string` | The name the page gave it. |
-| `mime` | `string` | Its MIME type. |
-| `bytes` | `number` | Bytes received so far. |
-| `state` | `string` | `pending`, `completed` or `failed`. |
-| `error` | `string?` | Why it failed: `too_large`, `canceled`, or Chromium's interrupt reason (`network_failed`, `file_no_space`, ...). |
-
-### BrowserFileContents
-
-A downloaded file's contents (`BrowserTab:ReadFileAsync`).
-
-| Field | Type | Description |
-|---|---|---|
-| `name` | `string` | The name the page gave it. |
-| `mime` | `string` | Its MIME type. |
-| `bytes` | `number` | Its size. |
-| `text` | `string?` | Its text, when it is UTF-8. |
-| `base64` | `string?` | Its bytes in base64, when it isn't. |
 
 ### OfficeDocument
 

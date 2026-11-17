@@ -3944,8 +3944,6 @@ export type BrowserTab = {
     Zoom: (self: BrowserTab) -> number,
     --- The element picker waits for a click in the page.
     Inspecting: (self: BrowserTab) -> boolean,
-    --- What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled.
-    Files: (self: BrowserTab) -> { BrowserFile },
     --- Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again.
     LoadError: (self: BrowserTab) -> string?,
     --- Loads a URL, or a local `:port`.
@@ -3970,38 +3968,6 @@ export type BrowserTab = {
     Close: (self: BrowserTab) -> (),
     --- Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds. Yields: call it from a handler, a task or a signal callback.
     DevtoolsAsync: (self: BrowserTab, method: string, params: { [string]: any }?, targetSessionId: string?) -> any,
-    --- Reads a completed download of the page: its text when it is UTF-8, else its bytes in base64. Raises when the file is unknown, still downloading, failed, or over 5 MiB. Yields: call it from a handler, a task or a signal callback.
-    ReadFileAsync: (self: BrowserTab, fileId: string) -> BrowserFileContents,
-}
-
---- A file a page downloaded (`BrowserTab:Files`).
-export type BrowserFile = {
-    --- `file_<n>`, for `BrowserTab:ReadFileAsync`.
-    id: string,
-    --- The name the page gave it.
-    name: string,
-    --- Its MIME type.
-    mime: string,
-    --- Bytes received so far.
-    bytes: number,
-    --- `pending`, `completed` or `failed`.
-    state: string,
-    --- Why it failed: `too_large`, `canceled`, or Chromium's interrupt reason (`network_failed`, `file_no_space`, ...).
-    error: string?,
-}
-
---- A downloaded file's contents (`BrowserTab:ReadFileAsync`).
-export type BrowserFileContents = {
-    --- The name the page gave it.
-    name: string,
-    --- Its MIME type.
-    mime: string,
-    --- Its size.
-    bytes: number,
-    --- Its text, when it is UTF-8.
-    text: string?,
-    --- Its bytes in base64, when it isn't.
-    base64: string?,
 }
 
 --- An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.

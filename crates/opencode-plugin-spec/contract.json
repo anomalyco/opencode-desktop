@@ -1180,7 +1180,6 @@
       { "name": "CanGoForward", "kind": "method", "sig": "() -> boolean", "doc": "History has a later page." },
       { "name": "Zoom", "kind": "method", "sig": "() -> number", "doc": "The page's zoom: 1 at 100%." },
       { "name": "Inspecting", "kind": "method", "sig": "() -> boolean", "doc": "The element picker waits for a click in the page." },
-      { "name": "Files", "kind": "method", "sig": "() -> { BrowserFile }", "doc": "What the page downloaded, oldest first. Each file is kept in the engine's private downloads folder, with no dialog, until the engine next starts; one over 5 MiB is cancelled." },
       { "name": "LoadError", "kind": "method", "sig": "() -> string?", "doc": "Why the page shows no document: the engine's error for a load that failed (`net::ERR_CONNECTION_REFUSED`), or `page_crashed` when its renderer went away; nil while it shows one. A reload or another address loads it again." },
       { "name": "Navigate", "kind": "method", "sig": "(url: string) -> ()", "doc": "Loads a URL, or a local `:port`." },
       { "name": "Back", "kind": "method", "sig": "() -> ()", "doc": "Goes back." },
@@ -1192,23 +1191,7 @@
       { "name": "Highlight", "kind": "method", "sig": "(nodeId: number?) -> ()", "doc": "Outlines the DevTools backend node `nodeId` in the page, or clears the outline." },
       { "name": "Show", "kind": "method", "sig": "(options: BrowserShowOptions?) -> ()", "doc": "Selects its tab in a session's side region, opening the region and adding the tab when it isn't there." },
       { "name": "Close", "kind": "method", "sig": "() -> ()", "doc": "Closes the page and its tab." },
-      { "name": "DevtoolsAsync", "kind": "method", "sig": "(method: string, params: { [string]: any }?, targetSessionId: string?) -> any", "yields": true, "doc": "Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds." },
-      { "name": "ReadFileAsync", "kind": "method", "sig": "(fileId: string) -> BrowserFileContents", "yields": true, "doc": "Reads a completed download of the page: its text when it is UTF-8, else its bytes in base64. Raises when the file is unknown, still downloading, failed, or over 5 MiB." }
-    ] },
-    { "name": "BrowserFile", "kind": "record", "doc": "A file a page downloaded (`BrowserTab:Files`).", "fields": [
-      { "name": "id", "type": "string", "doc": "`file_<n>`, for `BrowserTab:ReadFileAsync`." },
-      { "name": "name", "type": "string", "doc": "The name the page gave it." },
-      { "name": "mime", "type": "string", "doc": "Its MIME type." },
-      { "name": "bytes", "type": "integer", "doc": "Bytes received so far." },
-      { "name": "state", "type": "string", "doc": "`pending`, `completed` or `failed`." },
-      { "name": "error", "type": "string?", "doc": "Why it failed: `too_large`, `canceled`, or Chromium's interrupt reason (`network_failed`, `file_no_space`, ...)." }
-    ] },
-    { "name": "BrowserFileContents", "kind": "record", "doc": "A downloaded file's contents (`BrowserTab:ReadFileAsync`).", "fields": [
-      { "name": "name", "type": "string", "doc": "The name the page gave it." },
-      { "name": "mime", "type": "string", "doc": "Its MIME type." },
-      { "name": "bytes", "type": "integer", "doc": "Its size." },
-      { "name": "text", "type": "string?", "doc": "Its text, when it is UTF-8." },
-      { "name": "base64", "type": "string?", "doc": "Its bytes in base64, when it isn't." }
+      { "name": "DevtoolsAsync", "kind": "method", "sig": "(method: string, params: { [string]: any }?, targetSessionId: string?) -> any", "yields": true, "doc": "Sends one DevTools protocol command and returns its result. Raises the engine's error, or a timeout after 10 seconds." }
     ] },
     { "name": "OfficeDocument", "kind": "record", "doc": "An Office file the host opened, laid out on a thread of its own. `ui.officePages` and `ui.officeSheet` draw it; `Office:Close` releases it.", "fields": [
       { "name": "id", "type": "integer", "doc": "The host's id for it." },

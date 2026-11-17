@@ -9,8 +9,5 @@
   "suspended": "הדפדפן הושהה. יש לקיים אינטראקציה עם הפעלה זו כדי להתחבר מחדש.",
   "failed.title": "לא ניתן להגיע לכתובת ה-URL",
   "failed.description": "יש לבדוק את כתובת ה-URL ואת החיבור ולנסות שוב.",
-  "action.reload": "טען מחדש",
-  "download.failed.tooLarge": "לא ניתן לשמור את ⁨{{name}}⁩: הוא גדול מ־5 MiB, מגבלת ההורדות של הדפדפן.",
-  "download.failed.canceled": "ההורדה של ⁨{{name}}⁩ בוטלה.",
-  "download.failed.other": "לא ניתן להוריד את ⁨{{name}}⁩ (⁨{{reason}}⁩)."
+  "action.reload": "טען מחדש"
 }

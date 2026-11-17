@@ -60,8 +60,5 @@
   "zoom.reset": "Reset zoom",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Copy link",
-  "history.clear": "Clear history",
-  "download.failed.tooLarge": "Couldn't keep {{name}}: it's over 5 MiB, the browser's limit for downloads.",
-  "download.failed.canceled": "The download of {{name}} was cancelled.",
-  "download.failed.other": "Couldn't download {{name}} ({{reason}})."
+  "history.clear": "Clear history"
 }

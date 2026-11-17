@@ -1,5 +1,5 @@
 use cef::rc::Rc as _;
-use cef::{Client, DisplayHandler, DownloadHandler, ImplClient, LoadHandler, RenderHandler, RequestHandler, WrapClient, wrap_client};
+use cef::{Client, DisplayHandler, ImplClient, LoadHandler, RenderHandler, RequestHandler, WrapClient, wrap_client};
 
 wrap_client! {
     pub struct SidecarTabClient {
@@ -7,7 +7,6 @@ wrap_client! {
         display: DisplayHandler,
         load: LoadHandler,
         request: RequestHandler,
-        download: DownloadHandler,
     }
 
     impl Client {
@@ -22,9 +21,6 @@ wrap_client! {
         }
         fn request_handler(&self) -> Option<RequestHandler> {
             Some(self.request.clone())
-        }
-        fn download_handler(&self) -> Option<DownloadHandler> {
-            Some(self.download.clone())
         }
     }
 }

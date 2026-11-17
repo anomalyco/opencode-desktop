@@ -9,8 +9,5 @@
   "suspended": "Navegador suspès. Interacciona amb aquesta sessió per tornar a connectar.",
   "failed.title": "No es pot accedir a l’URL",
   "failed.description": "Comproveu l’URL i la connexió i torneu-ho a provar.",
-  "action.reload": "Torna a carregar",
-  "download.failed.tooLarge": "No s'ha pogut conservar {{name}}: supera els 5 MiB, el límit del navegador per a les baixades.",
-  "download.failed.canceled": "S'ha cancel·lat la baixada de {{name}}.",
-  "download.failed.other": "No s'ha pogut baixar {{name}} ({{reason}})."
+  "action.reload": "Torna a carregar"
 }

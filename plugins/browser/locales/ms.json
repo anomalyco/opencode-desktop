@@ -9,8 +9,5 @@
   "suspended": "Pelayar digantung. Berinteraksi dengan sesi ini untuk menyambung semula.",
   "failed.title": "URL tidak dapat dicapai",
   "failed.description": "Semak URL dan sambungan anda, kemudian cuba lagi.",
-  "action.reload": "Muat semula",
-  "download.failed.tooLarge": "Tidak dapat menyimpan {{name}}: saiznya melebihi 5 MiB, had muat turun pelayar.",
-  "download.failed.canceled": "Muat turun {{name}} telah dibatalkan.",
-  "download.failed.other": "Tidak dapat memuat turun {{name}} ({{reason}})."
+  "action.reload": "Muat semula"
 }

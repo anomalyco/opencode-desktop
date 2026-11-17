@@ -9,8 +9,5 @@
   "suspended": "ເບຣາວເຊີຖືກລະງັບ.ປະຕິບັດກັບ session ນີ້ເພື່ອເຊື່ອມຕໍ່ອີກຄັ້ງ.",
   "failed.title": "ເຂົ້າເຖິງ URL ບໍ່ໄດ້",
   "failed.description": "ກວດສອບ URL ແລະການເຊື່ອມຕໍ່ ແລ້ວລອງໃໝ່.",
-  "action.reload": "ໂຫຼດຄືນໃໝ່",
-  "download.failed.tooLarge": "ບໍ່ສາມາດເກັບ {{name}} ໄວ້ໄດ້: ມັນໃຫຍ່ກວ່າ 5 MiB ເຊິ່ງເປັນຂີດຈຳກັດການດາວໂຫຼດຂອງບຣາວເຊີ.",
-  "download.failed.canceled": "ການດາວໂຫຼດ {{name}} ຖືກຍົກເລີກແລ້ວ.",
-  "download.failed.other": "ບໍ່ສາມາດດາວໂຫຼດ {{name}} ໄດ້ ({{reason}})."
+  "action.reload": "ໂຫຼດຄືນໃໝ່"
 }

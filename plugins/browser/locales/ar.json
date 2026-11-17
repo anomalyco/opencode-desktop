@@ -9,8 +9,5 @@
   "suspended": "عُلّق المتصفح. تفاعل مع هذه الجلسة لإعادة الاتصال.",
   "failed.title": "يتعذر الوصول إلى عنوان URL",
   "failed.description": "تحقق من عنوان URL واتصالك، ثم حاول مرة أخرى.",
-  "action.reload": "إعادة التحميل",
-  "download.failed.tooLarge": "تعذّر الاحتفاظ بـ ⁨{{name}}⁩: حجمه أكبر من 5 MiB، وهو حد التنزيلات في المتصفح.",
-  "download.failed.canceled": "أُلغي تنزيل ⁨{{name}}⁩.",
-  "download.failed.other": "تعذّر تنزيل ⁨{{name}}⁩ (⁨{{reason}}⁩)."
+  "action.reload": "إعادة التحميل"
 }

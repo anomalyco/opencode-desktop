@@ -9,8 +9,5 @@
   "suspended": "Brauser peatatud. Ühendage uuesti ühenduse loomiseks selle seansiga.",
   "failed.title": "URL-ile ei pääse juurde",
   "failed.description": "Kontrolli URL-i ja ühendust ning proovi uuesti.",
-  "action.reload": "Laadi uuesti",
-  "download.failed.tooLarge": "Faili {{name}} ei saanud alles hoida: see on üle 5 MiB, mis on brauseri allalaadimiste piir.",
-  "download.failed.canceled": "Faili {{name}} allalaadimine tühistati.",
-  "download.failed.other": "Faili {{name}} ei saanud alla laadida ({{reason}})."
+  "action.reload": "Laadi uuesti"
 }

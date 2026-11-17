@@ -9,8 +9,5 @@
   "suspended": "Webbläsaren avstängd. Interagera med den här sessionen för att återansluta.",
   "failed.title": "URL:en kan inte nås",
   "failed.description": "Kontrollera URL:en och anslutningen och försök igen.",
-  "action.reload": "Läs in igen",
-  "download.failed.tooLarge": "Det gick inte att behålla {{name}}: filen är över 5 MiB, webbläsarens gräns för nedladdningar.",
-  "download.failed.canceled": "Nedladdningen av {{name}} avbröts.",
-  "download.failed.other": "Det gick inte att ladda ned {{name}} ({{reason}})."
+  "action.reload": "Läs in igen"
 }

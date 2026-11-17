@@ -9,8 +9,5 @@
   "suspended": "Peramban dijeda. Berinteraksilah dengan sesi ini untuk terhubung kembali.",
   "failed.title": "URL tidak dapat dijangkau",
   "failed.description": "Periksa URL dan koneksi Anda, lalu coba lagi.",
-  "action.reload": "Muat ulang",
-  "download.failed.tooLarge": "Tidak dapat menyimpan {{name}}: ukurannya lebih dari 5 MiB, batas unduhan peramban.",
-  "download.failed.canceled": "Unduhan {{name}} dibatalkan.",
-  "download.failed.other": "Tidak dapat mengunduh {{name}} ({{reason}})."
+  "action.reload": "Muat ulang"
 }

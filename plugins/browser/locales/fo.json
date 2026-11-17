@@ -9,8 +9,5 @@
   "suspended": "Kagari steðgaður. Samskifta við hesa setuna fyri at fáa samband aftur.",
   "failed.title": "URL-adressan kann ikki røkkast",
   "failed.description": "Kanna URL-adressuna og sambandið og royn aftur.",
-  "action.reload": "Les inn aftur",
-  "download.failed.tooLarge": "{{name}} kundi ikki goymast: fílan er størri enn 5 MiB, markið hjá kaganum fyri niðurtøkur.",
-  "download.failed.canceled": "Niðurtøkan av {{name}} varð avlýst.",
-  "download.failed.other": "{{name}} kundi ikki takast niður ({{reason}})."
+  "action.reload": "Les inn aftur"
 }

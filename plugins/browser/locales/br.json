@@ -9,8 +9,5 @@
   "suspended": "Navegador suspenso. Interaja com esta sessão para se reconectar.",
   "failed.title": "Não foi possível acessar a URL",
   "failed.description": "Verifique a URL e sua conexão e tente novamente.",
-  "action.reload": "Recarregar",
-  "download.failed.tooLarge": "Não foi possível manter {{name}}: tem mais de 5 MiB, o limite do navegador para downloads.",
-  "download.failed.canceled": "O download de {{name}} foi cancelado.",
-  "download.failed.other": "Não foi possível baixar {{name}} ({{reason}})."
+  "action.reload": "Recarregar"
 }

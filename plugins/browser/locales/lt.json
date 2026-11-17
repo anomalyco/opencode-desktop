@@ -9,8 +9,5 @@
   "suspended": "Naršyklė sustabdyta. Norėdami vėl prisijungti, sąveikaukite su šia sesija.",
   "failed.title": "URL nepasiekiamas",
   "failed.description": "Patikrinkite URL bei ryšį ir bandykite dar kartą.",
-  "action.reload": "Įkelti iš naujo",
-  "download.failed.tooLarge": "Nepavyko išsaugoti {{name}}: failas didesnis nei 5 MiB, naršyklės atsisiuntimų riba.",
-  "download.failed.canceled": "{{name}} atsisiuntimas atšauktas.",
-  "download.failed.other": "Nepavyko atsisiųsti {{name}} ({{reason}})."
+  "action.reload": "Įkelti iš naujo"
 }

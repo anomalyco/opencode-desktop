@@ -9,8 +9,5 @@
   "suspended": "Brauzer dayandırıldı. Təkrar qoşulmaq üçün bu sessiya ilə qarşılıqlı əlaqə qurun.",
   "failed.title": "URL əlçatan deyil",
   "failed.description": "URL-i və bağlantınızı yoxlayın, sonra yenidən cəhd edin.",
-  "action.reload": "Yenidən yüklə",
-  "download.failed.tooLarge": "{{name}} saxlanıla bilmədi: 5 MiB-dan böyükdür, bu brauzerin endirmə limitidir.",
-  "download.failed.canceled": "{{name}} endirməsi ləğv edildi.",
-  "download.failed.other": "{{name}} endirilə bilmədi ({{reason}})."
+  "action.reload": "Yenidən yüklə"
 }

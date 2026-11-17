@@ -9,8 +9,5 @@
   "suspended": "브라우저가 일시 중지되었습니다. 다시 연결하려면 이 세션과 상호작용하세요.",
   "failed.title": "URL에 연결할 수 없음",
   "failed.description": "URL과 연결을 확인한 후 다시 시도하세요.",
-  "action.reload": "다시 로드",
-  "download.failed.tooLarge": "{{name}}을(를) 보관할 수 없습니다. 브라우저의 다운로드 한도인 5MiB를 넘습니다.",
-  "download.failed.canceled": "{{name}} 다운로드가 취소되었습니다.",
-  "download.failed.other": "{{name}}을(를) 다운로드할 수 없습니다({{reason}})."
+  "action.reload": "다시 로드"
 }

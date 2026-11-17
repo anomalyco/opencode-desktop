@@ -9,8 +9,5 @@
   "suspended": "瀏覽器已暫停。與此工作階段互動以重新連線。",
   "failed.title": "無法連上 URL",
   "failed.description": "請檢查 URL 和網路連線，然後再試一次。",
-  "action.reload": "重新載入",
-  "download.failed.tooLarge": "無法保留 {{name}}：它超過 5 MiB，也就是瀏覽器的下載上限。",
-  "download.failed.canceled": "{{name}} 的下載已取消。",
-  "download.failed.other": "無法下載 {{name}}（{{reason}}）。"
+  "action.reload": "重新載入"
 }

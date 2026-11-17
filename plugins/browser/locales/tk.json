@@ -9,8 +9,5 @@
   "suspended": "Brauzer togtadyldy Birikdirmek üçin bu sessiýa bilen täsirleşiň.",
   "failed.title": "URL elýeterli däl",
   "failed.description": "URL-i we birikmäňizi barlaň, soňra gaýtadan synanyşyň.",
-  "action.reload": "Täzeden ýükle",
-  "download.failed.tooLarge": "{{name}} saklanyp bilinmedi: ol 5 MiB-dan uly, bu brauzeriň ýükleme çägi.",
-  "download.failed.canceled": "{{name}} ýüklemesi ýatyryldy.",
-  "download.failed.other": "{{name}} ýüklenip bilinmedi ({{reason}})."
+  "action.reload": "Täzeden ýükle"
 }

@@ -104,34 +104,4 @@ pub enum EngineMsg {
     /// named shared fence to `frame_id` once it has read it, and the engine reuses the texture
     /// only after that.
     SharedFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String },
-    /// A download started, moved on or ended. An app from before it skips the message.
-    Download { tab_id: u64, file: DownloadFile },
-}
-
-/// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
-/// (Desktop's browser keeps them the same way: `gui-plugins/src/browser/files.ts`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DownloadFile {
-    /// `file_<n>`, unique in the engine's run.
-    pub id: String,
-    /// The name the page gave it.
-    pub name: String,
-    pub mime: String,
-    /// Bytes received so far.
-    pub bytes: u64,
-    pub state: DownloadState,
-    /// Where it is on this computer.
-    pub path: String,
-    /// Why it failed: `too_large` (over 5 MiB, Desktop's limit), `canceled`, or Chromium's
-    /// interrupt reason (`network_failed`, `file_no_space`, ...).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DownloadState {
-    Pending,
-    Completed,
-    Failed,
 }

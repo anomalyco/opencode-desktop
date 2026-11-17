@@ -9,8 +9,5 @@
   "suspended": "Browser suspenderet. Interager med denne session for at genoprette forbindelsen.",
   "failed.title": "URL-adressen kan ikke nås",
   "failed.description": "Kontrollér URL-adressen og din forbindelse, og prøv igen.",
-  "action.reload": "Genindlæs",
-  "download.failed.tooLarge": "{{name}} kunne ikke gemmes: den er over 5 MiB, browserens grænse for downloads.",
-  "download.failed.canceled": "Downloadet af {{name}} blev annulleret.",
-  "download.failed.other": "{{name}} kunne ikke downloades ({{reason}})."
+  "action.reload": "Genindlæs"
 }

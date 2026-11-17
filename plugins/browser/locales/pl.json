@@ -9,8 +9,5 @@
   "suspended": "Przeglądarka zawieszona. Wejdź w interakcję z tą sesją, aby ponownie połączyć.",
   "failed.title": "Nie można otworzyć adresu URL",
   "failed.description": "Sprawdź adres URL i połączenie, a następnie spróbuj ponownie.",
-  "action.reload": "Wczytaj ponownie",
-  "download.failed.tooLarge": "Nie można zachować pliku {{name}}: ma ponad 5 MiB, czyli limit pobierania przeglądarki.",
-  "download.failed.canceled": "Pobieranie pliku {{name}} zostało anulowane.",
-  "download.failed.other": "Nie udało się pobrać pliku {{name}} ({{reason}})."
+  "action.reload": "Wczytaj ponownie"
 }

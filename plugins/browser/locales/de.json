@@ -9,8 +9,5 @@
   "suspended": "Browser angehalten. Interagieren Sie mit dieser Sitzung, um die Verbindung wiederherzustellen.",
   "failed.title": "URL ist nicht erreichbar",
   "failed.description": "Überprüfen Sie die URL und Ihre Verbindung und versuchen Sie es erneut.",
-  "action.reload": "Neu laden",
-  "download.failed.tooLarge": "{{name}} konnte nicht behalten werden: Die Datei ist größer als 5 MiB, das Download-Limit des Browsers.",
-  "download.failed.canceled": "Der Download von {{name}} wurde abgebrochen.",
-  "download.failed.other": "{{name}} konnte nicht heruntergeladen werden ({{reason}})."
+  "action.reload": "Neu laden"
 }

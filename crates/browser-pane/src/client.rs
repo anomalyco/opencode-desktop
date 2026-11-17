@@ -16,7 +16,7 @@ use crate::keys::{is_shell_shortcut, named_key_str};
 use crate::mach_pipe::MachReceiver;
 use crate::site_zoom::{SiteZoom, site_of};
 use crate::protocol::{
-    CursorKind, DownloadFile, EngineMsg, HostMsg, PickedElement, TabSnapshot, pack_mods,
+    CursorKind, EngineMsg, HostMsg, PickedElement, TabSnapshot, pack_mods,
 };
 
 #[derive(Clone, Debug)]
@@ -32,8 +32,6 @@ pub struct BrowserTab {
     /// Why the page shows no document (`TabSnapshot::load_error`).
     pub load_error: Option<String>,
     pub inspecting: bool,
-    /// What the page downloaded, oldest first (`DownloadFile`), for the agent's tools.
-    pub files: Vec<DownloadFile>,
     pub surface: TabSurface,
     pub(crate) viewport_pt: (f32, f32),
     pub(crate) scale: f32,
@@ -244,7 +242,6 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             load_error: None,
             inspecting: false,
-            files: Vec::new(),
             surface,
             viewport_pt: (800.0, 600.0),
             scale: 2.0,
@@ -312,7 +309,6 @@ impl BrowserHost {
             cursor: CursorKind::Default,
             load_error: None,
             inspecting: false,
-            files: Vec::new(),
             surface,
             viewport_pt: (width_pt, height_pt),
             scale,
@@ -591,15 +587,6 @@ impl BrowserHost {
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;
                 }
-                EngineMsg::Download { tab_id, file } => {
-                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                        match t.files.iter_mut().find(|f| f.id == file.id) {
-                            Some(known) => *known = file,
-                            None => t.files.push(file),
-                        }
-                        changed = true;
-                    }
-                }
                 EngineMsg::CdpEvent { .. } => {}
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
                 EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } => {}
@@ -762,7 +749,6 @@ impl BrowserHost {
             cursor: snap.cursor,
             load_error: snap.load_error,
             inspecting: false,
-            files: Vec::new(),
             surface,
             viewport_pt: (800.0, 600.0),
             scale: 2.0,

@@ -9,8 +9,5 @@
   "suspended": "浏览器已挂起。请与此会话交互以重新连接。",
   "failed.title": "无法访问 URL",
   "failed.description": "请检查 URL 和网络连接，然后重试。",
-  "action.reload": "重新加载",
-  "download.failed.tooLarge": "无法保留 {{name}}：它超过 5 MiB，即浏览器的下载上限。",
-  "download.failed.canceled": "{{name}} 的下载已取消。",
-  "download.failed.other": "无法下载 {{name}}（{{reason}}）。"
+  "action.reload": "重新加载"
 }

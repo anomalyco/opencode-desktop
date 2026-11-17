@@ -9,8 +9,5 @@
   "suspended": "Vafra lokað. Vertu í samskiptum við þessa lotu til að tengjast aftur.",
   "failed.title": "Ekki næst í vefslóðina",
   "failed.description": "Athugaðu vefslóðina og tenginguna og reyndu aftur.",
-  "action.reload": "Endurhlaða",
-  "download.failed.tooLarge": "Ekki tókst að halda {{name}}: skráin er stærri en 5 MiB, sem er hámark vafrans fyrir niðurhal.",
-  "download.failed.canceled": "Hætt var við niðurhal á {{name}}.",
-  "download.failed.other": "Ekki tókst að sækja {{name}} ({{reason}})."
+  "action.reload": "Endurhlaða"
 }
