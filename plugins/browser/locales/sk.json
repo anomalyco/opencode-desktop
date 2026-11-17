@@ -9,5 +9,8 @@
   "suspended": "Prehliadač bol pozastavený. Interagujte s reláciou pre obnovenie pripojenia.",
   "failed.title": "URL nie je dostupná",
   "failed.description": "Skontrolujte URL a pripojenie a skúste to znova.",
-  "action.reload": "Znova načítať"
+  "action.reload": "Znova načítať",
+  "download.failed.tooLarge": "{{name}} nemožno ponechať: má viac ako 5 MiB, čo je limit prehliadača pre sťahovanie.",
+  "download.failed.canceled": "Sťahovanie {{name}} bolo zrušené.",
+  "download.failed.other": "{{name}} sa nepodarilo stiahnuť ({{reason}})."
 }

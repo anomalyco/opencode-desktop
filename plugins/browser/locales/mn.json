@@ -9,5 +9,8 @@
   "suspended": "Браузер түр зогсоогдлоо. Дахин холбогдохын тулд энэ сесситэй харьцана уу.",
   "failed.title": "URL-д хандах боломжгүй",
   "failed.description": "URL болон холболтоо шалгаад дахин оролдоно уу.",
-  "action.reload": "Дахин ачаалах"
+  "action.reload": "Дахин ачаалах",
+  "download.failed.tooLarge": "{{name}}-г хадгалж чадсангүй: 5 MiB-ээс том байна, энэ нь хөтчийн татах хязгаар.",
+  "download.failed.canceled": "{{name}}-г татахыг цуцалсан.",
+  "download.failed.other": "{{name}}-г татаж чадсангүй ({{reason}})."
 }

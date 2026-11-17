@@ -9,5 +9,8 @@
   "suspended": "Brauzer to'xtatildi. Qayta ulanish uchun ushbu seans bilan oʻzaro aloqada boʻling.",
   "failed.title": "URL manziliga kirib bo‘lmadi",
   "failed.description": "URL va ulanishingizni tekshiring, so‘ng qayta urinib ko‘ring.",
-  "action.reload": "Qayta yuklash"
+  "action.reload": "Qayta yuklash",
+  "download.failed.tooLarge": "{{name}} saqlab qolinmadi: u 5 MiB dan katta, bu brauzerning yuklab olish chegarasi.",
+  "download.failed.canceled": "{{name}} yuklab olinishi bekor qilindi.",
+  "download.failed.other": "{{name}} yuklab olinmadi ({{reason}})."
 }

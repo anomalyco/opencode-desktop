@@ -9,5 +9,8 @@
   "suspended": "Tarayıcı askıya alındı. Yeniden bağlanmak için bu oturumla etkileşim kurun.",
   "failed.title": "URL’ye erişilemiyor",
   "failed.description": "URL’yi ve bağlantınızı kontrol edip yeniden deneyin.",
-  "action.reload": "Yeniden yükle"
+  "action.reload": "Yeniden yükle",
+  "download.failed.tooLarge": "{{name}} saklanamadı: tarayıcının indirme sınırı olan 5 MiB'tan büyük.",
+  "download.failed.canceled": "{{name}} indirmesi iptal edildi.",
+  "download.failed.other": "{{name}} indirilemedi ({{reason}})."
 }

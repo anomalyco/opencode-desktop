@@ -9,5 +9,8 @@
   "suspended": "مرورگر تعلیق شد. برای اتصال دوباره با این نشست تعامل کنید.",
   "failed.title": "دسترسی به URL ممکن نیست",
   "failed.description": "URL و اتصال خود را بررسی کنید و دوباره تلاش کنید.",
-  "action.reload": "بارگیری مجدد"
+  "action.reload": "بارگیری مجدد",
+  "download.failed.tooLarge": "نگه داشتن ⁨{{name}}⁩ ممکن نشد: بیشتر از 5 MiB است، که حد دانلود مرورگر است.",
+  "download.failed.canceled": "دانلود ⁨{{name}}⁩ لغو شد.",
+  "download.failed.other": "دانلود ⁨{{name}}⁩ ممکن نشد (⁨{{reason}}⁩)."
 }

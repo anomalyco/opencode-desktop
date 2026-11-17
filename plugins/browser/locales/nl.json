@@ -9,5 +9,8 @@
   "suspended": "Browser opgeschort. Interactie met deze sessie om opnieuw verbinding te maken.",
   "failed.title": "URL is niet bereikbaar",
   "failed.description": "Controleer de URL en je verbinding en probeer het opnieuw.",
-  "action.reload": "Opnieuw laden"
+  "action.reload": "Opnieuw laden",
+  "download.failed.tooLarge": "{{name}} kon niet worden bewaard: het is groter dan 5 MiB, de downloadlimiet van de browser.",
+  "download.failed.canceled": "De download van {{name}} is geannuleerd.",
+  "download.failed.other": "{{name}} kon niet worden gedownload ({{reason}})."
 }

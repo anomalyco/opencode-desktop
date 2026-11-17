@@ -9,5 +9,8 @@
   "suspended": "Pārlūka darbība ir apturēta. Mijiedarbojieties ar šo sesiju, lai atjaunotu savienojumu.",
   "failed.title": "URL nav sasniedzams",
   "failed.description": "Pārbaudiet URL un savienojumu un mēģiniet vēlreiz.",
-  "action.reload": "Ielādēt atkārtoti"
+  "action.reload": "Ielādēt atkārtoti",
+  "download.failed.tooLarge": "{{name}} nevarēja paturēt: tas pārsniedz 5 MiB, pārlūkprogrammas lejupielāžu ierobežojumu.",
+  "download.failed.canceled": "Faila {{name}} lejupielāde tika atcelta.",
+  "download.failed.other": "{{name}} nevarēja lejupielādēt ({{reason}})."
 }

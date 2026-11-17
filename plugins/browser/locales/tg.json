@@ -9,5 +9,8 @@
   "suspended": "Браузер боздошта шуд. Барои аз нав пайваст шудан бо ин сессия муошират кунед.",
   "failed.title": "URL дастнорас аст",
   "failed.description": "URL ва пайвастшавиро санҷед ва аз нав кӯшиш кунед.",
-  "action.reload": "Аз нав бор кардан"
+  "action.reload": "Аз нав бор кардан",
+  "download.failed.tooLarge": "{{name}}-ро нигоҳ доштан нашуд: он аз 5 MiB калон аст, ки ҳадди боргирии браузер аст.",
+  "download.failed.canceled": "Боргирии {{name}} бекор карда шуд.",
+  "download.failed.other": "{{name}}-ро боргирӣ кардан нашуд ({{reason}})."
 }

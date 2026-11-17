@@ -13,6 +13,7 @@
 
 #[cfg(windows)]
 mod d3d_frames;
+mod downloads;
 mod engine;
 mod output;
 mod handlers;
@@ -178,9 +179,9 @@ fn main() {
     }
 
     #[cfg(windows)]
-    let mut manager = EngineManager::new(out_tx, gpu.join().ok().flatten());
+    let mut manager = EngineManager::new(out_tx, _cef.downloads_dir(), gpu.join().ok().flatten());
     #[cfg(not(windows))]
-    let mut manager = EngineManager::new(out_tx);
+    let mut manager = EngineManager::new(out_tx, _cef.downloads_dir());
     step("manager");
     let mut first_message = true;
     let start = Instant::now();

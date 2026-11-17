@@ -9,5 +9,8 @@
   "suspended": "เบราว์เซอร์ถูกพักการทำงาน โต้ตอบกับเซสชันนี้เพื่อเชื่อมต่อใหม่",
   "failed.title": "เข้าถึง URL ไม่ได้",
   "failed.description": "ตรวจสอบ URL และการเชื่อมต่อ แล้วลองอีกครั้ง",
-  "action.reload": "โหลดใหม่"
+  "action.reload": "โหลดใหม่",
+  "download.failed.tooLarge": "เก็บ {{name}} ไว้ไม่ได้ เพราะใหญ่กว่า 5 MiB ซึ่งเป็นขีดจำกัดการดาวน์โหลดของเบราว์เซอร์",
+  "download.failed.canceled": "การดาวน์โหลด {{name}} ถูกยกเลิก",
+  "download.failed.other": "ดาวน์โหลด {{name}} ไม่ได้ ({{reason}})"
 }

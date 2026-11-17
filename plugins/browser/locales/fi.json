@@ -9,5 +9,8 @@
   "suspended": "Selain jäädytetty. Ole vuorovaikutuksessa tämän istunnon kanssa yhdistääksesi uudelleen.",
   "failed.title": "URL-osoitetta ei tavoiteta",
   "failed.description": "Tarkista URL-osoite ja yhteys ja yritä uudelleen.",
-  "action.reload": "Lataa uudelleen"
+  "action.reload": "Lataa uudelleen",
+  "download.failed.tooLarge": "Tiedostoa {{name}} ei voitu säilyttää: se on yli 5 MiB, selaimen latausraja.",
+  "download.failed.canceled": "Tiedoston {{name}} lataus peruutettiin.",
+  "download.failed.other": "Tiedostoa {{name}} ei voitu ladata ({{reason}})."
 }

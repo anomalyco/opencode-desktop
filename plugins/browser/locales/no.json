@@ -9,5 +9,8 @@
   "suspended": "Nettleseren er suspendert. Samhandle med denne økten for å koble til på nytt.",
   "failed.title": "URL-en kan ikke nås",
   "failed.description": "Kontroller URL-en og tilkoblingen, og prøv på nytt.",
-  "action.reload": "Last inn på nytt"
+  "action.reload": "Last inn på nytt",
+  "download.failed.tooLarge": "Kunne ikke beholde {{name}}: filen er over 5 MiB, nettleserens grense for nedlastinger.",
+  "download.failed.canceled": "Nedlastingen av {{name}} ble avbrutt.",
+  "download.failed.other": "Kunne ikke laste ned {{name}} ({{reason}})."
 }

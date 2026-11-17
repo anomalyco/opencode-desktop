@@ -140,7 +140,56 @@ pub fn composer(lua: &Lua, t: &Table) -> mlua::Result<()> {
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab:DevtoolsAsync`.
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.OpenAsync", host.async_function("Browser:OpenAsync", open)?)?;
-    t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)
+    t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
+    t.raw_set("BrowserTab.ReadFileAsync", host.async_function("BrowserTab:ReadFileAsync", read_file)?)
+}
+
+/// A downloaded file as the plugin sees it: Desktop's `files.list` fields (no path).
+fn file_json(f: &browser_pane::DownloadFile) -> serde_json::Value {
+    let state = match f.state {
+        browser_pane::DownloadState::Pending => "pending",
+        browser_pane::DownloadState::Completed => "completed",
+        browser_pane::DownloadState::Failed => "failed",
+    };
+    serde_json::json!({ "id": f.id, "name": f.name, "mime": f.mime, "bytes": f.bytes, "state": state, "error": f.error })
+}
+
+/// Reads a completed download of the page, off the UI thread: its text when it's UTF-8, else
+/// its bytes in base64, as Desktop's `files.get` hands a file over; at most 5 MiB, its limit.
+fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    const MAX: u64 = 5 * 1024 * 1024;
+    let (id, file_id): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    app_now("BrowserTab:ReadFileAsync")?.later(Box::new(move |s: &mut App, _: &mut Tx| {
+        let failed = |message: String| map([("error", Data::String(message))]);
+        let tab = id.parse::<u64>().ok().and_then(|id| s.browser.host.tab(id));
+        let Some(file) = tab.and_then(|t| t.files.iter().find(|f| f.id == file_id)).cloned() else {
+            return done.complete(failed(format!("No downloaded file {file_id} in browser tab {id}: list them with browser_files")));
+        };
+        match file.state {
+            browser_pane::DownloadState::Pending => return done.complete(failed(format!("{} is still downloading: check browser_files again", file.name))),
+            browser_pane::DownloadState::Failed => return done.complete(failed(format!("{} didn't download ({})", file.name, file.error.as_deref().unwrap_or("failed")))),
+            browser_pane::DownloadState::Completed => {}
+        }
+        rune_luau::spawn_blocking(move || {
+            use base64::Engine as _;
+            use std::io::Read as _;
+            let mut bytes = Vec::new();
+            let read = std::fs::File::open(&file.path).and_then(|f| f.take(MAX + 1).read_to_end(&mut bytes));
+            if let Err(e) = read {
+                return done.complete(failed(format!("Couldn't read {}: {e}", file.name)));
+            }
+            if bytes.len() as u64 > MAX {
+                return done.complete(failed(format!("{} is over the 5 MiB limit", file.name)));
+            }
+            let size = Data::Integer(bytes.len() as i64);
+            let body = match String::from_utf8(bytes) {
+                Ok(text) => ("text", Data::String(text)),
+                Err(e) => ("base64", Data::String(base64::engine::general_purpose::STANDARD.encode(e.into_bytes()))),
+            };
+            done.complete(map([("name", Data::String(file.name)), ("mime", Data::String(file.mime)), ("bytes", size), body]));
+        });
+    }));
+    Ok(())
 }
 
 /// Opens the page on the next poll, in a new tab of its session's side region, and answers with
@@ -265,6 +314,14 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         "LoadError",
         lua.create_function(move |_, this: Table| read(&this, "BrowserTab:LoadError").map(|(app, id)| app.browser.host.tab(id).and_then(|t| t.load_error.clone())))?,
     )?;
+    m.raw_set(
+        "Files",
+        lua.create_function(move |lua, this: Table| {
+            let (app, id) = read(&this, "BrowserTab:Files")?;
+            let files = app.browser.host.tab(id).map(|t| t.files.iter().map(|f| json_to_data(&file_json(f))).collect()).unwrap_or_default();
+            mlua::IntoLua::into_lua(Data::List(files), lua)
+        })?,
+    )?;
     m.raw_set("Zoom", lua.create_function(move |_, this: Table| read(&this, "BrowserTab:Zoom").map(|(app, id)| app.browser.host.tab(id).map_or(1.0, |t| t.zoom)))?)?;
     m.raw_set(
         "Navigate",
@@ -347,6 +404,15 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         .set_name("=BrowserTab:DevtoolsAsync")
         .call(raw)?;
     m.raw_set("DevtoolsAsync", call)?;
+    let raw: Function = match lua.app_data_ref::<std::rc::Rc<Vmx>>() {
+        Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ReadFileAsync")?,
+        None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
+    };
+    let call: Function = lua
+        .load("local raw = ... return function(self, fileId) local r = raw(self.Id, fileId) if r and r.error then error(r.error, 0) end return r end")
+        .set_name("=BrowserTab:ReadFileAsync")
+        .call(raw)?;
+    m.raw_set("ReadFileAsync", call)?;
     Ok(m)
 }
 
@@ -356,6 +422,8 @@ pub fn version(app: &App) -> u64 {
     format!("{:?}", app.browser.host.status()).hash(&mut h);
     for t in app.browser.host.tabs() {
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error).hash(&mut h);
+        // A download's step or end: `BrowserTab:Files` reads them.
+        t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.browser.host.focused_tab_id().hash(&mut h);
     let mut sessions: Vec<_> = app.browser.session_tabs.iter().collect();

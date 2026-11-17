@@ -392,6 +392,28 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
     }, rows)
 end
 
+-- The page's last download, when it failed: one line under the bar, as Desktop's published error
+-- (panel.tsx's `role="alert"` row: 12 regular, the danger colour, 12 and 6 in, a muted rule
+-- under it). A successful download shows nothing there, as Desktop's doesn't: it's for the
+-- agent's tools (`browser_files`).
+local function download(env: Env, tab: BrowserTab): ui.Node?
+    local files = tab:Files()
+    local last = files[#files]
+    if last == nil or last.state ~= "failed" then
+        return nil
+    end
+    local words = if last.error == "too_large"
+        then env.I18n:T("download.failed.tooLarge", { name = last.name })
+        elseif last.error == "canceled" then env.I18n:T("download.failed.canceled", { name = last.name })
+        else env.I18n:T("download.failed.other", { name = last.name, reason = last.error or "failed" })
+    return ui.col({ key = "browser-download-error", role = "alert", w = "full" }, {
+        ui.col({ dir = "auto", w = "full", px = 12, py = 6 }, {
+            ui.text(words, { size = 12, weight = "regular", lineHeight = 16, color = "status-danger", wrap = true }),
+        }),
+        ui.divider(),
+    })
+end
+
 -- A tab's pane.
 function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     local tab = if props.instance then env.Browser:Get(props.instance) else nil
@@ -403,6 +425,10 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     local items: { ui.Node } = {}
     if engine ~= "unsupported" then
         table.insert(items, bar(env, view, tab, state))
+    end
+    local failure = download(env, tab)
+    if failure then
+        table.insert(items, failure)
     end
     local url = tab:Url()
     local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating

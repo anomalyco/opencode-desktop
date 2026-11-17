@@ -9,5 +9,8 @@
   "suspended": "ब्राउज़र निलंबित. पुन: कनेक्ट करने के लिए इस सत्र से इंटरैक्ट करें.",
   "failed.title": "URL तक नहीं पहुँचा जा सका",
   "failed.description": "URL और अपना कनेक्शन जाँचें, फिर दोबारा कोशिश करें।",
-  "action.reload": "पुनः लोड करें"
+  "action.reload": "पुनः लोड करें",
+  "download.failed.tooLarge": "{{name}} रखा नहीं जा सका: यह 5 MiB से बड़ा है, जो ब्राउज़र की डाउनलोड सीमा है।",
+  "download.failed.canceled": "{{name}} का डाउनलोड रद्द कर दिया गया।",
+  "download.failed.other": "{{name}} डाउनलोड नहीं हो सका ({{reason}})।"
 }

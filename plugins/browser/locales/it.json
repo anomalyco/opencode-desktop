@@ -9,5 +9,8 @@
   "suspended": "Browser sospeso. Interagisci con questa sessione per riconnetterti.",
   "failed.title": "Impossibile raggiungere l’URL",
   "failed.description": "Controlla l’URL e la connessione, quindi riprova.",
-  "action.reload": "Ricarica"
+  "action.reload": "Ricarica",
+  "download.failed.tooLarge": "Impossibile conservare {{name}}: supera 5 MiB, il limite del browser per i download.",
+  "download.failed.canceled": "Il download di {{name}} è stato annullato.",
+  "download.failed.other": "Impossibile scaricare {{name}} ({{reason}})."
 }
