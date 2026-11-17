@@ -50,8 +50,8 @@ pub fn sync(app: &App) {
     }
 }
 
-/// The plugins' tools on the app's client MCP (`rune_mcp::tools::catalog`). A connection lists
-/// the tools there were when it opened, so the hub reconnects when `mcp_tools_generation` moves.
+/// The plugins' tools on the app's client MCP (`rune_mcp::tools::catalog`). Open connections
+/// announce changes through `ClientMcp::set_tools` when `mcp_tools_generation` moves.
 pub fn mcp_tools() -> Vec<McpTool> {
     MCP_TOOLS.lock().map(|t| t.clone()).unwrap_or_default()
 }

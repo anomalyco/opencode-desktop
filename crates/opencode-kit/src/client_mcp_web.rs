@@ -145,7 +145,7 @@ async fn run(ws: &web_sys::WebSocket, events: &Rc<RefCell<Events>>, bell: u64, o
     let (tx, out_rx) = channel();
     let out_tx = Outbox { tx, bell };
     let out = out_tx.clone();
-    if !transition(shared, move |_| Some(Conn::Open { tcp: None, out, ready: None }), waker) {
+    if !transition(shared, move |_| Some(Conn::Open { tcp: None, out, ready: None, list_changed: true }), waker) {
         return (false, true);
     }
     let (mut in_flight, mut initialized) = (0usize, false);

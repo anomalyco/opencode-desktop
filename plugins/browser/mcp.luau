@@ -91,13 +91,6 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         end
     end)
 
-    -- Adding a tool reconnects the client MCP, which ends every call it is answering: the file
-    -- tools (`addFileTools`) wait until these tools have been quiet for `QUIET` seconds.
-    local QUIET = 2
-    local inflight = 0
-    local calls = 0
-    local addFileTools: () -> ()
-
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
         ctx:AddMcpTool({
             name = name,
@@ -106,20 +99,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
             call = function(args, context)
                 used[context.sessionId] = true
                 busy[context.sessionId] = true
-                inflight += 1
-                calls += 1
-                local ok, result = pcall(call, args, context.sessionId)
-                inflight -= 1
-                local mark = calls
-                task.delay(QUIET, function()
-                    if inflight == 0 and calls == mark then
-                        addFileTools()
-                    end
-                end)
-                if not ok then
-                    error(result, 0)
-                end
-                return result
+                return call(args, context.sessionId)
             end,
         })
     end
@@ -308,8 +288,8 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
     -- The file tools exist only while an engine that keeps downloads runs (its Ready says so):
     -- an engine from before downloads would answer an empty list for ever.
     local filesAdded = false
-    function addFileTools()
-        if filesAdded or inflight > 0 or not Browser:Engine().downloads then
+    local function addFileTools()
+        if filesAdded or not Browser:Engine().downloads then
             return
         end
         filesAdded = true

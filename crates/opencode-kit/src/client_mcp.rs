@@ -245,6 +245,7 @@ struct Shared {
 struct InnerState {
     conn: Conn,
     tools: Vec<McpTool>,
+    tools_gen: u64,
 }
 
 /// The socket's life, one state at a time (`ClientMcpStatus` reads it). Official
@@ -255,8 +256,9 @@ enum Conn {
     Dialing,
     /// Waiting out a backoff before the next dial; `unsupported`: the server lacks the route.
     Waiting { unsupported: bool },
-    /// The socket is open; `ready` once `tools/list` was answered on it, since then.
-    Open { tcp: Option<TcpStream>, out: Outbox, ready: Option<Instant> },
+    /// The socket is open; `ready` once `tools/list` was answered on it, `list_changed` when the
+    /// client's `initialize` negotiated an MCP version with `notifications/tools/list_changed`.
+    Open { tcp: Option<TcpStream>, out: Outbox, ready: Option<Instant>, list_changed: bool },
     /// Closed for good (`close`, or the call receiver went away).
     Closed,
 }
@@ -297,12 +299,20 @@ impl ClientMcp {
         matches!(lock(&self.shared.state).conn, Conn::Open { ready: Some(at), .. } if at.elapsed() >= min_age)
     }
 
-    /// Replaces the advertised tool list and notifies the server (`notifications/tools/list_changed`).
-    pub fn set_tools(&self, tools: Vec<McpTool>) {
+    /// Replaces the advertised tool list and notifies the server (`notifications/tools/list_changed`)
+    /// once this socket has listed tools. False only when an open socket negotiated a client
+    /// protocol without `notifications/tools/list_changed`, so the caller can reconnect it.
+    pub fn set_tools(&self, tools: Vec<McpTool>) -> bool {
         let mut st = lock(&self.shared.state);
         st.tools = tools;
-        if let Conn::Open { out, .. } = &st.conn {
-            out.send(Outbound::ToolsChanged);
+        st.tools_gen = st.tools_gen.wrapping_add(1);
+        match &st.conn {
+            Conn::Open { list_changed: false, .. } => false,
+            Conn::Open { out, ready: Some(_), list_changed: true, .. } => {
+                out.send(Outbound::ToolsChanged);
+                true
+            }
+            _ => true,
         }
     }
 
@@ -376,7 +386,7 @@ impl Server {
     /// Connects a client MCP WebSocket forwarding incoming `tools/call` requests into `calls`.
     pub fn connect_client_mcp_with(&self, options: ClientMcpOptions, calls: Sender<McpCall>, waker: Waker) -> ClientMcp {
         let shared = Arc::new(Shared {
-            state: Mutex::new(InnerState { conn: Conn::Dialing, tools: options.tools.clone() }),
+            state: Mutex::new(InnerState { conn: Conn::Dialing, tools: options.tools.clone(), tools_gen: 0 }),
             cv: Condvar::new(),
         });
         let worker_shared = shared.clone();
@@ -440,14 +450,28 @@ fn transition(shared: &Shared, next: impl FnOnce(&mut Conn) -> Option<Conn>, wak
     true
 }
 
-/// `tools/list` was answered on the open socket: it's ready from now.
-fn mark_ready(shared: &Shared, waker: &Waker) {
-    transition(shared, |conn| {
-        if let Conn::Open { ready: ready @ None, .. } = conn {
+/// `tools/list` was answered on the open socket: it's ready from now; if `set_tools` ran while
+/// the reply went out, notify once so the client lists the newer tools too.
+fn mark_ready(shared: &Shared, listed_gen: u64, waker: &Waker) {
+    let mut st = lock(&shared.state);
+    if st.conn.closed() {
+        return;
+    }
+    let before = st.conn.status();
+    let stale = st.tools_gen != listed_gen;
+    if let Conn::Open { out, ready, list_changed, .. } = &mut st.conn {
+        if ready.is_none() {
             *ready = Some(Instant::now());
         }
-        None
-    }, waker);
+        if stale && *list_changed {
+            out.send(Outbound::ToolsChanged);
+        }
+    }
+    let changed = st.conn.status() != before;
+    drop(st);
+    if changed {
+        waker();
+    }
 }
 
 /// Waits out `delay` before the next dial; false when the socket was closed meanwhile.
@@ -572,7 +596,7 @@ fn run_worker(server: Server, options: ClientMcpOptions, calls: Sender<McpCall>,
         let out = Outbox { tx, wake: wake.clone() };
         let tcp = tcp_ref(&ws).try_clone().ok();
         let open = out.clone();
-        if !transition(&shared, move |_| Some(Conn::Open { tcp, out: open, ready: None }), &waker) {
+        if !transition(&shared, move |_| Some(Conn::Open { tcp, out: open, ready: None, list_changed: true }), &waker) {
             wake.delete(tcp_ref(&ws)).ok();
             send_normal_close(&mut ws);
             return;
@@ -713,24 +737,41 @@ fn handle_frame(
 
     match method {
         "initialize" => {
-            let proto = params.and_then(|p| p.get("protocolVersion")).and_then(Value::as_str).unwrap_or(PROTOCOL_VERSION);
+            let requested = params.and_then(|p| p.get("protocolVersion")).and_then(Value::as_str);
+            let supports = requested.is_some_and(|v| v >= "2024-11-05");
+            // 2024-11-05..2025-11-25 deliver `notifications/tools/list_changed` on the socket;
+            // 2026-07-28+ moved list-changed onto `subscriptions/listen`, so cap at 2025-11-25.
+            let proto = match requested {
+                Some(v) if ("2024-11-05".."2026-07-28").contains(&v) => v,
+                _ => PROTOCOL_VERSION,
+            };
             let mut result = json!({
                 "protocolVersion": proto,
-                "capabilities": { "tools": {} },
+                "capabilities": { "tools": { "listChanged": true } },
                 "serverInfo": { "name": options.name, "version": options.version },
             });
             if let Some(inst) = &options.instructions {
                 result["instructions"] = Value::String(inst.clone());
             }
-            send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            if send(&json!({ "jsonrpc": "2.0", "id": id, "result": result })) {
+                transition(shared, |conn| {
+                    if let Conn::Open { list_changed, .. } = conn {
+                        *list_changed = supports;
+                    }
+                    None
+                }, waker);
+            }
         }
         "ping" => {
             send(&json!({ "jsonrpc": "2.0", "id": id, "result": {} }));
         }
         "tools/list" => {
-            let tools_json: Vec<Value> = lock(&shared.state).tools.iter().map(tool_descriptor_json).collect();
+            let (listed_gen, tools_json) = {
+                let st = lock(&shared.state);
+                (st.tools_gen, st.tools.iter().map(tool_descriptor_json).collect::<Vec<Value>>())
+            };
             if send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools_json } })) {
-                mark_ready(shared, waker);
+                mark_ready(shared, listed_gen, waker);
             }
         }
         "tools/call" => {

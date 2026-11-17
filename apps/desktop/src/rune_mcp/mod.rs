@@ -143,12 +143,19 @@ impl RuneMcpHub {
         }
 
         let mut removed = Vec::new();
-        // A connection lists its tools once, and advertises no `listChanged` (as Desktop's
-        // `connectClientMcp`), so a plugin adding, removing or reloading a tool reconnects every
-        // folder, as Desktop's client MCP reconnects when what it serves changes.
         let generation = crate::plugin_host::mcp_tools_generation();
         let retool = std::mem::replace(&mut inner.tools_generation, generation) != generation;
-        let stale: Vec<FolderKey> = inner.connections.keys().filter(|k| retool || !wanted.contains_key(*k)).cloned().collect();
+        let tool_defs = tools::catalog();
+        // OpenCode's attached MCP client refreshes on `notifications/tools/list_changed`
+        // (`packages/core/src/mcp/index.ts` `attach`), so open connections announce the new list
+        // in place and keep calls in flight; reconnect only when a client lacks `list_changed`.
+        let stale: Vec<FolderKey> = inner
+            .connections
+            .iter()
+            .filter_map(|(k, conn)| {
+                (!wanted.contains_key(k) || (retool && !conn.set_tools(tool_defs.clone()))).then(|| k.clone())
+            })
+            .collect();
         for k in stale {
             if let Some(conn) = inner.connections.remove(&k) {
                 removed.push(conn);
@@ -159,7 +166,6 @@ impl RuneMcpHub {
             .routers
             .retain(|srv_key, _| wanted.keys().any(|(ep, _)| ep == srv_key));
 
-        let tool_defs = tools::catalog();
         for (key, srv) in wanted {
             if inner.connections.contains_key(&key) {
                 continue;
