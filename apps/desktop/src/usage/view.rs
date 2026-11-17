@@ -322,7 +322,7 @@ fn reached(p: &Pal) -> Color {
 
 /// `format.money`: US dollars in the locale's currency pattern (`$1,234.50`, `1.234,50 $`,
 /// `1 234,50 $US`), cents always or (`auto`) only off a whole amount.
-fn money(value: f64, auto: bool) -> String {
+pub(super) fn money(value: f64, auto: bool) -> String {
     opencode_i18n::usd(value, if auto && value.fract() == 0.0 { 0 } else { 2 })
 }
 

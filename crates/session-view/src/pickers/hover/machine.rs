@@ -34,6 +34,7 @@ pub enum State {
     /// The pointer rests on row `id`; its flyout opens after the delay.
     Opening { attempt: Attempt, id: String, apex: Point },
     Open { attempt: Attempt, id: String, apex: Point },
+    Keyed { attempt: Attempt, id: String, option: Option<usize> },
     /// The pointer crossed onto row `target` on its way to the flyout; the flyout stays on `id`
     /// while it keeps moving.
     Aiming { attempt: Attempt, id: String, apex: Point, target: String },
@@ -67,6 +68,7 @@ pub enum Event<'a> {
     /// Arrow keys, typing, a favorite toggled or an effort staged from the keyboard.
     Keyboard,
     Wheel,
+    Highlight { id: &'a str, option: Option<usize> },
     RowMoved { id: &'a str, active: Option<&'a str>, point: Point, flyout: Option<Rect> },
     RowLeft { onto: Onto, point: Point, flyout: Option<Rect> },
     /// The pointer moved somewhere other than a row or the flyout while a flyout is open.
@@ -97,6 +99,10 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects<Effect> {
     let cancel = move || if was_timed { Effects::one(Effect::Cancel) } else { Effects::none() };
     let next = if was_timed { following(attempt(state)) } else { attempt(state) };
     match event {
+        Event::Highlight { id, option } => {
+            *state = State::Keyed { attempt: next, id: id.to_owned(), option };
+            cancel()
+        }
         Event::Keyboard => {
             if matches!(state, State::Closed { input: Input::Keyboard, warm: false, .. }) {
                 return Effects::none();
@@ -125,7 +131,7 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects<Effect> {
                 Onto::Outside if inside(point, apex(state), flyout) => settle(state),
                 Onto::Outside => cool(state),
             },
-            State::Closed { .. } => Effects::none(),
+            State::Closed { .. } | State::Keyed { .. } => Effects::none(),
         },
         Event::PointerOutside { point, flyout } => match state {
             State::Open { .. } | State::Aiming { .. } if !inside(point, apex(state), flyout) => cool(state),
@@ -146,7 +152,7 @@ pub fn step(state: &mut State, event: Event<'_>) -> Effects<Effect> {
         }
         Event::Scrolled { target } => {
             // Scrolled by the arrow keys: the highlight stays, and nothing opens.
-            if matches!(state, State::Closed { input: Input::Keyboard, .. }) {
+            if !follows_pointer(state) {
                 return Effects::none();
             }
             match target {
@@ -259,14 +265,14 @@ fn following(a: Attempt) -> Attempt {
 
 fn attempt(state: &State) -> Attempt {
     match state {
-        State::Closed { attempt, .. } | State::Opening { attempt, .. } | State::Open { attempt, .. } | State::Aiming { attempt, .. } => *attempt,
+        State::Closed { attempt, .. } | State::Opening { attempt, .. } | State::Open { attempt, .. } | State::Keyed { attempt, .. } | State::Aiming { attempt, .. } => *attempt,
     }
 }
 
 fn apex(state: &State) -> Point {
     match state {
         State::Opening { apex, .. } | State::Open { apex, .. } | State::Aiming { apex, .. } => *apex,
-        State::Closed { .. } => [0.0, 0.0],
+        State::Closed { .. } | State::Keyed { .. } => [0.0, 0.0],
     }
 }
 
@@ -281,7 +287,7 @@ fn warm(state: &State) -> bool {
 /// `selectFlyoutOpenId`: the row whose flyout shows.
 pub fn flyout_id(state: &State) -> Option<&str> {
     match state {
-        State::Open { id, .. } | State::Aiming { id, .. } => Some(id),
+        State::Open { id, .. } | State::Keyed { id, .. } | State::Aiming { id, .. } => Some(id),
         _ => None,
     }
 }
@@ -289,7 +295,7 @@ pub fn flyout_id(state: &State) -> Option<&str> {
 /// `selectFlyoutFollowsPointer`: whether scrolling moves the highlight and flyout to the row
 /// under the pointer; a keyboard scroll keeps both.
 pub fn follows_pointer(state: &State) -> bool {
-    !matches!(state, State::Closed { input: Input::Keyboard, .. })
+    !matches!(state, State::Closed { input: Input::Keyboard, .. } | State::Keyed { .. })
 }
 
 /// `inside`: whether `p` is in the triangle from `apex` to the flyout's near corners, as on macOS.

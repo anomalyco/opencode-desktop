@@ -13,6 +13,8 @@ use crate::popover::{self as pop, Nav, cycle, nav};
 /// Host hooks for the agent, model and effort pickers. The provided methods are the pickers'
 /// behaviour; a host overrides only the hooks above them.
 pub trait PickerHost: ComposerHost {
+    /// The host's localized budget label and whether the model has reached its cap.
+    fn model_budget(&self, _key: &str) -> Option<(String, bool)> { None }
     fn pickers(&self) -> &Pickers;
     fn pickers_mut(&mut self) -> &mut Pickers;
 
@@ -234,6 +236,9 @@ pub trait PickerHost: ComposerHost {
             pk.active.clear();
         }
         self.apply_menu_effect(eff, tx);
+        if self.pickers().open() == Some(Kind::Model) && let Some(key) = self.picker_active() {
+            self.flyout_event(hover::machine::Event::Highlight { id: &key, option: None }, tx);
+        }
     }
 
     fn open_picker(&mut self, kind: Kind) {
@@ -397,6 +402,7 @@ pub(super) fn provider_rank(m: &Model) -> (usize, String) {
 
 fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if let Some(open) = s.pickers().open() {
+        if open == Kind::Model && flyout_key(s, ev, tx) { return true; }
         let is_space = matches!(&ev.key, Key::Text(t) if t == " ") && ev.mods == Default::default();
         match nav(ev) {
             Some(Nav::Close) => s.close_picker_with(menu::CloseReason::Escape, tx),
@@ -411,7 +417,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                         let active = s.picker_active();
                         let at = items.iter().position(|i| Some(&i.key) == active.as_ref());
                         let key = items[cycle(items.len(), at, step)].key.clone();
-                        s.model_list_keyed();
+                        s.flyout_event(hover::machine::Event::Highlight { id: &key, option: None }, tx);
                         s.pickers_mut().hover.navigated = true;
                         tx.scroll_into_view_in("picker-scroll", format!("option-{key}"));
                         s.pickers_mut().activate(key);
@@ -447,8 +453,8 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                     (true, opencode_i18n::Direction::Ltr) | (false, opencode_i18n::Direction::Rtl) => 1,
                     (false, opencode_i18n::Direction::Ltr) | (true, opencode_i18n::Direction::Rtl) => -1,
                 };
-                if !s.step_effort(&key, step) { return false; }
-                s.model_list_keyed();
+                if step < 0 { return false; }
+                s.flyout_event(hover::machine::Event::Highlight { id: &key, option: Some(0) }, tx);
             }
             None => return open != Kind::Model,
         }
@@ -476,4 +482,29 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     false
+}
+
+fn flyout_key<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    use super::flyout::EffortFlyout;
+    let Some(index) = s.pickers().hover.option() else { return false };
+    let Some(id) = s.pickers().hover.flyout_model().map(str::to_owned) else { return false };
+    let Some(model) = s.pickers().models.iter().find(|m| m.key == id) else { return false };
+    let count = model.variants.len() + 2;
+    let backward = if opencode_i18n::direction() == opencode_i18n::Direction::Ltr { Key::Left } else { Key::Right };
+    let option = match &ev.key {
+        Key::Down => Some((index + 1) % count),
+        Key::Up => Some((index + count - 1) % count),
+        key if *key == backward || *key == Key::Escape => None,
+        Key::Enter => {
+            if index == count - 1 { s.toggle_favorite(&id); s.model_flyout_dismissed(tx); }
+            else {
+                let effort = index.checked_sub(1).and_then(|i| model.variants.get(i)).cloned().unwrap_or_default();
+                s.choose_effort(&id, &effort, tx);
+            }
+            return true;
+        }
+        _ => return false,
+    };
+    s.flyout_event(hover::machine::Event::Highlight { id: &id, option }, tx);
+    true
 }

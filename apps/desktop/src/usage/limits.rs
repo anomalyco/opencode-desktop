@@ -66,6 +66,19 @@ pub struct Budget {
 }
 
 impl Info {
+    /// `modelUsage` (anomalyco/opencode#64409): the tightest applicable budget wins.
+    pub fn model_left(&self, provider: &str, model: &str, served: bool) -> Option<f64> {
+        self.budgets.iter().filter_map(|budget| {
+            let spent = if budget.covers_all {
+                if !served { return None; }
+                budget.spent
+            } else {
+                let entry = budget.models.iter().find(|m| m.provider == provider && m.model == model)?;
+                if budget.per_model { entry.spent.unwrap_or(0.0) } else { budget.spent }
+            };
+            Some((budget.limit - spent).max(0.0))
+        }).min_by(f64::total_cmp)
+    }
     /// The `data` of the server's answer; `None` for anything else (`null` is signed out).
     pub fn parse(v: &Value) -> Option<Info> {
         let w = v.get("workspace")?;
