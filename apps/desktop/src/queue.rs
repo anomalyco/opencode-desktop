@@ -350,11 +350,13 @@ const TUCK: f32 = 12.0;
 /// a dock blocks the composer (`SessionQueuePanel hidden={blocked}`); it opens again after.
 pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let rows = shown_rows(s, session);
-    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0)
-        .radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border));
+    let shell = col().key("queue").w_full().max_w(session_view::style::dock_w()).clip_soft(0.0);
     if rows.is_empty() {
-        return shell.h(0.0).inert().a11y_hidden();
+        return shell.h(0.0);
     }
+    // The frame belongs to the room, not the tray: as a delivery takes the tray's height the
+    // rows animate inside a frame that keeps its shape.
+    let shell = shell.radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border));
     let n = rows.len();
     let ops = s.queue_ops.get(session);
     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();

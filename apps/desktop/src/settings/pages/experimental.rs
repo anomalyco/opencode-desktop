@@ -1,5 +1,6 @@
 //! Settings › Experimental (`settings/experimental/experimental.tsx`): Organize vertical sidebar,
-//! New icons, Fold long messages and New question UI; then Rune's live timeline and Rewind.
+//! New icons, Fold long messages, New question UI and Smooth timeline; then this app's
+//! Developer section (Rewind).
 
 use rune::{El, col};
 

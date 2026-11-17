@@ -198,7 +198,9 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // in view while the model shows only under the pointer (`message-part.css:271-458`).
     // The absolute anchor keeps its place even when the first model arrives a commit
     // after delivery. An empty anchor carries only the offset, no label or layout space.
-    if status.is_none() && !below {
+    // A pending label is drawn either way; Smooth timeline also keeps an empty anchor in place
+    // for the model that arrives a commit after delivery.
+    if status.is_none() && !below && (s.smooth_timeline() || !meta.is_empty() || pending) {
         let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-28.0)).h(20.0).gap(4.0).center_y().a11y_hidden();
         for (k, (label, variant)) in meta.iter().enumerate() {
             if k > 0 && !variant {
@@ -209,7 +211,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         // Offset the model, not the line's layout. It can return to the trailing edge
         // without landing on the outgoing Pending glyphs under a stationary pointer.
         if pending {
-            let width = |s| rune::text::measure(s, &[], PROMPT_META, None).0;
+            let width = |t: &str| rune::text::measure(t, &[], PROMPT_META, None).0;
             let room = width(opencode_i18n::t!("ui.message.pending")) + width("·") + 8.0;
             let sign = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 1.0 } else { -1.0 };
             line = line.offset(sign * room, 0.0);
