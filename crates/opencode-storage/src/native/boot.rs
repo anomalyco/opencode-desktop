@@ -20,6 +20,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::boot_record::{self, BootPacket, BootSource, FastBoot};
 use super::import::{self, ImportSummary};
 use super::schema::{self, FLAG_BITS, FLAG_BOOT_PAGE2, FLAG_MASK, FLAG_SEED_SETTLED, ImportGroup, SCHEMA_VERSION};
+use super::writer::OpenJournal;
 use super::{Backend, StorageConfig, journal, sql, writer};
 
 mod damaged;
@@ -340,12 +341,12 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
         result = Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY), Some("the saved state changed while another process held it".into())));
     }
     report.total_ns = ns(t0);
-    journal::decided();
+    if owe.journal != OpenJournal::Owed || result.is_err() { journal::decided(); }
     match result {
         Ok((conn, cache, deferred)) => {
             let cache = super::shared(cache);
             // A run that read the record through SQLite leaves the WAL to checkpoint at quit.
-            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.reserved, report.created);
+            let w = writer::Writer::new(conn, cache.clone(), config.clock, deferred, report.boot_source != BootSource::Raw, owe.journal, report.created);
             (Storage::from_parts(cache, Backend::parked(w)), report)
         }
         Err(e) => {
@@ -513,8 +514,10 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
         conn.execute_batch("PRAGMA journal_mode = OFF")?;
     }
     // The draft journal exists before the windows get their packet (so before any key), and in a
-    // new file before any other table, so its first page is inside the boot read's first 128 KiB.
+    // new file before any other table, so its first page is inside the boot read's first 128 KiB;
+    // a file with data and no place for it gets one after the first frame.
     if owe.want_journal && journal::SUPPORTED && !journal::attached() {
+        owe.journal = OpenJournal::Settled;
         // The WAL holds frames here: the file alone may be behind, so SQLite confirms the row.
         let hinted = owe.hint.take().is_some_and(|loc| journal::row_ok(&conn, &loc) && attach_journal(config, report, owe, &loc, false));
         let existing = if hinted { None } else { journal::location(&conn)? };
@@ -534,28 +537,35 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
                 conn.execute_batch("DELETE FROM journal_meta")?;
             }
             let t = Instant::now();
-            match journal::provision(&conn, &config.path, config.clock) {
-                Ok((loc, fresh)) => {
-                    report.journal_reserved = fresh;
-                    report.journal_ns += ns(t);
-                    // The record didn't name this place: the next checkpoint's record will.
-                    owe.reserved = true;
-                    // A recorded place that no longer holds this database's journal (an outside
-                    // tool rewrote the file) is reserved again.
-                    if !attach_journal(config, report, owe, &loc, fresh) && !fresh {
-                        conn.execute_batch("DELETE FROM journal_meta")?;
-                        if let Ok((loc, true)) = journal::provision(&conn, &config.path, config.clock) {
-                            report.journal_reserved = true;
-                            attach_journal(config, report, owe, &loc, true);
+            if !new && journal::kept(&conn)?.is_none() {
+                // The first launch after the update that brought it: reserved after the first frame
+                // (`writer::reserve`); the keys meanwhile go to the database, and are held for it.
+                owe.journal = OpenJournal::Owed;
+                rune::marks::mark("journal.owed");
+            } else {
+                match journal::provision(&conn, &config.path, config.clock) {
+                    Ok((loc, fresh)) => {
+                        report.journal_reserved = fresh;
+                        report.journal_ns += ns(t);
+                        // The record didn't name this place: the next checkpoint's record will.
+                        owe.journal = OpenJournal::Reserved;
+                        // A recorded place that no longer holds this database's journal (an
+                        // outside tool rewrote the file) is reserved again, after the first frame.
+                        if !attach_journal(config, report, owe, &loc, fresh) && !fresh {
+                            conn.execute_batch("DELETE FROM journal_meta")?;
+                            owe.journal = OpenJournal::Owed;
                         }
                     }
+                    Err(e) => report.journal_error = Some(e.to_string()),
                 }
-                Err(e) => report.journal_error = Some(e.to_string()),
             }
         }
     }
-    // Decided: keys held meanwhile are in the journal, or (no journal) the database's alone.
-    journal::decided();
+    // Decided: keys held meanwhile are in the journal, or (no journal) the database's alone; an
+    // owed one keeps holding them for the writer.
+    if owe.journal != OpenJournal::Owed {
+        journal::decided();
+    }
     if let (Some(s), Some(mut p)) = (send, owe.packet.take()) {
         p.apply_journal(&owe.recovered);
         report.stage_a_ns = ns(t0);
@@ -639,7 +649,7 @@ fn stage_b(config: &StorageConfig, report: &mut BootReport, t0: Instant, mut sen
         report.journal_ns += ns(t);
         // What it wrote is in the WAL, and a shown draft may be in the boot record: both are
         // the writer's to checkpoint (and rebuild).
-        owe.reserved |= report.journal_written > 0;
+        if report.journal_written > 0 && owe.journal == OpenJournal::Settled { owe.journal = OpenJournal::Reserved; }
     }
     let mut cache = read(&conn, report)?;
     // What was offered is what's stored: putting the same bytes back writes nothing.

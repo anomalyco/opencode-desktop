@@ -6,7 +6,9 @@
 //! memory copy (no system call, lock or allocation for a draft it has seen); read back before the
 //! first frame, where a record newer than the database's (`draft_rev`) is the draft shown.
 //!
-//! Lifetime: [`attach`] maps it on the open's thread after the instance claim (before any key);
+//! Lifetime: [`attach`] maps it on the open's thread after the instance claim (before any key),
+//! or, on the first launch after the update that brought it, on the writer's thread once the first
+//! frame is up and it's reserved (the keys before that are held: [`Early`]);
 //! the writer marks what it committed [`settle`]d; [`finish`] at close marks it clean when
 //! everything is, so the next launch reads only its header. A power cut can lose what the OS
 //! hadn't written of the mapped pages; the database's synced checkpoints bound that as before.
@@ -407,7 +409,7 @@ pub(crate) fn attached() -> bool {
 }
 
 /// The keys that come before the journal is decided (a new profile, the first launch after the
-/// update: it's reserved beside the first frame, and the first input never waits for it). They
+/// update: it's reserved after the first frame, and the first input never waits for it). They
 /// go to the database as always; their newest text per draft is held here and copied into the
 /// journal the moment it's mapped. Until then they're in memory only (the guarantees table's one
 /// exception).
@@ -459,11 +461,21 @@ fn hold(key: &str, text: Option<&str>) -> bool {
 /// in the main file. No sync anywhere: a kill here leaves a profile that reserves again. Returns
 /// where it is, and whether it was just reserved.
 pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rusqlite::Result<(Location, bool)> {
-    if let Some(loc) = location(conn)?.filter(|l| row_ok(conn, l)) {
+    if let Some(loc) = kept(conn)? {
         return Ok((loc, false));
     }
-    // Unsynced throughout, the tables included: one transaction, no sync on the way to the
-    // first frame (the next synced checkpoint makes it durable, as with any kill-safe commit).
+    reserve(conn)?;
+    locate(conn, db, clock).map(|l| (l, true))
+}
+
+/// The place the database already holds for its journal, when it still holds it.
+pub(crate) fn kept(conn: &Connection) -> rusqlite::Result<Option<Location>> {
+    Ok(location(conn)?.filter(|l| row_ok(conn, l)))
+}
+
+/// [`provision`]'s first write: the tables and the zeroed blob, in one unsynced transaction (the
+/// next synced checkpoint makes it durable, as with any kill-safe commit).
+pub(crate) fn reserve(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA synchronous = OFF")?;
     let reserved = (|| {
         conn.execute_batch(
@@ -478,6 +490,20 @@ pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rus
         conn.execute("INSERT INTO journal (id, data) VALUES (1, zeroblob(?1))", [BYTES])?;
         conn.execute_batch("COMMIT")?;
         rune::marks::mark("journal.inserted");
+        Ok(())
+    })();
+    if reserved.is_err() {
+        conn.execute_batch("ROLLBACK").ok();
+    }
+    conn.execute_batch("PRAGMA synchronous = NORMAL")?;
+    reserved
+}
+
+/// [`provision`]'s second write, after [`reserve`]: the blob's pages into the main file, and its
+/// place recorded. Returns the place.
+pub(crate) fn locate(conn: &Connection, db: &Path, clock: fn() -> i64) -> rusqlite::Result<Location> {
+    conn.execute_batch("PRAGMA synchronous = OFF")?;
+    let reserved = (|| {
         // In WAL mode the pages are in the WAL now: into the main file with them. (A new file
         // has no WAL yet: they went there directly.)
         if conn.query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))? == "wal" {
@@ -497,7 +523,7 @@ pub(crate) fn provision(conn: &Connection, db: &Path, clock: fn() -> i64) -> rus
         conn.execute_batch("ROLLBACK").ok();
     }
     conn.execute_batch("PRAGMA synchronous = NORMAL")?;
-    reserved.map(|l| (l, true))
+    reserved
 }
 
 /// The boot record's checksum (0 without one).

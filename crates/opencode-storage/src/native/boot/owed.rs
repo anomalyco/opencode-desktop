@@ -17,8 +17,8 @@ pub(super) struct Owe {
     pub hint: Option<journal::Location>,
     /// The drafts the journal held at launch.
     pub recovered: Vec<journal::Recovered>,
-    /// The journal was reserved by this open: the boot record must name it.
-    pub reserved: bool,
+    /// What the writer has still to do for the journal.
+    pub journal: super::super::writer::OpenJournal,
     /// This run keeps a journal (not one that shows another process's file, saving nothing).
     pub want_journal: bool,
 }

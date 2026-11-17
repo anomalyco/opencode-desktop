@@ -25,7 +25,10 @@ use crate::machine::write_behind::{self as wb, WriteBehindEffect, WriteBehindEve
 use crate::outbox;
 use crate::{Cmd, FlushReason, FlushReport, Loaded, StorageError, WindowFrame};
 
+mod reserve;
 mod rows;
+pub(crate) use reserve::OpenJournal;
+use reserve::{Reservation, ReserveStep};
 use rows::{apply, cmd_name, note, settled, slow};
 
 pub(crate) enum Msg {
@@ -126,14 +129,6 @@ pub(crate) struct Writer {
     origin: super::search::Origin,
 }
 
-/// What the open wrote before the first frame without a sync (the draft journal's reservation,
-/// a new file's first tables): synced once, by the first frame's work, off the UI thread.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Reservation {
-    Durable,
-    Unsynced,
-}
-
 /// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
 #[allow(clippy::too_many_arguments)]
 fn step_buffer<K: Hash + Eq + Clone, V: Clone>(seq: &mut Seq, machine: &mut WriteBehindState<K, V>, event: WriteBehindEvent<K, V>, delay: u64, timer: &'static str, timers: &mut HashMap<&'static str, Armed>) -> Vec<(Attempt, IndexMap<K, V>)> {
@@ -158,13 +153,18 @@ impl Writer {
     /// `wal_dirty`: the WAL holds frames to checkpoint; `boot_stale`: the boot record is behind
     /// the tables (the open reserved the draft journal, whose place the record names); `created`:
     /// this open made the file, so schema 2 is its own (`search::Origin`).
-    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, boot_stale: bool, created: bool) -> Writer {
+    pub(crate) fn new(conn: Connection, cache: Arc<Mutex<Cache>>, clock: fn() -> i64, deferred: Deferred, wal_dirty: bool, journal: OpenJournal, created: bool) -> Writer {
         let mut seq = Seq::default();
+        let boot_stale = journal == OpenJournal::Reserved;
         let wal = if wal_dirty || boot_stale { WalState::Dirty { attempt: seq.next(), boot_stale } } else { WalState::Clean };
         Writer {
             conn,
             cache,
-            reservation: if boot_stale { Reservation::Unsynced } else { Reservation::Durable },
+            reservation: match journal {
+                OpenJournal::Settled => Reservation::Durable,
+                OpenJournal::Reserved => Reservation::Unsynced,
+                OpenJournal::Owed => Reservation::Owed(ReserveStep::AfterFrame),
+            },
             origin: if created { super::search::Origin::Made } else { super::search::Origin::Found },
             search: super::search::State::BeforeFrame,
             clock,
@@ -303,6 +303,7 @@ impl Writer {
                 }
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
                     rune::marks::mark("writer.stop");
+                    self.reserve_stopped();
                     self.flush(FlushReason::Quit, Instant::now());
                     self.quit_checkpoint(FlushReason::Quit);
                     self.repage();
@@ -346,6 +347,7 @@ impl Writer {
                 let effects = draft_gc::step(&mut self.seq, &mut self.gc, DraftGcEvent::TimerFired { attempt, at_ms: (self.clock)() });
                 self.gc_effects(effects);
             }
+            "reserve" => self.reserve_step(),
             _ => self.wal_event(WalEvent::TimerFired { attempt }),
         }
     }
@@ -734,6 +736,7 @@ impl Writer {
         if self.reservation == Reservation::Unsynced {
             self.sync_reservation();
         }
+        self.reserve_after_frame();
         let now = (self.clock)();
         if matches!(self.search, super::search::State::BeforeFrame) {
             self.conn.execute_batch(UNSYNCED).ok();
