@@ -196,28 +196,32 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     let status = s.user_status(p, id);
     // The meta line, right under the bubble: the model, then Pending on a steer, which stays
     // in view while the model shows only under the pointer (`message-part.css:271-458`).
-    if status.is_none() && !below && (!meta.is_empty() || pending) {
+    // The absolute anchor keeps its place even when the first model arrives a commit
+    // after delivery. An empty anchor carries only the offset, no label or layout space.
+    // A pending label is drawn either way; Smooth timeline also keeps an empty anchor in place
+    // for the model that arrives a commit after delivery.
+    if status.is_none() && !below && (s.smooth_timeline() || !meta.is_empty() || pending) {
         let mut line = row().key("meta").pin(None, None, Some(0.0), Some(-28.0)).h(20.0).gap(4.0).center_y().a11y_hidden();
-        let mut model = row().key("meta-model").gap(4.0).center_y();
         for (k, (label, variant)) in meta.iter().enumerate() {
             if k > 0 && !variant {
-                model = model.child(text("\u{00b7}").key(format!("sep{k}")).font(PROMPT_META).color(p.faint));
+                line = line.child(text("\u{00b7}").key(format!("sep{k}")).font(PROMPT_META).color(p.faint));
             }
-            model = model.child(text(label.clone()).key(format!("item{k}")).font(PROMPT_META).color(p.faint));
+            line = line.child(text(label.clone()).key(format!("item{k}")).font(PROMPT_META).color(p.faint));
         }
-        if pending && !meta.is_empty() {
-            model = model.child(text("\u{00b7}").key("pending-sep").font(PROMPT_META).color(p.faint));
-        }
-        line = line.child(model);
+        // Offset the model, not the line's layout. It can return to the trailing edge
+        // without landing on the outgoing Pending glyphs under a stationary pointer.
         if pending {
-            // Pending itself draws in the meta room below, outside the bubble, so it stays put
-            // while the bubble flies in from the composer; an unseen copy here keeps the model
-            // left of it.
-            line = line.child(pending_label(p).key("pending-room").opacity(0.0));
+            let width = |t: &str| rune::text::measure(t, &[], PROMPT_META, None).0;
+            let room = width(opencode_i18n::t!("ui.message.pending")) + width("·") + 8.0;
+            let sign = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 1.0 } else { -1.0 };
+            line = line.offset(sign * room, 0.0);
+            if !meta.is_empty() {
+                line = line.child(text("·").key("pending-sep").font(PROMPT_META).color(p.faint).pin(None, None, Some(-4.0 - width("·")), None));
+            }
         }
-        // As Desktop's copy wrapper, the whole line shows only under the pointer, sent or
-        // pending, so it comes and goes unseen as the model it names lands or changes, and a
-        // steer's delivery never crossfades it into view.
+        use rune::AnimExt as _;
+        line = line.offset_motion(if s.smooth_timeline() { rune::tok::motion::SNAP.delay(rune::Transition::opacity().springs.exit.duration) } else { INSTANT });
+        // Only the hover line moves sideways; the status stays at the bubble's trailing edge.
         face = face.child(if open { line.opacity(1.0).opacity_motion(INSTANT) } else { line.group_opacity(0.0, 1.0) });
     }
     let c = col()
@@ -230,11 +234,9 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         // a run's earlier prompts.
         None => {
             let mut room = el().key("meta-room").w_full().h(if below { 0.0 } else { 28.0 });
+            if !pending && s.smooth_timeline() { room = room.child_exit(rune::Transition::opacity()); }
             if pending && !below {
-                // A label, so it shows and goes at once, as Desktop's delivery swaps it
-                // (message-part.css:401-410).
-                let label = pending_label(p).key("pending").transition(rune::Transition::none());
-                room = room.child(row().key("pending-line").w_full().h(20.0).mt(8.0).justify_end().center_y().a11y_hidden().child(label));
+                room = room.child(pending_label(p).key("pending").pin(None, Some(9.0), Some(0.0), None).a11y_hidden().transition(rune::Transition::none()));
             }
             c.child(room)
         }

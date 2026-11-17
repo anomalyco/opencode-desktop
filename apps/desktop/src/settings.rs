@@ -83,6 +83,8 @@ pub struct Settings {
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
     /// Settings › Experimental › New question UI). Off unless turned on, as there.
     pub new_question_ui: bool,
+    /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
+    pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
     /// of typing the layout's character. Off by default, so Option+E types é as everywhere else
     /// on the Mac; Desktop's terminal (ghostty-web) treats Option as Meta.
@@ -157,6 +159,7 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: Default::default(),
             new_question_ui: false,
+            smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
             language: None,
@@ -202,6 +205,7 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "newQuestionUI": self.new_question_ui,
+            "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
             "language": self.language,
             "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
@@ -249,6 +253,7 @@ impl Settings {
             // `appearance`, which here is the colour scheme.
             tab_layout: crate::layout_state::TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
+            smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"].as_array().map(|a| a.iter().filter_map(|m| m.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
             language: v["language"].as_str().filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l)).map(str::to_owned),

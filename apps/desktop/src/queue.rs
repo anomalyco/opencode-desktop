@@ -354,6 +354,9 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     if rows.is_empty() {
         return shell.h(0.0);
     }
+    // The frame belongs to the room, not the tray: as a delivery takes the tray's height the
+    // rows animate inside a frame that keeps its shape.
+    let shell = shell.radius(10.0).fill(p.bg_base).box_shadow(Pal::ring_in(p.border));
     let n = rows.len();
     let ops = s.queue_ops.get(session);
     let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
@@ -381,9 +384,6 @@ pub fn panel(s: &App, p: &Pal, session: &str, busy: bool) -> El {
     let mut tray = col()
         .key("queue-tray")
         .w_full()
-        .radius(10.0)
-        .fill(p.bg_base)
-        .box_shadow(Pal::ring_in(p.border))
         .px(6.0)
         .pt(6.0)
         .pb(if n > 4 { TUCK } else { TUCK + 6.0 });

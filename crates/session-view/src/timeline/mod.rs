@@ -105,6 +105,9 @@ impl RowSpec {
     /// grow by many lines in one build.
     fn wrap_paced<S: TimelineHost>(&self, s: &S, heading: Option<El>, el: El, paced: bool) -> El {
         let row = col().w_full().max_w(crate::style::content_w()).children(heading).child(el);
+        let row = if matches!(self.content, RowContent::User { .. } | RowContent::Pending { .. }) && s.smooth_timeline() {
+            row.joined_row_face("bubble")
+        } else { row };
         let k = s.knobs();
         if self.streaming && (paced || crate::line_reveal::reveal(k) == crate::line_reveal::Reveal::HeldRoom) {
             row.streaming(true)
@@ -215,7 +218,7 @@ impl RowSpec {
                         let meta = prompt_meta(s, t, Some(*message));
                         // A turn's place is only for its heading, which only a reader gets.
                         let (turn, more) = if s.assistive() { (turn_of(t, *message), s.more_above(&t.session)) } else { ((0, 0), false) };
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*tight, *above, *below, fold.past, s.fold_user_messages(), open, p.dark, self.streaming, s.smooth_timeline()], (fold.viewport.to_bits(), reply.to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };

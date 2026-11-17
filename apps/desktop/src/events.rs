@@ -49,7 +49,14 @@ pub enum Heard {
 /// Where this poll got the open timeline's geometry. A page wins over stream events in
 /// either order: growth opts in a whole stack, not just the row that the stream changed.
 #[derive(Default)]
-pub(crate) enum TailChange { #[default] None, Live(Route), Page }
+pub(crate) enum TailChange {
+    #[default]
+    None,
+    /// A live delivery. `from` is the delivered row when it left the tray instead of a
+    /// Pending row: it grows into the room the tray gives up.
+    Live { route: Route, from: Option<String> },
+    Page,
+}
 
 pub struct StreamEvent {
     pub ty: String,
@@ -94,6 +101,8 @@ pub struct Done {
     /// Running sessions, idle and busy marks, requests (`apply_status`).
     pub status: bool,
     pub inbox: bool,
+    /// The delivered item occupied the queue, not a Pending row in the transcript.
+    pub queued_delivery: bool,
     /// A revert's mark moved.
     pub revert: bool,
     /// The session's agent or model, archive or metadata.
@@ -136,14 +145,23 @@ impl App {
 
     pub(crate) fn react_live(&mut self, e: &StreamEvent) -> bool {
         let ty = e.ty.as_str();
-        if matches!(self.tail_change, TailChange::None) && (e.done.transcript || e.done.inbox)
+        if !matches!(self.tail_change, TailChange::Page)
             && let Some(id) = e.data["sessionID"].as_str()
             && self.showing_here(id)
-            && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
-                || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered")
-                || (ty == "session.inbox.enqueued" && self.waiting_finish(id, &e.data)))
         {
-            self.tail_change = TailChange::Live((*self.route).clone());
+            // A queued delivery leaves the tray for the transcript: its row takes the tray's room.
+            let from = if self.settings.smooth_timeline && e.done.queued_delivery {
+                e.data["inboxID"].as_str().map(|id| format!("u-{id}"))
+            } else {
+                None
+            };
+            let live = (e.done.transcript || e.done.inbox)
+                && (ty.starts_with("session.text.") || ty.starts_with("session.reasoning.") || ty.starts_with("session.tool.")
+                    || matches!(ty, "session.synthetic" | "session.user.message" | "session.prompted" | "session.inbox.delivered")
+                    || (ty == "session.inbox.enqueued" && self.waiting_finish(id, &e.data)));
+            if from.is_some() || (live && matches!(self.tail_change, TailChange::None)) {
+                self.tail_change = TailChange::Live { route: (*self.route).clone(), from };
+            }
         }
         self.react(e)
     }
@@ -166,9 +184,17 @@ impl App {
     }
 
     pub(crate) fn finish_tail_change(&mut self, tx: &mut Tx) {
-        if let TailChange::Live(route) = std::mem::take(&mut self.tail_change) && *self.route == route
-            && let Route::Session { id, .. } = route && self.ends.at_end(&id) && !self.ends.due(&id) && !self.stream_gaps.contains_key(&id)
-        { tx.grow_visible_tail(format!("scroll-{id}/timeline")); }
+        let TailChange::Live { route, from } = std::mem::take(&mut self.tail_change) else { return };
+        let Route::Session { id, .. } = &route else { return };
+        if *self.route != route || !self.ends.at_end(id) || self.ends.due(id) || self.stream_gaps.contains_key(id) { return; }
+        let stack = format!("scroll-{id}/timeline");
+        if !session_view::TimelineHost::smooth_timeline(self) {
+            // The shipped live-row growth and reordering stay on in either presentation.
+            tx.grow_visible_tail(stack);
+            return;
+        }
+        if let Some(from) = from { tx.grow_visible_tail_from(stack.clone(), from, "dock/queue-room"); }
+        tx.grow_visible_tail_with_ink(stack);
     }
 
     fn apply_event_shared(&mut self, ty: &str, data: &Value) -> Done {
@@ -176,6 +202,8 @@ impl App {
         let now = *self.now_ms;
         let mut done = Done { status: self.apply_status(ty, data, &sid), ..Done::default() };
         if ty.starts_with("session.inbox.") && !sid.is_empty() {
+            done.queued_delivery = ty == "session.inbox.delivered" && data["inboxID"].as_str().is_some_and(|id|
+                self.inboxes.get(&sid).is_some_and(|i| i.queued().any(|item| item.id == id)));
             done.inbox = self.apply_inbox(ty, data, &sid);
         }
         if ty.starts_with("session.revert.") && !sid.is_empty() {
@@ -200,6 +228,16 @@ impl App {
                 }
                 None => t.apply(ty, data, now),
             };
+        }
+        // A user's message can reach the transcript before the separate inbox delivery.
+        // Once the echo landed, the steer is that row, not another copy below Working.
+        if done.transcript && matches!(ty, "session.user.message" | "session.prompted")
+            && let Some(id) = data["messageID"].as_str()
+            && self.inboxes.get(&sid).is_some_and(|i| i.steering().any(|item| item.id == id))
+            && let Some(item) = self.inboxes.get_mut(&sid).and_then(|i| i.remove(id))
+        {
+            if !item.files.is_empty() { opencode_kit::model::set_user_files(id, item.files); }
+            done.inbox = true;
         }
         if ty == "session.renamed" && let Some(title) = data["title"].as_str()
             && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
