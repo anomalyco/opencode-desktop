@@ -276,7 +276,7 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
         .motion(Spring::NONE)
         .child(
             col().key("header").w_full().gap(GAP)
-                .child(text(project).key("project").font(PROJECT).color(p.muted))
+                .child(text(project).key("project-name").font(PROJECT).color(p.muted))
                 .child(text(title).key("title").font(TITLE).color(p.text).wrap()),
         )
         .child(row().key("row").w_full().min_w(0.0).child(text(detail).key("detail").font(PROJECT).color(p.muted).wrap().grow(1.0).shrink().min_w(0.0)))

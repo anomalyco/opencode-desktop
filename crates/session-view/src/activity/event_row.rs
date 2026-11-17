@@ -193,7 +193,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     let said = [status, name.as_str(), title.as_str()].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
     let line = row().key("subagent").h(28.0).gap(8.0).center_y().shrink().min_w(0.0).label(said)
         .child(mark(p, Mark::of(e), status))
-        .child(text(name.clone()).key("agent").font(UI).color(p.muted))
+        .child(text(name.clone()).key("subagent-agent").font(UI).color(p.muted))
         .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());

@@ -469,7 +469,7 @@ impl Parts {
         let title = text(title_of(ses)).font(title_font).color(p.text).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto);
         // The room after the title grows; the name keeps to its start, beside the title, whichever way it
         // reads (a left-to-right name in a right-to-left row would otherwise sit at the row's far end).
-        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project").font(project_font).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
+        let project_el = show_project.then(|| row().key("project-room").grow(1.0).shrink().min_w(0.0).child(text(name.clone()).key("project-name").font(project_font).color(p.muted).truncate().shrink().min_w(0.0).dir(rune::Direction::Auto)));
         if stacked && show_project {
             // Official centres its 32 pt labels in the 48 pt row (`items-center`): 8 above them.
             let labels = col().key("labels").grow(1.0).shrink().min_w(0.0).self_start().mt(8.0).child(title).children(project_el.clone());
