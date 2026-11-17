@@ -128,3 +128,26 @@ pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
             .child(row().key("activity-lane").w_full().max_w(session_view::style::dock_w()).children(pills))))
         .child(composer_dock(s, p))
 }
+
+thread_local! {
+    /// TEXT-2 measuring only: the session `prepare_tab` asked for, and whether its pass is running.
+    static PREPARED: std::cell::RefCell<(Option<String>, bool)> = const { std::cell::RefCell::new((None, false)) };
+}
+
+/// TEXT-2 measuring only: lays the window out ahead with session `id` where the open one is.
+pub(crate) fn prepare_tab(id: &str, tx: &mut Tx) {
+    PREPARED.with_borrow_mut(|p| p.0 = Some(id.to_owned()));
+    tx.prepare_text(prepared_root, None);
+}
+
+/// TEXT-2 measuring only: the session a prepare pass shows in place of the route's.
+pub(crate) fn prepared_session() -> Option<String> {
+    PREPARED.with_borrow(|p| if p.1 { p.0.clone() } else { None })
+}
+
+fn prepared_root(s: &App, cx: &mut rune::Cx<App>) -> El {
+    PREPARED.with_borrow_mut(|p| p.1 = true);
+    let el = crate::view::app(s, cx);
+    PREPARED.with_borrow_mut(|p| p.1 = false);
+    el
+}

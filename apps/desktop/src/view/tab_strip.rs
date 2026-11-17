@@ -88,6 +88,11 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .on_hover(|s: &mut App, id, inside, tx| {
             if inside {
                 s.prefetch_session(id);
+                // TEXT-2 measuring only (SCALE wires the real call): the window's root, with the
+                // hovered session where the open one is, laid out ahead.
+                if std::env::var("TEXT2_PREPARE").is_ok_and(|v| v == "1") && s.active_session_id() != Some(id) && s.transcripts.contains_key(id) {
+                    crate::view::session::prepare_tab(id, tx);
+                }
             }
             // The hover preview (`tab_preview`).
             s.preview_hover(id, inside, tx);
