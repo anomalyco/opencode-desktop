@@ -33,5 +33,9 @@
   "common.requestFailed": "Pieprasījums neizdevās",
   "common.close": "Aizvērt",
   "common.moreOptions": "Vairāk opciju",
-  "command.category.server": "Serveris"
+  "command.category.server": "Serveris",
+  "update": "Atjauniniet un atkārtoti izveidojiet savienojumu",
+  "stage.incompatible": "Nepieciešams servera atjauninājums",
+  "error.version": "Pirms savienojuma izveides attālajam pakalpojumam ir jāatbilst šai darbvirsmas versijai.",
+  "error.unavailable": "SSH nav pieejams"
 }

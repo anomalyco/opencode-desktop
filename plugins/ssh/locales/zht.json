@@ -33,5 +33,9 @@
   "common.requestFailed": "要求失敗",
   "common.close": "關閉",
   "common.moreOptions": "更多選項",
-  "command.category.server": "伺服器"
+  "command.category.server": "伺服器",
+  "update": "更新並重新連線",
+  "stage.incompatible": "需要更新伺服器",
+  "error.version": "遠端服務在連線前必須與此桌面版本相符。",
+  "error.unavailable": "SSH 無法使用"
 }

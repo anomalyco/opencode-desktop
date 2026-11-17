@@ -49,5 +49,9 @@
   "common.cancel": "रद्द गर्नुहोस्",
   "common.close": "बन्द गर्नुहोस्",
   "common.requestFailed": "अनुरोध असफल भयो",
-  "common.moreOptions": "थप विकल्पहरू"
+  "common.moreOptions": "थप विकल्पहरू",
+  "onboarding.updateOpencode": "अपडेट गर्नुहोस् OpenCode",
+  "error.updateVersion": "OpenCode अद्यावधिक समाप्त भयो तर {{distro}} ले अझै पनि रिपोर्ट गर्छ {{installed}}; अपेक्षित {{expected}}",
+  "error.noVersion": "कुनै संस्करण छैन",
+  "error.busy": "{{distro}} अर्को काममा व्यस्त छ। त्यो सकिएपछि फेरि प्रयास गर्नुहोस्।"
 }

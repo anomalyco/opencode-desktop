@@ -49,5 +49,9 @@
   "common.cancel": "Չեղարկել",
   "common.close": "Փակել",
   "common.requestFailed": "Հարցումը ձախողվեց",
-  "common.moreOptions": "Լրացուցիչ ընտրանքներ"
+  "common.moreOptions": "Լրացուցիչ ընտրանքներ",
+  "onboarding.updateOpencode": "Թարմացնել OpenCode",
+  "error.updateVersion": "OpenCode թարմացումն ավարտված է, բայց {{distro}}-ը դեռ հայտնում է {{installed}}; սպասվում է {{expected}}",
+  "error.noVersion": "առանց տարբերակ",
+  "error.busy": "{{distro}}-ն զբաղված է այլ առաջադրանքով։ Կրկին փորձեք, երբ այն ավարտվի։"
 }

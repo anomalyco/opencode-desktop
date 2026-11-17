@@ -49,5 +49,9 @@
   "common.cancel": "منسوخ کرو",
   "common.close": "بند کرو",
   "common.requestFailed": "درخواست ناکام ہو گئی",
-  "common.moreOptions": "ہور اختیارات"
+  "common.moreOptions": "ہور اختیارات",
+  "onboarding.updateOpencode": "OpenCode اپ ڈیٹ کرو",
+  "error.updateVersion": "OpenCode دی اپ ڈیٹ پوری ہو گئی پر ⁨{{distro}}⁩ ہلے وی ⁨{{installed}}⁩ دس رہیا اے؛ ⁨{{expected}}⁩ چاہیدا سی",
+  "error.noVersion": "کوئی ورژن نئیں",
+  "error.busy": "⁨{{distro}}⁩ کسے ہور کم وچ رُجھیا اے۔ اوہ مُک جائے تے فیر کوشش کرو۔"
 }

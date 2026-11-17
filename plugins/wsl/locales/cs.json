@@ -49,5 +49,9 @@
   "common.cancel": "Zrušit",
   "common.close": "Zavřít",
   "common.requestFailed": "Požadavek se nezdařil",
-  "common.moreOptions": "Více možností"
+  "common.moreOptions": "Více možností",
+  "onboarding.updateOpencode": "Aktualizovat OpenCode",
+  "error.updateVersion": "OpenCode aktualizace dokončena, ale {{distro}} stále hlásí {{installed}}; očekává se {{expected}}",
+  "error.noVersion": "žádná verze",
+  "error.busy": "{{distro}} je zaneprázdněna jinou úlohou. Zkuste to znovu, až skončí."
 }

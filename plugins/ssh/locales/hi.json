@@ -33,5 +33,9 @@
   "common.requestFailed": "अनुरोध विफल रहा",
   "common.close": "बंद करें",
   "common.moreOptions": "अधिक विकल्प",
-  "command.category.server": "सर्वर"
+  "command.category.server": "सर्वर",
+  "update": "अद्यतन करें और पुनः कनेक्ट करें",
+  "stage.incompatible": "सर्वर अद्यतन आवश्यक है",
+  "error.version": "कनेक्ट करने से पहले दूरस्थ सेवा को इस डेस्कटॉप संस्करण से मेल खाना चाहिए।",
+  "error.unavailable": "SSH उपलब्ध नहीं है"
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "درخواست ناموفق بود",
   "common.close": "بستن",
   "common.moreOptions": "گزینه های بیشتر",
-  "command.category.server": "سرور"
+  "command.category.server": "سرور",
+  "update": "به‌روزرسانی و اتصال دوباره",
+  "stage.incompatible": "به‌روزرسانی سرور الزامی است",
+  "error.version": "نسخهٔ سرویس راه دور باید پیش از اتصال با نسخهٔ این برنامهٔ دسکتاپ یکسان باشد.",
+  "error.unavailable": "SSH در دسترس نیست"
 }

@@ -265,14 +265,13 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-timeline-detail", key!("settings.timeline.detail"), TIMELINE, None, "thinking reasoning tools timeline summary detailed"),
     (Page::General, "settings-background-activity", key!("settings.timeline.row.backgroundActivity.title"), TIMELINE, Some(key!("settings.timeline.row.backgroundActivity.description")), "capsule panel subagent shell background activity position alignment hidden left center right"),
     (Page::General, "settings-timeline-width", key!("settings.timeline.row.width.title"), TIMELINE, Some(key!("settings.timeline.row.width.description")), "column line length measure narrow focused comfortable wide readability"),
+    (Page::General, "settings-fold-user-messages", key!("settings.timeline.row.foldUserMessages.title"), TIMELINE, Some(key!("settings.timeline.row.foldUserMessages.description")), "fold collapse long messages prompts read more"),
     (Page::General, "settings-show-turn-diffs", key!("settings.timeline.row.turnDiffs.title"), TIMELINE, Some(key!("settings.timeline.row.turnDiffs.description")), ""),
     (Page::General, "settings-show-custom-agents", key!("settings.general.row.showCustomAgents.title"), Some(key!("settings.general.section.general")), None, ""),
     (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
     (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),
-    (Page::Experimental, "settings-new-icons", key!("settings.experimental.row.newIcons.title"), None, Some(key!("settings.experimental.row.newIcons.description")), "icons iconography glyphs redesign"),
-    (Page::Experimental, "settings-fold-user-messages", key!("settings.experimental.row.foldUserMessages.title"), None, Some(key!("settings.experimental.row.foldUserMessages.description")), "fold collapse long messages prompts read more"),
     (Page::Experimental, "settings-new-question-ui", key!("settings.experimental.row.newQuestionUI.title"), None, Some(key!("settings.experimental.row.newQuestionUI.description")), "question answers keyboard dock redesign"),
     (Page::Experimental, "settings-smooth-timeline", key!("rune.settings.experimental.row.smoothTimeline.title"), None, Some(key!("rune.settings.experimental.row.smoothTimeline.description")), "motion animation pending working queue steer tray delivery"),
     (Page::Experimental, "settings-sidebar-organize", key!("settings.experimental.row.sidebarOrganize.title"), None, Some(key!("settings.experimental.row.sidebarOrganize.description")), "vertical side tabs projects recents organize sidebar"),
@@ -523,7 +522,7 @@ pub fn field(s: &App, p: &Pal, narrow: bool) -> El {
     // (`text-input.css:17-18, 62-65`).
     let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
     field
-        .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
+        .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(session_view::style::field(q, if narrow { NARROW_INPUT } else { ROW }).key("settings-search-input").single_line().grow(1.0).shrink().min_w(0.0)
             .color(p.text).placeholder(t!("settings.search.placeholder"), p.faint)
             // A touch screen's `input::placeholder` is 13 under the 16 the field types (`base.css`).

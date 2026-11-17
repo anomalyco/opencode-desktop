@@ -49,5 +49,9 @@
   "common.cancel": "Zrušiť",
   "common.close": "Zavrieť",
   "common.requestFailed": "Požiadavka zlyhala",
-  "common.moreOptions": "Viac možností"
+  "common.moreOptions": "Viac možností",
+  "onboarding.updateOpencode": "Aktualizovať OpenCode",
+  "error.updateVersion": "Aktualizácia OpenCode bola dokončená, ale {{distro}} stále hlási {{installed}}; očakávané {{expected}}",
+  "error.noVersion": "žiadna verzia",
+  "error.busy": "{{distro}} vykonáva inú úlohu. Skúste to znova, keď ju dokončí."
 }

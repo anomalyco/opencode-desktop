@@ -33,5 +33,9 @@
   "common.requestFailed": "Forespørsel mislyktes",
   "common.close": "Lukk",
   "common.moreOptions": "Flere alternativer",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Oppdater og koble til på nytt",
+  "stage.incompatible": "Serveroppdatering kreves",
+  "error.version": "Den eksterne tjenesten må samsvare med denne skrivebordsversjonen før tilkobling.",
+  "error.unavailable": "SSH er ikke tilgjengelig"
 }

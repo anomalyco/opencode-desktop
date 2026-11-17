@@ -49,5 +49,9 @@
   "common.cancel": "ยกเลิก",
   "common.close": "ปิด",
   "common.requestFailed": "คำขอล้มเหลว",
-  "common.moreOptions": "ตัวเลือกเพิ่มเติม"
+  "common.moreOptions": "ตัวเลือกเพิ่มเติม",
+  "onboarding.updateOpencode": "อัปเดต OpenCode",
+  "error.updateVersion": "อัปเดต OpenCode เสร็จแล้ว แต่ {{distro}} ยังคงรายงานเวอร์ชัน {{installed}} ทั้งที่ควรเป็น {{expected}}",
+  "error.noVersion": "ไม่มีเวอร์ชัน",
+  "error.busy": "{{distro}} กำลังทำงานอื่นอยู่ ลองอีกครั้งเมื่องานนั้นเสร็จ"
 }

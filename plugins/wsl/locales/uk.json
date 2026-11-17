@@ -49,5 +49,9 @@
   "common.cancel": "Скасувати",
   "common.close": "Закрити",
   "common.requestFailed": "Запит не виконано",
-  "common.moreOptions": "Більше параметрів"
+  "common.moreOptions": "Більше параметрів",
+  "onboarding.updateOpencode": "Оновити OpenCode",
+  "error.updateVersion": "Оновлення OpenCode завершено, але {{distro}} усе ще повідомляє про версію {{installed}}; очікувалася {{expected}}",
+  "error.noVersion": "версію не вказано",
+  "error.busy": "{{distro}} зайнятий іншим завданням. Спробуйте ще раз, коли воно завершиться."
 }

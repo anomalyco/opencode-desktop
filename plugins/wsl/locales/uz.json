@@ -49,5 +49,9 @@
   "common.cancel": "Bekor qilish",
   "common.close": "Yopish",
   "common.requestFailed": "Soʻrov bajarilmadi",
-  "common.moreOptions": "Boshqa variantlar"
+  "common.moreOptions": "Boshqa variantlar",
+  "onboarding.updateOpencode": "OpenCode-ni yangilang",
+  "error.updateVersion": "OpenCode yangilanishi tugallandi, lekin {{distro}} hali ham {{installed}} haqida xabar beradi; kutilgan {{expected}}",
+  "error.noVersion": "versiya yo'q",
+  "error.busy": "{{distro}} boshqa vazifa bilan band. U tugagach qayta urinib ko‘ring."
 }

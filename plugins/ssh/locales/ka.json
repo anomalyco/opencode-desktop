@@ -33,5 +33,9 @@
   "common.requestFailed": "მოთხოვნა ვერ მოხერხდა",
   "common.close": "დახურვა",
   "common.moreOptions": "მეტი პარამეტრები",
-  "command.category.server": "სერვერი"
+  "command.category.server": "სერვერი",
+  "update": "განახლება და ხელახლა დაუკავშირდი",
+  "stage.incompatible": "სერვერის განახლება საჭირო არის",
+  "error.version": "დისტანციური სერვისი უნდა შეესაბამებოდეს ამ Desktop ვერსიას კავშირის დამყარებამდე.",
+  "error.unavailable": "SSH მიუწვდომელია"
 }

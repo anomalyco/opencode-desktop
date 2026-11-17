@@ -33,5 +33,9 @@
   "common.requestFailed": "Запит не виконано",
   "common.close": "Закрити",
   "common.moreOptions": "Більше параметрів",
-  "command.category.server": "Сервер"
+  "command.category.server": "Сервер",
+  "update": "Оновити й перепідключитися",
+  "stage.incompatible": "Потрібне оновлення сервера",
+  "error.version": "Віддалена служба має відповідати цій версії Desktop перед підключенням.",
+  "error.unavailable": "SSH недоступний"
 }

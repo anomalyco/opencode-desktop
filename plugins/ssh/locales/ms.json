@@ -33,5 +33,9 @@
   "common.requestFailed": "Permintaan gagal",
   "common.close": "Tutup",
   "common.moreOptions": "Pilihan lanjut",
-  "command.category.server": "Pelayan"
+  "command.category.server": "Pelayan",
+  "update": "Kemas kini dan sambung semula",
+  "stage.incompatible": "Kemas kini pelayan diperlukan",
+  "error.version": "Perkhidmatan jauh mesti sepadan dengan versi Desktop ini sebelum menyambung.",
+  "error.unavailable": "SSH tidak tersedia"
 }

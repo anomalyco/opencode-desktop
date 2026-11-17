@@ -33,5 +33,9 @@
   "common.requestFailed": "Požadavek se nezdařil",
   "common.close": "Zavřít",
   "common.moreOptions": "Více možností",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Aktualizovat a znovu připojit",
+  "stage.incompatible": "Je vyžadována aktualizace serveru",
+  "error.version": "Vzdálená služba musí před připojením odpovídat této verzi aplikace Desktop.",
+  "error.unavailable": "SSH není k dispozici"
 }

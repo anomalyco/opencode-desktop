@@ -33,5 +33,9 @@
   "common.requestFailed": "Soʻrov bajarilmadi",
   "common.close": "Yopish",
   "common.moreOptions": "Boshqa variantlar",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Yangilang va qayta ulaning",
+  "stage.incompatible": "Server yangilanishi talab qilinadi",
+  "error.version": "Masofaviy xizmat ulanishdan oldin ushbu ish stoli versiyasiga mos kelishi kerak.",
+  "error.unavailable": "SSH mavjud emas"
 }

@@ -49,5 +49,9 @@
   "common.cancel": "ຍົກເລີກ",
   "common.close": "ປິດ",
   "common.requestFailed": "ການຮ້ອງຂໍລົ້ມເຫລວ",
-  "common.moreOptions": "ທາງເລືອກເພີ່ມເຕີມ"
+  "common.moreOptions": "ທາງເລືອກເພີ່ມເຕີມ",
+  "onboarding.updateOpencode": "ອັບເດດ OpenCode",
+  "error.updateVersion": "ການປັບປຸງ OpenCode ສໍາເລັດແລ້ວແຕ່ {{distro}} ຍັງລາຍງານ {{installed}}; ຄາດວ່າ {{expected}}",
+  "error.noVersion": "ບໍ່ມີສະບັບ",
+  "error.busy": "{{distro}} ກຳລັງເຮັດວຽກອື່ນຢູ່. ລອງອີກຄັ້ງເມື່ອມັນສຳເລັດ."
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Begäran misslyckades",
   "common.close": "Stäng",
   "common.moreOptions": "Fler alternativ",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Uppdatera och återanslut",
+  "stage.incompatible": "Serveruppdatering krävs",
+  "error.version": "Fjärrtjänsten måste matcha den här skrivbordsversionen innan du ansluter.",
+  "error.unavailable": "SSH är inte tillgängligt"
 }

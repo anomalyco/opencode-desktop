@@ -33,5 +33,9 @@
   "common.requestFailed": "Solicitarea a eșuat",
   "common.close": "Închide",
   "common.moreOptions": "Mai multe opțiuni",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Actualizați și reconectați",
+  "stage.incompatible": "Este necesară actualizarea serverului",
+  "error.version": "Serviciul de la distanță trebuie să se potrivească cu această versiune de desktop înainte de a se conecta.",
+  "error.unavailable": "SSH nu este disponibil"
 }

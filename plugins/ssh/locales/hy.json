@@ -33,5 +33,9 @@
   "common.requestFailed": "Հարցումը ձախողվեց",
   "common.close": "Փակել",
   "common.moreOptions": "Լրացուցիչ ընտրանքներ",
-  "command.category.server": "Սերվեր"
+  "command.category.server": "Սերվեր",
+  "update": "Թարմացնել և կրկին միանալ",
+  "stage.incompatible": "Պահանջվում է սերվերի թարմացում",
+  "error.version": "Հեռավոր ծառայությունը պետք է համապատասխանի այս Desktop տարբերակին նախքան կապվելը:",
+  "error.unavailable": "SSH-ն հասանելի չէ"
 }

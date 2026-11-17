@@ -49,5 +49,9 @@
   "common.cancel": "Anuluj",
   "common.close": "Zamknij",
   "common.requestFailed": "Żądanie nie powiodło się",
-  "common.moreOptions": "Więcej opcji"
+  "common.moreOptions": "Więcej opcji",
+  "onboarding.updateOpencode": "Zaktualizuj OpenCode",
+  "error.updateVersion": "Aktualizacja OpenCode została ukończona, ale dystrybucja {{distro}} nadal zgłasza wersję {{installed}}; oczekiwano {{expected}}",
+  "error.noVersion": "brak wersji",
+  "error.busy": "{{distro}} wykonuje inne zadanie. Spróbuj ponownie, gdy się zakończy."
 }

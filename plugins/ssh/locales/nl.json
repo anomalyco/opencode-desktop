@@ -33,5 +33,9 @@
   "common.requestFailed": "Verzoek mislukt",
   "common.close": "Sluiten",
   "common.moreOptions": "Meer opties",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Update en maak opnieuw verbinding",
+  "stage.incompatible": "Serverupdate vereist",
+  "error.version": "De externe service moet overeenkomen met deze desktopversie voordat verbinding wordt gemaakt.",
+  "error.unavailable": "SSH is niet beschikbaar"
 }

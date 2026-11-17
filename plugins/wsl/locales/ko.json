@@ -49,5 +49,9 @@
   "common.cancel": "취소",
   "common.close": "닫기",
   "common.requestFailed": "요청 실패",
-  "common.moreOptions": "더 많은 옵션"
+  "common.moreOptions": "더 많은 옵션",
+  "onboarding.updateOpencode": "OpenCode 업데이트",
+  "error.updateVersion": "OpenCode 업데이트가 완료되었지만 {{distro}}에서 여전히 {{installed}} 버전으로 표시됩니다. 예상 버전: {{expected}}",
+  "error.noVersion": "버전 없음",
+  "error.busy": "{{distro}}이(가) 다른 작업을 수행 중입니다. 작업이 끝나면 다시 시도하세요."
 }

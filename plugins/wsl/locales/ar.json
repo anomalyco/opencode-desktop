@@ -49,5 +49,9 @@
   "common.cancel": "إلغاء",
   "common.close": "إغلاق",
   "common.requestFailed": "فشل الطلب",
-  "common.moreOptions": "مزيد من الخيارات"
+  "common.moreOptions": "مزيد من الخيارات",
+  "onboarding.updateOpencode": "تحديث OpenCode",
+  "error.updateVersion": "اكتمل تحديث OpenCode، لكن {{distro}} ما زالت تعرض الإصدار {{installed}}؛ الإصدار المتوقع هو {{expected}}",
+  "error.noVersion": "لا يوجد إصدار",
+  "error.busy": "{{distro}} مشغولة بمهمة أخرى. حاول مرة أخرى عند انتهائها."
 }

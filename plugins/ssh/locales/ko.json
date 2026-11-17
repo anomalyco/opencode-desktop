@@ -33,5 +33,9 @@
   "common.requestFailed": "요청 실패",
   "common.close": "닫기",
   "common.moreOptions": "더 많은 옵션",
-  "command.category.server": "서버"
+  "command.category.server": "서버",
+  "update": "업데이트 후 다시 연결",
+  "stage.incompatible": "서버 업데이트 필요",
+  "error.version": "연결하기 전에 원격 서비스가 이 데스크톱 버전과 일치해야 합니다.",
+  "error.unavailable": "SSH를 사용할 수 없습니다"
 }

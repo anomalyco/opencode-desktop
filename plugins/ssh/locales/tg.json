@@ -33,5 +33,9 @@
   "common.requestFailed": "Дархост иҷро нашуд",
   "common.close": "Пӯшед",
   "common.moreOptions": "Имконоти бештар",
-  "command.category.server": "Сервер"
+  "command.category.server": "Сервер",
+  "update": "Навсозӣ ва дубора пайваст кунед",
+  "stage.incompatible": "Навсозии сервер талаб карда мешавад",
+  "error.version": "Пеш аз пайваст шудан хидмати дурдаст бояд ба ин версияи мизи корӣ мувофиқ бошад.",
+  "error.unavailable": "SSH дастрас нест"
 }

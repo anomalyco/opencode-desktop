@@ -33,5 +33,9 @@
   "common.requestFailed": "တောင်းဆိုမှု မအောင်မြင်ပါ။",
   "common.close": "ပိတ်ပါ။",
   "common.moreOptions": "နောက်ထပ် ရွေးချယ်စရာများ",
-  "command.category.server": "ဆာဗာ"
+  "command.category.server": "ဆာဗာ",
+  "update": "နောက်ဆုံးပေါ်သို့ update ပြုလုပ်ပြီး ပြန်ချိတ်ဆက်ရန်",
+  "stage.incompatible": "ဆာဗာ အပ်ဒိတ် လိုအပ်ပါသည်",
+  "error.version": "ချိတ်ဆက်မည်မီ အဝေးမှဝန်ဆောင်မှုသည် ဤ Desktop ဗားရှင်းနှင့်ကိုက်ညီရမည်။",
+  "error.unavailable": "SSH မရရှိနိုင်ပါ"
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Запрос не выполнен",
   "common.close": "Закрыть",
   "common.moreOptions": "Дополнительные опции",
-  "command.category.server": "Сервер"
+  "command.category.server": "Сервер",
+  "update": "Обновить и переподключиться",
+  "stage.incompatible": "Требуется обновление сервера",
+  "error.version": "Удаленный сервис должен соответствовать этой версии Desktop перед подключением.",
+  "error.unavailable": "SSH недоступен"
 }

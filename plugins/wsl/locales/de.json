@@ -49,5 +49,9 @@
   "common.cancel": "Abbrechen",
   "common.close": "Schließen",
   "common.requestFailed": "Anfrage fehlgeschlagen",
-  "common.moreOptions": "Weitere Optionen"
+  "common.moreOptions": "Weitere Optionen",
+  "onboarding.updateOpencode": "OpenCode aktualisieren",
+  "error.updateVersion": "Das OpenCode-Update wurde abgeschlossen, aber {{distro}} meldet weiterhin {{installed}}; erwartet wurde {{expected}}",
+  "error.noVersion": "keine Version",
+  "error.busy": "{{distro}} ist mit einer anderen Aufgabe beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist."
 }

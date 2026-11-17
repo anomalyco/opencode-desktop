@@ -49,5 +49,9 @@
   "common.cancel": "Цуцлах",
   "common.close": "Хаах",
   "common.requestFailed": "Хүсэлт амжилтгүй боллоо",
-  "common.moreOptions": "Илүү олон сонголт"
+  "common.moreOptions": "Илүү олон сонголт",
+  "onboarding.updateOpencode": "Шинэчлэх OpenCode",
+  "error.updateVersion": "OpenCode шинэчлэлт дууссан боловч {{distro}} мэдээлсэн хэвээр {{installed}}; хүлээгдэж буй {{expected}}",
+  "error.noVersion": "хувилбар байхгүй",
+  "error.busy": "{{distro}} өөр ажил хийж байна. Дууссаны дараа дахин оролдоно уу."
 }

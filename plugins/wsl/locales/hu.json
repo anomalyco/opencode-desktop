@@ -49,5 +49,9 @@
   "common.cancel": "Mégsem",
   "common.close": "Bezárás",
   "common.requestFailed": "A kérés sikertelen",
-  "common.moreOptions": "További lehetőségek"
+  "common.moreOptions": "További lehetőségek",
+  "onboarding.updateOpencode": "Frissítse a OpenCode-t",
+  "error.updateVersion": "Az OpenCode frissítése befejeződött, de a(z) {{distro}} továbbra is ezt jelenti: {{installed}}; a várt érték: {{expected}}",
+  "error.noVersion": "nincs verzió",
+  "error.busy": "A(z) {{distro}} egy másik feladattal foglalt. Próbálja újra, ha végzett."
 }

@@ -49,5 +49,9 @@
   "common.cancel": "منسوخ کریں۔",
   "common.close": "بند",
   "common.requestFailed": "درخواست ناکام ہوگئی",
-  "common.moreOptions": "مزید اختیارات"
+  "common.moreOptions": "مزید اختیارات",
+  "onboarding.updateOpencode": "OpenCode کو اپ ڈیٹ کریں۔",
+  "error.updateVersion": "OpenCode کی اپ ڈیٹ مکمل ہو گئی لیکن ⁨{{distro}}⁩ اب بھی ⁨{{installed}}⁩ کی اطلاع دے رہا ہے؛ متوقع ورژن ⁨{{expected}}⁩ ہے",
+  "error.noVersion": "کوئی ورژن نہیں",
+  "error.busy": "⁨{{distro}}⁩ کسی دوسرے کام میں مصروف ہے۔ اس کے مکمل ہونے پر دوبارہ کوشش کریں۔"
 }

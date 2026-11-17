@@ -33,5 +33,9 @@
   "common.requestFailed": "คำขอล้มเหลว",
   "common.close": "ปิด",
   "common.moreOptions": "ตัวเลือกเพิ่มเติม",
-  "command.category.server": "เซิร์ฟเวอร์"
+  "command.category.server": "เซิร์ฟเวอร์",
+  "update": "อัปเดตและเชื่อมต่อใหม่",
+  "stage.incompatible": "จำเป็นต้องอัปเดตเซิร์ฟเวอร์",
+  "error.version": "บริการระยะไกลต้องตรงกับเวอร์ชัน Desktop นี้ก่อนเชื่อมต่อ",
+  "error.unavailable": "SSH ไม่พร้อมใช้งาน"
 }

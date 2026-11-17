@@ -33,5 +33,9 @@
   "common.requestFailed": "अनुरोध असफल भयो",
   "common.close": "बन्द गर्नुहोस्",
   "common.moreOptions": "थप विकल्पहरू",
-  "command.category.server": "सर्भर"
+  "command.category.server": "सर्भर",
+  "update": "अपडेट गर्नुहोस् र पुन: जडान गर्नुहोस्",
+  "stage.incompatible": "सर्भर अद्यावधिक आवश्यक छ",
+  "error.version": "रिमोट सेवा जडान गर्नु अघि यो डेस्कटप संस्करण मिल्नुपर्छ।",
+  "error.unavailable": "SSH उपलब्ध छैन"
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "សំណើបានបរាជ័យ",
   "common.close": "បិទ",
   "common.moreOptions": "ជម្រើសច្រើនទៀត",
-  "command.category.server": "ម៉ាស៊ីនមេ"
+  "command.category.server": "ម៉ាស៊ីនមេ",
+  "update": "ធ្វើបច្ចុប្បន្នភាព និងភ្ជាប់ម្តងទៀត",
+  "stage.incompatible": "ត្រូវការការបច្ចុប្បន្នភាពម៉ាស៊ីនមេ",
+  "error.version": "សេវាចម្ងាយត្រូវតែត្រូវគ្នាជាមួយកំណែ Desktop នេះ មុនពេលភ្ជាប់។",
+  "error.unavailable": "SSH មិនអាចប្រើបាន"
 }

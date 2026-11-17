@@ -33,5 +33,9 @@
   "common.requestFailed": "Permintaan gagal",
   "common.close": "Tutup",
   "common.moreOptions": "Opsi lainnya",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Perbarui dan sambungkan kembali",
+  "stage.incompatible": "Pembaruan server diperlukan",
+  "error.version": "Layanan jarak jauh harus cocok dengan versi Desktop ini sebelum terhubung.",
+  "error.unavailable": "SSH tidak tersedia"
 }

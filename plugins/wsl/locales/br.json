@@ -49,5 +49,9 @@
   "common.cancel": "Cancelar",
   "common.close": "Fechar",
   "common.requestFailed": "Requisição falhou",
-  "common.moreOptions": "Mais opções"
+  "common.moreOptions": "Mais opções",
+  "onboarding.updateOpencode": "Atualizar o OpenCode",
+  "error.updateVersion": "A atualização do OpenCode foi concluída, mas {{distro}} ainda informa a versão {{installed}}; a versão esperada é {{expected}}",
+  "error.noVersion": "sem versão",
+  "error.busy": "{{distro}} está ocupado com outra tarefa. Tente novamente quando ela terminar."
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Барањето не успеа",
   "common.close": "Затвори",
   "common.moreOptions": "Повеќе опции",
-  "command.category.server": "Сервер"
+  "command.category.server": "Сервер",
+  "update": "Ажурирај и поврзи се повторно",
+  "stage.incompatible": "Потребно е ажурирање на серверот",
+  "error.version": "Далечинската услуга мора да ја совпаѓа оваа верзија на Desktop пред да се поврзете.",
+  "error.unavailable": "SSH е недостапен"
 }

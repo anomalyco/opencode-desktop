@@ -33,5 +33,9 @@
   "common.requestFailed": "Sorğu uğursuz oldu",
   "common.close": "Bağla",
   "common.moreOptions": "Daha çox seçim",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Yenilə və yenidən qoşul",
+  "stage.incompatible": "Server yeniləməsi tələb olunur",
+  "error.version": "Bağlantıdan əvvəl uzaq xidmət bu Desktop versiyası ilə uyğun olmalıdır.",
+  "error.unavailable": "SSH əlçatan deyil"
 }

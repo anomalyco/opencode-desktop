@@ -27,5 +27,6 @@
   "export.success.title": "Sesjon eksportert",
   "export.success.description": "Sesjonen ble lagret i {{filename}}",
   "export.failed.title": "Kunne ikke eksportere sesjon",
-  "export.failed.description": "Det oppstod en feil under eksport av sesjonen"
+  "export.failed.description": "Det oppstod en feil under eksport av sesjonen",
+  "usage.toggle": "Vis eller skjul øktkontekst"
 }

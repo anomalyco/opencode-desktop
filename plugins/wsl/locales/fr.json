@@ -49,5 +49,9 @@
   "common.cancel": "Annuler",
   "common.close": "Fermer",
   "common.requestFailed": "La demande a échoué",
-  "common.moreOptions": "Plus d'options"
+  "common.moreOptions": "Plus d'options",
+  "onboarding.updateOpencode": "Mettre à jour OpenCode",
+  "error.updateVersion": "La mise à jour d'OpenCode est terminée, mais {{distro}} indique toujours {{installed}} au lieu de {{expected}}",
+  "error.noVersion": "aucune version",
+  "error.busy": "{{distro}} est occupée par une autre tâche. Réessayez une fois celle-ci terminée."
 }

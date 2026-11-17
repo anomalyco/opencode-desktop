@@ -49,5 +49,9 @@
   "common.cancel": "বাতিল করুন",
   "common.close": "বন্ধ",
   "common.requestFailed": "অনুরোধ ব্যর্থ হয়েছে",
-  "common.moreOptions": "আরও বিকল্প"
+  "common.moreOptions": "আরও বিকল্প",
+  "onboarding.updateOpencode": "OpenCode আপডেট করুন",
+  "error.updateVersion": "OpenCode আপডেট শেষ হয়েছে কিন্তু {{distro}} এখনও রিপোর্ট করে {{installed}}; প্রত্যাশিত {{expected}}",
+  "error.noVersion": "কোন সংস্করণ নেই",
+  "error.busy": "{{distro}} অন্য একটি কাজে ব্যস্ত। এটি শেষ হলে আবার চেষ্টা করুন।"
 }

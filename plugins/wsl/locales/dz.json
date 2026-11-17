@@ -49,5 +49,9 @@
   "common.cancel": "ཆ་མེད་བཏང་པ་",
   "common.close": "སྒོ་བསྡམ",
   "common.requestFailed": "ཞུ་བ་འཐུས་ཤོར་འབྱུང་ཡོདཔ།",
-  "common.moreOptions": "གདམ་ཁ་མང་བ།"
+  "common.moreOptions": "གདམ་ཁ་མང་བ།",
+  "onboarding.updateOpencode": "OpenCodeདུས་མཐུན་བཟོ།",
+  "error.updateVersion": "OpenCode དུས་མཐུན་བཟོ་ཚར་ཡི་ དེ་འབདཝ་ད་ {{distro}}གིས་ ད་ལྟོ་ཡང་ {{installed}} སྙན་ཞུ་འབདཝ་ཨིན། རེ་བ་བསྐྱེད་པའི་ {{expected}}",
+  "error.noVersion": "ཐོན་རིམ་མེད།",
+  "error.busy": "{{distro}} གིས་ ལཱ་གཞན་ཅིག་འབད་དོ། ཚར་ཞིནམ་ལས་ ལོག་འབད་རྩོལ་བསྐྱེད།"
 }

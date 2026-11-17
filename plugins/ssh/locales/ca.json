@@ -33,5 +33,9 @@
   "common.requestFailed": "La sol·licitud ha fallat",
   "common.close": "Tancar",
   "common.moreOptions": "Més opcions",
-  "command.category.server": "Servidor"
+  "command.category.server": "Servidor",
+  "update": "Actualitza i torna a connectar",
+  "stage.incompatible": "Cal actualitzar el servidor",
+  "error.version": "El servei remot ha de coincidir amb aquesta versió d'escriptori abans de connectar-se.",
+  "error.unavailable": "SSH no està disponible"
 }

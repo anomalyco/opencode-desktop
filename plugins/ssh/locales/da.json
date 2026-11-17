@@ -33,5 +33,9 @@
   "common.requestFailed": "Forespørgsel mislykkedes",
   "common.close": "Luk",
   "common.moreOptions": "Flere muligheder",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Opdater og genopret forbindelse",
+  "stage.incompatible": "Serveropdatering påkrævet",
+  "error.version": "Fjerntjenesten skal matche denne Desktop-version, før der oprettes forbindelse.",
+  "error.unavailable": "SSH er ikke tilgængelig"
 }

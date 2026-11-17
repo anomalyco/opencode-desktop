@@ -49,5 +49,9 @@
   "common.cancel": "Anulează",
   "common.close": "Închide",
   "common.requestFailed": "Solicitarea a eșuat",
-  "common.moreOptions": "Mai multe opțiuni"
+  "common.moreOptions": "Mai multe opțiuni",
+  "onboarding.updateOpencode": "Actualizează OpenCode",
+  "error.updateVersion": "Actualizarea OpenCode s-a terminat, dar {{distro}} raportează tot {{installed}}; era așteptat {{expected}}",
+  "error.noVersion": "nicio versiune",
+  "error.busy": "{{distro}} este ocupat cu altă sarcină. Încearcă din nou după ce o termină."
 }

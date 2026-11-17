@@ -33,5 +33,9 @@
   "common.requestFailed": "ඉල්ලීම අසාර්ථක විය",
   "common.close": "වසන්න",
   "common.moreOptions": "තවත් විකල්ප",
-  "command.category.server": "සේවාදායකය"
+  "command.category.server": "සේවාදායකය",
+  "update": "යාවත්කාලීන කර නැවත සම්බන්ධ කරන්න",
+  "stage.incompatible": "සේවාදායක යාවත්කාලීන කිරීම අවශ්‍යයි",
+  "error.version": "සම්බන්ධ වීමට පෙර දුරස්ථ සේවාව මෙම ඩෙස්ක්ටොප් අනුවාදයට ගැළපිය යුතුය.",
+  "error.unavailable": "SSH ලබා ගත නොහැක"
 }

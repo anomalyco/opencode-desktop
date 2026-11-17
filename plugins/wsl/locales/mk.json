@@ -49,5 +49,9 @@
   "common.cancel": "Откажи",
   "common.close": "Затвори",
   "common.requestFailed": "Барањето не успеа",
-  "common.moreOptions": "Повеќе опции"
+  "common.moreOptions": "Повеќе опции",
+  "onboarding.updateOpencode": "Ажурирај OpenCode",
+  "error.updateVersion": "OpenCode ажурирањето е завршено, но {{distro}} сè уште известува {{installed}}; се очекува {{expected}}",
+  "error.noVersion": "нема верзија",
+  "error.busy": "{{distro}} е зафатен со друга задача. Обидете се повторно кога ќе заврши."
 }

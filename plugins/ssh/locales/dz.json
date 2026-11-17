@@ -33,5 +33,9 @@
   "common.requestFailed": "ཞུ་བ་འཐུས་ཤོར་འབྱུང་ཡོདཔ།",
   "common.close": "སྒོ་བསྡམ",
   "common.moreOptions": "གདམ་ཁ་མང་བ།",
-  "command.category.server": "སར་བར།"
+  "command.category.server": "སར་བར།",
+  "update": "དུས་མཐུན་བཟོ་སྟེ་ ལོག་སྟེ་མཐུད།",
+  "stage.incompatible": "སར་བར་དུས་མཐུན་བཟོ་དགོ",
+  "error.version": "ཐག་རིང་ཞབས་ཏོག་འདི་ མཐུད་མ་འབད་བའི་ཧེ་མ་ ཌེཀསི་ཊོཔ་ཐོན་རིམ་འདི་དང་ མཐུན་སྒྲིག་འབད་དགོ།",
+  "error.unavailable": "SSH འཐོབ་མི་ཚུགས།"
 }

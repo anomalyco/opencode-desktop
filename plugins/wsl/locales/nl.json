@@ -49,5 +49,9 @@
   "common.cancel": "Annuleer",
   "common.close": "Sluiten",
   "common.requestFailed": "Verzoek mislukt",
-  "common.moreOptions": "Meer opties"
+  "common.moreOptions": "Meer opties",
+  "onboarding.updateOpencode": "OpenCode bijwerken",
+  "error.updateVersion": "De OpenCode-update is voltooid, maar {{distro}} meldt nog steeds {{installed}}; verwacht: {{expected}}",
+  "error.noVersion": "geen versie",
+  "error.busy": "{{distro}} is bezig met een andere taak. Probeer het opnieuw wanneer die klaar is."
 }

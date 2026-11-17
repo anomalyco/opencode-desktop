@@ -33,5 +33,9 @@
   "common.requestFailed": "Kërkesa dështoi",
   "common.close": "Mbylle",
   "common.moreOptions": "Më shumë opsione",
-  "command.category.server": "Serveri"
+  "command.category.server": "Serveri",
+  "update": "Përditëso dhe rilidhe",
+  "stage.incompatible": "Kërkohet përditësimi i serverit",
+  "error.version": "Shërbimi në distancë duhet të përputhet me këtë version të desktopit përpara se të lidhet.",
+  "error.unavailable": "SSH nuk është i disponueshëm"
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Żądanie nie powiodło się",
   "common.close": "Zamknij",
   "common.moreOptions": "Więcej opcji",
-  "command.category.server": "Serwer"
+  "command.category.server": "Serwer",
+  "update": "Zaktualizuj i ponownie połącz",
+  "stage.incompatible": "Wymagana aktualizacja serwera",
+  "error.version": "Zdalna usługa musi pasować do tej wersji Desktop przed połączeniem.",
+  "error.unavailable": "SSH jest niedostępne"
 }

@@ -49,5 +49,9 @@
   "common.cancel": "បោះបង់",
   "common.close": "បិទ",
   "common.requestFailed": "សំណើបានបរាជ័យ",
-  "common.moreOptions": "ជម្រើសច្រើនទៀត"
+  "common.moreOptions": "ជម្រើសច្រើនទៀត",
+  "onboarding.updateOpencode": "ធ្វើបច្ចុប្បន្នភាព OpenCode",
+  "error.updateVersion": "ការធ្វើបច្ចុប្បន្នភាព OpenCode បានបញ្ចប់ ប៉ុន្តែ {{distro}} នៅតែរាយការណ៍ {{installed}}; {{expected}} រំពឹងទុក",
+  "error.noVersion": "គ្មានកំណែ",
+  "error.busy": "{{distro}} កំពុងរវល់ជាមួយកិច្ចការផ្សេង។ ព្យាយាមម្តងទៀតនៅពេលវាបញ្ចប់។"
 }

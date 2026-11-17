@@ -49,5 +49,9 @@
   "common.cancel": "Prekliči",
   "common.close": "Zapri",
   "common.requestFailed": "Zahteva ni uspela",
-  "common.moreOptions": "Več možnosti"
+  "common.moreOptions": "Več možnosti",
+  "onboarding.updateOpencode": "Posodobite OpenCode",
+  "error.updateVersion": "Posodobitev OpenCode je končana, vendar {{distro}} še vedno poroča {{installed}}; pričakovano {{expected}}",
+  "error.noVersion": "brez različice",
+  "error.busy": "{{distro}} je zaposlen z drugo nalogo. Poskusite znova, ko jo konča."
 }

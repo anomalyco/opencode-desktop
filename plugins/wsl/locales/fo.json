@@ -49,5 +49,9 @@
   "common.cancel": "Avlýs",
   "common.close": "Lat aftur",
   "common.requestFailed": "Umbønin miseydnaðist",
-  "common.moreOptions": "Fleiri møguleikar"
+  "common.moreOptions": "Fleiri møguleikar",
+  "onboarding.updateOpencode": "Dagfør OpenCode",
+  "error.updateVersion": "OpenCode dagføring liðug men {{distro}} greiðir enn frá {{installed}}; væntað {{expected}}.",
+  "error.noVersion": "eingin útgáva",
+  "error.busy": "{{distro}} er upptikið av aðrari uppgávu. Royn aftur, tá ið hon er liðug."
 }

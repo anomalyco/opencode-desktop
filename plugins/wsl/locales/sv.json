@@ -49,5 +49,9 @@
   "common.cancel": "Avbryt",
   "common.close": "Stäng",
   "common.requestFailed": "Begäran misslyckades",
-  "common.moreOptions": "Fler alternativ"
+  "common.moreOptions": "Fler alternativ",
+  "onboarding.updateOpencode": "Uppdatera OpenCode",
+  "error.updateVersion": "OpenCode-uppdateringen slutfördes, men {{distro}} rapporterar fortfarande {{installed}}. {{expected}} förväntades",
+  "error.noVersion": "ingen version",
+  "error.busy": "{{distro}} är upptagen med en annan uppgift. Försök igen när den är klar."
 }

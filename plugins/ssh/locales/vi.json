@@ -33,5 +33,9 @@
   "common.requestFailed": "Không thực hiện được yêu cầu",
   "common.close": "Đóng",
   "common.moreOptions": "Nhiều lựa chọn hơn",
-  "command.category.server": "Máy chủ"
+  "command.category.server": "Máy chủ",
+  "update": "Cập nhật và kết nối lại",
+  "stage.incompatible": "Cần cập nhật máy chủ",
+  "error.version": "Dịch vụ từ xa phải khớp với phiên bản Desktop này trước khi kết nối.",
+  "error.unavailable": "SSH không khả dụng"
 }

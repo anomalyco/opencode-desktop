@@ -49,5 +49,9 @@
   "common.cancel": "Отмена",
   "common.close": "Закрыть",
   "common.requestFailed": "Запрос не выполнен",
-  "common.moreOptions": "Дополнительные опции"
+  "common.moreOptions": "Дополнительные опции",
+  "onboarding.updateOpencode": "Обновить OpenCode",
+  "error.updateVersion": "Обновление OpenCode завершено, но {{distro}} по-прежнему сообщает версию {{installed}}; ожидалась {{expected}}",
+  "error.noVersion": "нет версии",
+  "error.busy": "{{distro}} занят другой задачей. Повторите попытку, когда она завершится."
 }

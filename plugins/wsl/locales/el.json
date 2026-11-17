@@ -49,5 +49,9 @@
   "common.cancel": "Ακύρωση",
   "common.close": "Κλείσιμο",
   "common.requestFailed": "Το αίτημα απέτυχε",
-  "common.moreOptions": "Περισσότερες επιλογές"
+  "common.moreOptions": "Περισσότερες επιλογές",
+  "onboarding.updateOpencode": "Ενημέρωση OpenCode",
+  "error.updateVersion": "OpenCode η ενημέρωση ολοκληρώθηκε αλλά το {{distro}} εξακολουθεί να αναφέρει {{installed}}; αναμενόμενο {{expected}}",
+  "error.noVersion": "χωρίς έκδοση",
+  "error.busy": "Το {{distro}} είναι απασχολημένο με άλλη εργασία. Δοκιμάστε ξανά όταν ολοκληρωθεί."
 }

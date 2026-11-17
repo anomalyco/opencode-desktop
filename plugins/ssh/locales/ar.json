@@ -33,5 +33,9 @@
   "common.requestFailed": "فشل الطلب",
   "common.close": "إغلاق",
   "common.moreOptions": "مزيد من الخيارات",
-  "command.category.server": "خادم"
+  "command.category.server": "خادم",
+  "update": "التحديث وإعادة الاتصال",
+  "stage.incompatible": "يلزم تحديث الخادم",
+  "error.version": "يجب أن يتطابق إصدار الخدمة البعيدة مع إصدار تطبيق سطح المكتب هذا قبل الاتصال.",
+  "error.unavailable": "SSH غير متاح"
 }

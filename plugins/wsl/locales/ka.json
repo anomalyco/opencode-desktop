@@ -49,5 +49,9 @@
   "common.cancel": "გაუქმება",
   "common.close": "დახურვა",
   "common.requestFailed": "მოთხოვნა ვერ მოხერხდა",
-  "common.moreOptions": "მეტი პარამეტრები"
+  "common.moreOptions": "მეტი პარამეტრები",
+  "onboarding.updateOpencode": "განახლება OpenCode",
+  "error.updateVersion": "OpenCode განახლება დასრულდა, მაგრამ {{distro}} კვლავ იუწყება {{installed}}; მოსალოდნელია {{expected}}",
+  "error.noVersion": "ვერსიის გარეშე",
+  "error.busy": "{{distro}} სხვა ამოცანითაა დაკავებული. სცადეთ ხელახლა მისი დასრულების შემდეგ."
 }

@@ -33,5 +33,9 @@
   "common.requestFailed": "Zahtjev nije uspio",
   "common.close": "Zatvori",
   "common.moreOptions": "Više opcija",
-  "command.category.server": "Server"
+  "command.category.server": "Server",
+  "update": "Ažuriraj i ponovo se poveži",
+  "stage.incompatible": "Potrebno je ažuriranje servera",
+  "error.version": "Udaljena usluga mora odgovarati ovoj verziji Desktopa prije povezivanja.",
+  "error.unavailable": "SSH nije dostupan"
 }
