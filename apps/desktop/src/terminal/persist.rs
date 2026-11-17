@@ -300,12 +300,12 @@ pub fn flush() {
     }
 }
 
-/// The reversible quit's producer barrier runs on its own worker. A wait expiring is not a
-/// completed capture; only the saver's reply allows the database barrier to start.
+/// The reversible quit's producer barrier, on its own worker: writes what's waiting here, after
+/// any capture a task is writing now (`WRITING`), so the database barrier starts only once every
+/// capture has landed. Not `flush`: its empty check would pass while a task holds the snapshots.
 pub(crate) fn finish_captures() -> bool {
-    let Some(tx) = SAVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() else { return true };
-    let (done, wait) = std::sync::mpsc::sync_channel(1);
-    tx.send(Msg::Flush(done)).is_ok() && wait.recv().is_ok()
+    write_pending();
+    true
 }
 
 /// Whether the stored workspaces have been taken in (`plugin.terminal` loads after the first frame).
