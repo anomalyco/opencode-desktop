@@ -60,7 +60,8 @@ pub(crate) fn connected(s: &mut App) {
 
 /// `filesystem.changed`: an open file changed on disk (Desktop's `invalidateFromWatcher`,
 /// `packages/app/src/workspaces/files/watcher.ts`), read again at once, keeping the view, for
-/// each session holding it, shown or not. Matched by its absolute path inside each session's
+/// each session holding it: in the session on screen whether its tab shows or not, in one off
+/// screen when that session shows (`reload`). Matched by its absolute path inside each session's
 /// folder, whatever the separators (Desktop compares them as they come, so on Windows a file in
 /// a folder never matches). `.git` isn't a file anyone opens. A file gone (`unlink`) from a
 /// folder the tree has listed lists that folder again, as Desktop's does.
@@ -90,8 +91,14 @@ pub(crate) fn changed(s: &mut App, data: &serde_json::Value) {
 }
 
 /// `sid`'s `path` may have changed: read it again, keeping what shows meanwhile. A video's
-/// player opens it again (its file changed under it).
+/// player opens it again (its file changed under it). A session off screen reads nothing: its
+/// file is marked stale and reads when the session shows (`shown`), so an agent rewriting many
+/// files costs no reads for files nobody is looking at.
 pub(crate) fn reload(s: &mut App, sid: &str, path: &str) {
+    if s.active_session_id() != Some(sid) {
+        s.files.reads.outdate(sid, path);
+        return;
+    }
     super::trace::changed(sid, path);
     if super::video::is_video(path)
         && let Some(ws) = s.files.sessions.get_mut(sid)
@@ -102,6 +109,20 @@ pub(crate) fn reload(s: &mut App, sid: &str, path: &str) {
         return;
     }
     s.read_file(sid, path, true);
+}
+
+/// Session `sid` came on screen: its files that changed while it was off read again, silently,
+/// the shown tab first.
+pub(crate) fn shown(s: &mut App, sid: &str) {
+    let mut stale = s.files.reads.stale_in(sid);
+    if stale.is_empty() {
+        return;
+    }
+    let first = s.active_file_tab().and_then(|(_, path)| path);
+    stale.sort_by_key(|p| Some(p) != first.as_ref());
+    for path in stale {
+        reload(s, sid, &path);
+    }
 }
 
 /// The stream came back: a change made while the server was away went unreported, so every

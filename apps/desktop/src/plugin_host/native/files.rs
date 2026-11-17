@@ -33,7 +33,8 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let app = app_now("Workspace:OpenDocument")?;
         let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
         let path = crate::review::data::normalize_path(&path);
-        if !app.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) {
+        // A file not read yet, or one a failed refresh left stale, reads as it shows.
+        if !app.files.sessions.get(&sid).is_some_and(|w| w.docs.contains_key(&path)) || app.files.reads.stale(&sid, &path) {
             let (id, at) = (sid.clone(), path.clone());
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();

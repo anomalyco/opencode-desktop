@@ -1,7 +1,9 @@
 //! Each file's reads, as Desktop's `packages/app/src/workspaces/files/content-machine.ts`: one
 //! read at a time per file, on a worker. A change reported while a read runs (`force`) asks for
 //! one more when it lands, so a file an agent writes fifty times costs a read in flight and one
-//! waiting, never fifty. Files read side by side: two opened together both land.
+//! waiting, never fifty. Files read side by side: two opened together both land. A file whose
+//! session is off screen isn't read when it changes, only marked stale (`Outdated`), and reads
+//! when its session shows.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -18,11 +20,22 @@ use crate::code_view::file_state::Prepared;
 /// One file's reads; a file with none running whose text is current has no entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Read {
-    /// A read runs on a worker. `rerun`: the file changed since it started, so one more follows.
-    Reading { attempt: u64, rerun: bool },
-    /// What shows may be outdated (a refresh that failed, a change nobody was looking at): the
-    /// next ask reads.
+    /// A read runs on a worker; `then` says what follows when it lands.
+    Reading { attempt: u64, then: Then },
+    /// What shows may be outdated (a refresh that failed, a change while its session was off
+    /// screen): the next ask reads.
     Stale,
+}
+
+/// What follows a read when it lands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Then {
+    /// Nothing: what it read is current.
+    Done,
+    /// One more read: the file changed after this one started.
+    Again,
+    /// Stale: the file changed after this one started while nobody was looking at it.
+    Outdated,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -30,6 +43,8 @@ pub(crate) enum ReadEvent {
     /// The file is wanted. `force`: it may have changed (on disk, or while the server was away),
     /// so it reads even when loaded. `loaded`: its text (or state) is there already.
     Asked { force: bool, loaded: bool },
+    /// It changed while its session is off screen: read when it shows, not now.
+    Outdated,
     /// The read `attempt` came back.
     Landed { attempt: u64 },
 }
@@ -51,22 +66,23 @@ pub(crate) enum ReadEffect {
 /// The transition; `next` numbers a read it starts.
 pub(crate) fn step(state: Option<Read>, event: ReadEvent, next: u64) -> (Option<Read>, ReadEffect) {
     match (state, event) {
-        (Some(Read::Reading { attempt, rerun }), ReadEvent::Asked { force, .. }) => {
-            (Some(Read::Reading { attempt, rerun: rerun || force }), ReadEffect::Nothing)
+        (Some(Read::Reading { attempt, then }), ReadEvent::Asked { force, .. }) => {
+            let then = if force { Then::Again } else { then };
+            (Some(Read::Reading { attempt, then }), ReadEffect::Nothing)
         }
         (None, ReadEvent::Asked { force: false, loaded: true }) => (None, ReadEffect::Nothing),
-        (Some(Read::Stale) | None, ReadEvent::Asked { .. }) => (Some(Read::Reading { attempt: next, rerun: false }), ReadEffect::Start { attempt: next }),
-        (Some(Read::Reading { attempt, rerun }), ReadEvent::Landed { attempt: landed }) if attempt == landed => {
-            if rerun {
-                (Some(Read::Reading { attempt: next, rerun: false }), ReadEffect::ShowThenStart { attempt: next })
-            } else {
-                (None, ReadEffect::Show)
-            }
-        }
+        (Some(Read::Stale) | None, ReadEvent::Asked { .. }) => (Some(Read::Reading { attempt: next, then: Then::Done }), ReadEffect::Start { attempt: next }),
+        (Some(Read::Reading { attempt, then: Then::Done }), ReadEvent::Outdated) => (Some(Read::Reading { attempt, then: Then::Outdated }), ReadEffect::Nothing),
+        (Some(Read::Reading { .. }), ReadEvent::Outdated) => (state, ReadEffect::Nothing),
+        (Some(Read::Stale) | None, ReadEvent::Outdated) => (Some(Read::Stale), ReadEffect::Nothing),
+        (Some(Read::Reading { attempt, then }), ReadEvent::Landed { attempt: landed }) if attempt == landed => match then {
+            Then::Again => (Some(Read::Reading { attempt: next, then: Then::Done }), ReadEffect::ShowThenStart { attempt: next }),
+            Then::Outdated => (Some(Read::Stale), ReadEffect::Show),
+            Then::Done => (None, ReadEffect::Show),
+        },
         (state, ReadEvent::Landed { .. }) => (state, ReadEffect::Drop),
     }
 }
-
 /// A read's answer, made ready on its worker.
 pub(crate) enum Body {
     Text(Prepared),
@@ -161,12 +177,15 @@ impl Reads {
         self.step(&landed.sid, &landed.path, ReadEvent::Landed { attempt: landed.attempt })
     }
 
-    /// What shows is outdated; the next ask reads (a refresh that failed).
+    /// What shows is outdated (a refresh that failed, a change while its session is off screen):
+    /// the next ask reads.
     pub(crate) fn outdate(&mut self, sid: &str, path: &str) {
-        let key = (sid.to_owned(), path.to_owned());
-        if !self.states.contains_key(&key) {
-            self.states.insert(key, Read::Stale);
-        }
+        self.step(sid, path, ReadEvent::Outdated);
+    }
+
+    /// `sid`'s files whose text is outdated.
+    pub(crate) fn stale_in(&self, sid: &str) -> Vec<String> {
+        self.states.iter().filter(|((s, _), r)| s == sid && **r == Read::Stale).map(|((_, p), _)| p.clone()).collect()
     }
 
     pub(crate) fn stale(&self, sid: &str, path: &str) -> bool {

@@ -37,6 +37,20 @@ fn out() -> Option<&'static (Sender<String>, Instant)> {
 struct Pending {
     line: Value,
     from: Instant,
+    /// The code view's scroll key, to read where it shows after the swap.
+    key: String,
+}
+
+fn key(sid: &str, path: &str) -> String {
+    format!("file-code-{sid}-{path}-scroll")
+}
+
+/// How far the code view under `key` is scrolled (its rows' top above the viewport's), and
+/// the viewport's height, as last laid out.
+fn scroll(key: &str) -> Option<[f32; 2]> {
+    let view = rune::memo::layout(key)?;
+    let rows = rune::memo::layout(&format!("{key}/rows"))?;
+    Some([view[1] - rows[1], view[3]])
 }
 
 thread_local! {
@@ -63,15 +77,25 @@ pub(crate) fn changed(sid: &str, path: &str) {
 }
 
 /// A read landed and its text was swapped in, from `swap` until now.
-pub(crate) fn landed(sid: &str, path: &str, attempt: u64, times: [Instant; 3], swap: Instant, bytes: usize, lines: u32) {
+pub(crate) fn landed(sid: &str, path: &str, attempt: u64, times: [Instant; 3], swap: Instant, doc: Option<&crate::code_view::CodeDocState>) {
     let Some((_, origin)) = out() else { return };
     let end = Instant::now();
     let changed = CHANGED.with(|c| c.borrow_mut().remove(&(sid.to_owned(), path.to_owned())));
     let line = json!({
         "path": path,
         "attempt": attempt,
-        "bytes": bytes,
-        "lines": lines,
+        "bytes": doc.map(|d| d.size_bytes()),
+        "lines": doc.map(|d| d.line_count()),
+        "doc": doc.map(|d| json!({
+            "missing": d.missing(),
+            "binary": d.binary(),
+            "failed": d.failure().is_some(),
+            "selection": d.selection().map(|s| [s.start, s.end]),
+            "find": d.find_query(),
+            "find_active": d.active_match_index(),
+            "find_count": d.match_count(),
+        })),
+        "scroll_before": scroll(&key(sid, path)),
         "changed_us": changed.map(|t| us(*origin, t)),
         "read_start_us": us(*origin, times[0]),
         "read_bytes_us": us(*origin, times[1]),
@@ -80,7 +104,7 @@ pub(crate) fn landed(sid: &str, path: &str, attempt: u64, times: [Instant; 3], s
         "swap_end_us": us(*origin, end),
         "swap_us": end.saturating_duration_since(swap).as_micros() as u64,
     });
-    PENDING.with(|p| p.borrow_mut().push(Pending { line, from: changed.unwrap_or(times[0]) }));
+    PENDING.with(|p| p.borrow_mut().push(Pending { line, from: changed.unwrap_or(times[0]), key: key(sid, path) }));
 }
 
 /// Each frame a window ran (`on_frame_encoded`): the first drawn one after a swap completes its
@@ -112,6 +136,7 @@ pub(crate) fn frame(f: &rune::FrameEncoded) {
         pending.line["drawn_update_ms"] = json!(update);
         pending.line["drawn_encode_ms"] = json!(encode);
         pending.line["frames"] = Value::Array(frames);
+        pending.line["scroll_after"] = json!(scroll(&pending.key));
         let _ = sender.send(pending.line.to_string());
     }
 }

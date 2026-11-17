@@ -661,14 +661,6 @@ impl Prepared {
         });
         Prepared { source, find }
     }
-
-    pub fn text(&self) -> &str {
-        self.source.text()
-    }
-
-    pub fn lines(&self) -> u32 {
-        self.source.len()
-    }
 }
 
 /// Find's folded copy of the text: none yet, folding on a worker (native) or ready.

@@ -254,6 +254,8 @@ pub struct FilesPane {
     pub(crate) watches: watch::Watches,
     /// The file tab shown last, so a tab that comes to show arms its watch again.
     shown: Option<(String, String)>,
+    /// The session on screen last, so one that comes to show reads what changed meanwhile.
+    shown_session: Option<String>,
     /// Folders listed again after a file in them went, each on its own worker.
     relists: (std::sync::mpsc::Sender<(String, String, Vec<(String, bool)>)>, std::sync::mpsc::Receiver<(String, String, Vec<(String, bool)>)>),
     find_fetch: Latest<(String, String, Vec<String>)>,
@@ -280,6 +282,7 @@ impl Default for FilesPane {
             reads: Default::default(),
             watches: Default::default(),
             shown: None,
+            shown_session: None,
             relists: std::sync::mpsc::channel(),
             find_fetch: Latest::default().debounce(Duration::from_millis(100)),
             images: None,
@@ -392,6 +395,14 @@ pub(crate) fn poll_files(s: &mut App, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
+    // A session that comes on screen reads what changed while it was off.
+    let session = s.active_session_id().map(str::to_owned);
+    if session != s.files.shown_session {
+        s.files.shown_session = session.clone();
+        if let Some(sid) = session {
+            watch::shown(s, &sid);
+        }
+    }
     // A file tab that comes to show arms its watch again (Desktop's tab `focus` syncs it).
     let shown = s.active_file_tab().and_then(|(sid, path)| Some((sid, path?)));
     if shown != s.files.shown {
@@ -470,31 +481,25 @@ fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
     if let Some(previous) = ws.tables.remove(&path) { ws.table_find.forget(&previous); }
     if let Some(previous) = ws.html.remove(&path) { ws.html_find.forget(&previous); }
     let doc = ws.docs.entry(path.clone()).or_insert_with(|| wrap.doc(&path, ""));
-    let lines = match body {
-        content::Body::Text(text) | content::Body::Svg(text, _) => { let n = text.lines(); doc.refresh(text); n }
+    match body {
+        content::Body::Text(text) | content::Body::Svg(text, _) => doc.refresh(text),
         content::Body::Html(text, document) => {
-            let n = text.lines();
             doc.refresh(text);
             ws.html.insert(path.clone(), document);
-            n
         }
         content::Body::Table(text, document) => {
-            let n = text.lines();
             doc.refresh(text);
             ws.tables.insert(path.clone(), document);
-            n
         }
-        content::Body::Binary(sz) => { doc.set_binary(sz); 0 }
-        content::Body::Image(bytes) => { doc.set_binary(bytes.len()); 0 }
-        content::Body::Missing => { doc.set_missing(); 0 }
+        content::Body::Binary(sz) => doc.set_binary(sz),
+        content::Body::Image(bytes) => doc.set_binary(bytes.len()),
+        content::Body::Missing => doc.set_missing(),
         content::Body::Failed(wire) => {
             let what = opencode_i18n::t!("rune.file.readFailed", path = opencode_kit::path::basename(&path)).to_owned();
             let words = crate::errors::UserError::from_wire(&what, &server_label, &wire).description();
             doc.set_failed(what, words);
-            0
         }
-    };
-    let bytes = doc.size_bytes();
+    }
     if let Some((start, end)) = ws.pending_jump.remove(&path) {
         let scroll_key = format!("file-code-{sid}-{path}-scroll");
         doc.scroll_to_lines(&scroll_key, start, end, tx);
@@ -503,7 +508,7 @@ fn land_read(s: &mut App, landed: content::Landed, tx: &mut Tx) -> bool {
         s.finish_file_link(&sid, &path, link, tx);
     }
     s.check_code_paths(&sid, &path);
-    trace::landed(&sid, &path, landed.attempt, landed.times, swap, bytes, lines);
+    trace::landed(&sid, &path, landed.attempt, landed.times, swap, s.files.sessions.get(&sid).and_then(|w| w.docs.get(&path)));
     true
 }
 
