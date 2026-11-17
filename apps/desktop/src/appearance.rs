@@ -105,16 +105,6 @@ pub fn font_index(fonts: &[Font], name: Option<&str>) -> usize {
     fonts.iter().position(|f| Some(f.name) == name).unwrap_or(0)
 }
 
-/// Experimental › New icons: the new artwork in place of each icon that has it (`setNewIcons`).
-pub fn apply_icons(settings: &crate::settings::Settings) {
-    let swap: fn(&rune::Icon) -> Option<&'static rune::Icon> = rune_theme_opencode::new_icons::new_icon;
-    rune::text::set_icon_swap(settings.new_icons.then_some(swap));
-    // The new artwork is drawn on a 16 px grid, so a small icon it replaces stays 16 rather than
-    // shrinking to 14 (`icon.tsx`'s `pixelSize`).
-    let size: fn(f32) -> f32 = |size| if size == 14.0 { 16.0 } else { size };
-    rune::text::set_icon_swap_size(settings.new_icons.then_some(size));
-}
-
 /// The name typed for a font row when it isn't one of `fonts` (an installed family); empty
 /// for one of them or none.
 pub fn custom_name(fonts: &[Font], name: Option<&str>) -> String {
@@ -199,7 +189,6 @@ impl App {
         self.apply_reduce_motion();
         self.knobs.set(&crate::terminal::TERM_FONT, self.settings.terminal_font as f32);
         crate::terminal::set_custom_font(&self.settings.terminal_font_name);
-        apply_icons(&self.settings);
         rune::spell::set_languages(&self.settings.spellcheck_languages);
     }
 
@@ -286,4 +275,3 @@ impl App {
         self.change_settings(|s| s.theme = id);
     }
 }
-

@@ -20,7 +20,6 @@ const SHARED: [(&str, &str, &str); 23] = [
     ("showAgentPicker", "general", "showCustomAgents"),
     ("foldUserMessages", "general", "foldUserMessages"),
     ("newQuestionUI", "general", "newQuestionUI"),
-    ("newIcons", "general", "newIcons"),
     ("sidebarOrganize", "general", "sidebarOrganize"),
     ("mobileTitlebarPosition", "general", "mobileTitlebarPosition"),
     ("mobileDiffWrap", "general", "mobileDiffWrap"),

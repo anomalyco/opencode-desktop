@@ -114,8 +114,6 @@ pub struct Settings {
     pub mobile_titlebar: TitlebarPosition,
     /// The ChatGPT plan welcome has shown (Desktop's `chatgpt-plan-welcome.v1`).
     pub chatgpt_welcome_seen: bool,
-    /// Experimental › New icons (`general.newIcons`).
-    pub new_icons: bool,
     /// Experimental › Organize vertical sidebar (`general.sidebarOrganize`).
     pub sidebar_organize: Organize,
     /// Notifications › Sound effects (`sounds`).
@@ -173,7 +171,6 @@ impl Default for Settings {
             mobile_diff_wrap: true,
             mobile_titlebar: TitlebarPosition::default(),
             chatgpt_welcome_seen: false,
-            new_icons: false,
             sidebar_organize: Organize::default(),
             sounds: Sounds::default(),
             keybinds: BTreeMap::new(),
@@ -216,7 +213,6 @@ impl Settings {
             "mobileDiffWrap": self.mobile_diff_wrap,
             "mobileTitlebarPosition": self.mobile_titlebar.name(),
             "chatgptPlanWelcomeSeen": self.chatgpt_welcome_seen,
-            "newIcons": self.new_icons,
             "sidebarOrganize": self.sidebar_organize.name(),
             "sounds": self.sounds.to_json(),
             "keybinds": self.keybinds,
@@ -266,7 +262,6 @@ impl Settings {
             mobile_titlebar: TitlebarPosition::parse(v["mobileTitlebarPosition"].as_str()),
             spellcheck_languages: v["spellcheckLanguages"].as_array().map(|a| a.iter().filter_map(|l| Some(l.as_str()?.to_owned())).collect()).unwrap_or_default(),
             chatgpt_welcome_seen: v["chatgptPlanWelcomeSeen"].as_bool().unwrap_or(false),
-            new_icons: v["newIcons"].as_bool().unwrap_or(false),
             sidebar_organize: Organize::parse(v["sidebarOrganize"].as_str()),
             sounds: if v["sounds"].is_object() { Sounds::from_json(&v["sounds"]) } else { Sounds::default() },
             keybinds: v["keybinds"].as_object().map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect()).unwrap_or_default(),

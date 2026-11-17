@@ -125,11 +125,10 @@ fn resolve_fresh(plugin: &str, name: &str) -> &'static Icon {
     let own = intern_icon(plugin, name, "", 0.0);
     // Icons the host made itself (a QR code) go by the empty plugin.
     let host = || intern_icon("", name, "", 0.0);
-    let panel_names = ["globe", "terminal", "console", "review", "code", "file-tree", "folder"];
     icon(own)
         .or_else(|| icon(host()))
         .or_else(|| super::native::icons::named(name))
-        .or_else(|| (!panel_names.contains(&name)).then(|| theme_icon(name)).flatten())
+        .or_else(|| theme_icon(name))
         .unwrap_or_else(|| crate::panels::icon_by_name(Some(name)))
 }
 
