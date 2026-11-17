@@ -298,7 +298,7 @@ impl App {
         let sid = self.active_session_id()?;
         let codes = candidates(body);
         if codes.is_empty() { return None; }
-        self.files.replies.read(sid, codes, server, || self.link_directory(sid), self.waker.as_ref())
+        rune::Tracked::untracked(&self.files).replies.read(sid, codes, server, || self.link_directory(sid), self.waker.as_ref())
     }
 
     /// A click on reply code naming a file (`code`): a plugin's link handler takes it first, as

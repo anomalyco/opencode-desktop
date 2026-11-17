@@ -131,24 +131,12 @@ impl<S: 'static> CodeViewer<S> {
         if !wrap {
             list = list.min_w(inner.content_width(st).max(st.view_width()));
         }
-        let line_est = if wrap && count > 0 {
-            match rune::memo::layout_with(&scroll_key, |r| r[2].to_bits()).map(f32::from_bits) {
-                Some(w) if w > 0.0 => {
-                    let code_w = (w - pad_r - inner.look.number_w(st.digits()) - 2.0 * inner.look.adv).max(40.0);
-                    let avg_cols = (st.size_bytes() / count).max(1) as f32;
-                    LINE_H * ((avg_cols * inner.look.adv) / code_w).ceil().clamp(1.0, 8.0)
-                }
-                _ => LINE_H,
-            }
-        } else {
-            LINE_H
-        };
         let bands = count.div_ceil(super::prepared::BAND_LINES as usize);
         let build_inner = inner.clone();
         let list = list
             .virtual_rows(
                 bands,
-                line_est * super::prepared::BAND_LINES as f32,
+                LINE_H * super::prepared::BAND_LINES as f32,
                 move |s: &S, b| key_get(s).band_key(b),
                 move |s: &S, b| build_inner.band(s, b),
             )

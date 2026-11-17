@@ -174,7 +174,7 @@ impl session_view::TimelineHost for App {
         self.reply_code_links(body, live)
     }
     fn code_links_version(&self) -> u64 {
-        self.active_session_id().map_or(0, |sid| self.files.reply_version(sid))
+        self.active_session_id().map_or(0, |sid| rune::Tracked::untracked(&self.files).reply_version(sid))
     }
     fn reply_link_help(url: &str) -> Option<String> {
         crate::files::link_tip::tip(url, "")

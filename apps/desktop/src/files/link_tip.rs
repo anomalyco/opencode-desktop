@@ -12,6 +12,7 @@ use crate::App;
 struct Scope {
     dir: String,
     home: String,
+    known_len: Option<usize>,
     bare: Option<Vec<String>>,
 }
 
@@ -23,9 +24,16 @@ thread_local! {
 pub fn prepare(s: &App) {
     let sid = s.active_session_id();
     let dir = sid.map_or_else(|| s.draft_dir().to_owned(), |sid| s.link_directory(sid));
-    let ws = sid.and_then(|sid| s.files.sessions.get(sid)).filter(|w| w.ready);
-    let bare = ws.map(|w| w.known_files.iter().filter(|f| is_bare_word(f)).cloned().collect());
-    SCOPE.with_borrow_mut(|sc| *sc = Scope { dir, home: (*s.home).clone(), bare });
+    let files = rune::Tracked::untracked(&s.files);
+    let ws = sid.and_then(|sid| files.sessions.get(sid)).filter(|w| w.ready);
+    let known_len = ws.map(|w| w.known_files.len());
+    SCOPE.with_borrow_mut(|sc| {
+        if sc.dir == dir && sc.home == *s.home && sc.known_len == known_len {
+            return;
+        }
+        let bare = ws.map(|w| w.known_files.iter().filter(|f| is_bare_word(f)).cloned().collect());
+        *sc = Scope { dir, home: (*s.home).clone(), known_len, bare };
+    });
 }
 
 /// The tip for `href` in a reply, or in a file at `base` in the open session's folder.
