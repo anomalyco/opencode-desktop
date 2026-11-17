@@ -56,6 +56,11 @@ if (-not $NoBuild) {
   # The wasm target's C++ alone (cc's per-target variable): the app's build script also compiles
   # Luau for the host, which must not get these. WebAssembly exception handling, as Rune's web build.
   $env:CXXFLAGS_wasm32_unknown_unknown = '--target=wasm32-wasip1 -fexceptions -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false'
+  # 2 MiB linear-memory shadow stack (default 1 MiB traps at 167 nested Markdown bullet levels;
+  # 2 MiB fits the 255-level nesting bound with +16 Wasm pages and +0 wire bytes).
+  if ("$env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS" -notmatch '-zstack-size=') {
+    $env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS = (($env:CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS, '-C link-arg=-zstack-size=2097152') | Where-Object { $_ }) -join ' '
+  }
   $env:WASI_SDK_PATH = $WasiSdk
   # A wrapper script runs through pwsh; anything else is cargo itself.
   $runCargo = if (-not $Cargo) { 'cargo' } elseif ($Cargo -like '*.ps1') { 'pwsh' } else { $Cargo }
